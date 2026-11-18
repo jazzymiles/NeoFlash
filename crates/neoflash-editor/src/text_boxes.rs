@@ -178,6 +178,7 @@ impl crate::app::Editor {
         egui::ScrollArea::vertical()
             .id_salt("text-box-content")
             .max_height(46.)
+            .auto_shrink([false, false])
             .themed()
             .show(ui, |ui| {
                 let response = ui.add_sized(
@@ -210,9 +211,12 @@ impl crate::app::Editor {
         let type_labels = ["Static text", "Dynamic text", "Input text"];
         let mut picked_type = None;
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = space::S2;
+            ui.spacing_mut().item_spacing.x = space::s2();
+            // Width of `text_property_icon_button` (`ui_icons.rs`).
             let orient_btn_w = crate::theme::control_h().min(22.0);
-            let type_w = (ui.available_width() - orient_btn_w - space::S2).max(100.0);
+            let type_w =
+                (crate::paint_controls::visible_row_width(ui) - orient_btn_w - space::s2())
+                    .max(neoflash_ui::metrics::field_num());
             let (mut type_resp, _) =
                 nf::Select::new("text_box_type", type_labels[current_type_idx])
                     .width(type_w)
@@ -261,7 +265,7 @@ impl crate::app::Editor {
                 "Change orientation of text",
             );
             let orient_id = orient_btn.id;
-            nf::popup_below(&orient_btn, 210.0, |ui| {
+            nf::popup_below(&orient_btn, neoflash_ui::metrics::menu_width(), |ui| {
                 for (code, label) in [
                     ("horizontal", "Horizontal"),
                     ("vertical_ltr", "Vertical, Left to Right"),
@@ -289,7 +293,10 @@ impl crate::app::Editor {
         let (mut f_resp, _) = nf::Select::new("text_box_font", &current_font)
             .width(ui.available_width())
             .show(ui, |ui| {
-                ui.add(nf::Search::new(&mut self.font_filter, "Find font").width(220.));
+                ui.add(
+                    nf::Search::new(&mut self.font_filter, "Find font")
+                        .width(neoflash_ui::metrics::menu_width()),
+                );
                 for family in &self.fonts.families {
                     if (self.font_filter.is_empty()
                         || family
@@ -372,11 +379,16 @@ impl crate::app::Editor {
             );
             *open_embedding = *enable_after_confirm || embedding_response.clicked();
         };
-        if ui.available_width() < 312.0 {
-            let width = ui.available_width();
+        let row_width = crate::paint_controls::visible_row_width(ui);
+        let embed_width = crate::panels::properties::checkbox_width(ui, "Embed font")
+            + crate::panels::properties::button_width(ui, "Embedding…")
+            + space::s2();
+        let style_room = row_width - embed_width - space::s2();
+        if style_room < neoflash_ui::metrics::field_s() {
+            let width = row_width;
             changes.note(style_control(ui, width));
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = space::S2;
+                ui.spacing_mut().item_spacing.x = space::s2();
                 embed_controls(
                     ui,
                     &mut enable_after_confirm,
@@ -386,9 +398,8 @@ impl crate::app::Editor {
             });
         } else {
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = space::S2;
-                let style_w = (ui.available_width() - 184.0).max(84.0);
-                changes.note(style_control(ui, style_w));
+                ui.spacing_mut().item_spacing.x = space::s2();
+                changes.note(style_control(ui, style_room));
                 embed_controls(
                     ui,
                     &mut enable_after_confirm,
@@ -454,17 +465,17 @@ impl crate::app::Editor {
         ];
         let mut auto_kern = format.kerning.unwrap_or(false);
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = space::S2;
-            let color_w = (ui.available_width() - 134.0 - space::S2 * 2.0).max(108.0);
-            let color_h = if color_w < crate::paint_controls::FORM_CELL_MIN * 2.0 + space::S2 {
-                crate::theme::control_h() * 2.0 + ui.spacing().item_spacing.y
-            } else {
-                crate::theme::control_h()
-            };
+            ui.spacing_mut().item_spacing.x = space::s2();
+            // Width of `text_optional_color_swatch` (`ui_icons.rs`).
+            let highlight_w = 26.0;
+            let color_w =
+                (crate::paint_controls::visible_row_width(ui) - highlight_w - space::s2())
+                    .max(crate::paint_controls::form_cell_min() * 2.0 + space::s2());
             ui.allocate_ui_with_layout(
-                egui::vec2(color_w, color_h),
+                egui::vec2(color_w, crate::theme::control_h()),
                 egui::Layout::top_down(egui::Align::Min),
                 |ui| {
+                    ui.set_width(color_w);
                     let c_resp = color_row(ui, "text-box-color", "", "Color", &mut rgba);
                     if c_resp.changed() {
                         format.color = u32::from_be_bytes([0, rgba[0], rgba[1], rgba[2]]);
@@ -482,14 +493,10 @@ impl crate::app::Editor {
             ) {
                 synthetic_id = Some(ui.make_persistent_id("text-box-highlight-changed"));
             }
-            let kern_resp = ui.add(nf::Checkbox::new(&mut auto_kern, "Auto kern"));
-            if kern_resp.changed() {
-                format.kerning = auto_kern.then_some(true);
-            }
-            changes.note(kern_resp);
         });
 
-        // Row 5: Anti-alias mode + Rotation + [Underline] [Strikethrough] [Superscript] [Subscript] buttons.
+        // Row 5: Anti-alias select (full width). Row 6: [Underline] [Strikethrough] [Superscript]
+        // [Subscript] with Auto kern ending the row. Row 7: Glyph rotation select (full width).
         let current_aa_idx = match (
             field_options.anti_alias_type.as_str(),
             field_options.grid_fit_type.as_str(),
@@ -509,22 +516,21 @@ impl crate::app::Editor {
             (4usize, "Anti-alias: Custom"),
         ];
         let rot_options = [
-            ("auto", "Rot: Auto"),
-            ("0", "Rot: 0°"),
-            ("90", "Rot: 90°"),
-            ("180", "Rot: 180°"),
-            ("270", "Rot: 270°"),
+            ("auto", "Auto"),
+            ("0", "0°"),
+            ("90", "90°"),
+            ("180", "180°"),
+            ("270", "270°"),
         ];
-        let cur_rot_label = rot_options
-            .iter()
-            .find(|(k, _)| *k == field_options.glyph_rotation)
-            .map(|(_, l)| *l)
-            .unwrap_or("Rot: Auto");
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = space::S1;
-            let icon_group_w = 4.0 * crate::theme::control_h().min(22.0) + 3.0 * space::S1;
-            let rot_w = 78.0;
-            let aa_w = (ui.available_width() - rot_w - icon_group_w - space::S1 * 2.0).max(76.0);
+        let cur_rot_label = format!(
+            "Glyph rotation: {}",
+            rot_options
+                .iter()
+                .find(|(k, _)| *k == field_options.glyph_rotation)
+                .map_or("Auto", |(_, l)| *l)
+        );
+        {
+            let aa_w = crate::paint_controls::visible_row_width(ui);
             let mut picked_aa = None;
             let (mut aa_resp, _) = nf::Select::new("text_box_aa", aa_options[current_aa_idx].1)
                 .width(aa_w)
@@ -576,28 +582,9 @@ impl crate::app::Editor {
                 aa_resp.mark_changed();
             }
             changes.note(aa_resp);
-
-            let (mut rot_resp, _) = nf::Select::new("text_box_glyph_rot", cur_rot_label)
-                .width(rot_w)
-                .show(ui, |ui| {
-                    for (code, label) in rot_options {
-                        if ui
-                            .add(
-                                nf::MenuItem::new(label)
-                                    .checked(field_options.glyph_rotation == code),
-                            )
-                            .clicked()
-                        {
-                            field_options.glyph_rotation = code.to_owned();
-                            ui.close();
-                        }
-                    }
-                });
-            if field_options.glyph_rotation != before_options.glyph_rotation {
-                rot_resp.mark_changed();
-            }
-            changes.note(rot_resp);
-
+        }
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = space::s1();
             let mut u_resp = text_property_icon_button(
                 ui,
                 TextPropertyGlyph::Underline,
@@ -655,7 +642,38 @@ impl crate::app::Editor {
                 sub_resp.mark_changed();
             }
             changes.note(sub_resp);
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let kern_resp = ui.add(nf::Checkbox::new(&mut auto_kern, "Auto kern"));
+                if kern_resp.changed() {
+                    format.kerning = auto_kern.then_some(true);
+                }
+                changes.note(kern_resp);
+            });
         });
+        {
+            let rot_w = crate::paint_controls::visible_row_width(ui);
+            let (mut rot_resp, _) = nf::Select::new("text_box_glyph_rot", &cur_rot_label)
+                .width(rot_w)
+                .show(ui, |ui| {
+                    for (code, label) in rot_options {
+                        if ui
+                            .add(
+                                nf::MenuItem::new(label)
+                                    .checked(field_options.glyph_rotation == code),
+                            )
+                            .clicked()
+                        {
+                            field_options.glyph_rotation = code.to_owned();
+                            ui.close();
+                        }
+                    }
+                });
+            if field_options.glyph_rotation != before_options.glyph_rotation {
+                rot_resp.mark_changed();
+            }
+            changes.note(rot_resp);
+        }
 
         if current_aa_idx == 4 {
             let (sharpness, thickness) = two_column_row(
@@ -685,7 +703,7 @@ impl crate::app::Editor {
 
         // Row 6: Compact character & field toggles on 1 row (Selectable, HTML, Border).
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = space::S2;
+            ui.spacing_mut().item_spacing.x = space::s2();
             changes.note(ui.add(nf::Checkbox::new(
                 &mut field_options.selectable,
                 "Selectable",
@@ -1025,7 +1043,7 @@ impl crate::app::Editor {
                         field_options.direction.clone()
                     };
                     ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S1;
+                        ui.spacing_mut().item_spacing.x = space::s1();
                         for (mode, glyph, label) in [
                             ("left", TextPropertyGlyph::AlignLeft, "Align left"),
                             ("center", TextPropertyGlyph::AlignCenter, "Align center"),
@@ -1116,7 +1134,9 @@ impl crate::app::Editor {
                     // Row 2: Spacing — Indent (px) + Line / Leading (pt or %) in 2 columns.
                     let is_pct_leading = field_options.leading_mode == "percent";
                     let lead_unit = if is_pct_leading { "%" } else { "pt" };
-                    let (indent_resp, (leading_resp, mut mode_resp)) = two_column_row(
+                    // Row 2: Indent (px) + Block indent (px). Row 3: Leading + its unit, each a full
+                    // grid cell so the value never truncates.
+                    let (indent_resp, block_resp) = two_column_row(
                         ui,
                         |ui, width| {
                             ui.add(
@@ -1129,61 +1149,60 @@ impl crate::app::Editor {
                             )
                         },
                         |ui, width| {
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S1;
-                                let mode_w = 48.0;
-                                // The unit selector belongs to the right grid cell. At the shared
-                                // 80 pt minimum it narrows only the value field; it must never make
-                                // this cell wider than the common second-column guide.
-                                let lead_w = (width - mode_w - space::S1).max(0.0);
-                                let lead_prefix = if lead_w >= 56.0 { "Line" } else { "" };
-                                let leading_resp = ui.add(
-                                    nf::Field::new(&mut format.leading, "Leading")
-                                        .prefix(lead_prefix)
-                                        .unit(lead_unit)
-                                        .decimals(1)
-                                        .range(min_leading..=10000.0)
-                                        .width(lead_w),
-                                );
-                                let (mode_resp, _) =
-                                    nf::Select::new("text_box_leading_mode", lead_unit)
-                                        .width(mode_w)
-                                        .show(ui, |ui| {
-                                            for (code, label) in [("pt", "pt"), ("percent", "%")] {
-                                                if ui
-                                                    .add(
-                                                        nf::MenuItem::new(label).checked(
-                                                            field_options.leading_mode == code
-                                                                || (code == "pt"
-                                                                    && field_options
-                                                                        .leading_mode
-                                                                        .is_empty()),
-                                                        ),
-                                                    )
-                                                    .clicked()
-                                                {
-                                                    if field_options.leading_mode != code {
-                                                        if code == "percent"
-                                                            && format.leading == 0.0
-                                                        {
-                                                            format.leading = 120.0;
-                                                        } else if code == "pt"
-                                                            && (format.leading - 120.0).abs() < 1e-6
-                                                        {
-                                                            format.leading = 0.0;
-                                                        }
-                                                        field_options.leading_mode =
-                                                            code.to_owned();
-                                                    }
-                                                    ui.close();
-                                                }
-                                            }
-                                        });
-                                (leading_resp, mode_resp)
-                            })
-                            .inner
+                            ui.add(
+                                nf::Field::new(&mut format.block_indent, "Block indent")
+                                    .prefix("Block")
+                                    .unit("px")
+                                    .decimals(1)
+                                    .range(0.0..=10000.0)
+                                    .width(width),
+                            )
                         },
                     );
+                    changes.note(block_resp);
+                    let mut picked_unit = None;
+                    let (leading_resp, mut mode_resp) = two_column_row(
+                        ui,
+                        |ui, width| {
+                            ui.add(
+                                nf::Field::new(&mut format.leading, "Leading")
+                                    .prefix("Leading")
+                                    .unit(lead_unit)
+                                    .decimals(1)
+                                    .range(min_leading..=10000.0)
+                                    .width(width),
+                            )
+                        },
+                        |ui, width| {
+                            nf::Select::new("text_box_leading_mode", lead_unit)
+                                .width(width)
+                                .show(ui, |ui| {
+                                    for (code, label) in [("pt", "pt"), ("percent", "%")] {
+                                        let checked = field_options.leading_mode == code
+                                            || (code == "pt"
+                                                && field_options.leading_mode.is_empty());
+                                        if ui
+                                            .add(nf::MenuItem::new(label).checked(checked))
+                                            .clicked()
+                                        {
+                                            picked_unit = Some(code);
+                                            ui.close();
+                                        }
+                                    }
+                                })
+                                .0
+                        },
+                    );
+                    if let Some(code) = picked_unit
+                        && field_options.leading_mode != code
+                    {
+                        if code == "percent" && format.leading == 0.0 {
+                            format.leading = 120.0;
+                        } else if code == "pt" && (format.leading - 120.0).abs() < 1e-6 {
+                            format.leading = 0.0;
+                        }
+                        field_options.leading_mode = code.to_owned();
+                    }
                     if field_options.leading_mode != before_opts.leading_mode {
                         mode_resp.mark_changed();
                     }
@@ -1245,7 +1264,7 @@ impl crate::app::Editor {
                     changes.note(before_resp);
                     changes.note(after_resp);
 
-                    // Row 5: Text justify (Word spacing / Letter spacing) + Block indent (px).
+                    // Row 6: Text justify (Word spacing / Letter spacing), full width.
                     let tj_opts = [
                         ("word_spacing", "Justify: Word spacing"),
                         ("letter_spacing", "Justify: Letter spacing"),
@@ -1255,43 +1274,27 @@ impl crate::app::Editor {
                         .find(|(k, _)| *k == field_options.text_justify)
                         .map(|(_, l)| *l)
                         .unwrap_or("Justify: Word spacing");
-                    let (mut justify_resp, block_resp) = two_column_row(
-                        ui,
-                        |ui, width| {
-                            nf::Select::new("text_box_justify_rule", cur_tj)
-                                .width(width)
-                                .show(ui, |ui| {
-                                    for (code, label) in tj_opts {
-                                        if ui
-                                            .add(
-                                                nf::MenuItem::new(label)
-                                                    .checked(field_options.text_justify == code),
-                                            )
-                                            .clicked()
-                                        {
-                                            field_options.text_justify = code.to_owned();
-                                            ui.close();
-                                        }
-                                    }
-                                })
-                                .0
-                        },
-                        |ui, width| {
-                            ui.add(
-                                nf::Field::new(&mut format.block_indent, "Block indent")
-                                    .prefix("Block")
-                                    .unit("px")
-                                    .decimals(1)
-                                    .range(0.0..=10000.0)
-                                    .width(width),
-                            )
-                        },
-                    );
+                    let mut justify_resp = nf::Select::new("text_box_justify_rule", cur_tj)
+                        .width(crate::paint_controls::visible_row_width(ui))
+                        .show(ui, |ui| {
+                            for (code, label) in tj_opts {
+                                if ui
+                                    .add(
+                                        nf::MenuItem::new(label)
+                                            .checked(field_options.text_justify == code),
+                                    )
+                                    .clicked()
+                                {
+                                    field_options.text_justify = code.to_owned();
+                                    ui.close();
+                                }
+                            }
+                        })
+                        .0;
                     if field_options.text_justify != before_opts.text_justify {
                         justify_resp.mark_changed();
                     }
                     changes.note(justify_resp);
-                    changes.note(block_resp);
 
                     if field_options != before_opts {
                         format.set_field_options(
@@ -1378,9 +1381,10 @@ impl crate::app::Editor {
                     }
                     .to_owned();
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S1;
-                        let v_icons_w = 4.0 * crate::theme::control_h().min(22.0) + 3.0 * space::S1;
-                        let max_w = (ui.available_width() - v_icons_w - space::S2).max(80.0);
+                        ui.spacing_mut().item_spacing.x = space::s1();
+                        let v_icons_w =
+                            4.0 * crate::theme::control_h().min(22.0) + 3.0 * space::s1();
+                        let max_w = (ui.available_width() - v_icons_w - space::s2()).max(80.0);
                         let m_resp = ui.add(
                             nf::Field::new(&mut max_chars, "Max chars")
                                 .prefix("Max chars")
@@ -1427,7 +1431,7 @@ impl crate::app::Editor {
                         ui,
                         |ui, width| {
                             ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S1;
+                                ui.spacing_mut().item_spacing.x = space::s1();
                                 text_property_badge(
                                     ui,
                                     TextPropertyGlyph::ColumnsCount,
@@ -1445,7 +1449,7 @@ impl crate::app::Editor {
                         },
                         |ui, width| {
                             ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S1;
+                                ui.spacing_mut().item_spacing.x = space::s1();
                                 text_property_badge(
                                     ui,
                                     TextPropertyGlyph::ColumnGutter,
@@ -1504,9 +1508,9 @@ impl crate::app::Editor {
                         },
                         |ui, width| {
                             ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S2;
+                                ui.spacing_mut().item_spacing.x = space::s2();
                                 let field_width =
-                                    (width - crate::theme::control_h() - space::S2).max(0.0);
+                                    (width - crate::theme::control_h() - space::s2()).max(0.0);
                                 let response = ui.add(
                                     nf::Field::new(
                                         &mut field_options.padding_right,
@@ -1580,7 +1584,7 @@ impl crate::app::Editor {
 
                     // Row 6: Border color swatch + Border width (pt) + Background color swatch (Flash CS5 style).
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S1;
+                        ui.spacing_mut().item_spacing.x = space::s1();
                         text_property_badge(ui, TextPropertyGlyph::BorderStroke, "Border color");
                         if text_optional_color_swatch(
                             ui,
@@ -1598,11 +1602,11 @@ impl crate::app::Editor {
                                 .unit("pt")
                                 .decimals(1)
                                 .range(0.5..=200.0)
-                                .width(78.0),
+                                .width(neoflash_ui::metrics::field_num()),
                         );
                         changes.note(bw_resp);
 
-                        ui.add_space(space::S2);
+                        ui.add_space(space::s2());
                         text_property_badge(
                             ui,
                             TextPropertyGlyph::BackgroundFill,

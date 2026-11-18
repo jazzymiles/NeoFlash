@@ -291,15 +291,15 @@ impl Editor {
             .truncate(),
         );
         nf::tooltip(name_resp, &element.name, None);
-        ui.add_space(space::S1);
+        ui.add_space(space::s1());
         let mut metadata = element.accessibility.clone();
         egui::ScrollArea::vertical().id_salt("accessibility_form").auto_shrink([false, false]).themed().show(ui, |ui| {
             // Wide docks keep the form at two inspector widths (NF2 floating panel proportions).
                 ui.set_max_width(ui.available_width().min(2. * neoflash_ui::metrics::inspector()));
-            ui.spacing_mut().item_spacing.y = space::S2;
+            ui.spacing_mut().item_spacing.y = space::s2();
             let acc_resp = ui.add_enabled_ui_semantic(self.selected_editable(), |ui| {
                 let mut enabled = metadata.is_some();
-                let expose = ui.add(nf::Switch::new(&mut enabled, "Expose object in HTML5"));
+                let expose = ui.add(nf::Checkbox::new(&mut enabled, "Expose object in HTML5"));
                 expose.widget_info(|| {
                     egui::WidgetInfo::selected(
                         egui::WidgetType::Checkbox,
@@ -331,7 +331,7 @@ impl Editor {
                     }
                     if data.name.trim().is_empty() {
                         ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = space::S2;
+                            ui.spacing_mut().item_spacing.x = space::s2();
                             neoflash_ui::icons::show(ui, i16::ERROR, p.danger_default);
                             ui.label(neoflash_ui::typography::rich("Enter a name before saving or publishing.", TextStyle::Small).color(p.danger_default));
                         });
@@ -380,7 +380,7 @@ impl Editor {
                     data.tab_order = order.round().clamp(0., 10000.) as u32;
                     for diag in self.accessibility_read_order_diagnostics() {
                         ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = space::S2;
+                            ui.spacing_mut().item_spacing.x = space::s2();
                             neoflash_ui::icons::show(ui, i16::ERROR, p.danger_default);
                             ui.label(
                                 neoflash_ui::typography::rich(&diag, TextStyle::Small)

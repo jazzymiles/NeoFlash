@@ -2,8 +2,9 @@
 //! `W3.5`; reference `dialog-import-video.png`), opened from `File ▸ Import ▸ Import video…`
 //! and `Window ▸ Panels ▸ Planned panels ▸ Import video`.
 
-use super::dialog_helpers::{group, preview_box};
-use super::planned::{FooterClick, caption, footer_clicked_with_enabled};
+use super::dialog_helpers::{
+    DialogShell, fixed_dialog_size, footer_note, form_row, group_caption, note, preview_box,
+};
 use crate::app::Editor;
 use eframe::egui::{self, Ui};
 use neoflash_core::{
@@ -13,6 +14,7 @@ use neoflash_core::{
 };
 use neoflash_ui::components as c;
 use neoflash_ui::components::timeline as tl;
+use neoflash_ui::metrics;
 use neoflash_ui::tokens::space;
 use std::{
     io::Read,
@@ -331,6 +333,14 @@ struct VideoPreviewCache {
     fps: Option<f32>,
     duration_ms: Option<u32>,
     tex: Option<egui::TextureHandle>,
+}
+
+/// Height of the trim strip under the preview (artwork).
+const TRIM_STRIP: f32 = 24.0;
+
+/// `Import video` has one size per density before and after a file is probed.
+pub(crate) fn import_video_dialog_size(ctx: &egui::Context) -> egui::Vec2 {
+    fixed_dialog_size(ctx, metrics::dialog_l(), metrics::dialog_l_height())
 }
 
 fn preview_cache_id() -> egui::Id {
@@ -1060,9 +1070,13 @@ impl Editor {
         cache
     }
 
-    pub(crate) fn import_video_body(
+    /// Render the `Import video` body into the fixed dialog shell: artwork column (preview, trim
+    /// strip, In / Out), form and footer. Returns `(cancel, import)`.
+    fn import_video_body(
         &mut self,
         ui: &mut Ui,
+        shell: &DialogShell,
+        aside_width: f32,
         draft: &mut ImportVideoDraft,
     ) -> (bool, bool) {
         let mut close_cancel = false;
@@ -1072,161 +1086,154 @@ impl Editor {
             draft.source_fps = (fps.round() as u32).clamp(1, 120);
         }
 
-        ui.horizontal_top(|ui| {
-            ui.vertical(|ui| {
-                ui.set_width(300.0);
-                if let Some(tex) = &cached_preview.tex {
-                    let p = neoflash_ui::palette(ui.ctx());
-                    let (rect, _) =
-                        ui.allocate_exact_size(egui::vec2(300.0, 169.0), egui::Sense::hover());
-                    ui.painter().rect(
-                        rect,
-                        neoflash_ui::tokens::radius::SM,
-                        p.bg_canvas,
-                        egui::Stroke::new(1.0_f32, p.border_subtle),
-                        egui::StrokeKind::Inside,
-                    );
-                    let tex_size = tex.size_vec2();
-                    let inner = rect.shrink(2.0);
-                    let scale = (inner.width() / tex_size.x.max(1.0))
-                        .min(inner.height() / tex_size.y.max(1.0))
-                        .max(0.01);
-                    let draw_size = tex_size * scale;
-                    let draw_rect = egui::Rect::from_center_size(inner.center(), draw_size);
-                    ui.painter().image(
-                        tex.id(),
-                        draw_rect,
-                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                        egui::Color32::WHITE,
-                    );
+        // The preview keeps 16:9 and the strip its height whatever file was probed.
+        let preview = egui::vec2(aside_width, (aside_width * 9.0 / 16.0).round());
+        shell.aside(ui, aside_width, |ui| {
+            if let Some(tex) = &cached_preview.tex {
+                let p = neoflash_ui::palette(ui.ctx());
+                let (rect, _) = ui.allocate_exact_size(preview, egui::Sense::hover());
+                ui.painter().rect(
+                    rect,
+                    neoflash_ui::tokens::radius::sm(),
+                    p.bg_canvas,
+                    egui::Stroke::new(1.0_f32, p.border_subtle),
+                    egui::StrokeKind::Inside,
+                );
+                let tex_size = tex.size_vec2();
+                let inner = rect.shrink(2.0);
+                let scale = (inner.width() / tex_size.x.max(1.0))
+                    .min(inner.height() / tex_size.y.max(1.0))
+                    .max(0.01);
+                let draw_size = tex_size * scale;
+                let draw_rect = egui::Rect::from_center_size(inner.center(), draw_size);
+                ui.painter().image(
+                    tex.id(),
+                    draw_rect,
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    egui::Color32::WHITE,
+                );
+            } else {
+                let empty_lbl = if draft.file_path.trim().is_empty() {
+                    "No video selected"
                 } else {
-                    let empty_lbl = if draft.file_path.trim().is_empty() {
-                        "No video selected"
-                    } else {
-                        "Preview unavailable"
-                    };
-                    preview_box(ui, 300.0, 169.0, empty_lbl);
-                    if draft.deployment == 2
-                        && validate_progressive_video_url(draft.file_path.trim()).is_ok()
+                    "Preview unavailable"
+                };
+                preview_box(ui, preview.x, preview.y, empty_lbl);
+                if draft.deployment == 2
+                    && validate_progressive_video_url(draft.file_path.trim()).is_ok()
+                {
+                    let preview_mime =
+                        progressive_preview_mime(draft.file_path.trim(), &draft.codec);
+                    if poll_or_start_progressive_preview_fetch(draft.file_path.trim(), preview_mime)
                     {
-                        let preview_mime =
-                            progressive_preview_mime(draft.file_path.trim(), &draft.codec);
-                        if poll_or_start_progressive_preview_fetch(
-                            draft.file_path.trim(),
-                            preview_mime,
-                        ) {
-                            ui.ctx().request_repaint_after(Duration::from_millis(50));
-                        }
-                        if let Some(error) = take_progressive_preview_error(draft.file_path.trim())
-                        {
-                            self.message(error);
-                        }
+                        ui.ctx().request_repaint_after(Duration::from_millis(50));
+                    }
+                    if let Some(error) = take_progressive_preview_error(draft.file_path.trim()) {
+                        self.message(error);
                     }
                 }
-                let base_dir = self
-                    .path
-                    .as_deref()
-                    .and_then(Path::parent)
-                    .map(Path::to_path_buf);
-                let strip_max_sec = probe_video_duration_seconds_with_base(
-                    &draft.file_path,
-                    draft.deployment,
-                    base_dir.as_deref(),
-                )
-                .unwrap_or_else(|| {
-                    parse_timecode_seconds(&draft.out_time)
-                        .unwrap_or(4.0)
-                        .max(4.0)
-                })
-                .max(0.2);
-                let cur_in = parse_timecode_seconds(&draft.in_time)
-                    .unwrap_or(0.0)
-                    .clamp(0.0, (strip_max_sec - 0.1).max(0.0));
-                let cur_out = parse_timecode_seconds(&draft.out_time)
-                    .unwrap_or(strip_max_sec)
-                    .clamp((cur_in + 0.1).min(strip_max_sec), strip_max_sec);
-                let (span, strip_resp) =
-                    ui.allocate_exact_size(egui::vec2(300.0, 27.0), egui::Sense::click_and_drag());
-                tl::paint_span(ui.painter(), ui.ctx(), span, tl::SpanType::Video, false);
-                let in_frac = (cur_in / strip_max_sec).clamp(0.0, 1.0) as f32;
-                let out_frac = (cur_out / strip_max_sec).clamp(f64::from(in_frac), 1.0) as f32;
-                let x_in = egui::lerp(span.left()..=span.right(), in_frac);
-                let x_out = egui::lerp(span.left()..=span.right(), out_frac).max(x_in + 4.0);
-                let active_span = egui::Rect::from_min_max(
-                    egui::pos2(x_in, span.top()),
-                    egui::pos2(x_out.min(span.right()), span.bottom()),
+            }
+            let base_dir = self
+                .path
+                .as_deref()
+                .and_then(Path::parent)
+                .map(Path::to_path_buf);
+            let strip_max_sec = probe_video_duration_seconds_with_base(
+                &draft.file_path,
+                draft.deployment,
+                base_dir.as_deref(),
+            )
+            .unwrap_or_else(|| {
+                parse_timecode_seconds(&draft.out_time)
+                    .unwrap_or(4.0)
+                    .max(4.0)
+            })
+            .max(0.2);
+            let cur_in = parse_timecode_seconds(&draft.in_time)
+                .unwrap_or(0.0)
+                .clamp(0.0, (strip_max_sec - 0.1).max(0.0));
+            let cur_out = parse_timecode_seconds(&draft.out_time)
+                .unwrap_or(strip_max_sec)
+                .clamp((cur_in + 0.1).min(strip_max_sec), strip_max_sec);
+            let (span, strip_resp) = ui.allocate_exact_size(
+                egui::vec2(aside_width, TRIM_STRIP),
+                egui::Sense::click_and_drag(),
+            );
+            tl::paint_span(ui.painter(), ui.ctx(), span, tl::SpanType::Video, false);
+            let in_frac = (cur_in / strip_max_sec).clamp(0.0, 1.0) as f32;
+            let out_frac = (cur_out / strip_max_sec).clamp(f64::from(in_frac), 1.0) as f32;
+            let x_in = egui::lerp(span.left()..=span.right(), in_frac);
+            let x_out = egui::lerp(span.left()..=span.right(), out_frac).max(x_in + 4.0);
+            let active_span = egui::Rect::from_min_max(
+                egui::pos2(x_in, span.top()),
+                egui::pos2(x_out.min(span.right()), span.bottom()),
+            );
+            tl::paint_span(
+                ui.painter(),
+                ui.ctx(),
+                active_span,
+                tl::SpanType::Video,
+                true,
+            );
+            let pal = neoflash_ui::palette(ui.ctx());
+            for hx in [x_in, x_out.min(span.right())] {
+                let hrect = egui::Rect::from_center_size(
+                    egui::pos2(
+                        hx.clamp(span.left() + 2.0, span.right() - 2.0),
+                        span.center().y,
+                    ),
+                    egui::vec2(4.0, span.height() - 4.0),
                 );
-                tl::paint_span(
-                    ui.painter(),
-                    ui.ctx(),
-                    active_span,
-                    tl::SpanType::Video,
-                    true,
+                ui.painter().rect_filled(hrect, 1.5, pal.accent_default);
+            }
+            let trim_drag_id = ui.id().with("import-video-trim-drag");
+            if strip_resp.hovered() || strip_resp.dragged() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+            }
+            if (strip_resp.drag_started() || strip_resp.clicked())
+                && let Some(pos) = strip_resp.interact_pointer_pos()
+            {
+                let pick_in = (pos.x - x_in).abs() <= (pos.x - x_out).abs();
+                ui.ctx().data_mut(|d| d.insert_temp(trim_drag_id, pick_in));
+            }
+            if (strip_resp.dragged() || strip_resp.clicked())
+                && let Some(pos) = strip_resp.interact_pointer_pos()
+            {
+                let pick_in = ui
+                    .ctx()
+                    .data(|d| d.get_temp::<bool>(trim_drag_id))
+                    .unwrap_or(true);
+                let frac = ((pos.x - span.left()) / span.width().max(1.0)).clamp(0.0, 1.0);
+                let sec = f64::from(frac) * strip_max_sec;
+                if pick_in {
+                    let next_in = sec.clamp(0.0, (cur_out - 0.1).max(0.0));
+                    draft.in_time = format_timecode_seconds(next_in);
+                } else {
+                    let next_out = sec.clamp((cur_in + 0.1).min(strip_max_sec), strip_max_sec);
+                    draft.out_time = format_timecode_seconds(next_out);
+                }
+            }
+            if strip_resp.drag_stopped() {
+                ui.ctx().data_mut(|d| d.remove::<bool>(trim_drag_id));
+            }
+            ui.horizontal(|ui| {
+                let half = ((aside_width - space::s2()) / 2.0).floor();
+                ui.add(
+                    c::TextField::new(&mut draft.in_time, "In")
+                        .prefix("In")
+                        .width(half),
                 );
-                let pal = neoflash_ui::palette(ui.ctx());
-                for hx in [x_in, x_out.min(span.right())] {
-                    let hrect = egui::Rect::from_center_size(
-                        egui::pos2(
-                            hx.clamp(span.left() + 2.0, span.right() - 2.0),
-                            span.center().y,
-                        ),
-                        egui::vec2(4.0, span.height() - 4.0),
-                    );
-                    ui.painter().rect_filled(hrect, 1.5, pal.accent_default);
-                }
-                let trim_drag_id = ui.id().with("import-video-trim-drag");
-                if strip_resp.hovered() || strip_resp.dragged() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-                }
-                if (strip_resp.drag_started() || strip_resp.clicked())
-                    && let Some(pos) = strip_resp.interact_pointer_pos()
-                {
-                    let pick_in = (pos.x - x_in).abs() <= (pos.x - x_out).abs();
-                    ui.ctx().data_mut(|d| d.insert_temp(trim_drag_id, pick_in));
-                }
-                if (strip_resp.dragged() || strip_resp.clicked())
-                    && let Some(pos) = strip_resp.interact_pointer_pos()
-                {
-                    let pick_in = ui
-                        .ctx()
-                        .data(|d| d.get_temp::<bool>(trim_drag_id))
-                        .unwrap_or(true);
-                    let frac = ((pos.x - span.left()) / span.width().max(1.0)).clamp(0.0, 1.0);
-                    let sec = f64::from(frac) * strip_max_sec;
-                    if pick_in {
-                        let next_in = sec.clamp(0.0, (cur_out - 0.1).max(0.0));
-                        draft.in_time = format_timecode_seconds(next_in);
-                    } else {
-                        let next_out = sec.clamp((cur_in + 0.1).min(strip_max_sec), strip_max_sec);
-                        draft.out_time = format_timecode_seconds(next_out);
-                    }
-                }
-                if strip_resp.drag_stopped() {
-                    ui.ctx().data_mut(|d| d.remove::<bool>(trim_drag_id));
-                }
-                ui.horizontal(|ui| {
-                    ui.add(
-                        c::TextField::new(&mut draft.in_time, "In")
-                            .prefix("In")
-                            .width(146.0),
-                    );
-                    ui.add(
-                        c::TextField::new(&mut draft.out_time, "Out")
-                            .prefix("Out")
-                            .width(146.0),
-                    );
-                });
-                caption(ui, "Drag the in / out handles on the strip to trim.");
+                ui.add(
+                    c::TextField::new(&mut draft.out_time, "Out")
+                        .prefix("Out")
+                        .width(half),
+                );
             });
-            ui.add_space(space::S5);
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = space::S2;
-                ui.horizontal(|ui| {
-                    ui.add(
-                        c::TextField::new(&mut draft.file_path, "File")
-                            .prefix("File")
-                            .width(260.0),
-                    );
+            note(ui, "Drag the in / out handles on the strip to trim.");
+        });
+        shell.form(ui, "import-video-form", aside_width, |ui, _| {
+            form_row(ui, "File", |ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.add(c::Button::new("Browse…")).clicked()
                         && let Some(picked) = rfd::FileDialog::new()
                             .set_title("Import video")
@@ -1235,90 +1242,99 @@ impl Editor {
                     {
                         draft.file_path = picked.display().to_string();
                     }
+                    ui.add(
+                        c::TextField::new(&mut draft.file_path, "File").width(ui.available_width()),
+                    );
                 });
-                group(ui, "Deployment");
-                for (idx, label, hint) in [
-                    (
-                        0usize,
-                        "Embed in timeline",
-                        "Frames sync with the timeline; best for short clips",
-                    ),
-                    (
-                        1,
-                        "Load external video",
-                        "Streams with a player component; keeps the .nflash file small",
-                    ),
-                    (
-                        2,
-                        "Progressive download",
-                        "Plays while downloading from a URL",
-                    ),
-                ] {
+            });
+            group_caption(ui, "Deployment");
+            for (idx, label, hint) in [
+                (
+                    0usize,
+                    "Embed in timeline",
+                    "Frames sync with the timeline; best for short clips",
+                ),
+                (
+                    1,
+                    "Load external video",
+                    "Streams with a player component; keeps the .nflash file small",
+                ),
+                (
+                    2,
+                    "Progressive download",
+                    "Plays while downloading from a URL",
+                ),
+            ] {
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
                     if ui
                         .add(c::Radio::new(draft.deployment == idx, label))
                         .clicked()
                     {
                         draft.deployment = idx;
                     }
-                    caption(ui, hint);
-                }
-                group(ui, "Embedding");
-                ui.horizontal(|ui| {
-                    let sym_lbl = match draft.symbol_kind {
-                        SymbolKind::Graphic => "Symbol: Graphic",
-                        _ => "Symbol: Movie clip",
-                    };
-                    c::Select::new(ui.id().with("import-video-symbol"), sym_lbl)
-                        .width(172.0)
-                        .show(ui, |ui| {
-                            for (kind, lbl) in [
-                                (SymbolKind::MovieClip, "Symbol: Movie clip"),
-                                (SymbolKind::Graphic, "Symbol: Graphic"),
-                            ] {
-                                if ui
-                                    .add(c::MenuItem::new(lbl).checked(draft.symbol_kind == kind))
-                                    .clicked()
-                                {
-                                    draft.symbol_kind = kind;
-                                    ui.close();
-                                }
+                    note(ui, hint);
+                });
+            }
+            group_caption(ui, "Embedding");
+            form_row(ui, "Symbol", |ui| {
+                let sym_lbl = match draft.symbol_kind {
+                    SymbolKind::Graphic => "Graphic",
+                    _ => "Movie clip",
+                };
+                c::Select::new(ui.id().with("import-video-symbol"), sym_lbl)
+                    .width(metrics::field_m())
+                    .show(ui, |ui| {
+                        for (kind, lbl) in [
+                            (SymbolKind::MovieClip, "Movie clip"),
+                            (SymbolKind::Graphic, "Graphic"),
+                        ] {
+                            if ui
+                                .add(c::MenuItem::new(lbl).checked(draft.symbol_kind == kind))
+                                .clicked()
+                            {
+                                draft.symbol_kind = kind;
+                                ui.close();
                             }
-                        });
-                    let codec_lbl = format!("Codec: {}", draft.codec);
-                    c::Select::new(ui.id().with("import-video-codec"), &codec_lbl)
-                        .width(172.0)
-                        .show(ui, |ui| {
-                            for codec in ["H.264", "WebM VP9"] {
-                                if ui
-                                    .add(
-                                        c::MenuItem::new(&format!("Codec: {codec}"))
-                                            .checked(draft.codec == codec),
-                                    )
-                                    .clicked()
-                                {
-                                    draft.codec = codec.to_owned();
-                                    ui.close();
-                                }
+                        }
+                    });
+            });
+            form_row(ui, "Codec", |ui| {
+                let codec_lbl = draft.codec.clone();
+                c::Select::new(ui.id().with("import-video-codec"), &codec_lbl)
+                    .width(metrics::field_m())
+                    .show(ui, |ui| {
+                        for codec in ["H.264", "WebM VP9"] {
+                            if ui
+                                .add(c::MenuItem::new(codec).checked(draft.codec == codec))
+                                .clicked()
+                            {
+                                draft.codec = codec.to_owned();
+                                ui.close();
                             }
-                        });
-                });
-                ui.horizontal(|ui| {
-                    ui.add(c::Checkbox::new(
-                        &mut draft.place_on_stage,
-                        "Place on stage",
-                    ));
-                    ui.add(c::Checkbox::new(
-                        &mut draft.expand_timeline,
-                        "Expand timeline if needed",
-                    ));
-                });
-                ui.horizontal(|ui| {
-                    ui.add(c::Checkbox::new(&mut draft.include_audio, "Include audio"));
-                    ui.add(c::Checkbox::new(
-                        &mut draft.match_fps,
-                        "Match document frame rate",
-                    ));
-                });
+                        }
+                    });
+            });
+            form_row(ui, "Placement", |ui| {
+                ui.add(c::Checkbox::new(
+                    &mut draft.place_on_stage,
+                    "Place on stage",
+                ));
+            });
+            form_row(ui, "", |ui| {
+                ui.add(c::Checkbox::new(
+                    &mut draft.expand_timeline,
+                    "Expand timeline if needed",
+                ));
+            });
+            form_row(ui, "Audio", |ui| {
+                ui.add(c::Checkbox::new(&mut draft.include_audio, "Include audio"));
+            });
+            form_row(ui, "Frame rate", |ui| {
+                ui.add(c::Checkbox::new(
+                    &mut draft.match_fps,
+                    "Match document frame rate",
+                ));
             });
         });
 
@@ -1359,16 +1375,18 @@ impl Editor {
             parts.push(draft.codec.clone());
             parts.join(" · ")
         };
-        match footer_clicked_with_enabled(
+        shell.footer(
             ui,
-            &summary,
-            None,
-            &[("Cancel", true), ("Import", has_path)],
-        ) {
-            Some(FooterClick::Button(0)) => close_cancel = true,
-            Some(FooterClick::Button(1)) if has_path => do_import = true,
-            _ => {}
-        }
+            |ui| {
+                footer_note(ui, &summary);
+            },
+            |ui| {
+                do_import |= ui
+                    .add_enabled(has_path, c::Button::primary("Import"))
+                    .clicked();
+                close_cancel |= ui.add(c::Button::new("Cancel")).clicked();
+            },
+        );
         (close_cancel, do_import)
     }
 
@@ -1381,29 +1399,18 @@ impl Editor {
         let mut do_import = false;
         let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
 
+        // v3: one size before and after a file is probed.
+        let size = import_video_dialog_size(ctx);
+        let aside_width = (240.0 * size.x / metrics::DIALOG_L).round();
         let modal = egui::Modal::new(egui::Id::new("import-video"))
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
-                ui.set_width(720.0);
-                let header_top = ui.cursor().min;
-                close_cancel |= c::DialogHeader {
-                    title: "Import video",
-                }
-                .show(ui);
-                ui.painter().hline(
-                    header_top.x..=header_top.x + 720.0,
-                    header_top.y + neoflash_ui::metrics::dialog_header() - 0.5,
-                    egui::Stroke::new(1.0_f32, p.border_subtle),
-                );
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S5 as i8))
-                    .show(ui, |ui| {
-                        ui.set_width(720.0 - 2.0 * space::S5);
-                        let (c, imp) = self.import_video_body(ui, &mut draft);
-                        close_cancel |= c;
-                        do_import |= imp;
-                    });
+                let shell = DialogShell::single(ui, "Import video", size);
+                close_cancel |= shell.close;
+                let (c, imp) = self.import_video_body(ui, &shell, aside_width, &mut draft);
+                close_cancel |= c;
+                do_import |= imp;
             });
 
         if !close_cancel && !do_import {

@@ -433,6 +433,8 @@ impl Editor {
                     "brushes" => Some(PanelId::Brushes),
                     "swatches" => Some(PanelId::Swatches),
                     "color" => Some(PanelId::Color),
+                    "transform" => Some(PanelId::Transform),
+                    "align" => Some(PanelId::Align),
                     "info" => Some(PanelId::Info),
                     "project" => Some(PanelId::Project),
                     "ease" => Some(PanelId::Ease),
@@ -441,8 +443,11 @@ impl Editor {
                     "filters" => Some(PanelId::Filters),
                     "debugger" => Some(PanelId::Debugger),
                     "compiler_errors" => Some(PanelId::CompilerErrors),
+                    "output" => Some(PanelId::Output),
                     "code_snippets" => Some(PanelId::CodeSnippets),
                     "movie_explorer" => Some(PanelId::MovieExplorer),
+                    "library" => Some(PanelId::Library),
+                    "accessibility" => Some(PanelId::Accessibility),
                     _ => None,
                 };
                 if let Some(panel) = panel {
@@ -450,10 +455,37 @@ impl Editor {
                 }
             }
         }
+        // Screenshot aid: `NEOFLASH_SCREENSHOT_TOOLS=rail` docks the one-column Tools rail; `menu`
+        // and `rail-menu` open the palette's "⋯" menu; `float` floats the palette inside the main
+        // window (embedded viewport) so the capture shows it.
+        let tools_capture = std::env::var("NEOFLASH_SCREENSHOT_TOOLS");
+        if matches!(tools_capture.as_deref(), Ok("menu" | "rail-menu")) {
+            s.open_tools_menu(&cc.egui_ctx);
+        }
+        match tools_capture.as_deref() {
+            Ok("rail" | "rail-menu") => {
+                s.workspace.dock.left.size = neoflash_ui::metrics::tools_rail() + 6.
+            }
+            Ok("float") => {
+                cc.egui_ctx.set_embed_viewports(true);
+                s.set_panel_placement(
+                    &cc.egui_ctx,
+                    PanelId::Tools,
+                    crate::workspace::PanelPlacement::Detached,
+                );
+            }
+            _ => {}
+        }
         match std::env::var("NEOFLASH_SCREENSHOT_DIALOG").as_deref() {
             Ok("document_settings") => s.open_document_settings(),
             Ok("trace_bitmap") => {
                 s.select_all();
+                // Trace needs exactly one bitmap: keep the first one of a larger document.
+                if let Some((target, _)) = s.sampled_targets().into_iter().find(|(_, element)| {
+                    matches!(element.kind, neoflash_core::ElementKind::Bitmap { .. })
+                }) {
+                    s.set_selection(vec![target]);
+                }
                 s.open_trace_bitmap(&cc.egui_ctx);
             }
             Ok("customize_tools") => s.open_customize_tools(&cc.egui_ctx),
@@ -463,13 +495,69 @@ impl Editor {
                     focus: false,
                 })
             }
-            Ok("publish_settings") => s.open_publish_settings(),
+            Ok("publish_settings") => {
+                s.open_publish_settings();
+                // `NEOFLASH_SCREENSHOT_PUBLISH_TARGET=html5|desktop|video|images|svg` picks the page.
+                if let (Some(draft), Ok(target)) = (
+                    s.publish_settings.as_mut(),
+                    std::env::var("NEOFLASH_SCREENSHOT_PUBLISH_TARGET"),
+                ) {
+                    draft.select_target_slug(&target);
+                }
+            }
             Ok("export_video") => s.open_export_video(None),
             Ok("export_audio") => s.open_export_audio(&cc.egui_ctx, None),
+            Ok("export_image") => {
+                s.open_export_image(&cc.egui_ctx);
+                // `NEOFLASH_SCREENSHOT_IMAGE_FORMAT=png|svg|psd|ai|pdf` picks the format.
+                if let Ok(format) = std::env::var("NEOFLASH_SCREENSHOT_IMAGE_FORMAT") {
+                    crate::panels::export_image::select_export_image_format_slug(
+                        &cc.egui_ctx,
+                        &format,
+                    );
+                }
+            }
+            Ok("export_lottie") => s.open_export_lottie(None),
+            Ok("import_video") => s.open_import_video(&cc.egui_ctx),
+            Ok(dialog) if dialog.starts_with("ai_") && s.open_sample_ai_dialog(dialog) => {}
+            Ok("batch_rename") => s.open_batch_rename_library_modal(&cc.egui_ctx),
+            Ok("batch_linkage") => s.open_batch_linkage_modal(&cc.egui_ctx),
+            Ok("batch_bitmaps") => s.open_batch_bitmap_compression_modal(&cc.egui_ctx),
+            Ok("instance_namer") => s.open_auto_instance_namer_modal(&cc.egui_ctx),
+            Ok("randomize_selection") => s.open_randomize_selection_modal(&cc.egui_ctx),
             Ok("sound_properties") => s.open_sound_properties(&cc.egui_ctx, None),
             Ok("edit_envelope") => s.open_edit_envelope(),
             Ok("find_replace") => s.open_find_replace(),
+            Ok("layer_properties") => s.open_layer_properties(&cc.egui_ctx, 0),
+            Ok("stroke_style") => s.open_stroke_style(&cc.egui_ctx),
+            Ok("font_embedding") => s.open_font_embedding(&cc.egui_ctx),
+            Ok("font_embedding_face") => s.open_font_embedding_with_face(&cc.egui_ctx),
+            Ok("convert_symbol") => {
+                s.select_all();
+                s.begin_symbol_conversion();
+            }
+            Ok("new_symbol") => s.begin_new_symbol(),
+            Ok("bitmap_properties") => s.open_bitmap_properties(&cc.egui_ctx, None),
+            Ok("magic_wand") => s.open_magic_wand_settings(),
+            Ok("polystar") => s.open_polystar_settings(),
+            Ok("scale_rotate") => {
+                s.select_all();
+                s.open_scale_and_rotate_dialog();
+            }
+            Ok("about") => s.show_about = true,
+            Ok("revert") => s.confirm_revert = true,
+            Ok("workspace_delete") => {
+                s.workspace_dialog = Some(crate::workspace_dialogs::WorkspaceDialog::Delete {
+                    name: "My workspace".into(),
+                })
+            }
             Ok("beta_feedback") => s.open_beta_feedback(),
+            Ok("help") => s.open_help_manual(&cc.egui_ctx),
+            Ok(dialog @ ("scripting_reference" | "scripting_guides")) => {
+                let guides = dialog == "scripting_guides";
+                crate::panels::help_manual::open_reference_for_screenshot(&cc.egui_ctx, guides);
+            }
+            Ok("ui_studio") => crate::panels::ui_studio::set_studio_open(&cc.egui_ctx, true),
             Ok("paste_motion_special") => {
                 s.copy_motion();
                 s.open_paste_motion_special();
@@ -4074,62 +4162,30 @@ impl Editor {
         self.scale_and_rotate_modal(ctx);
         self.help_manual_dialog(ctx);
         self.beta_feedback_dialog(ctx);
+        use crate::panels::dialog_helpers::{FormDialog, confirm_message, dialog_width};
         use neoflash_ui::{
             TextStyle,
-            components::{Button, DialogHeader, Surface, logo, surface::dialog_footer},
+            components::{Button, Surface, logo},
+            metrics,
             tokens::space,
             typography::rich,
         };
         let p = neoflash_ui::palette(ctx);
-        let warning_body = |ui: &mut egui::Ui, title: &str, summary: &str| {
-            egui::Frame::new()
-                .inner_margin(egui::Margin::same(space::S5 as i8))
-                .show(ui, |ui| {
-                    ui.horizontal_top(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S4;
-                        let (badge, _) =
-                            ui.allocate_exact_size(egui::vec2(40., 40.), egui::Sense::hover());
-                        ui.painter()
-                            .circle_filled(badge.center(), 20., p.warning_subtle);
-                        neoflash_ui::icons::paint(
-                            ui.painter(),
-                            ctx,
-                            badge,
-                            neoflash_ui::icons::i16::WARNING,
-                            p.warning_default,
-                        );
-                        ui.vertical(|ui| {
-                            ui.spacing_mut().item_spacing.y = space::S1;
-                            ui.label(rich(title, TextStyle::DialogTitle).color(p.text_primary));
-                            ui.add(
-                                egui::Label::new(
-                                    rich(summary, TextStyle::DialogBody).color(p.text_secondary),
-                                )
-                                .wrap(),
-                            );
-                        });
-                    });
-                });
-        };
-        let body = egui::Margin {
-            left: space::S5 as i8,
-            right: space::S5 as i8,
-            top: 0,
-            bottom: space::S5 as i8,
-        };
+        // Confirmations: the question is the title, one warning line, `dialog_s` wide.
+        let confirm_width = dialog_width(ctx, metrics::dialog_s());
         if self.show_about {
             let mut close = false;
             let mut open_manual = false;
+            let width = dialog_width(ctx, metrics::dialog_m());
             let modal = egui::Modal::new(egui::Id::new("about-neoflash"))
                 .frame(Surface::Dialog.frame(ctx))
                 .backdrop_color(p.overlay)
                 .show(ctx, |ui| {
-                    ui.set_width(440.);
-                    close |= DialogHeader { title: "About NeoFlash" }.show(ui);
-                    egui::Frame::new().inner_margin(body).show(ui, |ui| {
-                        ui.spacing_mut().item_spacing.y = space::S2;
+                    let dialog = FormDialog::show(ui, "About NeoFlash", width, None);
+                    close |= dialog.close;
+                    dialog.page(ui, "about-page", |ui, _| {
                         ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = space::S3;
+                            ui.spacing_mut().item_spacing.x = space::s3();
                             logo(ui, 40.);
                             let id = crate::build_info::BuildIdentity::current();
                             ui.vertical(|ui| {
@@ -4165,11 +4221,9 @@ impl Editor {
                             );
                         }
                     });
-                    dialog_footer(
+                    dialog.footer(
                         ui,
-                        |ui| {
-                            open_manual |= ui.add(Button::new("Help & Reference…")).clicked();
-                        },
+                        |ui| open_manual |= ui.add(Button::ghost("Help & Reference…")).clicked(),
                         |ui| close |= ui.add(Button::primary("Close").shortcut("↵")).clicked(),
                     );
                 });
@@ -4190,21 +4244,23 @@ impl Editor {
                 .frame(Surface::Dialog.frame(ctx))
                 .backdrop_color(p.overlay)
                 .show(ctx, |ui| {
-                    ui.set_width(480.);
-                    warning_body(
-                        ui,
-                        "Revert to saved version?",
-                        &format!(
-                            "Your unsaved changes to “{name}” will be lost and the last saved version on disk will be reloaded."
-                        ),
-                    );
-                    let (mut revert, mut cancel) = (false, false);
-                    dialog_footer(
+                    let dialog =
+                        FormDialog::show(ui, "Revert to saved version?", confirm_width, None);
+                    let (mut revert, mut cancel) = (false, dialog.close);
+                    dialog.page(ui, "revert-page", |ui, _| {
+                        confirm_message(
+                            ui,
+                            &format!(
+                                "Your unsaved changes to “{name}” will be lost and the last saved version on disk will be reloaded."
+                            ),
+                        );
+                    });
+                    dialog.footer(
                         ui,
                         |_| {},
                         |ui| {
                             revert = ui.add(Button::danger("Revert").shortcut("↵")).clicked();
-                            cancel = ui.add(Button::new("Cancel").shortcut("Esc")).clicked();
+                            cancel |= ui.add(Button::new("Cancel").shortcut("Esc")).clicked();
                         },
                     );
                     if revert {
@@ -4235,19 +4291,25 @@ impl Editor {
                 .frame(Surface::Dialog.frame(ctx))
                 .backdrop_color(p.overlay)
                 .show(ctx, |ui| {
-                    ui.set_width(480.);
-                    warning_body(
+                    let dialog = FormDialog::show(
                         ui,
                         "Save changes before continuing?",
-                        &format!("Your changes to “{name}” will be lost if you discard them."),
+                        confirm_width,
+                        None,
                     );
-                    let (mut discard, mut save, mut cancel) = (false, false, false);
-                    dialog_footer(
+                    let (mut discard, mut save, mut cancel) = (false, false, dialog.close);
+                    dialog.page(ui, "unsaved-page", |ui, _| {
+                        confirm_message(
+                            ui,
+                            &format!("Your changes to “{name}” will be lost if you discard them."),
+                        );
+                    });
+                    dialog.footer(
                         ui,
                         |ui| discard = ui.add(Button::danger("Discard")).clicked(),
                         |ui| {
                             save = ui.add(Button::primary("Save").shortcut("↵")).clicked();
-                            cancel = ui.add(Button::new("Cancel").shortcut("Esc")).clicked();
+                            cancel |= ui.add(Button::new("Cancel").shortcut("Esc")).clicked();
                         },
                     );
                     if save {
@@ -4282,14 +4344,18 @@ impl Editor {
             // 0 = Reload, 1 = Keep editing, 2 = Save As.
             let mut action = None;
             let dirty = self.dirty();
+            let mut dismiss = false;
             let modal = egui::Modal::new(egui::Id::new("external-file-change"))
                 .frame(Surface::Dialog.frame(ctx))
                 .backdrop_color(p.overlay)
                 .show(ctx, |ui| {
-                    ui.set_width(480.);
-                    warning_body(ui, title, &summary);
+                    let dialog = FormDialog::show(ui, title, confirm_width, None);
+                    dismiss |= dialog.close;
+                    dialog.page(ui, "external-change-page", |ui, _| {
+                        confirm_message(ui, &summary)
+                    });
                     let (mut reload, mut keep, mut save_as) = (false, false, false);
-                    dialog_footer(
+                    dialog.footer(
                         ui,
                         |ui| {
                             if can_reload {
@@ -4303,7 +4369,7 @@ impl Editor {
                             }
                         },
                         |ui| {
-                            save_as = ui.add(Button::new("Save As…")).clicked();
+                            // Right edge inwards: Keep editing, then Save As….
                             keep = ui
                                 .add(if dirty || !can_reload {
                                     Button::primary("Keep editing").shortcut("↵")
@@ -4311,6 +4377,7 @@ impl Editor {
                                     Button::new("Keep editing").shortcut("Esc")
                                 })
                                 .clicked();
+                            save_as = ui.add(Button::new("Save As…")).clicked();
                         },
                     );
                     if reload {
@@ -4324,7 +4391,7 @@ impl Editor {
             if action.is_none() {
                 if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
                     action = Some(if !dirty && can_reload { 0 } else { 1 });
-                } else if modal.should_close() {
+                } else if dismiss || modal.should_close() {
                     self.dismiss_external_change_prompt();
                 }
             }
@@ -4354,10 +4421,11 @@ impl Editor {
                 .frame(Surface::Dialog.frame(ctx))
                 .backdrop_color(p.overlay)
                 .show(ctx, |ui| {
-                    ui.set_width(480.);
-                    warning_body(ui, "Recover unsaved work?", &summary);
+                    // No close button: the prompt is answered with Restore or Discard.
+                    let dialog = FormDialog::prompt(ui, "Recover unsaved work?", confirm_width);
+                    dialog.page(ui, "recovery-page", |ui, _| confirm_message(ui, &summary));
                     let (mut discard, mut restore) = (false, false);
-                    dialog_footer(
+                    dialog.footer(
                         ui,
                         |ui| discard = ui.add(Button::danger("Discard")).clicked(),
                         |ui| {

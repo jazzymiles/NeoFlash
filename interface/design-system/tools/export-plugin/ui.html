@@ -8,15 +8,29 @@
   .bad { color: #d92d2d; } .ok { color: #168a57; }
 </style>
 <div class="row"><b>NeoFlash Export</b> <span id="recv">checking receiver…</span></div>
+<div class="row"><label><input type="checkbox" id="v3" checked> <b>v3 reference pages</b> → exports/v3/</label>
+  <label><input type="checkbox" id="v3-system" checked> Concept &amp; atoms</label>
+  <label title="docs/data/outline-v3/*.txt (from v3 · Normal · Light) and docs/data/figma-dump-v3.json"><input type="checkbox" id="v3-data" checked> Outlines + dump</label></div>
 <div class="row">
-  <label><input type="checkbox" id="g-interface" checked> Interfaces</label>
-  <label><input type="checkbox" id="g-panels" checked> Panels</label>
-  <label><input type="checkbox" id="g-docs" checked> Doc illustrations</label>
+  <label><input type="checkbox" id="d-normal" checked> Normal</label>
+  <label><input type="checkbox" id="d-compact" checked> Compact</label>
+  <label><input type="checkbox" id="d-classic-flash" checked> Classic Flash</label>
+</div>
+<div class="row">
+  <label><input type="checkbox" id="t-light" checked> Light</label>
+  <label><input type="checkbox" id="t-dark" checked> Dark</label>
+  <label><input type="checkbox" id="t-mid-neutral-gray" checked> Mid Neutral Gray</label>
+  <label><input type="checkbox" id="t-dark-graphite" checked> Dark Graphite</label>
+</div>
+<div class="row"><b>v2.25 (archive)</b>
+  <label><input type="checkbox" id="g-interface"> Interfaces</label>
+  <label><input type="checkbox" id="g-panels"> Panels</label>
+  <label><input type="checkbox" id="g-docs"> Doc illustrations</label>
   <label title="Off by default: the hinted masters in exports/icons are maintained in the repository; a raw Figma export drops stroke widths and round caps."><input type="checkbox" id="icons"> Icons &amp; cursors (SVG, overwrites the repo masters)</label>
 </div>
 <div class="row">
   <label><input type="checkbox" id="svg" checked> SVG</label>
-  <label><input type="checkbox" id="data" checked> JSON dump + outlines</label>
+  <label title="Overwrites docs/data/figma-dump.json and docs/data/outline/, which crates/neoflash-ui/build.rs and the docs builder read. Leave off unless the v2.25 pages were restored."><input type="checkbox" id="data"> v2.25 JSON dump + outlines</label>
   <label>PNG scale <select id="scale"><option>1</option><option selected>2</option><option>3</option></select></label>
 </div>
 <div class="row"><button class="primary" id="go" disabled>Export</button><button id="close">Close</button></div>
@@ -29,7 +43,10 @@
   $('go').onclick = () => {
     $('go').disabled = true;
     const groups = ['interface', 'panels', 'docs'].filter(g => $('g-' + g).checked);
-    parent.postMessage({ pluginMessage: { type: 'start', groups, svg: $('svg').checked, icons: $('icons').checked, data: $('data').checked, scale: +$('scale').value } }, '*');
+    const picked = (prefix, ids) => ids.filter(i => $(prefix + i).checked);
+    const v3 = { on: $('v3').checked, system: $('v3').checked && $('v3-system').checked, data: $('v3').checked && $('v3-data').checked,
+      densities: picked('d-', ['normal', 'compact', 'classic-flash']), themes: picked('t-', ['light', 'dark', 'mid-neutral-gray', 'dark-graphite']) };
+    parent.postMessage({ pluginMessage: { type: 'start', groups, v3, svg: $('svg').checked, icons: $('icons').checked, data: $('data').checked, scale: +$('scale').value } }, '*');
   };
   $('close').onclick = () => parent.postMessage({ pluginMessage: { type: 'close' } }, '*');
   onmessage = async e => {

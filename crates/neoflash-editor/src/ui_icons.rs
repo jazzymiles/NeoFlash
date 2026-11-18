@@ -71,11 +71,16 @@ const TOOL_GRADIENT_TRANSFORM_20: neoflash_ui::Icon = neoflash_ui::Icon {
 };
 
 impl Icon {
-    /// The tool-rail glyph for the current density: the 20 px tool master, or the 16 px master in
-    /// Classic Flash density (`icon_tool` 16 pt), so tool icons are drawn at their own grid, never
+    /// The tool glyph for the current density: the 20 px tool master in Normal, the 16 px master in
+    /// Compact and Classic Flash (`icon_tool()`), so tool icons are drawn at their own grid, never
     /// scaled (R-056).
     pub(crate) fn tool_glyph(self) -> neoflash_ui::Icon {
-        self.nf2(neoflash_ui::metrics::icon_tool() >= 20.0)
+        let large = neoflash_ui::metrics::icon_tool() >= 20.0;
+        match self {
+            // The Zoom tool is the plain glass on both grids; `zoomin` ("+") is the command glyph.
+            Self::ZoomIn if !large => neoflash_ui::icons::i16::TOOL_ZOOM,
+            _ => self.nf2(large),
+        }
     }
     /// NF2 icon for this role. `tool` picks the 20 px tool glyph where one exists.
     pub(crate) fn nf2(self, tool: bool) -> neoflash_ui::Icon {
@@ -91,7 +96,7 @@ impl Icon {
             Self::Line => pick(i16::LINE, i20::TOOL_LINE),
             Self::Brush => pick(i16::BRUSH, i20::TOOL_BRUSH),
             Self::Bucket => pick(i16::BUCKET, i20::TOOL_BUCKET),
-            Self::Ink => i20::TOOL_INK,
+            Self::Ink => pick(i16::TOOL_INK, i20::TOOL_INK),
             Self::Eyedropper => pick(i16::EYEDROPPER, i20::TOOL_EYEDROPPER),
             Self::Eraser => pick(i16::ERASER, i20::TOOL_ERASER),
             Self::Lasso => pick(i16::LASSO, i20::TOOL_LASSO),
@@ -99,7 +104,7 @@ impl Icon {
             Self::Gradient => pick(GRADIENT_TRANSFORM_16, TOOL_GRADIENT_TRANSFORM_20),
             Self::Rectangle => pick(i16::RECT, i20::TOOL_RECT),
             Self::Ellipse => pick(i16::OVAL, i20::TOOL_OVAL),
-            Self::PolyStar => i20::TOOL_POLYSTAR,
+            Self::PolyStar => pick(i16::TOOL_POLYSTAR, i20::TOOL_POLYSTAR),
             Self::Text => pick(i16::TEXT, i20::TOOL_TEXT),
             Self::Bone => pick(i16::TOOL_BONE, i20::TOOL_BONE),
             Self::Bind => pick(i16::TOOL_BIND, i20::TOOL_BIND),
@@ -201,7 +206,7 @@ fn menu_row(
         let enabled = ui.is_enabled();
         if enabled && (response.hovered() || response.is_pointer_button_down_on()) {
             ui.painter()
-                .rect_filled(rect, neoflash_ui::tokens::radius::MD, p.bg_hover);
+                .rect_filled(rect, neoflash_ui::tokens::radius::md(), p.bg_hover);
         }
         let text_color = if enabled {
             p.text_primary
@@ -272,7 +277,7 @@ fn menu_row(
             );
         }
         if neoflash_ui::theme::keyboard_focus(ui, &response) {
-            neoflash_ui::theme::focus_ring(ui, rect.shrink(2.), neoflash_ui::tokens::radius::MD);
+            neoflash_ui::theme::focus_ring(ui, rect.shrink(2.), neoflash_ui::tokens::radius::md());
         }
     }
     let accessible = if shortcut.is_empty() {
@@ -377,14 +382,18 @@ pub(crate) enum TransformModifierIcon {
 }
 
 /// Paints one of the four Classic Flash Free Transform sub-mode modifier icons (`Rotate and Skew`,
-/// `Scale`, `Distort`, `Envelope`) centred inside `rect` on a 16×16 logical grid.
+/// `Scale`, `Distort`, `Envelope`) centred inside `rect` on a 16×16 logical grid, drawn at the
+/// tool glyph size of the current density (`icon_tool()`).
 pub(crate) fn paint_transform_modifier_icon(
     p: &Painter,
     rect: Rect,
     icon: TransformModifierIcon,
     color: egui::Color32,
 ) {
-    let size = rect.width().min(rect.height()).min(16.0);
+    let size = rect
+        .width()
+        .min(rect.height())
+        .min(neoflash_ui::metrics::icon_tool());
     if !size.is_finite() || size <= 0.0 {
         return;
     }
@@ -395,8 +404,9 @@ pub(crate) fn paint_transform_modifier_icon(
             box_rect.top() + (y / 16.0) * box_rect.height(),
         )
     };
-    let stroke = Stroke::new(1.25_f32, color);
-    let thin = Stroke::new(1.0_f32, color);
+    let scale = size / 16.0;
+    let stroke = Stroke::new(1.25 * scale, color);
+    let thin = Stroke::new(scale, color);
     match icon {
         TransformModifierIcon::RotateAndSkew => {
             // Top horizontal right-pointing arrow (`→`) + sheared parallelogram below it.
@@ -424,7 +434,7 @@ pub(crate) fn paint_transform_modifier_icon(
             for i in 0..4 {
                 p.line_segment([quad[i], quad[(i + 1) % 4]], stroke);
                 p.rect_filled(
-                    Rect::from_center_size(quad[i], Vec2::splat(2.2)),
+                    Rect::from_center_size(quad[i], Vec2::splat(2.2 * scale)),
                     0.0,
                     color,
                 );
@@ -445,7 +455,7 @@ pub(crate) fn paint_transform_modifier_icon(
                 (2.2, 8.0),
             ] {
                 p.rect_filled(
-                    Rect::from_center_size(pt(hx, hy), Vec2::splat(2.0)),
+                    Rect::from_center_size(pt(hx, hy), Vec2::splat(2.0 * scale)),
                     0.0,
                     color,
                 );
@@ -486,7 +496,7 @@ pub(crate) fn transform_modifier_button(
             (false, _, true) => (p.bg_hover, p.text_primary),
             (false, _, false) => (egui::Color32::TRANSPARENT, p.text_secondary),
         };
-        let r = neoflash_ui::tokens::radius::MD;
+        let r = neoflash_ui::tokens::radius::md();
         if ui.is_rect_visible(rect) {
             ui.painter()
                 .rect_filled(rect, egui::CornerRadius::same(r as u8), bg);
@@ -536,7 +546,11 @@ pub(crate) fn paint_tool_modifier_glyph(
     glyph: ToolModifierGlyph,
     color: egui::Color32,
 ) {
-    let size = rect.width().min(rect.height()).min(16.0);
+    // Drawn at the tool glyph size of the current density, like the icon masters next to it.
+    let size = rect
+        .width()
+        .min(rect.height())
+        .min(neoflash_ui::metrics::icon_tool());
     if !size.is_finite() || size <= 0.0 {
         return;
     }
@@ -548,8 +562,8 @@ pub(crate) fn paint_tool_modifier_glyph(
         )
     };
     let scale = box_rect.width() / 16.0;
-    let stroke = Stroke::new(1.25_f32, color);
-    let thin = Stroke::new(1.0_f32, color);
+    let stroke = Stroke::new(1.25 * scale, color);
+    let thin = Stroke::new(scale, color);
     match glyph {
         ToolModifierGlyph::ObjectDrawing => {
             // Classic Flash Object Drawing (J): circle inside a bounding box with 4 corner handles.
@@ -673,10 +687,16 @@ pub(crate) fn paint_tool_modifier_glyph(
                     );
                 }
                 S::Slash => {
-                    p.line_segment([pt(4.2, 11.4), pt(11.0, 4.2)], Stroke::new(2.2_f32, color));
+                    p.line_segment(
+                        [pt(4.2, 11.4), pt(11.0, 4.2)],
+                        Stroke::new(2.2 * scale, color),
+                    );
                 }
                 S::Backslash => {
-                    p.line_segment([pt(4.2, 4.2), pt(11.0, 11.4)], Stroke::new(2.2_f32, color));
+                    p.line_segment(
+                        [pt(4.2, 4.2), pt(11.0, 11.4)],
+                        Stroke::new(2.2 * scale, color),
+                    );
                 }
             }
             paint_dropdown_corner(p, pt, color);
@@ -714,8 +734,14 @@ pub(crate) fn paint_tool_modifier_glyph(
             // Classic Flash Faucet (Кран): T-valve on top, horizontal pipe, downward spout, and water drop.
             p.line_segment([pt(5.0, 2.8), pt(10.6, 2.8)], stroke);
             p.line_segment([pt(7.8, 2.8), pt(7.8, 5.6)], stroke);
-            p.line_segment([pt(2.6, 5.6), pt(11.4, 5.6)], Stroke::new(1.8_f32, color));
-            p.line_segment([pt(11.4, 5.6), pt(11.4, 9.2)], Stroke::new(1.8_f32, color));
+            p.line_segment(
+                [pt(2.6, 5.6), pt(11.4, 5.6)],
+                Stroke::new(1.8 * scale, color),
+            );
+            p.line_segment(
+                [pt(11.4, 5.6), pt(11.4, 9.2)],
+                Stroke::new(1.8 * scale, color),
+            );
             p.circle_filled(pt(11.4, 12.4), 1.5 * scale, color);
         }
         ToolModifierGlyph::EraserSize(px, shape) => {
@@ -771,7 +797,10 @@ pub(crate) fn paint_tool_modifier_glyph(
         }
         ToolModifierGlyph::MagicWand => {
             // Classic Flash Magic Wand modifier: diagonal wand with sparkles at tip.
-            p.line_segment([pt(3.0, 13.0), pt(10.5, 5.5)], Stroke::new(1.6_f32, color));
+            p.line_segment(
+                [pt(3.0, 13.0), pt(10.5, 5.5)],
+                Stroke::new(1.6 * scale, color),
+            );
             let tip = pt(11.4, 4.6);
             for (dx, dy) in [
                 (0.0, -2.6),
@@ -794,7 +823,10 @@ pub(crate) fn paint_tool_modifier_glyph(
         }
         ToolModifierGlyph::MagicWandSettings => {
             // Magic Wand + small settings gear/sliders indicator in bottom-right.
-            p.line_segment([pt(2.6, 12.6), pt(9.2, 6.0)], Stroke::new(1.5_f32, color));
+            p.line_segment(
+                [pt(2.6, 12.6), pt(9.2, 6.0)],
+                Stroke::new(1.5 * scale, color),
+            );
             let tip = pt(10.0, 5.2);
             for (dx, dy) in [(0.0, -2.2), (0.0, 2.2), (-2.2, 0.0), (2.2, 0.0)] {
                 p.line_segment(
@@ -831,7 +863,7 @@ pub(crate) fn tool_modifier_button(
             (false, _, true) => (p.bg_hover, p.text_primary),
             (false, _, false) => (egui::Color32::TRANSPARENT, p.text_secondary),
         };
-        let r = neoflash_ui::tokens::radius::MD;
+        let r = neoflash_ui::tokens::radius::md();
         if ui.is_rect_visible(rect) {
             ui.painter()
                 .rect_filled(rect, egui::CornerRadius::same(r as u8), bg);
@@ -1086,7 +1118,7 @@ pub(crate) fn text_property_icon_button(
             (false, _, true) => (p.bg_hover, p.text_primary, p.border_default),
             (false, _, false) => (p.bg_panel, p.text_secondary, p.border_subtle),
         };
-        let r = neoflash_ui::tokens::radius::SM;
+        let r = neoflash_ui::tokens::radius::sm();
         if ui.is_rect_visible(rect) {
             ui.painter()
                 .rect_filled(rect, egui::CornerRadius::same(r as u8), bg);
@@ -1167,7 +1199,7 @@ pub(crate) fn text_optional_color_swatch(
         let size = Vec2::new(26.0, (crate::theme::control_h() - 4.0).max(16.0));
         let (rect, response) = ui.allocate_exact_size(size, Sense::click());
         if ui.is_rect_visible(rect) {
-            let r = neoflash_ui::tokens::radius::SM;
+            let r = neoflash_ui::tokens::radius::sm();
             ui.painter()
                 .rect_filled(rect, egui::CornerRadius::same(r as u8), p.bg_panel);
             ui.painter().rect_stroke(
@@ -1214,7 +1246,7 @@ pub(crate) fn text_optional_color_swatch(
         let clear_size = Vec2::splat(16.0);
         let (rect, resp) = ui.allocate_exact_size(clear_size, Sense::click());
         if ui.is_rect_visible(rect) {
-            let r = neoflash_ui::tokens::radius::SM;
+            let r = neoflash_ui::tokens::radius::sm();
             ui.painter().rect_filled(
                 rect,
                 egui::CornerRadius::same(r as u8),

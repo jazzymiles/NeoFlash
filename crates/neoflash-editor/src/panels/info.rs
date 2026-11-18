@@ -1,7 +1,6 @@
 //! Info panel (NF2 `Panel / Info`, PP-11 / W0.11; reference `panels-more-2.png`): 2×2 selection
 //! bounds (`W` / `H`, `X` / `Y`, editable with one Undo step when an editable selection exists)
 //! and live stage `Cursor` + `Colour` RGBA readouts under the pointer.
-use super::planned::{form_label, mono};
 use crate::app::Editor;
 use crate::paint_controls::two_column_row;
 use crate::stage_view::RulerUnits;
@@ -10,6 +9,7 @@ use crate::workspace::PanelId;
 use eframe::egui::{self, Pos2, Rect, Ui, Vec2};
 use neoflash_core::*;
 use neoflash_ui::components as c;
+use neoflash_ui::{TextStyle, typography::rich};
 use std::collections::HashMap;
 
 #[derive(Clone)]
@@ -359,69 +359,74 @@ impl Editor {
         ));
         self.property_edit_scope(scope);
 
+        // v3 `Panel / Info`: W · X and H · Y on the two-column grid, the registration picker in its
+        // own row, then the Cursor and Colour readouts as sections.
+        ui.spacing_mut().item_spacing.y = neoflash_ui::metrics::row_gap();
         let mut edited_control = None;
-        ui.horizontal_top(|ui| {
-            ui.add(c::RegistrationPicker {
-                point: &mut self.authoring_tools.info_anchor,
-            });
-            ui.vertical(|ui| {
-                ui.add_enabled_ui_semantic(editable, |ui| {
-                    let w_min = if !editable || old_w <= 1e-6 { 0.0 } else { 0.1 };
-                    let h_min = if !editable || old_h <= 1e-6 { 0.0 } else { 0.1 };
-                    let (rw, rh) = two_column_row(
-                        ui,
-                        |ui, width| {
-                            ui.add(
-                                c::Field::new(&mut w, "Width")
-                                    .prefix("W")
-                                    .decimals(1)
-                                    .range(w_min..=100_000.0)
-                                    .width(width),
-                            )
-                        },
-                        |ui, width| {
-                            ui.add(
-                                c::Field::new(&mut h, "Height")
-                                    .prefix("H")
-                                    .decimals(1)
-                                    .range(h_min..=100_000.0)
-                                    .width(width),
-                            )
-                        },
-                    );
-                    if rw.changed() && old_w > 1e-3 {
-                        edited_control = Some((rw.id, "Resize"));
-                    }
-                    if rh.changed() && old_h > 1e-3 {
-                        edited_control = Some((rh.id, "Resize"));
-                    }
-                    let (rx, ry) = two_column_row(
-                        ui,
-                        |ui, width| {
-                            ui.add(
-                                c::Field::new(&mut x, "X")
-                                    .prefix("X")
-                                    .decimals(1)
-                                    .range(-1_000_000.0..=1_000_000.0)
-                                    .width(width),
-                            )
-                        },
-                        |ui, width| {
-                            ui.add(
-                                c::Field::new(&mut y, "Y")
-                                    .prefix("Y")
-                                    .decimals(1)
-                                    .range(-1_000_000.0..=1_000_000.0)
-                                    .width(width),
-                            )
-                        },
-                    );
-                    if rx.changed() {
-                        edited_control = Some((rx.id, "Move"));
-                    }
-                    if ry.changed() {
-                        edited_control = Some((ry.id, "Move"));
-                    }
+        ui.add_enabled_ui_semantic(editable, |ui| {
+            let w_min = if !editable || old_w <= 1e-6 { 0.0 } else { 0.1 };
+            let h_min = if !editable || old_h <= 1e-6 { 0.0 } else { 0.1 };
+            let (rw, rx) = two_column_row(
+                ui,
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(&mut w, "Width")
+                            .prefix("W")
+                            .decimals(1)
+                            .range(w_min..=100_000.0)
+                            .width(width),
+                    )
+                },
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(&mut x, "X")
+                            .prefix("X")
+                            .decimals(1)
+                            .range(-1_000_000.0..=1_000_000.0)
+                            .width(width),
+                    )
+                },
+            );
+            let (rh, ry) = two_column_row(
+                ui,
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(&mut h, "Height")
+                            .prefix("H")
+                            .decimals(1)
+                            .range(h_min..=100_000.0)
+                            .width(width),
+                    )
+                },
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(&mut y, "Y")
+                            .prefix("Y")
+                            .decimals(1)
+                            .range(-1_000_000.0..=1_000_000.0)
+                            .width(width),
+                    )
+                },
+            );
+            if rw.changed() && old_w > 1e-3 {
+                edited_control = Some((rw.id, "Resize"));
+            }
+            if rh.changed() && old_h > 1e-3 {
+                edited_control = Some((rh.id, "Resize"));
+            }
+            if rx.changed() {
+                edited_control = Some((rx.id, "Move"));
+            }
+            if ry.changed() {
+                edited_control = Some((ry.id, "Move"));
+            }
+        });
+        ui.horizontal(|ui| {
+            let p = neoflash_ui::palette(ui.ctx());
+            ui.label(rich("Registration", TextStyle::Body).color(p.text_secondary));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add(c::RegistrationPicker {
+                    point: &mut self.authoring_tools.info_anchor,
                 });
             });
         });
@@ -450,7 +455,7 @@ impl Editor {
         let pointer = ctx
             .input(|i| i.pointer.latest_pos())
             .filter(|pos| canvas.is_finite() && canvas.contains(*pos));
-        let (cursor_text, color_text) = match pointer {
+        let (cursor_text, color_text, sampled) = match pointer {
             Some(pos) => {
                 let stage_pt = Pos2::new(
                     (pos.x - self.stage_view.origin.x) / self.zoom.max(0.01),
@@ -466,19 +471,33 @@ impl Editor {
                 };
                 let [r, g, b, a] = self.sample_stage_color_at(&ctx, stage_pt);
                 let alpha_pct = ((a as f32 / 255.0) * 100.0).round() as u32;
-                (coords, format!("R {r}  G {g}  B {b}  A {alpha_pct}%"))
+                (
+                    coords,
+                    format!("R {r}  G {g}  B {b}  A {alpha_pct}%"),
+                    Some(egui::Color32::from_rgba_unmultiplied(r, g, b, a)),
+                )
             }
-            None => ("—".to_owned(), "—".to_owned()),
+            None => ("—".to_owned(), "—".to_owned(), None),
         };
 
-        for (label, value) in [
-            ("Cursor", cursor_text.as_str()),
-            ("Colour", color_text.as_str()),
-        ] {
-            ui.horizontal(|ui| {
-                form_label(ui, label, 64.0);
-                mono(ui, value);
+        // Readouts are sections, so the monospaced values get the whole row and never truncate.
+        let readout = |ui: &mut Ui, text: &str| {
+            let p = neoflash_ui::palette(ui.ctx());
+            ui.add(egui::Label::new(rich(text, TextStyle::Mono).color(p.text_primary)).truncate());
+        };
+        c::SectionHeader::new("Cursor")
+            .id_salt("info-cursor")
+            .show(ui, |ui| readout(ui, &cursor_text));
+        c::SectionHeader::new("Colour")
+            .id_salt("info-colour")
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = neoflash_ui::tokens::space::s2();
+                    if let Some(color) = sampled {
+                        c::swatch(ui, color, neoflash_ui::metrics::swatch());
+                    }
+                    readout(ui, &color_text);
+                });
             });
-        }
     }
 }

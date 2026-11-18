@@ -334,7 +334,7 @@ impl DiagnosticUi {
         }
         let pos = egui::pos2(
             anchor.left().clamp(text_clip.left(), text_clip.right()),
-            (anchor.bottom() + space::S1).clamp(text_clip.top(), text_clip.bottom()),
+            (anchor.bottom() + space::s1()).clamp(text_clip.top(), text_clip.bottom()),
         );
         let mut action = None;
         let mut requested = None;
@@ -345,14 +345,20 @@ impl DiagnosticUi {
             .show(&ctx, |ui| {
                 if let Some(menu) = &mut self.menu {
                     nf::popover_frame(&ctx).show(ui, |ui| {
-                        ui.set_width(330.0); // Approved R-033 menu body (shared gallery composition).
+                        // R-033 quick-fix menu body: one long field plus one short field wide.
+                        ui.set_width(
+                            neoflash_ui::metrics::field_l() + neoflash_ui::metrics::field_s(),
+                        );
                         nf::menu::menu_style(ui.style_mut());
                         nf::menu_section(
                             ui,
                             &format!("{} fixes for {}", menu.fixes.len(), menu.code),
                         );
+                        // Up to eight fixes; the list never shrinks below its rows while it is open.
+                        let rows = menu.fixes.len().clamp(1, 8) as f32;
                         egui::ScrollArea::vertical()
-                            .max_height(8. * neoflash_ui::metrics::row())
+                            .max_height(rows * neoflash_ui::metrics::row())
+                            .auto_shrink([false, false])
                             .themed()
                             .show(ui, |ui| {
                                 for (index, fix) in menu.fixes.iter().enumerate() {
@@ -458,7 +464,7 @@ pub(super) fn range_rects(
             let right = row.pos.x + row.x_offset(stop.max(start) - offset);
             rects.push(egui::Rect::from_min_max(
                 origin + egui::vec2(left, row.pos.y),
-                origin + egui::vec2(right.max(left + space::S1), row.pos.y + row.height()),
+                origin + egui::vec2(right.max(left + space::s1()), row.pos.y + row.height()),
             ));
             if range.is_empty() {
                 break;

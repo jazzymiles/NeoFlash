@@ -2,7 +2,7 @@
 //!
 //! NF2 references: `panels/*/png/panel-actions-floating.png`, `interface/*/png/editor-actions-tab.png`
 //! (Actions) and `panels/*/png/panels-more-2.png` (Output).
-use super::actions_sidebar::{SIDEBAR_MIN_PANEL, SIDEBAR_WIDTH, ScriptLocation};
+use super::actions_sidebar::{ScriptLocation, navigator_height, sidebar_min_panel, sidebar_width};
 use super::help_as_reference::{
     JS_TS_API_ENTRIES, JS_TS_CATEGORIES, JsTsApiEntry, JsTsEntryKind, search_js_ts_entries,
 };
@@ -56,6 +56,47 @@ const CODE_TOOLS: [&[(neoflash_ui::Icon, &str, Option<CodeCommand>)]; 3] = [
     ],
 ];
 
+/// One tool of the Actions toolbar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ActionsTool {
+    Check,
+    /// `CODE_TOOLS[group][index]`.
+    Code(usize, usize),
+    Sidebar,
+    Pin,
+}
+
+/// Toolbar groups in bar order, separated by dividers.
+const TOOL_GROUPS: [&[ActionsTool]; 4] = [
+    &[
+        ActionsTool::Check,
+        ActionsTool::Code(0, 0),
+        ActionsTool::Code(0, 1),
+        ActionsTool::Code(0, 2),
+    ],
+    &[ActionsTool::Code(1, 0), ActionsTool::Code(1, 1)],
+    &[
+        ActionsTool::Code(2, 0),
+        ActionsTool::Code(2, 1),
+        ActionsTool::Code(2, 2),
+    ],
+    &[ActionsTool::Sidebar, ActionsTool::Pin],
+];
+
+/// Groups of [`TOOL_GROUPS`] in the order they move into the ⋯ menu when the bar is too narrow:
+/// comments, folding, check / format / hint / debug, then sidebar / pin.
+const TOOL_OVERFLOW: [usize; 4] = [2, 1, 0, 3];
+
+/// State shared by the tools of one toolbar pass.
+struct ToolContext {
+    source: bool,
+    can_check: bool,
+    editable: bool,
+    has_api: bool,
+    sidebar_open: bool,
+    is_pinned: bool,
+}
+
 impl Editor {
     pub(crate) fn library_contents(&mut self, ui: &mut egui::Ui) {
         self.library_body(ui);
@@ -69,10 +110,13 @@ impl Editor {
                     .auto_shrink([false, false])
                     .themed()
                     .show(ui, |ui| {
-                        // Padding lives inside the scroll content so the floating scrollbar sits in
-                        // the 16 pt gutter instead of clipping the fields.
+                        // Padding (`pad/panel`) lives inside the scroll content so the floating
+                        // scrollbar sits in the gutter instead of clipping the fields. The area never
+                        // shrinks to its content, so the panel keeps its size as the content changes.
                         egui::Frame::new()
-                            .inner_margin(egui::Margin::same(neoflash_ui::tokens::space::S4 as i8))
+                            .inner_margin(
+                                egui::Margin::same(neoflash_ui::tokens::space::s4() as i8),
+                            )
                             .show(ui, |ui| self.properties(ui, &ctx));
                     });
             }
@@ -84,7 +128,9 @@ impl Editor {
                     .themed()
                     .show(ui, |ui| {
                         egui::Frame::new()
-                            .inner_margin(egui::Margin::same(neoflash_ui::tokens::space::S3 as i8))
+                            .inner_margin(
+                                egui::Margin::same(neoflash_ui::tokens::space::s3() as i8),
+                            )
                             .show(ui, |ui| self.accessibility_panel(ui));
                     });
             }
@@ -174,8 +220,11 @@ impl Editor {
         ui.scope_builder(egui::UiBuilder::new().id(id), |ui| self.actions_body(ui));
     }
 
-    /// NF2 Actions toolbar: target select and language badge (`R-102`), object event, Check,
-    /// code tools (format, hints, comments), sidebar toggle, pin script tab, Script assist and help.
+    /// Actions toolbar, one row of `metrics::timeline_controls()`: target select, language badge
+    /// (`R-102`), object event, then the tool groups (check / format / hint / debug · folding ·
+    /// comments · sidebar / pin) and, right-aligned, Script assist and help. The row is budgeted from
+    /// the available width: Script assist becomes an icon button first, then whole tool groups move
+    /// into the ⋯ menu ([`TOOL_OVERFLOW`]); nothing wraps or is clipped.
     #[allow(clippy::too_many_arguments)]
     fn actions_toolbar(
         &mut self,
@@ -187,315 +236,449 @@ impl Editor {
         active_loc: &Option<ScriptLocation>,
         editable: bool,
     ) {
+        use neoflash_ui::metrics;
         let source = active_target == ScriptTarget::Source;
         let active_source_id = match active_loc {
             Some(ScriptLocation::Source(id)) => Some(id.clone()),
             _ if source => self.selected_source.clone(),
             _ => None,
         };
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = egui::vec2(2., space::S1);
-            let target_width = (ui.available_width() * 0.3).clamp(140., 280.);
-            let (target_response, _) = nf::Select::new("actions_target", context)
-                .icon(i16::TARGET)
-                .width(target_width)
-                .show(ui, |ui| {
-                    let frame = format!("Frame {}", self.frame + 1);
-                    let items = [
-                        (ScriptTarget::Frame, frame.as_str(), true),
-                        (
-                            ScriptTarget::Object,
-                            "Selected object",
-                            self.selected_editable(),
-                        ),
-                        (ScriptTarget::Source, "Project files", true),
-                    ];
-                    for (target, label, enabled) in items {
-                        let item = nf::MenuItem::new(label).checked(active_target == target);
-                        if ui.add_enabled_semantic(enabled, item).clicked() {
-                            self.script_target = target;
-                            self.activate_current_actions_location();
-                        }
-                    }
-                });
-            nf::tooltip(target_response, context.trim_end_matches('.'), None);
-            let btn_w = neoflash_ui::metrics::control();
-            let wrap_if_needed = |ui: &mut egui::Ui, needed_w: f32| {
-                if ui.cursor().left() > ui.max_rect().left() + 1.0
-                    && ui.cursor().left() + needed_w > ui.max_rect().right()
-                {
-                    ui.end_row();
-                }
-            };
-            let divider_if_fits = |ui: &mut egui::Ui, next_w: f32| {
-                if ui.cursor().left() + 5.0 + next_w <= ui.max_rect().right() {
-                    nf::divider(ui, true);
-                } else {
-                    ui.end_row();
-                }
-            };
-            if !source {
-                let proj_lang = self.project.effective_script_language();
-                let skipped = has_stored_script
-                    && self.project.script_disposition_for(
-                        proj_lang,
-                        self.project.also_compile_compatible_scripts,
-                        script.language,
-                    ) == ScriptDisposition::SkippedForeign;
-                wrap_if_needed(ui, 120.0);
-                if ui.cursor().left() > ui.max_rect().left() + 1.0 {
-                    ui.add_space(space::S1);
-                }
-                Self::script_language_badge(ui, script.language, skipped);
+        let source_language = active_source_id.as_ref().and_then(|id| {
+            self.project
+                .sources
+                .iter()
+                .find(|s| &s.id == id)
+                .map(|s| s.language)
+        });
+        let language = if source {
+            source_language
+        } else {
+            Some(script.language)
+        };
+        let cx = ToolContext {
+            source,
+            can_check: !source || active_source_id.is_some(),
+            editable,
+            has_api: language.and_then(crate::script_api::api).is_some(),
+            sidebar_open: self.workspace.code_editor.actions_sidebar,
+            is_pinned: active_loc
+                .as_ref()
+                .is_some_and(|loc| self.actions_ui.pinned_tabs.contains(loc)),
+        };
+        let badge = (!source).then(|| {
+            let proj_lang = self.project.effective_script_language();
+            let skipped = has_stored_script
+                && self.project.script_disposition_for(
+                    proj_lang,
+                    self.project.also_compile_compatible_scripts,
+                    script.language,
+                ) == ScriptDisposition::SkippedForeign;
+            (script.language, skipped)
+        });
+        let event = (active_target == ScriptTarget::Object).then_some(match active_loc {
+            Some(ScriptLocation::Object { event, .. }) => *event,
+            _ => self.script_event,
+        });
+
+        // Width budget.
+        let gap = space::s2();
+        let btn = metrics::control();
+        let divider = 1. + space::s2();
+        let text_width = |text: &str, style: TextStyle| {
+            ui.painter()
+                .layout_no_wrap(
+                    text.to_owned(),
+                    neoflash_ui::typography::font(style),
+                    egui::Color32::PLACEHOLDER,
+                )
+                .size()
+                .x
+        };
+        let badge_w = badge.map_or(0., |(language, _)| {
+            // The badge hugs its label with a fixed 6 pt on both sides.
+            text_width(language.display_label(), TextStyle::Small) + 12. + gap
+        });
+        let event_w = event.map_or(0., |_| metrics::field_m() + gap);
+        let assist_text_w = text_width("Script assist", TextStyle::Body)
+            + 2. * nf::button::button_padding()
+            + metrics::ICON_UI
+            + space::s2();
+        // Target select, the fixed left cluster, then `groups` and the right cluster.
+        let needed = |hidden: usize, assist_w: f32| {
+            let mut width = metrics::field_s() + badge_w + event_w;
+            for group in TOOL_GROUPS
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| !TOOL_OVERFLOW[..hidden].contains(index))
+                .map(|(_, group)| group)
+            {
+                width += gap + divider + group.len() as f32 * (btn + gap);
             }
-            if active_target == ScriptTarget::Object {
-                let cur_event = match active_loc {
-                    Some(ScriptLocation::Object { event, .. }) => *event,
-                    _ => self.script_event,
-                };
-                wrap_if_needed(ui, 150.0 + space::S1);
-                if ui.cursor().left() > ui.max_rect().left() + 1.0 {
-                    ui.add_space(space::S1);
-                }
-                let label = format!("Event: {cur_event:?}");
-                nf::Select::new("actions_object_event", &label)
-                    .width(150.)
+            if hidden > 0 {
+                width += gap + btn;
+            }
+            width + gap + assist_w + gap + btn
+        };
+        let (bar, _) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), metrics::timeline_controls()),
+            egui::Sense::hover(),
+        );
+        let inner = bar.shrink2(egui::vec2(space::s4(), 0.));
+        let (hidden, assist_text) = if needed(0, assist_text_w) <= inner.width() {
+            (0, true)
+        } else {
+            let hidden = (0..TOOL_OVERFLOW.len())
+                .find(|hidden| needed(*hidden, btn) <= inner.width())
+                .unwrap_or(TOOL_OVERFLOW.len());
+            (hidden, false)
+        };
+        let assist_w = if assist_text { assist_text_w } else { btn };
+        let rest = needed(hidden, assist_w) - metrics::field_s();
+        // The target names scene, layer and frame: up to one long plus one short field.
+        let target_width = (inner.width() - rest)
+            .clamp(metrics::field_s(), metrics::field_l() + metrics::field_s());
+        let flex = (inner.width() - rest - target_width).max(0.);
+
+        ui.scope_builder(
+            egui::UiBuilder::new()
+                .max_rect(inner)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+            |ui| {
+                ui.set_clip_rect(bar.intersect(ui.clip_rect()));
+                ui.spacing_mut().item_spacing = egui::vec2(gap, 0.);
+                let (target_response, _) = nf::Select::new("actions_target", context)
+                    .icon(i16::TARGET)
+                    .width(target_width)
                     .show(ui, |ui| {
-                        for event in [
-                            ObjectEvent::Click,
-                            ObjectEvent::Load,
-                            ObjectEvent::EnterFrame,
-                        ] {
-                            let name = format!("{event:?}");
-                            let item = nf::MenuItem::new(&name).checked(cur_event == event);
-                            if ui.add(item).clicked() {
-                                if let Some(ScriptLocation::Object {
-                                    symbol,
-                                    frame,
-                                    element,
-                                    ..
-                                }) = active_loc
-                                    && self.actions_ui.active_pinned.is_some()
-                                {
-                                    let next_loc = ScriptLocation::Object {
-                                        symbol: symbol.clone(),
-                                        frame: *frame,
-                                        element: element.clone(),
-                                        event,
-                                    };
-                                    if self.actions_ui.pinned_tabs.contains(&next_loc) {
-                                        self.actions_ui.active_pinned = Some(next_loc);
-                                    } else {
-                                        self.open_script_location(next_loc);
-                                    }
-                                } else {
-                                    self.script_event = event;
-                                    self.activate_current_actions_location();
-                                }
+                        let frame = format!("Frame {}", self.frame + 1);
+                        let items = [
+                            (ScriptTarget::Frame, frame.as_str(), true),
+                            (
+                                ScriptTarget::Object,
+                                "Selected object",
+                                self.selected_editable(),
+                            ),
+                            (ScriptTarget::Source, "Project files", true),
+                        ];
+                        for (target, label, enabled) in items {
+                            let item = nf::MenuItem::new(label).checked(active_target == target);
+                            if ui.add_enabled_semantic(enabled, item).clicked() {
+                                self.script_target = target;
+                                self.activate_current_actions_location();
                             }
                         }
                     });
+                nf::tooltip(target_response, context.trim_end_matches('.'), None);
+                if let Some((language, skipped)) = badge {
+                    Self::script_language_badge(ui, language, skipped);
+                }
+                if let Some(cur_event) = event {
+                    let label = format!("{cur_event:?}");
+                    nf::Select::new("actions_object_event", &label)
+                        .prefix("Event")
+                        .width(metrics::field_m())
+                        .show(ui, |ui| {
+                            for event in [
+                                ObjectEvent::Click,
+                                ObjectEvent::Load,
+                                ObjectEvent::EnterFrame,
+                            ] {
+                                let name = format!("{event:?}");
+                                let item = nf::MenuItem::new(&name).checked(cur_event == event);
+                                if ui.add(item).clicked() {
+                                    if let Some(ScriptLocation::Object {
+                                        symbol,
+                                        frame,
+                                        element,
+                                        ..
+                                    }) = active_loc
+                                        && self.actions_ui.active_pinned.is_some()
+                                    {
+                                        let next_loc = ScriptLocation::Object {
+                                            symbol: symbol.clone(),
+                                            frame: *frame,
+                                            element: element.clone(),
+                                            event,
+                                        };
+                                        if self.actions_ui.pinned_tabs.contains(&next_loc) {
+                                            self.actions_ui.active_pinned = Some(next_loc);
+                                        } else {
+                                            self.open_script_location(next_loc);
+                                        }
+                                    } else {
+                                        self.script_event = event;
+                                        self.activate_current_actions_location();
+                                    }
+                                }
+                            }
+                        });
+                }
+                let overflow = &TOOL_OVERFLOW[..hidden];
+                for (index, group) in TOOL_GROUPS.iter().enumerate() {
+                    if overflow.contains(&index) {
+                        continue;
+                    }
+                    nf::divider(ui, true);
+                    for tool in *group {
+                        self.actions_tool(ui, *tool, false, script, active_loc, &cx);
+                    }
+                }
+                ui.add_space(flex);
+                if hidden > 0 {
+                    let more = ui.add(
+                        nf::IconButton::new(i16::MORE, "More script tools")
+                            .kind(nf::IconButtonType::Selected),
+                    );
+                    nf::popup_below(&more, metrics::menu_width(), |ui| {
+                        let mut first = true;
+                        for (index, group) in TOOL_GROUPS.iter().enumerate() {
+                            if !overflow.contains(&index) {
+                                continue;
+                            }
+                            if !first {
+                                nf::menu_separator(ui);
+                            }
+                            first = false;
+                            for tool in *group {
+                                self.actions_tool(ui, *tool, true, script, active_loc, &cx);
+                            }
+                        }
+                    });
+                }
+                let assist = if assist_text {
+                    ui.add_enabled_semantic(
+                        editable,
+                        nf::Button::ghost("Script assist").icon(i16::WAND),
+                    )
+                } else {
+                    ui.add_enabled_semantic(
+                        editable,
+                        nf::IconButton::new(i16::WAND, "Script assist"),
+                    )
+                };
+                if editable {
+                    nf::popup_below(&assist, metrics::menu_width(), |ui| {
+                        for (item_label, template) in
+                            crate::sources::ScriptAssistTemplate::default_menu_items()
+                        {
+                            if ui.add(nf::MenuItem::new(item_label)).clicked() {
+                                if source {
+                                    self.insert_script_assist_snippet(template);
+                                } else {
+                                    let snippet = crate::sources::format_script_assist_snippet(
+                                        &template,
+                                        script.language,
+                                    );
+                                    crate::sources::append_script_assist_to_source(
+                                        &mut script.source,
+                                        &snippet,
+                                    );
+                                }
+                            }
+                        }
+                        if self.has_ready_ai_connection() {
+                            nf::menu_separator(ui);
+                            if ui.add(nf::MenuItem::new("Send to AI…")).clicked() {
+                                let _ = self.open_send_to_ai();
+                                ui.close();
+                            }
+                        }
+                    });
+                }
+                let help = ui.add(nf::IconButton::new(i16::HELP, "About Actions"));
+                nf::popup_below(&help, metrics::menu_width(), |ui| {
+                    let p = neoflash_ui::palette(ui.ctx());
+                    egui::Frame::new()
+                        .inner_margin(egui::Margin::same(space::s2() as i8))
+                        .show(ui, |ui| {
+                            ui.set_max_width(metrics::field_l());
+                            ui.label(
+                                neoflash_ui::typography::rich("Actions", TextStyle::BodyStrong)
+                                    .color(p.text_primary),
+                            );
+                            ui.label(
+                                neoflash_ui::typography::rich(
+                                    "Frame and object scripts are stored in the document. Test Movie runs scripts in the browser; Check validates the code against current language support.",
+                                    TextStyle::Small,
+                                )
+                                .color(p.text_secondary),
+                            );
+                        });
+                });
+            },
+        );
+    }
+
+    /// Debug options: Debug movie, the Breakpoints & Watch pane and Remove all breakpoints.
+    fn actions_debug_menu(&mut self, ui: &mut egui::Ui) {
+        let dbg_open = self.actions_debugger_open();
+        if ui
+            .add(nf::MenuItem::new("Debug movie").shortcut("⇧⌘↵"))
+            .clicked()
+        {
+            self.open_debug_options(ui.ctx());
+            ui.close();
+        }
+        if ui
+            .add(nf::MenuItem::new("Breakpoints & Watch").checked(dbg_open))
+            .clicked()
+        {
+            self.set_actions_debugger_open(!dbg_open);
+            ui.close();
+        }
+        if !self.debugger.breakpoints.is_empty() {
+            nf::menu_separator(ui);
+            if ui
+                .add(nf::MenuItem::new("Remove all breakpoints"))
+                .clicked()
+            {
+                self.clear_all_session_breakpoints();
+                ui.close();
             }
-            ui.add_space(space::S1);
-            divider_if_fits(ui, btn_w);
-            let check_label = if source {
-                "Check project"
-            } else {
-                "Check script"
-            };
-            wrap_if_needed(ui, btn_w);
-            let check = ui.add_enabled_semantic(
-                !source || active_source_id.is_some(),
-                nf::IconButton::new(i16::CHECK, check_label),
-            );
-            if check.clicked() {
-                if source {
+        }
+    }
+
+    /// One toolbar tool: an icon button with its tooltip on the bar (`menu == false`) or the same
+    /// command as a row of the ⋯ menu.
+    fn actions_tool(
+        &mut self,
+        ui: &mut egui::Ui,
+        tool: ActionsTool,
+        menu: bool,
+        script: &mut Script,
+        active_loc: &Option<ScriptLocation>,
+        cx: &ToolContext,
+    ) {
+        // Icon, label, shortcut, enabled, toggle state.
+        let has_folds = !self.folded_lines().is_empty();
+        let (icon, label, shortcut, enabled, checked) = match tool {
+            ActionsTool::Check => (
+                i16::CHECK,
+                if cx.source {
+                    "Check project"
+                } else {
+                    "Check script"
+                },
+                None,
+                cx.can_check,
+                None,
+            ),
+            ActionsTool::Code(group, index) => {
+                let (icon, label, command) = &CODE_TOOLS[group][index];
+                match command {
+                    Some(CodeCommand::ShowHints) => (
+                        *icon,
+                        *label,
+                        Some("⌃Space"),
+                        cx.editable && cx.has_api,
+                        None,
+                    ),
+                    Some(_) => (*icon, *label, None, cx.editable, None),
+                    None => match *label {
+                        "Debug options" => (
+                            *icon,
+                            *label,
+                            None,
+                            true,
+                            Some(self.actions_debugger_open()),
+                        ),
+                        "Collapse between braces" => (*icon, *label, None, cx.editable, None),
+                        "Expand all" => (*icon, *label, None, cx.editable && has_folds, None),
+                        _ => {
+                            // Designed command the editor cannot perform yet.
+                            if menu {
+                                Self::unavailable_item(ui, label, "");
+                            } else {
+                                let button =
+                                    ui.add_enabled(false, nf::IconButton::new(*icon, label));
+                                nf::not_available(button, label);
+                            }
+                            return;
+                        }
+                    },
+                }
+            }
+            ActionsTool::Sidebar => (
+                i16::SIDEBAR,
+                "Show toolbox sidebar",
+                None,
+                true,
+                Some(cx.sidebar_open),
+            ),
+            ActionsTool::Pin => (
+                i16::PIN,
+                if cx.is_pinned {
+                    "Unpin script tab"
+                } else {
+                    "Pin script tab"
+                },
+                None,
+                active_loc.is_some(),
+                Some(cx.is_pinned),
+            ),
+        };
+        let debug = matches!(tool, ActionsTool::Code(group, index) if CODE_TOOLS[group][index].1 == "Debug options");
+        let clicked = if menu {
+            if debug {
+                nf::submenu(ui, label, |ui| self.actions_debug_menu(ui));
+                return;
+            }
+            let mut item = nf::MenuItem::new(label).icon(icon);
+            if let Some(shortcut) = shortcut {
+                item = item.shortcut(shortcut);
+            }
+            if let Some(checked) = checked {
+                item = item.checked(checked);
+            }
+            let clicked = ui.add_enabled(enabled, item).clicked();
+            if clicked {
+                ui.close();
+            }
+            clicked
+        } else {
+            let mut button = nf::IconButton::new(icon, label).selected(checked == Some(true));
+            if let Some(shortcut) = shortcut {
+                button = button.shortcut(shortcut);
+            }
+            let response = ui.add_enabled_semantic(enabled, button);
+            if debug {
+                nf::popup_below(&response, neoflash_ui::metrics::menu_width(), |ui| {
+                    self.actions_debug_menu(ui)
+                });
+                return;
+            }
+            response.clicked()
+        };
+        if !clicked {
+            return;
+        }
+        match tool {
+            ActionsTool::Check => {
+                if cx.source {
                     self.check_project_sources(true);
                 } else {
                     self.check_action_source(script, true);
                 }
             }
-            let source_language = active_source_id.as_ref().and_then(|id| {
-                self.project
-                    .sources
-                    .iter()
-                    .find(|s| &s.id == id)
-                    .map(|s| s.language)
-            });
-            let language = if source {
-                source_language
-            } else {
-                Some(script.language)
-            };
-            let has_api = language.and_then(crate::script_api::api).is_some();
-            for group in CODE_TOOLS {
-                for (icon, label, command) in group {
-                    wrap_if_needed(ui, btn_w);
-                    let Some(command) = command else {
-                        if *label == "Debug options" {
-                            let dbg_open = self.actions_debugger_open();
-                            let dbg_btn =
-                                ui.add(nf::IconButton::new(*icon, label).selected(dbg_open));
-                            nf::popup_below(&dbg_btn, 232., |ui| {
-                                if ui
-                                    .add(nf::MenuItem::new("Debug movie").shortcut("⇧⌘↵"))
-                                    .clicked()
-                                {
-                                    self.open_debug_options(ui.ctx());
-                                    ui.close();
-                                }
-                                if ui
-                                    .add(
-                                        nf::MenuItem::new("Breakpoints & Watch")
-                                            .checked(dbg_open),
-                                    )
-                                    .clicked()
-                                {
-                                    self.set_actions_debugger_open(!dbg_open);
-                                    ui.close();
-                                }
-                                if !self.debugger.breakpoints.is_empty() {
-                                    nf::menu_separator(ui);
-                                    if ui
-                                        .add(nf::MenuItem::new("Remove all breakpoints"))
-                                        .clicked()
-                                    {
-                                        self.clear_all_session_breakpoints();
-                                        ui.close();
-                                    }
-                                }
-                            });
-                            continue;
-                        }
-                        if *label == "Collapse between braces" {
-                            let button = ui.add_enabled_semantic(
-                                editable,
-                                nf::IconButton::new(*icon, label),
-                            );
-                            if button.clicked() {
-                                self.collapse_between_braces_in_current_editor(
-                                    ui.ctx(),
-                                    &script.source,
-                                );
-                            }
-                            continue;
-                        }
-                        if *label == "Expand all" {
-                            let has_folds = !self.folded_lines().is_empty();
-                            let button = ui.add_enabled_semantic(
-                                editable && has_folds,
-                                nf::IconButton::new(*icon, label),
-                            );
-                            if button.clicked() {
-                                self.expand_all_folds();
-                            }
-                            continue;
-                        }
-                        let button = ui.add_enabled(false, nf::IconButton::new(*icon, label));
-                        nf::not_available(button, label);
-                        continue;
-                    };
-                    let enabled = editable && (*command != CodeCommand::ShowHints || has_api);
-                    let mut widget = nf::IconButton::new(*icon, label);
-                    if *command == CodeCommand::ShowHints {
-                        widget = widget.shortcut("⌃Space");
-                    }
-                    let button = ui.add_enabled_semantic(enabled, widget);
-                    if button.clicked() {
-                        self.actions_ui.pending = Some(command.clone());
-                    }
+            ActionsTool::Code(group, index) => match &CODE_TOOLS[group][index] {
+                (_, _, Some(command)) => self.actions_ui.pending = Some(command.clone()),
+                (_, "Collapse between braces", None) => {
+                    self.collapse_between_braces_in_current_editor(ui.ctx(), &script.source);
                 }
-                divider_if_fits(ui, btn_w);
-            }
-            wrap_if_needed(ui, btn_w);
-            let sidebar_open = self.workspace.code_editor.actions_sidebar;
-            let sidebar = ui.add(
-                nf::IconButton::new(i16::SIDEBAR, "Show toolbox sidebar").selected(sidebar_open),
-            );
-            if sidebar.clicked() {
-                self.workspace.code_editor.actions_sidebar = !sidebar_open;
+                (_, "Expand all", None) => self.expand_all_folds(),
+                _ => {}
+            },
+            ActionsTool::Sidebar => {
+                self.workspace.code_editor.actions_sidebar = !cx.sidebar_open;
                 self.actions_ui.sidebar = self.workspace.code_editor.actions_sidebar;
                 self.persist_workspace_requested = true;
             }
-            let is_pinned = active_loc
-                .as_ref()
-                .is_some_and(|loc| self.actions_ui.pinned_tabs.contains(loc));
-            let pin_label = if is_pinned {
-                "Unpin script tab"
-            } else {
-                "Pin script tab"
-            };
-            wrap_if_needed(ui, btn_w);
-            let pin_btn = ui.add_enabled_semantic(
-                active_loc.is_some(),
-                nf::IconButton::new(i16::PIN, pin_label).selected(is_pinned),
-            );
-            if pin_btn.clicked()
-                && let Some(loc) = active_loc.clone()
-            {
-                self.toggle_pin_script_tab(loc);
+            ActionsTool::Pin => {
+                if let Some(loc) = active_loc.clone() {
+                    self.toggle_pin_script_tab(loc);
+                }
             }
-            let right = 140. + btn_w + 2. * 2.;
-            wrap_if_needed(ui, right);
-            // In a wrapped row `available_width` is the full row width, not what is left of it.
-            let rest = ui.max_rect().right() - ui.cursor().left() - right - space::S4;
-            if rest > 0. {
-                ui.add_space(rest);
-            }
-            let assist = ui.add_enabled_semantic(
-                editable,
-                nf::Button::ghost("Script assist").icon(i16::WAND),
-            );
-            if editable {
-                nf::popup_below(&assist, 240., |ui| {
-                    for (item_label, template) in
-                        crate::sources::ScriptAssistTemplate::default_menu_items()
-                    {
-                        if ui.add(nf::MenuItem::new(item_label)).clicked() {
-                            if source {
-                                self.insert_script_assist_snippet(template);
-                            } else {
-                                let snippet = crate::sources::format_script_assist_snippet(
-                                    &template,
-                                    script.language,
-                                );
-                                crate::sources::append_script_assist_to_source(
-                                    &mut script.source,
-                                    &snippet,
-                                );
-                            }
-                        }
-                    }
-                    if self.has_ready_ai_connection() {
-                        nf::menu_separator(ui);
-                        if ui.add(nf::MenuItem::new("Send to AI…")).clicked() {
-                            let _ = self.open_send_to_ai();
-                            ui.close();
-                        }
-                    }
-                });
-            }
-            let help = ui.add(nf::IconButton::new(i16::HELP, "About Actions"));
-            nf::popup_below(&help, 280., |ui| {
-                let p = neoflash_ui::palette(ui.ctx());
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S2 as i8))
-                    .show(ui, |ui| {
-                        ui.set_max_width(264.);
-                        ui.label(
-                            neoflash_ui::typography::rich("Actions", TextStyle::BodyStrong)
-                                .color(p.text_primary),
-                        );
-                        ui.label(
-                            neoflash_ui::typography::rich(
-                                "Frame and object scripts are stored in the document. Test Movie runs scripts in the browser; Check validates the code against current language support.",
-                                TextStyle::Small,
-                            )
-                            .color(p.text_secondary),
-                        );
-                    });
-            });
-        });
+        }
     }
 
     /// Render the `R-102` item 7 foreign-language notice row between the toolbar separator and
@@ -559,11 +742,14 @@ impl Editor {
         };
         let mut mark_clicked = false;
         egui::Frame::new()
-            .inner_margin(egui::Margin::symmetric(space::S3 as i8, 6))
+            .inner_margin(egui::Margin::symmetric(
+                space::s4() as i8,
+                space::s2() as i8,
+            ))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.spacing_mut().item_spacing.x = space::S3;
+                    ui.spacing_mut().item_spacing.x = space::s2();
                     if can_retag {
                         let mark_label = format!("Mark as {}", proj_lang.display_label());
                         if ui.add(nf::Button::ghost(&mark_label)).clicked() {
@@ -819,21 +1005,17 @@ impl Editor {
         };
         let saved_y_spacing = ui.spacing().item_spacing.y;
         ui.spacing_mut().item_spacing.y = 0.0;
-        // Figma Actions (docked): 44 pt toolbar = 32 pt controls + 6 pt top/bottom, 8 pt sides,
-        // then a 1 pt separator above the editor (and optional 45 pt foreign-language notice row).
-        egui::Frame::new()
-            .inner_margin(egui::Margin::symmetric(space::S2 as i8, 6))
-            .show(ui, |ui| {
-                self.actions_toolbar(
-                    ui,
-                    &mut script,
-                    has_stored_script,
-                    &context,
-                    active_target,
-                    &location_before,
-                    editable,
-                )
-            });
+        // One `timeline_controls()` toolbar row with `pad/panel` sides, then a 1 pt separator above
+        // the editor (and the optional foreign-language notice row).
+        self.actions_toolbar(
+            ui,
+            &mut script,
+            has_stored_script,
+            &context,
+            active_target,
+            &location_before,
+            editable,
+        );
         let line_y = ui.cursor().top();
         ui.painter().hline(
             ui.max_rect().x_range(),
@@ -878,13 +1060,13 @@ impl Editor {
             .unwrap_or_else(|| tab.clone());
         self.actions_ui.sidebar = self.workspace.code_editor.actions_sidebar;
         let main =
-            if self.workspace.code_editor.actions_sidebar && rest.width() >= SIDEBAR_MIN_PANEL {
+            if self.workspace.code_editor.actions_sidebar && rest.width() >= sidebar_min_panel() {
                 let side =
-                    egui::Rect::from_min_size(rest.min, egui::vec2(SIDEBAR_WIDTH, rest.height()));
+                    egui::Rect::from_min_size(rest.min, egui::vec2(sidebar_width(), rest.height()));
                 let mut side_ui = ui.new_child(
                     egui::UiBuilder::new().id_salt("actions-sidebar").max_rect(
-                        side.shrink(space::S2)
-                            .with_max_x(side.right() - 1. - space::S2),
+                        side.shrink(space::s2())
+                            .with_max_x(side.right() - 1. - space::s2()),
                     ),
                 );
                 self.actions_sidebar_with_js_ts(&mut side_ui, script.language, &nav_label);
@@ -1076,13 +1258,13 @@ impl Editor {
             return;
         }
         let full = ui.available_rect_before_wrap();
-        let navigator_h = (full.height() * 0.42).clamp(120., 260.);
+        let navigator_h = navigator_height(full.height());
         ui.add(nf::Search::new(
             &mut self.actions_ui.search,
             "Search toolbox",
         ));
-        ui.add_space(space::S1);
-        let toolbox_h = (ui.available_height() - navigator_h - space::S2)
+        ui.add_space(space::s1());
+        let toolbox_h = (ui.available_height() - navigator_h - space::s2())
             .max(2. * neoflash_ui::metrics::control());
         egui::ScrollArea::vertical()
             .id_salt("actions-toolbox")
@@ -1094,19 +1276,19 @@ impl Editor {
                 self.js_ts_toolbox_tree(ui, language);
             });
         let p = neoflash_ui::palette(ui.ctx());
-        ui.add_space(space::S1);
+        ui.add_space(space::s1());
         let y = ui.cursor().top();
         ui.painter().hline(
             ui.max_rect().x_range(),
             y,
             egui::Stroke::new(1.0_f32, p.border_subtle),
         );
-        ui.add_space(space::S3);
+        ui.add_space(space::s3());
         ui.label(
             neoflash_ui::typography::rich("Script navigator", TextStyle::Overline)
                 .color(p.text_secondary),
         );
-        ui.add_space(space::S1);
+        ui.add_space(space::s1());
         egui::ScrollArea::vertical()
             .id_salt("actions-navigator")
             .auto_shrink([false, false])
@@ -2907,7 +3089,12 @@ mod tests {
 
         // 1. Pin `Scene 1 : Frame 1` by clicking the `📌` icon on its bottom `ScriptTab`.
         let out0 = step(&mut editor, vec![]);
-        let pin_frame1 = find_ax_rect(&out0, "Pin script tab: Scene 1 : Frame 1", 250.0, 575.0);
+        let pin_frame1 = find_ax_rect(
+            &out0,
+            "Pin script tab: Scene 1 : Frame 1",
+            sidebar_width(),
+            575.0,
+        );
         click_at(
             &mut editor,
             pin_frame1.center(),
@@ -2933,8 +3120,18 @@ mod tests {
             "Stage selection must not hijack active pinned tab"
         );
         // Both the pinned `Scene 1 : Frame 1` tab AND the unpinned `hero_mc : Load` tab appear in the bottom bar!
-        let hero_unpinned_tab = find_ax_rect(&out_after_stage_sel, "hero_mc : Load", 250.0, 575.0);
-        let _ = find_ax_rect(&out_after_stage_sel, "Scene 1 : Frame 1", 250.0, 575.0);
+        let hero_unpinned_tab = find_ax_rect(
+            &out_after_stage_sel,
+            "hero_mc : Load",
+            sidebar_width(),
+            575.0,
+        );
+        let _ = find_ax_rect(
+            &out_after_stage_sel,
+            "Scene 1 : Frame 1",
+            sidebar_width(),
+            575.0,
+        );
 
         // 3. Click unpinned `hero_mc : Load` tab body -> switches to live `hero_mc : Load`, then pin via toolbar `Pin script tab`!
         click_at(
@@ -2970,7 +3167,7 @@ mod tests {
         editor.open_script_location(main_loc.clone());
         assert_eq!(editor.actions_ui.active_pinned, None);
         let out_main = step(&mut editor, vec![]);
-        let main_tab = find_ax_rect(&out_main, "Main.as", 250.0, 575.0);
+        let main_tab = find_ax_rect(&out_main, "Main.as", sidebar_width(), 575.0);
         click_at(
             &mut editor,
             main_tab.center(),
@@ -2997,8 +3194,9 @@ mod tests {
         editor.script_event = ObjectEvent::Load;
         let out_three_pinned = step(&mut editor, vec![]);
         // Bottom bar has 3 pinned tabs + unpinned `enemy_mc : Load`!
-        let _ = find_ax_rect(&out_three_pinned, "enemy_mc : Load", 250.0, 575.0);
-        let hero_tab_rect = find_ax_rect(&out_three_pinned, "hero_mc : Load", 250.0, 575.0);
+        let _ = find_ax_rect(&out_three_pinned, "enemy_mc : Load", sidebar_width(), 575.0);
+        let hero_tab_rect =
+            find_ax_rect(&out_three_pinned, "hero_mc : Load", sidebar_width(), 575.0);
 
         // 1-click switch to `hero_mc : Load` while `enemy_mc` stays selected on Stage!
         click_at(
@@ -3044,7 +3242,8 @@ mod tests {
         // and 1-click switching to `Scene 1 : Frame 1` & `Main.as` works seamlessly!
         editor.selection.targets.clear();
         let out_deselected = step(&mut editor, vec![]);
-        let frame1_tab_rect = find_ax_rect(&out_deselected, "Scene 1 : Frame 1", 250.0, 575.0);
+        let frame1_tab_rect =
+            find_ax_rect(&out_deselected, "Scene 1 : Frame 1", sidebar_width(), 575.0);
         click_at(
             &mut editor,
             frame1_tab_rect.center(),
@@ -3070,7 +3269,7 @@ mod tests {
         );
 
         let out_frame1 = step(&mut editor, vec![]);
-        let main_tab_rect = find_ax_rect(&out_frame1, "Main.as", 250.0, 575.0);
+        let main_tab_rect = find_ax_rect(&out_frame1, "Main.as", sidebar_width(), 575.0);
         click_at(
             &mut editor,
             main_tab_rect.center(),
@@ -3237,7 +3436,7 @@ mod tests {
         // 7. Right-click `hero_mc : Load` -> `Unpin other tabs` keeps ONLY `hero_mc : Load`,
         //    and deleting `el-hero` prunes the stale pinned tab cleanly!
         let out_f2 = step(&mut editor, vec![]);
-        let hero_rect = find_ax_rect(&out_f2, "hero_mc : Load", 250.0, 575.0);
+        let hero_rect = find_ax_rect(&out_f2, "hero_mc : Load", sidebar_width(), 575.0);
         click_at(
             &mut editor,
             hero_rect.center(),
@@ -3254,7 +3453,7 @@ mod tests {
 
         // Click `hero_mc : Load` to make it active, then delete `el-hero` from the document:
         let out_only_hero = step(&mut editor, vec![]);
-        let hero_rect2 = find_ax_rect(&out_only_hero, "hero_mc : Load", 250.0, 575.0);
+        let hero_rect2 = find_ax_rect(&out_only_hero, "hero_mc : Load", sidebar_width(), 575.0);
         click_at(
             &mut editor,
             hero_rect2.center(),

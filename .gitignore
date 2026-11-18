@@ -21,6 +21,7 @@ __pycache__/
 /interface/figma/
 /interface/design-system/exports/interface/
 /interface/design-system/exports/panels/
+/interface/design-system/exports/v3/
 /interface/design-system/docs/pdf/
 /interface/design-system/docs/source/build/
 /interface/design-system/site/
@@ -33,3 +34,6 @@ __pycache__/
 
 # Local screenshot history of the application’s evolution.
 /steps/
+
+# Build product of the v3 Figma builder (interface/figma-plugin/v3/build.sh).
+/interface/figma-plugin/v3/code.js

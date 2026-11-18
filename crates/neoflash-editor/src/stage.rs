@@ -28,11 +28,11 @@ pub(crate) fn paint_stage_error_plate(painter: &egui::Painter, origin: Pos2, mes
     let font = neoflash_ui::typography::font(neoflash_ui::TextStyle::Small);
     let galley = painter.layout_no_wrap(message.to_owned(), font, p.danger_default);
     let pad = egui::vec2(
-        neoflash_ui::tokens::space::S2,
-        neoflash_ui::tokens::space::S1,
+        neoflash_ui::tokens::space::s2(),
+        neoflash_ui::tokens::space::s1(),
     );
     let rect = Rect::from_min_size(origin, galley.size() + pad * 2.0);
-    let corner = egui::CornerRadius::same(neoflash_ui::tokens::radius::SM as u8);
+    let corner = egui::CornerRadius::same(neoflash_ui::tokens::radius::sm() as u8);
     painter.rect(
         rect,
         corner,
@@ -752,7 +752,7 @@ impl Editor {
                     == crate::workspace::StageToolbarMode::EditBar)
                     .then(|| {
                         let height =
-                            neoflash_ui::metrics::control() + neoflash_ui::tokens::space::S2;
+                            neoflash_ui::metrics::control() + neoflash_ui::tokens::space::s2();
                         ui.allocate_exact_size(
                             Vec2::new(ui.available_width(), height),
                             Sense::hover(),
@@ -3126,17 +3126,17 @@ impl Editor {
         let font = neoflash_ui::typography::font(neoflash_ui::TextStyle::Small);
         let galley = painter.layout_no_wrap(text.to_owned(), font, nf.text_primary);
         let pad = Vec2::new(
-            neoflash_ui::tokens::space::S2,
-            neoflash_ui::tokens::space::S1 * 0.5,
+            neoflash_ui::tokens::space::s2(),
+            neoflash_ui::tokens::space::s1() * 0.5,
         );
         let pill = Rect::from_min_size(
             Pos2::new(center_top.x - galley.size().x * 0.5 - pad.x, center_top.y),
             galley.size() + pad * 2.0,
         );
-        painter.rect_filled(pill, neoflash_ui::tokens::radius::SM, nf.bg_raised);
+        painter.rect_filled(pill, neoflash_ui::tokens::radius::sm(), nf.bg_raised);
         painter.rect_stroke(
             pill,
-            neoflash_ui::tokens::radius::SM,
+            neoflash_ui::tokens::radius::sm(),
             Stroke::new(1.0_f32, nf.border_subtle),
             StrokeKind::Inside,
         );
@@ -3156,7 +3156,7 @@ impl Editor {
         }
         let (snap_a, snap_b) = self.stage_ab_snapshots();
         let nf = neoflash_ui::palette(painter.ctx());
-        let badge_y = stage_rect.top() + neoflash_ui::tokens::space::S2;
+        let badge_y = stage_rect.top() + neoflash_ui::tokens::space::s2();
         match mode {
             StageAbComparisonMode::Off => {}
             StageAbComparisonMode::ShowA => {
@@ -3165,7 +3165,10 @@ impl Editor {
                 }
                 self.paint_stage_ab_badge(
                     painter,
-                    Pos2::new(stage_rect.left() + neoflash_ui::tokens::space::S5, badge_y),
+                    Pos2::new(
+                        stage_rect.left() + neoflash_ui::tokens::space::s5(),
+                        badge_y,
+                    ),
                     "A",
                 );
             }
@@ -3175,7 +3178,10 @@ impl Editor {
                 }
                 self.paint_stage_ab_badge(
                     painter,
-                    Pos2::new(stage_rect.left() + neoflash_ui::tokens::space::S5, badge_y),
+                    Pos2::new(
+                        stage_rect.left() + neoflash_ui::tokens::space::s5(),
+                        badge_y,
+                    ),
                     "B",
                 );
             }
@@ -3197,7 +3203,7 @@ impl Editor {
                     stage_rect.y_range(),
                     Stroke::new(1.5_f32, nf.guide),
                 );
-                let offset_x = neoflash_ui::tokens::space::S4;
+                let offset_x = neoflash_ui::tokens::space::s4();
                 self.paint_stage_ab_badge(painter, Pos2::new(split_x - offset_x, badge_y), "A");
                 self.paint_stage_ab_badge(painter, Pos2::new(split_x + offset_x, badge_y), "B");
             }

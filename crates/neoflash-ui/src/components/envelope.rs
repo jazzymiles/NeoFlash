@@ -73,7 +73,7 @@ impl Widget for EnvelopeLane<'_> {
             Sense::click(),
         );
         let painter = ui.painter();
-        painter.rect_filled(rect, cr(radius::MD), p.bg_field);
+        painter.rect_filled(rect, cr(radius::md()), p.bg_field);
         let half = rect.height() / 2.0;
         for row in 0..2 {
             let r = Rect::from_min_size(
@@ -95,12 +95,12 @@ impl Widget for EnvelopeLane<'_> {
         );
         painter.rect_stroke(
             rect,
-            cr(radius::MD),
+            cr(radius::md()),
             Stroke::new(1.0_f32, p.border_subtle),
             StrokeKind::Inside,
         );
         painter.text(
-            rect.left_top() + egui::vec2(space::S2, space::S1),
+            rect.left_top() + egui::vec2(space::s2(), space::s1()),
             egui::Align2::LEFT_TOP,
             self.channel,
             crate::typography::font(TextStyle::Small),

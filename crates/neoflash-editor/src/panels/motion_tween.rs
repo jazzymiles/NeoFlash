@@ -881,30 +881,35 @@ impl Editor {
             c::SectionHeader::new("Ease")
                 .id_salt("motion-tween-ease")
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        let (mut value, unit) = ease_amount(span.easing);
-                        let response = ui.add(
-                            c::Field::new(&mut value, "Ease")
-                                .prefix("Ease")
-                                .unit(unit)
-                                .decimals(0)
-                                .range(-100.0..=100.0)
-                                .stepper()
-                                .width(160.0),
+                    // Two equal columns of the inspector grid: the amount and the curve editor.
+                    let (mut value, unit) = ease_amount(span.easing);
+                    let (response, edit_curve) = two_column_row(
+                        ui,
+                        |ui, width| {
+                            ui.add(
+                                c::Field::new(&mut value, "Ease")
+                                    .prefix("Ease")
+                                    .unit(unit)
+                                    .decimals(0)
+                                    .range(-100.0..=100.0)
+                                    .stepper()
+                                    .width(width),
+                            )
+                        },
+                        |ui, width| ui.add(c::Button::ghost("Edit curve…").width(width)),
+                    );
+                    if response.changed() {
+                        self.set_selected_motion_tween_ease(
+                            span,
+                            Easing::Flash {
+                                acceleration: value.round(),
+                            },
+                            Some(response.id),
                         );
-                        if response.changed() {
-                            self.set_selected_motion_tween_ease(
-                                span,
-                                Easing::Flash {
-                                    acceleration: value.round(),
-                                },
-                                Some(response.id),
-                            );
-                        }
-                        if ui.add(c::Button::ghost("Edit curve…")).clicked() {
-                            self.show_panel(PanelId::Ease);
-                        }
-                    });
+                    }
+                    if edit_curve.clicked() {
+                        self.show_panel(PanelId::Ease);
+                    }
                 });
             c::SectionHeader::new("Rotation")
                 .id_salt("motion-tween-rotation")

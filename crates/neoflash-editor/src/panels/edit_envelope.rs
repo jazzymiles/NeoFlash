@@ -5,13 +5,15 @@
 //! Edits live on a draft until confirmed: `Cancel` / `Esc` discards without touching the project,
 //! `OK` / `Enter` commits `FrameSound.effect` and `FrameSound.envelope` in a single Undo step
 //! (`"Edit sound envelope"`).
-use super::planned::caption;
+use super::dialog_helpers::{FormDialog, dialog_width};
 use crate::app::Editor;
 use eframe::egui;
 use neoflash_core::{FrameSound, Id, SoundEffect};
 use neoflash_ui::components as c;
 use neoflash_ui::icons::i16;
+use neoflash_ui::metrics;
 use neoflash_ui::tokens::{TextStyle, space};
+use neoflash_ui::typography::rich;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct EditEnvelopeDraft {
@@ -291,7 +293,6 @@ impl Editor {
         let Some(mut draft) = self.edit_envelope.clone() else {
             return;
         };
-        const WIDTH: f32 = 680.0;
         let nf = neoflash_ui::palette(ctx);
         let duration_secs = self
             .timeline_audio
@@ -311,197 +312,177 @@ impl Editor {
         let mut over_limit = false;
 
         let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
+        let width = dialog_width(ctx, metrics::dialog_l());
+        // Channel lanes are artwork three list rows high.
+        let lane_height = 3.0 * metrics::row();
         let modal = egui::Modal::new(egui::Id::new("edit-envelope"))
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(nf.overlay)
             .show(ctx, |ui| {
-                ui.set_width(WIDTH);
-                let header_top = ui.cursor().min;
-                close_cancel |= c::DialogHeader {
-                    title: "Edit envelope",
-                }
-                .show(ui);
-                ui.painter().hline(
-                    header_top.x..=header_top.x + WIDTH,
-                    header_top.y + neoflash_ui::metrics::dialog_header() - 0.5,
-                    egui::Stroke::new(1.0_f32, nf.border_subtle),
-                );
-
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S5 as i8))
-                    .show(ui, |ui| {
-                        ui.set_width(WIDTH - 2.0 * space::S5);
-                        ui.spacing_mut().item_spacing.y = space::S3;
-
-                        ui.horizontal(|ui| {
-                            let effect_label = format!("Effect: {}", draft.effect.label());
-                            let mut picked = None;
-                            c::Select::new("edit-envelope-effect", &effect_label)
-                                .width(200.0)
-                                .show(ui, |ui| {
-                                    for option in SoundEffect::ALL {
-                                        if ui
-                                            .add(
-                                                c::MenuItem::new(option.label())
-                                                    .checked(option == draft.effect),
-                                            )
-                                            .clicked()
-                                        {
-                                            picked = Some(option);
-                                            ui.close();
-                                        }
+                let dialog = FormDialog::show(ui, "Edit envelope", width, None);
+                close_cancel |= dialog.close;
+                dialog.page(ui, "edit-envelope-page", |ui, _| {
+                    ui.horizontal(|ui| {
+                        let mut picked = None;
+                        c::Select::new("edit-envelope-effect", draft.effect.label())
+                            .prefix("Effect")
+                            .width(metrics::field_l())
+                            .show(ui, |ui| {
+                                for option in SoundEffect::ALL {
+                                    if ui
+                                        .add(
+                                            c::MenuItem::new(option.label())
+                                                .checked(option == draft.effect),
+                                        )
+                                        .clicked()
+                                    {
+                                        picked = Some(option);
+                                        ui.close();
                                     }
-                                });
-                            if let Some(effect) = picked {
-                                draft.apply_preset(effect);
-                            }
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    c::Segmented::show(
-                                        ui,
-                                        &mut draft.unit,
-                                        &[(0, "Seconds"), (1, "Frames")],
-                                        false,
-                                    );
-                                },
-                            );
-                        });
-
-                        let prev_left = draft.left.clone();
-                        let resp_l = ui.add(c::EnvelopeLane {
-                            channel: "L",
-                            points: &mut draft.left,
-                            selected: draft.selected_left,
-                            height: 96.0,
-                        });
-                        if resp_l.changed() {
-                            if draft.left.len() > prev_left.len()
-                                && unique_time_count(&draft.left, &draft.right)
-                                    > FrameSound::MAX_ENVELOPE_POINTS
-                            {
-                                draft.left = prev_left;
-                                over_limit = true;
-                            } else {
-                                draft.selected_left = changed_point_index(&prev_left, &draft.left)
-                                    .or(draft.selected_left);
-                                draft.selected_right = None;
-                                draft.effect = SoundEffect::Custom;
-                            }
+                                }
+                            });
+                        if let Some(effect) = picked {
+                            draft.apply_preset(effect);
                         }
-
-                        let (ruler, _) = ui.allocate_exact_size(
-                            egui::vec2(ui.available_width(), 18.0),
-                            egui::Sense::hover(),
-                        );
-                        let visible_secs = (duration_secs / draft.zoom).max(0.1);
-                        if draft.unit == 1 {
-                            let visible_frames = ((visible_secs * fps).round() as u32).max(1);
-                            let major = (visible_frames / 8).max(1).div_ceil(5) * 5;
-                            c::paint_frame_scale(
-                                ui.painter(),
-                                ui.ctx(),
-                                ruler,
-                                visible_frames,
-                                major.max(1),
-                            );
-                        } else {
-                            let step = choose_second_step(visible_secs);
-                            let steps = (visible_secs / step).floor() as usize;
-                            for i in 0..=steps {
-                                let s = i as f64 * step;
-                                let x = ruler.left()
-                                    + (s / visible_secs).clamp(0.0, 1.0) as f32 * ruler.width();
-                                let align = if i == 0 {
-                                    egui::Align2::LEFT_CENTER
-                                } else if (s - visible_secs).abs() < 1e-3 {
-                                    egui::Align2::RIGHT_CENTER
-                                } else {
-                                    egui::Align2::CENTER_CENTER
-                                };
-                                let label = if step >= 1.0 {
-                                    format!("{:.0}s", s)
-                                } else {
-                                    format!("{:.1}s", s)
-                                };
-                                ui.painter().text(
-                                    egui::pos2(x, ruler.center().y),
-                                    align,
-                                    label,
-                                    neoflash_ui::typography::font(TextStyle::MonoSmall),
-                                    nf.text_tertiary,
-                                );
-                            }
-                        }
-
-                        let prev_right = draft.right.clone();
-                        let resp_r = ui.add(c::EnvelopeLane {
-                            channel: "R",
-                            points: &mut draft.right,
-                            selected: draft.selected_right,
-                            height: 96.0,
-                        });
-                        if resp_r.changed() {
-                            if draft.right.len() > prev_right.len()
-                                && unique_time_count(&draft.left, &draft.right)
-                                    > FrameSound::MAX_ENVELOPE_POINTS
-                            {
-                                draft.right = prev_right;
-                                over_limit = true;
-                            } else {
-                                draft.selected_right =
-                                    changed_point_index(&prev_right, &draft.right)
-                                        .or(draft.selected_right);
-                                draft.selected_left = None;
-                                draft.effect = SoundEffect::Custom;
-                            }
-                        }
-
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = space::S1;
-                            if ui.add(c::IconButton::new(i16::PLAY, "Play")).clicked() {
-                                play_preview = true;
-                            }
-                            if ui.add(c::IconButton::new(i16::STOP, "Stop")).clicked() {
-                                stop_preview = true;
-                            }
-                            if ui
-                                .add_enabled(
-                                    draft.zoom < 8.0,
-                                    c::IconButton::new(i16::ZOOMIN, "Zoom in"),
-                                )
-                                .clicked()
-                            {
-                                draft.zoom = (draft.zoom * 2.0).min(8.0);
-                            }
-                            if ui
-                                .add_enabled(
-                                    draft.zoom > 1.0,
-                                    c::IconButton::new(i16::ZOOMOUT, "Zoom out"),
-                                )
-                                .clicked()
-                            {
-                                draft.zoom = (draft.zoom * 0.5).max(1.0);
-                            }
-                            ui.add_space(space::S2);
-                            caption(
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            c::Segmented::show(
                                 ui,
-                                "Drag handles to shape volume · click a lane to add a point",
-                            );
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.spacing_mut().item_spacing.x = space::S2;
-                                    if ui.add(c::Button::primary("OK")).clicked() {
-                                        close_ok = true;
-                                    }
-                                    if ui.add(c::Button::new("Cancel")).clicked() {
-                                        close_cancel = true;
-                                    }
-                                },
+                                &mut draft.unit,
+                                &[(0, "Seconds"), (1, "Frames")],
+                                false,
                             );
                         });
                     });
+
+                    let prev_left = draft.left.clone();
+                    let resp_l = ui.add(c::EnvelopeLane {
+                        channel: "L",
+                        points: &mut draft.left,
+                        selected: draft.selected_left,
+                        height: lane_height,
+                    });
+                    if resp_l.changed() {
+                        if draft.left.len() > prev_left.len()
+                            && unique_time_count(&draft.left, &draft.right)
+                                > FrameSound::MAX_ENVELOPE_POINTS
+                        {
+                            draft.left = prev_left;
+                            over_limit = true;
+                        } else {
+                            draft.selected_left = changed_point_index(&prev_left, &draft.left)
+                                .or(draft.selected_left);
+                            draft.selected_right = None;
+                            draft.effect = SoundEffect::Custom;
+                        }
+                    }
+
+                    let (ruler, _) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), metrics::toggle_row()),
+                        egui::Sense::hover(),
+                    );
+                    let visible_secs = (duration_secs / draft.zoom).max(0.1);
+                    if draft.unit == 1 {
+                        let visible_frames = ((visible_secs * fps).round() as u32).max(1);
+                        let major = (visible_frames / 8).max(1).div_ceil(5) * 5;
+                        c::paint_frame_scale(
+                            ui.painter(),
+                            ui.ctx(),
+                            ruler,
+                            visible_frames,
+                            major.max(1),
+                        );
+                    } else {
+                        let step = choose_second_step(visible_secs);
+                        let steps = (visible_secs / step).floor() as usize;
+                        for i in 0..=steps {
+                            let s = i as f64 * step;
+                            let x = ruler.left()
+                                + (s / visible_secs).clamp(0.0, 1.0) as f32 * ruler.width();
+                            let align = if i == 0 {
+                                egui::Align2::LEFT_CENTER
+                            } else if (s - visible_secs).abs() < 1e-3 {
+                                egui::Align2::RIGHT_CENTER
+                            } else {
+                                egui::Align2::CENTER_CENTER
+                            };
+                            let label = if step >= 1.0 {
+                                format!("{:.0}s", s)
+                            } else {
+                                format!("{:.1}s", s)
+                            };
+                            ui.painter().text(
+                                egui::pos2(x, ruler.center().y),
+                                align,
+                                label,
+                                neoflash_ui::typography::font(TextStyle::MonoSmall),
+                                nf.text_tertiary,
+                            );
+                        }
+                    }
+
+                    let prev_right = draft.right.clone();
+                    let resp_r = ui.add(c::EnvelopeLane {
+                        channel: "R",
+                        points: &mut draft.right,
+                        selected: draft.selected_right,
+                        height: lane_height,
+                    });
+                    if resp_r.changed() {
+                        if draft.right.len() > prev_right.len()
+                            && unique_time_count(&draft.left, &draft.right)
+                                > FrameSound::MAX_ENVELOPE_POINTS
+                        {
+                            draft.right = prev_right;
+                            over_limit = true;
+                        } else {
+                            draft.selected_right = changed_point_index(&prev_right, &draft.right)
+                                .or(draft.selected_right);
+                            draft.selected_left = None;
+                            draft.effect = SoundEffect::Custom;
+                        }
+                    }
+                });
+                dialog.footer(
+                    ui,
+                    |ui| {
+                        ui.spacing_mut().item_spacing.x = space::s1();
+                        play_preview |= ui.add(c::IconButton::new(i16::PLAY, "Play")).clicked();
+                        stop_preview |= ui.add(c::IconButton::new(i16::STOP, "Stop")).clicked();
+                        if ui
+                            .add_enabled(
+                                draft.zoom < 8.0,
+                                c::IconButton::new(i16::ZOOMIN, "Zoom in"),
+                            )
+                            .clicked()
+                        {
+                            draft.zoom = (draft.zoom * 2.0).min(8.0);
+                        }
+                        if ui
+                            .add_enabled(
+                                draft.zoom > 1.0,
+                                c::IconButton::new(i16::ZOOMOUT, "Zoom out"),
+                            )
+                            .clicked()
+                        {
+                            draft.zoom = (draft.zoom * 0.5).max(1.0);
+                        }
+                        ui.add_space(space::s2());
+                        ui.add(
+                            egui::Label::new(
+                                rich(
+                                    "Drag handles to shape volume · click a lane to add a point",
+                                    TextStyle::Small,
+                                )
+                                .color(nf.text_secondary),
+                            )
+                            .truncate(),
+                        );
+                    },
+                    |ui| {
+                        close_ok |= ui.add(c::Button::primary("OK")).clicked();
+                        close_cancel |= ui.add(c::Button::new("Cancel")).clicked();
+                    },
+                );
             });
 
         if over_limit {

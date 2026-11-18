@@ -12,7 +12,10 @@ pub(crate) const PANEL_FONT: f32 = neoflash_ui::TextStyle::Body.spec().size;
 pub(crate) fn control_h() -> f32 {
     nf::control()
 }
-pub(crate) const LABEL_WIDTH: f32 = 76.;
+/// Inspector label column (`width/label`) at the current density.
+pub(crate) fn label_width() -> f32 {
+    nf::label_width()
+}
 /// `NF2/Small` size (10 since type scale B).
 pub(crate) const SECONDARY_FONT: f32 = neoflash_ui::TextStyle::Small.spec().size;
 /// Tree rows, menu items (`NF2/Tree Item`) at the current density.
@@ -22,10 +25,6 @@ pub(crate) fn row_h() -> f32 {
 /// One inspector field row.
 pub(crate) fn property_row_h() -> f32 {
     nf::control()
-}
-/// Panel tabs / floating panel header (`NF2/Panel Tab`).
-pub(crate) fn header_h() -> f32 {
-    nf::panel_tab()
 }
 pub(crate) fn footer_h() -> f32 {
     nf::control()

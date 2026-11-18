@@ -14,6 +14,8 @@ use neoflash_ui::icons::i16;
 use neoflash_ui::tokens::space;
 
 /// Ease-out "Back" preset: overshoots to about 110 % before settling (CSS `easeOutBack`).
+/// Width of one `c::EasePreset` tile (artwork, fixed).
+const PRESET_TILE: f32 = 72.0;
 pub(crate) const BACK_OUT: [f64; 4] = [0.34, 1.56, 0.64, 1.0];
 /// Range the graph handles can be dragged in (the Overshoot / Undershoot graph shows −30…130 %).
 const HANDLE_Y: std::ops::RangeInclusive<f32> = -0.3..=1.3;
@@ -385,8 +387,16 @@ impl Editor {
             .auto_shrink([false, false])
             .themed()
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
-                self.ease_panel(ui);
+                // The floating scrollbar gets its own gutter, so it never covers a field.
+                egui::Frame::new()
+                    .inner_margin(egui::Margin {
+                        right: space::s3() as i8,
+                        ..egui::Margin::ZERO
+                    })
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing = egui::vec2(space::s2(), space::s2());
+                        self.ease_panel(ui);
+                    });
             });
     }
 
@@ -479,7 +489,7 @@ impl Editor {
         let mut toggled_one_curve = None;
         let mut action = None;
         ui.scope(|ui| {
-            ui.spacing_mut().item_spacing.y = space::S3;
+            ui.spacing_mut().item_spacing.y = space::s3();
             let context = match &span {
                 Some(span) => format!(
                     "{} tween · {} · {}",
@@ -495,11 +505,31 @@ impl Editor {
             };
             caption(ui, &context);
             ui.add_enabled_ui(editable, |ui| {
-                ui.horizontal(|ui| {
+                // Property select and "One curve for all" share a row when both fit; in a dock at
+                // the inspector width the select takes the row and the checkbox follows below.
+                let one_curve_label = "One curve for all";
+                let checkbox_width = neoflash_ui::metrics::check_box()
+                    + space::s2()
+                    + ui.painter()
+                        .layout_no_wrap(
+                            one_curve_label.to_owned(),
+                            neoflash_ui::typography::font(neoflash_ui::TextStyle::Body),
+                            egui::Color32::PLACEHOLDER,
+                        )
+                        .size()
+                        .x;
+                let row_width = ui.available_width();
+                let one_row =
+                    neoflash_ui::metrics::field_m() + space::s2() + checkbox_width <= row_width;
+                let mut property_select = |ui: &mut Ui| {
                     ui.add_enabled_ui(is_motion, |ui| {
-                        let label = format!("Property: {}", ease_target_label(draft.target));
-                        c::Select::new("ease-property", &label)
-                            .width(176.0)
+                        c::Select::new("ease-property", ease_target_label(draft.target))
+                            .prefix("Property")
+                            .width(if one_row {
+                                neoflash_ui::metrics::field_m()
+                            } else {
+                                row_width
+                            })
                             .show(ui, |ui| {
                                 for &(target, item_label) in EASE_TARGETS {
                                     if ui
@@ -515,24 +545,37 @@ impl Editor {
                                 }
                             });
                     });
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let mut one_curve = if is_motion {
-                            draft.one_curve_for_all
-                        } else {
-                            true
-                        };
-                        if ui
-                            .add_enabled(
-                                is_motion,
-                                c::Checkbox::new(&mut one_curve, "One curve for all"),
-                            )
-                            .changed()
-                        {
-                            toggled_one_curve = Some(one_curve);
-                        }
+                };
+                let mut one_curve_checkbox = |ui: &mut Ui| {
+                    let mut one_curve = if is_motion {
+                        draft.one_curve_for_all
+                    } else {
+                        true
+                    };
+                    if ui
+                        .add_enabled(is_motion, c::Checkbox::new(&mut one_curve, one_curve_label))
+                        .changed()
+                    {
+                        toggled_one_curve = Some(one_curve);
+                    }
+                };
+                if one_row {
+                    ui.horizontal(|ui| {
+                        property_select(ui);
+                        ui.with_layout(
+                            egui::Layout::right_to_left(egui::Align::Center),
+                            one_curve_checkbox,
+                        );
                     });
-                });
-                for row in c::EasePresetKind::ALL.chunks(4) {
+                } else {
+                    property_select(ui);
+                    one_curve_checkbox(ui);
+                }
+                // As many preset tiles per row as the panel holds (four in a 360 pt panel).
+                let per_row = (((row_width + space::s2()) / (PRESET_TILE + space::s2())).floor()
+                    as usize)
+                    .clamp(1, 4);
+                for row in c::EasePresetKind::ALL.chunks(per_row) {
                     ui.horizontal(|ui| {
                         for kind in row {
                             let supported = preset_easing(*kind, active_easing).is_some();
@@ -555,38 +598,49 @@ impl Editor {
                     bezier,
                     frames,
                     playhead: span.as_ref().map(|_| playhead),
-                    width: ui.available_width(),
+                    width: row_width,
                 });
                 if let Some(curve) = drag_handles(ui, &graph, bezier) {
                     new_easing = Some(curve);
                 }
-                ui.horizontal(|ui| {
-                    let w = (ui.available_width() - 3.0 * space::S2) / 4.0;
-                    let mut values = bezier.map(f64::from);
-                    let mut changed = false;
-                    for (i, prefix) in ["X1", "Y1", "X2", "Y2"].into_iter().enumerate() {
-                        let range = if i % 2 == 0 {
-                            0.0..=1.0
-                        } else {
-                            -100.0..=100.0
-                        };
-                        changed |= ui
-                            .add(
-                                c::Field::new(&mut values[i], prefix)
-                                    .prefix(prefix)
-                                    .decimals(2)
-                                    .range(range)
-                                    .step(0.01)
-                                    .width(w),
-                            )
-                            .changed();
-                    }
-                    if changed {
-                        let [x1, y1, x2, y2] = values;
-                        new_easing = Some(Easing::CubicBezier { x1, y1, x2, y2 });
-                    }
-                });
-                c::ease_preview_track(ui, bezier, progress, ui.available_width());
+                // Four fields in one row while each keeps a numeric field's width, otherwise two rows
+                // of two equal columns.
+                let per_row =
+                    if (row_width - 3.0 * space::s2()) / 4.0 >= neoflash_ui::metrics::field_num() {
+                        4
+                    } else {
+                        2
+                    };
+                let w = (row_width - (per_row as f32 - 1.0) * space::s2()) / per_row as f32;
+                let mut values = bezier.map(f64::from);
+                let mut changed = false;
+                for (row, prefixes) in ["X1", "Y1", "X2", "Y2"].chunks(per_row).enumerate() {
+                    ui.horizontal(|ui| {
+                        for (column, prefix) in prefixes.iter().enumerate() {
+                            let i = row * per_row + column;
+                            let range = if i % 2 == 0 {
+                                0.0..=1.0
+                            } else {
+                                -100.0..=100.0
+                            };
+                            changed |= ui
+                                .add(
+                                    c::Field::new(&mut values[i], prefix)
+                                        .prefix(prefix)
+                                        .decimals(2)
+                                        .range(range)
+                                        .step(0.01)
+                                        .width(w),
+                                )
+                                .changed();
+                        }
+                    });
+                }
+                if changed {
+                    let [x1, y1, x2, y2] = values;
+                    new_easing = Some(Easing::CubicBezier { x1, y1, x2, y2 });
+                }
+                c::ease_preview_track(ui, bezier, progress, row_width);
                 ui.horizontal(|ui| {
                     if ui
                         .add(c::IconButton::new(i16::PLAY, "Play preview"))
@@ -683,8 +737,8 @@ fn drag_handles(ui: &mut Ui, graph: &egui::Response, bezier: [f32; 4]) -> Option
     }
     let rect = graph.rect;
     let plot = egui::Rect::from_min_max(
-        egui::pos2(rect.left() + 40.0, rect.top() + space::S2),
-        egui::pos2(rect.right() - space::S2, rect.bottom() - 24.0),
+        egui::pos2(rect.left() + 40.0, rect.top() + space::s2()),
+        egui::pos2(rect.right() - space::s2(), rect.bottom() - 24.0),
     );
     let (lo, hi) = match range_of(bezier) {
         c::EaseRange::Normal => (0.0_f32, 1.0_f32),
@@ -734,14 +788,14 @@ enum FooterAction {
 fn footer(ui: &mut Ui, dirty: bool) -> Option<FooterAction> {
     let nf = neoflash_ui::palette(ui.ctx());
     let mut action = None;
-    ui.add_space(space::S2);
+    ui.add_space(space::s2());
     let r = ui.available_rect_before_wrap();
     ui.painter().hline(
         r.x_range(),
-        r.top() - space::S1,
+        r.top() - space::s1(),
         egui::Stroke::new(1.0_f32, nf.border_subtle),
     );
-    ui.add_space(space::S2);
+    ui.add_space(space::s2());
     ui.horizontal(|ui| {
         if ui.add(c::Button::ghost("Reset")).clicked() {
             action = Some(FooterAction::Reset);

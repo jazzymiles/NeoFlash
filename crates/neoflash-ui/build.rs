@@ -128,7 +128,13 @@ fn tokens_rs(tokens: &Value) -> String {
     )
     .unwrap();
     for (k, v) in tokens["dark"]["space"].as_object().unwrap() {
+        writeln!(s, "    /// NF2 reference value; layout code uses [`s{k}`].").unwrap();
         writeln!(s, "    pub const S{k}: f32 = {:.1};", px(&v["$value"])).unwrap();
+        writeln!(
+            s,
+            "    /// Density-aware `space/{k}` (see `metrics::space_{k}`).\n    pub fn s{k}() -> f32 {{ crate::metrics::space_{k}() }}"
+        )
+        .unwrap();
     }
     writeln!(s, "}}\n/// `radius/sm..full`.\npub mod radius {{").unwrap();
     for (k, v) in tokens["dark"]["radius"].as_object().unwrap() {
@@ -139,6 +145,13 @@ fn tokens_rs(tokens: &Value) -> String {
             px(&v["$value"])
         )
         .unwrap();
+        if k != "full" {
+            writeln!(
+                s,
+                "    /// Density-aware `radius/{k}` (see `metrics::radius_{k}`).\n    pub fn {k}() -> f32 {{ crate::metrics::radius_{k}() }}"
+            )
+            .unwrap();
+        }
     }
     writeln!(s, "}}\n").unwrap();
     // Typography.

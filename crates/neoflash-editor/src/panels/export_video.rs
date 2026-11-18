@@ -4,7 +4,9 @@
 //! Opened by `File ▸ Export ▸ Export video…` ([`crate::commands::CommandId::FileExportVideo`])
 //! and by `Library ▸ Export symbol as video…`.
 
-use super::dialog_helpers::group;
+use super::dialog_helpers::{
+    DialogShell, fixed_dialog_size, footer_note, form_line, form_row, group_caption,
+};
 use super::planned::caption;
 use crate::app::Editor;
 use crate::workspace::PanelId;
@@ -17,7 +19,8 @@ use neoflash_export::{
 };
 use neoflash_ui::components as c;
 use neoflash_ui::icons::i16;
-use neoflash_ui::tokens::{TextStyle, radius, space};
+use neoflash_ui::metrics;
+use neoflash_ui::tokens::{TextStyle, radius};
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc, Mutex,
@@ -629,6 +632,16 @@ pub(crate) fn format_mm_ss(secs: f64) -> String {
     format!("{mins:02}:{rem:02}")
 }
 
+/// `Export video` has one size per density in every state (idle, exporting, paused, failed).
+pub(crate) fn export_video_dialog_size(ctx: &egui::Context) -> egui::Vec2 {
+    fixed_dialog_size(ctx, metrics::dialog_xl(), metrics::dialog_l_height())
+}
+
+/// Artwork column of `Export video`: 288 pt in a Normal `dialog_xl()`, scaled with the dialog.
+fn export_video_aside_width(size: egui::Vec2) -> f32 {
+    (288.0 * size.x / metrics::DIALOG_XL).round()
+}
+
 fn paint_video_preview_box(
     ui: &mut egui::Ui,
     ctx: &egui::Context,
@@ -638,7 +651,7 @@ fn paint_video_preview_box(
 ) -> egui::Response {
     let nf = neoflash_ui::palette(ctx);
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
-    let r = egui::CornerRadius::same(radius::LG as u8);
+    let r = egui::CornerRadius::same(radius::lg() as u8);
     ui.painter().rect_filled(rect, r, nf.bg_canvas);
 
     if draft.preview_texture.is_none()
@@ -874,6 +887,336 @@ impl Editor {
         Ok(dialog.save_file().map(|path| (path, None)))
     }
 
+    /// The form column of `Export video`: format switch, then the Range / Video / Content / Audio
+    /// rows on the dialog form grid. Returns `true` when an option changed.
+    fn export_video_form(&self, ui: &mut egui::Ui, draft: &mut ExportVideoDraft) -> bool {
+        let mut changed = false;
+        form_line(ui, |ui| {
+            let fmt_opts: [(VideoFormat, &str); 5] = [
+                (VideoFormat::Mp4, "MP4"),
+                (VideoFormat::WebM, "WebM"),
+                (VideoFormat::Mov, "MOV"),
+                (VideoFormat::Gif, "GIF"),
+                (VideoFormat::PngSequence, "PNG seq."),
+            ];
+            let prev_fmt = draft.options.format;
+            let mut next_fmt = prev_fmt;
+            c::Segmented::show(ui, &mut next_fmt, &fmt_opts, false);
+            if next_fmt != prev_fmt {
+                draft.set_format(next_fmt);
+                changed = true;
+            }
+        });
+        form_row(ui, "Range", |ui| {
+            let cur_label = range_choice_label(&self.project, &draft.range_choice);
+            let active_scene_id = self.symbol_id().to_owned();
+            c::Select::new("export-video-range", &cur_label)
+                .width(metrics::field_l())
+                .show(ui, |ui| {
+                    let mut choices = vec![
+                        (
+                            VideoRangeChoice::WholeMovie,
+                            "Whole movie (all scenes)".to_owned(),
+                        ),
+                        (
+                            VideoRangeChoice::CurrentScene(active_scene_id.clone()),
+                            "Current scene".to_owned(),
+                        ),
+                        (VideoRangeChoice::CustomRange, "Custom range".to_owned()),
+                    ];
+                    let scenes = video_scene_ranges(&self.project);
+                    if scenes.len() > 1 {
+                        for (sc_id, sc_name, _, _) in scenes {
+                            choices.push((
+                                VideoRangeChoice::Scene(sc_id),
+                                format!("Scene: {sc_name}"),
+                            ));
+                        }
+                    }
+                    let scene_ids: std::collections::HashSet<&str> =
+                        if self.project.scenes.is_empty() {
+                            std::iter::once(self.project.root.as_str()).collect()
+                        } else {
+                            self.project.scenes.iter().map(String::as_str).collect()
+                        };
+                    for sym in &self.project.symbols {
+                        if !scene_ids.contains(sym.id.as_str())
+                            && matches!(sym.kind, SymbolKind::MovieClip | SymbolKind::Graphic)
+                        {
+                            choices.push((
+                                VideoRangeChoice::Symbol(sym.id.clone()),
+                                format!("Symbol: {}", sym.name),
+                            ));
+                        }
+                    }
+                    for (choice, label) in choices {
+                        let is_sel = draft.range_choice == choice;
+                        if ui.add(c::MenuItem::new(&label).checked(is_sel)).clicked() {
+                            if !is_sel {
+                                let (s1, e1) = range_bounds_1based(&self.project, &choice);
+                                draft.range_choice = choice;
+                                draft.from_frame = f64::from(s1);
+                                draft.to_frame = f64::from(e1);
+                                draft.preview_dirty = true;
+                                changed = true;
+                            }
+                            ui.close();
+                        }
+                    }
+                });
+        });
+        form_row(ui, "Frames", |ui| {
+            let r_from = ui.add(
+                c::Field::new(&mut draft.from_frame, "From frame")
+                    .prefix("From")
+                    .decimals(0)
+                    .width(metrics::field_s()),
+            );
+            let r_to = ui.add(
+                c::Field::new(&mut draft.to_frame, "To frame")
+                    .prefix("To")
+                    .decimals(0)
+                    .width(metrics::field_s()),
+            );
+            if r_from.changed() || r_to.changed() {
+                if matches!(draft.range_choice, VideoRangeChoice::WholeMovie) {
+                    draft.range_choice = VideoRangeChoice::CustomRange;
+                }
+                changed = true;
+            }
+        });
+
+        group_caption(ui, "Video");
+        form_row(ui, "Size", |ui| {
+            let r_w = ui.add(
+                c::Field::new(&mut draft.width, "Width")
+                    .prefix("W")
+                    .unit("px")
+                    .decimals(0)
+                    .width(metrics::field_s()),
+            );
+            if r_w.changed() && draft.width.is_finite() {
+                draft.width = draft.width.clamp(2.0, 7680.0);
+                if draft.options.constrain_proportions {
+                    draft.height = (draft.width / draft.aspect.max(0.01))
+                        .round()
+                        .clamp(2.0, 4320.0);
+                }
+                changed = true;
+            }
+            let r_h = ui.add(
+                c::Field::new(&mut draft.height, "Height")
+                    .prefix("H")
+                    .unit("px")
+                    .decimals(0)
+                    .width(metrics::field_s()),
+            );
+            if r_h.changed() && draft.height.is_finite() {
+                draft.height = draft.height.clamp(2.0, 4320.0);
+                if draft.options.constrain_proportions {
+                    draft.width = (draft.height * draft.aspect.max(0.01))
+                        .round()
+                        .clamp(2.0, 7680.0);
+                }
+                changed = true;
+            }
+            if ui
+                .add(
+                    c::IconButton::new(i16::LINK, "Constrain proportions")
+                        .selected(draft.options.constrain_proportions),
+                )
+                .clicked()
+            {
+                draft.options.constrain_proportions = !draft.options.constrain_proportions;
+                if draft.options.constrain_proportions && draft.height > 0.0 {
+                    draft.aspect = (draft.width / draft.height).max(0.01);
+                }
+                changed = true;
+            }
+            let scale_label = SCALE_PRESETS
+                .get(draft.scale_idx)
+                .map(|(_, l)| *l)
+                .unwrap_or("1×");
+            c::Select::new("export-video-scale", scale_label)
+                .width(metrics::field_num())
+                .show(ui, |ui| {
+                    for (idx, (mult, label)) in SCALE_PRESETS.iter().copied().enumerate() {
+                        if ui
+                            .add(c::MenuItem::new(label).checked(draft.scale_idx == idx))
+                            .clicked()
+                        {
+                            draft.scale_idx = idx;
+                            draft.width = (f64::from(self.project.width) * f64::from(mult))
+                                .round()
+                                .clamp(2.0, 7680.0);
+                            draft.height = (f64::from(self.project.height) * f64::from(mult))
+                                .round()
+                                .clamp(2.0, 4320.0);
+                            changed = true;
+                            ui.close();
+                        }
+                    }
+                });
+        });
+        form_row(ui, "Frame rate", |ui| {
+            let doc_fps_label = format!("{} fps (document)", self.project.fps);
+            let fps_label = |preset: Option<u32>| match preset {
+                None => doc_fps_label.clone(),
+                Some(v) => format!("{v} fps"),
+            };
+            let cur_fps_label = fps_label(FPS_PRESETS.get(draft.fps_idx).copied().flatten());
+            c::Select::new("export-video-fps", &cur_fps_label)
+                .width(metrics::field_m())
+                .show(ui, |ui| {
+                    for (idx, preset) in FPS_PRESETS.iter().copied().enumerate() {
+                        if ui
+                            .add(c::MenuItem::new(&fps_label(preset)).checked(draft.fps_idx == idx))
+                            .clicked()
+                        {
+                            draft.fps_idx = idx;
+                            changed = true;
+                            ui.close();
+                        }
+                    }
+                });
+        });
+        form_row(ui, "Codec", |ui| {
+            let codecs = draft.options.format.codecs();
+            c::Select::new("export-video-codec", draft.options.codec.label())
+                .width(metrics::field_m())
+                .show(ui, |ui| {
+                    for &codec in codecs {
+                        if ui
+                            .add(
+                                c::MenuItem::new(codec.label())
+                                    .checked(draft.options.codec == codec),
+                            )
+                            .clicked()
+                        {
+                            draft.options.codec = codec;
+                            changed = true;
+                            ui.close();
+                        }
+                    }
+                });
+        });
+        form_row(ui, "Quality", |ui| {
+            let mut q = f64::from(draft.options.quality);
+            let r_q =
+                ui.add(c::Slider::new(&mut q, 1.0..=100.0, "Quality").width(metrics::field_m()));
+            if r_q.changed() && q.is_finite() {
+                draft.options.quality = q.round().clamp(1.0, 100.0) as u8;
+                changed = true;
+            }
+            let mbps = draft
+                .estimate
+                .as_ref()
+                .map(|e| e.bitrate_mbps)
+                .unwrap_or(8.0);
+            caption(
+                ui,
+                &format!(
+                    "{} · ~{:.0} Mbps",
+                    quality_tier_label(draft.options.quality),
+                    mbps.max(1.0)
+                ),
+            );
+        });
+        form_row(ui, "Background", |ui| {
+            ui.add_enabled_ui(draft.options.format.supports_transparent_bg(), |ui| {
+                if ui
+                    .add(c::Checkbox::new(
+                        &mut draft.options.transparent_bg,
+                        "Transparent bg (MOV/WebM)",
+                    ))
+                    .changed()
+                {
+                    draft.preview_dirty = true;
+                    changed = true;
+                }
+            });
+        });
+
+        group_caption(ui, "Content");
+        form_line(ui, |ui| {
+            if ui
+                .add(c::Checkbox::new(
+                    &mut draft.options.runtime_capture,
+                    "Render nested movie clip animation and scripts (runtime capture)",
+                ))
+                .changed()
+            {
+                draft.preview_dirty = true;
+                changed = true;
+            }
+        });
+        form_row(ui, "Duration", |ui| {
+            let is_last = matches!(draft.options.stop_mode, VideoStopMode::LastFrame);
+            if ui
+                .add(c::Radio::new(is_last, "Stop at last frame"))
+                .clicked()
+                && !is_last
+            {
+                draft.options.stop_mode = VideoStopMode::LastFrame;
+                changed = true;
+            }
+            if ui.add(c::Radio::new(!is_last, "Stop after")).clicked() && is_last {
+                draft.options.stop_mode =
+                    VideoStopMode::AfterSeconds(draft.stop_after_secs.max(0.1));
+                changed = true;
+            }
+            let r_secs = ui.add(
+                c::Field::new(&mut draft.stop_after_secs, "Stop after seconds")
+                    .unit("s")
+                    .decimals(0)
+                    .width(metrics::field_num()),
+            );
+            if r_secs.changed() && draft.stop_after_secs.is_finite() {
+                draft.stop_after_secs = draft.stop_after_secs.clamp(0.1, 3600.0);
+                draft.options.stop_mode = VideoStopMode::AfterSeconds(draft.stop_after_secs);
+                changed = true;
+            }
+        });
+
+        group_caption(ui, "Audio");
+        form_row(ui, "", |ui| {
+            ui.add_enabled_ui(draft.options.format.supports_audio(), |ui| {
+                if ui
+                    .add(c::Checkbox::new(
+                        &mut draft.options.include_audio,
+                        "Include audio",
+                    ))
+                    .changed()
+                {
+                    changed = true;
+                }
+                ui.add_enabled_ui(draft.options.include_audio, |ui| {
+                    c::Select::new(
+                        "export-video-audio-bitrate",
+                        draft.options.audio_bitrate.label(),
+                    )
+                    .width(metrics::field_m())
+                    .show(ui, |ui| {
+                        for br in VideoAudioBitrate::ALL {
+                            if ui
+                                .add(
+                                    c::MenuItem::new(br.label())
+                                        .checked(draft.options.audio_bitrate == br),
+                                )
+                                .clicked()
+                            {
+                                draft.options.audio_bitrate = br;
+                                changed = true;
+                                ui.close();
+                            }
+                        }
+                    });
+                });
+            });
+        });
+        changed
+    }
+
     /// Render the `Dialog / Export video` modal (`DL-05`).
     pub(crate) fn export_video_modal(&mut self, ctx: &egui::Context) {
         let Some(mut draft) = self.export_video.clone() else {
@@ -912,492 +1255,64 @@ impl Editor {
         let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
 
         let nf = neoflash_ui::palette(ctx);
+        let can_export_now = !is_exporting
+            && !draft.estimate_blocked
+            && (!draft.options.format.requires_ffmpeg()
+                || draft.estimate.as_ref().is_none_or(|e| e.ffmpeg_available));
+        // v3: one size in the idle, exporting, paused and failed states.
+        let size = export_video_dialog_size(ctx);
+        let aside_width = export_video_aside_width(size);
         let modal = egui::Modal::new(egui::Id::new("export-video-modal"))
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(nf.overlay)
             .show(ctx, |ui| {
-                ui.set_width(840.0);
-                cancel |= c::DialogHeader {
-                    title: "Export video",
-                }
-                .show(ui);
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S5 as i8))
-                    .show(ui, |ui| {
-                        ui.set_width(840.0 - 2.0 * space::S5);
-                        ui.horizontal_top(|ui| {
-                            // ── Left column (300 pt): Preview + Progress + Pause caption ──
-                            ui.vertical(|ui| {
-                                ui.set_width(300.0);
-                                let preview_resp =
-                                    paint_video_preview_box(ui, ctx, &mut draft, 300.0, 188.0);
-                                if is_exporting && preview_resp.clicked() {
-                                    toggle_pause = true;
-                                }
-                                let total_frames = draft
-                                    .estimate
-                                    .as_ref()
-                                    .map(|e| e.frame_count)
-                                    .unwrap_or(1);
-                                if is_exporting {
-                                    let (prog_label, prog_frac) =
-                                        if let Some((done, total)) = progress_counts {
-                                            (
-                                                format!("Exporting frames {done} / {total}"),
-                                                Some(
-                                                    (done as f32 / total.max(1) as f32)
-                                                        .clamp(0.0, 1.0),
-                                                ),
-                                            )
-                                        } else {
-                                            (
-                                                format!("Exporting frames 0 / {total_frames}"),
-                                                Some(0.0),
-                                            )
-                                        };
-                                    c::progress(ui, &prog_label, prog_frac, 300.0);
-                                    let status_text = if is_paused {
-                                        "Preview paused · ▶ to resume"
-                                    } else {
-                                        "Preview while rendering · ⏸ to pause"
-                                    };
-                                    caption(ui, status_text);
-                                } else {
-                                    caption(
-                                        ui,
-                                        &format!(
-                                            "Preview · frame {}",
-                                            draft.options.from_frame.max(1)
-                                        ),
-                                    );
-                                    if let Some(err) = &draft.error_message {
-                                        ui.add(c::LogLine {
-                                            severity: c::Severity::Error,
-                                            time: "",
-                                            text: err,
-                                        });
-                                    }
-                                }
-                            });
-                            ui.add_space(space::S5);
-                            // ── Right column: Format, Range, Video, Content ──
-                            ui.vertical(|ui| {
-                                ui.spacing_mut().item_spacing.y = space::S2;
-                                ui.add_enabled_ui(!is_exporting, |ui| {
-                                    let fmt_opts: [(VideoFormat, &str); 5] = [
-                                        (VideoFormat::Mp4, "MP4"),
-                                        (VideoFormat::WebM, "WebM"),
-                                        (VideoFormat::Mov, "MOV"),
-                                        (VideoFormat::Gif, "GIF"),
-                                        (VideoFormat::PngSequence, "PNG seq."),
-                                    ];
-                                    let prev_fmt = draft.options.format;
-                                    let mut next_fmt = prev_fmt;
-                                    c::Segmented::show(
-                                        ui,
-                                        &mut next_fmt,
-                                        &fmt_opts,
-                                        false,
-                                    );
-                                    if next_fmt != prev_fmt {
-                                        draft.set_format(next_fmt);
-                                        changed = true;
-                                    }
-
-                                    group(ui, "Range");
-                                    ui.horizontal(|ui| {
-                                        let cur_label =
-                                            range_choice_label(&self.project, &draft.range_choice);
-                                        let active_scene_id = self.symbol_id().to_owned();
-                                        c::Select::new("export-video-range", &cur_label)
-                                            .width(220.0)
-                                            .show(ui, |ui| {
-                                                let mut choices = vec![
-                                                    (
-                                                        VideoRangeChoice::WholeMovie,
-                                                        "Whole movie (all scenes)".to_owned(),
-                                                    ),
-                                                    (
-                                                        VideoRangeChoice::CurrentScene(
-                                                            active_scene_id.clone(),
-                                                        ),
-                                                        "Current scene".to_owned(),
-                                                    ),
-                                                    (
-                                                        VideoRangeChoice::CustomRange,
-                                                        "Custom range".to_owned(),
-                                                    ),
-                                                ];
-                                                let scenes = video_scene_ranges(&self.project);
-                                                if scenes.len() > 1 {
-                                                    for (sc_id, sc_name, _, _) in scenes {
-                                                        choices.push((
-                                                            VideoRangeChoice::Scene(sc_id),
-                                                            format!("Scene: {sc_name}"),
-                                                        ));
-                                                    }
-                                                }
-                                                let scene_ids: std::collections::HashSet<&str> =
-                                                    if self.project.scenes.is_empty() {
-                                                        std::iter::once(self.project.root.as_str())
-                                                            .collect()
-                                                    } else {
-                                                        self.project
-                                                            .scenes
-                                                            .iter()
-                                                            .map(String::as_str)
-                                                            .collect()
-                                                    };
-                                                for sym in &self.project.symbols {
-                                                    if !scene_ids.contains(sym.id.as_str())
-                                                        && matches!(
-                                                            sym.kind,
-                                                            SymbolKind::MovieClip
-                                                                | SymbolKind::Graphic
-                                                        )
-                                                    {
-                                                        choices.push((
-                                                            VideoRangeChoice::Symbol(
-                                                                sym.id.clone(),
-                                                            ),
-                                                            format!("Symbol: {}", sym.name),
-                                                        ));
-                                                    }
-                                                }
-                                                for (choice, label) in choices {
-                                                    let is_sel = draft.range_choice == choice;
-                                                    if ui
-                                                        .add(
-                                                            c::MenuItem::new(&label)
-                                                                .checked(is_sel),
-                                                        )
-                                                        .clicked()
-                                                    {
-                                                        if !is_sel {
-                                                            let (s1, e1) = range_bounds_1based(
-                                                                &self.project,
-                                                                &choice,
-                                                            );
-                                                            draft.range_choice = choice;
-                                                            draft.from_frame = f64::from(s1);
-                                                            draft.to_frame = f64::from(e1);
-                                                            draft.preview_dirty = true;
-                                                            changed = true;
-                                                        }
-                                                        ui.close();
-                                                    }
-                                                }
-                                            });
-
-                                        let r_from = ui.add(
-                                            c::Field::new(&mut draft.from_frame, "From frame")
-                                                .prefix("From")
-                                                .decimals(0)
-                                                .width(90.0),
-                                        );
-                                        let r_to = ui.add(
-                                            c::Field::new(&mut draft.to_frame, "To frame")
-                                                .prefix("To")
-                                                .decimals(0)
-                                                .width(90.0),
-                                        );
-                                        if r_from.changed() || r_to.changed() {
-                                            if matches!(
-                                                draft.range_choice,
-                                                VideoRangeChoice::WholeMovie
-                                            ) {
-                                                draft.range_choice = VideoRangeChoice::CustomRange;
-                                            }
-                                            changed = true;
-                                        }
-                                    });
-
-                                    group(ui, "Video");
-                                    ui.horizontal(|ui| {
-                                        let r_w = ui.add(
-                                            c::Field::new(&mut draft.width, "Width")
-                                                .prefix("W")
-                                                .decimals(0)
-                                                .width(110.0),
-                                        );
-                                        if r_w.changed() && draft.width.is_finite() {
-                                            draft.width = draft.width.clamp(2.0, 7680.0);
-                                            if draft.options.constrain_proportions {
-                                                draft.height = (draft.width / draft.aspect.max(0.01))
-                                                    .round()
-                                                    .clamp(2.0, 4320.0);
-                                            }
-                                            changed = true;
-                                        }
-                                        let r_h = ui.add(
-                                            c::Field::new(&mut draft.height, "Height")
-                                                .prefix("H")
-                                                .decimals(0)
-                                                .width(110.0),
-                                        );
-                                        if r_h.changed() && draft.height.is_finite() {
-                                            draft.height = draft.height.clamp(2.0, 4320.0);
-                                            if draft.options.constrain_proportions {
-                                                draft.width = (draft.height * draft.aspect.max(0.01))
-                                                    .round()
-                                                    .clamp(2.0, 7680.0);
-                                            }
-                                            changed = true;
-                                        }
-                                        if ui
-                                            .add(
-                                                c::IconButton::new(
-                                                    i16::LINK,
-                                                    "Constrain proportions",
-                                                )
-                                                .selected(draft.options.constrain_proportions),
-                                            )
-                                            .clicked()
-                                        {
-                                            draft.options.constrain_proportions =
-                                                !draft.options.constrain_proportions;
-                                            if draft.options.constrain_proportions
-                                                && draft.height > 0.0
-                                            {
-                                                draft.aspect =
-                                                    (draft.width / draft.height).max(0.01);
-                                            }
-                                            changed = true;
-                                        }
-                                        let scale_label = SCALE_PRESETS
-                                            .get(draft.scale_idx)
-                                            .map(|(_, l)| *l)
-                                            .unwrap_or("1×");
-                                        c::Select::new("export-video-scale", scale_label)
-                                            .width(76.0)
-                                            .show(ui, |ui| {
-                                                for (idx, (mult, label)) in
-                                                    SCALE_PRESETS.iter().copied().enumerate()
-                                                {
-                                                    if ui
-                                                        .add(
-                                                            c::MenuItem::new(label)
-                                                                .checked(draft.scale_idx == idx),
-                                                        )
-                                                        .clicked()
-                                                    {
-                                                        draft.scale_idx = idx;
-                                                        draft.width = (f64::from(self.project.width)
-                                                            * f64::from(mult))
-                                                        .round()
-                                                        .clamp(2.0, 7680.0);
-                                                        draft.height =
-                                                            (f64::from(self.project.height)
-                                                                * f64::from(mult))
-                                                            .round()
-                                                            .clamp(2.0, 4320.0);
-                                                        changed = true;
-                                                        ui.close();
-                                                    }
-                                                }
-                                            });
-                                    });
-
-                                    ui.horizontal(|ui| {
-                                        let doc_fps_label =
-                                            format!("{} fps (document)", self.project.fps);
-                                        let cur_fps_label =
-                                            match FPS_PRESETS.get(draft.fps_idx).copied().flatten()
-                                            {
-                                                None => doc_fps_label.clone(),
-                                                Some(v) => format!("{v} fps"),
-                                            };
-                                        c::Select::new("export-video-fps", &cur_fps_label)
-                                            .width(160.0)
-                                            .show(ui, |ui| {
-                                                for (idx, preset) in
-                                                    FPS_PRESETS.iter().copied().enumerate()
-                                                {
-                                                    let label = match preset {
-                                                        None => doc_fps_label.clone(),
-                                                        Some(v) => format!("{v} fps"),
-                                                    };
-                                                    if ui
-                                                        .add(
-                                                            c::MenuItem::new(&label)
-                                                                .checked(draft.fps_idx == idx),
-                                                        )
-                                                        .clicked()
-                                                    {
-                                                        draft.fps_idx = idx;
-                                                        changed = true;
-                                                        ui.close();
-                                                    }
-                                                }
-                                            });
-
-                                        let codec_label =
-                                            format!("Codec: {}", draft.options.codec.label());
-                                        let codecs = draft.options.format.codecs();
-                                        c::Select::new("export-video-codec", &codec_label)
-                                            .width(160.0)
-                                            .show(ui, |ui| {
-                                                for &codec in codecs {
-                                                    let lbl = format!("Codec: {}", codec.label());
-                                                    if ui
-                                                        .add(
-                                                            c::MenuItem::new(&lbl).checked(
-                                                                draft.options.codec == codec,
-                                                            ),
-                                                        )
-                                                        .clicked()
-                                                    {
-                                                        draft.options.codec = codec;
-                                                        changed = true;
-                                                        ui.close();
-                                                    }
-                                                }
-                                            });
-                                    });
-
-                                    ui.horizontal(|ui| {
-                                        caption(ui, "Quality");
-                                        let mut q = f64::from(draft.options.quality);
-                                        let r_q = ui.add(
-                                            c::Slider::new(&mut q, 1.0..=100.0, "Quality")
-                                                .width(180.0),
-                                        );
-                                        if r_q.changed() && q.is_finite() {
-                                            draft.options.quality =
-                                                q.round().clamp(1.0, 100.0) as u8;
-                                            changed = true;
-                                        }
-                                        let mbps = draft
-                                            .estimate
-                                            .as_ref()
-                                            .map(|e| e.bitrate_mbps)
-                                            .unwrap_or(8.0);
-                                        caption(
-                                            ui,
-                                            &format!(
-                                                "{} · ~{:.0} Mbps",
-                                                quality_tier_label(draft.options.quality),
-                                                mbps.max(1.0)
-                                            ),
-                                        );
-                                    });
-
-                                    group(ui, "Content");
-                                    if ui
-                                        .add(c::Checkbox::new(
-                                            &mut draft.options.runtime_capture,
-                                            "Render nested movie clip animation and scripts (runtime capture)",
-                                        ))
-                                        .changed()
-                                    {
-                                        draft.preview_dirty = true;
-                                        changed = true;
-                                    }
-                                    ui.horizontal(|ui| {
-                                        let is_last = matches!(
-                                            draft.options.stop_mode,
-                                            VideoStopMode::LastFrame
-                                        );
-                                        if ui
-                                            .add(c::Radio::new(is_last, "Stop at last frame"))
-                                            .clicked()
-                                            && !is_last
-                                        {
-                                            draft.options.stop_mode = VideoStopMode::LastFrame;
-                                            changed = true;
-                                        }
-                                        if ui
-                                            .add(c::Radio::new(!is_last, "Stop after"))
-                                            .clicked()
-                                            && is_last
-                                        {
-                                            draft.options.stop_mode = VideoStopMode::AfterSeconds(
-                                                draft.stop_after_secs.max(0.1),
-                                            );
-                                            changed = true;
-                                        }
-                                        let r_secs = ui.add(
-                                            c::Field::new(
-                                                &mut draft.stop_after_secs,
-                                                "Stop after seconds",
-                                            )
-                                            .unit("s")
-                                            .decimals(0)
-                                            .width(72.0),
-                                        );
-                                        if r_secs.changed() && draft.stop_after_secs.is_finite() {
-                                            draft.stop_after_secs =
-                                                draft.stop_after_secs.clamp(0.1, 3600.0);
-                                            draft.options.stop_mode = VideoStopMode::AfterSeconds(
-                                                draft.stop_after_secs,
-                                            );
-                                            changed = true;
-                                        }
-                                    });
-
-                                    ui.horizontal(|ui| {
-                                        let audio_supported =
-                                            draft.options.format.supports_audio();
-                                        ui.add_enabled_ui(audio_supported, |ui| {
-                                            if ui
-                                                .add(c::Switch::new(
-                                                    &mut draft.options.include_audio,
-                                                    "Include audio",
-                                                ))
-                                                .changed()
-                                            {
-                                                changed = true;
-                                            }
-                                            ui.add_enabled_ui(
-                                                draft.options.include_audio,
-                                                |ui| {
-                                                    c::Select::new(
-                                                        "export-video-audio-bitrate",
-                                                        draft.options.audio_bitrate.label(),
-                                                    )
-                                                    .width(150.0)
-                                                    .show(ui, |ui| {
-                                                        for br in VideoAudioBitrate::ALL {
-                                                            if ui
-                                                                .add(
-                                                                    c::MenuItem::new(br.label())
-                                                                        .checked(
-                                                                            draft
-                                                                                .options
-                                                                                .audio_bitrate
-                                                                                == br,
-                                                                        ),
-                                                                )
-                                                                .clicked()
-                                                            {
-                                                                draft.options.audio_bitrate = br;
-                                                                changed = true;
-                                                                ui.close();
-                                                            }
-                                                        }
-                                                    });
-                                                },
-                                            );
-                                        });
-                                        let alpha_supported =
-                                            draft.options.format.supports_transparent_bg();
-                                        ui.add_enabled_ui(alpha_supported, |ui| {
-                                            if ui
-                                                .add(c::Checkbox::new(
-                                                    &mut draft.options.transparent_bg,
-                                                    "Transparent bg (MOV/WebM)",
-                                                ))
-                                                .changed()
-                                            {
-                                                draft.preview_dirty = true;
-                                                changed = true;
-                                            }
-                                        });
-                                    });
-                                });
-                            });
-                        });
+                let shell = DialogShell::single(ui, "Export video", size);
+                cancel |= shell.close;
+                // Artwork column: preview, then the progress (exporting only) or the frame note.
+                shell.aside(ui, aside_width, |ui| {
+                    let preview_resp = paint_video_preview_box(
+                        ui,
+                        ctx,
+                        &mut draft,
+                        aside_width,
+                        (aside_width * 0.625).round(),
+                    );
+                    if is_exporting && preview_resp.clicked() {
+                        toggle_pause = true;
+                    }
+                    if is_exporting {
+                        let total_frames =
+                            draft.estimate.as_ref().map(|e| e.frame_count).unwrap_or(1);
+                        let (done, total) = progress_counts.unwrap_or((0, total_frames));
+                        c::progress(
+                            ui,
+                            &format!("Exporting frames {done} / {total}"),
+                            Some((done as f32 / total.max(1) as f32).clamp(0.0, 1.0)),
+                            aside_width,
+                        );
+                        caption(
+                            ui,
+                            if is_paused {
+                                "Preview paused · ▶ to resume"
+                            } else {
+                                "Preview while rendering · ⏸ to pause"
+                            },
+                        );
+                    } else {
+                        caption(
+                            ui,
+                            &format!("Preview · frame {}", draft.options.from_frame.max(1)),
+                        );
+                        if let Some(err) = &draft.error_message {
+                            ui.add(c::InlineMessage::error(err).width(aside_width));
+                        }
+                    }
+                });
+                shell.form(ui, "export-video-form", aside_width, |ui, _| {
+                    ui.add_enabled_ui(!is_exporting, |ui| {
+                        changed |= self.export_video_form(ui, &mut draft);
                     });
+                });
 
                 let footer_summary = if let Some(est) = &draft.estimate {
                     format!(
@@ -1410,42 +1325,33 @@ impl Editor {
                 } else {
                     format!("{}×{}", self.project.width, self.project.height)
                 };
-                c::surface::dialog_footer(
+                // Footer: ghost Pause / Resume (exporting only), summary, Cancel, Export.
+                shell.footer(
                     ui,
                     |ui| {
-                        caption(ui, &footer_summary);
-                    },
-                    |ui| {
-                        let can_export = !is_exporting
-                            && !draft.estimate_blocked
-                            && (!draft.options.format.requires_ffmpeg()
-                                || draft
-                                    .estimate
-                                    .as_ref()
-                                    .is_none_or(|e| e.ffmpeg_available));
-                        if ui
-                            .add_enabled(can_export, c::Button::primary("Export").icon(i16::UPLOAD))
-                            .clicked()
-                        {
-                            do_export = true;
-                        }
-                        if ui.add(c::Button::new("Cancel")).clicked() {
-                            cancel = true;
-                        }
                         if is_exporting {
-                            let pause_lbl = if is_paused { "Resume" } else { "Pause" };
-                            if ui.add(c::Button::ghost(pause_lbl)).clicked() {
+                            let (label, icon) = if is_paused {
+                                ("Resume", i16::PLAY)
+                            } else {
+                                ("Pause", i16::PAUSE)
+                            };
+                            if ui.add(c::Button::ghost(label).icon(icon)).clicked() {
                                 toggle_pause = true;
                             }
                         }
+                        footer_note(ui, &footer_summary);
+                    },
+                    |ui| {
+                        do_export |= ui
+                            .add_enabled(
+                                can_export_now,
+                                c::Button::primary("Export").icon(i16::UPLOAD),
+                            )
+                            .clicked();
+                        cancel |= ui.add(c::Button::new("Cancel")).clicked();
                     },
                 );
             });
-
-        let can_export_now = !is_exporting
-            && !draft.estimate_blocked
-            && (!draft.options.format.requires_ffmpeg()
-                || draft.estimate.as_ref().is_none_or(|e| e.ffmpeg_available));
         if !cancel && !do_export && !toggle_pause {
             match kb.resolve(ctx, &modal, can_export_now) {
                 super::dialog_helpers::DialogKeyboardOutcome::Cancel => cancel = true,
@@ -1722,6 +1628,287 @@ mod tests {
         let _ = run_modal(&mut editor);
         assert!(editor.export_video.is_none());
         assert_eq!(editor.last_video_report.as_ref(), Some(&report));
+    }
+
+    /// v3 "nothing jumps": every dialog whose content changes while it is open keeps one outer
+    /// rectangle in each of its states, in all three densities.
+    #[test]
+    fn e7b_dialogs_keep_one_outer_rect_in_every_state_and_density() {
+        use crate::panels::{
+            ai_dialogs, beta_feedback, export_audio, export_image, export_lottie, import_video,
+        };
+        use neoflash_ui::metrics::{self, Density};
+
+        type State = (&'static str, fn(&mut Editor, &egui::Context));
+        struct Case {
+            name: &'static str,
+            modal: &'static str,
+            /// Expected size of the dialog content (inside the 1 pt frame border).
+            size: fn(&egui::Context) -> egui::Vec2,
+            open: fn(&mut Editor, &egui::Context),
+            show: fn(&mut Editor, &egui::Context),
+            states: &'static [State],
+        }
+
+        fn inject_export(editor: &mut Editor, paused: bool) {
+            let worker = editor.export_video.as_ref().unwrap().worker.clone();
+            let mut w = worker.lock().unwrap();
+            w.generation = 7;
+            // The receiver stays connected for the rest of the test.
+            let (tx, rx) = mpsc::channel();
+            std::mem::forget(tx);
+            w.running = Some(RunningVideoExport {
+                generation: 7,
+                cancel: Arc::new(AtomicBool::new(false)),
+                paused: Arc::new(AtomicBool::new(paused)),
+                frame_index: Arc::new(AtomicU32::new(2)),
+                frame_count: Arc::new(AtomicU32::new(5)),
+                latest_frame: Arc::new(Mutex::new(None)),
+                rx,
+            });
+        }
+        fn audio_state(ctx: &egui::Context, has_sound: bool, format: usize) {
+            export_audio::update_export_audio_draft(ctx, |d| {
+                d.set_format(neoflash_export::AudioFormat::from_index(format));
+                d.has_sound = has_sound;
+                d.empty_reason = (!has_sound).then(|| "No sound in the selected range.".to_owned());
+                d.cached_summary = "beep.wav".to_owned();
+                d.cached_duration = 1.5;
+                d.computed_key = Some(export_audio::AudioPreviewKey::from(&d.options));
+            });
+        }
+        fn png_bytes() -> Vec<u8> {
+            let mut out = std::io::Cursor::new(Vec::new());
+            image::RgbaImage::new(2, 2)
+                .write_to(&mut out, image::ImageFormat::Png)
+                .unwrap();
+            out.into_inner()
+        }
+
+        let cases = [
+            Case {
+                name: "Export video",
+                modal: "export-video-modal",
+                size: export_video_dialog_size,
+                open: |e, _| e.open_export_video(None),
+                show: |e, ctx| e.export_video_modal(ctx),
+                states: &[
+                    ("idle", |_, _| {}),
+                    ("exporting", |e, _| inject_export(e, false)),
+                    ("paused", |e, _| inject_export(e, true)),
+                    ("failed", |e, _| {
+                        let draft = e.export_video.as_mut().unwrap();
+                        draft.worker.lock().unwrap().running = None;
+                        draft.error_message =
+                            Some("FFmpeg exited with status 1: encoder failed".to_owned());
+                    }),
+                    ("GIF", |e, _| {
+                        e.export_video
+                            .as_mut()
+                            .unwrap()
+                            .set_format(VideoFormat::Gif);
+                    }),
+                ],
+            },
+            Case {
+                name: "Export audio",
+                modal: "export-audio",
+                size: |ctx| {
+                    egui::vec2(
+                        crate::panels::dialog_helpers::dialog_width(ctx, metrics::dialog_m()),
+                        export_audio::export_audio_dialog_height(),
+                    )
+                },
+                open: |e, ctx| e.open_export_audio(ctx, None),
+                show: |e, ctx| e.export_audio_dialog(ctx),
+                states: &[
+                    ("no sounds", |_, ctx| audio_state(ctx, false, 1)),
+                    ("with sounds, MP3", |_, ctx| audio_state(ctx, true, 1)),
+                    ("with sounds, WAV", |_, ctx| audio_state(ctx, true, 0)),
+                ],
+            },
+            Case {
+                name: "Export image",
+                modal: "export-image",
+                size: export_image::export_image_dialog_size,
+                open: |e, ctx| e.open_export_image(ctx),
+                show: |e, ctx| e.export_image_dialog(ctx),
+                states: &[
+                    ("PNG", |_, ctx| {
+                        export_image::select_export_image_format_slug(ctx, "png")
+                    }),
+                    ("JPEG", |_, ctx| {
+                        export_image::select_export_image_format_slug(ctx, "jpg")
+                    }),
+                    ("SVG", |_, ctx| {
+                        export_image::select_export_image_format_slug(ctx, "svg")
+                    }),
+                    ("PSD", |_, ctx| {
+                        export_image::select_export_image_format_slug(ctx, "psd")
+                    }),
+                    ("AI", |_, ctx| {
+                        export_image::select_export_image_format_slug(ctx, "ai")
+                    }),
+                    ("PDF", |_, ctx| {
+                        export_image::select_export_image_format_slug(ctx, "pdf")
+                    }),
+                ],
+            },
+            Case {
+                name: "Export Lottie",
+                modal: "export-lottie-modal",
+                size: export_lottie::export_lottie_dialog_size,
+                open: |e, _| e.open_export_lottie(None),
+                show: |e, ctx| e.export_lottie_modal(ctx),
+                states: &[
+                    ("idle", |_, _| {}),
+                    ("blocking error", |e, _| {
+                        let draft = e.export_lottie.as_mut().unwrap();
+                        draft.blocking_error =
+                            Some("The selected source has no frames to export.".to_owned());
+                    }),
+                ],
+            },
+            Case {
+                name: "Import video",
+                modal: "import-video",
+                size: import_video::import_video_dialog_size,
+                open: |e, ctx| e.open_import_video(ctx),
+                show: |e, ctx| e.import_video_dialog(ctx),
+                states: &[
+                    ("no file", |_, _| {}),
+                    ("file without preview", |_, ctx| {
+                        import_video::update_import_video_draft(ctx, |d| {
+                            d.file_path = "/nonexistent/clip.mp4".to_owned();
+                            d.source_fps = 30;
+                        });
+                    }),
+                    ("external video", |_, ctx| {
+                        import_video::update_import_video_draft(ctx, |d| d.deployment = 1);
+                    }),
+                ],
+            },
+            Case {
+                name: "AI connection",
+                modal: "nf2-ai-connection-dialog",
+                size: |ctx| {
+                    egui::vec2(
+                        crate::panels::dialog_helpers::dialog_width(ctx, metrics::dialog_m()),
+                        ai_dialogs::ai_connection_dialog_height(),
+                    )
+                },
+                open: |e, _| assert!(e.open_sample_ai_dialog("ai_connection")),
+                show: |e, ctx| e.ai_dialogs(ctx),
+                states: &[
+                    ("cloud provider", |_, _| {}),
+                    ("test passed", |e, _| {
+                        e.ai_connection_modal.as_mut().unwrap().test_outcome =
+                            Some(Ok("Connected · gpt-4o".to_owned()));
+                    }),
+                    ("local provider, failed test", |e, _| {
+                        assert!(e.open_sample_ai_dialog("ai_connection_failed"));
+                    }),
+                ],
+            },
+            Case {
+                name: "AI answer",
+                modal: "nf2-ai-answer-dialog",
+                size: ai_dialogs::ai_answer_dialog_size,
+                open: |e, _| assert!(e.open_sample_ai_dialog("ai_answer_waiting")),
+                show: |e, ctx| e.ai_dialogs(ctx),
+                states: &[
+                    ("waiting", |_, _| {}),
+                    ("streaming", |e, _| {
+                        assert!(e.open_sample_ai_dialog("ai_answer_streaming"));
+                    }),
+                    ("proposals", |e, _| {
+                        assert!(e.open_sample_ai_dialog("ai_answer_proposals"));
+                    }),
+                    ("cancelled", |e, _| {
+                        assert!(e.open_sample_ai_dialog("ai_answer_cancelled"));
+                    }),
+                    ("failed", |e, _| {
+                        assert!(e.open_sample_ai_dialog("ai_answer_failed"));
+                    }),
+                ],
+            },
+            Case {
+                name: "Beta feedback",
+                modal: "beta-feedback",
+                size: |ctx| {
+                    egui::vec2(
+                        crate::panels::dialog_helpers::dialog_width(ctx, metrics::dialog_m()),
+                        beta_feedback::beta_feedback_dialog_height(),
+                    )
+                },
+                open: |e, _| e.open_beta_feedback(),
+                show: |e, ctx| e.beta_feedback_dialog(ctx),
+                states: &[
+                    ("text only", |_, _| {}),
+                    ("two attachments", |e, _| {
+                        let png = png_bytes();
+                        assert!(e.beta_feedback.attach_bytes("first.png", &png));
+                        assert!(e.beta_feedback.attach_bytes("second.png", &png));
+                    }),
+                    ("five attachments and an error", |e, _| {
+                        let png = png_bytes();
+                        for name in ["third.png", "fourth.png", "fifth.png"] {
+                            assert!(e.beta_feedback.attach_bytes(name, &png));
+                        }
+                        e.beta_feedback.error = Some(
+                            "Feedback could not be sent: the server did not answer. Try again later."
+                                .to_owned(),
+                        );
+                    }),
+                ],
+            },
+        ];
+
+        for density in Density::ALL {
+            for case in &cases {
+                let ctx = egui::Context::default();
+                let mut editor = Editor::from_project(&ctx, Project::demo());
+                metrics::set_density(density);
+                (case.open)(&mut editor, &ctx);
+                let mut first: Option<(egui::Rect, &str)> = None;
+                for (state, apply) in case.states {
+                    apply(&mut editor, &ctx);
+                    for _ in 0..3 {
+                        metrics::set_density(density);
+                        let _ = ctx.run(
+                            egui::RawInput {
+                                screen_rect: Some(egui::Rect::from_min_size(
+                                    egui::Pos2::ZERO,
+                                    egui::vec2(1920.0, 1080.0),
+                                )),
+                                ..Default::default()
+                            },
+                            |ctx| (case.show)(&mut editor, ctx),
+                        );
+                    }
+                    let what = format!("{} / {state} / {}", case.name, density.label());
+                    let rect = ctx
+                        .memory(|m| m.area_rect(egui::Id::new(case.modal)))
+                        .unwrap_or_else(|| panic!("{what}: the dialog is not open"));
+                    // The frame adds its 1 pt border on every side.
+                    let expected = (case.size)(&ctx) + egui::Vec2::splat(2.0);
+                    assert!(
+                        (rect.size() - expected).abs().max_elem() < 0.5,
+                        "{what}: size {:?}, expected {expected:?}",
+                        rect.size()
+                    );
+                    match first {
+                        None => first = Some((rect, state)),
+                        Some((reference, reference_state)) => assert!(
+                            (rect.min - reference.min).abs().max_elem() < 0.5
+                                && (rect.max - reference.max).abs().max_elem() < 0.5,
+                            "{what}: rect {rect:?} differs from {reference:?} ({reference_state})"
+                        ),
+                    }
+                }
+            }
+        }
+        metrics::set_density(Density::Comfortable);
     }
 
     #[test]

@@ -1356,9 +1356,10 @@ impl Editor {
 
     pub(crate) fn code_snippets_panel_ui(&mut self, ui: &mut Ui) {
         let nf = neoflash_ui::palette(ui.ctx());
-        ui.spacing_mut().item_spacing.y = space::S1;
+        let gap = neoflash_ui::metrics::row_gap();
+        ui.spacing_mut().item_spacing.y = gap;
 
-        let w = ui.available_width();
+        let w = crate::paint_controls::visible_row_width(ui);
         ui.add(c::Search::new(&mut self.code_snippets.query, "Search snippets").width(w));
 
         let query = self.code_snippets.query.trim().to_ascii_lowercase();
@@ -1370,14 +1371,23 @@ impl Editor {
         self.code_snippets.selected = selected_idx;
 
         let mut double_clicked = None;
-        let tree_max_h = (ui.available_height() - 190.0).max(120.0);
+        // Fixed split, so nothing moves with the selected snippet: the footer keeps its row, the
+        // description and code get a bounded share, the tree takes the rest (three rows at least).
+        let row = neoflash_ui::metrics::row();
+        let footer_h = neoflash_ui::metrics::control() + gap;
+        let body_h = (ui.available_height() - footer_h).max(0.0);
+        let detail_h = (body_h * 0.45)
+            .min(8.0 * row)
+            .min((body_h - 3.0 * row - gap).max(0.0));
+        let tree_h = (body_h - detail_h - gap).max(0.0);
         egui::ScrollArea::vertical()
             .id_salt("code-snippets-tree")
-            .max_height(tree_max_h)
-            .auto_shrink([false, true])
+            .max_height(tree_h)
+            .auto_shrink([false, false])
             .themed()
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = space::S1;
+                // One row per record at `size/row`; rows touch.
+                ui.spacing_mut().item_spacing.y = 0.0;
                 for (cat_idx, cat_name) in SNIPPET_CATEGORIES.iter().enumerate() {
                     let matching: Vec<usize> = CODE_SNIPPETS
                         .iter()
@@ -1437,23 +1447,37 @@ impl Editor {
         };
         let preview_body = snippet.render_body(language, &target);
 
-        ui.add_space(space::S1);
-        egui::Frame::new()
-            .fill(nf.bg_field)
-            .stroke(egui::Stroke::new(1.0_f32, nf.border_subtle))
-            .corner_radius(egui::CornerRadius::same(radius::MD as u8))
-            .inner_margin(egui::Margin::same(space::S3 as i8))
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.spacing_mut().item_spacing.y = 2.0;
-                caption(ui, snippet.description);
-                ui.add_space(space::S1);
-                for line in preview_body.lines() {
-                    ui.label(rich(line, TextStyle::Mono).color(nf.text_primary));
-                }
-            });
+        let margin = space::s3();
+        if detail_h > 2.0 * margin + row {
+            ui.allocate_ui_with_layout(
+                egui::vec2(w, detail_h),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    egui::Frame::new()
+                        .fill(nf.bg_field)
+                        .stroke(egui::Stroke::new(1.0_f32, nf.border_subtle))
+                        .corner_radius(egui::CornerRadius::same(radius::md() as u8))
+                        .inner_margin(egui::Margin::same(margin as i8))
+                        .show(ui, |ui| {
+                            egui::ScrollArea::vertical()
+                                .id_salt("code-snippets-detail")
+                                .max_height(detail_h - 2.0 * margin)
+                                .auto_shrink([false, false])
+                                .themed()
+                                .show(ui, |ui| {
+                                    ui.spacing_mut().item_spacing.y = space::s1();
+                                    caption(ui, snippet.description);
+                                    for line in preview_body.lines() {
+                                        ui.label(
+                                            rich(line, TextStyle::Mono).color(nf.text_primary),
+                                        );
+                                    }
+                                });
+                        });
+                },
+            );
+        }
 
-        ui.add_space(space::S1);
         let can_insert = self.symbol().kind != SymbolKind::Button;
         let insert_label = format!("Insert at frame {}", self.frame + 1);
         let mut insert_clicked = double_clicked;

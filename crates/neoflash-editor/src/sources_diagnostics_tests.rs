@@ -859,9 +859,10 @@ fn t367_narrow_floating_actions_status_fits_and_pin_never_flickers() {
         }
     }
 
-    // 1. At 580x440 (narrow floating Actions window matching the user's screenshot), toolbar
-    //    controls wrap cleanly inside <= 580 px and bottom-right `script_status` fits completely
-    //    inside the right border with `"20"` warnings visible.
+    // 1. At 580x440 (narrow floating Actions window matching the user's screenshot), the toolbar
+    //    stays one row inside <= 580 px: tool groups that do not fit move into the `More script
+    //    tools` menu. The bottom-right `script_status` fits completely inside the right border
+    //    with `"20"` warnings visible.
     let win_580 = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(580.0, 440.0));
     let out_580 = run_floating(&mut editor, win_580, 0.0, vec![]);
     let status_580 = ax_rect(&out_580, "Line 40, Col 1  ·  40 lines  ·  20 warnings");
@@ -875,16 +876,63 @@ fn t367_narrow_floating_actions_status_fits_and_pin_never_flickers() {
         status_580.left() >= pin_580.right(),
         "script_status ({status_580:?}) must not overlap ScriptTab ({tab_580:?} / {pin_580:?})"
     );
+    let ax_find = |out: &egui::FullOutput, label: &str| -> Option<egui::Rect> {
+        let nodes = &out.platform_output.accesskit_update.as_ref().unwrap().nodes;
+        nodes.iter().find_map(|(_, n)| {
+            n.label()
+                .or(n.value())
+                .filter(|l| *l == label)
+                .and_then(|_| n.bounds())
+                .map(|b| {
+                    egui::Rect::from_min_max(
+                        egui::pos2(b.x0 as f32, b.y0 as f32),
+                        egui::pos2(b.x1 as f32, b.y1 as f32),
+                    )
+                })
+        })
+    };
+    let toolbar_row = ax_rect(&out_580, "Check script");
+    let mut overflowed = 0;
     for toolbar_lbl in [
         "Check script",
+        "Auto-format",
+        "Collapse between braces",
         "Remove comment",
+        "Show toolbox sidebar",
         "Pin script tab",
+        "Script assist",
         "About Actions",
     ] {
-        let r = ax_rect(&out_580, toolbar_lbl);
+        let Some(r) = ax_find(&out_580, toolbar_lbl) else {
+            overflowed += 1;
+            continue;
+        };
         assert!(
-            r.right() <= 580.0,
+            r.left() >= 0.0 && r.right() <= 580.0,
             "toolbar button {toolbar_lbl:?} overflowed 580 px window: {r:?}"
+        );
+        assert!(
+            (r.center().y - toolbar_row.center().y).abs() < 0.75,
+            "toolbar button {toolbar_lbl:?} left the single toolbar row: {r:?} vs {toolbar_row:?}"
+        );
+    }
+    // Check, Pin and About stay on the bar; whatever left it is reachable from the More menu.
+    for kept in ["Check script", "Pin script tab", "About Actions"] {
+        assert!(
+            ax_find(&out_580, kept).is_some(),
+            "{kept:?} must stay on the bar"
+        );
+    }
+    let more = ax_find(&out_580, "More script tools");
+    assert_eq!(
+        more.is_some(),
+        overflowed > 0,
+        "the More menu appears exactly when a tool group left the bar"
+    );
+    if let Some(more) = more {
+        assert!(
+            more.right() <= 580.0,
+            "More menu button overflowed: {more:?}"
         );
     }
     let mut texts_580 = Vec::new();

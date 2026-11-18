@@ -5,8 +5,10 @@
 //! Edits live on a draft in `egui::Context` temp memory until confirmed: `Cancel` / `Esc` discards
 //! without writing any file, while `Export` / `Enter` prompts for an output `.wav`/`.mp3`/`.ogg`/`.aac`
 //! path (or writes directly in headless tests via [`Editor::confirm_export_audio_to_path`]).
-use super::dialog_helpers::group;
-use super::planned::caption;
+use super::dialog_helpers::{
+    FormDialog, dialog_width, field_block, footer_note, form_dialog_height, form_line, form_row,
+    group_caption,
+};
 use crate::app::Editor;
 use eframe::egui;
 use neoflash_core::{Id, LayerRole, Project, WaveformPeaks};
@@ -19,7 +21,8 @@ use neoflash_export::{
 use neoflash_ui::components as c;
 use neoflash_ui::components::timeline as tl;
 use neoflash_ui::icons::i16;
-use neoflash_ui::tokens::space;
+use neoflash_ui::metrics;
+use neoflash_ui::tokens::{TextStyle, space};
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc, Mutex,
@@ -289,6 +292,26 @@ fn apply_audio_preview_result(draft: &mut ExportAudioDraft, result: AudioPreview
 
 const FORMAT_TABS: [(usize, &str); 4] = [(0, "WAV"), (1, "MP3"), (2, "OGG"), (3, "AAC")];
 
+/// Height of the waveform / empty-state strip (artwork).
+const WAVEFORM_STRIP: f32 = 48.0;
+
+/// `Export audio` has one height per density with and without sounds: the format switch, the
+/// strip, three captions and six form rows.
+pub(crate) fn export_audio_dialog_height() -> f32 {
+    form_dialog_height(7, 3, WAVEFORM_STRIP + metrics::row_gap())
+}
+
+/// Value of the `Range` row: the export range label without its "Range: " prefix.
+fn range_value_label(range: &AudioExportRange) -> String {
+    let label = range.label();
+    let value = label.strip_prefix("Range: ").unwrap_or(&label);
+    let mut chars = value.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
 fn source_label(
     project: &neoflash_core::Project,
     symbol_id: &str,
@@ -488,314 +511,308 @@ impl Editor {
         let frame_count = self.symbol().timeline.frame_count.max(1);
         let sel_range = self.selected_frame_range();
 
+        // v3: one size with and without sounds; the waveform strip keeps its height and shows
+        // the empty state (R-074), the summary reads "No sounds" and Export is disabled.
+        let width = dialog_width(ctx, metrics::dialog_m());
+        let height = export_audio_dialog_height();
+        let can_export = draft.has_sound && !is_computing;
         let modal = egui::Modal::new(egui::Id::new("export-audio"))
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
-                ui.set_width(640.0);
-                let header_top = ui.cursor().min;
-                close_cancel |= c::DialogHeader {
-                    title: "Export audio",
-                }
-                .show(ui);
-                ui.painter().hline(
-                    header_top.x..=header_top.x + 640.0,
-                    header_top.y + neoflash_ui::metrics::dialog_header() - 0.5,
-                    egui::Stroke::new(1.0_f32, p.border_subtle),
-                );
-
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S5 as i8))
-                    .show(ui, |ui| {
-                        let w = 640.0 - 2.0 * space::S5;
-                        ui.set_width(w);
-                        ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
-
+                let dialog = FormDialog::show(ui, "Export audio", width, Some(height));
+                close_cancel |= dialog.close;
+                dialog.page(ui, "export-audio-page", |ui, _| {
+                    form_line(ui, |ui| {
                         let mut fmt_idx = draft.options.format.index();
                         if c::Segmented::show(ui, &mut fmt_idx, &FORMAT_TABS, false).is_some() {
                             draft.set_format(AudioFormat::from_index(fmt_idx));
                         }
+                    });
 
-                        if !draft.has_sound && !is_computing {
-                            let empty_msg = draft
-                                .empty_reason
-                                .as_deref()
-                                .unwrap_or("This document has no sounds to export.");
-                            ui.add(c::InlineMessage::info(empty_msg).width(w));
-                        } else {
-                            let (span, _) =
-                                ui.allocate_exact_size(egui::vec2(w, 40.0), egui::Sense::hover());
-                            tl::paint_span(
-                                ui.painter(),
-                                ui.ctx(),
-                                span,
-                                tl::SpanType::Static,
-                                true,
-                            );
-                            if is_computing || draft.cached_peaks.is_none() {
-                                tl::paint_sound_peaks(ui.painter(), ui.ctx(), span, &[]);
-                            } else if let Some(peaks) = &draft.cached_peaks {
-                                let cols = span.width().ceil().max(1.0) as usize;
-                                let lanes = downsample_waveform_columns(
-                                    peaks,
-                                    draft.options.channels,
-                                    cols,
-                                );
-                                let channels: Vec<_> = lanes.iter().map(Vec::as_slice).collect();
-                                tl::paint_sound_peaks(ui.painter(), ui.ctx(), span, &channels);
-                            }
+                    let strip = egui::vec2(ui.available_width(), WAVEFORM_STRIP);
+                    if !draft.has_sound && !is_computing {
+                        let empty_msg = draft
+                            .empty_reason
+                            .as_deref()
+                            .unwrap_or("This document has no sounds to export.");
+                        let rect = field_block(ui, strip);
+                        let icon = egui::Rect::from_center_size(
+                            egui::pos2(rect.center().x, rect.top() + WAVEFORM_STRIP * 0.35),
+                            egui::Vec2::splat(metrics::ICON_UI),
+                        );
+                        neoflash_ui::icons::paint(
+                            ui.painter(),
+                            ui.ctx(),
+                            icon,
+                            i16::SOUND,
+                            p.text_tertiary,
+                        );
+                        ui.painter().with_clip_rect(rect).text(
+                            egui::pos2(rect.center().x, rect.bottom() - space::s1()),
+                            egui::Align2::CENTER_BOTTOM,
+                            empty_msg,
+                            neoflash_ui::typography::font(TextStyle::Small),
+                            p.text_tertiary,
+                        );
+                    } else {
+                        let (span, _) = ui.allocate_exact_size(strip, egui::Sense::hover());
+                        tl::paint_span(ui.painter(), ui.ctx(), span, tl::SpanType::Static, true);
+                        if is_computing || draft.cached_peaks.is_none() {
+                            tl::paint_sound_peaks(ui.painter(), ui.ctx(), span, &[]);
+                        } else if let Some(peaks) = &draft.cached_peaks {
+                            let cols = span.width().ceil().max(1.0) as usize;
+                            let lanes =
+                                downsample_waveform_columns(peaks, draft.options.channels, cols);
+                            let channels: Vec<_> = lanes.iter().map(Vec::as_slice).collect();
+                            tl::paint_sound_peaks(ui.painter(), ui.ctx(), span, &channels);
                         }
+                    }
 
-                        group(ui, "Source");
-                        ui.horizontal(|ui| {
-                            let src_lbl =
-                                source_label(&self.project, &symbol_id, &draft.options.source);
-                            c::Select::new(ui.id().with("export-audio-source"), &src_lbl)
-                                .width(300.0)
+                    group_caption(ui, "Source");
+                    form_row(ui, "Sound", |ui| {
+                        let src_lbl =
+                            source_label(&self.project, &symbol_id, &draft.options.source);
+                        c::Select::new(ui.id().with("export-audio-source"), &src_lbl)
+                            .width(ui.available_width())
+                            .show(ui, |ui| {
+                                let is_mix =
+                                    matches!(draft.options.source, AudioExportSource::TimelineMix);
+                                if ui
+                                    .add(
+                                        c::MenuItem::new("Timeline mix (all sound layers)")
+                                            .checked(is_mix),
+                                    )
+                                    .clicked()
+                                {
+                                    draft.options.source = AudioExportSource::TimelineMix;
+                                    refresh_needed = true;
+                                    ui.close();
+                                }
+                                if !sound_layers.is_empty() {
+                                    c::menu_separator(ui);
+                                    for (lid, lname) in &sound_layers {
+                                        let checked = draft.options.source
+                                            == AudioExportSource::Layer(lid.clone());
+                                        if ui
+                                            .add(
+                                                c::MenuItem::new(&format!("Layer: {lname}"))
+                                                    .checked(checked),
+                                            )
+                                            .clicked()
+                                        {
+                                            draft.options.source =
+                                                AudioExportSource::Layer(lid.clone());
+                                            refresh_needed = true;
+                                            ui.close();
+                                        }
+                                    }
+                                }
+                                if !audio_resources.is_empty() {
+                                    c::menu_separator(ui);
+                                    for (rid, rname) in &audio_resources {
+                                        let checked = draft.options.source
+                                            == AudioExportSource::Resource(rid.clone());
+                                        if ui
+                                            .add(
+                                                c::MenuItem::new(&format!("Resource: {rname}"))
+                                                    .checked(checked),
+                                            )
+                                            .clicked()
+                                        {
+                                            draft.options.source =
+                                                AudioExportSource::Resource(rid.clone());
+                                            refresh_needed = true;
+                                            ui.close();
+                                        }
+                                    }
+                                }
+                            });
+                    });
+                    form_row(ui, "Range", |ui| {
+                        let range_lbl = range_value_label(&draft.options.range);
+                        let range_enabled =
+                            !matches!(draft.options.source, AudioExportSource::Resource(_));
+                        ui.add_enabled_ui(range_enabled, |ui| {
+                            c::Select::new(ui.id().with("export-audio-range"), &range_lbl)
+                                .width(metrics::field_m())
                                 .show(ui, |ui| {
-                                    let is_mix = matches!(
-                                        draft.options.source,
-                                        AudioExportSource::TimelineMix
-                                    );
                                     if ui
-                                        .add(
-                                            c::MenuItem::new("Timeline mix (all sound layers)")
-                                                .checked(is_mix),
-                                        )
+                                        .add(c::MenuItem::new("Whole movie").checked(matches!(
+                                            draft.options.range,
+                                            AudioExportRange::WholeMovie
+                                        )))
                                         .clicked()
                                     {
-                                        draft.options.source = AudioExportSource::TimelineMix;
+                                        draft.options.range = AudioExportRange::WholeMovie;
                                         refresh_needed = true;
                                         ui.close();
                                     }
-                                    if !sound_layers.is_empty() {
-                                        c::menu_separator(ui);
-                                        for (lid, lname) in &sound_layers {
-                                            let checked = draft.options.source
-                                                == AudioExportSource::Layer(lid.clone());
-                                            if ui
-                                                .add(
-                                                    c::MenuItem::new(&format!("Layer: {lname}"))
-                                                        .checked(checked),
-                                                )
-                                                .clicked()
-                                            {
-                                                draft.options.source =
-                                                    AudioExportSource::Layer(lid.clone());
-                                                refresh_needed = true;
-                                                ui.close();
-                                            }
-                                        }
-                                    }
-                                    if !audio_resources.is_empty() {
-                                        c::menu_separator(ui);
-                                        for (rid, rname) in &audio_resources {
-                                            let checked = draft.options.source
-                                                == AudioExportSource::Resource(rid.clone());
-                                            if ui
-                                                .add(
-                                                    c::MenuItem::new(&format!("Resource: {rname}"))
-                                                        .checked(checked),
-                                                )
-                                                .clicked()
-                                            {
-                                                draft.options.source =
-                                                    AudioExportSource::Resource(rid.clone());
-                                                refresh_needed = true;
-                                                ui.close();
-                                            }
-                                        }
-                                    }
-                                });
-
-                            let range_lbl = draft.options.range.label();
-                            let range_enabled =
-                                !matches!(draft.options.source, AudioExportSource::Resource(_));
-                            ui.add_enabled_ui(range_enabled, |ui| {
-                                c::Select::new(ui.id().with("export-audio-range"), &range_lbl)
-                                    .width(280.0)
-                                    .show(ui, |ui| {
-                                        if ui
-                                            .add(c::MenuItem::new("Range: whole movie").checked(
-                                                matches!(
-                                                    draft.options.range,
-                                                    AudioExportRange::WholeMovie
-                                                ),
-                                            ))
-                                            .clicked()
-                                        {
-                                            draft.options.range = AudioExportRange::WholeMovie;
-                                            refresh_needed = true;
-                                            ui.close();
-                                        }
-                                        if ui
-                                            .add(c::MenuItem::new("Range: current scene").checked(
-                                                matches!(
-                                                    draft.options.range,
-                                                    AudioExportRange::CurrentScene { .. }
-                                                ),
-                                            ))
-                                            .clicked()
-                                        {
-                                            draft.options.range = AudioExportRange::CurrentScene {
-                                                scene_id: symbol_id.clone(),
-                                            };
-                                            refresh_needed = true;
-                                            ui.close();
-                                        }
-                                        let (f_start, f_end) = sel_range
-                                            .as_ref()
-                                            .map(|r| (r.0, r.1))
-                                            .unwrap_or((0, frame_count.saturating_sub(1)));
-                                        let frames_choice = AudioExportRange::Frames {
-                                            scene_id: Some(symbol_id.clone()),
-                                            start: f_start,
-                                            end: f_end.max(f_start),
+                                    if ui
+                                        .add(c::MenuItem::new("Current scene").checked(matches!(
+                                            draft.options.range,
+                                            AudioExportRange::CurrentScene { .. }
+                                        )))
+                                        .clicked()
+                                    {
+                                        draft.options.range = AudioExportRange::CurrentScene {
+                                            scene_id: symbol_id.clone(),
                                         };
-                                        let frames_lbl = frames_choice.label();
-                                        if ui
-                                            .add(c::MenuItem::new(&frames_lbl).checked(matches!(
-                                                draft.options.range,
-                                                AudioExportRange::Frames { .. }
-                                            )))
-                                            .clicked()
-                                        {
-                                            draft.options.range = frames_choice;
-                                            refresh_needed = true;
-                                            ui.close();
-                                        }
-                                    });
-                            });
-                        });
-
-                        group(ui, "Format");
-                        ui.horizontal(|ui| {
-                            c::Select::new(
-                                ui.id().with("export-audio-rate"),
-                                draft.options.sample_rate.label(),
-                            )
-                            .width(140.0)
-                            .show(ui, |ui| {
-                                for rate in AudioSampleRate::ALL {
-                                    if ui
-                                        .add(
-                                            c::MenuItem::new(rate.label())
-                                                .checked(draft.options.sample_rate == rate),
-                                        )
-                                        .clicked()
-                                    {
-                                        draft.options.sample_rate = rate;
                                         refresh_needed = true;
                                         ui.close();
                                     }
-                                }
-                            });
-
-                            ui.add_enabled_ui(draft.options.format == AudioFormat::Wav, |ui| {
-                                c::Select::new(
-                                    ui.id().with("export-audio-depth"),
-                                    draft.options.bit_depth.label(),
-                                )
-                                .width(120.0)
-                                .show(ui, |ui| {
-                                    for depth in AudioBitDepth::ALL {
-                                        if ui
-                                            .add(
-                                                c::MenuItem::new(depth.label())
-                                                    .checked(draft.options.bit_depth == depth),
-                                            )
-                                            .clicked()
-                                        {
-                                            draft.options.bit_depth = depth;
-                                            ui.close();
-                                        }
-                                    }
-                                });
-                            });
-
-                            c::Select::new(
-                                ui.id().with("export-audio-channels"),
-                                draft.options.channels.label(),
-                            )
-                            .width(120.0)
-                            .show(ui, |ui| {
-                                for ch in AudioChannels::ALL {
-                                    if ui
-                                        .add(
-                                            c::MenuItem::new(ch.label())
-                                                .checked(draft.options.channels == ch),
-                                        )
-                                        .clicked()
-                                    {
-                                        draft.options.channels = ch;
-                                        refresh_needed = true;
-                                        ui.close();
-                                    }
-                                }
-                            });
-
-                            ui.add_enabled_ui(draft.options.format != AudioFormat::Wav, |ui| {
-                                c::Select::new(
-                                    ui.id().with("export-audio-bitrate"),
-                                    draft.options.bit_rate.cbr_label(),
-                                )
-                                .width(180.0)
-                                .show(ui, |ui| {
-                                    for br in AudioBitRate::ALL {
-                                        if ui
-                                            .add(
-                                                c::MenuItem::new(br.cbr_label())
-                                                    .checked(draft.options.bit_rate == br),
-                                            )
-                                            .clicked()
-                                        {
-                                            draft.options.bit_rate = br;
-                                            ui.close();
-                                        }
-                                    }
-                                });
-                            });
-                        });
-
-                        group(ui, "Processing");
-                        ui.horizontal(|ui| {
-                            ui.add(c::Switch::new(
-                                &mut draft.options.normalize,
-                                "Normalize to −1 dB",
-                            ));
-                            if ui
-                                .add(
-                                    c::Field::new(&mut draft.options.fade_out_seconds, "Fade out")
-                                        .prefix("Fade out")
-                                        .unit("s")
-                                        .decimals(1)
-                                        .range(0.0..=30.0)
-                                        .step(0.1)
-                                        .stepper()
-                                        .width(160.0),
-                                )
-                                .changed()
-                            {
-                                draft.options.fade_out_seconds =
-                                    if draft.options.fade_out_seconds.is_finite() {
-                                        draft.options.fade_out_seconds.clamp(0.0, 30.0)
-                                    } else {
-                                        0.0
+                                    let (f_start, f_end) = sel_range
+                                        .as_ref()
+                                        .map(|r| (r.0, r.1))
+                                        .unwrap_or((0, frame_count.saturating_sub(1)));
+                                    let frames_choice = AudioExportRange::Frames {
+                                        scene_id: Some(symbol_id.clone()),
+                                        start: f_start,
+                                        end: f_end.max(f_start),
                                     };
-                            }
-                            if ui
-                                .add(c::Checkbox::new(
-                                    &mut draft.options.trim_silence,
-                                    "Trim silence",
-                                ))
-                                .changed()
-                            {
-                                refresh_needed = true;
-                            }
+                                    let frames_lbl = range_value_label(&frames_choice);
+                                    if ui
+                                        .add(c::MenuItem::new(&frames_lbl).checked(matches!(
+                                            draft.options.range,
+                                            AudioExportRange::Frames { .. }
+                                        )))
+                                        .clicked()
+                                    {
+                                        draft.options.range = frames_choice;
+                                        refresh_needed = true;
+                                        ui.close();
+                                    }
+                                });
                         });
                     });
 
-                let can_export = draft.has_sound && !is_computing;
+                    group_caption(ui, "Format");
+                    form_row(ui, "Sample rate", |ui| {
+                        c::Select::new(
+                            ui.id().with("export-audio-rate"),
+                            draft.options.sample_rate.label(),
+                        )
+                        .width(metrics::field_s())
+                        .show(ui, |ui| {
+                            for rate in AudioSampleRate::ALL {
+                                if ui
+                                    .add(
+                                        c::MenuItem::new(rate.label())
+                                            .checked(draft.options.sample_rate == rate),
+                                    )
+                                    .clicked()
+                                {
+                                    draft.options.sample_rate = rate;
+                                    refresh_needed = true;
+                                    ui.close();
+                                }
+                            }
+                        });
+                        ui.add_enabled_ui(draft.options.format == AudioFormat::Wav, |ui| {
+                            c::Select::new(
+                                ui.id().with("export-audio-depth"),
+                                draft.options.bit_depth.label(),
+                            )
+                            .width(metrics::field_s())
+                            .show(ui, |ui| {
+                                for depth in AudioBitDepth::ALL {
+                                    if ui
+                                        .add(
+                                            c::MenuItem::new(depth.label())
+                                                .checked(draft.options.bit_depth == depth),
+                                        )
+                                        .clicked()
+                                    {
+                                        draft.options.bit_depth = depth;
+                                        ui.close();
+                                    }
+                                }
+                            });
+                        });
+                    });
+                    form_row(ui, "Channels", |ui| {
+                        c::Select::new(
+                            ui.id().with("export-audio-channels"),
+                            draft.options.channels.label(),
+                        )
+                        .width(metrics::field_s())
+                        .show(ui, |ui| {
+                            for ch in AudioChannels::ALL {
+                                if ui
+                                    .add(
+                                        c::MenuItem::new(ch.label())
+                                            .checked(draft.options.channels == ch),
+                                    )
+                                    .clicked()
+                                {
+                                    draft.options.channels = ch;
+                                    refresh_needed = true;
+                                    ui.close();
+                                }
+                            }
+                        });
+                        ui.add_enabled_ui(draft.options.format != AudioFormat::Wav, |ui| {
+                            c::Select::new(
+                                ui.id().with("export-audio-bitrate"),
+                                draft.options.bit_rate.cbr_label(),
+                            )
+                            .width(metrics::field_m())
+                            .show(ui, |ui| {
+                                for br in AudioBitRate::ALL {
+                                    if ui
+                                        .add(
+                                            c::MenuItem::new(br.cbr_label())
+                                                .checked(draft.options.bit_rate == br),
+                                        )
+                                        .clicked()
+                                    {
+                                        draft.options.bit_rate = br;
+                                        ui.close();
+                                    }
+                                }
+                            });
+                        });
+                    });
+
+                    group_caption(ui, "Processing");
+                    form_row(ui, "", |ui| {
+                        ui.add(c::Checkbox::new(
+                            &mut draft.options.normalize,
+                            "Normalize to −1 dB",
+                        ));
+                        if ui
+                            .add(c::Checkbox::new(
+                                &mut draft.options.trim_silence,
+                                "Trim silence",
+                            ))
+                            .changed()
+                        {
+                            refresh_needed = true;
+                        }
+                    });
+                    form_row(ui, "Fade out", |ui| {
+                        if ui
+                            .add(
+                                c::Field::new(&mut draft.options.fade_out_seconds, "Fade out")
+                                    .unit("s")
+                                    .decimals(1)
+                                    .range(0.0..=30.0)
+                                    .step(0.1)
+                                    .stepper()
+                                    .width(metrics::field_s()),
+                            )
+                            .changed()
+                        {
+                            draft.options.fade_out_seconds =
+                                if draft.options.fade_out_seconds.is_finite() {
+                                    draft.options.fade_out_seconds.clamp(0.0, 30.0)
+                                } else {
+                                    0.0
+                                };
+                        }
+                    });
+                });
+
                 let footer_summary = if draft.has_sound {
                     let est_bytes =
                         estimate_audio_export_bytes(draft.cached_duration, &draft.options);
@@ -815,10 +832,10 @@ impl Editor {
                         .unwrap_or("This document has no sounds to export.")
                         .trim_end_matches('.')
                 });
-                c::surface::dialog_footer(
+                dialog.footer(
                     ui,
                     |ui| {
-                        caption(ui, &footer_summary);
+                        footer_note(ui, &footer_summary);
                     },
                     |ui| {
                         let export_btn = ui.add_enabled(
@@ -837,7 +854,7 @@ impl Editor {
                 );
             });
 
-        let can_export_now = draft.has_sound && !is_computing;
+        let can_export_now = can_export;
         let wanted_key = AudioPreviewKey::from(&draft.options);
         if refresh_needed
             || (draft.computed_key.as_ref() != Some(&wanted_key)

@@ -7,11 +7,11 @@
 //! - **Justin Putney (Ajar Productions) Stage Productivity Dialogs**:
 //!   - `Auto Instance Namer…` (`auto_name_stage_instances`)
 //!   - `Randomize Selection…` (`randomize_selected_elements`)
-//! - **NF2 Modal Host (`show_productivity_modals`)**:
-//!   - Built exclusively with NF2 design system components (`NeoModal`, `SectionHeader`, `Field`,
-//!     `Dropdown`, `Checkbox`, `Button`) and semantic palette tokens (`R-068`).
+//! - **Modal host (`show_productivity_modals`)**:
+//!   - Built on the v3 dialog form grid (`NeoModal` over `FormDialog`, `group_caption`,
+//!     `form_row`) with NF atoms (`Field`, `Dropdown`, `Checkbox`, `Button`) (`R-068`).
 
-use super::dialog_helpers::group;
+use super::dialog_helpers::{FormDialog, dialog_width, form_line, form_row, group_caption};
 use crate::app::Editor;
 use crate::theme::DesignUi as _;
 use eframe::egui::{self, Ui};
@@ -20,24 +20,22 @@ use neoflash_core::{
     BitmapExportSettings, ElementKind, Id, InstancePlayback, Project, SymbolKind,
     VALID_JPEG_QUALITY_RANGE, batch_rename_library_and_instances,
 };
-use neoflash_ui::components::{
-    self as c, Button, Checkbox, DialogHeader, Field, MenuItem, SectionHeader, Surface, TextField,
-    surface::dialog_footer,
-};
-use neoflash_ui::tokens::{TextStyle, space};
+use neoflash_ui::components::{self as c, Button, Checkbox, Field, MenuItem, Surface, TextField};
+use neoflash_ui::metrics;
+use neoflash_ui::tokens::TextStyle;
 use neoflash_ui::typography::rich;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-/// NF2 dropdown alias wrapping [`neoflash_ui::components::Select`].
+/// NF dropdown alias wrapping [`neoflash_ui::components::Select`].
 pub type Dropdown<'a> = c::Select<'a>;
 
-/// NF2-compliant modal dialog wrapper combining `Surface::Dialog`, `DialogHeader`, and `dialog_footer` (`R-068`).
+/// v3 modal host of the productivity dialogs: `dialog_m()` wide, header, form page that takes its
+/// content height and a footer with `Cancel` then the single Primary (`R-068`).
 pub struct NeoModal<'a> {
     pub id: egui::Id,
     pub title: &'a str,
-    pub width: f32,
 }
 
 impl<'a> NeoModal<'a> {
@@ -45,16 +43,10 @@ impl<'a> NeoModal<'a> {
         Self {
             id: egui::Id::new(id_salt),
             title,
-            width: 480.0,
         }
     }
 
-    pub fn width(mut self, width: f32) -> Self {
-        self.width = width;
-        self
-    }
-
-    /// Show the NF2 modal dialog and return `(confirmed, cancelled)`.
+    /// Show the modal dialog and return `(confirmed, cancelled)`.
     pub fn show(
         self,
         ctx: &egui::Context,
@@ -65,7 +57,7 @@ impl<'a> NeoModal<'a> {
         let p = neoflash_ui::palette(ctx);
         let mut close_cancel = false;
         let mut close_ok = false;
-        let width = self.width;
+        let width = dialog_width(ctx, metrics::dialog_m());
         let title = self.title;
 
         let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
@@ -73,28 +65,10 @@ impl<'a> NeoModal<'a> {
             .frame(Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
-                ui.set_width(width);
-                let header_top = ui.cursor().min;
-                close_cancel |= DialogHeader { title }.show(ui);
-                ui.painter().hline(
-                    header_top.x..=header_top.x + width,
-                    header_top.y + neoflash_ui::metrics::dialog_header() - 0.5,
-                    egui::Stroke::new(1.0_f32, p.border_subtle),
-                );
-                egui::Frame::new()
-                    .inner_margin(egui::Margin {
-                        left: space::S5 as i8,
-                        right: space::S5 as i8,
-                        top: space::S4 as i8,
-                        bottom: space::S3 as i8,
-                    })
-                    .show(ui, |ui| {
-                        let inner_w = (width - 2.0 * space::S5).max(120.0);
-                        ui.set_width(inner_w);
-                        ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
-                        body(ui);
-                    });
-                dialog_footer(
+                let dialog = FormDialog::show(ui, title, width, None);
+                close_cancel |= dialog.close;
+                dialog.page(ui, "productivity-page", |ui, _| body(ui));
+                dialog.footer(
                     ui,
                     |_| {},
                     |ui| {
@@ -119,6 +93,68 @@ impl<'a> NeoModal<'a> {
 
         (close_ok, close_cancel)
     }
+}
+
+/// `Start` and `Digits` on one form row (batch rename, instance namer).
+fn start_and_digits_row(
+    ui: &mut Ui,
+    start: &mut u32,
+    pad_digits: &mut usize,
+    min_digits: f64,
+    start_label: &str,
+) {
+    form_row(ui, "Start", |ui| {
+        let mut value = f64::from(*start);
+        if ui
+            .add(
+                Field::new(&mut value, start_label)
+                    .range(0.0..=99999.0)
+                    .decimals(0)
+                    .width(metrics::field_num()),
+            )
+            .changed()
+        {
+            *start = value.round().max(0.0) as u32;
+        }
+        let mut digits = *pad_digits as f64;
+        if ui
+            .add(
+                Field::new(&mut digits, "Pad digits")
+                    .prefix("Digits")
+                    .range(min_digits..=8.0)
+                    .decimals(0)
+                    .width(metrics::field_s()),
+            )
+            .changed()
+        {
+            *pad_digits = digits.round().clamp(min_digits, 8.0) as usize;
+        }
+    });
+}
+
+/// One property of `Randomize selection`: a `min` and a `max` field on one row.
+fn range_row(
+    ui: &mut Ui,
+    label: &str,
+    name: &str,
+    range: &mut [f64; 2],
+    unit: &str,
+    limits: Option<std::ops::RangeInclusive<f64>>,
+) {
+    form_row(ui, label, |ui| {
+        let [min, max] = range;
+        for (value, prefix) in [(min, "min"), (max, "max")] {
+            let a11y = format!("{} {name}", if prefix == "min" { "Min" } else { "Max" });
+            let mut field = Field::new(value, &a11y)
+                .prefix(prefix)
+                .unit(unit)
+                .width(metrics::field_s());
+            if let Some(limits) = limits.clone() {
+                field = field.range(limits);
+            }
+            ui.add(field);
+        }
+    });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1410,422 +1446,308 @@ pub fn show_productivity_modals(editor: &mut Editor, ctx: &egui::Context) {
                 || !cfg.suffix.is_empty()
                 || !cfg.find.is_empty()
                 || cfg.use_numbering;
-            NeoModal::new("nf2-batch-rename-library", "Batch rename library items")
-                .width(480.0)
-                .show(ctx, "Rename", can_confirm, |ui| {
-                    SectionHeader::new("Scope")
-                        .id_salt("batch-rename-scope-sec")
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            Dropdown::new("batch-rename-target-select", cfg.target.label())
-                                .width(ui.available_width())
-                                .show(ui, |ui| {
-                                    for choice in [
-                                        BatchRenameTarget::Selected,
-                                        BatchRenameTarget::AllSymbols,
-                                        BatchRenameTarget::AllItems,
-                                    ] {
-                                        if ui
-                                            .add(
-                                                MenuItem::new(choice.label())
-                                                    .checked(cfg.target == choice),
-                                            )
-                                            .clicked()
-                                        {
-                                            cfg.target = choice;
-                                            ui.close();
-                                        }
-                                    }
-                                });
-                            ui.add(Checkbox::new(
-                                &mut cfg.also_rename_stage_instances,
-                                "Also rename matching Stage instances",
-                            ));
-                        });
-
-                    SectionHeader::new("Affixes & Find / Replace")
-                        .id_salt("batch-rename-affix-sec")
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                let col = (ui.available_width() - space::S2) * 0.5;
-                                ui.add(
-                                    TextField::new(&mut cfg.prefix, "Prefix")
-                                        .prefix("Prefix")
-                                        .width(col),
-                                );
-                                ui.add(
-                                    TextField::new(&mut cfg.suffix, "Suffix")
-                                        .prefix("Suffix")
-                                        .width(col),
-                                );
-                            });
-                            ui.horizontal(|ui| {
-                                let col = (ui.available_width() - space::S2) * 0.5;
-                                ui.add(
-                                    TextField::new(&mut cfg.find, "Find")
-                                        .prefix("Find")
-                                        .width(col),
-                                );
-                                ui.add(
-                                    TextField::new(&mut cfg.replace, "Replace")
-                                        .prefix("Replace")
-                                        .width(col),
-                                );
-                            });
-                        });
-
-                    SectionHeader::new("Sequential Numbering")
-                        .id_salt("batch-rename-seq-sec")
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            ui.add(Checkbox::new(
-                                &mut cfg.use_numbering,
-                                "Append sequential numbering",
-                            ));
-                            ui.add_enabled_ui(cfg.use_numbering, |ui| {
-                                ui.horizontal(|ui| {
-                                    let col = (ui.available_width() - space::S2) * 0.5;
-                                    let mut start = f64::from(cfg.start_number);
+            NeoModal::new("nf2-batch-rename-library", "Batch rename library items").show(
+                ctx,
+                "Rename",
+                can_confirm,
+                |ui| {
+                    group_caption(ui, "Scope");
+                    form_row(ui, "Items", |ui| {
+                        Dropdown::new("batch-rename-target-select", cfg.target.label())
+                            .width(metrics::field_l())
+                            .show(ui, |ui| {
+                                for choice in [
+                                    BatchRenameTarget::Selected,
+                                    BatchRenameTarget::AllSymbols,
+                                    BatchRenameTarget::AllItems,
+                                ] {
                                     if ui
                                         .add(
-                                            Field::new(&mut start, "Start number")
-                                                .prefix("Start")
-                                                .range(0.0..=99999.0)
-                                                .decimals(0)
-                                                .width(col),
+                                            MenuItem::new(choice.label())
+                                                .checked(cfg.target == choice),
                                         )
-                                        .changed()
+                                        .clicked()
                                     {
-                                        cfg.start_number = start.round().max(0.0) as u32;
+                                        cfg.target = choice;
+                                        ui.close();
                                     }
-                                    let mut digits = cfg.pad_digits as f64;
-                                    if ui
-                                        .add(
-                                            Field::new(&mut digits, "Pad digits")
-                                                .prefix("Digits")
-                                                .range(1.0..=8.0)
-                                                .decimals(0)
-                                                .width(col),
-                                        )
-                                        .changed()
-                                    {
-                                        cfg.pad_digits = digits.round().clamp(1.0, 8.0) as usize;
-                                    }
-                                });
+                                }
                             });
+                    });
+                    form_row(ui, "", |ui| {
+                        ui.add(Checkbox::new(
+                            &mut cfg.also_rename_stage_instances,
+                            "Also rename matching Stage instances",
+                        ));
+                    });
+
+                    group_caption(ui, "Affixes and find / replace");
+                    for (label, text) in [
+                        ("Prefix", &mut cfg.prefix),
+                        ("Suffix", &mut cfg.suffix),
+                        ("Find", &mut cfg.find),
+                        ("Replace", &mut cfg.replace),
+                    ] {
+                        form_row(ui, label, |ui| {
+                            ui.add(TextField::new(text, label).width(metrics::field_l()));
                         });
-                })
+                    }
+
+                    group_caption(ui, "Sequential numbering");
+                    form_row(ui, "", |ui| {
+                        ui.add(Checkbox::new(
+                            &mut cfg.use_numbering,
+                            "Append sequential numbering",
+                        ));
+                    });
+                    ui.add_enabled_ui(cfg.use_numbering, |ui| {
+                        start_and_digits_row(
+                            ui,
+                            &mut cfg.start_number,
+                            &mut cfg.pad_digits,
+                            1.0,
+                            "Start number",
+                        );
+                    });
+                },
+            )
         }
         ProductivityModalDraft::BatchLinkage(cfg) => NeoModal::new(
             "nf2-batch-linkage",
             "Batch linkage (Export for ActionScript)",
         )
-        .width(480.0)
         .show(ctx, "Apply", true, |ui| {
-            let scope_all = cfg.target_ids.is_none();
-            let scope_label = if scope_all {
-                "Scope: All library symbols & sounds"
-            } else {
-                "Scope: Selected library item"
-            };
-            Dropdown::new("batch-linkage-scope", scope_label)
-                .width(ui.available_width())
-                .show(ui, |ui| {
-                    if ui
-                        .add(MenuItem::new("All library symbols & sounds").checked(scope_all))
-                        .clicked()
-                    {
-                        cfg.target_ids = None;
-                        ui.close();
-                    }
-                    if let Some(sel) = &editor.library_selected {
-                        let sel_clone = sel.clone();
+            form_row(ui, "Scope", |ui| {
+                let scope_all = cfg.target_ids.is_none();
+                let scope_label = if scope_all {
+                    "All library symbols & sounds"
+                } else {
+                    "Selected library item"
+                };
+                Dropdown::new("batch-linkage-scope", scope_label)
+                    .width(ui.available_width())
+                    .show(ui, |ui| {
                         if ui
-                            .add(MenuItem::new("Selected library item").checked(!scope_all))
+                            .add(MenuItem::new("All library symbols & sounds").checked(scope_all))
                             .clicked()
                         {
-                            cfg.target_ids = Some(vec![sel_clone]);
+                            cfg.target_ids = None;
                             ui.close();
                         }
-                    }
-                });
+                        if let Some(sel) = &editor.library_selected {
+                            let sel_clone = sel.clone();
+                            if ui
+                                .add(MenuItem::new("Selected library item").checked(!scope_all))
+                                .clicked()
+                            {
+                                cfg.target_ids = Some(vec![sel_clone]);
+                                ui.close();
+                            }
+                        }
+                    });
+            });
 
-            SectionHeader::new("ActionScript Linkage")
-                .id_salt("batch-linkage-sec")
-                .default_open(true)
-                .show(ui, |ui| {
+            group_caption(ui, "ActionScript linkage");
+            form_row(ui, "", |ui| {
+                ui.add(Checkbox::new(
+                    &mut cfg.export_for_actionscript,
+                    "Export for ActionScript",
+                ));
+            });
+            ui.add_enabled_ui(cfg.export_for_actionscript, |ui| {
+                form_row(ui, "", |ui| {
                     ui.add(Checkbox::new(
-                        &mut cfg.export_for_actionscript,
-                        "Export for ActionScript",
+                        &mut cfg.export_in_first_frame,
+                        "Export in frame 1",
                     ));
-                    ui.add_enabled_ui(cfg.export_for_actionscript, |ui| {
-                        ui.add(Checkbox::new(
-                            &mut cfg.export_in_first_frame,
-                            "Export in frame 1",
-                        ));
-                        ui.add(
-                            TextField::new(&mut cfg.class_prefix, "Class prefix")
-                                .prefix("Prefix")
-                                .width(ui.available_width()),
-                        );
-                        let sample =
-                            format!("{}.HeroButton", sanitize_class_prefix(&cfg.class_prefix));
-                        ui.label(
+                });
+                form_row(ui, "Prefix", |ui| {
+                    ui.add(
+                        TextField::new(&mut cfg.class_prefix, "Class prefix")
+                            .width(metrics::field_l()),
+                    );
+                });
+                let sample = format!("{}.HeroButton", sanitize_class_prefix(&cfg.class_prefix));
+                form_row(ui, "", |ui| {
+                    ui.add(
+                        egui::Label::new(
                             rich(
                                 format!("Example class: {}", sample.trim_start_matches('.')),
                                 TextStyle::Small,
                             )
                             .color(p.text_tertiary),
-                        );
-                    });
+                        )
+                        .truncate(),
+                    );
                 });
+            });
         }),
         ProductivityModalDraft::BatchBitmap(cfg) => NeoModal::new(
             "nf2-batch-bitmap-compression",
             "Batch bitmap compression & smoothing",
         )
-        .width(480.0)
         .show(ctx, "Apply", true, |ui| {
-            let scope_all = cfg.target_resource_ids.is_none();
-            let scope_label = if scope_all {
-                "Target: All bitmap resources"
-            } else {
-                "Target: Selected bitmap resource"
-            };
-            Dropdown::new("batch-bitmap-scope", scope_label)
-                .width(ui.available_width())
-                .show(ui, |ui| {
+            form_row(ui, "Target", |ui| {
+                let scope_all = cfg.target_resource_ids.is_none();
+                let scope_label = if scope_all {
+                    "All bitmap resources"
+                } else {
+                    "Selected bitmap resource"
+                };
+                Dropdown::new("batch-bitmap-scope", scope_label)
+                    .width(metrics::field_l())
+                    .show(ui, |ui| {
+                        if ui
+                            .add(MenuItem::new("All bitmap resources").checked(scope_all))
+                            .clicked()
+                        {
+                            cfg.target_resource_ids = None;
+                            ui.close();
+                        }
+                        if let Some(sel) = &editor.resource_panel.selected {
+                            let sel_clone = sel.clone();
+                            if ui
+                                .add(MenuItem::new("Selected bitmap resource").checked(!scope_all))
+                                .clicked()
+                            {
+                                cfg.target_resource_ids = Some(vec![sel_clone]);
+                                ui.close();
+                            }
+                        }
+                    });
+            });
+
+            group_caption(ui, "Compression and quality");
+            form_row(ui, "Compression", |ui| {
+                Dropdown::new("batch-bitmap-compression-select", cfg.compression.label())
+                    .width(metrics::field_m())
+                    .show(ui, |ui| {
+                        for comp in BitmapCompression::ALL {
+                            if ui
+                                .add(MenuItem::new(comp.label()).checked(cfg.compression == comp))
+                                .clicked()
+                            {
+                                cfg.compression = comp;
+                                ui.close();
+                            }
+                        }
+                    });
+            });
+            form_row(ui, "Quality", |ui| {
+                ui.add_enabled_ui(cfg.compression == BitmapCompression::PhotoJpeg, |ui| {
+                    let mut q = f64::from(cfg.jpeg_quality);
                     if ui
-                        .add(MenuItem::new("All bitmap resources").checked(scope_all))
-                        .clicked()
+                        .add(
+                            Field::new(&mut q, "JPEG quality")
+                                .unit("%")
+                                .range(1.0..=100.0)
+                                .decimals(0)
+                                .width(metrics::field_num()),
+                        )
+                        .changed()
                     {
-                        cfg.target_resource_ids = None;
-                        ui.close();
-                    }
-                    if let Some(sel) = &editor.resource_panel.selected {
-                        let sel_clone = sel.clone();
-                        if ui
-                            .add(MenuItem::new("Selected bitmap resource").checked(!scope_all))
-                            .clicked()
-                        {
-                            cfg.target_resource_ids = Some(vec![sel_clone]);
-                            ui.close();
-                        }
+                        cfg.jpeg_quality = q.round().clamp(1.0, 100.0) as u8;
                     }
                 });
-
-            group(ui, "Compression & Quality");
-            let comp_label = format!("Compression: {}", cfg.compression.label());
-            Dropdown::new("batch-bitmap-compression-select", &comp_label)
-                .width(ui.available_width())
-                .show(ui, |ui| {
-                    for comp in BitmapCompression::ALL {
-                        if ui
-                            .add(MenuItem::new(comp.label()).checked(cfg.compression == comp))
-                            .clicked()
-                        {
-                            cfg.compression = comp;
-                            ui.close();
+            });
+            form_row(ui, "", |ui| {
+                ui.add(Checkbox::new(&mut cfg.allow_smoothing, "Allow smoothing"));
+            });
+        }),
+        ProductivityModalDraft::AutoInstanceNamer(cfg) => NeoModal::new(
+            "nf2-auto-instance-namer",
+            "Auto Instance Namer",
+        )
+        .show(ctx, "Name instances", true, |ui| {
+            group_caption(ui, "Naming pattern");
+            form_row(ui, "Pattern", |ui| {
+                Dropdown::new("auto-namer-mode-select", cfg.mode.label())
+                    .width(ui.available_width())
+                    .show(ui, |ui| {
+                        for mode in AutoNameMode::ALL {
+                            if ui
+                                .add(MenuItem::new(mode.label()).checked(cfg.mode == mode))
+                                .clicked()
+                            {
+                                cfg.mode = mode;
+                                ui.close();
+                            }
                         }
-                    }
+                    });
+            });
+            ui.add_enabled_ui(cfg.mode == AutoNameMode::PrefixSequential, |ui| {
+                form_row(ui, "Prefix", |ui| {
+                    ui.add(
+                        TextField::new(&mut cfg.prefix, "Instance prefix")
+                            .width(metrics::field_l()),
+                    );
                 });
-
-            ui.add_enabled_ui(cfg.compression == BitmapCompression::PhotoJpeg, |ui| {
-                let mut q = f64::from(cfg.jpeg_quality);
+            });
+            start_and_digits_row(
+                ui,
+                &mut cfg.start_index,
+                &mut cfg.pad_digits,
+                0.0,
+                "Start index",
+            );
+            form_line(ui, |ui| {
+                ui.add(Checkbox::new(
+                    &mut cfg.only_unnamed_when_unselected,
+                    "Only rename unnamed instances when nothing is selected",
+                ));
+            });
+        }),
+        ProductivityModalDraft::RandomizeSelection(cfg) => NeoModal::new(
+            "nf2-randomize-selection",
+            "Randomize Selection",
+        )
+        .show(ctx, "Randomize", true, |ui| {
+            form_row(ui, "Seed", |ui| {
+                let mut seed_val = cfg.seed as f64;
                 if ui
                     .add(
-                        Field::new(&mut q, "JPEG quality")
-                            .prefix("Quality")
-                            .unit("%")
-                            .range(1.0..=100.0)
+                        Field::new(&mut seed_val, "PRNG seed")
+                            .range(0.0..=1_000_000.0)
                             .decimals(0)
-                            .width(160.0),
+                            .width(metrics::field_s()),
                     )
                     .changed()
                 {
-                    cfg.jpeg_quality = q.round().clamp(1.0, 100.0) as u8;
+                    cfg.seed = seed_val.round().max(0.0) as u64;
                 }
             });
-            ui.add(Checkbox::new(&mut cfg.allow_smoothing, "Allow smoothing"));
-        }),
-        ProductivityModalDraft::AutoInstanceNamer(cfg) => {
-            NeoModal::new("nf2-auto-instance-namer", "Auto Instance Namer")
-                .width(460.0)
-                .show(ctx, "Name instances", true, |ui| {
-                    SectionHeader::new("Naming Pattern")
-                        .id_salt("auto-namer-pattern-sec")
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            Dropdown::new("auto-namer-mode-select", cfg.mode.label())
-                                .width(ui.available_width())
-                                .show(ui, |ui| {
-                                    for mode in AutoNameMode::ALL {
-                                        if ui
-                                            .add(
-                                                MenuItem::new(mode.label())
-                                                    .checked(cfg.mode == mode),
-                                            )
-                                            .clicked()
-                                        {
-                                            cfg.mode = mode;
-                                            ui.close();
-                                        }
-                                    }
-                                });
-                            ui.add_enabled_ui(cfg.mode == AutoNameMode::PrefixSequential, |ui| {
-                                ui.add(
-                                    TextField::new(&mut cfg.prefix, "Instance prefix")
-                                        .prefix("Prefix")
-                                        .width(ui.available_width()),
-                                );
-                            });
-                            ui.horizontal(|ui| {
-                                let col = (ui.available_width() - space::S2) * 0.5;
-                                let mut start = f64::from(cfg.start_index);
-                                if ui
-                                    .add(
-                                        Field::new(&mut start, "Start index")
-                                            .prefix("Start")
-                                            .range(0.0..=99999.0)
-                                            .decimals(0)
-                                            .width(col),
-                                    )
-                                    .changed()
-                                {
-                                    cfg.start_index = start.round().max(0.0) as u32;
-                                }
-                                let mut pad = cfg.pad_digits as f64;
-                                if ui
-                                    .add(
-                                        Field::new(&mut pad, "Pad digits")
-                                            .prefix("Digits")
-                                            .range(0.0..=8.0)
-                                            .decimals(0)
-                                            .width(col),
-                                    )
-                                    .changed()
-                                {
-                                    cfg.pad_digits = pad.round().clamp(0.0, 8.0) as usize;
-                                }
-                            });
-                            ui.add(Checkbox::new(
-                                &mut cfg.only_unnamed_when_unselected,
-                                "Only rename unnamed instances when nothing is selected",
-                            ));
-                        });
-                })
-        }
-        ProductivityModalDraft::RandomizeSelection(cfg) => {
-            NeoModal::new("nf2-randomize-selection", "Randomize Selection")
-                .width(480.0)
-                .show(ctx, "Randomize", true, |ui| {
-                    SectionHeader::new("Deterministic Seed")
-                        .id_salt("randomize-seed-sec")
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            let mut seed_val = cfg.seed as f64;
-                            if ui
-                                .add(
-                                    Field::new(&mut seed_val, "PRNG seed")
-                                        .prefix("Seed")
-                                        .range(0.0..=1_000_000.0)
-                                        .decimals(0)
-                                        .width(ui.available_width()),
-                                )
-                                .changed()
-                            {
-                                cfg.seed = seed_val.round().max(0.0) as u64;
-                            }
-                        });
 
-                    SectionHeader::new("Transform & Alpha Ranges")
-                        .id_salt("randomize-ranges-sec")
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                let col = (ui.available_width() - space::S2) * 0.5;
-                                ui.add(
-                                    Field::new(&mut cfg.offset_x_range[0], "Min X offset")
-                                        .prefix("ΔX min")
-                                        .unit("px")
-                                        .width(col),
-                                );
-                                ui.add(
-                                    Field::new(&mut cfg.offset_x_range[1], "Max X offset")
-                                        .prefix("ΔX max")
-                                        .unit("px")
-                                        .width(col),
-                                );
-                            });
-                            ui.horizontal(|ui| {
-                                let col = (ui.available_width() - space::S2) * 0.5;
-                                ui.add(
-                                    Field::new(&mut cfg.offset_y_range[0], "Min Y offset")
-                                        .prefix("ΔY min")
-                                        .unit("px")
-                                        .width(col),
-                                );
-                                ui.add(
-                                    Field::new(&mut cfg.offset_y_range[1], "Max Y offset")
-                                        .prefix("ΔY max")
-                                        .unit("px")
-                                        .width(col),
-                                );
-                            });
-                            ui.horizontal(|ui| {
-                                let col = (ui.available_width() - space::S2) * 0.5;
-                                ui.add(
-                                    Field::new(&mut cfg.scale_range_pct[0], "Min scale")
-                                        .prefix("Scale min")
-                                        .unit("%")
-                                        .range(1.0..=1000.0)
-                                        .width(col),
-                                );
-                                ui.add(
-                                    Field::new(&mut cfg.scale_range_pct[1], "Max scale")
-                                        .prefix("Scale max")
-                                        .unit("%")
-                                        .range(1.0..=1000.0)
-                                        .width(col),
-                                );
-                            });
-                            ui.add(Checkbox::new(&mut cfg.uniform_scale, "Uniform X/Y scale"));
-                            ui.horizontal(|ui| {
-                                let col = (ui.available_width() - space::S2) * 0.5;
-                                ui.add(
-                                    Field::new(&mut cfg.rotation_range_deg[0], "Min rotation")
-                                        .prefix("Rot min")
-                                        .unit("°")
-                                        .width(col),
-                                );
-                                ui.add(
-                                    Field::new(&mut cfg.rotation_range_deg[1], "Max rotation")
-                                        .prefix("Rot max")
-                                        .unit("°")
-                                        .width(col),
-                                );
-                            });
-                            ui.horizontal(|ui| {
-                                let col = (ui.available_width() - space::S2) * 0.5;
-                                ui.add(
-                                    Field::new(&mut cfg.alpha_range_pct[0], "Min alpha")
-                                        .prefix("Alpha min")
-                                        .unit("%")
-                                        .range(0.0..=100.0)
-                                        .width(col),
-                                );
-                                ui.add(
-                                    Field::new(&mut cfg.alpha_range_pct[1], "Max alpha")
-                                        .prefix("Alpha max")
-                                        .unit("%")
-                                        .range(0.0..=100.0)
-                                        .width(col),
-                                );
-                            });
-                        });
-                })
-        }
+            group_caption(ui, "Transform and alpha ranges");
+            range_row(ui, "ΔX", "X offset", &mut cfg.offset_x_range, "px", None);
+            range_row(ui, "ΔY", "Y offset", &mut cfg.offset_y_range, "px", None);
+            range_row(
+                ui,
+                "Scale",
+                "scale",
+                &mut cfg.scale_range_pct,
+                "%",
+                Some(1.0..=1000.0),
+            );
+            form_row(ui, "", |ui| {
+                ui.add(Checkbox::new(&mut cfg.uniform_scale, "Uniform X/Y scale"));
+            });
+            range_row(
+                ui,
+                "Rotation",
+                "rotation",
+                &mut cfg.rotation_range_deg,
+                "°",
+                None,
+            );
+            range_row(
+                ui,
+                "Alpha",
+                "alpha",
+                &mut cfg.alpha_range_pct,
+                "%",
+                Some(0.0..=100.0),
+            );
+        }),
     };
 
     if cancelled {

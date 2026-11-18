@@ -39,18 +39,17 @@ impl Widget for BreadcrumbItem<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let p = palette(ui.ctx());
         let g = galley(ui, self.label, TextStyle::Body, p.text_primary);
-        let w = space::S2
+        let w = space::s2()
             + 16.0
-            + space::S1
-            + 2.0
+            + space::s2()
             + g.size().x
-            + space::S2
-            + if self.menu { 16.0 } else { 0.0 };
+            + space::s2()
+            + if self.menu { 12.0 + space::s1() } else { 0.0 };
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(w, crate::metrics::row()), Sense::click());
         let s = State::of(ui, &response);
         if self.current || s.hovered {
-            ui.painter().rect_filled(rect, cr(radius::MD), p.bg_hover);
+            ui.painter().rect_filled(rect, cr(radius::md()), p.bg_hover);
         }
         let (fg, ic) = if self.current {
             (p.text_primary, p.accent_default)
@@ -59,7 +58,7 @@ impl Widget for BreadcrumbItem<'_> {
         } else {
             (p.text_secondary, p.text_secondary)
         };
-        let x = rect.left() + space::S2;
+        let x = rect.left() + space::s2();
         icons::paint(
             ui.painter(),
             ui.ctx(),
@@ -69,24 +68,25 @@ impl Widget for BreadcrumbItem<'_> {
         );
         text_at(
             ui,
-            x + 16.0 + 6.0,
+            x + 16.0 + space::s2(),
             rect,
             galley(ui, self.label, TextStyle::Body, fg),
             fg,
         );
         if self.menu {
-            icons::paint(
+            icons::paint_sized(
                 ui.painter(),
                 ui.ctx(),
                 Rect::from_center_size(
-                    egui::pos2(rect.right() - 12.0, rect.center().y),
-                    egui::vec2(16.0, 16.0),
+                    egui::pos2(rect.right() - space::s2() - 6.0, rect.center().y),
+                    egui::vec2(12.0, 12.0),
                 ),
                 i16::CHEVDOWN,
+                12.0,
                 p.text_tertiary,
             );
         }
-        super::focus(ui, s, rect, radius::MD);
+        super::focus(ui, s, rect, radius::md());
         a11y(
             &response,
             egui::WidgetType::Button,
@@ -100,17 +100,19 @@ impl Widget for BreadcrumbItem<'_> {
 /// `NF2/Breadcrumb Separator` — ›.
 pub fn breadcrumb_separator(ui: &mut Ui) {
     let p = palette(ui.ctx());
+    // The 12 px chevron master in a 12 pt cell.
     let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, crate::metrics::row()), Sense::hover());
-    icons::paint(
-        &ui.painter().with_clip_rect(rect.expand(4.0)),
+    icons::paint_sized(
+        ui.painter(),
         ui.ctx(),
         rect,
         i16::CHEVRIGHT,
+        12.0,
         p.text_tertiary,
     );
 }
 
 /// `NF2/Breadcrumb Overflow` — "…" button that lists the hidden middle of a long path.
 pub fn breadcrumb_overflow(ui: &mut Ui) -> Response {
-    ui.add(super::IconButton::new(i16::MORE, "Show full path").side(28.0))
+    ui.add(super::IconButton::new(i16::MORE, "Show full path").side(crate::metrics::row()))
 }

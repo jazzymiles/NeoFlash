@@ -760,9 +760,10 @@ fn sound_properties_export_settings_commit_with_one_undo_and_upgrade_to_format_9
         );
     }
     let texts = output_texts(&out);
+    // v3: `Result` is the row label, the caption beside it is the value.
     assert!(
-        texts.iter().any(|t| t.starts_with("Result: 160 kbps mono")),
-        "missing live export result caption in {texts:?}"
+        texts.iter().any(|t| t == "Result") && texts.iter().any(|t| t.starts_with("160 kbps mono")),
+        "missing live export result row in {texts:?}"
     );
 
     editor.confirm_sound_properties(&ctx).unwrap();

@@ -1,5 +1,6 @@
-//! Timeline controls bar (reference §4 "Timeline controls bar", audit #2 and #4; R-052): one 44 pt row
-//! above the grid. Left → right: layer actions · transport group (Play = square Primary Icon Button SM)
+//! Timeline controls bar (reference §4 "Timeline controls bar", audit #2 and #4; R-052): one
+//! `metrics::timeline_controls()` row above the grid. Every control is a `metrics::control()` square or
+//! field, one `gap/control` apart. Left → right: layer actions · transport (Play = Primary icon button)
 //! · loop · frame number · timecode · Scene select · FPS / Duration fields · frame insert group
 //! (F5 F6 F7) · tween group · ease · sound; right-aligned: onion-skin group · centre playhead · zoom −
 //! slider + · More ⋯ (hidden controls and frame view options).
@@ -24,10 +25,26 @@ use std::collections::HashMap;
 /// Narrowest and widest frame cell of the continuous zoom (Tiny is 6; overview zoom may go lower).
 pub(crate) const MIN_CELL: f32 = 3.;
 pub(crate) const MAX_CELL: f32 = 52.;
-/// Gap between groups (`Timeline controls` auto-layout, gap 8) and inside groups (gap 2).
-const GAP: f32 = space::S2;
-const GROUP_GAP: f32 = 2.;
-const SLIDER: f32 = 140.;
+/// Gap between timeline controls (`gap/control`).
+fn gap() -> f32 {
+    space::s2()
+}
+/// Side padding of the bar (`pad/panel`).
+fn bar_padding() -> f32 {
+    space::s4()
+}
+/// Zoom and onion-opacity sliders (`width/field-s`).
+fn slider_width() -> f32 {
+    neoflash_ui::metrics::field_s()
+}
+/// Vertical divider between groups: 1 px line with half a control gap on each side (`nf::divider`).
+fn divider_width() -> f32 {
+    1. + space::s2()
+}
+/// The four layer actions at the left of the bar.
+fn layer_actions_width() -> f32 {
+    4. * neoflash_ui::metrics::control() + 3. * gap()
+}
 
 /// Requests from the bar that the frame area applies after layout.
 #[derive(Default)]
@@ -162,48 +179,51 @@ fn hidden_menu_rows(c: Ctl) -> usize {
     }
 }
 
-/// Width before the first measurement (later frames use the measured width).
-fn estimated_width(c: Ctl) -> f32 {
+/// Width budget of a control from the density metrics; used before the first measurement (later
+/// frames use the measured width) and whenever the density changes.
+pub(crate) fn estimated_width(c: Ctl) -> f32 {
+    use neoflash_ui::metrics;
     match c {
-        Ctl::Div1 | Ctl::Div2 | Ctl::Div3 => 1. + space::S2,
-        Ctl::Transport => 5. * neoflash_ui::metrics::control() + 4. * GROUP_GAP,
-        Ctl::Frame => 72.,
-        Ctl::Timecode => 60.,
-        Ctl::Scene => 120.,
-        Ctl::Fps => 92.,
-        Ctl::Duration => 140.,
-        Ctl::Insert | Ctl::Tween => 3. * 28. + 6.,
-        Ctl::Slider => SLIDER,
+        Ctl::Div1 | Ctl::Div2 | Ctl::Div3 => divider_width(),
+        Ctl::Transport => 5. * metrics::control() + 4. * gap(),
+        // Frame number and timecode are mono text: one numeric field each.
+        Ctl::Frame | Ctl::Timecode | Ctl::Fps => metrics::field_num(),
+        Ctl::Scene | Ctl::Duration => metrics::field_s(),
+        Ctl::Insert | Ctl::Tween => IconGroup::width(3),
+        Ctl::Slider => slider_width(),
         Ctl::Flex => 0.,
-        _ => neoflash_ui::metrics::control(),
+        _ => metrics::control(),
     }
 }
 
-/// Controls of one visual group sit 2 pt apart; other neighbours 8 pt.
-fn same_group(a: Ctl, b: Ctl) -> bool {
-    let group = |c| match c {
-        Ctl::AddLayer | Ctl::Folder | Ctl::Guide | Ctl::Delete => 1,
-        Ctl::Onion | Ctl::OnionOutline | Ctl::EditMulti | Ctl::OnionOptions => 2,
-        Ctl::ZoomOut | Ctl::Slider | Ctl::ZoomIn => 3,
-        _ => 0,
-    };
-    group(a) != 0 && group(a) == group(b)
-}
-
-/// Total width of a row of controls including the gaps between them.
+/// Total width of a row of controls including one control gap between neighbours.
 pub(crate) fn controls_width(row: &[(Ctl, f32)]) -> f32 {
     let mut width = 0.;
     for (i, (c, w)) in row.iter().enumerate() {
         width += w;
         if i > 0 && *c != Ctl::Flex {
-            width += if same_group(row[i - 1].0, *c) {
-                GROUP_GAP
-            } else {
-                GAP
-            };
+            width += gap();
         }
     }
     width
+}
+
+/// Scene select: as wide as the scene name needs, within `width/field-s`..`width/field-m`.
+fn scene_select_width(ui: &egui::Ui, name: &str) -> f32 {
+    use neoflash_ui::metrics;
+    let text = ui
+        .painter()
+        .layout_no_wrap(
+            name.to_owned(),
+            typography::font(TextStyle::Body),
+            egui::Color32::PLACEHOLDER,
+        )
+        .size()
+        .x;
+    // Field padding on both sides, a control gap and the 12 px chevron.
+    (text + 2. * space::s3() + space::s2() + 12.)
+        .ceil()
+        .clamp(metrics::field_s(), metrics::field_m())
 }
 
 /// Visible controls, in bar order, for `available` points (see [`CONTROLS`]).
@@ -277,7 +297,9 @@ impl Editor {
         );
         let mut out = ControlsOutcome::default();
         let button = self.symbol().kind == SymbolKind::Button;
-        let widths_id = egui::Id::new("timeline-controls-widths");
+        // Measured widths are valid for one density only.
+        let widths_id =
+            egui::Id::new(("timeline-controls-widths", neoflash_ui::metrics::density()));
         let mut measured: HashMap<Ctl, f32> =
             ui.data(|d| d.get_temp(widths_id)).unwrap_or_default();
         let items: Vec<(Ctl, u8, f32)> = CONTROLS
@@ -291,7 +313,7 @@ impl Editor {
                 (c, priority, w)
             })
             .collect();
-        let inner = bar.shrink2(Vec2::new(GAP, 0.));
+        let inner = bar.shrink2(Vec2::new(bar_padding(), 0.));
         let visible = fit_controls(&items, inner.width());
         let hidden: Vec<Ctl> = items
             .iter()
@@ -305,8 +327,8 @@ impl Editor {
             .collect();
         let used = controls_width(&row);
         // Adaptive alignment: the transport starts above frame 1 only when everything fits with it.
-        let compact_actions = 4. * neoflash_ui::metrics::control() + 3. * GROUP_GAP;
-        let align = (layer_column - 2. * GAP - compact_actions).max(0.);
+        let before_transport = bar_padding() + layer_actions_width() + 2. * gap() + divider_width();
+        let align = (layer_column - before_transport).max(0.);
         let align = if hidden.is_empty() && used + align <= inner.width() {
             align
         } else {
@@ -323,10 +345,8 @@ impl Editor {
                 ui.spacing_mut().item_spacing = Vec2::ZERO;
                 let mut prev = None;
                 for c in visible.iter().copied() {
-                    if let Some(prev) = prev
-                        && c != Ctl::Flex
-                    {
-                        ui.add_space(if same_group(prev, c) { GROUP_GAP } else { GAP });
+                    if prev.is_some() && c != Ctl::Flex {
+                        ui.add_space(gap());
                     }
                     prev = Some(c);
                     if c == Ctl::Flex {
@@ -425,7 +445,7 @@ impl Editor {
                 let count = self.symbol().timeline.frame_count;
                 let frame_resp = ui
                     .horizontal_centered(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S1;
+                        ui.spacing_mut().item_spacing.x = space::s1();
                         ui.label(
                             typography::rich(format!("{}", frame + 1), TextStyle::Mono)
                                 .color(p.text_primary),
@@ -502,7 +522,7 @@ impl Editor {
                 egui::Popup::menu(&options)
                     .id(popup_id)
                     .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                    .gap(space::S1)
+                    .gap(space::s1())
                     .frame(nf::popover_frame(ui.ctx()))
                     .show(|ui| self.onion_options(ui));
             }
@@ -531,7 +551,7 @@ impl Editor {
                         "Timeline zoom",
                     )
                     .step(0.01)
-                    .width(SLIDER),
+                    .width(slider_width()),
                 );
                 if nf::tooltip(
                     slider_resp,
@@ -572,11 +592,11 @@ impl Editor {
                         .id(egui::Id::new(ONION_OPTIONS_POPUP))
                         .open_memory(None)
                         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                        .gap(space::S1)
+                        .gap(space::s1())
                         .frame(nf::popover_frame(ui.ctx()))
                         .show(|ui| self.onion_options(ui));
                 }
-                nf::popup_below(&more, 260., |ui| {
+                nf::popup_below(&more, neoflash_ui::metrics::menu_width(), |ui| {
                     if !shown.is_empty() {
                         nf::menu_section(ui, "Hidden controls");
                         let rows: usize = shown.iter().map(|c| hidden_menu_rows(*c)).sum();
@@ -657,8 +677,8 @@ impl Editor {
             }
             Ctl::Fps | Ctl::Duration => {
                 ui.horizontal(|ui| {
-                    ui.add_space(space::S2);
-                    ui.spacing_mut().item_spacing.x = GAP;
+                    ui.add_space(space::s2());
+                    ui.spacing_mut().item_spacing.x = gap();
                     self.timeline_timing_fields(ui, c == Ctl::Fps, c == Ctl::Duration);
                 });
             }
@@ -892,7 +912,8 @@ impl Editor {
         self.frame = frame.min(self.symbol().timeline.frame_count.saturating_sub(1));
     }
 
-    /// Transport group: first, step back, Play (Primary SM, square), step forward, last — 2 pt apart.
+    /// Transport group: first, step back, Play, step forward, last — five `control()` icon buttons one
+    /// control gap apart; Play is the primary transport by its accent fill only.
     fn timeline_transport(&mut self, ui: &mut egui::Ui) {
         use crate::commands::{CommandId as C, transport_step_label};
         let last = self.symbol().timeline.frame_count.saturating_sub(1);
@@ -908,7 +929,7 @@ impl Editor {
         if ui.add(IconButton::new(i16::FIRST, "Rewind")).clicked() {
             self.timeline_seek(0);
         }
-        ui.add_space(GROUP_GAP);
+        ui.add_space(gap());
         let mut prev_btn = IconButton::new(i16::STEPBACK, "Previous frame");
         if let Some(sc) = prev_sc.as_deref() {
             prev_btn = prev_btn.shortcut(sc);
@@ -916,7 +937,7 @@ impl Editor {
         if ui.add(prev_btn).clicked() {
             self.timeline_seek(self.frame.saturating_sub(1));
         }
-        ui.add_space(GROUP_GAP);
+        ui.add_space(gap());
         let (icon, label) = if self.playing {
             (i16::PAUSE, "Pause preview")
         } else {
@@ -929,7 +950,7 @@ impl Editor {
         if ui.add(play_btn).clicked() {
             self.set_playing(!self.playing);
         }
-        ui.add_space(GROUP_GAP);
+        ui.add_space(gap());
         let mut next_btn = IconButton::new(i16::STEPFWD, "Next frame");
         if let Some(sc) = next_sc.as_deref() {
             next_btn = next_btn.shortcut(sc);
@@ -937,7 +958,7 @@ impl Editor {
         if ui.add(next_btn).clicked() {
             self.timeline_seek(self.frame + 1);
         }
-        ui.add_space(GROUP_GAP);
+        ui.add_space(gap());
         if ui
             .add(IconButton::new(i16::LAST, "Go to last frame"))
             .clicked()
@@ -957,7 +978,7 @@ impl Editor {
             .map(|(_, name)| name.clone())
             .unwrap_or_default();
         let (response, _) = nf::Select::new("timeline-scene", &name)
-            .width(120.)
+            .width(scene_select_width(ui, &name))
             .show(ui, |ui| self.scene_menu_items(ui));
         nf::tooltip(response, "Scene", None);
     }
@@ -1055,7 +1076,9 @@ impl Editor {
     /// Sound (TL-07): library sounds and "Import sound…" for the current keyframe.
     fn timeline_sound_button(&mut self, ui: &mut egui::Ui) {
         let button = ui.add(IconButton::new(i16::SOUND, "Sound"));
-        nf::popup_below(&button, 220., |ui| self.sound_menu_items(ui));
+        nf::popup_below(&button, neoflash_ui::metrics::menu_width(), |ui| {
+            self.sound_menu_items(ui)
+        });
     }
 
     /// Sound menu rows (Sound button and More ▸ Hidden controls ▸ Sound).
@@ -1116,10 +1139,12 @@ impl Editor {
     fn onion_options(&mut self, ui: &mut egui::Ui) {
         let p = neoflash_ui::palette(ui.ctx());
         egui::Frame::new()
-            .inner_margin(egui::Margin::same(space::S2 as i8))
+            .inner_margin(egui::Margin::same(space::s2() as i8))
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing = Vec2::new(space::S3, space::S2);
-                ui.set_width(232.);
+                ui.spacing_mut().item_spacing = Vec2::new(space::s3(), space::s2());
+                // Two numeric fields side by side.
+                let field = neoflash_ui::metrics::field_s();
+                ui.set_width(2. * field + space::s2());
                 nf::menu_section(ui, "Onion skin");
                 let last = self.symbol().timeline.frame_count.saturating_sub(1);
                 ui.horizontal(|ui| {
@@ -1149,7 +1174,7 @@ impl Editor {
                     }
                 });
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = space::S2;
+                    ui.spacing_mut().item_spacing.x = space::s2();
                     let mut before = if self.onion_anchor {
                         self.frame.saturating_sub(self.anchored_range.0.min(last))
                     } else {
@@ -1161,7 +1186,7 @@ impl Editor {
                                 .prefix("Before")
                                 .unit("fr")
                                 .range(0.0..=120.0)
-                                .width(112.),
+                                .width(field),
                         )
                         .changed()
                     {
@@ -1186,7 +1211,7 @@ impl Editor {
                                 .prefix("After")
                                 .unit("fr")
                                 .range(0.0..=120.0)
-                                .width(112.),
+                                .width(field),
                         )
                         .changed()
                     {
@@ -1206,7 +1231,7 @@ impl Editor {
                     if ui
                         .add(
                             nf::Slider::new(&mut opacity, 15.0..=100.0, "Onion opacity")
-                                .width(SLIDER),
+                                .width(slider_width()),
                         )
                         .changed()
                     {
@@ -1680,81 +1705,102 @@ mod tests {
     }
 
     /// R-052: controls hide by priority instead of clipping; the essential set survives any width.
+    /// Every width comes from the metric-based budgets, so the rule holds in all three densities.
     #[test]
     fn controls_hide_by_priority_and_give_back_what_fits() {
-        use super::{CONTROLS, Ctl, ESSENTIAL, controls_width, estimated_width, fit_controls};
-        let items: Vec<(Ctl, u8, f32)> = CONTROLS
-            .iter()
-            .map(|&(c, p)| (c, p, estimated_width(c)))
-            .collect();
-        let full = controls_width(&items.iter().map(|i| (i.0, i.2)).collect::<Vec<_>>());
-        assert_eq!(fit_controls(&items, full).len(), CONTROLS.len());
-        // Slightly narrower: the zoom slider (priority 0) goes first.
-        let visible = fit_controls(&items, full - 1.);
-        assert!(!visible.contains(&Ctl::Slider));
-        assert!(visible.contains(&Ctl::Insert) && visible.contains(&Ctl::Tween));
-        // Every width keeps the never-hidden controls, in bar order, and fits when possible.
-        let never: Vec<Ctl> = CONTROLS
-            .iter()
-            .filter(|c| c.1 == ESSENTIAL)
-            .map(|c| c.0)
-            .collect();
-        let minimum = controls_width(
-            &items
+        use super::{CONTROLS, Ctl, ESSENTIAL, controls_width, estimated_width, fit_controls, gap};
+        use neoflash_ui::metrics::{Density, set_density};
+        for density in Density::ALL {
+            set_density(density);
+            let items: Vec<(Ctl, u8, f32)> = CONTROLS
                 .iter()
-                .filter(|i| i.1 == ESSENTIAL)
-                .map(|i| (i.0, i.2))
-                .collect::<Vec<_>>(),
-        );
-        for width in [minimum, 320., 560., 780., 1000., 1240., 1500.] {
-            let visible = fit_controls(&items, width);
-            assert!(never.iter().all(|c| visible.contains(c)), "{width}");
-            let row: Vec<(Ctl, f32)> = items
-                .iter()
-                .filter(|i| visible.contains(&i.0))
-                .map(|i| (i.0, i.2))
+                .map(|&(c, p)| (c, p, estimated_width(c)))
                 .collect();
-            assert!(controls_width(&row) <= width, "{width}");
-            let order: Vec<usize> = visible
+            let slot = |c: Ctl| estimated_width(c) + gap();
+            let full = controls_width(&items.iter().map(|i| (i.0, i.2)).collect::<Vec<_>>());
+            assert_eq!(fit_controls(&items, full).len(), CONTROLS.len());
+            // Slightly narrower: the zoom slider (priority 0) goes first.
+            let visible = fit_controls(&items, full - 1.);
+            assert!(!visible.contains(&Ctl::Slider));
+            assert!(visible.contains(&Ctl::Insert) && visible.contains(&Ctl::Tween));
+            // Every width keeps the never-hidden controls, in bar order, and fits when possible.
+            let never: Vec<Ctl> = CONTROLS
                 .iter()
-                .map(|c| CONTROLS.iter().position(|i| i.0 == *c).unwrap())
+                .filter(|c| c.1 == ESSENTIAL)
+                .map(|c| c.0)
                 .collect();
-            assert!(order.windows(2).all(|w| w[0] < w[1]), "{width}");
-        }
-        // At 1000 pt the lowest priorities are hidden, the frame tools stay.
-        let visible = fit_controls(&items, 1000.);
-        for gone in [Ctl::Slider, Ctl::Duration, Ctl::Scene] {
-            assert!(!visible.contains(&gone));
-        }
-        for kept in [
-            Ctl::Insert,
-            Ctl::Tween,
-            Ctl::Onion,
-            Ctl::Loop,
-            Ctl::Delete,
-            Ctl::Frame,
-        ] {
-            assert!(visible.contains(&kept));
-        }
-        // Last-resort controls (Delete layer, frame number, dividers) go only when nothing else is left.
-        let visible = fit_controls(&items, 330.);
-        assert!(!visible.contains(&Ctl::Frame) && !visible.contains(&Ctl::Insert));
-        let visible = fit_controls(&items, 270.);
-        assert!(!visible.contains(&Ctl::Delete));
-        // No divider is left at an edge, next to another divider or next to the flexible gap.
-        for width in [270., 330., 450., 560., 780.] {
-            let row = fit_controls(&items, width);
-            for (k, c) in row.iter().enumerate() {
-                if matches!(c, Ctl::Div1 | Ctl::Div2 | Ctl::Div3) {
-                    assert!(k > 0 && k + 1 < row.len(), "{width}: {row:?}");
-                    for n in [row[k - 1], row[k + 1]] {
-                        assert!(
-                            !matches!(n, Ctl::Div1 | Ctl::Div2 | Ctl::Div3 | Ctl::Flex),
-                            "{width}: {row:?}"
-                        );
+            let minimum = controls_width(
+                &items
+                    .iter()
+                    .filter(|i| i.1 == ESSENTIAL)
+                    .map(|i| (i.0, i.2))
+                    .collect::<Vec<_>>(),
+            );
+            let step = (full - minimum) / 6.;
+            let widths: Vec<f32> = (0..=7).map(|k| minimum + step * k as f32).collect();
+            for &width in &widths {
+                let visible = fit_controls(&items, width);
+                assert!(never.iter().all(|c| visible.contains(c)), "{width}");
+                let row: Vec<(Ctl, f32)> = items
+                    .iter()
+                    .filter(|i| visible.contains(&i.0))
+                    .map(|i| (i.0, i.2))
+                    .collect();
+                assert!(controls_width(&row) <= width, "{width}");
+                let order: Vec<usize> = visible
+                    .iter()
+                    .map(|c| CONTROLS.iter().position(|i| i.0 == *c).unwrap())
+                    .collect();
+                assert!(order.windows(2).all(|w| w[0] < w[1]), "{width}");
+            }
+            // Short by the slider, Duration and Scene: exactly the lowest priorities hide (Centre
+            // playhead comes back because it still fits), the frame tools stay.
+            let lowest = [Ctl::Slider, Ctl::Duration, Ctl::Scene];
+            let visible = fit_controls(&items, full - lowest.iter().map(|c| slot(*c)).sum::<f32>());
+            for gone in lowest {
+                assert!(!visible.contains(&gone), "{density:?} {gone:?}");
+            }
+            for kept in [
+                Ctl::Insert,
+                Ctl::Tween,
+                Ctl::Onion,
+                Ctl::Loop,
+                Ctl::Delete,
+                Ctl::Frame,
+                Ctl::Centre,
+            ] {
+                assert!(visible.contains(&kept), "{density:?} {kept:?}");
+            }
+            // Last-resort controls (Delete layer, frame number, dividers) go only when nothing else is
+            // left: with room for the essential set and Delete layer, Delete stays and the rest is in
+            // the More menu; one point less hides Delete too.
+            let lean = minimum + slot(Ctl::Delete);
+            let visible = fit_controls(&items, lean);
+            assert!(visible.contains(&Ctl::Delete), "{density:?}");
+            assert!(!visible.contains(&Ctl::Frame) && !visible.contains(&Ctl::Insert));
+            let visible = fit_controls(&items, lean - 1.);
+            assert!(!visible.contains(&Ctl::Delete), "{density:?}");
+            // With room for the frame number and its divider as well, both stay before any lower
+            // priority returns.
+            let with_frame = lean + slot(Ctl::Div1) + slot(Ctl::Frame);
+            let visible = fit_controls(&items, with_frame);
+            assert!(visible.contains(&Ctl::Frame) && !visible.contains(&Ctl::Insert));
+            // No divider is left at an edge, next to another divider or next to the flexible gap.
+            for width in widths.iter().copied().chain([lean - 1., lean, with_frame]) {
+                let row = fit_controls(&items, width);
+                for (k, c) in row.iter().enumerate() {
+                    if matches!(c, Ctl::Div1 | Ctl::Div2 | Ctl::Div3) {
+                        assert!(k > 0 && k + 1 < row.len(), "{width}: {row:?}");
+                        for n in [row[k - 1], row[k + 1]] {
+                            assert!(
+                                !matches!(n, Ctl::Div1 | Ctl::Div2 | Ctl::Div3 | Ctl::Flex),
+                                "{width}: {row:?}"
+                            );
+                        }
                     }
                 }
             }
         }
+        set_density(Density::default());
     }
 }

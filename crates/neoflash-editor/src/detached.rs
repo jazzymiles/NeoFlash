@@ -113,15 +113,10 @@ pub(crate) fn modifiers_suppress_dock(modifiers: egui::Modifiers) -> bool {
     modifiers.command || modifiers.mac_cmd
 }
 
-/// Width required by the locked floating-header grip, menu, collapse and close controls.
-/// Expressed only in approved NF2 metrics.
+/// Width the floating header needs without tabs: grip, menu, collapse and close, as the
+/// `FloatingPanelHeader` atom lays them out.
 fn floating_header_chrome_width() -> f32 {
-    neoflash_ui::tokens::space::S2
-        + neoflash_ui::icons::i16::GRIP.side()
-        + neoflash_ui::tokens::space::S1
-        + neoflash_ui::tokens::space::S1
-        + 3.0 * neoflash_ui::metrics::MIN_HIT
-        + neoflash_ui::tokens::space::S1
+    neoflash_ui::components::FloatingPanelHeader::chrome_width()
 }
 
 /// Minimum width for a floating header of `panels`.
@@ -136,17 +131,19 @@ pub(crate) fn floating_header_chrome_width_for(panels: &[PanelId]) -> f32 {
     }
 }
 
+/// Text width reserved for the "Tools" tab label. Type does not scale with density.
+const TOOLS_TITLE_WIDTH: f32 = 32.0;
+
 /// Width at which a standalone floating `Tools` window has room for the full
 /// titled `FloatingPanelHeader` (grip + `"Tools"` tab + menu/collapse/close).
 pub(crate) fn floating_full_tools_header_width() -> f32 {
-    floating_header_chrome_width()
-        + neoflash_ui::metrics::CONTROL
-        + 2.0 * neoflash_ui::tokens::space::S3
+    use neoflash_ui::components::FloatingPanelHeader;
+    (floating_header_chrome_width() + TOOLS_TITLE_WIDTH + 2.0 * neoflash_ui::tokens::space::s4())
+        .max(FloatingPanelHeader::NARROW_BELOW)
 }
 
-/// Minimum logical width of a standalone floating `Tools` window: one tool
-/// button plus existing NF2 padding and border (`42 pt` in Comfortable,
-/// `40 pt` in Compact/Classic).
+/// Minimum logical width of a standalone floating `Tools` window: the one-column rail
+/// (`metrics::tools_rail()`).
 pub(crate) fn floating_tools_width() -> f32 {
     minimum_tools_window_width()
 }
@@ -2340,21 +2337,10 @@ impl Editor {
             })
             .unwrap_or_default();
         if let Some(group) = &single_group {
-            let palette = neoflash_ui::palette(ui.ctx());
             let tab_budget =
                 (ui.available_width() - floating_header_chrome_width_for(panels)).max(1.0);
             let tab_width = |ui: &egui::Ui, panel: PanelId| {
-                ui.fonts_mut(|fonts| {
-                    fonts
-                        .layout_no_wrap(
-                            panel.title().into(),
-                            neoflash_ui::typography::font(neoflash_ui::TextStyle::SmallStrong),
-                            palette.text_primary,
-                        )
-                        .size()
-                        .x
-                        + 2.0 * neoflash_ui::tokens::space::S3
-                })
+                neoflash_ui::components::headers::panel_tab_width(ui, panel.title())
             };
             while visible_tabs.len() > 1
                 && visible_tabs
@@ -2407,6 +2393,8 @@ impl Editor {
         let mut header_tabs = Vec::new();
         let mut header_collapse = false;
         let mut header_close = false;
+        // The header atom showed only the grip and ⋯: Collapse and Close move into the ⋯ menu.
+        let mut header_narrow = false;
         let (header_rect, header_menu) = if compact_tools_header {
             let palette = neoflash_ui::palette(ui.ctx());
             let width = ui.available_width().max(minimum_logical[0]);
@@ -2420,14 +2408,14 @@ impl Editor {
                 );
             }
             let more_side = if width < 84.0 {
-                neoflash_ui::tokens::space::S5
+                neoflash_ui::tokens::space::s5()
             } else {
                 neoflash_ui::metrics::min_hit()
             };
             let right_pad = if width < 84.0 {
-                0.5 * neoflash_ui::tokens::space::S1
+                0.5 * neoflash_ui::tokens::space::s1()
             } else {
-                neoflash_ui::tokens::space::S1
+                neoflash_ui::tokens::space::s1()
             };
             let more_rect = egui::Rect::from_center_size(
                 egui::pos2(rect.right() - right_pad - more_side * 0.5, rect.center().y),
@@ -2454,9 +2442,9 @@ impl Editor {
                     // 2-column..4-column widths keep the visible "Tools" title + More (⋯) layout
                     // matching docked Tools, avoiding extra grip dots on detach.
                     let title_left = if width < 84.0 {
-                        rect.left() + neoflash_ui::tokens::space::S2
+                        rect.left() + neoflash_ui::tokens::space::s2()
                     } else {
-                        rect.left() + neoflash_ui::tokens::space::S3
+                        rect.left() + neoflash_ui::tokens::space::s3()
                     };
                     let title_font = neoflash_ui::typography::font(neoflash_ui::TextStyle::Title);
                     let title_width = ui.fonts_mut(|fonts| {
@@ -2553,27 +2541,20 @@ impl Editor {
             // layer drag responses over the same painted tabs so a single-group window keeps the
             // individual reorder/tear-off behavior of an ordinary dock header.
             let tab_safe_right = header.drag.rect.right()
-                - neoflash_ui::tokens::space::S1
-                - 3.0 * neoflash_ui::metrics::MIN_HIT
-                - neoflash_ui::tokens::space::S1;
+                - neoflash_ui::components::FloatingPanelHeader::actions_width()
+                - neoflash_ui::tokens::space::s1();
             let tab_strip_start = header.drag.rect.left()
-                + neoflash_ui::tokens::space::S2
-                + neoflash_ui::icons::i16::GRIP.side()
-                + neoflash_ui::tokens::space::S1;
+                + neoflash_ui::components::FloatingPanelHeader::tab_strip_start();
             let mut tab_left = tab_strip_start;
-            let palette = neoflash_ui::palette(ui.ctx());
-            for (panel, title) in visible_tabs.iter().copied().zip(titles.iter().copied()) {
-                let label_width = ui.fonts_mut(|fonts| {
-                    fonts
-                        .layout_no_wrap(
-                            title.into(),
-                            neoflash_ui::typography::font(neoflash_ui::TextStyle::SmallStrong),
-                            palette.text_primary,
-                        )
-                        .size()
-                        .x
-                });
-                let width = label_width + 2.0 * neoflash_ui::tokens::space::S3;
+            // A narrow header paints no tabs: nothing to hit-test, the whole strip drags.
+            let painted_tabs = if header.narrow { 0 } else { visible_tabs.len() };
+            for (panel, title) in visible_tabs
+                .iter()
+                .copied()
+                .zip(titles.iter().copied())
+                .take(painted_tabs)
+            {
+                let width = neoflash_ui::components::headers::panel_tab_width(ui, title);
                 let painted = egui::Rect::from_min_size(
                     egui::pos2(tab_left, header.drag.rect.top()),
                     egui::vec2(width, neoflash_ui::metrics::panel_tab()),
@@ -2642,6 +2623,7 @@ impl Editor {
             }
             header_collapse = header.collapse;
             header_close = header.close;
+            header_narrow = header.narrow;
             (header.drag.rect, header.menu)
         };
         self.floating_window_drag_handle_subtle(ui, window_id, active, &header_menu);
@@ -2674,7 +2656,7 @@ impl Editor {
                     crate::workspace::DockSurface::Floating(window_id),
                     &clipboard_target,
                 );
-                if compact_tools_header {
+                if compact_tools_header || header_narrow {
                     neoflash_ui::components::menu_separator(ui);
                     let collapse_label = if collapsed {
                         "Expand panel"
@@ -2805,6 +2787,27 @@ impl Editor {
         if let Some(position) = ctx.data(|d| d.get_temp::<egui::Pos2>(position_id)) {
             window = window.current_pos(position);
         }
+        let lone_tools = visible.as_slice() == [PanelId::Tools];
+        // Top of the window content on screen: the Tools panel reports its desired height from
+        // the viewport origin, which an embedded window does not start at.
+        let content_top_id = id.with("content-top");
+        let content_top = ctx
+            .data(|d| d.get_temp::<f32>(content_top_id))
+            .unwrap_or(0.0);
+        // A new window opens at the panel's default size (Tools: its natural two columns), not at
+        // egui's 340 pt window default.
+        let default_size = if lone_tools {
+            [
+                crate::panels::tools_natural_width(2),
+                crate::workspace::default_window_size(PanelId::Tools)[1],
+            ]
+        } else {
+            crate::workspace::default_window_size(visible.first().copied().unwrap_or(window_id))
+        };
+        window = window.default_size(default_size);
+        if lone_tools {
+            window = window.min_width(floating_tools_width());
+        }
         if !collapsed {
             let max_size = self
                 .workspace
@@ -2814,10 +2817,9 @@ impl Editor {
                 .and_then(|w| w.root.as_ref())
                 .map_or([4096., 2160.], |root| root.maximum_size());
             window = window.max_width(max_size[0]).max_height(max_size[1]);
-            if visible.as_slice() == [PanelId::Tools]
-                && let Some(desired_h) = self.detached.tools_desired_inner_height
-            {
-                window = window.max_height(desired_h);
+            if lone_tools && let Some(desired_h) = self.detached.tools_desired_inner_height {
+                let height = (desired_h - content_top).max(neoflash_ui::metrics::panel_tab());
+                window = window.min_height(height).max_height(height);
             }
         }
         window
@@ -2825,6 +2827,9 @@ impl Editor {
             .frame(neoflash_ui::components::Surface::Floating.frame(ctx))
             .resizable(!collapsed)
             .show(ctx, |ui| {
+                // The body starts right under the header's divider, as in a native window.
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ctx.data_mut(|d| d.insert_temp(content_top_id, ui.cursor().top()));
                 let header = neoflash_ui::components::FloatingPanelHeader {
                     tabs: &titles,
                     active,
@@ -2841,10 +2846,28 @@ impl Editor {
                         ctx.request_repaint();
                     }
                 }
+                let mut header_collapse = header.collapse;
                 neoflash_ui::components::popup_below(&header.menu, 240., |ui| {
                     self.floating_panel_commands(ui, window_id, &clipboard_target);
+                    // The narrow header shows only the grip and ⋯: Collapse and Close live here.
+                    if header.narrow {
+                        neoflash_ui::components::menu_separator(ui);
+                        let collapse_label = if collapsed {
+                            "Expand panel"
+                        } else {
+                            "Collapse panel"
+                        };
+                        if crate::ui_icons::menu_item(ui, collapse_label, "").clicked() {
+                            header_collapse = true;
+                            ui.close();
+                        }
+                        if crate::ui_icons::menu_item(ui, "Close panel", "").clicked() {
+                            open = false;
+                            ui.close();
+                        }
+                    }
                 });
-                if header.collapse {
+                if header_collapse {
                     let next = !collapsed;
                     if self
                         .workspace
@@ -2858,7 +2881,34 @@ impl Editor {
                     open = false;
                 }
                 if !collapsed {
-                    self.floating_dock_contents(ui, window_id);
+                    // The header above is the window's only chrome for a single group: paint just
+                    // the active panel under it, as the native window does.
+                    let single_group = self
+                        .workspace
+                        .floating
+                        .iter()
+                        .find(|window| window.id == window_id)
+                        .and_then(|window| match window.root.as_ref()? {
+                            crate::workspace::FloatingNode::Group(group) => Some(group.clone()),
+                            crate::workspace::FloatingNode::Split { .. } => None,
+                        });
+                    let body = ui.available_rect_before_wrap();
+                    if body.is_positive() {
+                        let mut body_ui = ui.new_child(egui::UiBuilder::new().max_rect(body));
+                        body_ui.set_clip_rect(ui.clip_rect().intersect(body));
+                        if let Some(group) = &single_group {
+                            self.floating_single_group_body_contents(
+                                &mut body_ui,
+                                window_id,
+                                group,
+                                header.drag.rect,
+                                &[],
+                            );
+                        } else {
+                            self.floating_dock_contents(&mut body_ui, window_id);
+                        }
+                        ui.allocate_rect(body, egui::Sense::hover());
+                    }
                 }
             });
         open
@@ -3227,13 +3277,13 @@ fn panel_title_tab(ui: &mut egui::Ui, label: &str) -> egui::Response {
     );
     let grip = neoflash_ui::metrics::ICON_UI;
     let size = egui::vec2(
-        space::S2 + grip + space::S1 + space::S3 + galley.size().x + space::S3,
+        space::s2() + grip + space::s1() + space::s3() + galley.size().x + space::s3(),
         neoflash_ui::metrics::panel_tab(),
     );
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
     if ui.is_rect_visible(rect) {
         let grip_rect = egui::Rect::from_center_size(
-            egui::pos2(rect.left() + space::S2 + grip / 2., rect.center().y),
+            egui::pos2(rect.left() + space::s2() + grip / 2., rect.center().y),
             egui::vec2(grip, grip),
         );
         neoflash_ui::icons::paint(
@@ -3244,12 +3294,12 @@ fn panel_title_tab(ui: &mut egui::Ui, label: &str) -> egui::Response {
             p.text_tertiary,
         );
         let tab = egui::Rect::from_min_max(
-            egui::pos2(grip_rect.right() + space::S1, rect.top()),
+            egui::pos2(grip_rect.right() + space::s1(), rect.top()),
             rect.max,
         );
         ui.painter().galley(
             egui::pos2(
-                tab.left() + space::S3,
+                tab.left() + space::s3(),
                 tab.center().y - galley.size().y / 2.,
             ),
             galley,
@@ -3261,7 +3311,7 @@ fn panel_title_tab(ui: &mut egui::Ui, label: &str) -> egui::Response {
             p.accent_default,
         );
         if neoflash_ui::theme::keyboard_focus(ui, &response) {
-            neoflash_ui::theme::focus_ring(ui, rect.shrink(2.), neoflash_ui::tokens::radius::SM);
+            neoflash_ui::theme::focus_ring(ui, rect.shrink(2.), neoflash_ui::tokens::radius::sm());
         }
     }
     response

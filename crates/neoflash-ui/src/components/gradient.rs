@@ -146,7 +146,7 @@ impl Widget for GradientBar<'_> {
         ui.painter().with_clip_rect(bar.shrink(1.0)).add(mesh);
         ui.painter().rect_stroke(
             bar,
-            cr(radius::SM),
+            cr(radius::sm()),
             Stroke::new(1.0_f32, p.border_default),
             StrokeKind::Inside,
         );
@@ -265,7 +265,7 @@ pub fn paint_gradient_overflow_preview(
         .add(mesh);
     painter.rect_stroke(
         rect,
-        cr(radius::SM),
+        cr(radius::sm()),
         Stroke::new(1.0_f32, p.border_default),
         StrokeKind::Inside,
     );

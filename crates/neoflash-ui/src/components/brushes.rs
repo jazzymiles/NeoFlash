@@ -65,8 +65,8 @@ impl Widget for ToolFlyoutItem<'_> {
         let p = palette(ui.ctx());
         let short = (!self.shortcut.is_empty())
             .then(|| galley(ui, self.shortcut, TextStyle::MonoSmall, p.text_tertiary));
-        let short_w = short.as_ref().map_or(0.0, |g| space::S2 + g.size().x);
-        let lead = space::S2 + 6.0 + space::S2 + 20.0 + space::S2;
+        let short_w = short.as_ref().map_or(0.0, |g| space::s2() + g.size().x);
+        let lead = space::s2() + 6.0 + space::s2() + 20.0 + space::s2();
         let label_probe = galley(ui, self.label, TextStyle::Body, p.text_primary);
         let min_w = lead + label_probe.size().x + short_w + 10.0;
         let width = self
@@ -77,7 +77,7 @@ impl Widget for ToolFlyoutItem<'_> {
         let s = State::of(ui, &response);
         if ui.is_rect_visible(rect) {
             if s.hovered {
-                ui.painter().rect_filled(rect, cr(radius::MD), p.bg_hover);
+                ui.painter().rect_filled(rect, cr(radius::md()), p.bg_hover);
             }
             let fg = if s.enabled {
                 p.text_primary
@@ -85,14 +85,14 @@ impl Widget for ToolFlyoutItem<'_> {
                 p.text_disabled
             };
             let mark = Rect::from_center_size(
-                egui::pos2(rect.left() + space::S2 + 3.0, rect.center().y),
+                egui::pos2(rect.left() + space::s2() + 3.0, rect.center().y),
                 egui::vec2(6.0, 6.0),
             );
             if self.active {
                 ui.painter().rect_filled(mark, cr(1.0), fg);
             }
             let icon = Rect::from_center_size(
-                egui::pos2(mark.right() + space::S2 + 10.0, rect.center().y),
+                egui::pos2(mark.right() + space::s2() + 10.0, rect.center().y),
                 egui::vec2(20.0, 20.0),
             );
             let icon_c = if !s.enabled {
@@ -104,7 +104,7 @@ impl Widget for ToolFlyoutItem<'_> {
             };
             icons::paint(ui.painter(), ui.ctx(), icon, self.icon, icon_c);
             let right = rect.right() - 10.0;
-            let x = icon.right() + space::S2;
+            let x = icon.right() + space::s2();
             let room = (right - short_w - x).max(0.0);
             let label = super::galley_truncated(ui, self.label, TextStyle::Body, fg, room);
             text_at(ui, x, rect, label, fg);
@@ -116,7 +116,7 @@ impl Widget for ToolFlyoutItem<'_> {
                 };
                 text_at(ui, right - g.size().x, rect, g, c);
             }
-            focus(ui, s, rect, radius::MD);
+            focus(ui, s, rect, radius::md());
         }
         a11y(
             &response,
@@ -335,8 +335,9 @@ pub fn paint_stroke_sample(
 // ---------------------------------------------------------------------------------------------
 // Brush Preset
 
-/// `NF2/Brush Preset` (`96:851`) — brush library row: 96 × 20 sample stroke, `NF2/Body` name and the
-/// default size in `NF2/Mono Small` `text/tertiary`; 36 pt, radius md, 10 pt side padding, 12 pt gaps.
+/// `NF3/Brush Preset` (`96:851`) — brush library row: sample stroke, `NF2/Body` name and the default
+/// size in `NF2/Mono Small` `text/tertiary`; [`brush_preset_height`] high (32 / 26 / 24), radius md,
+/// button padding at the sides. The 96 × 20 sample scales with the row (20 / 18 / 16 pt high).
 /// `Selected` = `bg/selected` + accent name. Click selects, double-click edits (caller).
 #[must_use = "add it with ui.add(…)"]
 pub struct BrushPreset<'a> {
@@ -347,8 +348,13 @@ pub struct BrushPreset<'a> {
     width: Option<f32>,
 }
 
-/// Row height of `NF2/Brush Preset`.
-pub const BRUSH_PRESET: f32 = 36.0;
+/// Row height of `NF3/Brush Preset` at Normal density; layout uses [`brush_preset_height`].
+pub const BRUSH_PRESET: f32 = 32.0;
+
+/// Row height of `NF3/Brush Preset` at the current density: one control plus a control gap.
+pub fn brush_preset_height() -> f32 {
+    crate::metrics::control() + space::s2()
+}
 
 impl<'a> BrushPreset<'a> {
     /// `size` is the caller-formatted default size ("12").
@@ -382,23 +388,24 @@ impl Widget for BrushPreset<'_> {
         let p = palette(ui.ctx());
         let width = self
             .width
-            .unwrap_or_else(|| ui.available_width().max(200.0));
+            .unwrap_or_else(|| ui.available_width().max(crate::metrics::field_m()));
         let (rect, response) =
-            ui.allocate_exact_size(egui::vec2(width, BRUSH_PRESET), Sense::click());
+            ui.allocate_exact_size(egui::vec2(width, brush_preset_height()), Sense::click());
         let s = State::of(ui, &response);
         if ui.is_rect_visible(rect) {
             if self.selected {
                 ui.painter()
-                    .rect_filled(rect, cr(radius::MD), p.bg_selected);
+                    .rect_filled(rect, cr(radius::md()), p.bg_selected);
             } else if s.hovered {
-                ui.painter().rect_filled(rect, cr(radius::MD), p.bg_hover);
+                ui.painter().rect_filled(rect, cr(radius::md()), p.bg_hover);
             }
+            // The sample keeps one control gap above and below, and its 96 : 20 proportions.
+            let pad = super::button::button_padding();
+            let sample_h = (rect.height() - 2.0 * space::s2()).min(BRUSH_STROKE_SIZE.y);
+            let sample_size = BRUSH_STROKE_SIZE * (sample_h / BRUSH_STROKE_SIZE.y);
             let sample = Rect::from_min_size(
-                egui::pos2(
-                    rect.left() + 10.0,
-                    rect.center().y - BRUSH_STROKE_SIZE.y / 2.0,
-                ),
-                BRUSH_STROKE_SIZE,
+                egui::pos2(rect.left() + pad, rect.center().y - sample_size.y / 2.0),
+                sample_size,
             );
             let stroke_c = if s.enabled {
                 p.text_primary
@@ -418,8 +425,8 @@ impl Widget for BrushPreset<'_> {
                 p.text_disabled
             };
             let size = galley(ui, self.size, TextStyle::MonoSmall, size_c);
-            let size_x = rect.right() - 10.0 - size.size().x;
-            let x = sample.right() + space::S3;
+            let size_x = rect.right() - pad - size.size().x;
+            let x = sample.right() + space::s3();
             let fg = if !s.enabled {
                 p.text_disabled
             } else if self.selected {
@@ -427,11 +434,11 @@ impl Widget for BrushPreset<'_> {
             } else {
                 p.text_primary
             };
-            let room = (size_x - space::S3 - x).max(0.0);
+            let room = (size_x - space::s3() - x).max(0.0);
             let label = super::galley_truncated(ui, self.label, TextStyle::Body, fg, room);
             text_at(ui, x, rect, label, fg);
             text_at(ui, size_x, rect, size, size_c);
-            focus(ui, s, rect, radius::MD);
+            focus(ui, s, rect, radius::md());
         }
         a11y(
             &response,
@@ -594,10 +601,10 @@ impl Widget for BrushShape {
             } else {
                 (p.bg_field, p.border_subtle, p.text_primary)
             };
-            ui.painter().rect_filled(rect, cr(radius::SM), bg);
+            ui.painter().rect_filled(rect, cr(radius::sm()), bg);
             ui.painter().rect_stroke(
                 rect,
-                cr(radius::SM),
+                cr(radius::sm()),
                 Stroke::new(1.0_f32, border),
                 StrokeKind::Inside,
             );
@@ -640,7 +647,7 @@ impl Widget for BrushShape {
                     painter.add(egui::Shape::convex_polygon(pts, fg, Stroke::NONE));
                 }
             }
-            focus(ui, s, rect, radius::SM);
+            focus(ui, s, rect, radius::sm());
         }
         a11y(
             &response,
@@ -744,7 +751,7 @@ fn value_chip(painter: &Painter, top_centre: Pos2, text: &str) {
     );
     let size = g.size() + egui::vec2(12.0, 4.0);
     let rect = Rect::from_min_size(egui::pos2(top_centre.x - size.x / 2.0, top_centre.y), size);
-    painter.rect_filled(rect, cr(radius::SM), p.tooltip_bg);
+    painter.rect_filled(rect, cr(radius::sm()), p.tooltip_bg);
     painter.galley(rect.min + egui::vec2(6.0, 2.0), g, p.text_inverse);
 }
 

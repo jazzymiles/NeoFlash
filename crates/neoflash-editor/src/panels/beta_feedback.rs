@@ -4,7 +4,9 @@
 //! ≤ 10 MB each), with no `Email` or `Name` fields. Only the fields and images shown in the dialog
 //! are sent (`R-103` item 6).
 
+use super::dialog_helpers::{FormDialog, dialog_width, form_dialog_height};
 use crate::app::Editor;
+use crate::theme::ScrollTheme as _;
 use eframe::egui::{self, Color32, Rect};
 use neoflash_export::{
     FeedbackAttachment, MAX_FEEDBACK_ATTACHMENT_BYTES, MAX_FEEDBACK_ATTACHMENTS,
@@ -15,7 +17,7 @@ use neoflash_export::{
 use neoflash_ui::{
     TextStyle, components as c,
     icons::{self, i16},
-    palette,
+    metrics, palette,
     tokens::space,
     typography::{font, rich},
 };
@@ -25,7 +27,27 @@ use std::{
     time::Duration,
 };
 
-const DIALOG_INNER_FRAME_WIDTH: f32 = 478.0;
+/// Rows of the feedback text area.
+const TEXT_ROWS: usize = 6;
+/// Attachment rows visible without scrolling (the list scrolls up to the five allowed).
+const ATTACHMENT_ROWS: f32 = 3.0;
+
+/// Height reserved under the text area for the error message and the attachment list.
+fn attachments_area_height() -> f32 {
+    ATTACHMENT_ROWS * metrics::control()
+}
+
+/// `Beta feedback` has one height per density with and without attachments or an error.
+pub(crate) fn beta_feedback_dialog_height() -> f32 {
+    let text_area = (TEXT_ROWS as f32 * TextStyle::Body.spec().line_height + 2.0 * space::s2())
+        .max(metrics::control());
+    form_dialog_height(
+        0,
+        0,
+        text_area + metrics::row_gap() + attachments_area_height(),
+    )
+}
+
 const CHIP_BOTTOM_MARGIN: f32 = 10.0;
 const LIMIT_TOOLTIP: &str = "At most 5 images can be attached";
 
@@ -349,7 +371,7 @@ impl Editor {
             0.0
         };
         let anchor = egui::pos2(
-            canvas.left() + ruler + space::S4,
+            canvas.left() + ruler + space::s4(),
             canvas.bottom() - CHIP_BOTTOM_MARGIN,
         );
         let mut clicked = false;
@@ -580,123 +602,129 @@ impl Editor {
 
         let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let p = palette(ctx);
+        // v3: one size with and without attachments or an error message.
+        let width = dialog_width(ctx, metrics::dialog_m());
+        let height = beta_feedback_dialog_height();
         let modal = egui::Modal::new(egui::Id::new("beta-feedback"))
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
-                ui.set_width(DIALOG_INNER_FRAME_WIDTH);
-                ui.spacing_mut().item_spacing.y = 0.0;
+                let dialog = FormDialog::show(ui, "Send Beta Feedback", width, Some(height));
+                close_cancel |= dialog.close;
+                dialog.page(ui, "beta-feedback-page", |ui, _| {
+                    let body_w = ui.available_width();
+                    let ta_resp = ui.add_enabled(
+                        !sending,
+                        c::TextArea::new(&mut self.beta_feedback.text, "Beta feedback")
+                            .rows(TEXT_ROWS)
+                            .hint("What happened? What did you expect?"),
+                    );
+                    if self.beta_feedback.focus_text_on_open {
+                        self.beta_feedback.focus_text_on_open = false;
+                        ctx.memory_mut(|m| m.request_focus(ta_resp.id.with("edit")));
+                    }
 
-                close_cancel |= c::DialogHeader {
-                    title: "Beta feedback",
-                }
-                .show(ui);
+                    // Reserved area for the error message and the attachment list: the text
+                    // area, `Attach image…` and Cancel / Send never move when they appear.
+                    let (area, _) = ui.allocate_exact_size(
+                        egui::vec2(body_w, attachments_area_height()),
+                        egui::Sense::hover(),
+                    );
+                    let row_h = metrics::control();
+                    ui.scope_builder(
+                        egui::UiBuilder::new()
+                            .max_rect(area)
+                            .layout(egui::Layout::top_down(egui::Align::Min)),
+                        |ui| {
+                            egui::ScrollArea::vertical()
+                                .id_salt("beta-feedback-attachments")
+                                .auto_shrink([false, false])
+                                .themed()
+                                .show(ui, |ui| {
+                                    ui.spacing_mut().item_spacing.y = 0.0;
+                                    let list_w = ui.available_width();
+                                    if let Some(err) = &self.beta_feedback.error {
+                                        ui.add(c::InlineMessage::error(err).width(list_w));
+                                        ui.add_space(space::s1());
+                                    }
+                                    for (idx, att) in
+                                        self.beta_feedback.attachments.iter().enumerate()
+                                    {
+                                        let (row_rect, _) = ui.allocate_exact_size(
+                                            egui::vec2(list_w, row_h),
+                                            egui::Sense::hover(),
+                                        );
+                                        let size_label = format_attachment_size(att.bytes.len());
+                                        let size_w = ui.fonts_mut(|f| {
+                                            f.layout_no_wrap(
+                                                size_label.clone(),
+                                                font(TextStyle::Small),
+                                                Color32::WHITE,
+                                            )
+                                            .size()
+                                            .x
+                                        });
+                                        let name_max_w = (list_w
+                                            - metrics::ICON_UI
+                                            - space::s2()
+                                            - size_w
+                                            - space::s2() * 2.0
+                                            - row_h)
+                                            .max(48.0);
+                                        let shown_name =
+                                            middle_truncate_filename(ui, &att.filename, name_max_w);
 
-                egui::Frame::new()
-                    .inner_margin(egui::Margin {
-                        left: space::S5 as i8,
-                        right: space::S5 as i8,
-                        top: 0,
-                        bottom: 0,
-                    })
-                    .show(ui, |ui| {
-                        let body_w = DIALOG_INNER_FRAME_WIDTH - 2.0 * space::S5;
-                        ui.set_width(body_w);
-                        ui.spacing_mut().item_spacing.y = space::S3;
-
-                        let ta_resp = ui.add_enabled(
-                            !sending,
-                            c::TextArea::new(&mut self.beta_feedback.text, "Beta feedback")
-                                .rows(6)
-                                .hint("What happened? What did you expect?"),
-                        );
-                        if self.beta_feedback.focus_text_on_open {
-                            self.beta_feedback.focus_text_on_open = false;
-                            ctx.memory_mut(|m| m.request_focus(ta_resp.id.with("edit")));
-                        }
-
-                        if !self.beta_feedback.attachments.is_empty() {
-                            let row_h = neoflash_ui::metrics::control();
-                            ui.vertical(|ui| {
-                                ui.spacing_mut().item_spacing.y = 0.0;
-                                for (idx, att) in self.beta_feedback.attachments.iter().enumerate()
-                                {
-                                    let (row_rect, _) = ui.allocate_exact_size(
-                                        egui::vec2(body_w, row_h),
-                                        egui::Sense::hover(),
-                                    );
-                                    let size_label = format_attachment_size(att.bytes.len());
-                                    let size_w = ui.fonts_mut(|f| {
-                                        f.layout_no_wrap(
-                                            size_label.clone(),
-                                            font(TextStyle::Small),
-                                            Color32::WHITE,
-                                        )
-                                        .size()
-                                        .x
-                                    });
-                                    let name_max_w = (body_w
-                                        - 16.0
-                                        - space::S2
-                                        - size_w
-                                        - space::S2 * 2.0
-                                        - row_h)
-                                        .max(48.0);
-                                    let shown_name =
-                                        middle_truncate_filename(ui, &att.filename, name_max_w);
-
-                                    ui.scope_builder(
-                                        egui::UiBuilder::new().max_rect(row_rect).layout(
-                                            egui::Layout::left_to_right(egui::Align::Center),
-                                        ),
-                                        |ui| {
-                                            ui.spacing_mut().item_spacing.x = space::S2;
-                                            icons::show(ui, i16::BITMAP, p.text_secondary);
-                                            let name_resp = ui.add(
-                                                egui::Label::new(
-                                                    rich(&shown_name, TextStyle::Body)
-                                                        .color(p.text_primary),
-                                                )
-                                                .selectable(false),
-                                            );
-                                            if shown_name != att.filename {
-                                                c::tooltip(name_resp, &att.filename, None);
-                                            }
-                                            ui.add(
-                                                egui::Label::new(
-                                                    rich(&size_label, TextStyle::Small)
-                                                        .color(p.text_tertiary),
-                                                )
-                                                .selectable(false),
-                                            );
-                                            ui.with_layout(
-                                                egui::Layout::right_to_left(egui::Align::Center),
-                                                |ui| {
-                                                    let rm = ui.add_enabled(
-                                                        !sending,
-                                                        c::IconButton::new(i16::X, "Remove"),
-                                                    );
-                                                    if rm.clicked() {
-                                                        remove_idx = Some(idx);
-                                                    }
-                                                },
-                                            );
-                                        },
-                                    );
-                                }
-                            });
-                        }
-
-                        if let Some(err) = &self.beta_feedback.error {
-                            ui.add(c::InlineMessage::error(err));
-                        }
-                    });
+                                        ui.scope_builder(
+                                            egui::UiBuilder::new().max_rect(row_rect).layout(
+                                                egui::Layout::left_to_right(egui::Align::Center),
+                                            ),
+                                            |ui| {
+                                                ui.spacing_mut().item_spacing.x = space::s2();
+                                                icons::show(ui, i16::BITMAP, p.text_secondary);
+                                                let name_resp = ui.add(
+                                                    egui::Label::new(
+                                                        rich(&shown_name, TextStyle::Body)
+                                                            .color(p.text_primary),
+                                                    )
+                                                    .selectable(false),
+                                                );
+                                                if shown_name != att.filename {
+                                                    c::tooltip(name_resp, &att.filename, None);
+                                                }
+                                                ui.add(
+                                                    egui::Label::new(
+                                                        rich(&size_label, TextStyle::Small)
+                                                            .color(p.text_tertiary),
+                                                    )
+                                                    .selectable(false),
+                                                );
+                                                ui.with_layout(
+                                                    egui::Layout::right_to_left(
+                                                        egui::Align::Center,
+                                                    ),
+                                                    |ui| {
+                                                        let rm = ui.add_enabled(
+                                                            !sending,
+                                                            c::IconButton::new(i16::X, "Remove"),
+                                                        );
+                                                        if rm.clicked() {
+                                                            remove_idx = Some(idx);
+                                                        }
+                                                    },
+                                                );
+                                            },
+                                        );
+                                    }
+                                });
+                        },
+                    );
+                });
 
                 let at_limit = self.beta_feedback.attachments.len() >= MAX_FEEDBACK_ATTACHMENTS;
                 let can_attach = !at_limit && !sending;
                 let can_send = !self.beta_feedback.text.trim().is_empty() && !sending;
 
-                c::surface::dialog_footer(
+                dialog.footer(
                     ui,
                     |ui| {
                         let attach_resp =

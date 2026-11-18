@@ -78,12 +78,13 @@ fn system_tokens_propagate_to_bound_nodes_and_preserve_local_overrides() {
         .node_box(first_field_id)
         .unwrap()
         .resolved_height;
-    assert_eq!(gap_before, 8.0);
-    assert_eq!(field_h_before, 32.0);
+    // Normal density: the control gap step and the control height of the density table.
+    assert_eq!(gap_before, density_values("space_2")[0]);
+    assert_eq!(field_h_before, neoflash_ui::metrics::CONTROL);
 
     // 1. Edit TwoColumnFormSystem gap -> immediately updates bound Grid gap
     state.systems.two_column_form.gap = SpacingValue::Px(16.0);
-    // 2. Switch density profile to Classic Flash -> immediately updates leaf control heights to 24pt
+    // 2. Switch density profile to Classic Flash -> leaf controls take the Classic Flash height
     state.systems.density.active_profile = StudioDensityProfile::ClassicFlash;
     // 3. Edit Typography Mono system scale -> immediately updates Field typography
     state
@@ -99,7 +100,7 @@ fn system_tokens_propagate_to_bound_nodes_and_preserve_local_overrides() {
             .node_box(first_field_id)
             .unwrap()
             .resolved_height,
-        24.0
+        density_values("control")[2]
     );
     assert_eq!(
         layout_after
@@ -253,6 +254,11 @@ fn json_round_trip_and_rust_codegen_export_are_deterministic() {
     assert!(code1.contains("pub fn render_properties_movie_clip(ui: &mut Ui)"));
     assert!(code1.contains("c::SectionHeader::new(\"POSITION AND SIZE\")"));
     assert!(code1.contains("pub const TWEEN_ARROW_HEAD_LENGTH_PX: f32 = 12.50;"));
+    // The edited step is a Studio override; untouched sizes stay calls into the density system.
+    assert!(code1.contains("pub const SPACE_S3: f32 = 14.0;"));
+    assert!(code1.contains("pub fn two_col_gap() -> f32 { neoflash_ui::tokens::space::s2() }"));
+    assert!(code1.contains("pub fn two_col_label_width() -> f32 { 84.0 }"));
+    assert!(!code1.contains("CONTROL_HEIGHT"));
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -275,7 +281,10 @@ fn timeline_geometry_and_workspace_shell_systems_resolve_arrows_and_docks() {
     assert!((tri2[2].y - tri2[1].y - 12.0).abs() < 1e-4);
 
     // Layer column % vs px resolution
-    assert_eq!(tg.resolve_layer_list_width(800.0), 220.0);
+    assert_eq!(
+        tg.resolve_layer_list_width(800.0),
+        neoflash_ui::metrics::LAYER_COLUMN
+    );
     tg.layer_list_width = UiSizeUnit::Percent(25.0);
     assert_eq!(tg.resolve_layer_list_width(800.0), 200.0);
 
@@ -283,7 +292,7 @@ fn timeline_geometry_and_workspace_shell_systems_resolve_arrows_and_docks() {
     let mut ws = WorkspaceShellSystem::default();
     let viewport = Rect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, 700.0));
     let r1 = ws.resolve_shell_rects(viewport);
-    assert_eq!(r1.left_tools.width(), 46.0);
+    assert_eq!(r1.left_tools.width(), neoflash_ui::metrics::TOOLS_RAIL);
     assert_eq!(r1.right_inspector.width(), 250.0); // 25% of 1000
 
     ws.shell_right_inspector_width = UiSizeUnit::Px(310.0);
@@ -644,8 +653,8 @@ fn four_theme_switching_locks_preview_theme_and_side_by_side_comparison_renders_
         });
         assert_eq!(state.preview_theme, chosen);
         assert!(
-            has_rect_fill(&out, chosen.nf2().palette().bg_app),
-            "Expected Studio canvas to paint {chosen:?} bg_app even while host ctx is Dark"
+            has_rect_fill(&out, chosen.nf2().palette().bg_canvas),
+            "Expected Studio canvas to paint {chosen:?} bg_canvas even while host ctx is Dark"
         );
         assert!(
             has_rect_fill(&out, chosen.nf2().palette().bg_panel),
@@ -1019,7 +1028,8 @@ fn r069_artboard_header_truncates_title_places_size_badge_inside_without_overlap
         },
     );
 
-    // Rendered UI check: Add to Canvas has no leading '+', size badge lives in header, no overlapping root pill
+    // Rendered UI check: Add has no leading '+', the size badge lives in the preview header and no
+    // badge floats over the panel
     let mut state = UiLayoutStudioState {
         open: true,
         solo_active_artboard: true,
@@ -1045,16 +1055,408 @@ fn r069_artboard_header_truncates_title_places_size_badge_inside_without_overlap
     );
     let texts = collect_output_texts(&out);
     assert!(
-        texts.iter().any(|t| t == "Add to Canvas"),
-        "expected 'Add to Canvas' in rendered UI texts: {texts:?}"
+        texts.iter().any(|t| t == "Add"),
+        "expected 'Add' in rendered UI texts: {texts:?}"
     );
-    assert!(!texts.iter().any(|t| t == "+ Add to Canvas"));
+    assert!(!texts.iter().any(|t| t.starts_with('+')));
+    let size_badge = format!("{:.0}×480px", neoflash_ui::metrics::INSPECTOR);
     assert!(
-        texts.iter().any(|t| t == "300×480px"),
+        texts.contains(&size_badge),
         "artboard size badge should render inside artboard header: {texts:?}"
     );
     assert!(
         !texts.iter().any(|t| t.starts_with("Col · ")),
         "root floating badge must not overlap panel header: {texts:?}"
+    );
+}
+
+// ── v3: one-row toolbar, fixed columns, density-aware previews ──
+
+fn studio_ctx(theme: ThemeMode) -> egui::Context {
+    let ctx = egui::Context::default();
+    ctx.set_fonts(neoflash_ui::typography::font_definitions());
+    neoflash_ui::theme::install(&ctx, theme.nf2());
+    ctx
+}
+
+/// Run the Studio window for a few frames on a screen that gives it `window_width`.
+fn run_studio(
+    ctx: &egui::Context,
+    state: &mut UiLayoutStudioState,
+    window_width: f32,
+) -> egui::FullOutput {
+    let mut out = None;
+    for frame in 0..3 {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                Pos2::ZERO,
+                egui::vec2(window_width + 96.0, 1000.0),
+            )),
+            time: Some(f64::from(frame)),
+            ..Default::default()
+        };
+        out = Some(ctx.run(input, |ctx| ui_layout_studio_window_ui(ctx, state)));
+    }
+    out.expect("frames ran")
+}
+
+#[test]
+fn v3_toolbar_is_one_row_at_every_supported_width_in_each_density() {
+    use neoflash_ui::metrics::{self, Density};
+    for density in Density::ALL {
+        metrics::set_density(density);
+        let ctx = studio_ctx(ThemeMode::Light);
+        for width in [STUDIO_MIN_WIDTH, 1100.0, STUDIO_MAX_WIDTH] {
+            let mut state = UiLayoutStudioState {
+                open: true,
+                ..Default::default()
+            };
+            run_studio(&ctx, &mut state, width);
+            let probe = ctx
+                .data(|d| d.get_temp::<ToolbarProbe>(toolbar_probe_id()))
+                .expect("toolbar rendered");
+            let what = format!("{density:?} at {width} pt");
+            assert_eq!(probe.rect.width(), width, "{what}: window width");
+            assert_eq!(
+                probe.rect.height(),
+                metrics::timeline_controls(),
+                "{what}: the toolbar is exactly one row"
+            );
+            // Nothing wraps or overlaps: the left groups end before File / Export code start,
+            // and both stay inside the row.
+            assert!(
+                probe.left_end <= probe.right_start,
+                "{what}: left groups ({}) run into the file group ({})",
+                probe.left_end,
+                probe.right_start
+            );
+            assert!(
+                probe.left_end <= probe.rect.right(),
+                "{what}: clipped right"
+            );
+            assert!(
+                probe.right_start >= probe.rect.left(),
+                "{what}: clipped left"
+            );
+            assert!(
+                probe.plan.natural <= width,
+                "{what}: planned width {} exceeds the row",
+                probe.plan.natural
+            );
+            // Labels are never squeezed: the preset Select keeps a full natural width.
+            assert_eq!(probe.plan.preset_width, metrics::field_l(), "{what}");
+        }
+    }
+    metrics::set_density(Density::Comfortable);
+}
+
+#[test]
+fn v3_toolbar_groups_collapse_in_priority_order_and_never_wrap() {
+    let w = ToolbarWidths {
+        board: 200.0,
+        preset: 224.0,
+        add: 60.0,
+        theme: 96.0,
+        density: 230.0,
+        file: 96.0,
+        export: 110.0,
+        icon: 26.0,
+        divider: 7.0,
+        gap: 6.0,
+        pad: 12.0,
+    };
+    let full = toolbar_plan(4000.0, &w);
+    assert!(!full.overflow());
+    let natural = full.natural;
+    // Shrinking the row drops Auto-arrange and Undo / Redo, then density, then theme.
+    let mut seen = Vec::new();
+    let mut width = natural;
+    while width > 300.0 {
+        let plan = toolbar_plan(width, &w);
+        let flags = (plan.auto_arrange, plan.history, plan.density, plan.theme);
+        if seen.last() != Some(&flags) {
+            seen.push(flags);
+        }
+        if plan.preset_width == w.preset {
+            assert!(plan.natural <= width, "plan must fit {width}");
+        }
+        width -= 1.0;
+    }
+    // Auto-arrange alone frees nothing (the ⋯ button takes its place), so it leaves together with
+    // Undo / Redo; density and theme follow in that order.
+    assert_eq!(
+        seen,
+        vec![
+            (true, true, true, true),
+            (false, false, true, true),
+            (false, false, false, true),
+            (false, false, false, false),
+        ]
+    );
+}
+
+#[test]
+fn v3_columns_have_fixed_metric_widths() {
+    use neoflash_ui::metrics;
+    for width in [STUDIO_MIN_WIDTH, STUDIO_MAX_WIDTH] {
+        let rects = studio_body_rects(Rect::from_min_size(Pos2::ZERO, egui::vec2(width, 700.0)));
+        assert_eq!(rects.toolbar.height(), metrics::timeline_controls());
+        assert_eq!(rects.status.height(), metrics::status_bar());
+        assert_eq!(rects.hierarchy.width(), metrics::tree_width());
+        assert_eq!(rects.inspector.width(), metrics::inspector());
+        assert_eq!(
+            rects.canvas.width(),
+            width - metrics::tree_width() - metrics::inspector()
+        );
+        assert_eq!(rects.hierarchy.bottom(), rects.status.top());
+    }
+}
+
+#[test]
+fn v3_preview_density_does_not_change_the_editor_density() {
+    use neoflash_ui::metrics::{self, Density};
+    metrics::set_density(Density::Compact);
+    let ctx = studio_ctx(ThemeMode::Dark);
+    let editor_interact = ctx.style().spacing.interact_size;
+    for choice in [
+        StudioDensityChoice::One(StudioDensityProfile::ClassicFlash),
+        StudioDensityChoice::One(StudioDensityProfile::Comfortable),
+        StudioDensityChoice::All,
+    ] {
+        let mut state = UiLayoutStudioState {
+            open: true,
+            ..Default::default()
+        };
+        state.set_preview_density_choice(choice);
+        let out = run_studio(&ctx, &mut state, 1200.0);
+        assert_eq!(
+            metrics::density(),
+            Density::Compact,
+            "{choice:?}: the editor keeps its own density after the frame"
+        );
+        assert_eq!(ctx.style().spacing.interact_size, editor_interact);
+        let texts = collect_output_texts(&out);
+        assert!(
+            !texts.iter().any(|t| t.contains("widget ID")),
+            "{choice:?}: previews must not share widget ids: {texts:?}"
+        );
+    }
+    // A single profile is an undoable system change; "All" is a view.
+    let mut state = UiLayoutStudioState::default();
+    state.set_preview_density_choice(StudioDensityChoice::One(StudioDensityProfile::Compact));
+    assert!(state.history.can_undo());
+    state.set_preview_density_choice(StudioDensityChoice::All);
+    assert_eq!(state.history.undo_stack.len(), 1);
+    assert_eq!(
+        state.systems.density.active_profile,
+        StudioDensityProfile::Compact
+    );
+    metrics::set_density(Density::Comfortable);
+}
+
+#[test]
+fn v3_all_view_lays_out_three_previews_with_three_control_heights() {
+    use neoflash_ui::metrics::{self, Density};
+    let mut state = UiLayoutStudioState::default();
+    state.load_preset(StudioPanelPreset::PropertiesMovieClip);
+    let field_id = state.document.root.children[1].children[0].children[0].id;
+
+    // One density: every visible artboard once.
+    let single = canvas::preview_slots(&state);
+    assert_eq!(single.len(), state.artboards.len());
+    assert!(single.iter().all(|s| s.density == Density::Comfortable));
+
+    state.set_preview_density_choice(StudioDensityChoice::All);
+    let slots = canvas::preview_slots(&state);
+    assert_eq!(slots.len(), 3);
+    let mut heights = Vec::new();
+    for (i, slot) in slots.iter().enumerate() {
+        assert_eq!(slot.density, Density::ALL[i]);
+        assert_eq!(slot.caption, Some(Density::ALL[i].label()));
+        assert_eq!(slot.idx, state.active_artboard_idx);
+        assert!(!slot.editable_frame);
+        // A dock panel is one inspector wide in its density.
+        assert_eq!(slot.size[0], density_values("inspector")[i]);
+        if i > 0 {
+            assert!(
+                slot.pos[0] >= slots[i - 1].pos[0] + slots[i - 1].size[0],
+                "previews sit side by side without overlap"
+            );
+        }
+        let layout = compute_studio_layout_in(
+            &state.document,
+            &state.systems,
+            slot.density,
+            Pos2::ZERO,
+            egui::vec2(slot.size[0], slot.size[1]),
+        );
+        let field = layout.node_box(field_id).expect("field laid out");
+        assert_eq!(field.resolved_height, density_values("control")[i]);
+        heights.push(field.resolved_height);
+        assert!(
+            layout.root_rect.width() <= slot.size[0] + 0.5,
+            "{:?}: the panel holds its width",
+            slot.density
+        );
+    }
+    assert!(heights[0] > heights[1] && heights[1] > heights[2]);
+    assert_eq!(metrics::density(), Density::Comfortable);
+
+    // Wide surfaces stack instead of sitting side by side.
+    state.load_preset(StudioPanelPreset::TimelineStudio);
+    let stacked = canvas::preview_slots(&state);
+    assert_eq!(stacked.len(), 3);
+    assert!(stacked[1].pos[1] >= stacked[0].pos[1] + stacked[0].size[1]);
+    assert_eq!(stacked[0].pos[0], stacked[1].pos[0]);
+}
+
+#[test]
+fn v3_spacing_steps_follow_the_density_table_and_keep_their_names() {
+    use neoflash_ui::metrics::{self, Density};
+    let systems = UiStudioSystems::default();
+    for tok in SpacingToken::ALL {
+        let values = tok.density_values();
+        for density in Density::ALL {
+            let _scope = PreviewDensity::enter(density);
+            assert_eq!(
+                SpacingValue::Token(tok).resolve(&systems),
+                values[density_index(density)],
+                "{tok:?} in {density:?}"
+            );
+        }
+    }
+    assert_eq!(metrics::density(), Density::Comfortable);
+    assert_eq!(
+        format_density_values(SpacingToken::S2.density_values()),
+        "6 · 4 · 4"
+    );
+    assert_eq!(
+        SpacingToken::RowGap.density_values(),
+        density_values("row_gap")
+    );
+    // The Studio reads the same numbers as the editor's metric functions.
+    for density in Density::ALL {
+        let _scope = PreviewDensity::enter(density);
+        let m = DensityProfileMetrics::current();
+        assert_eq!(m.control_height, metrics::control());
+        assert_eq!(m.row_height, metrics::row());
+        assert_eq!(m.inspector_width, metrics::inspector());
+        assert_eq!(
+            systems.section_header.resolved_height(),
+            metrics::section_header()
+        );
+        assert_eq!(
+            systems.panel_header.resolved_height(),
+            metrics::panel_header()
+        );
+        assert_eq!(
+            systems.tool_rail.resolved_button_side(),
+            metrics::tool_button()
+        );
+        assert_eq!(
+            systems.two_column_form.resolved_label_width(),
+            metrics::label_width()
+        );
+    }
+
+    // JSON keeps the step names; a custom pixel value stays a number.
+    let json = serde_json::to_string(&GapPair {
+        x: SpacingValue::Token(SpacingToken::S2),
+        y: SpacingValue::Token(SpacingToken::RowGap),
+    })
+    .unwrap();
+    assert!(json.contains(r#""value":"S2""#), "{json}");
+    assert!(json.contains(r#""value":"ROW_GAP""#), "{json}");
+    let back: GapPair = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.y, SpacingValue::Token(SpacingToken::RowGap));
+
+    // An override made in the Studio applies in every density until it is reset.
+    let mut edited = systems.clone();
+    edited.spacing.set(SpacingToken::S3, 14.0);
+    assert!(edited.spacing.is_override(SpacingToken::S3));
+    for density in Density::ALL {
+        let _scope = PreviewDensity::enter(density);
+        assert_eq!(edited.spacing.resolve(SpacingToken::S3), 14.0);
+    }
+    edited.spacing.reset(SpacingToken::S3);
+    assert_eq!(edited, systems);
+}
+
+#[test]
+fn v3_generated_rust_calls_the_density_system_instead_of_baking_numbers() {
+    let mut state = UiLayoutStudioState::default();
+    state.load_preset(StudioPanelPreset::PropertiesMovieClip);
+    let grid_id = state.document.root.children[1].children[0].id;
+    let code = export_rust_layout_with_systems(&state.document, &state.systems);
+    assert!(code.contains("studio_system_tokens::two_col_gap()"));
+    assert!(
+        code.contains(
+            "pub fn two_col_label_width() -> f32 { neoflash_ui::metrics::label_width() }"
+        )
+    );
+    assert!(code.contains(
+        "pub fn section_header_height() -> f32 { neoflash_ui::metrics::section_header() }"
+    ));
+    assert!(!code.contains("pub const SPACE_"), "no step is overridden");
+    // The same code comes out whatever density the editor runs in.
+    {
+        let _scope = PreviewDensity::enter(neoflash_ui::metrics::Density::ClassicFlash);
+        assert_eq!(
+            code,
+            export_rust_layout_with_systems(&state.document, &state.systems)
+        );
+    }
+
+    // A local step on a node is a call; custom pixels are a number.
+    {
+        let grid = state.document.find_node_mut(grid_id).unwrap();
+        grid.style.system_binding = None;
+        grid.style.gap = GapPair {
+            x: SpacingValue::Token(SpacingToken::S4),
+            y: SpacingValue::Px(9.0),
+        };
+    }
+    let code = export_rust_layout_with_systems(&state.document, &state.systems);
+    assert!(
+        code.contains("ui.spacing_mut().item_spacing.x = space::s4();"),
+        "{code}"
+    );
+    assert!(code.contains("gap=(space 4, 9px)"));
+}
+
+#[test]
+fn v3_sessions_saved_with_nf2_reference_sizes_follow_the_density_system() {
+    use neoflash_ui::metrics as m;
+    let state = UiLayoutStudioState::default();
+    let mut json = serde_json::to_value(state.to_persisted_bundle()).unwrap();
+    // A session written before v3: NF2 spacing scale, per-profile density numbers, 32 pt headers.
+    json["systems"]["spacing"] = serde_json::json!({
+        "s0": 0.0, "s1": 4.0, "s2": 8.0, "s3": 12.0, "s4": 16.0, "s5": 24.0, "s6": 32.0
+    });
+    json["systems"]["density"] = serde_json::json!({
+        "active_profile": "compact",
+        "comfortable": { "control_height": 32.0, "row_height": 28.0 },
+        "compact": { "control_height": 28.0, "row_height": 24.0 },
+        "classic_flash": { "control_height": 24.0, "row_height": 20.0 }
+    });
+    json["systems"]["section_header"]["height"] = serde_json::json!(32.0);
+    json["systems"]["panel_header"]["height"] = serde_json::json!(40.0);
+    json["systems"]["tool_rail"]["button_side"] = serde_json::json!(32.0);
+    let bundle: StudioPersistedBundle = serde_json::from_value(json).expect("old session loads");
+    let mut restored = UiLayoutStudioState::default();
+    restored.restore_persisted_bundle(bundle);
+    assert_eq!(
+        restored.systems.density.active_profile,
+        StudioDensityProfile::Compact
+    );
+    assert_eq!(restored.systems.spacing, SpacingScaleSystem::default());
+    assert_eq!(restored.systems.section_header.height, m::SECTION_HEADER);
+    assert_eq!(restored.systems.panel_header.height, m::PANEL_HEADER);
+    assert_eq!(restored.systems.tool_rail.button_side, m::TOOL_BUTTON);
+    assert!(!restored.preview_all_densities);
+    // The previews use the editor's Compact control height, not the stored 28 pt.
+    assert_eq!(
+        restored.systems.density.active().control_height,
+        density_values("control")[1]
     );
 }

@@ -88,6 +88,7 @@ pub(crate) mod symbols_popover;
 pub(crate) mod timeline;
 mod timeline_controls;
 mod tools;
+pub(crate) use tools::tools_natural_width;
 mod view_settings;
 
 mod brushes;

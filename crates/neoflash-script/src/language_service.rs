@@ -85,6 +85,10 @@ pub struct Member {
     /// Exact active audit note, present only for a partially supported declaration.
     #[serde(default)]
     pub limitation: Option<String>,
+    /// Catalogue status of a built-in declaration: `subset` (working), `partial` or `missing`;
+    /// empty for project classes and synthesized entries.
+    #[serde(default)]
+    pub status: String,
 }
 
 impl Member {
@@ -119,6 +123,10 @@ impl Member {
 pub struct LanguageApi {
     pub classes: BTreeMap<String, ClassInfo>,
     pub members: Vec<Member>,
+    /// Documented members of the indexed classes that the catalogue marks missing. The toolbox
+    /// and code hints never offer them; the Scripting Reference lists them with their status.
+    #[serde(default)]
+    pub missing: Vec<Member>,
     #[serde(skip)]
     by_owner: HashMap<String, Vec<usize>>,
 }
@@ -252,6 +260,7 @@ pub fn scan_class(unit: &SourceUnit) -> Option<ProjectClass> {
                 params: s.params.clone(),
                 group: None,
                 limitation: None,
+                status: String::new(),
             })
             .collect(),
     })
@@ -777,6 +786,7 @@ impl<'a> HintContext<'a> {
                         params: symbol.params.clone(),
                         group: None,
                         limitation: None,
+                        status: String::new(),
                     }
                 }));
                 candidates.extend(self.members(&self.this_class, false));
@@ -791,6 +801,7 @@ impl<'a> HintContext<'a> {
                     params: None,
                     group: None,
                     limitation: None,
+                    status: String::new(),
                 }));
             }
         }
@@ -848,6 +859,7 @@ impl<'a> HintContext<'a> {
                 params: None,
                 group: None,
                 limitation: None,
+                status: String::new(),
             })
             .collect()
     }
@@ -1047,6 +1059,16 @@ pub fn toolbox(project: &[ProjectClass], api: &LanguageApi) -> Vec<ToolboxFolder
     folders
 }
 
+/// Missing catalogue members documented on `class` (Scripting Reference only).
+pub fn missing_members<'a>(
+    api: &'a LanguageApi,
+    class: &'a str,
+) -> impl Iterator<Item = &'a Member> {
+    api.missing
+        .iter()
+        .filter(move |member| member.owner == class)
+}
+
 /// Members listed under a class in the toolbox: its own declarations (static and instance).
 pub fn own_members(project: &[ProjectClass], api: &LanguageApi, class: &str) -> Vec<Member> {
     if let Some(project) = project.iter().find(|c| c.qualified == class) {
@@ -1082,6 +1104,7 @@ pub fn search(
             params: None,
             group: None,
             limitation: None,
+            status: String::new(),
         });
     let members = project
         .iter()
@@ -1124,6 +1147,37 @@ mod tests {
             );
         }
         assert!(api(ScriptLanguage::JavaScript).is_none());
+    }
+
+    #[test]
+    fn members_carry_their_catalogue_status_and_missing_ones_stay_out_of_hints() {
+        for language in [ScriptLanguage::ActionScript2, ScriptLanguage::ActionScript3] {
+            let api = api(language).unwrap();
+            assert!(
+                api.members
+                    .iter()
+                    .all(|m| matches!(m.status.as_str(), "subset" | "partial"))
+            );
+            assert!(
+                api.members
+                    .iter()
+                    .all(|m| (m.status == "partial") || m.limitation.is_none())
+            );
+            assert!(!api.missing.is_empty());
+            for member in &api.missing {
+                assert_eq!(member.status, "missing");
+                assert!(api.classes.contains_key(&member.owner), "{}", member.owner);
+                assert!(
+                    !own_members(&[], api, &member.owner)
+                        .iter()
+                        .any(|m| m.name == member.name && m.kind == member.kind),
+                    "{}.{} is offered by the toolbox",
+                    member.owner,
+                    member.name
+                );
+                assert!(missing_members(api, &member.owner).any(|m| m.name == member.name));
+            }
+        }
     }
 
     #[test]

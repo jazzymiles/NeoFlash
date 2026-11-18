@@ -295,10 +295,10 @@ fn bug_chip_beta_visibility_ruler_offset_editbar_and_focus_on_click() {
     let chip_rulers = ax_bounds(&out_rulers, "Bug?").expect("Bug? chip visible in beta build");
     let ruler_w = neoflash_ui::components::canvas::RULER;
     assert!(
-        (chip_rulers.left() - (canvas.left() + ruler_w + space::S4)).abs() <= 1.5,
+        (chip_rulers.left() - (canvas.left() + ruler_w + space::s4())).abs() <= 1.5,
         "expected chip left at canvas.left + 20 + 16, got {} vs {}",
         chip_rulers.left(),
-        canvas.left() + ruler_w + space::S4
+        canvas.left() + ruler_w + space::s4()
     );
     assert!(
         (chip_rulers.bottom() - (canvas.bottom() - 10.0)).abs() <= 1.5,
@@ -316,7 +316,7 @@ fn bug_chip_beta_visibility_ruler_offset_editbar_and_focus_on_click() {
     let chip_no_rulers =
         ax_bounds(&out_no_rulers, "Bug?").expect("Bug? chip visible without rulers");
     assert!(
-        (chip_no_rulers.left() - (canvas.left() + space::S4)).abs() <= 1.5,
+        (chip_no_rulers.left() - (canvas.left() + space::s4())).abs() <= 1.5,
         "expected chip left at canvas.left + 16 when rulers hidden"
     );
     assert!((chip_rulers.left() - chip_no_rulers.left() - ruler_w).abs() <= 1.5);

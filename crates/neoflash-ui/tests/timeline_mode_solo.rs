@@ -4,7 +4,9 @@ use eframe::egui;
 use neoflash_ui::components::timeline::{
     self as tl, BLEND_MODE_GROUPS, LayerColumns, LayersHeaderColumns, ModeCell,
 };
-use neoflash_ui::metrics::{LAYER_COLUMN, LAYER_COLUMN_MODE_SOLO, LAYER_MODE, LAYER_TOGGLE};
+use neoflash_ui::metrics::{
+    LAYER_COLUMN, LAYER_COLUMN_MODE_SOLO, LAYER_MODE, LAYER_ROW, LAYER_TOGGLE,
+};
 use neoflash_ui::{Theme, theme, typography};
 
 fn run<R>(theme_: Theme, mut content: impl FnMut(&mut egui::Ui) -> R) -> R {
@@ -45,8 +47,8 @@ fn row(label: &str) -> tl::LayerRow<'_> {
 fn default_columns_keep_the_classic_row() {
     for t in [Theme::Dark, Theme::Light] {
         let (classic, explicit) = run(t, |ui| {
-            let a = row("hand").show(ui, LAYER_COLUMN, 28.0);
-            let b = row("hand").show_with(ui, LAYER_COLUMN, 28.0, LayerColumns::default());
+            let a = row("hand").show(ui, LAYER_COLUMN, LAYER_ROW);
+            let b = row("hand").show_with(ui, LAYER_COLUMN, LAYER_ROW, LayerColumns::default());
             (
                 (a.label_rect.width(), a.mode_rect),
                 (b.label_rect.width(), b.mode_rect),
@@ -65,16 +67,16 @@ fn mode_cell_and_solo_take_the_extra_92_pt() {
     );
     for t in [Theme::Dark, Theme::Light] {
         let (classic, wide, guide) = run(t, |ui| {
-            let classic = row("hand").show(ui, LAYER_COLUMN, 28.0);
+            let classic = row("hand").show(ui, LAYER_COLUMN, LAYER_ROW);
             let cols = LayerColumns {
                 mode: ModeCell::Mode("Multiply"),
                 solo: Some(true),
             };
-            let wide = row("hand").show_with(ui, LAYER_COLUMN_MODE_SOLO, 28.0, cols);
+            let wide = row("hand").show_with(ui, LAYER_COLUMN_MODE_SOLO, LAYER_ROW, cols);
             let guide = row("Guide").show_with(
                 ui,
                 LAYER_COLUMN_MODE_SOLO,
-                28.0,
+                LAYER_ROW,
                 LayerColumns {
                     mode: ModeCell::Empty,
                     solo: Some(false),
@@ -93,7 +95,8 @@ fn mode_cell_and_solo_take_the_extra_92_pt() {
             "{label:?} {classic:?}"
         );
         let mode = mode.expect("mode cell");
-        assert_eq!(mode.size(), egui::vec2(LAYER_MODE, 20.0));
+        // The cell is 20 pt high, or the whole row when the row is shorter.
+        assert_eq!(mode.size(), egui::vec2(LAYER_MODE, LAYER_ROW.min(20.0)));
         // Mode cell ends 4 pt before the four toggles (eye, solo, lock, outline) and the 8 pt inset.
         let toggles_left = row_rect.right() - 8.0 - 4.0 * LAYER_TOGGLE;
         assert!((mode.right() - (toggles_left - 4.0)).abs() < 0.5);

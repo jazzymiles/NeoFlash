@@ -1776,8 +1776,8 @@ SVG text is outlined.
 | Folder | Files |
 |---|---|
 | `exports/cursors/` | 39 |
-| `exports/icons/12/` | 272 |
-| `exports/icons/16/` | 272 |
+| `exports/icons/12/` | 286 |
+| `exports/icons/16/` | 286 |
 | `exports/icons/20/` | 131 |
 | `exports/interface/dark-graphite/png/` | 14 |
 | `exports/interface/dark-graphite/svg/` | 14 |

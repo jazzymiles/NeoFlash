@@ -403,9 +403,10 @@ fn ruler_frame_numbers_are_tick_centred_and_frame_one_is_edge_safe() {
 
 #[test]
 fn compact_layer_rows_fit_their_content() {
-    // `NF2/TL Layer` presets (R-052): Normal 28 pt NF2/Body, Short 22 pt NF2/Small and Compact 16 pt
-    // NF2/Caption labels; Short and Compact use 12 pt icons.
-    for h in [16.0_f32, 22.0, 28.0] {
+    // `NF2/TL Layer` presets (R-052): Normal NF2/Body, Short NF2/Small and Compact NF2/Caption
+    // labels; Short and Compact use 12 pt icons.
+    use neoflash_ui::metrics::{LAYER_ROW, LAYER_ROW_COMPACT, LAYER_ROW_SHORT};
+    for h in [LAYER_ROW_COMPACT, LAYER_ROW_SHORT, LAYER_ROW] {
         let ctx = egui::Context::default();
         ctx.set_fonts(typography::font_definitions());
         theme::install(&ctx, Theme::Dark);
@@ -443,9 +444,9 @@ fn compact_layer_rows_fit_their_content() {
             })
             .expect("label");
         let size = label.galley.job.sections[0].format.font_id.size;
-        let expect = typography::font(if h < 22.0 {
+        let expect = typography::font(if h < LAYER_ROW_SHORT {
             neoflash_ui::TextStyle::Caption
-        } else if h < 28.0 {
+        } else if h < LAYER_ROW {
             neoflash_ui::TextStyle::Small
         } else {
             neoflash_ui::TextStyle::Body
@@ -454,7 +455,7 @@ fn compact_layer_rows_fit_their_content() {
         assert!(close(size, expect), "h{h}: label {size}");
         assert!(close(
             tl::layer_row_icon(h),
-            if h < 28.0 { 12.0 } else { 16.0 }
+            if h < LAYER_ROW { 12.0 } else { 16.0 }
         ));
         let glyph_h = label.galley.size().y;
         assert!(glyph_h <= h + 2.5, "h{h}: label line {glyph_h}");

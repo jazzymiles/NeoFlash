@@ -4012,7 +4012,7 @@ impl Editor {
         use crate::ui_icons::{TransformModifierIcon, transform_modifier_button};
         let active = self.active_free_transform_mode();
         let can_deform = self.can_distort_or_envelope_selection();
-        let gap = neoflash_ui::tokens::space::S1 / 2.0;
+        let gap = neoflash_ui::tokens::space::s1() / 2.0;
         let row_w = 2.0 * neoflash_ui::metrics::tool_button() + gap;
         let row_h = neoflash_ui::metrics::tool_button();
         ui.allocate_ui_with_layout(
@@ -4109,63 +4109,57 @@ impl Editor {
         let Some((mut threshold, mut smoothing)) = self.authoring_tools.magic_wand_dialog else {
             return;
         };
-        use neoflash_ui::{
-            components as c,
-            tokens::{TextStyle, space},
-            typography::rich,
-        };
+        use crate::panels::dialog_helpers::{FormDialog, dialog_width, form_hint, form_row};
+        use neoflash_ui::{components as c, metrics};
         let mut accept = false;
         let mut cancel = false;
+        let width = dialog_width(ctx, metrics::dialog_s());
         let modal = egui::Modal::new(egui::Id::new("nf2-magic-wand-settings"))
             .frame(c::Surface::Dialog.frame(ctx))
+            .backdrop_color(neoflash_ui::palette(ctx).overlay)
             .show(ctx, |ui| {
-                ui.set_width(320.0);
-                ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
-                cancel |= c::DialogHeader {
-                    title: "Magic wand settings",
-                }
-                .show(ui);
-                let nf = neoflash_ui::palette(ui.ctx());
-                let w = ui.available_width();
-                let mut threshold_f = f64::from(threshold);
-                if ui
-                    .add(
-                        c::Field::new(&mut threshold_f, "Threshold")
-                            .prefix("Threshold")
-                            .range(0.0..=200.0)
-                            .decimals(0)
-                            .stepper()
-                            .width(w),
-                    )
-                    .changed()
-                {
-                    threshold = (threshold_f.round() as u32).clamp(0, 200) as u8;
-                }
-                ui.label(
-                    rich("Enter a value between 0 and 200", TextStyle::Small)
-                        .color(nf.text_tertiary),
-                );
-                c::Select::options(
-                    ui,
-                    "magic-wand-smoothing",
-                    &mut smoothing,
-                    &[
-                        (MagicWandSmoothing::Pixels, "Smoothing: Pixels"),
-                        (MagicWandSmoothing::Rough, "Smoothing: Rough"),
-                        (MagicWandSmoothing::Normal, "Smoothing: Normal"),
-                        (MagicWandSmoothing::Smooth, "Smoothing: Smooth"),
-                    ],
-                    w,
-                );
-                ui.add_space(space::S2);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add(c::Button::primary("OK")).clicked() {
-                        accept = true;
-                    }
-                    if ui.add(c::Button::new("Cancel")).clicked() {
-                        cancel = true;
-                    }
+                let dialog = FormDialog::show(ui, "Magic wand settings", width, None);
+                cancel |= dialog.close;
+                dialog.page(ui, "magic-wand-page", |ui, _| {
+                    form_row(ui, "Threshold", |ui| {
+                        let mut threshold_f = f64::from(threshold);
+                        if ui
+                            .add(
+                                c::Field::new(&mut threshold_f, "Threshold")
+                                    .range(0.0..=200.0)
+                                    .decimals(0)
+                                    .stepper()
+                                    .width(metrics::field_s()),
+                            )
+                            .changed()
+                        {
+                            threshold = (threshold_f.round() as u32).clamp(0, 200) as u8;
+                        }
+                    });
+                    form_hint(ui, "Enter a value between 0 and 200");
+                    form_row(ui, "Smoothing", |ui| {
+                        c::Select::options(
+                            ui,
+                            "magic-wand-smoothing",
+                            &mut smoothing,
+                            &[
+                                (MagicWandSmoothing::Pixels, "Pixels"),
+                                (MagicWandSmoothing::Rough, "Rough"),
+                                (MagicWandSmoothing::Normal, "Normal"),
+                                (MagicWandSmoothing::Smooth, "Smooth"),
+                            ],
+                            metrics::field_m(),
+                        );
+                    });
                 });
+                dialog.footer(
+                    ui,
+                    |_| {},
+                    |ui| {
+                        accept |= ui.add(c::Button::primary("OK")).clicked();
+                        cancel |= ui.add(c::Button::new("Cancel")).clicked();
+                    },
+                );
             });
         if modal.should_close() {
             cancel = true;
@@ -4211,40 +4205,31 @@ impl Editor {
         else {
             return;
         };
-        use neoflash_ui::{
-            components as c,
-            tokens::{TextStyle, radius, space},
-            typography::rich,
-        };
+        use crate::panels::dialog_helpers::{FormDialog, dialog_width, field_block, form_row};
+        use neoflash_ui::{components as c, metrics, tokens::TextStyle, typography::rich};
         let mut accept = false;
         let mut cancel = false;
+        let width = dialog_width(ctx, metrics::dialog_s());
         let modal = egui::Modal::new(egui::Id::new("nf2-polystar-settings"))
             .frame(c::Surface::Dialog.frame(ctx))
+            .backdrop_color(neoflash_ui::palette(ctx).overlay)
             .show(ctx, |ui| {
-                ui.set_width(400.0);
-                ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
-                cancel |= c::DialogHeader {
-                    title: "PolyStar tool settings",
-                }
-                .show(ui);
-                let nf = neoflash_ui::palette(ui.ctx());
-                ui.horizontal_top(|ui| {
-                    ui.spacing_mut().item_spacing.x = 20.0;
-                    let (frame, _) =
-                        ui.allocate_exact_size(egui::vec2(110.0, 110.0), egui::Sense::hover());
-                    ui.painter().rect_filled(
-                        frame,
-                        egui::CornerRadius::same(radius::LG as u8),
-                        nf.bg_canvas,
-                    );
+                let dialog = FormDialog::show(ui, "PolyStar tool settings", width, None);
+                cancel |= dialog.close;
+                dialog.page(ui, "polystar-page", |ui, _| {
+                    let nf = neoflash_ui::palette(ui.ctx());
+                    // Shape preview on top: artwork four list rows high.
+                    let frame =
+                        field_block(ui, egui::vec2(ui.available_width(), 4.0 * metrics::row()));
                     let center = frame.center();
+                    let outer_r = frame.height() / 2.0 - metrics::row_gap() - 2.0;
                     let count = if star { sides * 2 } else { sides } as usize;
-                    let inner_r = 45.0 * (point_size.clamp(0.05, 0.95) as f32);
+                    let inner_r = outer_r * (point_size.clamp(0.05, 0.95) as f32);
                     let points: Vec<Pos2> = (0..count)
                         .map(|i| {
                             let a = -std::f32::consts::FRAC_PI_2
                                 + (i as f32) * std::f32::consts::TAU / (count as f32);
-                            let r = if star && i % 2 == 1 { inner_r } else { 45.0 };
+                            let r = if star && i % 2 == 1 { inner_r } else { outer_r };
                             center + egui::vec2(a.cos(), a.sin()) * r
                         })
                         .collect();
@@ -4269,64 +4254,66 @@ impl Editor {
                         nf.text_primary
                     };
                     for i in 0..points.len() {
+                        // A hairline of the fill hides the seams between the fan triangles.
                         ui.painter().add(Shape::convex_polygon(
                             vec![center, points[i], points[(i + 1) % points.len()]],
                             fill,
-                            Stroke::NONE,
+                            Stroke::new(1.0_f32, fill),
                         ));
                     }
                     ui.painter()
-                        .add(Shape::closed_line(points, Stroke::new(2.0_f32, stroke)));
+                        .add(Shape::closed_line(points, Stroke::new(1.5_f32, stroke)));
 
-                    ui.vertical(|ui| {
-                        ui.set_width(ui.available_width());
-                        ui.spacing_mut().item_spacing.y = 10.0;
-                        let w = ui.available_width();
+                    form_row(ui, "Style", |ui| {
                         c::Select::options(
                             ui,
                             "polystar-style",
                             &mut star,
-                            &[(false, "Style: Polygon"), (true, "Style: Star")],
-                            w,
+                            &[(false, "Polygon"), (true, "Star")],
+                            metrics::field_m(),
                         );
+                    });
+                    form_row(ui, "Sides", |ui| {
                         let mut sides_f = f64::from(sides);
                         if ui
                             .add(
                                 c::Field::new(&mut sides_f, "Sides")
-                                    .prefix("Sides")
                                     .range(3.0..=32.0)
                                     .decimals(0)
                                     .stepper()
-                                    .width(w),
+                                    .width(metrics::field_s()),
                             )
                             .changed()
                         {
                             sides = (sides_f.round() as u32).clamp(3, 32);
                         }
+                    });
+                    form_row(ui, "Point size", |ui| {
                         ui.add_enabled(
                             star,
                             c::Field::new(&mut point_size, "Point size")
-                                .prefix("Point size")
                                 .range(0.05..=0.95)
                                 .decimals(2)
                                 .stepper()
-                                .width(w),
-                        );
-                        ui.label(
-                            rich("Point size 0–1: smaller = sharper points", TextStyle::Small)
-                                .color(nf.text_tertiary),
+                                .width(metrics::field_s()),
                         );
                     });
+                    ui.add(
+                        egui::Label::new(
+                            rich("Point size 0–1: smaller = sharper points", TextStyle::Small)
+                                .color(nf.text_tertiary),
+                        )
+                        .wrap(),
+                    );
                 });
-                ui.add_space(space::S2);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add(c::Button::primary("OK")).clicked() {
-                        accept = true;
-                    }
-                    if ui.add(c::Button::new("Cancel")).clicked() {
-                        cancel = true;
-                    }
-                });
+                dialog.footer(
+                    ui,
+                    |_| {},
+                    |ui| {
+                        accept |= ui.add(c::Button::primary("OK")).clicked();
+                        cancel |= ui.add(c::Button::new("Cancel")).clicked();
+                    },
+                );
             });
         if modal.should_close() {
             cancel = true;
@@ -4487,9 +4474,9 @@ fn rectangle_options_widgets(ui: &mut egui::Ui, opts: &mut RectangleOptions) -> 
         },
         |ui, width| {
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = neoflash_ui::tokens::space::S2;
+                ui.spacing_mut().item_spacing.x = neoflash_ui::tokens::space::s2();
                 let field_width =
-                    (width - crate::theme::control_h() - neoflash_ui::tokens::space::S2).max(0.0);
+                    (width - crate::theme::control_h() - neoflash_ui::tokens::space::s2()).max(0.0);
                 let tr = ui.add(
                     c::Field::new(&mut top_right, "Top-right radius")
                         .prefix("↗")
@@ -4617,7 +4604,7 @@ fn oval_options_widgets(ui: &mut egui::Ui, opts: &mut OvalOptions) -> Option<egu
         changed = Some(e.id);
     }
     // FORM_GRID_EXCEPTION: Inner is deliberately paired with an action checkbox, not a value.
-    let inner_width = ((ui.available_width() - space::S2) / 2.0).max(64.0);
+    let inner_width = ((ui.available_width() - space::s2()) / 2.0).max(64.0);
     ui.horizontal(|ui| {
         let inner = ui.add(
             c::Field::new(&mut opts.inner_radius, "Inner")

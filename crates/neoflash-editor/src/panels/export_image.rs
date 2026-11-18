@@ -2,8 +2,10 @@
 //! `W3.1` / `W3.2`; reference `dialogs-export.png`), opened from `File ▸ Export ▸ Export image…`
 //! and `Window ▸ Panels ▸ Planned panels ▸ Export image`.
 
-use super::dialog_helpers::group;
-use super::planned::{FooterClick, caption, footer_clicked};
+use super::dialog_helpers::{
+    DialogShell, fixed_dialog_size, footer_note, form_line, form_row, group_caption, note,
+};
+use super::planned::caption;
 use crate::app::Editor;
 use eframe::egui::{self, Ui};
 use neoflash_core::Color;
@@ -13,7 +15,8 @@ use neoflash_export::{
 };
 use neoflash_ui::components as c;
 use neoflash_ui::icons::i16;
-use neoflash_ui::tokens::{TextStyle, radius, space};
+use neoflash_ui::metrics;
+use neoflash_ui::tokens::{TextStyle, radius};
 use std::path::{Path, PathBuf};
 
 const IMAGE_FORMATS: [(usize, &str); 5] =
@@ -171,6 +174,20 @@ pub(crate) fn set_inline_export_image_draft(ctx: &egui::Context, draft: ExportIm
     ctx.data_mut(|data| data.insert_temp(inline_draft_id(), draft));
 }
 
+/// Select the format of the open `Export image` draft by its extension (captures, layout tests).
+pub(crate) fn select_export_image_format_slug(ctx: &egui::Context, slug: &str) {
+    let Some(format) = ImageExportFormat::ALL
+        .into_iter()
+        .find(|format| format.extension().eq_ignore_ascii_case(slug))
+    else {
+        return;
+    };
+    if let Some(mut draft) = ctx.data(|d| d.get_temp::<ExportImageDraft>(draft_id())) {
+        draft.options.format = format;
+        ctx.data_mut(|d| d.insert_temp(draft_id(), draft));
+    }
+}
+
 #[derive(Clone, PartialEq)]
 struct ExportImagePreviewKey {
     revision: u64,
@@ -193,6 +210,11 @@ struct ExportImagePreviewCache {
     unavailable: bool,
 }
 
+/// `Export image` has one size per density for every format.
+pub(crate) fn export_image_dialog_size(ctx: &egui::Context) -> egui::Vec2 {
+    fixed_dialog_size(ctx, metrics::dialog_l(), metrics::dialog_l_height())
+}
+
 fn export_image_preview_cache_id() -> egui::Id {
     egui::Id::new("nf2-export-image-preview-cache")
 }
@@ -204,14 +226,16 @@ fn paint_export_image_preview_box(
     preview_frame: u32,
     res_w: u32,
     res_h: u32,
+    size: egui::Vec2,
 ) {
     let nf = neoflash_ui::palette(ui.ctx());
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(300.0, 188.0), egui::Sense::hover());
-    let r = egui::CornerRadius::same(radius::LG as u8);
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let r = egui::CornerRadius::same(radius::lg() as u8);
     ui.painter().rect_filled(rect, r, nf.bg_canvas);
 
-    let max_w = 272.0_f32;
-    let max_h = 164.0_f32;
+    // Render resolution: the box minus the pasteboard margin.
+    let max_w = (size.x * 0.9).round().max(1.0);
+    let max_h = (size.y * 0.87).round().max(1.0);
     let aspect = res_w.max(1) as f32 / res_h.max(1) as f32;
     let (pw, ph) = if aspect >= max_w / max_h {
         let w = max_w.round() as u32;
@@ -452,27 +476,17 @@ impl Editor {
         Ok(report)
     }
 
-    /// Render the interactive `Export image` body inside either the modal dialog or the floating panel.
-    /// Returns `true` when the dialog/window should close.
-    pub(crate) fn export_image_body(
+    /// Render the `Export image` body into the fixed dialog shell: artwork column, form and footer.
+    /// Returns `(cancel, export)`.
+    fn export_image_body(
         &mut self,
         ui: &mut Ui,
+        shell: &DialogShell,
+        aside_width: f32,
         draft: &mut ExportImageDraft,
-        mut external_format: Option<&mut usize>,
     ) -> (bool, bool) {
         let mut close_cancel = false;
         let mut do_export = false;
-        if let Some(ext_fmt) = external_format.as_deref()
-            && draft.options.format.index() != *ext_fmt
-        {
-            draft.options.format = ImageExportFormat::from_index(*ext_fmt);
-            sync_stored_image_output_path(
-                ui.ctx(),
-                &self.project,
-                self.path.as_deref(),
-                draft.options.format,
-            );
-        }
 
         let symbol_id = self.symbol_id().to_owned();
         match &mut draft.options.range {
@@ -501,31 +515,31 @@ impl Editor {
             ImageExportRange::Frames { start, .. } => start.min(end_f),
         };
 
-        ui.horizontal_top(|ui| {
-            ui.vertical(|ui| {
-                ui.set_width(300.0);
-                paint_export_image_preview_box(
-                    ui,
-                    self,
-                    &draft.options,
-                    preview_frame,
+        shell.aside(ui, aside_width, |ui| {
+            paint_export_image_preview_box(
+                ui,
+                self,
+                &draft.options,
+                preview_frame,
+                res_w,
+                res_h,
+                egui::vec2(aside_width, (aside_width * 0.625).round()),
+            );
+            note(
+                ui,
+                &format!(
+                    "Frame {} of {} · {} × {}",
+                    (preview_frame + 1).min(total_frames),
+                    total_frames,
                     res_w,
-                    res_h,
-                );
-                caption(
-                    ui,
-                    &format!(
-                        "Frame {} of {} · {} × {}",
-                        (preview_frame + 1).min(total_frames),
-                        total_frames,
-                        res_w,
-                        res_h
-                    ),
-                );
-            });
-            ui.add_space(space::S5);
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = space::S2;
+                    res_h
+                ),
+            );
+        });
+        // The common rows (format, range, size, background) never move; only the
+        // "… options" group changes with the format.
+        shell.form(ui, "export-image-form", aside_width, |ui, _| {
+            form_line(ui, |ui| {
                 let mut fmt_idx = draft.options.format.index();
                 if c::Segmented::show(ui, &mut fmt_idx, &IMAGE_FORMATS, false).is_some() {
                     draft.options.format = ImageExportFormat::from_index(fmt_idx);
@@ -538,275 +552,279 @@ impl Editor {
                         self.path.as_deref(),
                         draft.options.format,
                     );
-                    if let Some(ext_fmt) = &mut external_format {
-                        **ext_fmt = fmt_idx;
+                }
+            });
+            form_row(ui, "Range", |ui| {
+                let range_lbl = draft.options.range.label();
+                c::Select::new(ui.id().with("export-image-range"), range_lbl)
+                    .width(metrics::field_m())
+                    .show(ui, |ui| {
+                        if ui
+                            .add(c::MenuItem::new("Current frame").checked(matches!(
+                                draft.options.range,
+                                ImageExportRange::CurrentFrame(_)
+                            )))
+                            .clicked()
+                        {
+                            draft.options.range = ImageExportRange::CurrentFrame(self.frame);
+                            draft.options.symbol_id = Some(symbol_id.clone());
+                            ui.close();
+                        }
+                        if ui
+                            .add(c::MenuItem::new("Whole movie").checked(matches!(
+                                draft.options.range,
+                                ImageExportRange::WholeMovie
+                            )))
+                            .clicked()
+                        {
+                            draft.options.range = ImageExportRange::WholeMovie;
+                            draft.options.symbol_id = None;
+                            ui.close();
+                        }
+                        if ui
+                            .add(c::MenuItem::new("Current scene").checked(matches!(
+                                draft.options.range,
+                                ImageExportRange::CurrentScene { .. }
+                            )))
+                            .clicked()
+                        {
+                            draft.options.range = ImageExportRange::CurrentScene {
+                                scene_id: symbol_id.clone(),
+                            };
+                            draft.options.symbol_id = Some(symbol_id.clone());
+                            ui.close();
+                        }
+                        if ui
+                            .add(c::MenuItem::new("Frame range").checked(matches!(
+                                draft.options.range,
+                                ImageExportRange::Frames { .. }
+                            )))
+                            .clicked()
+                        {
+                            draft.options.range = ImageExportRange::Frames {
+                                start: 0,
+                                end: total_frames.saturating_sub(1),
+                            };
+                            draft.options.symbol_id = Some(symbol_id.clone());
+                            ui.close();
+                        }
+                    });
+                let mut frames_val = f64::from(span_frames);
+                if ui
+                    .add(
+                        c::Field::new(&mut frames_val, "Frames")
+                            .prefix("Frames")
+                            .range(1.0..=f64::from(total_frames.max(1)))
+                            .decimals(0)
+                            .width(metrics::field_s()),
+                    )
+                    .changed()
+                {
+                    let count = if frames_val.is_finite() {
+                        (frames_val
+                            .round()
+                            .clamp(1.0, f64::from(total_frames.max(1)))
+                            as u32)
+                            .clamp(1, total_frames.max(1))
+                    } else {
+                        span_frames
+                    };
+                    draft.options.range = ImageExportRange::Frames {
+                        start: start_f,
+                        end: (start_f + count - 1).min(total_frames.saturating_sub(1)),
+                    };
+                    draft.options.symbol_id = Some(symbol_id.clone());
+                }
+            });
+            form_row(ui, "Size", |ui| {
+                let aspect =
+                    (self.project.width.max(1) as f64) / (self.project.height.max(1) as f64);
+                let mut w_val = f64::from(draft.options.width.max(1));
+                let mut h_val = f64::from(draft.options.height.max(1));
+                if ui
+                    .add(
+                        c::Field::new(&mut w_val, "Width")
+                            .prefix("W")
+                            .unit("px")
+                            .range(1.0..=8192.0)
+                            .decimals(0)
+                            .width(metrics::field_s()),
+                    )
+                    .changed()
+                    && w_val.is_finite()
+                {
+                    draft.options.width = (w_val.round().clamp(1.0, 8192.0) as u32).clamp(1, 8192);
+                    if draft.options.constrain_proportions {
+                        draft.options.height =
+                            ((draft.options.width as f64 / aspect).round() as u32).clamp(1, 8192);
                     }
                 }
-
-                group(ui, "Range");
-                ui.horizontal(|ui| {
-                    let range_lbl = draft.options.range.label();
-                    c::Select::new(ui.id().with("export-image-range"), range_lbl)
-                        .width(200.0)
-                        .show(ui, |ui| {
-                            if ui
-                                .add(c::MenuItem::new("Current frame").checked(matches!(
-                                    draft.options.range,
-                                    ImageExportRange::CurrentFrame(_)
-                                )))
-                                .clicked()
-                            {
-                                draft.options.range = ImageExportRange::CurrentFrame(self.frame);
-                                draft.options.symbol_id = Some(symbol_id.clone());
-                                ui.close();
-                            }
-                            if ui
-                                .add(c::MenuItem::new("Whole movie").checked(matches!(
-                                    draft.options.range,
-                                    ImageExportRange::WholeMovie
-                                )))
-                                .clicked()
-                            {
-                                draft.options.range = ImageExportRange::WholeMovie;
-                                draft.options.symbol_id = None;
-                                ui.close();
-                            }
-                            if ui
-                                .add(c::MenuItem::new("Current scene").checked(matches!(
-                                    draft.options.range,
-                                    ImageExportRange::CurrentScene { .. }
-                                )))
-                                .clicked()
-                            {
-                                draft.options.range = ImageExportRange::CurrentScene {
-                                    scene_id: symbol_id.clone(),
-                                };
-                                draft.options.symbol_id = Some(symbol_id.clone());
-                                ui.close();
-                            }
-                            if ui
-                                .add(c::MenuItem::new("Frame range").checked(matches!(
-                                    draft.options.range,
-                                    ImageExportRange::Frames { .. }
-                                )))
-                                .clicked()
-                            {
-                                draft.options.range = ImageExportRange::Frames {
-                                    start: 0,
-                                    end: total_frames.saturating_sub(1),
-                                };
-                                draft.options.symbol_id = Some(symbol_id.clone());
-                                ui.close();
-                            }
-                        });
-                    let mut frames_val = f64::from(span_frames);
-                    if ui
-                        .add(
-                            c::Field::new(&mut frames_val, "Frames")
-                                .prefix("Frames")
-                                .range(1.0..=f64::from(total_frames.max(1)))
-                                .decimals(0)
-                                .width(160.0),
-                        )
-                        .changed()
-                    {
-                        let count = if frames_val.is_finite() {
-                            (frames_val
-                                .round()
-                                .clamp(1.0, f64::from(total_frames.max(1)))
-                                as u32)
-                                .clamp(1, total_frames.max(1))
-                        } else {
-                            span_frames
-                        };
-                        draft.options.range = ImageExportRange::Frames {
-                            start: start_f,
-                            end: (start_f + count - 1).min(total_frames.saturating_sub(1)),
-                        };
-                        draft.options.symbol_id = Some(symbol_id.clone());
-                    }
-                });
-
-                group(ui, "Size");
-                ui.horizontal(|ui| {
-                    let aspect =
-                        (self.project.width.max(1) as f64) / (self.project.height.max(1) as f64);
-                    let mut w_val = f64::from(draft.options.width.max(1));
-                    let mut h_val = f64::from(draft.options.height.max(1));
-                    if ui
-                        .add(
-                            c::Field::new(&mut w_val, "Width")
-                                .prefix("W")
-                                .range(1.0..=8192.0)
-                                .decimals(0)
-                                .width(120.0),
-                        )
-                        .changed()
-                        && w_val.is_finite()
-                    {
+                if ui
+                    .add(
+                        c::Field::new(&mut h_val, "Height")
+                            .prefix("H")
+                            .unit("px")
+                            .range(1.0..=8192.0)
+                            .decimals(0)
+                            .width(metrics::field_s()),
+                    )
+                    .changed()
+                    && h_val.is_finite()
+                {
+                    draft.options.height = (h_val.round().clamp(1.0, 8192.0) as u32).clamp(1, 8192);
+                    if draft.options.constrain_proportions {
                         draft.options.width =
-                            (w_val.round().clamp(1.0, 8192.0) as u32).clamp(1, 8192);
-                        if draft.options.constrain_proportions {
-                            draft.options.height = ((draft.options.width as f64 / aspect).round()
-                                as u32)
-                                .clamp(1, 8192);
-                        }
+                            ((draft.options.height as f64 * aspect).round() as u32).clamp(1, 8192);
                     }
-                    if ui
-                        .add(
-                            c::Field::new(&mut h_val, "Height")
-                                .prefix("H")
-                                .range(1.0..=8192.0)
-                                .decimals(0)
-                                .width(120.0),
-                        )
-                        .changed()
-                        && h_val.is_finite()
-                    {
-                        draft.options.height =
-                            (h_val.round().clamp(1.0, 8192.0) as u32).clamp(1, 8192);
-                        if draft.options.constrain_proportions {
-                            draft.options.width = ((draft.options.height as f64 * aspect).round()
-                                as u32)
-                                .clamp(1, 8192);
-                        }
-                    }
-                    if ui
-                        .add(
-                            c::IconButton::new(i16::LINK, "Constrain proportions")
-                                .selected(draft.options.constrain_proportions),
-                        )
-                        .clicked()
-                    {
-                        draft.options.constrain_proportions = !draft.options.constrain_proportions;
-                    }
-                    let scale_lbl = SCALES
-                        .iter()
-                        .find(|(s, _)| (*s - draft.options.scale).abs() < 0.05)
-                        .map(|(_, l)| *l)
-                        .unwrap_or("1×");
-                    c::Select::new(ui.id().with("export-image-scale"), scale_lbl)
-                        .width(80.0)
-                        .show(ui, |ui| {
-                            for (scale_val, label) in SCALES {
-                                let checked = (draft.options.scale - scale_val).abs() < 0.05;
-                                if ui.add(c::MenuItem::new(label).checked(checked)).clicked() {
-                                    draft.options.scale = scale_val;
-                                    draft.options.width =
-                                        ((self.project.width.max(1) as f32 * scale_val).round()
-                                            as u32)
-                                            .clamp(1, 8192);
-                                    draft.options.height =
-                                        ((self.project.height.max(1) as f32 * scale_val).round()
-                                            as u32)
-                                            .clamp(1, 8192);
-                                    ui.close();
-                                }
+                }
+                if ui
+                    .add(
+                        c::IconButton::new(i16::LINK, "Constrain proportions")
+                            .selected(draft.options.constrain_proportions),
+                    )
+                    .clicked()
+                {
+                    draft.options.constrain_proportions = !draft.options.constrain_proportions;
+                }
+                let scale_lbl = SCALES
+                    .iter()
+                    .find(|(s, _)| (*s - draft.options.scale).abs() < 0.05)
+                    .map(|(_, l)| *l)
+                    .unwrap_or("1×");
+                c::Select::new(ui.id().with("export-image-scale"), scale_lbl)
+                    .width(metrics::field_num())
+                    .show(ui, |ui| {
+                        for (scale_val, label) in SCALES {
+                            let checked = (draft.options.scale - scale_val).abs() < 0.05;
+                            if ui.add(c::MenuItem::new(label).checked(checked)).clicked() {
+                                draft.options.scale = scale_val;
+                                draft.options.width =
+                                    ((self.project.width.max(1) as f32 * scale_val).round() as u32)
+                                        .clamp(1, 8192);
+                                draft.options.height =
+                                    ((self.project.height.max(1) as f32 * scale_val).round()
+                                        as u32)
+                                        .clamp(1, 8192);
+                                ui.close();
                             }
-                        });
-                });
+                        }
+                    });
+            });
+            form_row(ui, "Background", |ui| {
+                if ui
+                    .add(c::Radio::new(
+                        !draft.options.transparent_background,
+                        "Stage colour",
+                    ))
+                    .clicked()
+                {
+                    draft.options.transparent_background = false;
+                }
+                if ui
+                    .add(c::Radio::new(
+                        draft.options.transparent_background,
+                        "Transparent",
+                    ))
+                    .clicked()
+                {
+                    draft.options.transparent_background = true;
+                }
+            });
 
-                group(ui, "Background");
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(c::Radio::new(
-                            !draft.options.transparent_background,
-                            "Stage colour",
-                        ))
-                        .clicked()
-                    {
-                        draft.options.transparent_background = false;
-                    }
-                    if ui
-                        .add(c::Radio::new(
-                            draft.options.transparent_background,
-                            "Transparent",
-                        ))
-                        .clicked()
-                    {
-                        draft.options.transparent_background = true;
-                    }
+            let runtime_capture = |ui: &mut Ui, draft: &mut ExportImageDraft| {
+                form_row(ui, "Content", |ui| {
+                    ui.add(c::Checkbox::new(
+                        &mut draft.options.runtime_capture,
+                        "Render nested movie clip animation and scripts",
+                    ));
                 });
-
-                match draft.options.format {
-                    ImageExportFormat::Svg => {
-                        group(ui, "SVG options");
-                        ui.horizontal(|ui| {
-                            let img_lbl = "Images: Embed";
-                            let svg_img = ui
-                                .scope(|ui| {
-                                    ui.disable();
-                                    c::Select::new(ui.id().with("svg-images"), img_lbl)
-                                        .width(180.0)
-                                        .show(ui, |_| {})
-                                        .0
-                                })
-                                .inner;
-                            let _ = c::not_available(svg_img, "SVG linked images");
-                            let txt_lbl = if draft.options.svg_text_as_outlines {
-                                "Text: Convert to outlines"
-                            } else {
-                                "Text: Editable <text>"
-                            };
-                            c::Select::new(ui.id().with("svg-text"), txt_lbl)
-                                .width(200.0)
-                                .show(ui, |ui| {
-                                    for (outlines, label) in [
-                                        (true, "Text: Convert to outlines"),
-                                        (false, "Text: Editable <text>"),
-                                    ] {
-                                        if ui
-                                            .add(c::MenuItem::new(label).checked(
-                                                draft.options.svg_text_as_outlines == outlines,
-                                            ))
-                                            .clicked()
-                                        {
-                                            draft.options.svg_text_as_outlines = outlines;
-                                            ui.close();
-                                        }
+            };
+            match draft.options.format {
+                ImageExportFormat::Svg => {
+                    group_caption(ui, "SVG options");
+                    form_row(ui, "Images", |ui| {
+                        let svg_img = ui
+                            .scope(|ui| {
+                                ui.disable();
+                                c::Select::new(ui.id().with("svg-images"), "Embed")
+                                    .width(metrics::field_m())
+                                    .show(ui, |_| {})
+                                    .0
+                            })
+                            .inner;
+                        let _ = c::not_available(svg_img, "SVG linked images");
+                    });
+                    form_row(ui, "Text", |ui| {
+                        let txt_lbl = if draft.options.svg_text_as_outlines {
+                            "Convert to outlines"
+                        } else {
+                            "Editable <text>"
+                        };
+                        c::Select::new(ui.id().with("svg-text"), txt_lbl)
+                            .width(metrics::field_l())
+                            .show(ui, |ui| {
+                                for (outlines, label) in
+                                    [(true, "Convert to outlines"), (false, "Editable <text>")]
+                                {
+                                    if ui
+                                        .add(c::MenuItem::new(label).checked(
+                                            draft.options.svg_text_as_outlines == outlines,
+                                        ))
+                                        .clicked()
+                                    {
+                                        draft.options.svg_text_as_outlines = outlines;
+                                        ui.close();
                                     }
-                                });
-                        });
-                        ui.add(c::Switch::new(
+                                }
+                            });
+                    });
+                    form_row(ui, "Output", |ui| {
+                        ui.add(c::Checkbox::new(
                             &mut draft.options.svg_minify,
                             "Minify output",
                         ));
+                    });
+                    form_row(ui, "", |ui| {
                         let css_resp = ui.add_enabled(
                             false,
-                            c::Switch::new(
+                            c::Checkbox::new(
                                 &mut draft.options.svg_css_classes,
                                 "Use CSS classes for styles",
                             ),
                         );
                         let _ = c::not_available(css_resp, "SVG CSS class extraction");
+                    });
+                    form_row(ui, "", |ui| {
                         ui.add(c::Checkbox::new(
                             &mut draft.options.svg_include_hidden_guides,
                             "Include hidden & guide layers",
                         ));
-                        ui.horizontal(|ui| {
-                            let mut prec = draft.options.svg_precision as f64;
-                            if ui
-                                .add(
-                                    c::Field::new(&mut prec, "Precision")
-                                        .prefix("Precision")
-                                        .range(1.0..=6.0)
-                                        .decimals(0)
-                                        .width(120.0),
-                                )
-                                .changed()
-                                && prec.is_finite()
-                            {
-                                draft.options.svg_precision = prec.round().clamp(1.0, 6.0) as usize;
-                            }
-                            ui.add(
-                                c::TextField::new(&mut draft.options.svg_id_prefix, "ID prefix")
-                                    .prefix("ID prefix")
-                                    .width(180.0),
-                            );
-                        });
-                    }
-                    ImageExportFormat::Psd => {
-                        group(ui, "PSD options");
+                    });
+                    form_row(ui, "Precision", |ui| {
+                        let mut prec = draft.options.svg_precision as f64;
+                        if ui
+                            .add(
+                                c::Field::new(&mut prec, "Precision")
+                                    .range(1.0..=6.0)
+                                    .decimals(0)
+                                    .width(metrics::field_num()),
+                            )
+                            .changed()
+                            && prec.is_finite()
+                        {
+                            draft.options.svg_precision = prec.round().clamp(1.0, 6.0) as usize;
+                        }
+                    });
+                    form_row(ui, "ID prefix", |ui| {
+                        ui.add(
+                            c::TextField::new(&mut draft.options.svg_id_prefix, "ID prefix")
+                                .width(metrics::field_s()),
+                        );
+                    });
+                }
+                ImageExportFormat::Psd => {
+                    group_caption(ui, "PSD options");
+                    form_row(ui, "Layers", |ui| {
                         if ui
                             .add(c::Radio::new(
                                 draft.options.psd_keep_layers,
@@ -816,6 +834,8 @@ impl Editor {
                         {
                             draft.options.psd_keep_layers = true;
                         }
+                    });
+                    form_row(ui, "", |ui| {
                         if ui
                             .add(c::Radio::new(
                                 !draft.options.psd_keep_layers,
@@ -825,6 +845,8 @@ impl Editor {
                         {
                             draft.options.psd_keep_layers = false;
                         }
+                    });
+                    form_row(ui, "Convert", |ui| {
                         let r1 = ui.add_enabled(
                             false,
                             c::Checkbox::new(
@@ -833,6 +855,8 @@ impl Editor {
                             ),
                         );
                         let _ = c::not_available(r1, "PSD folder groups");
+                    });
+                    form_row(ui, "", |ui| {
                         let r2 = ui.add_enabled(
                             false,
                             c::Checkbox::new(
@@ -841,6 +865,8 @@ impl Editor {
                             ),
                         );
                         let _ = c::not_available(r2, "PSD smart objects");
+                    });
+                    form_row(ui, "", |ui| {
                         let r3 = ui.add_enabled(
                             false,
                             c::Checkbox::new(
@@ -849,50 +875,53 @@ impl Editor {
                             ),
                         );
                         let _ = c::not_available(r3, "Editable PSD text layers");
-                        ui.horizontal(|ui| {
-                            let col_lbl = format!("Colour: {}", draft.options.psd_color_space);
-                            let col_resp = ui
-                                .scope(|ui| {
-                                    ui.disable();
-                                    c::Select::new(ui.id().with("psd-color"), &col_lbl)
-                                        .width(200.0)
-                                        .show(ui, |_| {})
-                                        .0
-                                })
-                                .inner;
-                            let _ = c::not_available(col_resp, "PSD colour profiles");
-                            let res_lbl =
-                                format!("Resolution: {} ppi", draft.options.psd_resolution_ppi);
-                            c::Select::new(ui.id().with("psd-res"), &res_lbl)
-                                .width(180.0)
-                                .show(ui, |ui| {
-                                    for ppi in [72u32, 144, 300] {
-                                        if ui
-                                            .add(
-                                                c::MenuItem::new(&format!("Resolution: {ppi} ppi"))
-                                                    .checked(
-                                                        draft.options.psd_resolution_ppi == ppi,
-                                                    ),
-                                            )
-                                            .clicked()
-                                        {
-                                            draft.options.psd_resolution_ppi = ppi;
-                                            ui.close();
-                                        }
+                    });
+                    form_row(ui, "Colour", |ui| {
+                        let col_resp = ui
+                            .scope(|ui| {
+                                ui.disable();
+                                c::Select::new(
+                                    ui.id().with("psd-color"),
+                                    &draft.options.psd_color_space,
+                                )
+                                .width(metrics::field_m())
+                                .show(ui, |_| {})
+                                .0
+                            })
+                            .inner;
+                        let _ = c::not_available(col_resp, "PSD colour profiles");
+                    });
+                    form_row(ui, "Resolution", |ui| {
+                        let res_lbl = format!("{} ppi", draft.options.psd_resolution_ppi);
+                        c::Select::new(ui.id().with("psd-res"), &res_lbl)
+                            .width(metrics::field_s())
+                            .show(ui, |ui| {
+                                for ppi in [72u32, 144, 300] {
+                                    if ui
+                                        .add(
+                                            c::MenuItem::new(&format!("{ppi} ppi"))
+                                                .checked(draft.options.psd_resolution_ppi == ppi),
+                                        )
+                                        .clicked()
+                                    {
+                                        draft.options.psd_resolution_ppi = ppi;
+                                        ui.close();
                                     }
-                                });
-                        });
-                    }
-                    ImageExportFormat::Ai => {
-                        group(ui, "AI options");
-                        let ver_lbl = format!("Version: {}", draft.options.ai_version);
+                                }
+                            });
+                    });
+                }
+                ImageExportFormat::Ai => {
+                    group_caption(ui, "AI options");
+                    form_row(ui, "Version", |ui| {
+                        let ver_lbl = draft.options.ai_version.clone();
                         c::Select::new(ui.id().with("ai-version"), &ver_lbl)
-                            .width(240.0)
+                            .width(metrics::field_l())
                             .show(ui, |ui| {
                                 for ver in ["Illustrator CS6+", "Illustrator CC (2020+)"] {
                                     if ui
                                         .add(
-                                            c::MenuItem::new(&format!("Version: {ver}"))
+                                            c::MenuItem::new(ver)
                                                 .checked(draft.options.ai_version == ver),
                                         )
                                         .clicked()
@@ -902,6 +931,8 @@ impl Editor {
                                     }
                                 }
                             });
+                    });
+                    form_row(ui, "Layers", |ui| {
                         if ui
                             .add(c::Radio::new(
                                 draft.options.ai_each_layer,
@@ -911,6 +942,8 @@ impl Editor {
                         {
                             draft.options.ai_each_layer = true;
                         }
+                    });
+                    form_row(ui, "", |ui| {
                         if ui
                             .add(c::Radio::new(
                                 !draft.options.ai_each_layer,
@@ -920,96 +953,101 @@ impl Editor {
                         {
                             draft.options.ai_each_layer = false;
                         }
+                    });
+                    form_row(ui, "Strokes", |ui| {
                         ui.add(c::Checkbox::new(
                             &mut draft.options.ai_strokes_as_strokes,
                             "Strokes as strokes (not outlines)",
                         ));
+                    });
+                    form_row(ui, "Text", |ui| {
                         ui.add(c::Checkbox::new(
                             &mut draft.options.ai_text_as_outlines,
                             "Convert text to outlines",
                         ));
-                        ui.add(c::Checkbox::new(
-                            &mut draft.options.runtime_capture,
-                            "Render nested movie clip animation and scripts",
-                        ));
-                    }
-                    ImageExportFormat::Png
-                    | ImageExportFormat::Jpeg
-                    | ImageExportFormat::Webp
-                    | ImageExportFormat::Gif
-                    | ImageExportFormat::Bmp => {
-                        group(ui, "Raster options");
-                        ui.horizontal(|ui| {
-                            let fmt_lbl = format!("Format: {}", draft.options.format.label());
-                            c::Select::new(ui.id().with("raster-subformat"), &fmt_lbl)
-                                .width(180.0)
-                                .show(ui, |ui| {
-                                    for sub in [
-                                        ImageExportFormat::Png,
-                                        ImageExportFormat::Jpeg,
-                                        ImageExportFormat::Webp,
-                                        ImageExportFormat::Gif,
-                                        ImageExportFormat::Bmp,
-                                    ] {
-                                        if ui
-                                            .add(
-                                                c::MenuItem::new(&format!(
-                                                    "Format: {}",
-                                                    sub.label()
-                                                ))
-                                                .checked(draft.options.format == sub),
-                                            )
-                                            .clicked()
-                                        {
-                                            draft.options.format = sub;
-                                            sync_stored_image_output_path(
-                                                ui.ctx(),
-                                                &self.project,
-                                                self.path.as_deref(),
-                                                draft.options.format,
-                                            );
-                                            ui.close();
-                                        }
-                                    }
-                                });
-                            if draft.options.format == ImageExportFormat::Jpeg {
-                                let mut q = f64::from(draft.options.jpeg_quality.clamp(1, 100));
+                    });
+                    runtime_capture(ui, draft);
+                }
+                ImageExportFormat::Png
+                | ImageExportFormat::Jpeg
+                | ImageExportFormat::Webp
+                | ImageExportFormat::Gif
+                | ImageExportFormat::Bmp => {
+                    group_caption(ui, "Raster options");
+                    form_row(ui, "Format", |ui| {
+                        c::Select::new(
+                            ui.id().with("raster-subformat"),
+                            draft.options.format.label(),
+                        )
+                        .width(metrics::field_m())
+                        .show(ui, |ui| {
+                            for sub in [
+                                ImageExportFormat::Png,
+                                ImageExportFormat::Jpeg,
+                                ImageExportFormat::Webp,
+                                ImageExportFormat::Gif,
+                                ImageExportFormat::Bmp,
+                            ] {
                                 if ui
                                     .add(
-                                        c::Slider::new(&mut q, 1.0..=100.0, "JPEG quality")
-                                            .step(1.0)
-                                            .width(150.0),
+                                        c::MenuItem::new(sub.label())
+                                            .checked(draft.options.format == sub),
                                     )
-                                    .changed()
-                                    && q.is_finite()
+                                    .clicked()
                                 {
-                                    draft.options.jpeg_quality = q.round().clamp(1.0, 100.0) as u8;
+                                    draft.options.format = sub;
+                                    sync_stored_image_output_path(
+                                        ui.ctx(),
+                                        &self.project,
+                                        self.path.as_deref(),
+                                        draft.options.format,
+                                    );
+                                    ui.close();
                                 }
-                                caption(ui, &format!("{} %", draft.options.jpeg_quality));
                             }
                         });
-                        ui.add(c::Checkbox::new(
-                            &mut draft.options.runtime_capture,
-                            "Render nested movie clip animation and scripts",
-                        ));
-                    }
-                    ImageExportFormat::Pdf => {
-                        ui.add(c::Checkbox::new(
-                            &mut draft.options.runtime_capture,
-                            "Render nested movie clip animation and scripts",
-                        ));
-                    }
+                    });
+                    // The JPEG quality row keeps its place for every raster format.
+                    form_row(ui, "Quality", |ui| {
+                        ui.add_enabled_ui(draft.options.format == ImageExportFormat::Jpeg, |ui| {
+                            let mut q = f64::from(draft.options.jpeg_quality.clamp(1, 100));
+                            if ui
+                                .add(
+                                    c::Slider::new(&mut q, 1.0..=100.0, "JPEG quality")
+                                        .step(1.0)
+                                        .width(metrics::field_m()),
+                                )
+                                .changed()
+                                && q.is_finite()
+                            {
+                                draft.options.jpeg_quality = q.round().clamp(1.0, 100.0) as u8;
+                            }
+                            caption(ui, &format!("{} %", draft.options.jpeg_quality));
+                        });
+                    });
+                    runtime_capture(ui, draft);
                 }
-            });
+                ImageExportFormat::Pdf => {
+                    group_caption(ui, "PDF options");
+                    runtime_capture(ui, draft);
+                }
+            }
         });
 
         let summary = estimate_image_export_summary(&self.project, &draft.options);
         let button = draft.options.format.button_label();
-        match footer_clicked(ui, &summary, None, &["Cancel", button]) {
-            Some(FooterClick::Button(0)) => close_cancel = true,
-            Some(FooterClick::Button(1)) => do_export = true,
-            _ => {}
-        }
+        shell.footer(
+            ui,
+            |ui| {
+                footer_note(ui, &summary);
+            },
+            |ui| {
+                do_export |= ui
+                    .add(c::Button::primary(button).icon(i16::UPLOAD))
+                    .clicked();
+                close_cancel |= ui.add(c::Button::new("Cancel")).clicked();
+            },
+        );
         (close_cancel, do_export)
     }
 
@@ -1022,29 +1060,18 @@ impl Editor {
         let mut do_export = false;
         let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
 
+        // v3: one size for every format.
+        let size = export_image_dialog_size(ctx);
+        let aside_width = (208.0 * size.x / metrics::DIALOG_L).round();
         let modal = egui::Modal::new(egui::Id::new("export-image"))
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
-                ui.set_width(760.0);
-                let header_top = ui.cursor().min;
-                close_cancel |= c::DialogHeader {
-                    title: "Export image",
-                }
-                .show(ui);
-                ui.painter().hline(
-                    header_top.x..=header_top.x + 760.0,
-                    header_top.y + neoflash_ui::metrics::dialog_header() - 0.5,
-                    egui::Stroke::new(1.0_f32, p.border_subtle),
-                );
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S5 as i8))
-                    .show(ui, |ui| {
-                        ui.set_width(760.0 - 2.0 * space::S5);
-                        let (c, exp) = self.export_image_body(ui, &mut draft, None);
-                        close_cancel |= c;
-                        do_export |= exp;
-                    });
+                let shell = DialogShell::single(ui, "Export image", size);
+                close_cancel |= shell.close;
+                let (c, exp) = self.export_image_body(ui, &shell, aside_width, &mut draft);
+                close_cancel |= c;
+                do_export |= exp;
             });
 
         if !close_cancel && !do_export {

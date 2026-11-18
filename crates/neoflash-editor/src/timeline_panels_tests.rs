@@ -2035,7 +2035,7 @@ fn t383_motion_and_classic_frame_properties_bind_scale_rotate_and_held_span_edit
         output
     }
     assert!(
-        find_node(&out, "Rotate: CW").is_some_and(|n| !n.is_disabled()),
+        find_node(&out, "Rotate, CW").is_some_and(|n| !n.is_disabled()),
         "Motion tween with 2 CW turns displays enabled 'Rotate: CW' on held frame 3"
     );
     assert!(
@@ -2127,10 +2127,10 @@ fn t383_motion_and_classic_frame_properties_bind_scale_rotate_and_held_span_edit
     for ctrl in [
         "Frame label",
         "Name",
-        "Tween: Motion",
+        "Tween, Motion",
         "Scale",
         "Edit…",
-        "Rotate: CW",
+        "Rotate, CW",
         "times",
         "Orient to path",
         "Sync",
@@ -2247,15 +2247,15 @@ fn t383_motion_rotate_reset_to_auto_or_none_and_motion_track_flags_sync() {
     let initial_proj = editor.project.clone();
     let _ = render(&mut editor, vec![]);
     let out0 = render(&mut editor, vec![]);
-    assert!(find_node(&out0, "Rotate: Auto").is_some());
+    assert!(find_node(&out0, "Rotate, Auto").is_some());
     assert!(find_node(&out0, "times").unwrap().is_disabled());
 
     // Open Rotate: Auto dropdown and pick CW.
-    let _ = click_node(&mut editor, &mut render, "Rotate: Auto");
+    let _ = click_node(&mut editor, &mut render, "Rotate, Auto");
     let out_cw0 = click_node(&mut editor, &mut render, "CW");
     editor.finish_edits();
     assert!(
-        find_node(&out_cw0, "Rotate: CW").is_some(),
+        find_node(&out_cw0, "Rotate, CW").is_some(),
         "picking CW switches dropdown to Rotate: CW"
     );
     assert!(
@@ -2277,14 +2277,14 @@ fn t383_motion_rotate_reset_to_auto_or_none_and_motion_track_flags_sync() {
     });
     let after_2_turns = editor.project.clone();
     let out_cw2 = render(&mut editor, vec![]);
-    assert!(find_node(&out_cw2, "Rotate: CW").is_some());
+    assert!(find_node(&out_cw2, "Rotate, CW").is_some());
 
     // Switch Rotate: CW -> Auto: dropdown updates to Rotate: Auto and clears the 2 turns in 1 Undo!
-    let _ = click_node(&mut editor, &mut render, "Rotate: CW");
+    let _ = click_node(&mut editor, &mut render, "Rotate, CW");
     let out_auto = click_node(&mut editor, &mut render, "Auto");
     editor.finish_edits();
     assert!(
-        find_node(&out_auto, "Rotate: Auto").is_some(),
+        find_node(&out_auto, "Rotate, Auto").is_some(),
         "resetting rotated Motion tween to Auto must not stick on Rotate: CW"
     );
     assert!(find_node(&out_auto, "times").unwrap().is_disabled());
@@ -2306,11 +2306,11 @@ fn t383_motion_rotate_reset_to_auto_or_none_and_motion_track_flags_sync() {
 
     // Switch Rotate: CW -> None: dropdown updates to Rotate: None and clears the 2 turns in 1 Undo!
     let _ = render(&mut editor, vec![]);
-    let _ = click_node(&mut editor, &mut render, "Rotate: CW");
+    let _ = click_node(&mut editor, &mut render, "Rotate, CW");
     let out_none = click_node(&mut editor, &mut render, "None");
     editor.finish_edits();
     assert!(
-        find_node(&out_none, "Rotate: None").is_some(),
+        find_node(&out_none, "Rotate, None").is_some(),
         "resetting rotated Motion tween to None must not stick on Rotate: CW"
     );
     assert!(find_node(&out_none, "times").unwrap().is_disabled());

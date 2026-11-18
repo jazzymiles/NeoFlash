@@ -1,10 +1,10 @@
 //! `NF2/Menu Item`, `NF2/Menu Section`, `NF2/Menu Separator`, `NF2/Menu Bar Item` and popup helpers.
 //!
-//! Menus are `bg/raised` popovers (radius 8, 4 px inner margin, popover shadow). Rows are 28 px:
-//! 24 px check column, label (`NF2/Body`), shortcut right-aligned (`NF2/Small`, `text/tertiary`), ▸ for submenus.
+//! Menus are `bg/raised` popovers (`radius::lg()`, `space::s1()` inner margin, popover shadow), at
+//! least `menu_width()` wide. Rows are `row()` high: 16 px check column + `space::s2()`, label
+//! (`NF2/Body`), shortcut right-aligned (`NF2/Small`, `text/tertiary`), ▸ for submenus.
 use super::{State, a11y, galley, text_at};
 use crate::icons::{self, Icon, i16};
-use crate::metrics::MENU_SEPARATOR;
 use crate::theme::{cr, palette};
 use crate::tokens::{TextStyle, radius, space};
 use eframe::egui::{self, Rect, Response, Sense, Stroke, Ui, Widget};
@@ -80,9 +80,17 @@ impl Widget for MenuItem<'_> {
                 p.text_tertiary,
             )
             .size()
-            .x + space::S5
+            .x + space::s5()
         };
-        let min_w = 24.0 + label_w + short_w + space::S3 + if self.submenu { 16.0 } else { 0.0 };
+        let min_w = label_inset()
+            + label_w
+            + short_w
+            + space::s3()
+            + if self.submenu {
+                MARK + space::s2()
+            } else {
+                0.0
+            };
         let width = ui.available_width().max(min_w);
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(width, crate::metrics::row()), Sense::click());
@@ -92,7 +100,7 @@ impl Widget for MenuItem<'_> {
         // submenu chevron and shortcut on it rise to `text/primary` so nothing on the row is dim.
         let lit = s.enabled && (s.hovered || open || self.highlighted);
         if lit {
-            ui.painter().rect_filled(rect, cr(radius::MD), p.bg_hover);
+            ui.painter().rect_filled(rect, cr(radius::sm()), p.bg_hover);
         }
         let on = |normal: egui::Color32| if lit { p.text_primary } else { normal };
         let fg = if !s.enabled {
@@ -102,24 +110,21 @@ impl Widget for MenuItem<'_> {
         } else {
             p.text_primary
         };
-        let col = Rect::from_min_size(rect.min, egui::vec2(24.0, crate::metrics::row()));
+        // 16 px check / icon column after the row padding.
+        let col = Rect::from_center_size(
+            egui::pos2(
+                rect.left() + space::s2() + CHECK_COLUMN / 2.0,
+                rect.center().y,
+            ),
+            egui::vec2(CHECK_COLUMN, CHECK_COLUMN),
+        );
         if self.checked {
-            icons::paint(
-                ui.painter(),
-                ui.ctx(),
-                col.translate(egui::vec2(4.0, 0.0)),
-                i16::CHECK,
-                if s.enabled {
-                    p.accent_default
-                } else {
-                    p.text_disabled
-                },
-            );
+            icons::paint_sized(ui.painter(), ui.ctx(), col, i16::CHECK, MARK, fg);
         } else if let Some(icon) = self.icon {
             icons::paint(
                 ui.painter(),
                 ui.ctx(),
-                col.translate(egui::vec2(4.0, 0.0)),
+                col,
                 icon,
                 if s.enabled {
                     on(p.text_secondary)
@@ -130,24 +135,25 @@ impl Widget for MenuItem<'_> {
         }
         text_at(
             ui,
-            rect.left() + 28.0,
+            rect.left() + label_inset(),
             rect,
             galley(ui, self.label, TextStyle::Body, fg),
             fg,
         );
-        let mut right = rect.right() - space::S2;
+        let mut right = rect.right() - space::s3();
         if self.submenu {
-            icons::paint(
+            icons::paint_sized(
                 ui.painter(),
                 ui.ctx(),
                 Rect::from_center_size(
-                    egui::pos2(right - 8.0, rect.center().y),
-                    egui::vec2(16.0, 16.0),
+                    egui::pos2(right - MARK / 2.0, rect.center().y),
+                    egui::vec2(MARK, MARK),
                 ),
                 i16::CHEVRIGHT,
+                MARK,
                 on(p.text_secondary),
             );
-            right -= 16.0;
+            right -= MARK + space::s2();
         }
         if !self.shortcut.is_empty() {
             let c = if s.enabled {
@@ -176,6 +182,15 @@ impl Widget for MenuItem<'_> {
     }
 }
 
+/// Side of the check / icon column of a [`MenuItem`] and of its 12 px marks.
+const CHECK_COLUMN: f32 = 16.0;
+const MARK: f32 = 12.0;
+
+/// Left edge of a menu label: row padding, check column, control gap (28 / 24 / 24).
+fn label_inset() -> f32 {
+    space::s2() + CHECK_COLUMN + space::s2()
+}
+
 /// `NF2/Menu Section` — overline caption inside menus and popovers ("RECENT", "SCENES · 3").
 pub fn menu_section(ui: &mut Ui, label: &str) {
     let p = palette(ui.ctx());
@@ -185,22 +200,22 @@ pub fn menu_section(ui: &mut Ui, label: &str) {
     );
     text_at(
         ui,
-        rect.left() + space::S3,
+        rect.left() + space::s3(),
         rect,
         galley(ui, label, TextStyle::Overline, p.text_tertiary),
         p.text_tertiary,
     );
 }
 
-/// `NF2/Menu Separator` — 1 px `border/subtle` with 4 px vertical margins.
+/// `NF3/Menu Separator` — 1 px `border/subtle` centred in `menu_separator()`, inset by the field padding.
 pub fn menu_separator(ui: &mut Ui) {
     let p = palette(ui.ctx());
     let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width(), MENU_SEPARATOR),
+        egui::vec2(ui.available_width(), crate::metrics::menu_separator()),
         Sense::hover(),
     );
     ui.painter().hline(
-        rect.x_range().shrink(space::S1),
+        rect.x_range().shrink(space::s3()),
         rect.center().y,
         Stroke::new(1.0_f32, p.border_subtle),
     );
@@ -214,7 +229,7 @@ pub fn popup_below<R>(
 ) -> Option<R> {
     egui::Popup::menu(anchor)
         .width(min_width)
-        .gap(space::S1)
+        .gap(space::s1())
         .frame(popover_frame(&anchor.ctx))
         .show(|ui| {
             menu_style(ui.style_mut());
@@ -230,7 +245,7 @@ pub fn context_menu<R>(response: &Response, content: impl FnOnce(&mut Ui) -> R) 
         .frame(popover_frame(&response.ctx))
         .show(|ui| {
             menu_style(ui.style_mut());
-            ui.set_min_width(220.0);
+            ui.set_min_width(crate::metrics::menu_width());
             content(ui)
         })
         .map(|r| r.inner)
@@ -242,18 +257,18 @@ pub fn popover_frame(ctx: &egui::Context) -> egui::Frame {
     egui::Frame::new()
         .fill(p.bg_raised)
         .stroke(Stroke::new(1.0_f32, p.border_subtle))
-        .corner_radius(cr(radius::LG))
-        .inner_margin(egui::Margin::same(space::S1 as i8))
+        .corner_radius(cr(radius::lg()))
+        .inner_margin(egui::Margin::same(space::s1() as i8))
         .shadow(crate::metrics::SHADOW_POPOVER.egui())
 }
 
-/// Style for menu contents: no extra item spacing, 28 px rows, NF2 text.
+/// Style for menu contents: no extra item spacing, `row()` rows, NF2 text.
 pub fn menu_style(style: &mut egui::Style) {
     style.spacing.item_spacing = egui::vec2(0.0, 0.0);
-    style.spacing.button_padding = egui::vec2(space::S2, space::S1);
+    style.spacing.button_padding = egui::vec2(space::s2(), space::s1());
     style.spacing.interact_size.y = crate::metrics::row();
-    style.spacing.menu_margin = egui::Margin::same(space::S1 as i8);
-    style.visuals.menu_corner_radius = cr(radius::LG);
+    style.spacing.menu_margin = egui::Margin::same(space::s1() as i8);
+    style.visuals.menu_corner_radius = cr(radius::lg());
 }
 
 /// `NF2/Menu Bar Item` — ghost text button in the top bar; `State=Open` while its menu is shown.
@@ -265,7 +280,7 @@ impl MenuBarItem {
         let p = palette(ui.ctx());
         let text = crate::typography::rich(label, TextStyle::Body).color(p.text_secondary);
         ui.menu_button(text, |ui| {
-            ui.set_min_width(240.0);
+            ui.set_min_width(crate::metrics::menu_width());
             content(ui)
         })
         .inner
@@ -286,15 +301,15 @@ pub fn menu_bar<R>(ui: &mut Ui, content: impl FnOnce(&mut Ui) -> R) -> R {
         v.widgets.open.bg_stroke = Stroke::NONE;
         v.widgets.active.weak_bg_fill = p.bg_hover;
         v.widgets.active.bg_stroke = Stroke::NONE;
-        ui.spacing_mut().button_padding = egui::vec2(space::S3 - 2.0, space::S1);
+        ui.spacing_mut().button_padding = egui::vec2(space::s3() - 2.0, space::s1());
         ui.spacing_mut().item_spacing.x = 0.0;
         egui::MenuBar::new()
             .config(egui::containers::menu::MenuConfig::new().style(menu_style))
             .ui(ui, |ui| {
                 // The bar itself keeps NF2 Menu Bar Item spacing; `menu_style` only styles dropdowns.
-                // Figma top bar: ~30 pt between menu titles = 2 × 12 padding + 6 spacing.
-                ui.spacing_mut().item_spacing.x = 6.0;
-                ui.spacing_mut().button_padding = egui::vec2(space::S3, space::S1);
+                // Menu titles: field padding on both sides plus one control gap between them.
+                ui.spacing_mut().item_spacing.x = space::s2();
+                ui.spacing_mut().button_padding = egui::vec2(space::s3(), space::s1());
                 ui.spacing_mut().interact_size.y = crate::metrics::row();
                 ui.visuals_mut().override_text_color = Some(p.text_secondary);
                 content(ui)
@@ -309,7 +324,7 @@ pub fn submenu<R>(ui: &mut Ui, label: &str, content: impl FnOnce(&mut Ui) -> R) 
     let response = ui.add(MenuItem::new(label).submenu(true));
     egui::containers::menu::SubMenu::new()
         .show(ui, &response, |ui| {
-            ui.set_min_width(220.0);
+            ui.set_min_width(crate::metrics::menu_width());
             content(ui)
         })
         .map(|r| r.inner)

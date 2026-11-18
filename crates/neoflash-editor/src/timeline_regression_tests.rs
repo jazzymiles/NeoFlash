@@ -471,8 +471,8 @@ fn timeline_blend_mode_popup_is_compact_and_changes_one_layer_with_one_undo() {
         ("Hard Light", hard_light),
     ] {
         assert!(
-            (row.width() - 180.0).abs() < 0.75,
-            "{label} must use the compact 180 pt popup width, got {row:?}"
+            (row.width() - neoflash_ui::metrics::menu_width()).abs() < 0.75,
+            "{label} must use the `width/menu` popup width, got {row:?}"
         );
     }
     assert!(
@@ -501,6 +501,8 @@ fn onion_range_fill_is_painted_after_the_ruler_background() {
 
     let output = timeline_panel_frame(&mut editor, &ctx, 0.1, vec![]);
     let palette = neoflash_ui::palette(&ctx);
+    // `paint_onion_range`: the band leaves 6 pt above and 2 pt below inside the frame ruler.
+    let band_height = neoflash_ui::metrics::timeline_ruler() - 8.0;
     let mut band = None;
     let mut last_covering_background = None;
     let mut handles = Vec::new();
@@ -509,7 +511,7 @@ fn onion_range_fill_is_painted_after_the_ruler_background() {
             continue;
         };
         if rect.fill == palette.accent_subtle
-            && (rect.rect.height() - 24.0).abs() < 0.2
+            && (rect.rect.height() - band_height).abs() < 0.2
             && (rect.rect.width() - 7.0 * editor.timeline_cell).abs() < 0.5
             && clipped.clip_rect.contains_rect(rect.rect)
         {
@@ -517,7 +519,7 @@ fn onion_range_fill_is_painted_after_the_ruler_background() {
         }
         if rect.fill == palette.timeline_onion
             && (rect.rect.width() - 3.0).abs() < 0.2
-            && (rect.rect.height() - 24.0).abs() < 0.2
+            && (rect.rect.height() - band_height).abs() < 0.2
             && clipped.clip_rect.contains_rect(rect.rect)
         {
             handles.push(rect.rect);
@@ -531,7 +533,7 @@ fn onion_range_fill_is_painted_after_the_ruler_background() {
         }
     }
 
-    let (band_index, band) = band.expect("NF2/TL Onion Range must paint its 24 pt Range fill");
+    let (band_index, band) = band.expect("NF2/TL Onion Range must paint its Range fill");
     assert!(
         last_covering_background.is_none_or(|index| index < band_index),
         "the ruler background must not erase the onion Range fill"

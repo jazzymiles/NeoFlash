@@ -414,7 +414,7 @@ impl Editor {
         let undo_labels: Vec<String> = self.history.undo_labels().map(str::to_owned).collect();
         let redo_labels: Vec<String> = self.history.redo_labels().map(str::to_owned).collect();
         let undo_len = undo_labels.len();
-        let footer_h = crate::theme::control_h() + space::S2;
+        let footer_h = crate::theme::control_h() + space::s2();
         let list_h = (ui.available_height() - footer_h).max(crate::theme::control_h());
         let mut target_step = None;
         let mut replay_step = None;
@@ -543,7 +543,7 @@ impl Editor {
             self.delete_saved_command(&name);
         }
 
-        ui.add_space(space::S2);
+        ui.add_space(space::s2());
         let undo_sc = self.tooltip_sc(crate::commands::CommandId::EditUndo);
         let redo_sc = self.tooltip_sc(crate::commands::CommandId::EditRedo);
         ui.horizontal(|ui| {

@@ -1,4 +1,5 @@
 //! Draft-only customization of the global tool rail (R-038).
+use super::dialog_helpers::{DialogShell, fixed_dialog_size, group_caption, note};
 use super::tools::{ToolSpec, tool_catalogue};
 use crate::theme::ScrollTheme as _;
 use crate::{
@@ -9,8 +10,8 @@ use eframe::egui;
 use neoflash_ui::{
     components as nf,
     icons::i20,
+    metrics,
     tokens::{TextStyle, space},
-    typography::rich,
 };
 
 #[derive(Clone, Debug)]
@@ -77,155 +78,178 @@ fn row(ui: &mut egui::Ui, spec: ToolSpec, selected: bool, width: f32) -> egui::R
     })
     .inner
 }
-// The three containers below transcribe the approved R-038 frame geometry, using NF2 tokens.
+// v3 `D1.customizeTools`: rail · available tools (fills) · Add / Remove · current slot (fills).
+// Every column gets its size from the fixed dialog, never from its content.
 fn list_frame(ctx: &egui::Context, rail: bool) -> egui::Frame {
     let p = neoflash_ui::palette(ctx);
     nf::Surface::PanelFlush
         .frame(ctx)
-        .fill(if rail { p.bg_panel } else { p.bg_field })
-        .stroke(egui::Stroke::new(
-            1.0_f32,
-            if rail {
-                p.border_subtle
-            } else {
-                p.border_default
-            },
-        ))
+        .fill(if rail { p.bg_app } else { p.bg_field })
+        .stroke(egui::Stroke::new(1.0_f32, p.border_subtle))
         .corner_radius(if rail {
-            neoflash_ui::tokens::radius::LG
+            neoflash_ui::tokens::radius::lg()
         } else {
-            neoflash_ui::tokens::radius::MD
+            neoflash_ui::tokens::radius::md()
         } as u8)
-        .inner_margin(egui::Margin::same(space::S1 as i8))
+        .inner_margin(egui::Margin::same(space::s1() as i8))
 }
-fn caption(ui: &mut egui::Ui, label: impl Into<String>) {
-    ui.label(
-        rich(label.into(), TextStyle::Overline).color(neoflash_ui::palette(ui.ctx()).text_tertiary),
-    );
+/// Space a [`list_frame`] takes around its content on each axis (margin and border, both sides).
+fn list_chrome() -> f32 {
+    2.0 * (space::s1() + 1.0)
 }
-fn rail_column(ui: &mut egui::Ui, draft: &mut CustomizeToolsDraft, catalogue: &[ToolSpec]) {
-    ui.set_width(42.);
-    caption(ui, "RAIL");
-    list_frame(ui.ctx(), true).show(ui, |ui| {
-        ui.set_width(32.);
+/// A [`list_frame`] of exactly `size` with a scroll area that fills it.
+fn list_box(
+    ui: &mut egui::Ui,
+    id_salt: &'static str,
+    rail: bool,
+    size: egui::Vec2,
+    add: impl FnOnce(&mut egui::Ui, f32),
+) {
+    let inner = (size - egui::Vec2::splat(list_chrome())).max(egui::Vec2::ZERO);
+    list_frame(ui.ctx(), rail).show(ui, |ui| {
+        ui.set_width(inner.x);
+        ui.set_height(inner.y);
         egui::ScrollArea::vertical()
-            .id_salt("customize-rail")
-            .max_height(474.)
+            .id_salt(id_salt)
+            .max_height(inner.y)
             .auto_shrink([false, false])
             .themed()
-            .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = 2.;
-                for index in 0..draft.slots.len() {
-                    let first = draft.slots[index]
-                        .first()
-                        .and_then(|name| catalogue.iter().find(|s| s.name == name));
-                    let response = ui
-                        .add(
-                            nf::ToolButton::new(
-                                first.map_or(i20::PLUS, |s| s.icon.tool_glyph()),
-                                &format!("Slot {}", index + 1),
-                            )
-                            .selected(index == draft.selected_slot)
-                            .flyout(draft.slots[index].len() > 1),
-                        )
-                        .interact(egui::Sense::click_and_drag());
-                    if response.clicked() {
-                        draft.selected_slot = index;
-                        draft.current = (!draft.slots[index].is_empty()).then_some(0);
-                    }
-                    if response.drag_started() {
-                        draft.drag_slot = Some(index);
-                    }
-                    if response.contains_pointer()
-                        && ui.input(|i| i.pointer.any_released())
-                        && let Some(from) = draft.drag_slot.take()
-                    {
-                        let slot = draft.slots.remove(from);
-                        draft.slots.insert(index, slot);
-                        draft.selected_slot = index;
-                    }
-                }
-            });
+            .show(ui, |ui| add(ui, inner.x));
     });
 }
-fn available_column(ui: &mut egui::Ui, draft: &mut CustomizeToolsDraft, catalogue: &[ToolSpec]) {
-    ui.set_width(268.);
+fn rail_column(
+    ui: &mut egui::Ui,
+    draft: &mut CustomizeToolsDraft,
+    catalogue: &[ToolSpec],
+    size: egui::Vec2,
+) {
+    ui.set_width(size.x);
+    group_caption(ui, "Rail");
+    let list = egui::vec2(
+        size.x,
+        size.y - metrics::section_header() - metrics::row_gap(),
+    );
+    list_box(ui, "customize-rail", true, list, |ui, _| {
+        ui.spacing_mut().item_spacing.y = 2.;
+        for index in 0..draft.slots.len() {
+            let first = draft.slots[index]
+                .first()
+                .and_then(|name| catalogue.iter().find(|s| s.name == name));
+            let response = ui
+                .add(
+                    nf::ToolButton::new(
+                        first.map_or(i20::PLUS, |s| s.icon.tool_glyph()),
+                        &format!("Slot {}", index + 1),
+                    )
+                    .selected(index == draft.selected_slot)
+                    .flyout(draft.slots[index].len() > 1),
+                )
+                .interact(egui::Sense::click_and_drag());
+            if response.clicked() {
+                draft.selected_slot = index;
+                draft.current = (!draft.slots[index].is_empty()).then_some(0);
+            }
+            if response.drag_started() {
+                draft.drag_slot = Some(index);
+            }
+            if response.contains_pointer()
+                && ui.input(|i| i.pointer.any_released())
+                && let Some(from) = draft.drag_slot.take()
+            {
+                let slot = draft.slots.remove(from);
+                draft.slots.insert(index, slot);
+                draft.selected_slot = index;
+            }
+        }
+    });
+}
+fn available_column(
+    ui: &mut egui::Ui,
+    draft: &mut CustomizeToolsDraft,
+    catalogue: &[ToolSpec],
+    size: egui::Vec2,
+) {
+    ui.set_width(size.x);
     let mut available: Vec<_> = catalogue
         .iter()
         .filter(|s| !draft.slots.iter().flatten().any(|name| name == s.name))
         .copied()
         .collect();
     available.sort_by_key(|spec| spec.name);
-    caption(ui, format!("AVAILABLE TOOLS · {}", available.len()));
-    ui.add(nf::Search::new(&mut draft.query, "Find tool").width(268.));
-    list_frame(ui.ctx(), false).show(ui, |ui| {
-        ui.set_width(258.);
-        egui::ScrollArea::vertical()
-            .id_salt("available-tools")
-            .max_height(442.)
-            .auto_shrink([false, false])
-            .themed()
-            .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = 0.;
-                for spec in available
-                    .iter()
-                    .filter(|s| s.name.to_lowercase().contains(&draft.query.to_lowercase()))
-                {
-                    if row(
-                        ui,
-                        *spec,
-                        draft.available.as_deref() == Some(spec.name),
-                        258.,
-                    )
-                    .clicked()
-                    {
-                        draft.available = Some(spec.name.into());
-                    }
-                }
-            });
+    group_caption(ui, &format!("Available tools · {}", available.len()));
+    ui.add(nf::Search::new(&mut draft.query, "Find tool").width(size.x));
+    let list = egui::vec2(
+        size.x,
+        size.y - metrics::section_header() - metrics::control() - 2.0 * metrics::row_gap(),
+    );
+    list_box(ui, "available-tools", false, list, |ui, width| {
+        ui.spacing_mut().item_spacing.y = 0.;
+        for spec in available
+            .iter()
+            .filter(|s| s.name.to_lowercase().contains(&draft.query.to_lowercase()))
+        {
+            if row(
+                ui,
+                *spec,
+                draft.available.as_deref() == Some(spec.name),
+                width,
+            )
+            .clicked()
+            {
+                draft.available = Some(spec.name.into());
+            }
+        }
     });
 }
-fn current_column(ui: &mut egui::Ui, draft: &mut CustomizeToolsDraft, catalogue: &[ToolSpec]) {
-    ui.set_width(268.);
-    caption(
+/// Height reserved for the three-line hint under the current-slot list.
+fn slot_hint_height() -> f32 {
+    3.0 * TextStyle::Small.spec().line_height
+}
+fn current_column(
+    ui: &mut egui::Ui,
+    draft: &mut CustomizeToolsDraft,
+    catalogue: &[ToolSpec],
+    size: egui::Vec2,
+) {
+    ui.set_width(size.x);
+    group_caption(
         ui,
-        format!("SLOT {} · CURRENT SELECTION", draft.selected_slot + 1),
+        &format!("Slot {} · current selection", draft.selected_slot + 1),
     );
-    list_frame(ui.ctx(), false).show(ui, |ui| {
-        ui.set_width(258.);
-        egui::ScrollArea::vertical()
-            .id_salt("current-tools")
-            .max_height(442.)
-            .auto_shrink([false, false])
-            .themed()
-            .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = 0.;
-                let current = draft.slots[draft.selected_slot].clone();
-                for (index, name) in current.iter().enumerate() {
-                    let Some(spec) = catalogue.iter().find(|s| s.name == name) else {
-                        continue;
-                    };
-                    let response = row(ui, *spec, draft.current == Some(index), 258.)
-                        .interact(egui::Sense::click_and_drag());
-                    if response.clicked() {
-                        draft.current = Some(index);
-                    }
-                    if response.drag_started() {
-                        draft.drag_tool = Some(index);
-                    }
-                    if response.contains_pointer()
-                        && ui.input(|i| i.pointer.any_released())
-                        && let Some(from) = draft.drag_tool.take()
-                    {
-                        let slot = &mut draft.slots[draft.selected_slot];
-                        let tool = slot.remove(from);
-                        slot.insert(index, tool);
-                        draft.current = Some(index);
-                    }
-                }
-            });
+    let list = egui::vec2(
+        size.x,
+        size.y - metrics::section_header() - slot_hint_height() - 2.0 * metrics::row_gap(),
+    );
+    list_box(ui, "current-tools", false, list, |ui, width| {
+        ui.spacing_mut().item_spacing.y = 0.;
+        let current = draft.slots[draft.selected_slot].clone();
+        for (index, name) in current.iter().enumerate() {
+            let Some(spec) = catalogue.iter().find(|s| s.name == name) else {
+                continue;
+            };
+            let response = row(ui, *spec, draft.current == Some(index), width)
+                .interact(egui::Sense::click_and_drag());
+            if response.clicked() {
+                draft.current = Some(index);
+            }
+            if response.drag_started() {
+                draft.drag_tool = Some(index);
+            }
+            if response.contains_pointer()
+                && ui.input(|i| i.pointer.any_released())
+                && let Some(from) = draft.drag_tool.take()
+            {
+                let slot = &mut draft.slots[draft.selected_slot];
+                let tool = slot.remove(from);
+                slot.insert(index, tool);
+                draft.current = Some(index);
+            }
+        }
     });
-    ui.label(rich("Tools in one slot form a flyout group. Drag to reorder; the first tool is the default shown on the rail.",TextStyle::Small).color(neoflash_ui::palette(ui.ctx()).text_tertiary));
+    note(
+        ui,
+        "Tools in one slot form a flyout group. Drag to reorder; the first tool is the default shown on the rail.",
+    );
 }
 impl Editor {
     pub(crate) fn open_customize_tools(&self, ctx: &egui::Context) {
@@ -244,56 +268,63 @@ impl Editor {
         let mut cancel = false;
         let mut apply = false;
         let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
+        // v3: one size per density; the lists fill it and scroll.
+        let size = fixed_dialog_size(ctx, metrics::dialog_l(), metrics::dialog_xl_height());
         let response = egui::Modal::new(egui::Id::new("nf2-customize-tools"))
             .frame(nf::Surface::Dialog.frame(ctx))
             .backdrop_color(neoflash_ui::palette(ctx).overlay)
             .show(ctx, |ui| {
-                ui.set_width(778.);
-                ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
-                cancel |= nf::DialogHeader {
-                    title: "Customize tools panel",
-                }
-                .show(ui);
-                egui::Frame::new()
-                    .inner_margin(egui::Margin {
-                        left: space::S5 as i8,
-                        right: space::S5 as i8,
-                        top: space::S3 as i8,
-                        bottom: space::S3 as i8,
-                    })
-                    .show(ui, |ui| {
-                        ui.set_min_height(532.);
-                        ui.spacing_mut().item_spacing = egui::vec2(space::S4, space::S2);
-                        ui.horizontal_top(|ui| {
-                            ui.vertical(|ui| rail_column(ui, &mut draft, &catalogue));
-                            ui.vertical(|ui| available_column(ui, &mut draft, &catalogue));
-                            ui.vertical(|ui| {
-                                ui.set_width(104.);
-                                ui.add_space((532. - 72.) / 2.);
-                                if ui
-                                    .add_enabled(
-                                        draft.available.is_some(),
-                                        nf::Button::new("Add ›").width(104.),
-                                    )
-                                    .clicked()
-                                {
-                                    draft.add();
-                                }
-                                if ui
-                                    .add_enabled(
-                                        draft.current.is_some(),
-                                        nf::Button::new("‹ Remove").width(104.),
-                                    )
-                                    .clicked()
-                                {
-                                    draft.remove();
-                                }
-                            });
-                            ui.vertical(|ui| current_column(ui, &mut draft, &catalogue));
+                let shell = DialogShell::single(ui, "Customize tools", size);
+                cancel |= shell.close;
+                shell.page(ui, "customize-tools-page", |ui, area| {
+                    // Four columns of one height: the page minus its padding.
+                    let height = area.fill_height(ui, "customize-tools", 0.0, metrics::control());
+                    let gap = space::s4();
+                    let rail_w = metrics::tools_rail();
+                    let actions_w = metrics::field_s();
+                    let list_w =
+                        ((ui.available_width() - rail_w - actions_w - 3.0 * gap) / 2.0).floor();
+                    ui.spacing_mut().item_spacing.x = gap;
+                    ui.horizontal_top(|ui| {
+                        ui.set_height(height);
+                        ui.vertical(|ui| {
+                            rail_column(ui, &mut draft, &catalogue, egui::vec2(rail_w, height))
+                        });
+                        ui.vertical(|ui| {
+                            available_column(ui, &mut draft, &catalogue, egui::vec2(list_w, height))
+                        });
+                        ui.vertical(|ui| {
+                            ui.set_width(actions_w);
+                            ui.add_space(
+                                ((height - 2.0 * metrics::control() - metrics::row_gap()) / 2.0)
+                                    .max(0.0),
+                            );
+                            if ui
+                                .add_enabled(
+                                    draft.available.is_some(),
+                                    nf::Button::new("Add ›").width(actions_w),
+                                )
+                                .clicked()
+                            {
+                                draft.add();
+                            }
+                            if ui
+                                .add_enabled(
+                                    draft.current.is_some(),
+                                    nf::Button::new("‹ Remove").width(actions_w),
+                                )
+                                .clicked()
+                            {
+                                draft.remove();
+                            }
+                        });
+                        ui.vertical(|ui| {
+                            current_column(ui, &mut draft, &catalogue, egui::vec2(list_w, height))
                         });
                     });
+                });
                 let mut restore = false;
-                nf::surface::dialog_footer(
+                shell.footer(
                     ui,
                     |ui| {
                         restore = ui.add(nf::Button::ghost("Restore default")).clicked();

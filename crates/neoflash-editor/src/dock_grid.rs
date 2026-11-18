@@ -22,8 +22,18 @@ pub(crate) struct VerticalDockLayout {
     pub(crate) extents: Vec<f32>,
 }
 
+/// Smallest height of a stacked side-dock group: the largest `min_stacked_height` of its (visible)
+/// tabs, never just the active one, so switching tabs cannot move the splitter between groups.
+pub(crate) fn group_min_stacked_height(group: &DockGroup) -> f32 {
+    group
+        .tabs
+        .iter()
+        .map(|panel| panel.min_stacked_height())
+        .fold(group.active.min_stacked_height(), f32::max)
+}
+
 /// Allocates heights for a stacked vertical side dock (R-077): every expanded group keeps at
-/// least its panel's useful minimum height (`min_stacked_height`); groups dragged below their
+/// least its tabs' useful minimum height ([`group_min_stacked_height`]); groups dragged below their
 /// minimum or crowded out when the side dock is shorter than all minima collapse to a single
 /// `PanelHeader` strip without a splitter grip.
 pub(crate) fn compute_vertical_dock_layout(
@@ -44,10 +54,7 @@ pub(crate) fn compute_vertical_dock_layout(
             extents: vec![length.max(0.)],
         };
     }
-    let minimums: Vec<f32> = groups
-        .iter()
-        .map(|g| g.active.min_stacked_height())
-        .collect();
+    let minimums: Vec<f32> = groups.iter().map(group_min_stacked_height).collect();
     let mut collapsed: Vec<bool> = groups
         .iter()
         .map(|g| g.weight <= COLLAPSED_GROUP_WEIGHT * 2.)
@@ -159,6 +166,26 @@ pub(crate) fn compute_vertical_dock_layout(
     }
 
     VerticalDockLayout { collapsed, extents }
+}
+
+/// Content width limits `(minimum, maximum)` of a side dock: the largest minimum and the largest
+/// maximum over every visible tab of every group (the union rule of `FloatingNode::minimum_size`
+/// / `maximum_size`). `None` when no tab is visible.
+pub(crate) fn side_dock_content_limits(
+    groups: &[DockGroup],
+    visible: impl Fn(PanelId) -> bool,
+) -> Option<(f32, f32)> {
+    groups
+        .iter()
+        .flat_map(|group| group.tabs.iter().copied())
+        .filter(|panel| visible(*panel))
+        .map(|panel| {
+            (
+                crate::workspace::minimum_window_size(panel)[0],
+                crate::workspace::maximum_window_size(panel)[0],
+            )
+        })
+        .reduce(|a, b| (a.0.max(b.0), a.1.max(b.1)))
 }
 
 #[derive(Clone, Copy)]
@@ -317,77 +344,9 @@ impl Editor {
             return;
         }
         let size = self.workspace.dock.area(edge).size;
-        let tools_only = groups.len() == 1 && groups[0].tabs == [PanelId::Tools];
         let available = ctx.available_rect();
         let (minimum, maximum) = if edge.vertical() {
-            let active_minimum = |group: &DockGroup| {
-                group
-                    .tabs
-                    .iter()
-                    .copied()
-                    .find(|panel| *panel == group.active && self.workspace.is_panel_visible(*panel))
-                    .or_else(|| {
-                        group
-                            .tabs
-                            .iter()
-                            .copied()
-                            .find(|panel| self.workspace.is_panel_visible(*panel))
-                    })
-                    .map(|panel| crate::workspace::minimum_window_size(panel)[0])
-            };
-            let content_min = groups
-                .iter()
-                .filter_map(&active_minimum)
-                .fold(0.0_f32, f32::max);
-            let min = if tools_only {
-                crate::theme::tools_w()
-                    + AREA_GRIP
-                    + if available.height() < 472. { 12. } else { 0. }
-            } else {
-                content_min.max(248.) + AREA_GRIP
-            };
-            let reserve = if edge == DockEdge::Left && self.dock_edge_visible(DockEdge::Right) {
-                let right_min = self
-                    .workspace
-                    .dock
-                    .right
-                    .groups
-                    .iter()
-                    .filter_map(active_minimum)
-                    .fold(248.0_f32, f32::max)
-                    + AREA_GRIP;
-                self.workspace.dock.right.size.clamp(
-                    right_min,
-                    (available.width() - MIN_STAGE_WIDTH - min).max(right_min),
-                )
-            } else {
-                0.
-            };
-            let content_max = groups
-                .iter()
-                .filter_map(|group| {
-                    group
-                        .tabs
-                        .iter()
-                        .copied()
-                        .find(|panel| {
-                            *panel == group.active && self.workspace.is_panel_visible(*panel)
-                        })
-                        .or_else(|| {
-                            group
-                                .tabs
-                                .iter()
-                                .copied()
-                                .find(|panel| self.workspace.is_panel_visible(*panel))
-                        })
-                        .map(|panel| crate::workspace::maximum_window_size(panel)[0] + AREA_GRIP)
-                })
-                .fold(0.0_f32, f32::max)
-                .clamp(min, 1000.);
-            (
-                min,
-                (available.width() - MIN_STAGE_WIDTH - reserve).clamp(min, content_max),
-            )
+            self.side_dock_width_limits(edge, available.size())
         } else {
             let min = if groups.iter().any(|g| g.tabs.contains(&PanelId::Timeline)) {
                 crate::theme::TIMELINE_MIN_HEIGHT
@@ -440,6 +399,54 @@ impl Editor {
                     self.dock_area_contents(ui, edge, &groups, effective, minimum, maximum)
                 });
         }
+    }
+
+    /// Minimum and maximum width of the side dock on `edge` inside `available` (the window area
+    /// left for side docks and the Stage). Both come from every visible tab on the edge, never
+    /// from the active one, so switching tabs cannot resize the dock.
+    pub(crate) fn side_dock_width_limits(
+        &self,
+        edge: DockEdge,
+        available: egui::Vec2,
+    ) -> (f32, f32) {
+        let visible = |panel: PanelId| self.workspace.is_panel_visible(panel);
+        let limits = |edge: DockEdge| {
+            side_dock_content_limits(&self.workspace.dock.area(edge).groups, visible)
+        };
+        let Some((content_min, content_max)) = limits(edge) else {
+            let floor = neoflash_ui::metrics::inspector() + AREA_GRIP;
+            return (floor, floor);
+        };
+        let tools_only = self
+            .workspace
+            .dock
+            .area(edge)
+            .groups
+            .iter()
+            .flat_map(|group| group.tabs.iter().copied())
+            .filter(|panel| visible(*panel))
+            .all(|panel| panel == PanelId::Tools);
+        let min = if tools_only {
+            crate::theme::tools_w() + AREA_GRIP + if available.y < 472. { 12. } else { 0. }
+        } else {
+            content_min.max(neoflash_ui::metrics::inspector()) + AREA_GRIP
+        };
+        let reserve = if edge == DockEdge::Left {
+            limits(DockEdge::Right).map_or(0., |(right_min, _)| {
+                let right_min = right_min.max(neoflash_ui::metrics::inspector()) + AREA_GRIP;
+                self.workspace.dock.right.size.clamp(
+                    right_min,
+                    (available.x - MIN_STAGE_WIDTH - min).max(right_min),
+                )
+            })
+        } else {
+            0.
+        };
+        let content_max = (content_max + AREA_GRIP).clamp(min, 1000.);
+        (
+            min,
+            (available.x - MIN_STAGE_WIDTH - reserve).clamp(min, content_max),
+        )
     }
 
     fn dock_edge_visible(&self, edge: DockEdge) -> bool {
@@ -608,8 +615,8 @@ impl Editor {
                     let total = group.weight + next.weight;
                     let (first, second) = if vertical {
                         let pair_extent = extents[index] + extents[index + 1];
-                        let min_a = group.active.min_stacked_height();
-                        let min_b = next.active.min_stacked_height();
+                        let min_a = group_min_stacked_height(group);
+                        let min_b = group_min_stacked_height(next);
                         let target_a = extents[index] + delta;
                         let target_b = pair_extent - target_a;
                         if target_a < min_a {
@@ -845,18 +852,14 @@ impl Editor {
                 (name.to_owned(), surface, group.id)
             }
         };
-        // NF2: horizontal docks use `Dock Tab` (40, icon + label); side columns use `Panel Tab` (36).
-        // Side column with one panel = `Panel Header` (40, Title text, ghost ⋯); several panels =
-        // `Panel Tab`s (36). Tools uses the same title treatment and inset as Properties.
+        // v3 `Tab`: every dock header is one `size/tab` strip of Body Strong labels padded by
+        // `pad/panel`, with one tab or several, so adding or removing a tab never moves the body.
+        // Horizontal docks add the panel icon; a single side panel is a title without tab chrome.
         let wide = matches!(edge, DockEdge::Top | DockEdge::Bottom);
         let single = !wide && (group.tabs.len() == 1 || collapsed);
-        let header_h = if wide {
-            neoflash_ui::metrics::dock_tab()
-        } else if single {
-            neoflash_ui::metrics::panel_header()
-        } else {
-            crate::theme::header_h()
-        };
+        let header_h = neoflash_ui::metrics::panel_tab();
+        let tab_style = neoflash_ui::TextStyle::BodyStrong;
+        let tab_pad = neoflash_ui::tokens::space::s4();
         let header = egui::Rect::from_min_max(
             rect.min,
             egui::pos2(rect.right(), (rect.top() + header_h).min(rect.bottom())),
@@ -886,26 +889,30 @@ impl Editor {
             header: global(header),
             tabs: Vec::new(),
         };
-        let menu_side = 28.;
+        let menu_side = neoflash_ui::metrics::control();
         let menu_rect = egui::Rect::from_center_size(
-            egui::pos2(header.right() - 6. - menu_side / 2., header.center().y),
+            egui::pos2(
+                header.right() - neoflash_ui::tokens::space::s1() - menu_side / 2.,
+                header.center().y,
+            ),
             egui::vec2(menu_side, menu_side.min(header.height())),
         );
         let expand_rect = collapsed.then(|| {
             egui::Rect::from_center_size(
                 egui::pos2(
-                    menu_rect.left() - neoflash_ui::tokens::space::S1 - menu_side / 2.,
+                    menu_rect.left() - neoflash_ui::tokens::space::s1() - menu_side / 2.,
                     header.center().y,
                 ),
                 egui::vec2(menu_side, menu_side.min(header.height())),
             )
         });
         let trailing_left = expand_rect.map_or(menu_rect.left(), |r| r.left());
-        // Figma dock tabs start 8 pt in (first label at 24 pt with the 16 pt tab padding).
+        // Tabs start at the header edge; the tab's own `pad/panel` puts the first label on the
+        // panel's content axis.
         let tabs_rect = egui::Rect::from_min_max(
-            header.min + egui::vec2(8., 0.),
+            header.min,
             egui::pos2(
-                (trailing_left - 2.).max(header.left() + 8.),
+                (trailing_left - neoflash_ui::tokens::space::s1()).max(header.left()),
                 header.bottom(),
             ),
         );
@@ -946,13 +953,7 @@ impl Editor {
                                 continue;
                             }
                             let active = group.active == *panel;
-                            let style = if wide {
-                                neoflash_ui::TextStyle::Body
-                            } else if single {
-                                neoflash_ui::TextStyle::Title
-                            } else {
-                                neoflash_ui::TextStyle::SmallStrong
-                            };
+                            let style = tab_style;
                             let label_w = ui.fonts_mut(|f| {
                                 f.layout_no_wrap(
                                     panel.title().into(),
@@ -962,17 +963,12 @@ impl Editor {
                                 .size()
                                 .x
                             });
-                            // A single side panel is the locked Panel Header treatment: its
-                            // text begins 12 pt from the panel edge (8 pt strip inset + 4 pt),
-                            // matching Properties and leaving the menu reachable at its minimum.
-                            let pad = if wide {
-                                16.
-                            } else if single {
-                                4.
+                            let pad = tab_pad;
+                            let icon_w = if wide {
+                                neoflash_ui::metrics::ICON_UI + neoflash_ui::tokens::space::s2()
                             } else {
-                                12.
+                                0.
                             };
-                            let icon_w = if wide { 16. + 8. } else { 0. };
                             let (tab_rect, response) = ui.allocate_exact_size(
                                 egui::vec2(label_w + icon_w + 2. * pad, header_h),
                                 egui::Sense::click_and_drag(),
@@ -1006,13 +1002,18 @@ impl Editor {
                                     );
                                     x += icon_w;
                                 }
-                                ui.painter().text(
-                                    egui::pos2(x, tab_rect.center().y),
-                                    egui::Align2::LEFT_CENTER,
-                                    panel.title(),
-                                    neoflash_ui::typography::font(style),
-                                    fg,
-                                );
+                                // A lone title is never painted clipped (the narrow Tools dock):
+                                // without room for all of it the header is a plain drag strip
+                                // that keeps the tab's tooltip and menu.
+                                if !single || x + label_w <= tabs_rect.right() + 0.5 {
+                                    ui.painter().text(
+                                        egui::pos2(x, tab_rect.center().y),
+                                        egui::Align2::LEFT_CENTER,
+                                        panel.title(),
+                                        neoflash_ui::typography::font(style),
+                                        fg,
+                                    );
+                                }
                                 if active && !single {
                                     // Keep the marker inside the tab's clip rect, not below it.
                                     ui.painter().rect_filled(
@@ -1120,8 +1121,11 @@ impl Editor {
         }
         // A small grip stays reachable when the tab strip is full. The blank
         // header uses the same gesture; tab labels always move a single panel.
-        let grip =
-            egui::Rect::from_min_max(header.min, egui::pos2(header.left() + 13., header.bottom()));
+        // The grip covers only the first tab's leading padding, never its label.
+        let grip = egui::Rect::from_min_max(
+            header.min,
+            egui::pos2(header.left() + tab_pad, header.bottom()),
+        );
         let mut grip_ui = parent.new_child(
             egui::UiBuilder::new()
                 .id(header_id("dock-group-grip"))
@@ -1765,7 +1769,7 @@ impl Editor {
                 viewport: egui::ViewportId::ROOT,
                 inner,
                 content: egui::Rect::from_min_max(
-                    inner.min + egui::vec2(0., 32. * zoom),
+                    inner.min + egui::vec2(0., neoflash_ui::metrics::top_bar() * zoom),
                     inner.max,
                 ),
                 zoom,

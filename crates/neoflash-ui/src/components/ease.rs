@@ -151,15 +151,15 @@ impl Widget for EasePreset {
         } else {
             (Palette::tint(curve, 0.6), p.text_disabled)
         };
-        ui.painter().rect_filled(rect, cr(radius::LG), bg);
+        ui.painter().rect_filled(rect, cr(radius::lg()), bg);
         ui.painter().rect_stroke(
             rect,
-            cr(radius::LG),
+            cr(radius::lg()),
             Stroke::new(1.0_f32, border),
             StrokeKind::Inside,
         );
         let glyph = Rect::from_min_size(
-            rect.min + egui::vec2(16.0, space::S2 + 2.0),
+            rect.min + egui::vec2(16.0, space::s2() + 2.0),
             egui::vec2(40.0, 24.0),
         );
         let points: Vec<Pos2> = (0..=32)
@@ -176,10 +176,10 @@ impl Widget for EasePreset {
         let g = galley(ui, self.preset.label(), TextStyle::Small, fg);
         let pos = egui::pos2(
             rect.center().x - g.size().x / 2.0,
-            rect.bottom() - space::S2 - g.size().y,
+            rect.bottom() - space::s2() - g.size().y,
         );
         ui.painter().galley(pos, g, fg);
-        super::focus(ui, s, rect, radius::LG);
+        super::focus(ui, s, rect, radius::lg());
         a11y(
             &response,
             egui::WidgetType::RadioButton,
@@ -231,11 +231,11 @@ impl Widget for EaseGraph {
         let p = palette(ui.ctx());
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(self.width, 224.0), Sense::hover());
-        let painter = ui.painter_at(rect.expand(space::S2));
+        let painter = ui.painter_at(rect.expand(space::s2()));
         let label_w = 40.0;
         let plot = Rect::from_min_max(
-            egui::pos2(rect.left() + label_w, rect.top() + space::S2),
-            egui::pos2(rect.right() - space::S2, rect.bottom() - 24.0),
+            egui::pos2(rect.left() + label_w, rect.top() + space::s2()),
+            egui::pos2(rect.right() - space::s2(), rect.bottom() - 24.0),
         );
         let (lo, hi) = match self.range {
             EaseRange::Normal => (0.0_f32, 1.0_f32),
@@ -243,7 +243,7 @@ impl Widget for EaseGraph {
         };
         let y_of = |v: f32| plot.bottom() - (v - lo) / (hi - lo) * plot.height();
         let x_of = |t: f32| plot.left() + t * plot.width();
-        painter.rect_filled(plot, cr(radius::SM), p.bg_field);
+        painter.rect_filled(plot, cr(radius::sm()), p.bg_field);
         if self.range != EaseRange::Normal {
             let band = p.warning_subtle;
             painter.rect_filled(
@@ -277,7 +277,7 @@ impl Widget for EaseGraph {
             let text = format!("{}%", (v * 100.0).round() as i32);
             let g = galley(ui, &text, TextStyle::MonoSmall, p.text_tertiary);
             painter.galley(
-                egui::pos2(plot.left() - space::S1 - g.size().x, y - g.size().y / 2.0),
+                egui::pos2(plot.left() - space::s1() - g.size().x, y - g.size().y / 2.0),
                 g,
                 p.text_tertiary,
             );
@@ -291,7 +291,7 @@ impl Widget for EaseGraph {
             painter.vline(x, plot.y_range(), Stroke::new(1.0_f32, p.border_subtle));
             let g = galley(ui, &f.to_string(), TextStyle::MonoSmall, p.text_tertiary);
             painter.galley(
-                egui::pos2(x - g.size().x / 2.0, plot.bottom() + space::S1),
+                egui::pos2(x - g.size().x / 2.0, plot.bottom() + space::s1()),
                 g,
                 p.text_tertiary,
             );
@@ -344,14 +344,14 @@ pub fn ease_preview_track(ui: &mut Ui, bezier: [f32; 4], progress: f32, width: f
     let p = palette(ui.ctx());
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(width, crate::metrics::row()), Sense::hover());
-    ui.painter().rect_filled(rect, cr(radius::MD), p.bg_field);
+    ui.painter().rect_filled(rect, cr(radius::md()), p.bg_field);
     ui.painter().rect_stroke(
         rect,
-        cr(radius::MD),
+        cr(radius::md()),
         Stroke::new(1.0_f32, p.border_subtle),
         StrokeKind::Inside,
     );
-    let lane = rect.shrink2(egui::vec2(space::S4, 0.0));
+    let lane = rect.shrink2(egui::vec2(space::s4(), 0.0));
     let x_of = |t: f32| lane.left() + cubic_bezier_ease(bezier, t).clamp(-0.1, 1.1) * lane.width();
     for i in 0..=10 {
         ui.painter().circle_filled(

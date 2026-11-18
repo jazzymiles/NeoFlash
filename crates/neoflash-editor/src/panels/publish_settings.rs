@@ -1,10 +1,14 @@
-//! Publish settings (DL-03 / R-032). The draft and estimate share one PublishPrefs snapshot.
-use super::dialog_helpers::group;
+//! Publish settings (DL-03 / R-032; v3 composition `S.publish`). The draft and estimate share one
+//! PublishPrefs snapshot. The dialog has one size per density: a target sidebar, one scrolling page
+//! on the form grid and a footer that is the same for every target.
+use super::dialog_helpers::{
+    DialogShell, fixed_dialog_size, form_block, form_hint, form_row, group_caption, nav_row,
+    output_group,
+};
 use super::planned::caption;
 use crate::{
     app::Editor,
     publish_controller::EstimateState,
-    theme::ScrollTheme as _,
     workspace::{PublishPrefs, PublishProfilePreset, PublishTarget},
 };
 use eframe::egui::{self, Ui};
@@ -16,12 +20,7 @@ use neoflash_export::{
     VideoStopMode, duplicate_profile, export_profile_json, import_profile_json,
     load_profiles_from_project, simulate_network_startup, store_profiles_in_project,
 };
-use neoflash_ui::{
-    components as c,
-    icons::{self, i16},
-    tokens::{TextStyle, space},
-    typography::rich,
-};
+use neoflash_ui::{components as c, icons::i16, metrics, tokens::TextStyle, typography::rich};
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug)]
@@ -88,9 +87,9 @@ impl PublishSettingsDraft {
         if let Some(ref act_id) = self.active_custom_profile_id
             && let Some(found) = self.custom_profiles.iter().find(|p| p.id == *act_id)
         {
-            return format!("Profile: {}", found.name);
+            return found.name.clone();
         }
-        self.settings.profile.select_label().to_string()
+        self.settings.profile.label().to_string()
     }
 
     pub(crate) fn to_publish_profile(&self) -> PublishProfile {
@@ -202,6 +201,18 @@ impl PublishSettingsDraft {
         Ok(report)
     }
 
+    /// Screenshot aid: select the target page by a short slug (unknown slugs keep the selection).
+    pub(crate) fn select_target_slug(&mut self, slug: &str) {
+        self.selected_target = match slug.trim() {
+            "html5" => PublishTarget::Html5,
+            "desktop" => PublishTarget::DesktopApp,
+            "video" => PublishTarget::VideoMp4,
+            "images" => PublishTarget::ImageSequence,
+            "svg" => PublishTarget::SvgAnimation,
+            _ => self.selected_target,
+        };
+    }
+
     fn custom(&self) -> bool {
         self.settings.options.fonts != FontExportPolicy::Embed
             || self.settings.options.audio != AudioExportPolicy::Original
@@ -257,15 +268,15 @@ fn level_index(level: &SizeLevel) -> usize {
     }
 }
 
-const LEVELS: [(usize, &str); 4] = [
-    (0, "Full"),
-    (1, "Balanced"),
-    (2, "Compact"),
-    (3, "Shared runtime"),
-];
+/// Segments of the `Size level` control.
+const LEVELS: [(usize, &str); 4] = [(0, "Full"), (1, "Balanced"), (2, "Compact"), (3, "Shared")];
 
+/// Level name in summaries and messages.
 fn level_label(level: &SizeLevel) -> &'static str {
-    LEVELS[level_index(level)].1
+    match level {
+        SizeLevel::Shared(_) => "Shared runtime",
+        level => LEVELS[level_index(level)].1,
+    }
 }
 
 fn bytes_label(bytes: usize) -> String {
@@ -404,6 +415,529 @@ impl Editor {
         ));
     }
 
+    /// Sidebar: the profile row (select + ⋯ menu) and one row per target. Returns the profile
+    /// file action picked from the ⋯ menu.
+    fn publish_sidebar(
+        &mut self,
+        ui: &mut Ui,
+        draft: &mut PublishSettingsDraft,
+    ) -> Option<ProfileFileAction> {
+        let mut action = None;
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), metrics::control()),
+            egui::Layout::right_to_left(egui::Align::Center),
+            |ui| {
+                let more = ui.add(c::IconButton::outlined(i16::MORE, "Profile actions"));
+                c::popup_below(&more, metrics::menu_width(), |ui| {
+                    if ui.add(c::MenuItem::new("Duplicate")).clicked() {
+                        let dup = draft.duplicate_active_profile(None);
+                        let _ = draft.simulate_network(&self.project);
+                        self.message(format!("Duplicated publish profile: {}", dup.name));
+                        ui.close();
+                    }
+                    if ui.add(c::MenuItem::new("Import JSON…")).clicked() {
+                        action = Some(ProfileFileAction::Import);
+                        ui.close();
+                    }
+                    if ui.add(c::MenuItem::new("Export JSON…")).clicked() {
+                        action = Some(ProfileFileAction::Export);
+                        ui.close();
+                    }
+                });
+                let profile_label = draft.active_profile_label();
+                c::Select::new(ui.id().with("publish-settings-profile"), &profile_label)
+                    .prefix("Profile")
+                    .width(ui.available_width())
+                    .show(ui, |ui| {
+                        for preset in PublishProfilePreset::ALL {
+                            let is_checked = draft.active_custom_profile_id.is_none()
+                                && draft.settings.profile == preset;
+                            if ui
+                                .add(c::MenuItem::new(preset.label()).checked(is_checked))
+                                .clicked()
+                            {
+                                if draft.active_custom_profile_id.take().is_some() {
+                                    draft.profiles_dirty = true;
+                                }
+                                draft.settings.apply_profile(preset);
+                                let _ = draft.simulate_network(&self.project);
+                                draft.error = None;
+                                ui.close();
+                            }
+                        }
+                        let custom_snapshot = draft.custom_profiles.clone();
+                        for custom_prof in custom_snapshot {
+                            let is_checked = draft.active_custom_profile_id.as_deref()
+                                == Some(custom_prof.id.as_str());
+                            if ui
+                                .add(c::MenuItem::new(&custom_prof.name).checked(is_checked))
+                                .clicked()
+                            {
+                                draft.select_custom_profile(&custom_prof.id);
+                                let _ = draft.simulate_network(&self.project);
+                                ui.close();
+                            }
+                        }
+                    });
+            },
+        );
+        ui.add_space(metrics::row_gap());
+        for (target, icon, name) in publish_targets() {
+            let selected = draft.selected_target == target;
+            let enabled = match target {
+                PublishTarget::Html5 => &mut draft.settings.html5_enabled,
+                PublishTarget::DesktopApp => &mut draft.settings.desktop_app_enabled,
+                PublishTarget::VideoMp4 => &mut draft.settings.video_enabled,
+                PublishTarget::ImageSequence => &mut draft.settings.image_sequence_enabled,
+                PublishTarget::SvgAnimation => &mut draft.settings.svg_enabled,
+            };
+            if nav_row(ui, icon, name, selected, Some(enabled)).clicked() {
+                draft.selected_target = target;
+            }
+        }
+        action
+    }
+
+    /// Footer summary of the selected target: format · size estimate · duration · dimensions.
+    fn publish_summary(&self, draft: &PublishSettingsDraft, estimate: &EstimateState) -> String {
+        match draft.selected_target {
+            PublishTarget::VideoMp4 => video_footer_label(&self.project, draft),
+            PublishTarget::DesktopApp => format!(
+                "macOS .app + Windows Launcher · {}",
+                level_label(&draft.settings.options.size)
+            ),
+            PublishTarget::ImageSequence => {
+                if draft.settings.image_sequence_sprite_sheet {
+                    format!(
+                        "Sprite sheet ({} + {}) · {}×{}",
+                        draft.settings.atlas_image_format.label(),
+                        draft.settings.atlas_format.label(),
+                        self.project.width,
+                        self.project.height
+                    )
+                } else {
+                    format!(
+                        "{} sequence · {}×{}",
+                        draft.settings.image_sequence_format.label(),
+                        self.project.width,
+                        self.project.height
+                    )
+                }
+            }
+            PublishTarget::SvgAnimation => {
+                format!("SVG 1.1 · {}×{}", self.project.width, self.project.height)
+            }
+            PublishTarget::Html5 => {
+                if draft.settings.profile == PublishProfilePreset::WebBannerNative {
+                    match neoflash_export::estimate_native_banner(
+                        &self.project,
+                        &banner_options(&draft.settings),
+                    ) {
+                        Ok(est) => format!(
+                            "Web Banner · {} · {} gzip · 1 file",
+                            bytes_label(est.raw_bytes),
+                            bytes_label(est.gzip_bytes)
+                        ),
+                        Err(_) => "Web Banner · Size unknown".into(),
+                    }
+                } else {
+                    footer_label(draft, estimate)
+                }
+            }
+        }
+    }
+
+    /// HTML5 page. Returns `true` when `Export runtime folder…` was clicked.
+    fn html5_target_page(
+        &mut self,
+        ui: &mut Ui,
+        ctx: &egui::Context,
+        draft: &mut PublishSettingsDraft,
+        estimate: &mut EstimateState,
+    ) -> bool {
+        let mut export_runtime = false;
+        page_title(ui, PublishTarget::Html5);
+        // The exporter owns the entry file name; Browse selects its folder.
+        let entry_name = if draft.settings.html_wrapper {
+            "index.html"
+        } else {
+            "bundle.js"
+        };
+        let mut file = draft
+            .settings
+            .output_folder
+            .as_deref()
+            .map(|s| PathBuf::from(s).join(entry_name).display().to_string())
+            .unwrap_or_default();
+        if output_group(ui, "File", |ui, width| {
+            ui.add_enabled(
+                false,
+                c::TextField::new(&mut file, "File")
+                    .hint("Choose a file")
+                    .width(width),
+            );
+        }) && let Some(folder) = rfd::FileDialog::new()
+            .set_title("Choose HTML5 output folder")
+            .pick_folder()
+        {
+            draft.settings.output_folder = Some(folder.to_string_lossy().into_owned());
+        }
+        form_row(ui, "", |ui| {
+            ui.add(c::Checkbox::new(
+                &mut draft.settings.html_wrapper,
+                "Include HTML wrapper",
+            ));
+            c::Select::new(
+                ui.id().with("publish-settings-template"),
+                draft.settings.template.label(),
+            )
+            .prefix("Template")
+            .width(metrics::field_l())
+            .show(ui, |ui| {
+                for tmpl in HtmlTemplate::ALL {
+                    if ui
+                        .add(
+                            c::MenuItem::new(tmpl.label()).checked(draft.settings.template == tmpl),
+                        )
+                        .clicked()
+                    {
+                        draft.settings.template = tmpl;
+                        draft.error = None;
+                        ui.close();
+                    }
+                }
+            });
+        });
+
+        group_caption(ui, "Runtime");
+        if draft.settings.profile == PublishProfilePreset::WebBannerNative {
+            form_row(ui, "Budget", |ui| {
+                let mut max_kb = f64::from(draft.settings.banner_max_gzip_kb.clamp(10, 5000));
+                if ui
+                    .add(
+                        c::Field::new(&mut max_kb, "Max gzip")
+                            .prefix("Max gzip")
+                            .unit("KB")
+                            .decimals(0)
+                            .range(10.0..=5000.0)
+                            .width(metrics::field_m()),
+                    )
+                    .changed()
+                    && max_kb.is_finite()
+                {
+                    draft.settings.banner_max_gzip_kb = max_kb.round().clamp(10.0, 5000.0) as u32;
+                    draft.error = None;
+                }
+                caption(ui, "Single-file HTML5 ad banner (no WASM)");
+            });
+            form_hint(
+                ui,
+                "Compiles eligible vector/bitmap artwork into one self-contained index.html with inline SVG, timeline transport, and window.clickTag.",
+            );
+            form_block(ui, |ui| {
+                match neoflash_export::estimate_native_banner(
+                    &self.project,
+                    &banner_options(&draft.settings),
+                ) {
+                    Ok(est) => {
+                        c::weight_totals(
+                            ui,
+                            &[
+                                ("On disk", &bytes_label(est.raw_bytes)),
+                                ("Transfer (gzip)", &bytes_label(est.gzip_bytes)),
+                                (
+                                    "Budget",
+                                    &format!("{} KB gzip", draft.settings.banner_max_gzip_kb),
+                                ),
+                            ],
+                        );
+                        for diag in &est.diagnostics {
+                            ui.add(c::InlineMessage::error(&format!(
+                                "[{}] {}: {}",
+                                diag.code, diag.location, diag.message
+                            )));
+                        }
+                    }
+                    Err(err) => {
+                        ui.add(c::InlineMessage::error(&err.to_string()));
+                    }
+                }
+            });
+        } else {
+            form_row(ui, "Size level", |ui| {
+                let mut selected = if draft.custom() {
+                    usize::MAX
+                } else {
+                    level_index(&draft.settings.options.size)
+                };
+                if c::Segmented::show(ui, &mut selected, &LEVELS, false).is_some() {
+                    draft.select_level(selected);
+                }
+                if draft.custom() {
+                    ui.add(c::Badge::new("Custom", c::BadgeType::Neutral));
+                    if ui
+                        .add(c::Button::ghost(&format!(
+                            "Reset to {}",
+                            level_label(&draft.settings.options.size)
+                        )))
+                        .clicked()
+                    {
+                        draft.select_level(level_index(&draft.settings.options.size));
+                    }
+                }
+            });
+            if matches!(draft.settings.options.size, SizeLevel::Shared(_)) {
+                form_row(ui, "Runtime URL", |ui| {
+                    let width = ui.available_width();
+                    if ui
+                        .add(c::TextField::new(&mut draft.runtime_url, "Runtime URL").width(width))
+                        .changed()
+                    {
+                        draft.settings.options.size = SizeLevel::Shared(draft.runtime_url.clone());
+                        draft.error = None;
+                    }
+                });
+                if let Some(error) = draft.url_error() {
+                    form_block(ui, |ui| ui.add(c::InlineMessage::error(&error)));
+                }
+                form_row(ui, "", |ui| {
+                    export_runtime |= ui.add(c::Button::ghost("Export runtime folder…")).clicked();
+                });
+            }
+            form_hint(
+                ui,
+                match draft.settings.options.size {
+                    SizeLevel::Full => "Includes the full runtime. Opens directly from disk.",
+                    SizeLevel::Balanced => {
+                        "Includes all runtime families. Opens from disk or HTTP(S)."
+                    }
+                    SizeLevel::Compact => {
+                        "Strips unused runtime families. Opens from disk or HTTP(S); dynamically named classes may need Balanced."
+                    }
+                    SizeLevel::Shared(_) => {
+                        "Needs HTTP(S) hosting and a runtime from the same build. Cross-origin hosting needs CORS."
+                    }
+                },
+            );
+            // Refresh after editing as well as before reading: never paint stale totals.
+            *estimate = self.request_publish_estimate(ctx, &draft.settings).clone();
+            if form_block(ui, |ui| weight(ui, estimate, draft)) {
+                self.publish_controller.cancel();
+                *estimate = self.request_publish_estimate(ctx, &draft.settings).clone();
+            }
+        }
+
+        group_caption(ui, "Playback");
+        form_row(ui, "", |ui| {
+            ui.add(c::Checkbox::new(&mut draft.settings.loop_timeline, "Loop"));
+            ui.add(c::Checkbox::new(&mut draft.settings.autoplay, "Autoplay"));
+            ui.add(c::Checkbox::new(&mut draft.settings.preloader, "Preloader"));
+            ui.add(c::Checkbox::new(
+                &mut draft.settings.allow_fullscreen,
+                "Fullscreen",
+            ));
+        });
+        form_row(ui, "Stage", |ui| {
+            c::Select::new(
+                ui.id().with("publish-settings-scale"),
+                draft.settings.scale_mode.label(),
+            )
+            .prefix("Scale")
+            .width(metrics::field_l())
+            .show(ui, |ui| {
+                for mode in HtmlScaleMode::ALL {
+                    if ui
+                        .add(
+                            c::MenuItem::new(mode.label())
+                                .checked(draft.settings.scale_mode == mode),
+                        )
+                        .clicked()
+                    {
+                        draft.settings.scale_mode = mode;
+                        draft.error = None;
+                        ui.close();
+                    }
+                }
+            });
+            c::Select::new(
+                ui.id().with("publish-settings-stage-align"),
+                draft.settings.stage_align.label(),
+            )
+            .prefix("Align")
+            .width(metrics::field_l())
+            .show(ui, |ui| {
+                for align in HtmlStageAlign::ALL {
+                    if ui
+                        .add(
+                            c::MenuItem::new(align.label())
+                                .checked(draft.settings.stage_align == align),
+                        )
+                        .clicked()
+                    {
+                        draft.settings.stage_align = align;
+                        draft.error = None;
+                        ui.close();
+                    }
+                }
+            });
+        });
+
+        group_caption(ui, "Assets");
+        form_row(ui, "JPEG quality", |ui| {
+            let mut q = f64::from(draft.settings.jpeg_quality.clamp(1, 100));
+            if ui
+                .add(
+                    c::Slider::new(&mut q, 1.0..=100.0, "JPEG quality")
+                        .value(c::SliderValue::Field)
+                        .unit("%")
+                        .width(metrics::field_m()),
+                )
+                .changed()
+                && q.is_finite()
+            {
+                draft.settings.jpeg_quality = q.round().clamp(1.0, 100.0) as u8;
+                draft.error = None;
+            }
+        });
+        form_row(ui, "Audio", |ui| {
+            c::Select::new(
+                ui.id().with("publish-settings-audio"),
+                draft.settings.options.audio.label(),
+            )
+            .width(metrics::field_m())
+            .show(ui, |ui| {
+                for policy in AudioExportPolicy::ALL {
+                    if ui
+                        .add(
+                            c::MenuItem::new(policy.label())
+                                .checked(draft.settings.options.audio == policy),
+                        )
+                        .clicked()
+                    {
+                        draft.settings.options.audio = policy;
+                        draft.error = None;
+                        ui.close();
+                    }
+                }
+            });
+        });
+        form_row(ui, "Bitmaps", |ui| {
+            ui.add(c::Checkbox::new(
+                &mut draft.settings.sprite_sheets,
+                "Sprite sheets",
+            ));
+            let mut subset_fonts = draft.settings.options.fonts == FontExportPolicy::Subset;
+            if ui
+                .add(c::Checkbox::new(&mut subset_fonts, "Embed fonts (subset)"))
+                .changed()
+            {
+                draft.settings.options.fonts = if subset_fonts {
+                    FontExportPolicy::Subset
+                } else {
+                    FontExportPolicy::Embed
+                };
+                draft.error = None;
+            }
+        });
+        form_row(ui, "Sequences", |ui| {
+            c::Select::new(
+                ui.id().with("publish-settings-sequence-policy"),
+                draft.settings.sequence_policy.label(),
+            )
+            .width(metrics::field_l())
+            .show(ui, |ui| {
+                for policy in SequencePublishPolicy::ALL {
+                    if ui
+                        .add(
+                            c::MenuItem::new(policy.label())
+                                .checked(draft.settings.sequence_policy == policy),
+                        )
+                        .clicked()
+                    {
+                        draft.settings.sequence_policy = policy;
+                        draft.error = None;
+                        ui.close();
+                    }
+                }
+            });
+        });
+
+        group_caption(ui, "Scripts");
+        form_row(ui, "", |ui| {
+            ui.add(c::Checkbox::new(&mut draft.settings.strict, "Strict mode"));
+            ui.add(c::Checkbox::new(
+                &mut draft.settings.include_trace,
+                "Include trace()",
+            ));
+            ui.add(c::Checkbox::new(&mut draft.settings.minify, "Minify"));
+            ui.add(c::Checkbox::new(
+                &mut draft.settings.source_maps,
+                "Source maps",
+            ));
+        });
+
+        c::SectionHeader::new("Network startup simulator")
+            .id_salt("publish-network-startup-simulator")
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = metrics::row_gap();
+                form_row(ui, "Network", |ui| {
+                    c::Select::new(
+                        ui.id().with("publish-network-preset"),
+                        draft.network_preset.short_label(),
+                    )
+                    .width(metrics::field_l())
+                    .show(ui, |ui| {
+                        for preset in NetworkPreset::ALL_PRESETS {
+                            if ui
+                                .add(
+                                    c::MenuItem::new(preset.label())
+                                        .checked(draft.network_preset == preset),
+                                )
+                                .clicked()
+                            {
+                                draft.network_preset = preset;
+                                let _ = draft.simulate_network(&self.project);
+                                ui.close();
+                            }
+                        }
+                    });
+                });
+                if draft.network_estimate.is_none() {
+                    let _ = draft.simulate_network(&self.project);
+                }
+                if let Some(ref sim) = draft.network_estimate {
+                    let bootstrap_str = format!(
+                        "{:.0} ms ({})",
+                        sim.initial_html_js_wasm_ms,
+                        bytes_label(sim.initial_html_js_wasm_bytes)
+                    );
+                    let total_str = format!("{:.0} ms", sim.total_download_ms);
+                    let preload_str = if sim.buffer_underrun_frames.is_empty() {
+                        "0 stalls (ready)".to_string()
+                    } else {
+                        format!(
+                            "{} stalls · {:.0} ms ({} f)",
+                            sim.buffer_underrun_frames.len(),
+                            sim.recommended_preload_ms,
+                            sim.recommended_preload_frames
+                        )
+                    };
+                    form_block(ui, |ui| {
+                        c::weight_totals(
+                            ui,
+                            &[
+                                ("Bootstrap", &bootstrap_str),
+                                ("Total download", &total_str),
+                                ("Preload / Stalls", &preload_str),
+                            ],
+                        );
+                    });
+                }
+            });
+        export_runtime
+    }
+
     pub(crate) fn publish_settings_dialog(&mut self, ctx: &egui::Context) {
         let Some(mut draft) = self.publish_settings.take() else {
             return;
@@ -417,663 +951,63 @@ impl Editor {
         let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let p = neoflash_ui::palette(ctx);
         let mut estimate = self.request_publish_estimate(ctx, &draft.settings).clone();
-        let dialog_max_h = (ctx.content_rect().height() - 80.0).max(260.0);
-        let body_max_h = (dialog_max_h
-            - neoflash_ui::metrics::dialog_header()
-            - space::S5 * 2.0
-            - space::S2 * 2.0
-            - neoflash_ui::metrics::control().max(28.0)
-            - 4.0)
-            .max(160.0);
+        // v3: one size for every target and option; the sidebar, the Output row and the footer
+        // never move, a short page leaves empty space.
+        let size = fixed_dialog_size(ctx, metrics::dialog_xl(), metrics::dialog_l_height());
         let modal = egui::Modal::new(egui::Id::new("publish-settings"))
-            .frame(c::Surface::Dialog.frame(ctx)).backdrop_color(p.overlay)
+            .frame(c::Surface::Dialog.frame(ctx))
+            .backdrop_color(p.overlay)
             .show(ctx, |ui| {
-                // R-032 retains the 900pt dialog: 260pt targets, 24pt gap, 566pt settings.
-                ui.set_width(898.0);
-                ui.set_max_height(dialog_max_h);
-                ui.spacing_mut().item_spacing.y = 0.0;
-                let top = ui.cursor().min;
-                close |= c::DialogHeader { title: "Publish settings" }.show(ui);
-                ui.painter().hline(top.x..=top.x + 898.0,
-                    top.y + neoflash_ui::metrics::dialog_header() - 0.5,
-                    egui::Stroke::new(1.0_f32, p.border_subtle));
-                egui::Frame::new().inner_margin(egui::Margin::same(space::S5 as i8)).show(ui, |ui| {
-                    ui.set_width(850.0);
-                    ui.spacing_mut().item_spacing = egui::vec2(space::S5, 0.0);
-                    ui.horizontal_top(|ui| {
-                        ui.vertical(|ui| {
-                            ui.set_width(260.0);
-                            ui.spacing_mut().item_spacing.y = 2.0;
-                            ui.spacing_mut().item_spacing.x = space::S2;
-                                let profile_label = draft.active_profile_label();
-                                c::Select::new(
-                                    ui.id().with("publish-settings-profile"),
-                                    &profile_label,
-                                )
-                                .width(260.0)
-                                .show(ui, |ui| {
-                                    for preset in PublishProfilePreset::ALL {
-                                        let is_checked = draft.active_custom_profile_id.is_none()
-                                            && draft.settings.profile == preset;
-                                        if ui
-                                            .add(
-                                                c::MenuItem::new(preset.select_label())
-                                                    .checked(is_checked),
-                                            )
-                                            .clicked()
-                                        {
-                                            if draft.active_custom_profile_id.take().is_some() {
-                                                draft.profiles_dirty = true;
-                                            }
-                                            draft.settings.apply_profile(preset);
-                                            let _ = draft.simulate_network(&self.project);
-                                            draft.error = None;
-                                            ui.close();
-                                        }
-                                    }
-                                    let custom_snapshot = draft.custom_profiles.clone();
-                                    for custom_prof in custom_snapshot {
-                                        let is_checked = draft.active_custom_profile_id.as_deref()
-                                            == Some(custom_prof.id.as_str());
-                                        let item_label = format!("Profile: {}", custom_prof.name);
-                                        if ui
-                                            .add(
-                                                c::MenuItem::new(&item_label).checked(is_checked),
-                                            )
-                                            .clicked()
-                                        {
-                                            draft.select_custom_profile(&custom_prof.id);
-                                            let _ = draft.simulate_network(&self.project);
-                                            ui.close();
-                                        }
-                                    }
-                                });
-                                ui.horizontal(|ui| {
-                                    if c::tooltip(
-                                        ui.add(c::Button::ghost("Duplicate")),
-                                        "Duplicate active publish profile",
-                                        None,
-                                    )
-                                    .clicked()
-                                    {
-                                        let dup = draft.duplicate_active_profile(None);
-                                        let _ = draft.simulate_network(&self.project);
-                                        self.message(format!(
-                                            "Duplicated publish profile: {}",
-                                            dup.name
-                                        ));
-                                    }
-                                    if c::tooltip(
-                                        ui.add(c::Button::ghost("Import JSON")),
-                                        "Import PublishProfile JSON",
-                                        None,
-                                    )
-                                    .clicked()
-                                    {
-                                        import_profile_dialog = true;
-                                    }
-                                    if c::tooltip(
-                                        ui.add(c::Button::ghost("Export JSON")),
-                                        "Export PublishProfile JSON",
-                                        None,
-                                    )
-                                    .clicked()
-                                    {
-                                        export_profile_dialog = true;
-                                    }
-                                });
-                                for (target, icon, label) in [
-                                    (
-                                        PublishTarget::Html5,
-                                        i16::GLOBE,
-                                        "HTML5 · Rust / WebAssembly",
-                                    ),
-                                    (
-                                        PublishTarget::DesktopApp,
-                                        i16::DESKTOP,
-                                        "Desktop app (macOS / Windows / Linux)",
-                                    ),
-                                    (PublishTarget::VideoMp4, i16::VIDEO, "Video (MP4)"),
-                                    (
-                                        PublishTarget::ImageSequence,
-                                        i16::GRID,
-                                        "Image sequence / sprite sheet",
-                                    ),
-                                    (PublishTarget::SvgAnimation, i16::CODE, "SVG animation"),
-                                ] {
-                                    let active = draft.selected_target == target;
-                                    let row_bg = if active {
-                                        p.bg_selected
-                                    } else {
-                                        egui::Color32::TRANSPARENT
-                                    };
-                                    let row_frame = egui::Frame::new()
-                                        .fill(row_bg)
-                                        .corner_radius(egui::CornerRadius::same(
-                                            neoflash_ui::tokens::radius::MD as u8,
-                                        ))
-                                        .inner_margin(egui::Margin::symmetric(space::S2 as i8, 0))
-                                        .show(ui, |ui| {
-                                            ui.set_min_size(egui::vec2(260.0 - space::S2 * 2.0, 32.0));
-                                            ui.horizontal(|ui| {
-                                                ui.set_min_height(32.0);
-                                                let enabled_ref = match target {
-                                                    PublishTarget::Html5 => {
-                                                        &mut draft.settings.html5_enabled
-                                                    }
-                                                    PublishTarget::DesktopApp => {
-                                                        &mut draft.settings.desktop_app_enabled
-                                                    }
-                                                    PublishTarget::VideoMp4 => {
-                                                        &mut draft.settings.video_enabled
-                                                    }
-                                                    PublishTarget::ImageSequence => {
-                                                        &mut draft.settings.image_sequence_enabled
-                                                    }
-                                                    PublishTarget::SvgAnimation => {
-                                                        &mut draft.settings.svg_enabled
-                                                    }
-                                                };
-                                                let _cb = ui.add(c::Checkbox::new(enabled_ref, ""));
-                                                let icon_resp = icons::show(
-                                                    ui,
-                                                    icon,
-                                                    if active {
-                                                        p.accent_default
-                                                    } else {
-                                                        p.text_secondary
-                                                    },
-                                                )
-                                                .interact(egui::Sense::click());
-                                                let lbl = ui.add(
-                                                    egui::Label::new(
-                                                        rich(
-                                                            label,
-                                                            if active {
-                                                                TextStyle::BodyStrong
-                                                            } else {
-                                                                TextStyle::Body
-                                                            },
-                                                        )
-                                                        .color(p.text_primary),
-                                                    )
-                                                    .sense(egui::Sense::click()),
-                                                );
-                                                let tail = ui.allocate_response(
-                                                    egui::vec2(ui.available_width().max(0.0), 32.0),
-                                                    egui::Sense::click(),
-                                                );
-                                                if icon_resp.clicked() || lbl.clicked() || tail.clicked() {
-                                                    draft.selected_target = target;
-                                                }
-                                            });
-                                        });
-                                    let _ = row_frame;
-                                }
-                            });
-                            ui.vertical(|ui| {
-                                ui.set_width(566.0);
-                                ui.set_max_height(body_max_h);
-                                egui::ScrollArea::vertical()
-                                    .id_salt("publish-settings-right-scroll")
-                                    .max_height(body_max_h)
-                                    .scroll_bar_visibility(
-                                        egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded,
-                                    )
-                                    .auto_shrink([false, true])
-                                    .themed()
-                                    .show(ui, |ui| {
-                                        ui.set_width(554.0);
-                                        ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S3);
-                                        match draft.selected_target {
-                                    PublishTarget::VideoMp4 => {
-                                        draw_video_target_settings(ui, &self.project, &mut draft);
-                                    }
-                                    PublishTarget::DesktopApp => {
-                                        draw_desktop_app_target_settings(ui, &self.project, &mut draft);
-                                    }
-                                    PublishTarget::ImageSequence => {
-                                        draw_image_sequence_target_settings(ui, &self.project, &mut draft);
-                                    }
-                                    PublishTarget::SvgAnimation => {
-                                        draw_svg_target_settings(ui, &self.project, &mut draft);
-                                    }
-                                    PublishTarget::Html5 => {
-                                        ui.label(rich("HTML5 · Rust / WebAssembly", TextStyle::Title).color(p.text_primary));
-                                        group(ui, "Output");
-                                        ui.horizontal(|ui| {
-                                            // The exporter owns the index.html filename; Browse selects its folder.
-                                            let entry_name = if draft.settings.html_wrapper {
-                                                "index.html"
-                                            } else {
-                                                "bundle.js"
-                                            };
-                                            let mut file = draft
-                                                .settings
-                                                .output_folder
-                                                .as_deref()
-                                                .map(|s| PathBuf::from(s).join(entry_name).display().to_string())
-                                                .unwrap_or_default();
-                                            ui.add_enabled(
-                                                false,
-                                                c::TextField::new(&mut file, "File")
-                                                    .prefix("File")
-                                                    .hint("Choose a file")
-                                                    .width(380.0),
-                                            );
-                                            if ui.add(c::Button::new("…")).clicked()
-                                                && let Some(folder) = rfd::FileDialog::new().set_title("Choose HTML5 output folder").pick_folder()
-                                            {
-                                                draft.settings.output_folder = Some(folder.to_string_lossy().into_owned());
-                                            }
-                                        });
-                                        ui.horizontal(|ui| {
-                                            ui.add(c::Checkbox::new(
-                                                &mut draft.settings.html_wrapper,
-                                                "Include HTML wrapper",
-                                            ));
-                                            c::Select::new(
-                                                ui.id().with("publish-settings-template"),
-                                                draft.settings.template.publish_select_label(),
-                                            )
-                                            .width(200.0)
-                                            .show(ui, |ui| {
-                                                for tmpl in HtmlTemplate::ALL {
-                                                    let lbl = tmpl.publish_select_label();
-                                                    if ui
-                                                        .add(
-                                                            c::MenuItem::new(lbl)
-                                                                .checked(draft.settings.template == tmpl),
-                                                        )
-                                                        .clicked()
-                                                    {
-                                                        draft.settings.template = tmpl;
-                                                        draft.error = None;
-                                                        ui.close();
-                                                    }
-                                                }
-                                            });
-                                        });
-                                        group(ui, "Runtime");
-                                        if draft.settings.profile == PublishProfilePreset::WebBannerNative {
-                                            ui.horizontal(|ui| {
-                                                let mut max_kb = f64::from(draft.settings.banner_max_gzip_kb.clamp(10, 5000));
-                                                if ui
-                                                    .add(
-                                                        c::Field::new(&mut max_kb, "Max gzip")
-                                                            .prefix("Max gzip")
-                                                            .unit("KB")
-                                                            .decimals(0)
-                                                            .range(10.0..=5000.0)
-                                                            .width(160.0),
-                                                    )
-                                                    .changed()
-                                                    && max_kb.is_finite()
-                                                {
-                                                    draft.settings.banner_max_gzip_kb =
-                                                        max_kb.round().clamp(10.0, 5000.0) as u32;
-                                                    draft.error = None;
-                                                }
-                                                caption(ui, "Single-file HTML5 ad banner (no WASM)");
-                                            });
-                                            let banner_opts = BannerOptions {
-                                                max_gzip_bytes: Some(draft.settings.banner_max_gzip_kb as usize * 1024),
-                                                max_raw_bytes: Some(draft.settings.banner_max_gzip_kb as usize * 4096),
-                                                loop_timeline: draft.settings.loop_timeline,
-                                                autoplay: draft.settings.autoplay,
-                                                jpeg_quality: draft.settings.jpeg_quality,
-                                                ..BannerOptions::default()
-                                            };
-                                            ui.add(c::InlineMessage::info(
-                                                "Compiles eligible vector/bitmap artwork into one self-contained index.html with inline SVG, timeline transport, and window.clickTag.",
-                                            ));
-                                            match neoflash_export::estimate_native_banner(&self.project, &banner_opts) {
-                                                Ok(est) => {
-                                                    c::weight_totals(
-                                                        ui,
-                                                        &[
-                                                            ("On disk", &bytes_label(est.raw_bytes)),
-                                                            ("Transfer (gzip)", &bytes_label(est.gzip_bytes)),
-                                                            ("Budget", &format!("{} KB gzip", draft.settings.banner_max_gzip_kb)),
-                                                        ],
-                                                    );
-                                                    for diag in &est.diagnostics {
-                                                        ui.add(c::InlineMessage::error(&format!(
-                                                            "[{}] {}: {}",
-                                                            diag.code, diag.location, diag.message
-                                                        )));
-                                                    }
-                                                }
-                                                Err(err) => {
-                                                    ui.add(c::InlineMessage::error(&err.to_string()));
-                                                }
-                                            }
-                                        } else {
-                                            let mut selected = if draft.custom() { usize::MAX } else { level_index(&draft.settings.options.size) };
-                                            if c::Segmented::show(ui, &mut selected, &LEVELS, false).is_some() {
-                                                draft.select_level(selected);
-                                            }
-                                            if draft.custom() {
-                                                ui.horizontal(|ui| {
-                                                    ui.add(c::Badge::new("Custom", c::BadgeType::Neutral));
-                                                    if ui.add(c::Button::ghost(&format!("Reset to {}", level_label(&draft.settings.options.size)))).clicked() {
-                                                        draft.select_level(level_index(&draft.settings.options.size));
-                                                    }
-                                                });
-                                            }
-                                            if matches!(draft.settings.options.size, SizeLevel::Shared(_)) {
-                                                if ui.add(c::TextField::new(&mut draft.runtime_url, "Runtime URL").prefix("Runtime URL").width(566.0)).changed() {
-                                                    draft.settings.options.size = SizeLevel::Shared(draft.runtime_url.clone());
-                                                    draft.error = None;
-                                                }
-                                                if let Some(error) = draft.url_error() {
-                                                    ui.add(c::InlineMessage::error(&error));
-                                                }
-                                                export_runtime |= ui.add(c::Button::ghost("Export runtime folder…")).clicked();
-                                            }
-                                            let tradeoff = match draft.settings.options.size {
-                                                SizeLevel::Full => "Includes the full runtime. Opens directly from disk.",
-                                                SizeLevel::Balanced => "Includes all runtime families. Opens from disk or HTTP(S).",
-                                                SizeLevel::Compact => "Strips unused runtime families. Opens from disk or HTTP(S); dynamically named classes may need Balanced.",
-                                                SizeLevel::Shared(_) => "Needs HTTP(S) hosting and a runtime from the same build. Cross-origin hosting needs CORS.",
-                                            };
-                                            ui.add(c::InlineMessage::info(tradeoff));
-                                            // Refresh after editing as well as before reading: never paint stale totals.
-                                            estimate = self.request_publish_estimate(ctx, &draft.settings).clone();
-                                            if weight(ui, &estimate, &draft) {
-                                                self.publish_controller.cancel();
-                                                estimate = self.request_publish_estimate(ctx, &draft.settings).clone();
-                                            }
-                                        }
-                                        ui.horizontal(|ui| {
-                                            ui.add(c::Checkbox::new(&mut draft.settings.loop_timeline, "Loop"));
-                                            ui.add(c::Checkbox::new(&mut draft.settings.autoplay, "Autoplay"));
-                                            ui.add(c::Checkbox::new(&mut draft.settings.preloader, "Preloader"));
-                                            ui.add(c::Checkbox::new(&mut draft.settings.allow_fullscreen, "Fullscreen"));
-                                            ui.add(c::Checkbox::new(&mut draft.settings.source_maps, "Source maps"));
-                                        });
-                                        ui.horizontal(|ui| {
-                                            c::Select::new(
-                                                ui.id().with("publish-settings-scale"),
-                                                draft.settings.scale_mode.publish_select_label(),
-                                            )
-                                            .width(200.0)
-                                            .show(ui, |ui| {
-                                                for mode in HtmlScaleMode::ALL {
-                                                    let lbl = mode.publish_select_label();
-                                                    if ui
-                                                        .add(
-                                                            c::MenuItem::new(lbl)
-                                                                .checked(draft.settings.scale_mode == mode),
-                                                        )
-                                                        .clicked()
-                                                    {
-                                                        draft.settings.scale_mode = mode;
-                                                        draft.error = None;
-                                                        ui.close();
-                                                    }
-                                                }
-                                            });
-                                            c::Select::new(
-                                                ui.id().with("publish-settings-stage-align"),
-                                                draft.settings.stage_align.publish_select_label(),
-                                            )
-                                            .width(180.0)
-                                            .show(ui, |ui| {
-                                                for align in HtmlStageAlign::ALL {
-                                                    let lbl = align.publish_select_label();
-                                                    if ui
-                                                        .add(
-                                                            c::MenuItem::new(lbl)
-                                                                .checked(draft.settings.stage_align == align),
-                                                        )
-                                                        .clicked()
-                                                    {
-                                                        draft.settings.stage_align = align;
-                                                        draft.error = None;
-                                                        ui.close();
-                                                    }
-                                                }
-                                            });
-                                        });
-                                        group(ui, "Assets");
-                                        ui.horizontal(|ui| {
-                                            caption(ui, "JPEG quality");
-                                            let mut q = f64::from(draft.settings.jpeg_quality.clamp(1, 100));
-                                            if ui
-                                                .add(
-                                                    c::Slider::new(&mut q, 1.0..=100.0, "JPEG quality")
-                                                        .width(160.0),
-                                                )
-                                                .changed()
-                                            {
-                                                draft.settings.jpeg_quality =
-                                                    q.round().clamp(1.0, 100.0) as u8;
-                                                draft.error = None;
-                                            }
-                                            caption(ui, &draft.settings.jpeg_quality.to_string());
-                                            let audio_lbl =
-                                                draft.settings.options.audio.publish_select_label();
-                                            c::Select::new(
-                                                ui.id().with("publish-settings-audio"),
-                                                &audio_lbl,
-                                            )
-                                            .width(180.0)
-                                            .show(ui, |ui| {
-                                                for policy in AudioExportPolicy::ALL {
-                                                    let lbl = policy.publish_select_label();
-                                                    if ui
-                                                        .add(
-                                                            c::MenuItem::new(&lbl).checked(
-                                                                draft.settings.options.audio == policy,
-                                                            ),
-                                                        )
-                                                        .clicked()
-                                                    {
-                                                        draft.settings.options.audio = policy;
-                                                        draft.error = None;
-                                                        ui.close();
-                                                    }
-                                                }
-                                            });
-                                        });
-                                        ui.horizontal(|ui| {
-                                            ui.add(c::Checkbox::new(
-                                                &mut draft.settings.sprite_sheets,
-                                                "Sprite sheets for bitmaps",
-                                            ));
-                                            let mut subset_fonts =
-                                                draft.settings.options.fonts == FontExportPolicy::Subset;
-                                            if ui
-                                                .add(c::Checkbox::new(
-                                                    &mut subset_fonts,
-                                                    "Embed fonts (subset)",
-                                                ))
-                                                .changed()
-                                            {
-                                                draft.settings.options.fonts = if subset_fonts {
-                                                    FontExportPolicy::Subset
-                                                } else {
-                                                    FontExportPolicy::Embed
-                                                };
-                                                draft.error = None;
-                                            }
-                                        });
-                                        let seq_policy_lbl = format!(
-                                            "Sequences: {}",
-                                            draft.settings.sequence_policy.label()
-                                        );
-                                        c::Select::new(
-                                            ui.id().with("publish-settings-sequence-policy"),
-                                            &seq_policy_lbl,
-                                        )
-                                        .width(280.0)
-                                        .show(ui, |ui| {
-                                            for policy in SequencePublishPolicy::ALL {
-                                                let item_lbl =
-                                                    format!("Sequences: {}", policy.label());
-                                                if ui
-                                                    .add(
-                                                        c::MenuItem::new(&item_lbl)
-                                                            .checked(draft.settings.sequence_policy == policy),
-                                                    )
-                                                    .clicked()
-                                                {
-                                                    draft.settings.sequence_policy = policy;
-                                                    draft.error = None;
-                                                    ui.close();
-                                                }
-                                            }
-                                        });
-                                        group(ui, "Scripts");
-                                        ui.horizontal(|ui| {
-                                            ui.add(c::Switch::new(
-                                                &mut draft.settings.strict,
-                                                "Strict mode",
-                                            ));
-                                            ui.add(c::Switch::new(
-                                                &mut draft.settings.include_trace,
-                                                "Include trace()",
-                                            ));
-                                            ui.add(c::Switch::new(
-                                                &mut draft.settings.minify,
-                                                "Minify",
-                                            ));
-                                        });
-                                        c::SectionHeader::new("Network startup simulator")
-                                            .id_salt("publish-network-startup-simulator")
-                                            .default_open(false)
-                                            .show(ui, |ui| {
-                                                ui.spacing_mut().item_spacing.y = space::S2;
-                                                ui.horizontal(|ui| {
-                                                    let net_label = format!(
-                                                        "Network: {}",
-                                                        draft.network_preset.short_label()
-                                                    );
-                                                    c::Select::new(
-                                                        ui.id().with("publish-network-preset"),
-                                                        &net_label,
-                                                    )
-                                                    .width(260.0)
-                                                    .show(ui, |ui| {
-                                                        for preset in NetworkPreset::ALL_PRESETS {
-                                                            if ui
-                                                                .add(
-                                                                    c::MenuItem::new(preset.label())
-                                                                        .checked(
-                                                                            draft.network_preset == preset,
-                                                                        ),
-                                                                )
-                                                                .clicked()
-                                                            {
-                                                                draft.network_preset = preset;
-                                                                let _ =
-                                                                    draft.simulate_network(&self.project);
-                                                                ui.close();
-                                                            }
-                                                        }
-                                                    });
-                                                });
-                                                if draft.network_estimate.is_none() {
-                                                    let _ = draft.simulate_network(&self.project);
-                                                }
-                                                if let Some(ref sim) = draft.network_estimate {
-                                                    let bootstrap_str = format!(
-                                                        "{:.0} ms ({})",
-                                                        sim.initial_html_js_wasm_ms,
-                                                        bytes_label(sim.initial_html_js_wasm_bytes)
-                                                    );
-                                                    let total_str = format!("{:.0} ms", sim.total_download_ms);
-                                                    let preload_str = if sim.buffer_underrun_frames.is_empty() {
-                                                        "0 stalls (ready)".to_string()
-                                                    } else {
-                                                        format!(
-                                                            "{} stalls · {:.0} ms ({} f)",
-                                                            sim.buffer_underrun_frames.len(),
-                                                            sim.recommended_preload_ms,
-                                                            sim.recommended_preload_frames
-                                                        )
-                                                    };
-                                                    c::weight_totals(
-                                                        ui,
-                                                        &[
-                                                            ("Bootstrap", &bootstrap_str),
-                                                            ("Total download", &total_str),
-                                                            ("Preload / Stalls", &preload_str),
-                                                        ],
-                                                    );
-                                                }
-                                            });
-                                        if let Some(error) = &draft.error { ui.add(c::InlineMessage::error(error)); }
-                                    }
-                                }
-                                    });
-                            });
-                        });
-                    // Same NF2 footer composition, with action validity driven by the draft URL.
-                    ui.add_space(space::S2);
-                    let r = ui.available_rect_before_wrap();
-                    ui.painter().hline(r.x_range(), r.top() - space::S1, egui::Stroke::new(1.0_f32, p.border_subtle));
-                    ui.add_space(space::S2);
-                    let footer_str = match draft.selected_target {
-                        PublishTarget::VideoMp4 => video_footer_label(&self.project, &draft),
-                        PublishTarget::DesktopApp => {
-                            format!("macOS .app + Windows Launcher · {}", level_label(&draft.settings.options.size))
+                let shell =
+                    DialogShell::show(ui, "Publish settings", size, metrics::sidebar_wide());
+                close |= shell.close;
+                shell.sidebar(ui, |ui| match self.publish_sidebar(ui, &mut draft) {
+                    Some(ProfileFileAction::Import) => import_profile_dialog = true,
+                    Some(ProfileFileAction::Export) => export_profile_dialog = true,
+                    None => {}
+                });
+                shell.page(ui, "publish-settings-right-scroll", |ui, _| {
+                    match draft.selected_target {
+                        PublishTarget::Html5 => {
+                            export_runtime |=
+                                self.html5_target_page(ui, ctx, &mut draft, &mut estimate);
+                        }
+                        PublishTarget::DesktopApp => desktop_app_target_page(ui, &mut draft),
+                        PublishTarget::VideoMp4 => {
+                            video_target_page(ui, &self.project, &mut draft);
                         }
                         PublishTarget::ImageSequence => {
-                            if draft.settings.image_sequence_sprite_sheet {
-                                format!(
-                                    "Sprite sheet ({} + {}) · {}×{}",
-                                    draft.settings.atlas_image_format.label(),
-                                    draft.settings.atlas_format.label(),
-                                    self.project.width,
-                                    self.project.height
-                                )
-                            } else {
-                                format!(
-                                    "{} sequence · {}×{}",
-                                    draft.settings.image_sequence_format.label(),
-                                    self.project.width,
-                                    self.project.height
-                                )
-                            }
+                            image_sequence_target_page(ui, &self.project, &mut draft);
                         }
                         PublishTarget::SvgAnimation => {
-                            format!("SVG 1.1 · {}×{}", self.project.width, self.project.height)
+                            svg_target_page(ui, &self.project, &mut draft);
                         }
-                        PublishTarget::Html5 => {
-                            if draft.settings.profile == PublishProfilePreset::WebBannerNative {
-                                let banner_opts = BannerOptions {
-                                    max_gzip_bytes: Some(draft.settings.banner_max_gzip_kb as usize * 1024),
-                                    max_raw_bytes: Some(draft.settings.banner_max_gzip_kb as usize * 4096),
-                                    loop_timeline: draft.settings.loop_timeline,
-                                    autoplay: draft.settings.autoplay,
-                                    jpeg_quality: draft.settings.jpeg_quality,
-                                    ..BannerOptions::default()
-                                };
-                                match neoflash_export::estimate_native_banner(&self.project, &banner_opts) {
-                                    Ok(est) => format!(
-                                        "Web Banner · {} · {} gzip · 1 file",
-                                        bytes_label(est.raw_bytes),
-                                        bytes_label(est.gzip_bytes)
-                                    ),
-                                    Err(_) => "Web Banner · Size unknown".into(),
-                                }
-                            } else {
-                                footer_label(&draft, &estimate)
-                            }
-                        }
-                    };
-                    ui.horizontal(|ui| {
-                        caption(ui, &footer_str);
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let valid = draft.url_error().is_none();
-                            publish |= ui.add_enabled(valid, c::Button::primary("Publish").icon(i16::PUBLISH)).clicked();
-                            save |= ui.add_enabled(valid, c::Button::new("OK")).clicked();
-                            close |= ui.add(c::Button::new("Cancel")).clicked();
-                        });
-                    });
+                    }
+                    if let Some(error) = &draft.error {
+                        ui.add(c::InlineMessage::error(error));
+                    }
                 });
+                // Same footer for every target; action validity follows the draft URL.
+                let summary = self.publish_summary(&draft, &estimate);
+                let valid = draft.url_error().is_none();
+                shell.footer(
+                    ui,
+                    |ui| {
+                        ui.add(
+                            egui::Label::new(
+                                rich(summary.as_str(), TextStyle::Small).color(p.text_secondary),
+                            )
+                            .truncate(),
+                        );
+                    },
+                    |ui| {
+                        publish |= ui
+                            .add_enabled(valid, c::Button::primary("Publish").icon(i16::PUBLISH))
+                            .clicked();
+                        save |= ui.add_enabled(valid, c::Button::new("OK")).clicked();
+                        close |= ui.add(c::Button::new("Cancel")).clicked();
+                    },
+                );
             });
         if !close
             && !save
@@ -1334,52 +1268,97 @@ fn resolve_publish_video_path(
     None
 }
 
-fn draw_video_target_settings(
+/// Profile file commands of the sidebar ⋯ menu; their file dialogs open after the frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProfileFileAction {
+    Import,
+    Export,
+}
+
+/// Publish targets in sidebar order: icon and the short name of the sidebar row.
+fn publish_targets() -> [(PublishTarget, neoflash_ui::Icon, &'static str); 5] {
+    [
+        (PublishTarget::Html5, i16::GLOBE, "HTML5"),
+        (PublishTarget::DesktopApp, i16::DESKTOP, "Desktop app"),
+        (PublishTarget::VideoMp4, i16::VIDEO, "Video (MP4)"),
+        (PublishTarget::ImageSequence, i16::GRID, "Image sequence"),
+        (PublishTarget::SvgAnimation, i16::CODE, "SVG animation"),
+    ]
+}
+
+/// Short target name, the same in the Publish settings sidebar and Preferences ▸ Publish.
+pub(crate) fn target_short_name(target: PublishTarget) -> &'static str {
+    publish_targets()
+        .iter()
+        .find(|(t, _, _)| *t == target)
+        .map_or("", |(_, _, name)| name)
+}
+
+/// Page title: the full target name.
+fn page_title(ui: &mut Ui, target: PublishTarget) {
+    let p = neoflash_ui::palette(ui.ctx());
+    let title = PublishTarget::OPTIONS
+        .iter()
+        .find(|(t, _)| *t == target)
+        .map_or("", |(_, title)| title);
+    ui.label(rich(title, TextStyle::Title).color(p.text_primary));
+}
+
+fn banner_options(settings: &PublishPrefs) -> BannerOptions {
+    BannerOptions {
+        max_gzip_bytes: Some(settings.banner_max_gzip_kb as usize * 1024),
+        max_raw_bytes: Some(settings.banner_max_gzip_kb as usize * 4096),
+        loop_timeline: settings.loop_timeline,
+        autoplay: settings.autoplay,
+        jpeg_quality: settings.jpeg_quality,
+        ..BannerOptions::default()
+    }
+}
+
+fn video_target_page(
     ui: &mut Ui,
     project: &neoflash_core::Project,
     draft: &mut PublishSettingsDraft,
 ) {
-    let p = neoflash_ui::palette(ui.ctx());
     let mut opts = draft.effective_video_options(project);
     let mut changed = false;
 
-    ui.label(rich("Video (MP4)", TextStyle::Title).color(p.text_primary));
-    group(ui, "Output");
-    ui.horizontal(|ui| {
-        let default_hint = draft
-            .settings
-            .output_folder
-            .as_deref()
-            .filter(|s| !s.trim().is_empty())
-            .map(|s| PathBuf::from(s).join("movie.mp4").display().to_string())
-            .unwrap_or_else(|| "Choose a file".into());
-        let mut video_file = draft.settings.video_file.clone().unwrap_or_default();
-        if ui
+    page_title(ui, PublishTarget::VideoMp4);
+    let default_hint = draft
+        .settings
+        .output_folder
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| PathBuf::from(s).join("movie.mp4").display().to_string())
+        .unwrap_or_else(|| "Choose a file".into());
+    let mut video_file = draft.settings.video_file.clone().unwrap_or_default();
+    let mut edited = false;
+    let browse = output_group(ui, "File", |ui, width| {
+        edited = ui
             .add(
                 c::TextField::new(&mut video_file, "Video file")
-                    .prefix("File")
                     .hint(&default_hint)
-                    .width(380.0),
+                    .width(width),
             )
-            .changed()
-        {
-            draft.settings.video_file = (!video_file.trim().is_empty()).then_some(video_file);
-            draft.error = None;
-        }
-        if ui.add(c::Button::new("…")).clicked()
-            && let Some(picked) = rfd::FileDialog::new()
-                .set_title("Choose MP4 output file")
-                .add_filter("MPEG-4 Video", &["mp4"])
-                .set_file_name("movie.mp4")
-                .save_file()
-        {
-            draft.settings.video_file = Some(picked.to_string_lossy().into_owned());
-            draft.error = None;
-        }
+            .changed();
     });
+    if edited {
+        draft.settings.video_file = (!video_file.trim().is_empty()).then_some(video_file);
+        draft.error = None;
+    }
+    if browse
+        && let Some(picked) = rfd::FileDialog::new()
+            .set_title("Choose MP4 output file")
+            .add_filter("MPEG-4 Video", &["mp4"])
+            .set_file_name("movie.mp4")
+            .save_file()
+    {
+        draft.settings.video_file = Some(picked.to_string_lossy().into_owned());
+        draft.error = None;
+    }
 
-    group(ui, "Video");
-    ui.horizontal(|ui| {
+    group_caption(ui, "Video");
+    form_row(ui, "Size", |ui| {
         let mut w_val = f64::from(opts.width.max(1));
         if ui
             .add(
@@ -1388,7 +1367,7 @@ fn draw_video_target_settings(
                     .unit("px")
                     .decimals(0)
                     .range(16.0..=7680.0)
-                    .width(96.0),
+                    .width(metrics::field_s()),
             )
             .changed()
             && w_val.is_finite()
@@ -1409,7 +1388,7 @@ fn draw_video_target_settings(
                     .unit("px")
                     .decimals(0)
                     .range(16.0..=4320.0)
-                    .width(96.0),
+                    .width(metrics::field_s()),
             )
             .changed()
             && h_val.is_finite()
@@ -1423,14 +1402,17 @@ fn draw_video_target_settings(
             changed = true;
         }
         if ui
-            .add(c::Checkbox::new(
-                &mut opts.constrain_proportions,
-                "Constrain",
-            ))
-            .changed()
+            .add(
+                c::IconButton::new(i16::LINK, "Constrain proportions")
+                    .selected(opts.constrain_proportions),
+            )
+            .clicked()
         {
+            opts.constrain_proportions = !opts.constrain_proportions;
             changed = true;
         }
+    });
+    form_row(ui, "Frame rate", |ui| {
         let mut fps_val = f64::from(opts.fps);
         if ui
             .add(
@@ -1439,7 +1421,7 @@ fn draw_video_target_settings(
                     .decimals(0)
                     .range(1.0..=120.0)
                     .stepper()
-                    .width(94.0),
+                    .width(metrics::field_s()),
             )
             .changed()
             && fps_val.is_finite()
@@ -1448,16 +1430,13 @@ fn draw_video_target_settings(
             changed = true;
         }
     });
-
-    ui.horizontal(|ui| {
-        let codec_lbl = format!("Codec: {}", opts.codec.label());
-        c::Select::new(ui.id().with("publish-video-codec"), &codec_lbl)
-            .width(150.0)
+    form_row(ui, "Codec", |ui| {
+        c::Select::new(ui.id().with("publish-video-codec"), opts.codec.label())
+            .width(metrics::field_m())
             .show(ui, |ui| {
                 for codec in [VideoCodec::H264, VideoCodec::H265] {
-                    let item_lbl = format!("Codec: {}", codec.label());
                     if ui
-                        .add(c::MenuItem::new(&item_lbl).checked(opts.codec == codec))
+                        .add(c::MenuItem::new(codec.label()).checked(opts.codec == codec))
                         .clicked()
                     {
                         opts.codec = codec;
@@ -1466,13 +1445,14 @@ fn draw_video_target_settings(
                     }
                 }
             });
-        caption(ui, "Quality");
+    });
+    form_row(ui, "Quality", |ui| {
         let mut q_val = f64::from(opts.quality);
         if ui
             .add(
                 c::Slider::new(&mut q_val, 1.0..=100.0, "Quality")
                     .step(1.0)
-                    .width(150.0),
+                    .width(metrics::field_m()),
             )
             .changed()
             && q_val.is_finite()
@@ -1493,17 +1473,16 @@ fn draw_video_target_settings(
         caption(ui, &format!("{tier} (~{:.0} Mbps)", mbps.max(1.0)));
     });
 
-    group(ui, "Content");
-    if ui
-        .add(c::Checkbox::new(
-            &mut opts.runtime_capture,
-            "Render nested movie clip animation and scripts",
-        ))
-        .changed()
-    {
-        changed = true;
-    }
-    ui.horizontal(|ui| {
+    group_caption(ui, "Content");
+    form_row(ui, "", |ui| {
+        changed |= ui
+            .add(c::Checkbox::new(
+                &mut opts.runtime_capture,
+                "Render nested movie clip animation and scripts",
+            ))
+            .changed();
+    });
+    form_row(ui, "Duration", |ui| {
         let stop_last = matches!(opts.stop_mode, VideoStopMode::LastFrame);
         if ui
             .add(c::Radio::new(stop_last, "Stop at last frame"))
@@ -1529,7 +1508,7 @@ fn draw_video_target_settings(
                         .unit("s")
                         .decimals(0)
                         .range(1.0..=3600.0)
-                        .width(86.0),
+                        .width(metrics::field_num()),
                 )
                 .changed()
                 && secs_val.is_finite()
@@ -1540,20 +1519,17 @@ fn draw_video_target_settings(
         });
     });
 
-    group(ui, "Audio");
-    ui.horizontal(|ui| {
-        if ui
+    group_caption(ui, "Audio");
+    form_row(ui, "", |ui| {
+        changed |= ui
             .add(c::Checkbox::new(&mut opts.include_audio, "Include audio"))
-            .changed()
-        {
-            changed = true;
-        }
+            .changed();
         ui.add_enabled_ui(opts.include_audio, |ui| {
             c::Select::new(
                 ui.id().with("publish-video-audio-bitrate"),
                 opts.audio_bitrate.label(),
             )
-            .width(150.0)
+            .width(metrics::field_m())
             .show(ui, |ui| {
                 for br in [
                     VideoAudioBitrate::Aac128,
@@ -1578,157 +1554,152 @@ fn draw_video_target_settings(
         draft.ensure_video_options_initialized(project);
         draft.error = None;
     }
-
-    if let Some(error) = &draft.error {
-        ui.add(c::InlineMessage::error(error));
-    }
 }
 
-fn draw_desktop_app_target_settings(
-    ui: &mut Ui,
-    _project: &neoflash_core::Project,
-    draft: &mut PublishSettingsDraft,
-) {
-    let p = neoflash_ui::palette(ui.ctx());
-    ui.label(rich("Desktop app (macOS / Windows / Linux)", TextStyle::Title).color(p.text_primary));
-    group(ui, "Output");
-    ui.horizontal(|ui| {
-        let mut folder = draft
-            .settings
-            .desktop_app_folder
-            .clone()
-            .or_else(|| draft.settings.output_folder.clone())
-            .unwrap_or_default();
-        let hint = "Choose a folder";
-        if ui
+fn desktop_app_target_page(ui: &mut Ui, draft: &mut PublishSettingsDraft) {
+    page_title(ui, PublishTarget::DesktopApp);
+    let mut folder = draft
+        .settings
+        .desktop_app_folder
+        .clone()
+        .or_else(|| draft.settings.output_folder.clone())
+        .unwrap_or_default();
+    let mut edited = false;
+    let browse = output_group(ui, "Folder", |ui, width| {
+        edited = ui
             .add(
                 c::TextField::new(&mut folder, "Desktop app folder")
-                    .prefix("Folder")
-                    .hint(hint)
-                    .width(420.0),
+                    .hint("Choose a folder")
+                    .width(width),
             )
-            .changed()
-        {
-            draft.settings.desktop_app_folder =
-                (!folder.trim().is_empty()).then(|| folder.trim().to_owned());
-            draft.error = None;
-        }
-        if ui.add(c::Button::new("Browse…")).clicked()
-            && let Some(picked) = rfd::FileDialog::new()
-                .set_title("Choose desktop app output folder")
-                .pick_folder()
-        {
-            draft.settings.desktop_app_folder = Some(picked.to_string_lossy().into_owned());
-            draft.error = None;
-        }
+            .changed();
     });
-    ui.add(c::InlineMessage::info(
-        "Exports a self-contained macOS .app bundle and Windows launcher wrapping the Clean HTML5 runtime.",
-    ));
-    if let Some(error) = &draft.error {
-        ui.add(c::InlineMessage::error(error));
+    if edited {
+        draft.settings.desktop_app_folder =
+            (!folder.trim().is_empty()).then(|| folder.trim().to_owned());
+        draft.error = None;
     }
+    if browse
+        && let Some(picked) = rfd::FileDialog::new()
+            .set_title("Choose desktop app output folder")
+            .pick_folder()
+    {
+        draft.settings.desktop_app_folder = Some(picked.to_string_lossy().into_owned());
+        draft.error = None;
+    }
+    form_hint(
+        ui,
+        "Exports a self-contained macOS .app bundle and Windows launcher wrapping the Clean HTML5 runtime.",
+    );
 }
 
-fn draw_image_sequence_target_settings(
+fn image_sequence_target_page(
     ui: &mut Ui,
     project: &neoflash_core::Project,
     draft: &mut PublishSettingsDraft,
 ) {
-    let p = neoflash_ui::palette(ui.ctx());
-    ui.label(rich("Image sequence / sprite sheet", TextStyle::Title).color(p.text_primary));
-    group(ui, "Output");
-    ui.horizontal(|ui| {
-        let mut folder = draft
-            .settings
-            .image_sequence_folder
-            .clone()
-            .or_else(|| draft.settings.output_folder.clone())
-            .unwrap_or_default();
-        if ui
+    page_title(ui, PublishTarget::ImageSequence);
+    let mut folder = draft
+        .settings
+        .image_sequence_folder
+        .clone()
+        .or_else(|| draft.settings.output_folder.clone())
+        .unwrap_or_default();
+    let mut edited = false;
+    let browse = output_group(ui, "Folder", |ui, width| {
+        edited = ui
             .add(
                 c::TextField::new(&mut folder, "Image sequence folder")
-                    .prefix("Folder")
                     .hint("Choose a folder")
-                    .width(420.0),
+                    .width(width),
             )
-            .changed()
-        {
-            draft.settings.image_sequence_folder =
-                (!folder.trim().is_empty()).then(|| folder.trim().to_owned());
-            draft.error = None;
-        }
-        if ui.add(c::Button::new("Browse…")).clicked()
-            && let Some(picked) = rfd::FileDialog::new()
-                .set_title("Choose image sequence / sprite sheet folder")
-                .pick_folder()
-        {
-            draft.settings.image_sequence_folder = Some(picked.to_string_lossy().into_owned());
-            draft.error = None;
-        }
+            .changed();
     });
-    group(ui, "Format");
-    c::Segmented::show(
-        ui,
-        &mut draft.settings.image_sequence_sprite_sheet,
-        &[
-            (false, "Frame sequence"),
-            (true, "Sprite sheet / Texture atlas"),
-        ],
-        false,
-    );
+    if edited {
+        draft.settings.image_sequence_folder =
+            (!folder.trim().is_empty()).then(|| folder.trim().to_owned());
+        draft.error = None;
+    }
+    if browse
+        && let Some(picked) = rfd::FileDialog::new()
+            .set_title("Choose image sequence / sprite sheet folder")
+            .pick_folder()
+    {
+        draft.settings.image_sequence_folder = Some(picked.to_string_lossy().into_owned());
+        draft.error = None;
+    }
+
+    group_caption(ui, "Format");
+    form_row(ui, "Type", |ui| {
+        c::Segmented::show(
+            ui,
+            &mut draft.settings.image_sequence_sprite_sheet,
+            &[
+                (false, "Frame sequence"),
+                (true, "Sprite sheet / Texture atlas"),
+            ],
+            false,
+        );
+    });
     if draft.settings.image_sequence_sprite_sheet {
-        ui.horizontal_wrapped(|ui| {
-            let meta_lbl = format!("Metadata: {}", draft.settings.atlas_format.label());
-            c::Select::new(ui.id().with("publish-atlas-format"), &meta_lbl)
-                .width(210.0)
-                .show(ui, |ui| {
-                    for fmt in AtlasFormat::ALL {
-                        if ui
-                            .add(
-                                c::MenuItem::new(&format!("Metadata: {}", fmt.label()))
-                                    .checked(draft.settings.atlas_format == fmt),
-                            )
-                            .clicked()
-                        {
-                            draft.settings.atlas_format = fmt;
-                            sync_publish_sequence_path_extension(
-                                &mut draft.settings.image_sequence_folder,
-                                fmt.extension(),
-                                &["json", "xml", "css"],
-                            );
-                            draft.error = None;
-                            ui.close();
-                        }
+        form_row(ui, "Metadata", |ui| {
+            c::Select::new(
+                ui.id().with("publish-atlas-format"),
+                draft.settings.atlas_format.label(),
+            )
+            .width(metrics::field_l())
+            .show(ui, |ui| {
+                for fmt in AtlasFormat::ALL {
+                    if ui
+                        .add(
+                            c::MenuItem::new(fmt.label())
+                                .checked(draft.settings.atlas_format == fmt),
+                        )
+                        .clicked()
+                    {
+                        draft.settings.atlas_format = fmt;
+                        sync_publish_sequence_path_extension(
+                            &mut draft.settings.image_sequence_folder,
+                            fmt.extension(),
+                            &["json", "xml", "css"],
+                        );
+                        draft.error = None;
+                        ui.close();
                     }
-                });
-            let img_lbl = format!("Image: {}", draft.settings.atlas_image_format.label());
-            c::Select::new(ui.id().with("publish-atlas-img-format"), &img_lbl)
-                .width(150.0)
-                .show(ui, |ui| {
-                    for fmt in AtlasImageFormat::ALL {
-                        if ui
-                            .add(
-                                c::MenuItem::new(&format!("Image: {}", fmt.label()))
-                                    .checked(draft.settings.atlas_image_format == fmt),
-                            )
-                            .clicked()
-                        {
-                            draft.settings.atlas_image_format = fmt;
-                            draft.error = None;
-                            ui.close();
-                        }
+                }
+            });
+        });
+        form_row(ui, "Image", |ui| {
+            c::Select::new(
+                ui.id().with("publish-atlas-img-format"),
+                draft.settings.atlas_image_format.label(),
+            )
+            .width(metrics::field_m())
+            .show(ui, |ui| {
+                for fmt in AtlasImageFormat::ALL {
+                    if ui
+                        .add(
+                            c::MenuItem::new(fmt.label())
+                                .checked(draft.settings.atlas_image_format == fmt),
+                        )
+                        .clicked()
+                    {
+                        draft.settings.atlas_image_format = fmt;
+                        draft.error = None;
+                        ui.close();
                     }
-                });
+                }
+            });
+        });
+        form_row(ui, "Extrude", |ui| {
             let mut ext_val = f64::from(draft.settings.atlas_extrude.min(8));
             if ui
                 .add(
                     c::Field::new(&mut ext_val, "Extrude")
-                        .prefix("Extrude")
                         .unit("px")
                         .decimals(0)
                         .range(0.0..=8.0)
-                        .width(120.0),
+                        .width(metrics::field_s()),
                 )
                 .changed()
                 && ext_val.is_finite()
@@ -1738,40 +1709,43 @@ fn draw_image_sequence_target_settings(
             }
         });
     } else {
-        ui.horizontal_wrapped(|ui| {
-            let seq_lbl = format!(
-                "Sequence format: {}",
-                draft.settings.image_sequence_format.label()
-            );
-            c::Select::new(ui.id().with("publish-seq-format"), &seq_lbl)
-                .width(220.0)
-                .show(ui, |ui| {
-                    for fmt in ImageExportFormat::SEQUENCE_FORMATS {
-                        if ui
-                            .add(
-                                c::MenuItem::new(&format!("Sequence format: {}", fmt.label()))
-                                    .checked(draft.settings.image_sequence_format == fmt),
-                            )
-                            .clicked()
-                        {
-                            draft.settings.image_sequence_format = fmt;
-                            sync_publish_sequence_path_extension(
-                                &mut draft.settings.image_sequence_folder,
-                                fmt.extension(),
-                                &["png", "jpg", "jpeg", "webp", "svg", "gif", "bmp"],
-                            );
-                            draft.error = None;
-                            ui.close();
-                        }
+        form_row(ui, "Image", |ui| {
+            c::Select::new(
+                ui.id().with("publish-seq-format"),
+                draft.settings.image_sequence_format.label(),
+            )
+            .width(metrics::field_m())
+            .show(ui, |ui| {
+                for fmt in ImageExportFormat::SEQUENCE_FORMATS {
+                    if ui
+                        .add(
+                            c::MenuItem::new(fmt.label())
+                                .checked(draft.settings.image_sequence_format == fmt),
+                        )
+                        .clicked()
+                    {
+                        draft.settings.image_sequence_format = fmt;
+                        sync_publish_sequence_path_extension(
+                            &mut draft.settings.image_sequence_folder,
+                            fmt.extension(),
+                            &["png", "jpg", "jpeg", "webp", "svg", "gif", "bmp"],
+                        );
+                        draft.error = None;
+                        ui.close();
                     }
-                });
-            if draft.settings.image_sequence_format == ImageExportFormat::Jpeg {
+                }
+            });
+        });
+        if draft.settings.image_sequence_format == ImageExportFormat::Jpeg {
+            form_row(ui, "JPEG quality", |ui| {
                 let mut q = f64::from(draft.settings.jpeg_quality.clamp(1, 100));
                 if ui
                     .add(
                         c::Slider::new(&mut q, 1.0..=100.0, "JPEG quality")
                             .step(1.0)
-                            .width(160.0),
+                            .value(c::SliderValue::Field)
+                            .unit("%")
+                            .width(metrics::field_m()),
                     )
                     .changed()
                     && q.is_finite()
@@ -1779,73 +1753,64 @@ fn draw_image_sequence_target_settings(
                     draft.settings.jpeg_quality = q.round().clamp(1.0, 100.0) as u8;
                     draft.error = None;
                 }
-                caption(ui, &format!("{} %", draft.settings.jpeg_quality));
-            }
-        });
+            });
+        }
     }
-    caption(
+    form_hint(
         ui,
         &format!("Stage resolution: {}×{} px", project.width, project.height),
     );
-    if let Some(error) = &draft.error {
-        ui.add(c::InlineMessage::error(error));
-    }
 }
 
-fn draw_svg_target_settings(
+fn svg_target_page(
     ui: &mut Ui,
     project: &neoflash_core::Project,
     draft: &mut PublishSettingsDraft,
 ) {
-    let p = neoflash_ui::palette(ui.ctx());
-    ui.label(rich("SVG animation", TextStyle::Title).color(p.text_primary));
-    group(ui, "Output");
-    ui.horizontal(|ui| {
-        let mut file = draft
-            .settings
-            .svg_file
-            .clone()
-            .or_else(|| {
-                draft
-                    .settings
-                    .output_folder
-                    .as_deref()
-                    .map(|s| PathBuf::from(s).join("animation.svg").display().to_string())
-            })
-            .unwrap_or_default();
-        if ui
+    page_title(ui, PublishTarget::SvgAnimation);
+    let mut file = draft
+        .settings
+        .svg_file
+        .clone()
+        .or_else(|| {
+            draft
+                .settings
+                .output_folder
+                .as_deref()
+                .map(|s| PathBuf::from(s).join("animation.svg").display().to_string())
+        })
+        .unwrap_or_default();
+    let mut edited = false;
+    let browse = output_group(ui, "File", |ui, width| {
+        edited = ui
             .add(
                 c::TextField::new(&mut file, "SVG file")
-                    .prefix("File")
                     .hint("Choose a file")
-                    .width(420.0),
+                    .width(width),
             )
-            .changed()
-        {
-            draft.settings.svg_file = (!file.trim().is_empty()).then(|| file.trim().to_owned());
-            draft.error = None;
-        }
-        if ui.add(c::Button::new("Browse…")).clicked()
-            && let Some(picked) = rfd::FileDialog::new()
-                .set_title("Export SVG animation")
-                .add_filter("SVG", &["svg"])
-                .set_file_name("animation.svg")
-                .save_file()
-        {
-            draft.settings.svg_file = Some(picked.to_string_lossy().into_owned());
-            draft.error = None;
-        }
+            .changed();
     });
-    caption(
+    if edited {
+        draft.settings.svg_file = (!file.trim().is_empty()).then(|| file.trim().to_owned());
+        draft.error = None;
+    }
+    if browse
+        && let Some(picked) = rfd::FileDialog::new()
+            .set_title("Export SVG animation")
+            .add_filter("SVG", &["svg"])
+            .set_file_name("animation.svg")
+            .save_file()
+    {
+        draft.settings.svg_file = Some(picked.to_string_lossy().into_owned());
+        draft.error = None;
+    }
+    form_hint(
         ui,
         &format!(
             "Exports vector SVG 1.1 ({}×{} px).",
             project.width, project.height
         ),
     );
-    if let Some(error) = &draft.error {
-        ui.add(c::InlineMessage::error(error));
-    }
 }
 
 fn publish_output(settings: &PublishPrefs, project: &neoflash_core::Project) -> Option<PathBuf> {
@@ -1998,7 +1963,7 @@ mod profile_and_network_sim_tests {
             Some(duplicated.id.as_str())
         );
         assert!(draft.profiles_dirty);
-        assert_eq!(draft.active_profile_label(), "Profile: Studio Compact Copy");
+        assert_eq!(draft.active_profile_label(), "Studio Compact Copy");
 
         // 2. Export & Import profile JSON round-trip via filesystem
         let tmp_dir = std::env::temp_dir().join(format!(

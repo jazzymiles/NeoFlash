@@ -1,7 +1,7 @@
 //! Inspector pieces used by Properties, Align, Transform and Color:
 //! * [`DragField`] — `NF2/Field` (numeric) whose value itself scrubs (property inspectors);
-//! * [`TypeHeader`] — the `Type icon` + title + subtitle row at the top of every Properties variant
-//!   (frame `Row` in `Panel / Properties — *`; not a separate Figma component set).
+//! * [`TypeHeader`] — the one-line kind icon + kind name + object name row at the top of every
+//!   Properties variant (`Type header` in the v3 surfaces; not a separate Figma component set).
 //!
 //! `DragField` paints exactly like [`super::Field`] (frame, prefix, value, unit) but keeps egui's
 //! `DragValue` interaction, which inspectors rely on for undo grouping: click to type, drag the value or
@@ -87,7 +87,7 @@ impl<N: Numeric> Widget for DragField<'_, N> {
         let (lo, hi) = (self.range.start().to_f64(), self.range.end().to_f64());
 
         // Prefix: drag to scrub (§13.4).
-        let mut x = rect.left() + space::S3;
+        let mut x = rect.left() + space::s3();
         let mut scrubbed = false;
         let mut scrub_hovered = false;
         if !self.prefix.is_empty() {
@@ -99,7 +99,7 @@ impl<N: Numeric> Widget for DragField<'_, N> {
             let g = galley(ui, self.prefix, TextStyle::Small, fg);
             let prefix_rect = Rect::from_min_max(
                 rect.left_top(),
-                egui::pos2(x + g.size().x + space::S1, rect.bottom()),
+                egui::pos2(x + g.size().x + space::s1(), rect.bottom()),
             );
             let scrub = ui.interact(prefix_rect, outer.id.with("scrub"), Sense::drag());
             scrub_hovered = scrub.hovered();
@@ -121,13 +121,13 @@ impl<N: Numeric> Widget for DragField<'_, N> {
                 }
             }
             text_at(ui, x, rect, g, fg);
-            x = prefix_rect.right() + space::S1;
+            x = prefix_rect.right() + space::s1();
         }
 
         // Value: a frameless DragValue filling the rest of the field.
         let value_rect = Rect::from_min_max(
             egui::pos2(x, rect.top() + 1.0),
-            egui::pos2(rect.right() - space::S2, rect.bottom() - 1.0),
+            egui::pos2(rect.right() - space::s2(), rect.bottom() - 1.0),
         );
         let fg = if enabled {
             p.text_primary
@@ -201,7 +201,7 @@ impl<N: Numeric> Widget for DragField<'_, N> {
             frame_shape,
             egui::epaint::RectShape::new(
                 rect,
-                cr(radius::MD),
+                cr(radius::md()),
                 bg,
                 Stroke::new(w, border),
                 StrokeKind::Inside,
@@ -219,8 +219,9 @@ impl<N: Numeric> Widget for DragField<'_, N> {
     }
 }
 
-/// Properties type header: 48 px icon tile (`bg/raised`), title (`NF2/Body Strong`) and subtitle
-/// (`NF2/Small`, secondary), e.g. "Oval primitive · Drawing object · layer "ball"".
+/// Properties type header — one `panel_tab()` line: 16 px kind icon, kind name (`NF2/Body Strong`)
+/// and the instance / document name in `text/tertiary`, ending with "…" when it does not fit, e.g.
+/// "Movie clip  Instance of “Orbit”". The row starts at the left edge of its Ui (the panel pads).
 pub struct TypeHeader<'a> {
     pub icon: Icon,
     pub title: &'a str,
@@ -229,20 +230,12 @@ pub struct TypeHeader<'a> {
 
 impl Widget for TypeHeader<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
-        type_header(
-            ui,
-            self.icon,
-            self.title,
-            self.subtitle,
-            48.0,
-            space::S3,
-            None,
-        )
+        type_header(ui, self.icon, self.title, self.subtitle)
     }
 }
 
-/// Compact type header of tool properties (Brush, Pencil): 36 px row and tile, the 20 px tool icon
-/// and a 10 px gap before the title and subtitle.
+/// Type header of tool properties (Brush, Pencil). Same one-line form as [`TypeHeader`]; kept as a
+/// separate type for its callers.
 pub struct CompactTypeHeader<'a> {
     pub icon: Icon,
     pub title: &'a str,
@@ -251,60 +244,39 @@ pub struct CompactTypeHeader<'a> {
 
 impl Widget for CompactTypeHeader<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
-        type_header(
-            ui,
-            self.icon,
-            self.title,
-            self.subtitle,
-            36.0,
-            10.0,
-            Some(20.0),
-        )
+        type_header(ui, self.icon, self.title, self.subtitle)
     }
 }
 
-fn type_header(
-    ui: &mut Ui,
-    icon: Icon,
-    title: &str,
-    subtitle: &str,
-    side: f32,
-    gap: f32,
-    icon_side: Option<f32>,
-) -> Response {
+fn type_header(ui: &mut Ui, icon: Icon, title: &str, subtitle: &str) -> Response {
     let p = palette(ui.ctx());
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), side), Sense::hover());
-    let tile = Rect::from_min_size(rect.min, egui::vec2(side, side));
-    ui.painter().rect_filled(tile, cr(radius::LG), p.bg_raised);
-    match icon_side {
-        Some(icon_side) => icons::paint_sized(
-            ui.painter(),
-            ui.ctx(),
-            tile,
-            icon,
-            icon_side,
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), crate::metrics::panel_tab()),
+        Sense::hover(),
+    );
+    if ui.is_rect_visible(rect) {
+        let side = crate::metrics::ICON_UI;
+        let tile = Rect::from_min_size(
+            egui::pos2(rect.left(), rect.center().y - side / 2.0),
+            egui::vec2(side, side),
+        );
+        icons::paint_sized(ui.painter(), ui.ctx(), tile, icon, side, p.text_secondary);
+        let mut x = tile.right() + space::s2();
+        let name = super::galley_truncated(
+            ui,
+            title,
+            TextStyle::BodyStrong,
             p.text_primary,
-        ),
-        None => icons::paint(ui.painter(), ui.ctx(), tile, icon, p.text_primary),
-    }
-    let x = tile.right() + gap;
-    let clip = Rect::from_min_max(egui::pos2(x, rect.top()), rect.max);
-    let title_galley = galley(ui, title, TextStyle::BodyStrong, p.text_primary);
-    let sub = galley(ui, subtitle, TextStyle::Small, p.text_secondary);
-    let total = title_galley.size().y
-        + 2.0
-        + if subtitle.is_empty() {
-            0.0
-        } else {
-            sub.size().y
-        };
-    let top = rect.center().y - total / 2.0;
-    let title_h = title_galley.size().y;
-    let painter = ui.painter().with_clip_rect(clip.intersect(ui.clip_rect()));
-    painter.galley(egui::pos2(x, top), title_galley, p.text_primary);
-    if !subtitle.is_empty() {
-        painter.galley(egui::pos2(x, top + title_h + 2.0), sub, p.text_secondary);
+            rect.right() - x,
+        );
+        let name_w = name.size().x;
+        text_at(ui, x, rect, name, p.text_primary);
+        x += name_w + space::s2();
+        let room = rect.right() - x;
+        if !subtitle.is_empty() && room > space::s4() {
+            let sub = super::galley_truncated(ui, subtitle, TextStyle::Body, p.text_tertiary, room);
+            text_at(ui, x, rect, sub, p.text_tertiary);
+        }
     }
     let label = if subtitle.is_empty() {
         title.to_owned()

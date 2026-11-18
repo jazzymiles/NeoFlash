@@ -139,7 +139,7 @@ impl Editor {
             .auto_shrink([false, false])
             .themed()
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
+                ui.spacing_mut().item_spacing = egui::vec2(space::s2(), space::s2());
                 self.scene_panel(ui);
             });
     }
@@ -220,8 +220,8 @@ impl Editor {
                 c::surface::drop_indicator(
                     ui.painter(),
                     &ctx,
-                    egui::pos2(first.1.left() + space::S2, y),
-                    egui::pos2(first.1.right() - space::S2, y),
+                    egui::pos2(first.1.left() + space::s2(), y),
+                    egui::pos2(first.1.right() - space::s2(), y),
                 );
             }
             if !ctx.input(|i| i.pointer.any_down()) {
@@ -236,8 +236,8 @@ impl Editor {
                 ctx.request_repaint();
             }
         }
-        ui.spacing_mut().item_spacing.y = space::S2;
-        ui.add_space(space::S2);
+        ui.spacing_mut().item_spacing.y = space::s2();
+        ui.add_space(space::s2());
         let (mut add, mut duplicate, mut delete) = (false, false, false);
         ui.horizontal(|ui| {
             add = ui.add(c::IconButton::new(i16::PLUS, "Add scene")).clicked();

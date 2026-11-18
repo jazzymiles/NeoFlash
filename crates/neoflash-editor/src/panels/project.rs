@@ -353,7 +353,7 @@ impl Editor {
     pub(crate) fn project_panel_ui(&mut self, ui: &mut Ui) {
         self.panel_title(ui, PanelId::Project, "Project");
         let ctx = ui.ctx().clone();
-        ui.spacing_mut().item_spacing.y = space::S1;
+        ui.spacing_mut().item_spacing.y = space::s1();
         let w = ui.available_width();
 
         if self.project_panel.selected.is_none()
@@ -392,7 +392,7 @@ impl Editor {
         ui.add(c::Search::new(&mut self.project_panel.filter, "Find file").width(w));
 
         let query = self.project_panel.filter.trim().to_lowercase();
-        let footer_reserve = crate::theme::control_h() + 20.0 + space::S1 * 3.0;
+        let footer_reserve = crate::theme::control_h() + 20.0 + space::s1() * 3.0;
         let tree_h = (ui.available_height() - footer_reserve).max(crate::theme::control_h());
 
         let all_dirs = self.all_source_folders();

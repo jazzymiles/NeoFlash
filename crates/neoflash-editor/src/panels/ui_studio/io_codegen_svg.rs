@@ -62,68 +62,100 @@ pub fn export_rust_layout_with_systems(
     writeln!(out, "pub mod studio_system_tokens {{").unwrap();
     writeln!(
         out,
-        "    pub const SPACE_S1: f32 = {:.1};",
-        systems.spacing.s1
+        "    //! Sizes that come from the density system are calls into `neoflash_ui`, so the layout"
     )
     .unwrap();
     writeln!(
         out,
-        "    pub const SPACE_S2: f32 = {:.1};",
-        systems.spacing.s2
+        "    //! follows Normal, Compact and Classic Flash. Constants are Studio overrides and artwork."
+    )
+    .unwrap();
+    for tok in SpacingToken::ALL {
+        if systems.spacing.is_override(tok) {
+            writeln!(
+                out,
+                "    pub const SPACE_{}: f32 = {:.1}; // overrides {}",
+                tok.short_name(),
+                systems.spacing.resolve(tok),
+                tok.rust_expr()
+            )
+            .unwrap();
+        }
+    }
+    writeln!(
+        out,
+        "    pub fn two_col_gap() -> f32 {{ {} }}",
+        qualified(&systems.two_column_form.gap.rust_expr(systems))
     )
     .unwrap();
     writeln!(
         out,
-        "    pub const SPACE_S3: f32 = {:.1};",
-        systems.spacing.s3
+        "    pub fn two_col_label_width() -> f32 {{ {} }}",
+        metric_or_literal(
+            systems.two_column_form.label_width_px,
+            "label_width",
+            "neoflash_ui::metrics::label_width()"
+        )
     )
     .unwrap();
     writeln!(
         out,
-        "    pub const SPACE_S4: f32 = {:.1};",
-        systems.spacing.s4
+        "    pub fn section_header_height() -> f32 {{ {} }}",
+        metric_or_literal(
+            systems.section_header.height,
+            "section_header",
+            "neoflash_ui::metrics::section_header()"
+        )
     )
     .unwrap();
     writeln!(
         out,
-        "    pub const SPACE_S5: f32 = {:.1};",
-        systems.spacing.s5
+        "    pub fn panel_header_height() -> f32 {{ {} }}",
+        metric_or_literal(
+            systems.panel_header.height,
+            "panel_header",
+            "neoflash_ui::metrics::panel_header()"
+        )
     )
     .unwrap();
     writeln!(
         out,
-        "    pub const SPACE_S6: f32 = {:.1};",
-        systems.spacing.s6
+        "    pub fn tool_button_side() -> f32 {{ {} }}",
+        metric_or_literal(
+            systems.tool_rail.button_side,
+            "tool_button",
+            "neoflash_ui::metrics::tool_button()"
+        )
     )
     .unwrap();
     writeln!(
         out,
-        "    pub const CONTROL_HEIGHT_COMFORTABLE: f32 = {:.1};",
-        systems.density.comfortable.control_height
+        "    pub fn timeline_layer_row_height() -> f32 {{ {} }}",
+        if systems.timeline_geometry.layer_row_height_px == neoflash_ui::metrics::LAYER_ROW {
+            "neoflash_ui::metrics::default_layer_row()".to_owned()
+        } else {
+            format!("{:.1}", systems.timeline_geometry.layer_row_height_px)
+        }
     )
     .unwrap();
     writeln!(
         out,
-        "    pub const CONTROL_HEIGHT_COMPACT: f32 = {:.1};",
-        systems.density.compact.control_height
+        "    pub fn timeline_ruler_height() -> f32 {{ {} }}",
+        metric_or_literal(
+            systems.timeline_geometry.ruler_height_px,
+            "timeline_ruler",
+            "neoflash_ui::metrics::timeline_ruler()"
+        )
     )
     .unwrap();
     writeln!(
         out,
-        "    pub const CONTROL_HEIGHT_CLASSIC: f32 = {:.1};",
-        systems.density.classic_flash.control_height
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    pub const TWO_COL_GAP_PX: f32 = {:.1};",
-        systems.two_column_form.gap.resolve(systems)
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    pub const TWO_COL_LABEL_WIDTH_PX: f32 = {:.1};",
-        systems.two_column_form.label_width_px
+        "    pub fn stage_ruler_thickness() -> f32 {{ {} }}",
+        metric_or_literal(
+            systems.stage_overlay.stage_ruler_thickness_px,
+            "stage_ruler",
+            "neoflash_ui::metrics::stage_ruler()"
+        )
     )
     .unwrap();
     writeln!(
@@ -187,18 +219,6 @@ pub fn export_rust_layout_with_systems(
     .unwrap();
     writeln!(
         out,
-        "    pub const TIMELINE_LAYER_ROW_HEIGHT_PX: f32 = {:.1};",
-        systems.timeline_geometry.layer_row_height_px
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    pub const TIMELINE_RULER_HEIGHT_PX: f32 = {:.1};",
-        systems.timeline_geometry.ruler_height_px
-    )
-    .unwrap();
-    writeln!(
-        out,
         "    pub const KEYFRAME_DOT_RADIUS_PX: f32 = {:.2};",
         systems.timeline_geometry.keyframe_dot_radius_px
     )
@@ -221,12 +241,6 @@ pub fn export_rust_layout_with_systems(
         systems.timeline_geometry.playhead_cap_height_px
     )
     .unwrap();
-    writeln!(
-        out,
-        "    pub const STAGE_RULER_THICKNESS_PX: f32 = {:.1};",
-        systems.stage_overlay.stage_ruler_thickness_px
-    )
-    .unwrap();
     writeln!(out, "}}\n").unwrap();
 
     writeln!(out, "pub fn {fn_name}(ui: &mut Ui) {{").unwrap();
@@ -235,26 +249,87 @@ pub fn export_rust_layout_with_systems(
     out
 }
 
+/// A `space::…` expression made usable inside `mod studio_system_tokens`.
+fn qualified(expr: &str) -> String {
+    if expr.starts_with("space::") {
+        format!("neoflash_ui::tokens::{expr}")
+    } else if let Some(name) = expr.strip_prefix("studio_system_tokens::") {
+        name.to_owned()
+    } else {
+        expr.to_owned()
+    }
+}
+
+/// The metric call while a stored system size follows the density system, its number otherwise.
+fn metric_or_literal(stored: f32, metric: &str, call: &str) -> String {
+    if follows_density(stored, metric) {
+        call.to_owned()
+    } else {
+        format!("{stored:.1}")
+    }
+}
+
+/// Step name or custom pixels of a spacing value, for the node comment (density independent).
+fn spacing_note(value: SpacingValue) -> String {
+    match value {
+        SpacingValue::Token(tok) => tok.label().to_owned(),
+        SpacingValue::Px(px) => format!("{px:.0}px"),
+    }
+}
+
+/// `[gap_x, gap_y]` of `node` as Rust expressions, honouring its shared system like
+/// [`resolve_node_spacing`]: density steps stay calls, only custom pixels are numbers.
+fn node_gap_exprs(node: &UiStudioNode, systems: &UiStudioSystems) -> (String, String) {
+    let mut x = node.style.gap.x.rust_expr(systems);
+    let mut y = node.style.gap.y.rust_expr(systems);
+    match node.style.system_binding {
+        Some(SharedSystemKind::TwoColumnForm) => {
+            if !node.style.gap.x.is_override() {
+                x = "studio_system_tokens::two_col_gap()".to_owned();
+            }
+            if !node.style.gap.y.is_override() {
+                y = "studio_system_tokens::two_col_gap()".to_owned();
+            }
+        }
+        Some(SharedSystemKind::SectionHeader) => {
+            if !node.style.gap.y.is_override() {
+                y = systems.section_header.body_gap.rust_expr(systems);
+            }
+        }
+        Some(SharedSystemKind::ToolRail) => {
+            if !node.style.gap.x.is_override() {
+                x = format!("{:.1}", systems.tool_rail.gap);
+            }
+            if !node.style.gap.y.is_override() {
+                y = format!("{:.1}", systems.tool_rail.gap);
+            }
+        }
+        Some(SharedSystemKind::PanelHeader) | None => {}
+    }
+    (x, y)
+}
+
 fn emit_node_rust(node: &UiStudioNode, systems: &UiStudioSystems, indent: usize, out: &mut String) {
     if !node.visible {
         return;
     }
     let pad_str = "    ".repeat(indent);
-    let (pad, gap) = resolve_node_spacing(node, systems);
+    let (gap_x, gap_y) = node_gap_exprs(node, systems);
     let w_comment = node.box_constraints.width.format_compact();
     let h_comment = node.box_constraints.height.format_compact();
+    let pad = &node.style.padding;
     writeln!(
         out,
-        "{pad_str}// Node #{}: {:?} ({}) [w={w_comment}, h={h_comment}, pad=({:.0},{:.0},{:.0},{:.0}), gap=({:.0},{:.0})]",
+        "{pad_str}// Node #{}: {:?} ({}) [w={w_comment}, h={h_comment}, pad=({}, {}, {}, {}), gap=({}, {})]",
         node.id,
         node.label,
         node.kind.type_badge(),
-        pad[0],
-        pad[1],
-        pad[2],
-        pad[3],
-        gap.x,
-        gap.y
+        spacing_note(pad.top),
+        spacing_note(pad.right),
+        spacing_note(pad.bottom),
+        spacing_note(pad.left),
+        spacing_note(node.style.gap.x),
+        spacing_note(node.style.gap.y)
     )
     .unwrap();
 
@@ -277,8 +352,7 @@ fn emit_node_rust(node: &UiStudioNode, systems: &UiStudioSystems, indent: usize,
             }
             writeln!(
                 out,
-                "{pad_str}ui.spacing_mut().item_spacing = egui::vec2({:.1}, {:.1});",
-                gap.x, gap.y
+                "{pad_str}ui.spacing_mut().item_spacing = egui::vec2({gap_x}, {gap_y});"
             )
             .unwrap();
             for child in &node.children {
@@ -294,8 +368,7 @@ fn emit_node_rust(node: &UiStudioNode, systems: &UiStudioSystems, indent: usize,
             .unwrap();
             writeln!(
                 out,
-                "{pad_str}    ui.spacing_mut().item_spacing = egui::vec2({:.1}, {:.1});",
-                gap.x, gap.y
+                "{pad_str}    ui.spacing_mut().item_spacing = egui::vec2({gap_x}, {gap_y});"
             )
             .unwrap();
             for child in &node.children {
@@ -307,8 +380,7 @@ fn emit_node_rust(node: &UiStudioNode, systems: &UiStudioSystems, indent: usize,
             writeln!(out, "{pad_str}ui.horizontal(|ui| {{").unwrap();
             writeln!(
                 out,
-                "{pad_str}    ui.spacing_mut().item_spacing.x = {:.1};",
-                gap.x
+                "{pad_str}    ui.spacing_mut().item_spacing.x = {gap_x};"
             )
             .unwrap();
             for child in &node.children {
@@ -320,8 +392,7 @@ fn emit_node_rust(node: &UiStudioNode, systems: &UiStudioSystems, indent: usize,
             writeln!(out, "{pad_str}ui.vertical(|ui| {{").unwrap();
             writeln!(
                 out,
-                "{pad_str}    ui.spacing_mut().item_spacing.y = {:.1};",
-                gap.y
+                "{pad_str}    ui.spacing_mut().item_spacing.y = {gap_y};"
             )
             .unwrap();
             for child in &node.children {
@@ -341,8 +412,7 @@ fn emit_node_rust(node: &UiStudioNode, systems: &UiStudioSystems, indent: usize,
                 writeln!(out, "{pad_str}ui.horizontal(|ui| {{").unwrap();
                 writeln!(
                     out,
-                    "{pad_str}    ui.spacing_mut().item_spacing.x = {:.1};",
-                    gap.x
+                    "{pad_str}    ui.spacing_mut().item_spacing.x = {gap_x};"
                 )
                 .unwrap();
                 for child in row_slice {
@@ -567,9 +637,11 @@ pub fn export_artboard_to_svg(
     systems: &UiStudioSystems,
     theme: ThemeMode,
 ) -> String {
+    // The whole export is drawn in the Studio's preview density.
+    let _density = PreviewDensity::enter(systems.density.active_profile.ui());
     let default_w = match doc.root.box_constraints.width {
-        UiSizeUnit::Px(px) => px.max(240.0),
-        _ => 340.0,
+        UiSizeUnit::Px(px) => px.max(neoflash_ui::metrics::inspector()),
+        _ => neoflash_ui::metrics::inspector(),
     };
     let avail = egui::vec2(default_w, 640.0);
     let computed = compute_studio_layout(doc, systems, Pos2::ZERO, avail);
@@ -598,6 +670,7 @@ pub fn export_artboard_to_svg(
 
 /// Export all visible artboards on the Studio Canvas into one composite multi-panel `.svg` board.
 pub fn export_all_artboards_to_svg(state: &UiLayoutStudioState, theme: ThemeMode) -> String {
+    let _density = PreviewDensity::enter(state.systems.density.active_profile.ui());
     let mut max_x = 640.0_f32;
     let mut max_y = 480.0_f32;
     for ab in &state.artboards {
@@ -675,8 +748,8 @@ fn emit_timeline_geometry_svg(
     let pad = "  ".repeat(indent);
     let tg = &systems.timeline_geometry;
     let layer_col_w = tg.resolve_layer_list_width(rect.width());
-    let ruler_h = tg.ruler_height_px.clamp(14.0, 40.0);
-    let row_h = tg.layer_row_height_px.clamp(14.0, 48.0);
+    let ruler_h = tg.resolved_ruler_height().clamp(14.0, 40.0);
+    let row_h = tg.resolved_layer_row_height().clamp(14.0, 48.0);
     let cell_w = tg.frame_cell_width_px.clamp(6.0, 32.0);
     let grid_left = rect.left() + layer_col_w;
     let classic_span = Rect::from_min_max(
@@ -899,7 +972,7 @@ fn emit_node_svg(
             )
             .unwrap();
             if !tabs.is_empty() {
-                let hdr_h = systems.panel_header.height.max(24.0);
+                let hdr_h = systems.panel_header.resolved_height();
                 writeln!(
                     svg,
                     r#"{pad}  <rect x="{:.1}" y="{:.1}" width="{:.1}" height="{hdr_h:.1}" rx="6" fill="{bg_raised}" />"#,
@@ -922,7 +995,7 @@ fn emit_node_svg(
             }
         }
         UiNodeKind::Section { expanded, .. } => {
-            let hdr_h = systems.section_header.height.max(20.0);
+            let hdr_h = systems.section_header.resolved_height();
             writeln!(
                 svg,
                 r#"{pad}  <text x="{:.1}" y="{:.1}" fill="{text_sec}" font-family="Inter, sans-serif" font-size="10" font-weight="600">{}</text>"#,

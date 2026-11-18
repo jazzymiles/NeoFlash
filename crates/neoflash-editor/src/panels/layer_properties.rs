@@ -5,14 +5,17 @@
 //! Edits live on a draft in `egui::Context` temp memory until confirmed: `Cancel` / `Esc` discards
 //! without touching the project, while `OK` / `Enter` commits document layer properties in a single
 //! Undo step (`"Layer properties"`) and updates timeline row-height preferences.
-use super::dialog_helpers::group;
+use super::dialog_helpers::{
+    FormDialog, first_field, fixed_dialog_size, form_dialog_height, form_hint, form_row,
+    group_caption,
+};
 use crate::app::Editor;
 use crate::workspace::FramePreview;
 use eframe::egui::{self, Color32};
 use neoflash_core::*;
 use neoflash_ui::components as c;
-use neoflash_ui::tokens::{TextStyle, space};
-use neoflash_ui::typography::rich;
+use neoflash_ui::metrics;
+use neoflash_ui::tokens::space;
 
 const ARMATURE_REASON: &str = "Armature layers";
 
@@ -86,15 +89,6 @@ impl LayerHeightChoice {
         Self::Preview200,
     ];
 
-    pub(crate) const fn label(self) -> &'static str {
-        match self {
-            Self::Compact => "Layer height: Compact",
-            Self::Short => "Layer height: Short",
-            Self::Normal100 => "Layer height: 100 %",
-            Self::Preview200 => "Layer height: 200 %",
-        }
-    }
-
     pub(crate) const fn menu_label(self) -> &'static str {
         match self {
             Self::Compact => "Compact",
@@ -128,6 +122,16 @@ pub(crate) struct LayerPropertiesDraft {
 
 fn draft_id() -> egui::Id {
     egui::Id::new("nf2-layer-properties-draft")
+}
+
+/// One size for every layer type: ten rows (with the Mask mode row), two captions and the
+/// two-line Sync hint. Folder and non-mask types leave empty space instead of resizing.
+pub(crate) fn layer_properties_size(ctx: &egui::Context) -> egui::Vec2 {
+    fixed_dialog_size(
+        ctx,
+        metrics::dialog_m(),
+        form_dialog_height(10, 2, metrics::row_gap() + 2.0 * metrics::toggle_row()),
+    )
 }
 
 pub(crate) fn has_layer_properties_dialog(ctx: &egui::Context) -> bool {
@@ -539,228 +543,225 @@ impl Editor {
         let mut close_ok = false;
 
         let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
+        let size = layer_properties_size(ctx);
+        let mut in_name = false;
         let modal = egui::Modal::new(egui::Id::new("layer-properties"))
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
-                ui.set_width(440.0);
-                let header_top = ui.cursor().min;
-                close_cancel |= c::DialogHeader {
-                    title: "Layer properties",
-                }
-                .show(ui);
-                ui.painter().hline(
-                    header_top.x..=header_top.x + 440.0,
-                    header_top.y + neoflash_ui::metrics::dialog_header() - 0.5,
-                    egui::Stroke::new(1.0_f32, p.border_subtle),
-                );
-
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S5 as i8))
-                    .show(ui, |ui| {
-                        let w = 440.0 - 2.0 * space::S5;
-                        ui.set_width(w);
-                        ui.spacing_mut().item_spacing.y = space::S3;
-
-                        ui.add(
-                            c::TextField::new(&mut draft.name, "Name")
-                                .prefix("Name")
-                                .width(w),
+                let dialog = FormDialog::show(ui, "Layer properties", size.x, Some(size.y));
+                close_cancel |= dialog.close;
+                dialog.page(ui, "layer-properties-page", |ui, _| {
+                    form_row(ui, "Name", |ui| {
+                        let width = ui.available_width();
+                        let name = ui.add(c::TextField::new(&mut draft.name, "Name").width(width));
+                        in_name = first_field(ui, "layer-properties", &name);
+                    });
+                    form_row(ui, "", |ui| {
+                        ui.spacing_mut().item_spacing.x = space::s4();
+                        ui.add(c::Checkbox::new(&mut draft.visible, "Visible"));
+                        ui.add_enabled(
+                            draft.kind != LayerTypeChoice::Folder,
+                            c::Checkbox::new(&mut draft.locked, "Locked"),
                         );
-                        ui.horizontal(|ui| {
-                            ui.add(c::Switch::new(&mut draft.visible, "Visible"));
-                            ui.add_enabled(
-                                draft.kind != LayerTypeChoice::Folder,
-                                c::Switch::new(&mut draft.locked, "Locked"),
-                            );
-                        });
+                    });
 
-                        group(ui, "Type");
-                        ui.horizontal_wrapped(|ui| {
-                            ui.spacing_mut().item_spacing = egui::vec2(space::S4, space::S2);
-                            for choice in LayerTypeChoice::ALL {
-                                let enabled = match choice {
-                                    LayerTypeChoice::Normal | LayerTypeChoice::Guide => true,
-                                    LayerTypeChoice::Guided => {
-                                        has_other_guide || draft.kind == LayerTypeChoice::Guided
-                                    }
-                                    LayerTypeChoice::Mask => {
-                                        can_be_mask || draft.kind == LayerTypeChoice::Mask
-                                    }
-                                    LayerTypeChoice::Masked => {
-                                        has_other_mask || draft.kind == LayerTypeChoice::Masked
-                                    }
-                                    LayerTypeChoice::Folder => {
-                                        can_be_folder || draft.kind == LayerTypeChoice::Folder
-                                    }
-                                };
-                                if ui
-                                    .add_enabled(
-                                        enabled,
-                                        c::Radio::new(draft.kind == choice, choice.label()),
-                                    )
-                                    .clicked()
-                                {
-                                    draft.kind = choice;
-                                    if choice == LayerTypeChoice::Mask
-                                        && !layer_can_be_mask_with_mode(
-                                            &self.project,
-                                            &draft.symbol_id,
-                                            layer_index,
-                                            draft.mask_mode,
+                    let mut type_radio = |ui: &mut egui::Ui, choice: LayerTypeChoice| {
+                        let enabled = match choice {
+                            LayerTypeChoice::Normal | LayerTypeChoice::Guide => true,
+                            LayerTypeChoice::Guided => {
+                                has_other_guide || draft.kind == LayerTypeChoice::Guided
+                            }
+                            LayerTypeChoice::Mask => {
+                                can_be_mask || draft.kind == LayerTypeChoice::Mask
+                            }
+                            LayerTypeChoice::Masked => {
+                                has_other_mask || draft.kind == LayerTypeChoice::Masked
+                            }
+                            LayerTypeChoice::Folder => {
+                                can_be_folder || draft.kind == LayerTypeChoice::Folder
+                            }
+                        };
+                        if ui
+                            .add_enabled(
+                                enabled,
+                                c::Radio::new(draft.kind == choice, choice.label()),
+                            )
+                            .clicked()
+                        {
+                            draft.kind = choice;
+                            if choice == LayerTypeChoice::Mask
+                                && !layer_can_be_mask_with_mode(
+                                    &self.project,
+                                    &draft.symbol_id,
+                                    layer_index,
+                                    draft.mask_mode,
+                                )
+                                && layer_can_be_mask_with_mode(
+                                    &self.project,
+                                    &draft.symbol_id,
+                                    layer_index,
+                                    MaskMode::Alpha,
+                                )
+                            {
+                                draft.mask_mode = MaskMode::Alpha;
+                            }
+                        }
+                    };
+                    // Two radio rows under one label: four and three choices.
+                    form_row(ui, "Type", |ui| {
+                        ui.spacing_mut().item_spacing.x = space::s4();
+                        for choice in &LayerTypeChoice::ALL[..4] {
+                            type_radio(ui, *choice);
+                        }
+                    });
+                    form_row(ui, "", |ui| {
+                        ui.spacing_mut().item_spacing.x = space::s4();
+                        for choice in &LayerTypeChoice::ALL[4..] {
+                            type_radio(ui, *choice);
+                        }
+                        let armature = ui.add_enabled(false, c::Radio::new(false, "Armature"));
+                        let _ = c::not_available(armature, ARMATURE_REASON);
+                    });
+                    if draft.kind == LayerTypeChoice::Mask {
+                        form_row(ui, "Mask mode", |ui| {
+                            ui.spacing_mut().item_spacing.x = space::s3();
+                            c::Select::new("layer-properties-mask-mode", draft.mask_mode.label())
+                                .width(metrics::field_m())
+                                .show(ui, |ui| {
+                                    crate::layer_controls::populate_mask_mode_menu(
+                                        ui,
+                                        draft.mask_mode,
+                                        |mode| draft.mask_mode = mode,
+                                    );
+                                });
+                            ui.add(c::Checkbox::new(&mut draft.mask_invert, "Invert mask"));
+                        });
+                    }
+
+                    let non_guide = draft.kind != LayerTypeChoice::Guide;
+                    form_row(ui, "Layer height", |ui| {
+                        c::Select::new("layer-properties-height", draft.height.menu_label())
+                            .width(metrics::field_m())
+                            .show(ui, |ui| {
+                                for choice in LayerHeightChoice::ALL {
+                                    if ui
+                                        .add(
+                                            c::MenuItem::new(choice.menu_label())
+                                                .checked(draft.height == choice),
                                         )
-                                        && layer_can_be_mask_with_mode(
-                                            &self.project,
-                                            &draft.symbol_id,
-                                            layer_index,
-                                            MaskMode::Alpha,
-                                        )
+                                        .clicked()
                                     {
-                                        draft.mask_mode = MaskMode::Alpha;
+                                        draft.height = choice;
+                                        ui.close();
                                     }
                                 }
-                            }
-                            let armature = ui.add_enabled(false, c::Radio::new(false, "Armature"));
-                            let _ = c::not_available(armature, ARMATURE_REASON);
-                        });
-                        if draft.kind == LayerTypeChoice::Mask {
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S2;
-                                let mode_label =
-                                    format!("Mask mode: {}", draft.mask_mode.label());
-                                c::Select::new("layer-properties-mask-mode", &mode_label)
-                                    .width(200.0)
-                                    .show(ui, |ui| {
-                                        crate::layer_controls::populate_mask_mode_menu(
-                                            ui,
-                                            draft.mask_mode,
-                                            |mode| draft.mask_mode = mode,
-                                        );
-                                    });
-                                ui.add(c::Switch::new(&mut draft.mask_invert, "Invert mask"));
                             });
-                        }
-
-                        group(ui, "Outline");
-                        ui.horizontal(|ui| {
-                            ui.label(rich("Colour", TextStyle::Body).color(p.text_secondary));
-                            let swatch = ui.add_enabled(
-                                draft.kind != LayerTypeChoice::Folder,
-                                c::SwatchCell {
-                                    color: draft.outline_color,
-                                    selected: true,
-                                },
-                            );
-                            c::popup_below(&swatch, 232.0, |ui| {
-                                ui.spacing_mut().item_spacing = egui::vec2(space::S1, space::S2);
-                                ui.horizontal_wrapped(|ui| {
-                                    for rgb in OUTLINE_PRESETS {
-                                        let preset = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
-                                        if ui
-                                            .add(c::SwatchCell {
-                                                color: preset,
-                                                selected: draft.outline_color == preset,
-                                            })
-                                            .clicked()
-                                        {
-                                            draft.outline_color = preset;
-                                        }
-                                    }
-                                });
-                                let cf = c::ColorField::new(&mut draft.outline_color, "Outline colour")
-                                    .width(216.0)
-                                    .show(ui);
-                                super::dialog_helpers::track_rgba_popup(ui.ctx(), cf.response.id);
-                                crate::paint_controls::show_color32_field_popup(
-                                    ui,
-                                    &cf.response,
-                                    cf.swatch_clicked,
-                                    "Outline colour",
-                                    &mut draft.outline_color,
-                                );
-                            });
-                            ui.add_enabled(
-                                draft.kind != LayerTypeChoice::Folder,
-                                c::Checkbox::new(&mut draft.outline, "View layer as outlines"),
-                            );
-                        });
-
-                        let non_guide = draft.kind != LayerTypeChoice::Guide;
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = space::S2;
-                            c::Select::new("layer-properties-height", draft.height.label())
-                                .width(200.0)
+                    });
+                    form_row(ui, "Blending", |ui| {
+                        let blend_label = crate::layer_controls::layer_blending_select_label(
+                            draft.blend_mode,
+                            inherited_blend,
+                        );
+                        let blend_label = blend_label
+                            .strip_prefix("Blending: ")
+                            .unwrap_or(&blend_label);
+                        ui.add_enabled_ui(non_guide, |ui| {
+                            c::Select::new("layer-properties-blending", blend_label)
+                                .width(metrics::field_m())
                                 .show(ui, |ui| {
-                                    for choice in LayerHeightChoice::ALL {
-                                        if ui
-                                            .add(
-                                                c::MenuItem::new(choice.menu_label())
-                                                    .checked(draft.height == choice),
-                                            )
-                                            .clicked()
-                                        {
-                                            draft.height = choice;
-                                            ui.close();
-                                        }
-                                    }
+                                    crate::layer_controls::populate_blend_mode_menu(
+                                        ui,
+                                        draft.blend_mode,
+                                        |mode| draft.blend_mode = mode,
+                                    );
                                 });
-                            let blend_label = crate::layer_controls::layer_blending_select_label(
-                                draft.blend_mode,
-                                inherited_blend,
-                            );
-                            ui.add_enabled_ui(non_guide, |ui| {
-                                c::Select::new("layer-properties-blending", &blend_label)
-                                    .width(200.0)
-                                    .show(ui, |ui| {
-                                        crate::layer_controls::populate_blend_mode_menu(
-                                            ui,
-                                            draft.blend_mode,
-                                            |mode| draft.blend_mode = mode,
-                                        );
-                                    });
-                            });
                         });
-
+                    });
+                    form_row(ui, "", |ui| {
                         ui.add_enabled(
                             non_guide,
-                            c::Switch::new(&mut draft.sync_timeline, "Sync layer to timeline"),
+                            c::Checkbox::new(&mut draft.sync_timeline, "Sync layer to timeline"),
                         );
-                        ui.label(
-                            rich(
-                                "Instances on this layer start at the parent timeline frame instead of restarting at frame 1.",
-                                TextStyle::Small,
-                            )
-                            .color(p.text_tertiary),
-                        );
+                    });
+                    form_hint(
+                        ui,
+                        "Instances on this layer start at the parent timeline frame instead of restarting at frame 1.",
+                    );
 
-                        if draft.kind != LayerTypeChoice::Folder {
-                            group(ui, "Camera");
-                            ui.add(c::Switch::new(
+                    group_caption(ui, "Outline");
+                    form_row(ui, "Colour", |ui| {
+                        ui.spacing_mut().item_spacing.x = space::s3();
+                        let swatch = ui.add_enabled(
+                            draft.kind != LayerTypeChoice::Folder,
+                            c::SwatchCell {
+                                color: draft.outline_color,
+                                selected: true,
+                            },
+                        );
+                        c::popup_below(&swatch, metrics::field_l() + 2.0 * space::s3(), |ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(space::s1(), space::s2());
+                            ui.horizontal_wrapped(|ui| {
+                                for rgb in OUTLINE_PRESETS {
+                                    let preset = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+                                    if ui
+                                        .add(c::SwatchCell {
+                                            color: preset,
+                                            selected: draft.outline_color == preset,
+                                        })
+                                        .clicked()
+                                    {
+                                        draft.outline_color = preset;
+                                    }
+                                }
+                            });
+                            let cf = c::ColorField::new(&mut draft.outline_color, "Outline colour")
+                                .width(metrics::field_l())
+                                .show(ui);
+                            super::dialog_helpers::track_rgba_popup(ui.ctx(), cf.response.id);
+                            crate::paint_controls::show_color32_field_popup(
+                                ui,
+                                &cf.response,
+                                cf.swatch_clicked,
+                                "Outline colour",
+                                &mut draft.outline_color,
+                            );
+                        });
+                        ui.add_enabled(
+                            draft.kind != LayerTypeChoice::Folder,
+                            c::Checkbox::new(&mut draft.outline, "View layer as outlines"),
+                        );
+                    });
+
+                    if draft.kind != LayerTypeChoice::Folder {
+                        group_caption(ui, "Camera");
+                        form_row(ui, "Z-depth", |ui| {
+                            ui.spacing_mut().item_spacing.x = space::s3();
+                            ui.add(
+                                c::Field::new(&mut draft.z_depth, "Z-depth")
+                                    .unit("px")
+                                    .range(-10_000.0..=10_000.0)
+                                    .width(metrics::field_s()),
+                            );
+                            ui.add(c::Checkbox::new(
                                 &mut draft.attach_to_camera,
                                 "Attach layer to camera",
                             ));
-                            ui.add(
-                                c::Field::new(&mut draft.z_depth, "Z-depth")
-                                    .prefix("Z-depth")
-                                    .unit("px")
-                                    .range(-10_000.0..=10_000.0),
-                            );
-                        }
-
-                        ui.add_space(space::S2);
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.add(c::Button::primary("OK")).clicked() {
-                                close_ok = true;
-                            }
-                            if ui.add(c::Button::new("Cancel")).clicked() {
-                                close_cancel = true;
-                            }
                         });
-                    });
+                    }
+                });
+                dialog.footer(
+                    ui,
+                    |_| {},
+                    |ui| {
+                        close_ok |= ui.add(c::Button::primary("OK")).clicked();
+                        close_cancel |= ui.add(c::Button::new("Cancel")).clicked();
+                    },
+                );
             });
 
         if !close_cancel && !close_ok {
-            match kb.resolve(ctx, &modal, true) {
+            match kb.resolve_first_field(ctx, &modal, true, in_name) {
                 super::dialog_helpers::DialogKeyboardOutcome::Cancel => close_cancel = true,
                 super::dialog_helpers::DialogKeyboardOutcome::Confirm => close_ok = true,
                 super::dialog_helpers::DialogKeyboardOutcome::None => {}

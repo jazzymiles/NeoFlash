@@ -10,16 +10,27 @@
 //! NF2_GALLERY_SECTION=timeline cargo run -p neoflash-ui --example gallery -- dark x.png # Mode & Solo + timeline
 //! NF2_GALLERY_SECTION=shortcuts cargo run -p neoflash-ui --example gallery -- dark x.png # Preferences shortcuts
 //! NF2_GALLERY_SECTION=states cargo run -p neoflash-ui --example gallery -- dark x.png # hover / selected / rails on each surface
+//! NF2_GALLERY_DENSITY=classic cargo run -p neoflash-ui --example gallery -- light x.png # normal | compact | classic
 //! ```
 //! Compare the PNG with `interface/design-system/docs/illustrations/*.png`.
 use eframe::egui;
 use neoflash_ui::components::{self as c, timeline as tl};
 use neoflash_ui::icons::{i16, i20};
-use neoflash_ui::metrics::FrameView;
+use neoflash_ui::metrics::{self as nf_metrics, FrameView};
 use neoflash_ui::tokens::{TextStyle, space};
 use neoflash_ui::{Theme, palette, typography};
 
 const HELP: &str = "NF2 component gallery\n\nUsage: gallery [dark|light|mid-neutral-gray|dark-graphite] [screenshot.png]";
+
+/// `NF2_GALLERY_DENSITY=normal|compact|classic` (default Normal).
+fn parse_density(value: Option<&str>) -> neoflash_ui::metrics::Density {
+    use neoflash_ui::metrics::Density;
+    match value.map(str::to_ascii_lowercase).as_deref() {
+        Some("compact") => Density::Compact,
+        Some("classic" | "classic-flash" | "classic_flash") => Density::ClassicFlash,
+        _ => Density::Comfortable,
+    }
+}
 
 fn parse_theme(value: Option<&str>) -> Theme {
     value.and_then(Theme::from_slug).unwrap_or_default()
@@ -44,6 +55,10 @@ fn main() -> eframe::Result {
         },
         Box::new(move |cc| {
             cc.egui_ctx.set_fonts(typography::font_definitions());
+            // Density first: `install` reads the metrics for spacing and radii.
+            neoflash_ui::metrics::set_density(parse_density(
+                std::env::var("NF2_GALLERY_DENSITY").ok().as_deref(),
+            ));
             neoflash_ui::theme::install(&cc.egui_ctx, theme);
             Ok(Box::new(Gallery {
                 shot,
@@ -65,6 +80,15 @@ mod cli_tests {
         assert_eq!(parse_theme(Some("light")), Theme::Light);
         assert_eq!(parse_theme(Some("mid-neutral-gray")), Theme::MidNeutralGray);
         assert_eq!(parse_theme(Some("dark-graphite")), Theme::DarkGraphite);
+    }
+
+    #[test]
+    fn parses_every_density_name() {
+        use neoflash_ui::metrics::Density;
+        assert_eq!(parse_density(None), Density::Comfortable);
+        assert_eq!(parse_density(Some("normal")), Density::Comfortable);
+        assert_eq!(parse_density(Some("Compact")), Density::Compact);
+        assert_eq!(parse_density(Some("classic")), Density::ClassicFlash);
     }
 }
 
@@ -97,6 +121,10 @@ struct Gallery {
 
 impl eframe::App for Gallery {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // The profile is per UI thread; set it before any layout, as the editor does every frame.
+        neoflash_ui::metrics::set_density(parse_density(
+            std::env::var("NF2_GALLERY_DENSITY").ok().as_deref(),
+        ));
         if self.frames == 0 {
             self.check = true;
             self.slider = 50.0;
@@ -115,7 +143,7 @@ impl eframe::App for Gallery {
             .frame(c::Surface::App.frame(ctx).inner_margin(24))
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.spacing_mut().item_spacing = egui::vec2(space::S4, space::S4);
+                    ui.spacing_mut().item_spacing = egui::vec2(space::s4(), space::s4());
                     if std::env::var("NF2_GALLERY_SECTION").is_ok_and(|v| v == "states") {
                         states_section(ui, &mut self.slider, &mut self.switch);
                         return;
@@ -230,6 +258,54 @@ impl eframe::App for Gallery {
                             action: Some("Show"),
                         }
                         .show(ui, 420.0);
+                        title(ui, "Toggle states · Slider with field");
+                        ui.horizontal(|ui| {
+                            let (mut on, mut off) = (true, false);
+                            ui.add(c::Checkbox::new(&mut off, "Off"));
+                            ui.add(c::Checkbox::new(&mut off, "Mixed").mixed(true));
+                            ui.add_enabled(false, c::Checkbox::new(&mut on, "Disabled"));
+                            ui.add_enabled(false, c::Radio::new(true, "Disabled"));
+                            ui.add_enabled(false, c::Switch::new(&mut on, "Disabled"));
+                        });
+                        ui.add(
+                            c::Slider::new(&mut self.slider, 0.0..=100.0, "Opacity")
+                                .value(c::SliderValue::Field)
+                                .unit("%"),
+                        );
+                        title(ui, "Floating panel header (wide, narrow) · Stage toolbar");
+                        ui.horizontal_top(|ui| {
+                            for width in [nf_metrics::inspector(), nf_metrics::tools_two_columns()]
+                            {
+                                c::Surface::PanelFlush.frame(ui.ctx()).show(ui, |ui| {
+                                    ui.set_width(width);
+                                    c::FloatingPanelHeader {
+                                        tabs: &["Tools", "Align"],
+                                        active: 0,
+                                        collapsed: false,
+                                    }
+                                    .show(ui);
+                                });
+                            }
+                        });
+                        c::ZoomControl::bar_frame(ui.ctx()).show(ui, |ui| {
+                            c::ZoomControl {
+                                zoom: 1.3,
+                                hand: false,
+                                rulers: Some(true),
+                                guides: Some(true),
+                                grid: Some(false),
+                                snap: Some(true),
+                            }
+                            .contents(ui);
+                        });
+                        title(ui, "Dialog header");
+                        c::Surface::PanelFlush.frame(ui.ctx()).show(ui, |ui| {
+                            ui.set_width(nf_metrics::dialog_s());
+                            c::DialogHeader {
+                                title: "Document settings",
+                            }
+                            .show(ui);
+                        });
 
                         let ui = &mut cols[1];
                         title(ui, "Dock tab · Panel header · Section header");
@@ -256,26 +332,35 @@ impl eframe::App for Gallery {
                             }
                         });
                         c::Surface::PanelFlush.frame(ui.ctx()).show(ui, |ui| {
-                            ui.set_width(320.0);
+                            // The inspector at its default width, padded with `pad/panel`.
+                            ui.set_width(nf_metrics::inspector());
                             c::PanelHeader {
                                 title: "Properties",
                             }
                             .show(ui, |_| {});
-                            egui::Frame::new().inner_margin(12).show(ui, |ui| {
+                            let pad = egui::Margin::symmetric(space::s4() as i8, space::s2() as i8);
+                            egui::Frame::new().inner_margin(pad).show(ui, |ui| {
+                                ui.add(c::TypeHeader {
+                                    icon: i16::MOVIECLIP,
+                                    title: "Movie clip",
+                                    subtitle: "Instance of “Orbit” in the library folder Characters",
+                                });
                                 c::SectionHeader::new("Stage").show(ui, |ui| {
                                     ui.add(
                                         c::TextField::new(&mut self.name, "Name").prefix("Name"),
                                     );
                                     ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = space::s2();
+                                        let half = (ui.available_width() - space::s2()) / 2.0;
                                         ui.add(
                                             c::Field::new(&mut self.width, "Width")
                                                 .prefix("W")
-                                                .width(130.0),
+                                                .width(half),
                                         );
                                         ui.add(
                                             c::Field::new(&mut self.width, "Height")
                                                 .prefix("H")
-                                                .width(130.0),
+                                                .width(half),
                                         );
                                     });
                                 });
@@ -700,7 +785,7 @@ impl eframe::App for Gallery {
                     ui.horizontal_top(|ui| {
                         ui.vertical(|ui| {
                             ui.set_width(360.0);
-                            ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
+                            ui.spacing_mut().item_spacing = egui::vec2(space::s2(), space::s2());
                             for row in c::EasePresetKind::ALL.chunks(4) {
                                 ui.horizontal(|ui| {
                                     for preset in row {
@@ -842,7 +927,7 @@ impl eframe::App for Gallery {
                             });
                         ui.vertical(|ui| {
                             ui.set_width(260.0);
-                            ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S3);
+                            ui.spacing_mut().item_spacing = egui::vec2(space::s2(), space::s3());
                             ui.add(c::ColorPicker { color: &mut color });
                             ui.add(c::GradientBar {
                                 stops: &mut stops,
@@ -1066,7 +1151,7 @@ impl eframe::App for Gallery {
                         ]
                         .map(|(part, bytes, value)| c::WeightSegment { part, bytes, value });
                         ui.scope(|ui| {
-                            ui.spacing_mut().item_spacing.y = space::S2;
+                            ui.spacing_mut().item_spacing.y = space::s2();
                             c::WeightBar::new(&segments).show(ui, 566.0);
                             c::weight_legend(ui, &segments, 566.0);
                             c::weight_totals(
@@ -1393,7 +1478,7 @@ fn states_section(ui: &mut egui::Ui, slider: &mut f64, switch: &mut bool) {
                             .selected(true)
                             .depth(1)
                             .show(ui);
-                        ui.add_space(space::S2);
+                        ui.add_space(space::s2());
                         ui.add(c::Slider::new(slider, 0.0..=100.0, "Opacity"));
                         c::progress(ui, "Exporting frames 72 / 120", Some(0.6), 280.0);
                         ui.add(c::Switch::new(switch, "Switch"));

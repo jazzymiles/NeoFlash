@@ -55,34 +55,40 @@ impl Editor {
                                 }
                             }
                         });
-                    ui.horizontal(|ui| {
-                        let effect = format!("Effect: {}", sound.effect.label());
-                        c::Select::new("frame-sound-effect", &effect)
-                            .width(168.0)
-                            .show(ui, |ui| {
-                                for option in SoundEffect::ALL {
-                                    let item = MenuItem::new(option.label())
-                                        .checked(option == sound.effect);
-                                    if ui.add(item).clicked() {
-                                        edit = Some(SoundEdit::Effect(option));
+                    // Budgets from the section width: Effect | Envelope… use the shared two-column
+                    // grid; Sync and Repeat share what the repeat count leaves.
+                    let count_w = neoflash_ui::metrics::field_num().min(w / 5.0);
+                    let sync_w = ((w - count_w - 2.0 * space::s2()) * 0.58).max(0.0);
+                    let repeat_w = (w - count_w - sync_w - 2.0 * space::s2()).max(0.0);
+                    let (_, envelope) = crate::paint_controls::two_column_row(
+                        ui,
+                        |ui, width| {
+                            c::Select::new("frame-sound-effect", sound.effect.label())
+                                .prefix("Effect")
+                                .width(width)
+                                .show(ui, |ui| {
+                                    for option in SoundEffect::ALL {
+                                        let item = MenuItem::new(option.label())
+                                            .checked(option == sound.effect);
+                                        if ui.add(item).clicked() {
+                                            edit = Some(SoundEdit::Effect(option));
+                                        }
                                     }
-                                }
-                            });
-                        if ui
-                            .add(
-                                c::Button::new("Envelope…")
-                                    .icon(i16::WAVEFORM)
-                                    .width(w - 168.0 - space::S2),
-                            )
-                            .clicked()
-                        {
-                            self.open_edit_envelope();
-                        }
-                    });
+                                });
+                        },
+                        |ui, width| {
+                            ui.add(c::Button::new("Envelope…").icon(i16::WAVEFORM).width(width))
+                                .clicked()
+                        },
+                    );
+                    if envelope {
+                        self.open_edit_envelope();
+                    }
                     ui.horizontal(|ui| {
-                        let sync = format!("Sync: {}", sound.sync.label());
-                        c::Select::new("frame-sound-sync", &sync)
-                            .width(144.0)
+                        ui.spacing_mut().item_spacing.x = space::s2();
+                        c::Select::new("frame-sound-sync", sound.sync.label())
+                            .prefix("Sync")
+                            .width(sync_w)
                             .show(ui, |ui| {
                                 for option in SoundSync::ALL {
                                     let item =
@@ -94,7 +100,7 @@ impl Editor {
                             });
                         let repeat = if sound.loop_forever { "Loop" } else { "Repeat" };
                         c::Select::new("frame-sound-repeat", repeat)
-                            .width(92.0)
+                            .width(repeat_w)
                             .show(ui, |ui| {
                                 for (forever, label) in [(false, "Repeat"), (true, "Loop")] {
                                     let item =
@@ -110,7 +116,7 @@ impl Editor {
                             c::Field::new(&mut count, "Repeat count")
                                 .range(1.0..=f64::from(FrameSound::MAX_LOOPS))
                                 .decimals(0)
-                                .width(w - 236.0 - 2.0 * space::S2),
+                                .width(count_w),
                         );
                         if response.changed() && count as u32 != sound.loops {
                             edit = Some(SoundEdit::Loops(count as u32));

@@ -1,4 +1,9 @@
-//! Interactive Visual UI & System Layout Studio (`Window ▸ Developer ▸ UI Layout Studio…`).
+//! UI Layout Studio (`Window ▸ UI Layout Studio…`, standalone with `NEOFLASH_UI_STUDIO`).
+//!
+//! Layout of the Studio itself (v3): one toolbar row of `metrics::timeline_controls()` height whose
+//! lower-priority groups collapse into a ⋯ menu, three fixed columns (Hierarchy `tree_width()`,
+//! canvas, inspector `inspector()`) and a status row. The canvas previews are laid out in their own
+//! density ([`PreviewDensity`]); "All" shows the active panel in Normal, Compact and Classic Flash.
 //!
 //! Enables visual authoring, inspection, and live system-level tuning of NeoFlash panels,
 //! containers, grids, and NF2 design tokens without leaving the editor:
@@ -92,6 +97,32 @@ pub enum SystemsSubTab {
     PaletteTokens,
 }
 
+/// Tab of the left Studio column.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioHierarchyTab {
+    /// Node tree of the active panel.
+    #[default]
+    Hierarchy,
+    /// Containers and widgets to insert into the selected node.
+    Add,
+}
+
+/// Board shown on the canvas (toolbar segmented control).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StudioBoardMode {
+    Panels,
+    Workspace,
+    Timeline,
+}
+
+/// Density choice of the toolbar: one profile, or all three side by side.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StudioDensityChoice {
+    One(StudioDensityProfile),
+    All,
+}
+
 /// A free-positioned, live-resizable panel artboard on the Multi-Panel Studio Canvas.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StudioArtboard {
@@ -109,76 +140,68 @@ pub struct StudioArtboard {
 }
 
 impl StudioArtboard {
+    /// Artboard size of a preset in the Normal density: dock panels are one inspector wide.
     pub fn default_size_for(preset: StudioPanelPreset) -> [f32; 2] {
-        match preset {
-            StudioPanelPreset::FullWorkspaceShell => [1180.0, 680.0],
-            StudioPanelPreset::TimelineStudio => [1310.0, 390.0],
-            StudioPanelPreset::LibraryAndAssetsStudio => [290.0, 480.0],
-            StudioPanelPreset::ColorAndGradientStudio => [280.0, 480.0],
-            StudioPanelPreset::AlignAndTransform => [260.0, 480.0],
-            StudioPanelPreset::PropertiesMovieClip => [300.0, 480.0],
-            StudioPanelPreset::PropertiesText => [300.0, 480.0],
-            StudioPanelPreset::ColorPanel => [280.0, 440.0],
-            StudioPanelPreset::ToolsPanel => [84.0, 480.0],
-            StudioPanelPreset::FiltersPanel => [290.0, 420.0],
-            StudioPanelPreset::TimelineHeader => [620.0, 96.0],
-        }
+        let width = preset.natural_width(neoflash_ui::metrics::Density::Comfortable);
+        let height = match preset {
+            StudioPanelPreset::FullWorkspaceShell => 680.0,
+            StudioPanelPreset::TimelineStudio => 390.0,
+            StudioPanelPreset::ColorPanel => 440.0,
+            StudioPanelPreset::FiltersPanel => 420.0,
+            StudioPanelPreset::TimelineHeader => 96.0,
+            _ => 480.0,
+        };
+        [width, height]
     }
 
     /// Default startup multi-panel board laying out 6 core NeoFlash panels + timeline without clipping.
     pub fn default_board() -> Vec<Self> {
-        let specs = [
-            (
-                1,
-                StudioPanelPreset::PropertiesMovieClip,
-                [24.0, 28.0],
-                [300.0, 480.0],
-            ),
-            (
-                2,
-                StudioPanelPreset::LibraryAndAssetsStudio,
-                [348.0, 28.0],
-                [290.0, 480.0],
-            ),
-            (
-                3,
-                StudioPanelPreset::ColorAndGradientStudio,
-                [662.0, 28.0],
-                [280.0, 480.0],
-            ),
-            (
-                4,
-                StudioPanelPreset::AlignAndTransform,
-                [966.0, 28.0],
-                [260.0, 480.0],
-            ),
-            (
-                5,
-                StudioPanelPreset::ToolsPanel,
-                [1250.0, 28.0],
-                [84.0, 480.0],
-            ),
-            (
-                6,
-                StudioPanelPreset::TimelineStudio,
-                [24.0, 540.0],
-                [1310.0, 390.0],
-            ),
+        let top_row = [
+            StudioPanelPreset::PropertiesMovieClip,
+            StudioPanelPreset::LibraryAndAssetsStudio,
+            StudioPanelPreset::ColorAndGradientStudio,
+            StudioPanelPreset::AlignAndTransform,
+            StudioPanelPreset::ToolsPanel,
         ];
-        specs
-            .into_iter()
-            .map(|(id, preset, canvas_pos, canvas_size)| Self {
-                id,
+        let mut boards = Vec::with_capacity(top_row.len() + 1);
+        let mut x = BOARD_MARGIN_X;
+        let mut row_h = 0.0_f32;
+        for (i, preset) in top_row.into_iter().enumerate() {
+            let canvas_size = Self::default_size_for(preset);
+            boards.push(Self {
+                id: i as u32 + 1,
                 preset,
                 document: preset.build_document(),
-                canvas_pos,
+                canvas_pos: [x, BOARD_MARGIN_Y],
                 canvas_size,
                 visible: true,
                 theme_override: None,
-            })
-            .collect()
+            });
+            x += canvas_size[0] + BOARD_GAP_X;
+            row_h = row_h.max(canvas_size[1]);
+        }
+        let timeline = StudioPanelPreset::TimelineStudio;
+        boards.push(Self {
+            id: boards.len() as u32 + 1,
+            preset: timeline,
+            document: timeline.build_document(),
+            canvas_pos: [BOARD_MARGIN_X, BOARD_MARGIN_Y + row_h + BOARD_GAP_Y],
+            canvas_size: Self::default_size_for(timeline),
+            visible: true,
+            theme_override: None,
+        });
+        boards
     }
 }
+
+/// Pasteboard geometry of the artboard canvas (canvas coordinates, not chrome).
+pub(super) const BOARD_MARGIN_X: f32 = 24.0;
+pub(super) const BOARD_MARGIN_Y: f32 = 32.0;
+pub(super) const BOARD_GAP_X: f32 = 24.0;
+pub(super) const BOARD_GAP_Y: f32 = 40.0;
+/// Smallest column / row step when artboards are appended to the board.
+const BOARD_STEP_X: f32 = 296.0;
+const BOARD_STEP_Y: f32 = 470.0;
 
 fn default_true() -> bool {
     true
@@ -213,6 +236,10 @@ pub struct StudioPersistedBundle {
     pub preview_theme: Option<ThemeMode>,
     #[serde(default)]
     pub preview_theme_locked: bool,
+    #[serde(default)]
+    pub preview_all_densities: bool,
+    #[serde(default)]
+    pub hierarchy_tab: StudioHierarchyTab,
 }
 
 fn deserialize_studio_theme<'de, D>(deserializer: D) -> Result<ThemeMode, D::Error>
@@ -272,7 +299,15 @@ pub struct UiLayoutStudioState {
     /// When true, `preview_theme` was explicitly chosen inside UI Studio and is not overwritten by host frames.
     #[serde(default)]
     pub preview_theme_locked: bool,
+    /// The canvas shows the active panel in Normal, Compact and Classic Flash side by side.
+    #[serde(default)]
+    pub preview_all_densities: bool,
+    #[serde(default)]
+    pub hierarchy_tab: StudioHierarchyTab,
     pub status_message: String,
+    /// Last manual save or export, shown at the right of the status row.
+    #[serde(default)]
+    pub last_output: String,
     #[serde(skip)]
     pub history: UiStudioHistory,
     #[serde(skip)]
@@ -313,8 +348,11 @@ impl Default for UiLayoutStudioState {
             preview_canvas_width: 820.0,
             preview_theme: ThemeMode::Dark,
             preview_theme_locked: false,
-            status_message: "Multi-Panel Artboard Canvas ready — drag headers to move, drag bottom-right grips to resize (% vs px), or Import/Export SVG."
+            preview_all_densities: false,
+            hierarchy_tab: StudioHierarchyTab::Hierarchy,
+            status_message: "Drag a preview header to move it, the corner grip to resize it."
                 .to_owned(),
+            last_output: String::new(),
             history: UiStudioHistory::new(64),
             drag_source_node: None,
             last_host_theme: None,
@@ -361,8 +399,8 @@ impl UiLayoutStudioState {
         let size = StudioArtboard::default_size_for(preset);
         let count = self.artboards.len();
         let pos = [
-            24.0 + ((count % 4) as f32) * 320.0,
-            28.0 + ((count / 4) as f32) * 510.0,
+            BOARD_MARGIN_X + ((count % 4) as f32) * (size[0].max(BOARD_STEP_X) + BOARD_GAP_X),
+            BOARD_MARGIN_Y + ((count / 4) as f32) * (size[1].max(BOARD_STEP_Y) + BOARD_GAP_Y),
         ];
         let doc = preset.build_document();
         self.artboards.push(StudioArtboard {
@@ -661,6 +699,135 @@ impl UiLayoutStudioState {
         }
     }
 
+    /// Board the toolbar segmented control shows as selected.
+    pub fn board_mode(&self) -> StudioBoardMode {
+        match (self.solo_active_artboard, self.active_preset) {
+            (true, StudioPanelPreset::FullWorkspaceShell) => StudioBoardMode::Workspace,
+            (true, StudioPanelPreset::TimelineStudio) => StudioBoardMode::Timeline,
+            _ => StudioBoardMode::Panels,
+        }
+    }
+
+    /// Switch the board: the six core panels, the workspace shell alone, or the timeline alone.
+    pub fn set_board_mode(&mut self, mode: StudioBoardMode) {
+        match mode {
+            StudioBoardMode::Panels => self.open_all_core_artboards(),
+            StudioBoardMode::Workspace => {
+                self.solo_active_artboard = true;
+                self.load_preset(StudioPanelPreset::FullWorkspaceShell);
+                self.systems_subtab = SystemsSubTab::WorkspaceAndStage;
+            }
+            StudioBoardMode::Timeline => {
+                self.solo_active_artboard = true;
+                self.load_preset(StudioPanelPreset::TimelineStudio);
+                self.systems_subtab = SystemsSubTab::TimelineGeometry;
+            }
+        }
+    }
+
+    pub fn preview_density_choice(&self) -> StudioDensityChoice {
+        if self.preview_all_densities {
+            StudioDensityChoice::All
+        } else {
+            StudioDensityChoice::One(self.systems.density.active_profile)
+        }
+    }
+
+    /// Density the canvas previews are laid out with. A single profile is an undoable system
+    /// change; "All" is a view of the active panel in the three densities.
+    pub fn set_preview_density_choice(&mut self, choice: StudioDensityChoice) {
+        match choice {
+            StudioDensityChoice::All => {
+                self.preview_all_densities = true;
+                self.status_message =
+                    "Showing the active panel in Normal, Compact and Classic Flash.".to_owned();
+            }
+            StudioDensityChoice::One(profile) => {
+                self.preview_all_densities = false;
+                if profile != self.systems.density.active_profile {
+                    self.commit_history("Change density profile");
+                    self.systems.density.active_profile = profile;
+                }
+                self.status_message = format!("Preview density: {}.", profile.label());
+            }
+        }
+    }
+
+    /// Densities the canvas lays the active panel out in: one, or all three.
+    pub fn preview_densities(&self) -> Vec<neoflash_ui::metrics::Density> {
+        if self.preview_all_densities {
+            neoflash_ui::metrics::Density::ALL.to_vec()
+        } else {
+            vec![self.systems.density.active_profile.ui()]
+        }
+    }
+
+    /// Wrap the selected nodes in a container; one undo step when the tree changed.
+    pub fn wrap_selection(&mut self, preset: ContainerWrapPreset, what: &str) {
+        let sel = self.selected_nodes.clone();
+        let snap = self.capture_snapshot(format!("Wrap in {what}"));
+        if let Some(new_id) = self.document.wrap_selected_nodes(&sel, preset) {
+            self.push_history_snapshot(snap);
+            self.select_single(new_id);
+            self.sync_active_to_artboard();
+            self.status_message = format!("Wrapped selection in {what}.");
+        }
+    }
+
+    /// Unwrap the selected container, or lift the selected node out of its parent.
+    pub fn unwrap_selection(&mut self) {
+        let target = self.primary_selected_id();
+        let snap = self.capture_snapshot("Unwrap container");
+        if self.document.unwrap_selected_container(target) {
+            self.push_history_snapshot(snap);
+            self.sync_active_to_artboard();
+            self.status_message = "Unwrapped container children into parent.".to_owned();
+        } else if self.document.extract_node_to_parent(target) {
+            self.push_history_snapshot(snap);
+            self.sync_active_to_artboard();
+            self.status_message = "Extracted node out of parent container.".to_owned();
+        }
+    }
+
+    /// File ▸ Export SVG…: active artboard to the clipboard and `DEFAULT_STUDIO_SVG_EXPORT_PATH`.
+    pub fn export_svg_to_default_path(&mut self, ctx: &egui::Context) {
+        let svg = self.export_active_svg();
+        ctx.copy_text(svg.clone());
+        self.svg_buffer = svg;
+        match self.save_svg_to_file(Path::new(DEFAULT_STUDIO_SVG_EXPORT_PATH)) {
+            Ok(saved) => {
+                self.inspector_tab = StudioInspectorTab::CodeExport;
+                self.last_output = format!("Exported SVG to {}", saved.display());
+                self.status_message = "SVG exported and copied to the clipboard.".to_owned();
+            }
+            Err(err) => self.status_message = err,
+        }
+    }
+
+    /// File ▸ Save JSON.
+    pub fn save_json_to_default_path(&mut self) {
+        match self.save_studio_json(Path::new(DEFAULT_STUDIO_JSON_PATH)) {
+            Ok(saved) => {
+                self.last_output = format!("Saved to {}", saved.display());
+                self.status_message = "Saved studio JSON.".to_owned();
+            }
+            Err(err) => self.status_message = err,
+        }
+    }
+
+    /// Export code: the JSON overrides and the generated Rust layout.
+    pub fn export_code_to_default_paths(&mut self) {
+        let _ = self.save_studio_json(Path::new(DEFAULT_STUDIO_JSON_PATH));
+        match self.export_rust_to_file(Path::new(DEFAULT_STUDIO_RUST_EXPORT_PATH)) {
+            Ok(saved) => {
+                self.inspector_tab = StudioInspectorTab::CodeExport;
+                self.last_output = format!("Exported code to {}", saved.display());
+                self.status_message = "Exported Rust layout code and JSON overrides.".to_owned();
+            }
+            Err(err) => self.status_message = err,
+        }
+    }
+
     /// Export the active artboard to SVG XML.
     pub fn export_active_svg(&self) -> String {
         export_artboard_to_svg(&self.document, &self.systems, self.preview_theme)
@@ -768,6 +935,8 @@ impl UiLayoutStudioState {
             systems_subtab: self.systems_subtab,
             preview_theme: Some(self.preview_theme),
             preview_theme_locked: self.preview_theme_locked,
+            preview_all_densities: self.preview_all_densities,
+            hierarchy_tab: self.hierarchy_tab,
         }
     }
 
@@ -775,6 +944,9 @@ impl UiLayoutStudioState {
     pub fn restore_persisted_bundle(&mut self, bundle: StudioPersistedBundle) {
         self.document = bundle.document;
         self.systems = bundle.systems;
+        self.systems.migrate_legacy_defaults();
+        self.preview_all_densities = bundle.preview_all_densities;
+        self.hierarchy_tab = bundle.hierarchy_tab;
         if let Some(theme) = bundle.preview_theme {
             self.preview_theme = theme;
             self.preview_theme_locked = bundle.preview_theme_locked;
@@ -911,7 +1083,40 @@ pub(crate) fn restore_studio_session(ctx: &egui::Context) -> UiLayoutStudioState
             let _ = state.load_studio_json_initial(path);
         }
     }
+    apply_screenshot_overrides(&mut state);
     state
+}
+
+/// Screenshot aids (only with `NEOFLASH_SCREENSHOT`): `NEOFLASH_STUDIO_DENSITY=all|normal|compact|classic`
+/// picks the preview density, `NEOFLASH_STUDIO_BOARD=workspace|timeline` the board and
+/// `NEOFLASH_STUDIO_TAB=systems|code` the inspector tab.
+pub(super) fn apply_screenshot_overrides(state: &mut UiLayoutStudioState) {
+    if cfg!(test) || std::env::var_os("NEOFLASH_SCREENSHOT").is_none() {
+        return;
+    }
+    let choice = match std::env::var("NEOFLASH_STUDIO_DENSITY").as_deref() {
+        Ok("all") => Some(StudioDensityChoice::All),
+        Ok("normal") => Some(StudioDensityChoice::One(StudioDensityProfile::Comfortable)),
+        Ok("compact") => Some(StudioDensityChoice::One(StudioDensityProfile::Compact)),
+        Ok("classic") => Some(StudioDensityChoice::One(StudioDensityProfile::ClassicFlash)),
+        _ => None,
+    };
+    if let Some(choice) = choice {
+        state.preview_all_densities = choice == StudioDensityChoice::All;
+        if let StudioDensityChoice::One(profile) = choice {
+            state.systems.density.active_profile = profile;
+        }
+    }
+    match std::env::var("NEOFLASH_STUDIO_BOARD").as_deref() {
+        Ok("workspace") => state.set_board_mode(StudioBoardMode::Workspace),
+        Ok("timeline") => state.set_board_mode(StudioBoardMode::Timeline),
+        _ => {}
+    }
+    match std::env::var("NEOFLASH_STUDIO_TAB").as_deref() {
+        Ok("systems") => state.inspector_tab = StudioInspectorTab::SystemsTab,
+        Ok("code") => state.inspector_tab = StudioInspectorTab::CodeExport,
+        _ => {}
+    }
 }
 
 /// Check whether the context-managed UI Layout Studio window is currently open.
@@ -947,7 +1152,24 @@ pub fn show_studio_window(ctx: &egui::Context) {
     ctx.data_mut(|d| d.insert_temp(studio_temp_id(), state));
 }
 
-/// Floating window UI for the Interactive Visual UI & System Layout Studio.
+/// Width of the Studio window for a host content width: 880–1360 pt.
+pub(super) fn studio_window_width(content_width: f32) -> f32 {
+    (content_width - 96.0).clamp(STUDIO_MIN_WIDTH, STUDIO_MAX_WIDTH)
+}
+
+/// Height of the Studio window (header included) for a host content height.
+pub(super) fn studio_window_height(content_height: f32) -> f32 {
+    let preferred = neoflash_ui::metrics::density().pick(760.0, 700.0, 640.0)
+        + neoflash_ui::metrics::dialog_header();
+    (content_height - 96.0).clamp(STUDIO_MIN_HEIGHT.min(preferred), preferred)
+}
+
+/// Supported widths of the Studio window; the toolbar stays one row across the whole range.
+pub(super) const STUDIO_MIN_WIDTH: f32 = 880.0;
+pub(super) const STUDIO_MAX_WIDTH: f32 = 1360.0;
+const STUDIO_MIN_HEIGHT: f32 = 480.0;
+
+/// Floating window of the UI Layout Studio.
 pub fn ui_layout_studio_window_ui(ctx: &egui::Context, state: &mut UiLayoutStudioState) {
     if !state.open {
         return;
@@ -955,16 +1177,18 @@ pub fn ui_layout_studio_window_ui(ctx: &egui::Context, state: &mut UiLayoutStudi
     let nf = neoflash_ui::palette(ctx);
     let pos_id = egui::Id::new("nf2-ui-studio-win-pos");
     let drag_start_id = egui::Id::new("nf2-ui-studio-win-drag-start");
+    let screen = ctx.content_rect();
+    let win_width = studio_window_width(screen.width());
+    let win_height = studio_window_height(screen.height());
     let default_pos = egui::pos2(
-        (ctx.content_rect().left() + 72.0).max(16.0),
-        (ctx.content_rect().top() + 56.0).max(16.0),
+        (screen.center().x - win_width / 2.0).max(screen.left()),
+        (screen.center().y - win_height / 2.0).max(screen.top()),
     );
     let mut pos = ctx
         .data(|d| d.get_temp::<Pos2>(pos_id))
         .unwrap_or(default_pos);
     let mut close_requested = false;
     let mut drag_response: Option<egui::Response> = None;
-    let win_width = (ctx.content_rect().width() - 96.0).clamp(880.0, 1360.0);
 
     egui::Area::new(egui::Id::new("nf2-ui-layout-studio-window"))
         .order(egui::Order::Foreground)
@@ -974,18 +1198,17 @@ pub fn ui_layout_studio_window_ui(ctx: &egui::Context, state: &mut UiLayoutStudi
         .show(ctx, |ui| {
             c::Surface::Dialog.frame(ctx).show(ui, |ui| {
                 ui.set_width(win_width);
-                let top = ui.cursor().min;
-                let header_rect = Rect::from_min_size(
-                    top,
-                    egui::vec2(win_width, neoflash_ui::metrics::dialog_header()),
-                );
+                ui.spacing_mut().item_spacing = Vec2::ZERO;
+                let header_h = neoflash_ui::metrics::dialog_header();
+                let header_rect =
+                    Rect::from_min_size(ui.cursor().min, egui::vec2(win_width, header_h));
                 let drag = ui.interact(
                     header_rect,
                     ui.id().with("studio-title-drag"),
                     Sense::drag(),
                 );
                 close_requested = c::DialogHeader {
-                    title: "UI Layout & Design System Studio",
+                    title: "UI Layout Studio",
                 }
                 .show(ui);
                 if drag.hovered() {
@@ -998,12 +1221,18 @@ pub fn ui_layout_studio_window_ui(ctx: &egui::Context, state: &mut UiLayoutStudi
                     Stroke::new(1.0_f32, nf.border_subtle),
                 );
 
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S3 as i8))
-                    .show(ui, |ui| {
-                        ui.set_width(win_width - space::S3 * 2.0);
-                        ui_layout_studio_panel_ui(ui, state);
-                    });
+                let body = Rect::from_min_size(
+                    header_rect.left_bottom(),
+                    egui::vec2(win_width, win_height - header_h),
+                );
+                ui.allocate_rect(body, Sense::hover());
+                let mut body_ui = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(body)
+                        .layout(egui::Layout::top_down(egui::Align::Min)),
+                );
+                body_ui.set_clip_rect(body.intersect(ui.clip_rect()));
+                ui_layout_studio_panel_ui(&mut body_ui, state);
             });
         });
 
@@ -1047,7 +1276,58 @@ pub fn ui_layout_studio_window_ui(ctx: &egui::Context, state: &mut UiLayoutStudi
     }
 }
 
-/// Embeddable panel/body UI for the Interactive Visual UI & System Layout Studio.
+/// Rectangles of the Studio body: toolbar row, three fixed columns, status row.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct StudioBodyRects {
+    pub toolbar: Rect,
+    pub hierarchy: Rect,
+    pub canvas: Rect,
+    pub inspector: Rect,
+    pub status: Rect,
+}
+
+/// Split `full` into the Studio regions. The side columns have the fixed metric widths
+/// (`tree_width()`, `inspector()`); the canvas takes the rest.
+pub(super) fn studio_body_rects(full: Rect) -> StudioBodyRects {
+    use neoflash_ui::metrics;
+    let toolbar = Rect::from_min_size(
+        full.min,
+        egui::vec2(full.width(), metrics::timeline_controls()),
+    );
+    let status = Rect::from_min_max(
+        egui::pos2(full.left(), full.bottom() - metrics::status_bar()),
+        full.max,
+    );
+    let top = toolbar.bottom();
+    let bottom = status.top().max(top);
+    let left_w = metrics::tree_width().min(full.width());
+    let right_w = metrics::inspector().min((full.width() - left_w).max(0.0));
+    let hierarchy = Rect::from_min_max(
+        egui::pos2(full.left(), top),
+        egui::pos2(full.left() + left_w, bottom),
+    );
+    let inspector = Rect::from_min_max(
+        egui::pos2(full.right() - right_w, top),
+        egui::pos2(full.right(), bottom),
+    );
+    let canvas = Rect::from_min_max(hierarchy.right_top(), inspector.left_bottom());
+    StudioBodyRects {
+        toolbar,
+        hierarchy,
+        canvas,
+        inspector,
+        status,
+    }
+}
+
+/// Child `Ui` clipped to one Studio region.
+fn region_ui(ui: &mut Ui, rect: Rect, layout: egui::Layout) -> Ui {
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(layout));
+    child.set_clip_rect(rect.intersect(ui.clip_rect()));
+    child
+}
+
+/// Embeddable body of the UI Layout Studio; fills the available rectangle of `ui`.
 pub fn ui_layout_studio_panel_ui(ui: &mut Ui, state: &mut UiLayoutStudioState) {
     let nf = neoflash_ui::palette(ui.ctx());
     let host_theme = ThemeMode::current(ui.ctx());
@@ -1057,227 +1337,451 @@ pub fn ui_layout_studio_panel_ui(ui: &mut Ui, state: &mut UiLayoutStudioState) {
             state.preview_theme = host_theme;
         }
     }
-    ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
     state.sync_active_to_artboard();
 
-    // ── Top Toolbar: Preset Selector, Multi-Artboard Controls, SVG Import/Export, Wrap/Unwrap ──
-    render_studio_top_toolbar(ui, state);
-    c::divider(ui, false);
+    let full = ui.available_rect_before_wrap();
+    ui.allocate_rect(full, Sense::hover());
+    let rects = studio_body_rects(full);
+    let line = Stroke::new(1.0_f32, nf.border_subtle);
+    let top_down = egui::Layout::top_down(egui::Align::Min);
 
-    // ── Main 3-Column Studio Workspace: [Tree + Palette | Multi-Panel Artboard Canvas | Inspector/Systems] ──
-    let total_w = ui.available_width().max(760.0);
-    let left_w = (total_w * 0.195).clamp(248.0, 275.0);
-    let right_w = (total_w * 0.25).clamp(265.0, 345.0);
-    let center_w = (total_w - left_w - right_w - space::S3 * 2.0).max(300.0);
-    let body_h = (ui.available_height() - 48.0).clamp(420.0, 1400.0);
+    ui.painter().rect_filled(rects.toolbar, 0.0, nf.bg_panel);
+    ui.painter().rect_filled(rects.hierarchy, 0.0, nf.bg_app);
+    ui.painter().rect_filled(rects.inspector, 0.0, nf.bg_panel);
+    ui.painter().rect_filled(rects.status, 0.0, nf.bg_app);
 
-    ui.horizontal_top(|ui| {
-        ui.spacing_mut().item_spacing.x = space::S3;
-
-        // 1. Left Column: Hierarchy Tree + Structural Actions + Widget Creation Palette
-        ui.allocate_ui_with_layout(
-            egui::vec2(left_w, body_h),
-            egui::Layout::top_down(egui::Align::Min),
-            |ui| {
-                render_hierarchy_and_palette_column(ui, state, left_w, body_h);
-            },
+    {
+        let mut bar = region_ui(
+            ui,
+            rects.toolbar,
+            egui::Layout::left_to_right(egui::Align::Center),
         );
-
-        // 2. Center Column: Multi-Panel Free Artboard Canvas (unclipped pan/zoom + live resize grips)
-        ui.allocate_ui_with_layout(
-            egui::vec2(center_w, body_h),
-            egui::Layout::top_down(egui::Align::Min),
-            |ui| {
-                render_live_canvas_column(ui, state, center_w, body_h);
-            },
+        render_studio_top_toolbar(&mut bar, state);
+    }
+    {
+        let mut col = region_ui(ui, rects.hierarchy, top_down);
+        render_hierarchy_and_palette_column(
+            &mut col,
+            state,
+            rects.hierarchy.width(),
+            rects.hierarchy.height(),
         );
-
-        // 3. Right Column: Node Inspector (% / px / Padding / Gap / Typography) & Systems Tab
-        ui.allocate_ui_with_layout(
-            egui::vec2(right_w, body_h),
-            egui::Layout::top_down(egui::Align::Min),
-            |ui| {
-                render_inspector_and_systems_column(ui, state, right_w, body_h);
-            },
+    }
+    {
+        let mut col = region_ui(ui, rects.canvas, top_down);
+        render_live_canvas_column(&mut col, state, rects.canvas.width(), rects.canvas.height());
+    }
+    {
+        let mut col = region_ui(ui, rects.inspector, top_down);
+        render_inspector_and_systems_column(
+            &mut col,
+            state,
+            rects.inspector.width(),
+            rects.inspector.height(),
         );
-    });
+    }
+    {
+        let mut row = region_ui(
+            ui,
+            rects.status,
+            egui::Layout::left_to_right(egui::Align::Center),
+        );
+        render_studio_status_row(&mut row, state);
+    }
+
+    ui.painter()
+        .hline(full.x_range(), rects.toolbar.bottom() - 0.5, line);
+    ui.painter()
+        .hline(full.x_range(), rects.status.top() + 0.5, line);
+    ui.painter().vline(
+        rects.hierarchy.right() - 0.5,
+        rects.hierarchy.y_range(),
+        line,
+    );
+    ui.painter().vline(
+        rects.inspector.left() + 0.5,
+        rects.inspector.y_range(),
+        line,
+    );
 
     state.sync_active_to_artboard();
 
     if state.svg_import_modal_open {
         render_svg_import_modal(ui.ctx(), state);
     }
+}
 
-    c::divider(ui, false);
-    // ── Footer Status Bar ──
-    ui.horizontal(|ui| {
-        ui.add(c::Badge::new("NF2 Studio", c::BadgeType::Accent));
-        ui.label(
-            rich(
-                format!(
-                    "Artboards: {}   ·   Active: {}",
-                    state.artboards.iter().filter(|a| a.visible).count(),
-                    state.document.name
-                ),
-                TextStyle::MonoSmall,
-            )
-            .color(nf.text_tertiary),
+/// Width of `text` in a text style, for row budgets.
+pub(super) fn text_width(ui: &Ui, text: &str, style: TextStyle) -> f32 {
+    ui.fonts_mut(|f| {
+        f.layout_no_wrap(
+            text.to_owned(),
+            neoflash_ui::typography::font(style),
+            egui::Color32::WHITE,
+        )
+        .size()
+        .x
+    })
+}
+
+/// `text` shortened with "…" to at most `max_width`.
+pub(super) fn elided(ui: &Ui, text: &str, style: TextStyle, max_width: f32) -> String {
+    canvas::truncate_galley_with_ellipsis(
+        ui.painter(),
+        text,
+        neoflash_ui::typography::font(style),
+        max_width.max(0.0),
+        egui::Color32::WHITE,
+    )
+    .0
+    .text()
+    .to_owned()
+}
+
+/// Status row: active board and node count on the left, the last save / export on the right.
+fn render_studio_status_row(ui: &mut Ui, state: &UiLayoutStudioState) {
+    let nf = neoflash_ui::palette(ui.ctx());
+    let pad = space::s5();
+    let gap = space::s4();
+    let rect = ui.max_rect().shrink2(egui::vec2(pad, 0.0));
+    let style = TextStyle::Small;
+    let font = neoflash_ui::typography::font(style);
+    let left = format!(
+        "{} · {} nodes",
+        state.document.name,
+        state.document.all_node_ids().len()
+    );
+    let output = if state.last_output.is_empty() {
+        format!("Session: {DEFAULT_STUDIO_JSON_PATH}")
+    } else {
+        state.last_output.clone()
+    };
+    // The right text keeps its place; the left gives way, then the message in between.
+    let right = elided(ui, &output, style, rect.width() * 0.5);
+    let right_w = text_width(ui, &right, style);
+    let left = elided(ui, &left, style, rect.width() - right_w - gap);
+    let left_w = text_width(ui, &left, style);
+    let painter = ui.painter();
+    painter.text(
+        rect.left_center(),
+        egui::Align2::LEFT_CENTER,
+        &left,
+        font.clone(),
+        nf.text_secondary,
+    );
+    painter.text(
+        rect.right_center(),
+        egui::Align2::RIGHT_CENTER,
+        &right,
+        font.clone(),
+        nf.text_tertiary,
+    );
+    let middle_w = rect.width() - left_w - right_w - 2.0 * gap;
+    if middle_w > neoflash_ui::metrics::field_s() && !state.status_message.is_empty() {
+        let message = elided(ui, &state.status_message, style, middle_w);
+        ui.painter().text(
+            egui::pos2(rect.left() + left_w + gap, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            message,
+            font,
+            nf.text_tertiary,
         );
-        ui.label(rich(&state.status_message, TextStyle::Small).color(nf.text_secondary));
-    });
+    }
+}
+
+/// Short names of the presets for the toolbar Select (they fit `field_l()` in every density).
+const PRESET_OPTIONS: [(StudioPanelPreset, &str); 11] = [
+    (
+        StudioPanelPreset::PropertiesMovieClip,
+        "Properties — Movie clip",
+    ),
+    (StudioPanelPreset::PropertiesText, "Properties — Text"),
+    (StudioPanelPreset::LibraryAndAssetsStudio, "Library"),
+    (
+        StudioPanelPreset::ColorAndGradientStudio,
+        "Color and gradient",
+    ),
+    (StudioPanelPreset::ColorPanel, "Color"),
+    (StudioPanelPreset::AlignAndTransform, "Align and transform"),
+    (StudioPanelPreset::ToolsPanel, "Tools"),
+    (StudioPanelPreset::FiltersPanel, "Filters"),
+    (StudioPanelPreset::TimelineHeader, "Timeline header"),
+    (StudioPanelPreset::TimelineStudio, "Timeline"),
+    (StudioPanelPreset::FullWorkspaceShell, "Workspace shell"),
+];
+
+/// Theme name short enough for the closed theme Select (`field_s()` in every density).
+const fn theme_short_label(theme: ThemeMode) -> &'static str {
+    match theme {
+        ThemeMode::Dark => "Dark",
+        ThemeMode::Light => "Light",
+        ThemeMode::MidNeutralGray => "Mid gray",
+        ThemeMode::DarkGraphite => "Graphite",
+    }
+}
+
+const BOARD_OPTIONS: [(StudioBoardMode, &str); 3] = [
+    (StudioBoardMode::Panels, "Panels"),
+    (StudioBoardMode::Workspace, "Workspace"),
+    (StudioBoardMode::Timeline, "Timeline"),
+];
+
+const DENSITY_OPTIONS: [(StudioDensityChoice, &str); 4] = [
+    (
+        StudioDensityChoice::One(StudioDensityProfile::Comfortable),
+        "Normal",
+    ),
+    (
+        StudioDensityChoice::One(StudioDensityProfile::Compact),
+        "Compact",
+    ),
+    (
+        StudioDensityChoice::One(StudioDensityProfile::ClassicFlash),
+        "Classic",
+    ),
+    (StudioDensityChoice::All, "All"),
+];
+
+/// Natural widths of the toolbar items in the current density.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct ToolbarWidths {
+    pub board: f32,
+    pub preset: f32,
+    pub add: f32,
+    pub theme: f32,
+    pub density: f32,
+    pub file: f32,
+    pub export: f32,
+    /// Icon button (Auto-arrange, Undo, Redo, ⋯).
+    pub icon: f32,
+    pub divider: f32,
+    pub gap: f32,
+    /// Side padding of the row.
+    pub pad: f32,
+}
+
+impl ToolbarWidths {
+    fn measure(ui: &Ui) -> Self {
+        use neoflash_ui::metrics;
+        let pad_x = c::button::button_padding();
+        let label = |text: &str| text_width(ui, text, TextStyle::Body);
+        // Segmented: every segment hugs its label with the button padding; 2 pt inset each side
+        // plus 2 pt of slack for rounding.
+        let segmented =
+            |labels: &[&str]| labels.iter().map(|l| label(l) + 2.0 * pad_x).sum::<f32>() + 6.0;
+        let button =
+            |text: &str| 2.0 * pad_x + neoflash_ui::metrics::ICON_UI + space::s2() + label(text);
+        Self {
+            board: segmented(&BOARD_OPTIONS.map(|(_, l)| l)),
+            preset: metrics::field_l(),
+            add: button("Add"),
+            theme: metrics::field_s(),
+            density: segmented(&DENSITY_OPTIONS.map(|(_, l)| l)),
+            file: metrics::field_s(),
+            export: button("Export code"),
+            icon: metrics::control(),
+            divider: 1.0 + space::s2(),
+            gap: space::s2(),
+            pad: space::s4(),
+        }
+    }
+}
+
+/// Which toolbar groups are on the row; the others are items of the trailing ⋯ menu.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct ToolbarPlan {
+    pub auto_arrange: bool,
+    pub history: bool,
+    pub density: bool,
+    pub theme: bool,
+    /// Width of the preset Select (`field_l()` unless even the smallest row does not fit).
+    pub preset_width: f32,
+    /// Width the row needs, side padding included.
+    pub natural: f32,
+}
+
+impl ToolbarPlan {
+    pub fn overflow(&self) -> bool {
+        !(self.auto_arrange && self.history && self.density && self.theme)
+    }
+
+    fn natural_width(&self, w: &ToolbarWidths) -> f32 {
+        let mut items = vec![w.board, w.divider, self.preset_width, w.add];
+        if self.auto_arrange {
+            items.push(w.icon);
+        }
+        if self.theme || self.density {
+            items.push(w.divider);
+        }
+        if self.theme {
+            items.push(w.theme);
+        }
+        if self.density {
+            items.push(w.density);
+        }
+        if self.history {
+            items.extend([w.divider, w.icon, w.icon]);
+        }
+        if self.overflow() {
+            items.push(w.icon);
+        }
+        // Flexible space (at least one gap), then File and Export code.
+        items.extend([0.0, w.file, w.export]);
+        items.iter().sum::<f32>() + w.gap * (items.len() - 1) as f32 + 2.0 * w.pad
+    }
+}
+
+/// Fit the toolbar into `available`: groups leave the row for the ⋯ menu in the order
+/// Auto-arrange, Undo / Redo, density, theme. The row never wraps.
+pub(super) fn toolbar_plan(available: f32, w: &ToolbarWidths) -> ToolbarPlan {
+    let mut plan = ToolbarPlan {
+        auto_arrange: true,
+        history: true,
+        density: true,
+        theme: true,
+        preset_width: w.preset,
+        natural: 0.0,
+    };
+    let steps: [fn(&mut ToolbarPlan); 4] = [
+        |p| p.auto_arrange = false,
+        |p| p.history = false,
+        |p| p.density = false,
+        |p| p.theme = false,
+    ];
+    for step in steps {
+        if plan.natural_width(w) <= available {
+            break;
+        }
+        step(&mut plan);
+    }
+    let over = plan.natural_width(w) - available;
+    if over > 0.0 {
+        plan.preset_width = (w.preset - over).max(w.theme);
+    }
+    plan.natural = plan.natural_width(w);
+    plan
+}
+
+/// What the last toolbar pass used, for layout tests.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct ToolbarProbe {
+    pub rect: Rect,
+    /// Right edge of the left groups and left edge of File / Export code.
+    pub left_end: f32,
+    pub right_start: f32,
+    pub plan: ToolbarPlan,
+}
+
+#[cfg(test)]
+pub(super) fn toolbar_probe_id() -> egui::Id {
+    egui::Id::new("nf-ui-studio-toolbar-probe")
+}
+
+fn theme_menu_items(ui: &mut Ui, state: &mut UiLayoutStudioState) {
+    for theme in ThemeMode::ALL {
+        if ui
+            .add(c::MenuItem::new(theme.label()).checked(state.preview_theme == theme))
+            .clicked()
+        {
+            state.set_preview_theme(theme);
+        }
+    }
+    c::menu_separator(ui);
+    if ui.add(c::MenuItem::new("Compare four themes")).clicked() {
+        state.open_four_theme_comparison();
+    }
+}
+
+fn density_menu_items(ui: &mut Ui, state: &mut UiLayoutStudioState) {
+    let current = state.preview_density_choice();
+    for (choice, label) in [
+        (DENSITY_OPTIONS[0].0, "Normal"),
+        (DENSITY_OPTIONS[1].0, "Compact"),
+        (DENSITY_OPTIONS[2].0, "Classic Flash"),
+        (DENSITY_OPTIONS[3].0, "All three"),
+    ] {
+        if ui
+            .add(c::MenuItem::new(label).checked(current == choice))
+            .clicked()
+        {
+            state.set_preview_density_choice(choice);
+        }
+    }
 }
 
 fn render_studio_top_toolbar(ui: &mut Ui, state: &mut UiLayoutStudioState) {
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = space::S2;
+    let bar = ui.max_rect();
+    let widths = ToolbarWidths::measure(ui);
+    let plan = toolbar_plan(bar.width(), &widths);
+    let inner = bar.shrink2(egui::vec2(widths.pad, 0.0));
+    let mut row = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(inner)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    let ui = &mut row;
+    ui.spacing_mut().item_spacing.x = widths.gap;
 
-        // Prominent 1-Click Mode Switcher: [Multi-Panel Board] | [Full Workspace Shell] | [Timeline Studio]
-        let is_shell = state.solo_active_artboard
-            && state.active_preset == StudioPanelPreset::FullWorkspaceShell;
-        let is_timeline =
-            state.solo_active_artboard && state.active_preset == StudioPanelPreset::TimelineStudio;
-        let is_multi_board = !state.solo_active_artboard;
+    // Board
+    let mut board = state.board_mode();
+    if c::Segmented::show(ui, &mut board, &BOARD_OPTIONS, false).is_some() {
+        state.set_board_mode(board);
+    }
+    c::divider(ui, true);
 
-        let board_btn = if is_multi_board {
-            c::Button::primary("Multi-Panel Board (6)").icon(i16::GRID)
-        } else {
-            c::Button::new("Multi-Panel Board (6)").icon(i16::GRID)
-        };
-        if ui.add(board_btn).clicked() {
-            state.open_all_core_artboards();
-        }
-
-        let shell_btn = if is_shell {
-            c::Button::primary("Full Workspace Shell").icon(i16::DESKTOP)
-        } else {
-            c::Button::new("Full Workspace Shell").icon(i16::DESKTOP)
-        };
-        if ui.add(shell_btn).clicked() {
-            state.solo_active_artboard = true;
-            state.load_preset(StudioPanelPreset::FullWorkspaceShell);
-            state.systems_subtab = SystemsSubTab::WorkspaceAndStage;
-        }
-
-        let tl_btn = if is_timeline {
-            c::Button::primary("Timeline & Tween Studio").icon(i16::LAYERS)
-        } else {
-            c::Button::new("Timeline & Tween Studio").icon(i16::LAYERS)
-        };
-        if ui.add(tl_btn).clicked() {
-            state.load_preset(StudioPanelPreset::TimelineStudio);
-            state.systems_subtab = SystemsSubTab::TimelineGeometry;
-        }
-
-        c::divider(ui, true);
-
-        // Full Preset selector (all 11 workspace, timeline, library, color, align & panel presets)
-        let mut preset = state.active_preset;
-        let preset_options: [(StudioPanelPreset, &str); 11] = [
-            (
-                StudioPanelPreset::PropertiesMovieClip,
-                "Panel: Properties — Movie Clip",
-            ),
-            (
-                StudioPanelPreset::LibraryAndAssetsStudio,
-                "Panel: Library Split (Preview + Tree)",
-            ),
-            (
-                StudioPanelPreset::ColorAndGradientStudio,
-                "Panel: Color Mixer, Gradient & Swatches",
-            ),
-            (
-                StudioPanelPreset::AlignAndTransform,
-                "Panel: Align & Transform",
-            ),
-            (StudioPanelPreset::ToolsPanel, "Panel: Tools Rail"),
-            (
-                StudioPanelPreset::TimelineStudio,
-                "Surface: Timeline & Tween Geometry Studio",
-            ),
-            (
-                StudioPanelPreset::FullWorkspaceShell,
-                "Surface: Full Editor Workspace — Live Shell",
-            ),
-            (
-                StudioPanelPreset::PropertiesText,
-                "Panel: Properties — Text",
-            ),
-            (StudioPanelPreset::ColorPanel, "Panel: Color (Compact)"),
-            (StudioPanelPreset::FiltersPanel, "Panel: Filters"),
-            (
-                StudioPanelPreset::TimelineHeader,
-                "Panel: Timeline Header Bar",
-            ),
-        ];
-        if c::Select::options(
-            ui,
-            "studio-preset-select",
-            &mut preset,
-            &preset_options,
-            234.0,
-        ) {
-            state.load_preset(preset);
-        }
-
-        if ui
-            .add(c::Button::new("Add to Canvas").icon(i16::PLUS))
+    // Panel preset
+    let mut preset = state.active_preset;
+    if c::Select::options(
+        ui,
+        "studio-preset-select",
+        &mut preset,
+        &PRESET_OPTIONS,
+        plan.preset_width,
+    ) {
+        state.load_preset(preset);
+    }
+    if ui.add(c::Button::new("Add").icon(i16::PLUS)).clicked() {
+        state.solo_active_artboard = false;
+        state.add_artboard(preset);
+    }
+    if plan.auto_arrange
+        && ui
+            .add(c::IconButton::new(i16::GRID, "Auto-arrange previews"))
             .clicked()
-        {
-            state.solo_active_artboard = false;
-            state.add_artboard(preset);
-        }
-        if ui.add(c::Button::new("Auto-Arrange")).clicked() {
-            state.auto_arrange_artboards();
-        }
+    {
+        state.auto_arrange_artboards();
+    }
 
+    // Theme and density of the previews
+    if plan.theme || plan.density {
         c::divider(ui, true);
+    }
+    if plan.theme {
+        c::Select::new(
+            "studio-theme-select",
+            theme_short_label(state.preview_theme),
+        )
+        .width(widths.theme)
+        .show(ui, |ui| {
+            ui.set_min_width(neoflash_ui::metrics::menu_width());
+            theme_menu_items(ui, state);
+        });
+    }
+    if plan.density {
+        let mut choice = state.preview_density_choice();
+        if c::Segmented::show(ui, &mut choice, &DENSITY_OPTIONS, false).is_some() {
+            state.set_preview_density_choice(choice);
+        }
+    }
 
-        // Explicit 4-Theme Switcher (`Dark`, `Light`, `Mid Neutral Gray`, `Dark Graphite`) + 4-Theme Comparison
-        let mut preview_theme = state.preview_theme;
-        let theme_options: [(ThemeMode, &str); 4] = [
-            (ThemeMode::Dark, "Theme: Dark"),
-            (ThemeMode::Light, "Theme: Light"),
-            (ThemeMode::MidNeutralGray, "Theme: Mid Neutral Gray"),
-            (ThemeMode::DarkGraphite, "Theme: Dark Graphite"),
-        ];
-        if c::Select::options(
-            ui,
-            "studio-top-theme-select",
-            &mut preview_theme,
-            &theme_options,
-            192.0,
-        ) {
-            state.set_preview_theme(preview_theme);
-        }
-        if ui
-            .add(c::Button::new("Compare 4 Themes").icon(i16::GRID))
-            .clicked()
-        {
-            state.open_four_theme_comparison();
-        }
-        let mut top_density = state.systems.density.active_profile;
-        if c::Select::options(
-            ui,
-            "studio-top-density-select",
-            &mut top_density,
-            &[
-                (StudioDensityProfile::Comfortable, "Density: Comfortable"),
-                (StudioDensityProfile::Compact, "Density: Compact"),
-                (StudioDensityProfile::ClassicFlash, "Density: Classic Flash"),
-            ],
-            166.0,
-        ) && top_density != state.systems.density.active_profile
-        {
-            state.commit_history("Change density profile");
-            state.systems.density.active_profile = top_density;
-            state.status_message = format!("Switched density profile to {}.", top_density.label());
-        }
-
-        // Undo / Redo
+    // History
+    if plan.history {
+        c::divider(ui, true);
         if ui
             .add_enabled(
                 state.history.can_undo(),
-                c::IconButton::new(i16::UNDO, "Undo studio edit").shortcut("⌘Z"),
+                c::IconButton::new(i16::UNDO, "Undo").shortcut("⌘Z"),
             )
             .clicked()
         {
@@ -1286,157 +1790,126 @@ fn render_studio_top_toolbar(ui: &mut Ui, state: &mut UiLayoutStudioState) {
         if ui
             .add_enabled(
                 state.history.can_redo(),
-                c::IconButton::new(i16::REDO, "Redo studio edit").shortcut("⇧⌘Z"),
+                c::IconButton::new(i16::REDO, "Redo").shortcut("⇧⌘Z"),
             )
             .clicked()
         {
             state.redo();
         }
+    }
 
-        c::divider(ui, true);
+    // Groups that did not fit
+    if plan.overflow() {
+        let more = ui.add(c::IconButton::new(i16::MORE, "More"));
+        c::popup_below(&more, neoflash_ui::metrics::menu_width(), |ui| {
+            if !plan.auto_arrange && ui.add(c::MenuItem::new("Auto-arrange previews")).clicked() {
+                state.auto_arrange_artboards();
+            }
+            if !plan.history {
+                if ui
+                    .add_enabled(
+                        state.history.can_undo(),
+                        c::MenuItem::new("Undo").shortcut("⌘Z"),
+                    )
+                    .clicked()
+                {
+                    state.undo();
+                }
+                if ui
+                    .add_enabled(
+                        state.history.can_redo(),
+                        c::MenuItem::new("Redo").shortcut("⇧⌘Z"),
+                    )
+                    .clicked()
+                {
+                    state.redo();
+                }
+            }
+            if !plan.density {
+                c::menu_section(ui, "Preview density");
+                density_menu_items(ui, state);
+            }
+            if !plan.theme {
+                c::menu_section(ui, "Preview theme");
+                theme_menu_items(ui, state);
+            }
+        });
+    }
+    let left_end = ui.min_rect().right();
 
-        // Quick 1-click Wrap buttons (push Undo step only if mutation changes the tree)
-        if ui.add(c::Button::new("Wrap Row")).clicked() {
-            let sel = state.selected_nodes.clone();
-            let snap = state.capture_snapshot("Wrap in Row");
-            if let Some(new_id) = state
-                .document
-                .wrap_selected_nodes(&sel, ContainerWrapPreset::Row)
+    // File and the one Primary action, at the right edge
+    let right_start = ui
+        .with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .add(c::Button::primary("Export code").icon(i16::CODE))
+                .clicked()
             {
-                state.push_history_snapshot(snap);
-                state.select_single(new_id);
-                state.sync_active_to_artboard();
-                state.status_message = "Wrapped selection in Row.".to_owned();
+                state.export_code_to_default_paths();
             }
-        }
-        if ui.add(c::Button::new("Wrap Col")).clicked() {
-            let sel = state.selected_nodes.clone();
-            let snap = state.capture_snapshot("Wrap in Column");
-            if let Some(new_id) = state
-                .document
-                .wrap_selected_nodes(&sel, ContainerWrapPreset::Column)
-            {
-                state.push_history_snapshot(snap);
-                state.select_single(new_id);
-                state.sync_active_to_artboard();
-                state.status_message = "Wrapped selection in Column.".to_owned();
-            }
-        }
-        for (btn_label, wrap_preset, desc) in [
-            (
-                "Wrap 2-Grid",
-                ContainerWrapPreset::Grid2Equal,
-                "2-column Grid (50%/50%)",
-            ),
-            (
-                "Wrap 3-Grid",
-                ContainerWrapPreset::Grid3Equal,
-                "3-column Grid (33.3% × 3)",
-            ),
-            (
-                "Wrap 4-Grid",
-                ContainerWrapPreset::Grid4Equal,
-                "4-column Grid (25% × 4)",
-            ),
-        ] {
-            if ui.add(c::Button::new(btn_label)).clicked() {
-                let sel = state.selected_nodes.clone();
-                let snap = state.capture_snapshot(format!("Wrap in {desc}"));
-                if let Some(new_id) = state.document.wrap_selected_nodes(&sel, wrap_preset) {
-                    state.push_history_snapshot(snap);
-                    state.select_single(new_id);
-                    state.sync_active_to_artboard();
-                    state.status_message = format!("Wrapped selection in {desc}.");
-                }
-            }
-        }
+            c::Select::new("studio-file-menu", "File")
+                .width(widths.file)
+                .show(ui, |ui| {
+                    ui.set_min_width(neoflash_ui::metrics::menu_width());
+                    if ui.add(c::MenuItem::new("Export SVG…")).clicked() {
+                        state.export_svg_to_default_path(ui.ctx());
+                    }
+                    if ui.add(c::MenuItem::new("Import SVG → Panel…")).clicked() {
+                        state.svg_import_modal_open = true;
+                    }
+                    c::menu_separator(ui);
+                    if ui
+                        .add(c::MenuItem::new("Save JSON").shortcut("⌘S"))
+                        .clicked()
+                    {
+                        state.save_json_to_default_path();
+                    }
+                    if ui
+                        .add_enabled(
+                            Path::new(DEFAULT_STUDIO_JSON_PATH).exists(),
+                            c::MenuItem::new("Open JSON"),
+                        )
+                        .clicked()
+                        && let Err(err) =
+                            state.load_studio_json(Path::new(DEFAULT_STUDIO_JSON_PATH))
+                    {
+                        state.status_message = err;
+                    }
+                    c::menu_separator(ui);
+                    if ui
+                        .add(c::MenuItem::new("Reset board to core panels"))
+                        .clicked()
+                    {
+                        state.open_all_core_artboards();
+                    }
+                });
+            ui.min_rect().left()
+        })
+        .inner;
 
-        if ui.add(c::Button::new("Unwrap")).clicked() {
-            let target = state.primary_selected_id();
-            let snap = state.capture_snapshot("Unwrap container");
-            if state.document.unwrap_selected_container(target) {
-                state.push_history_snapshot(snap);
-                state.sync_active_to_artboard();
-                state.status_message = "Unwrapped container children into parent.".to_owned();
-            } else if state.document.extract_node_to_parent(target) {
-                state.push_history_snapshot(snap);
-                state.sync_active_to_artboard();
-                state.status_message = "Extracted node out of parent container.".to_owned();
-            }
-        }
-
-        c::divider(ui, true);
-
-        // SVG Export & Import + Save JSON + Export Rust Code
-        if ui
-            .add(c::Button::new("Export SVG").icon(i16::SAVE))
-            .clicked()
-        {
-            let svg = state.export_active_svg();
-            ui.ctx().copy_text(svg.clone());
-            state.svg_buffer = svg;
-            let svg_path = Path::new(DEFAULT_STUDIO_SVG_EXPORT_PATH);
-            match state.save_svg_to_file(svg_path) {
-                Ok(saved) => {
-                    state.inspector_tab = StudioInspectorTab::CodeExport;
-                    state.status_message = format!(
-                        "Exported SVG to {} (and copied to clipboard).",
-                        saved.display()
-                    );
-                }
-                Err(err) => {
-                    state.status_message = err;
-                }
-            }
-        }
-        if ui
-            .add(c::Button::new("Import SVG → Panel…").icon(i16::UPLOAD))
-            .clicked()
-        {
-            state.svg_import_modal_open = true;
-        }
-        if ui
-            .add(c::Button::new("Save JSON").icon(i16::SAVE))
-            .clicked()
-        {
-            let path = Path::new(DEFAULT_STUDIO_JSON_PATH);
-            match state.save_studio_json(path) {
-                Ok(saved) => {
-                    state.status_message = format!("Saved overrides to {}", saved.display());
-                }
-                Err(err) => {
-                    state.status_message = err;
-                }
-            }
-        }
-        if ui
-            .add(c::Button::primary("Export Build Code").icon(i16::CODE))
-            .clicked()
-        {
-            let json_path = Path::new(DEFAULT_STUDIO_JSON_PATH);
-            let _ = state.save_studio_json(json_path);
-            let rust_path = Path::new(DEFAULT_STUDIO_RUST_EXPORT_PATH);
-            match state.export_rust_to_file(rust_path) {
-                Ok(saved) => {
-                    state.inspector_tab = StudioInspectorTab::CodeExport;
-                    state.status_message =
-                        format!("Exported Rust build code to {}", saved.display());
-                }
-                Err(err) => {
-                    state.status_message = err;
-                }
-            }
-        }
+    #[cfg(test)]
+    ui.ctx().data_mut(|d| {
+        d.insert_temp(
+            toolbar_probe_id(),
+            ToolbarProbe {
+                rect: bar,
+                left_end,
+                right_start,
+                plan,
+            },
+        )
     });
+    #[cfg(not(test))]
+    let _ = (left_end, right_start);
 }
 
 fn render_svg_import_modal(ctx: &egui::Context, state: &mut UiLayoutStudioState) {
     let nf = neoflash_ui::palette(ctx);
     let screen = ctx.content_rect();
-    let modal_w = 640.0_f32.min((screen.width() - 48.0).max(360.0));
+    let modal_w = neoflash_ui::metrics::dialog_l()
+        .min((screen.width() - 2.0 * space::s6()).max(neoflash_ui::metrics::dialog_s()));
     let modal_pos = egui::pos2(
         screen.center().x - modal_w * 0.5,
-        (screen.top() + 92.0).max(24.0),
+        screen.top() + neoflash_ui::metrics::dialog_header() * 2.0,
     );
     let mut close_modal = false;
 
@@ -1448,42 +1921,33 @@ fn render_svg_import_modal(ctx: &egui::Context, state: &mut UiLayoutStudioState)
             c::Surface::Dialog.frame(ctx).show(ui, |ui| {
                 ui.set_width(modal_w);
                 if (c::DialogHeader {
-                    title: "Import SVG → Live Editable NF2 Panel",
+                    title: "Import SVG as panel",
                 })
                 .show(ui)
                 {
                     close_modal = true;
                 }
                 egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S3 as i8))
+                    .inner_margin(egui::Margin::same(space::s5() as i8))
                     .show(ui, |ui| {
-                        ui.set_width(modal_w - space::S3 * 2.0);
-                        ui.spacing_mut().item_spacing.y = space::S2;
+                        ui.set_width(modal_w - space::s5() * 2.0);
+                        ui.spacing_mut().item_spacing = egui::vec2(space::s2(), space::s2());
                         ui.label(
                             rich(
-                                "Paste any SVG below (exported from NeoFlash UI Studio, Figma, or Illustrator) or load from target/ui-studio/exported_panel.svg. The importer reconstructs Panel, Sections, Grids/Rows, Fields, Selects, Swatches, Sliders, Buttons, and Labels as an interactive artboard on the canvas.",
+                                "Paste an SVG exported from the Studio, Figma or Illustrator. Panels, sections, rows, fields, selects, swatches, sliders, buttons and labels become an editable panel on the canvas.",
                                 TextStyle::Small,
                             )
                             .color(nf.text_secondary),
                         );
 
-                        ui.horizontal_wrapped(|ui| {
-                            if ui
-                                .add(c::Button::new("Load Sample Figma Panel SVG"))
-                                .clicked()
-                            {
+                        ui.horizontal(|ui| {
+                            if ui.add(c::Button::new("Sample SVG")).clicked() {
                                 state.svg_buffer = sample_svg_panel_snippet();
                             }
-                            if ui
-                                .add(c::Button::new("Load Current Active Artboard SVG"))
-                                .clicked()
-                            {
+                            if ui.add(c::Button::new("Active panel")).clicked() {
                                 state.svg_buffer = state.export_active_svg();
                             }
-                            if ui
-                                .add(c::Button::new("Read target/ui-studio/exported_panel.svg"))
-                                .clicked()
-                            {
+                            if ui.add(c::Button::new("Last exported file")).clicked() {
                                 match fs::read_to_string(DEFAULT_STUDIO_SVG_EXPORT_PATH) {
                                     Ok(raw) => {
                                         state.svg_buffer = raw;
@@ -1507,8 +1971,7 @@ fn render_svg_import_modal(ctx: &egui::Context, state: &mut UiLayoutStudioState)
                         ui.horizontal(|ui| {
                             if ui
                                 .add(
-                                    c::Button::primary("Convert SVG → Add Panel Artboard")
-                                        .icon(i16::CHECK),
+                                    c::Button::primary("Add panel").icon(i16::CHECK),
                                 )
                                 .clicked()
                             {

@@ -23,6 +23,8 @@ use std::path::{Path, PathBuf};
 pub struct StandaloneUiStudioApp {
     pub state: UiLayoutStudioState,
     pub theme: ThemeMode,
+    /// Density of the Studio's own chrome (`NEOFLASH_SCREENSHOT_DENSITY=compact|classic`).
+    density: neoflash_ui::metrics::Density,
     frame_index: u64,
 }
 
@@ -31,6 +33,12 @@ impl StandaloneUiStudioApp {
         let mut defs = egui::FontDefinitions::default();
         neoflash_ui::typography::add_fonts(&mut defs);
         cc.egui_ctx.set_fonts(defs);
+        let density = match std::env::var("NEOFLASH_SCREENSHOT_DENSITY").as_deref() {
+            Ok("compact") => neoflash_ui::metrics::Density::Compact,
+            Ok("classic") => neoflash_ui::metrics::Density::ClassicFlash,
+            _ => neoflash_ui::metrics::Density::Comfortable,
+        };
+        neoflash_ui::metrics::set_density(density);
         crate::theme::initialize_editor_style(&cc.egui_ctx);
         let forced_theme = crate::shell::screenshot_theme();
         let mut theme = forced_theme.unwrap_or_default();
@@ -51,10 +59,12 @@ impl StandaloneUiStudioApp {
         if std::env::var_os("NEOFLASH_STUDIO_COMPARE_THEMES").is_some() {
             state.open_four_theme_comparison();
         }
+        super::apply_screenshot_overrides(&mut state);
         theme.apply(&cc.egui_ctx);
         Self {
             state,
             theme,
+            density,
             frame_index: 0,
         }
     }
@@ -117,24 +127,9 @@ impl StandaloneUiStudioApp {
                 self.state.status_message = format!("Deleted {count} node(s).");
             }
         } else if do_save {
-            if let Ok(saved) = self
-                .state
-                .save_studio_json(Path::new(DEFAULT_STUDIO_JSON_PATH))
-            {
-                self.state.status_message = format!("Saved overrides to {}", saved.display());
-            }
+            self.state.save_json_to_default_path();
         } else if do_export {
-            let _ = self
-                .state
-                .save_studio_json(Path::new(DEFAULT_STUDIO_JSON_PATH));
-            if let Ok(saved) = self
-                .state
-                .export_rust_to_file(Path::new(DEFAULT_STUDIO_RUST_EXPORT_PATH))
-            {
-                self.state.inspector_tab = StudioInspectorTab::CodeExport;
-                self.state.status_message =
-                    format!("Exported Rust build code to {}", saved.display());
-            }
+            self.state.export_code_to_default_paths();
         }
     }
 }
@@ -142,57 +137,16 @@ impl StandaloneUiStudioApp {
 impl eframe::App for StandaloneUiStudioApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.frame_index = self.frame_index.saturating_add(1);
+        neoflash_ui::metrics::set_density(self.density);
+        if ctx.style().spacing.interact_size.y != neoflash_ui::metrics::control() {
+            crate::theme::initialize_editor_style(ctx);
+        }
         self.handle_shortcuts(ctx);
         let nf = neoflash_ui::palette(ctx);
+        // The window title names the app; the Studio toolbar is the only place with theme controls.
         egui::CentralPanel::default()
-            .frame(
-                egui::Frame::new()
-                    .fill(nf.bg_panel)
-                    .inner_margin(egui::Margin::same(space::S3 as i8)),
-            )
+            .frame(egui::Frame::new().fill(nf.bg_panel))
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        rich(
-                            "NEOFLASH UI LAYOUT & DESIGN SYSTEM STUDIO",
-                            TextStyle::Title,
-                        )
-                        .color(nf.text_primary),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = space::S1;
-                        let mut selected_theme = self.theme;
-                        if c::Select::options(
-                            ui,
-                            "standalone-studio-theme-select",
-                            &mut selected_theme,
-                            &[
-                                (ThemeMode::Dark, "Dark"),
-                                (ThemeMode::Light, "Light"),
-                                (ThemeMode::MidNeutralGray, "Mid Neutral Gray"),
-                                (ThemeMode::DarkGraphite, "Dark Graphite"),
-                            ],
-                            176.0,
-                        ) {
-                            self.theme = selected_theme;
-                            self.state.set_preview_theme(selected_theme);
-                            self.theme.apply(ctx);
-                        }
-                        for quick_theme in ThemeMode::ALL.into_iter().rev() {
-                            let btn = if self.theme == quick_theme {
-                                c::Button::primary(quick_theme.label())
-                            } else {
-                                c::Button::new(quick_theme.label())
-                            };
-                            if ui.add(btn).clicked() {
-                                self.theme = quick_theme;
-                                self.state.set_preview_theme(quick_theme);
-                                self.theme.apply(ctx);
-                            }
-                        }
-                    });
-                });
-                ui.add_space(space::S1);
                 ui_layout_studio_panel_ui(ui, &mut self.state);
                 if self.state.preview_theme != self.theme {
                     self.theme = self.state.preview_theme;

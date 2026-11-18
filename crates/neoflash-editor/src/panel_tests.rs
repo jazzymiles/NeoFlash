@@ -155,20 +155,19 @@ fn narrow_tools_rail_shows_fitting_groups_then_more_and_flyouts_choose_tools() {
     let before = editor.project.clone();
     rail(&mut editor, &ctx, 0.1, vec![]);
     let out = rail(&mut editor, &ctx, 0.2, vec![]);
-    // One column: grouped tools, pinned colours/options, and "…" for the rest.
+    // One column: grouped tools, the two colour chips, Snap, and "…" for the rest.
     assert!(named_bounds(&out, "Selection (V)").is_some());
     assert!(
         named_bounds(&out, "Subselection (A)").is_none(),
         "grouped behind Selection"
     );
-    for pinned in [
-        "Fill colour",
-        "Stroke colour",
-        "Swap colors",
-        "Snap to objects",
-    ] {
+    for pinned in ["Fill colour", "Stroke colour", "Snap to objects"] {
         assert!(named_bounds(&out, pinned).is_some(), "missing {pinned}");
     }
+    assert!(
+        named_bounds(&out, "Swap colors").is_none(),
+        "the rail lists Swap colors in More tools"
+    );
     assert!(
         named_bounds(&out, "Tool options").is_none(),
         "Tool options sun button must not appear on the rail"
@@ -248,6 +247,12 @@ fn narrow_tools_rail_shows_fitting_groups_then_more_and_flyouts_choose_tools() {
     );
     let out = rail(&mut editor, &ctx, 0.4, vec![]);
     let fit = named_bounds(&out, "Fit stage").expect("More tools lists Fit stage");
+    for command in ["Black and white", "Swap colors", "Customize tools…"] {
+        assert!(
+            named_bounds(&out, command).is_some(),
+            "More tools lists {command}"
+        );
+    }
     editor.zoom = 1.5;
     rail(
         &mut editor,
@@ -461,9 +466,8 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
     let before = editor.project.clone();
     let size = Vec2::new(1024., 720.);
     let first = frame(&mut editor, &ctx, size, 0.1, vec![]);
-    // Two-column Tools stays non-scrolling (R-078): top rows show primary tools,
-    // bottom color/modifier area stays pinned, and overflow moves remaining tools
-    // (including Fit stage) behind the `More tools` overflow button.
+    // Two-column Tools stays non-scrolling (R-078): the blocks keep their order and the cells
+    // that do not fit the dock height are listed behind the closing `More tools` cell.
     let tools = editor
         .detached
         .dock_groups
@@ -500,8 +504,12 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
         out = frame(&mut editor, &ctx, size, 0.25 + step as f64 / 60., vec![]);
     }
     assert!(
-        named_bounds(&out, "Hand tool").is_some(),
-        "overflow popover includes Hand tool"
+        named_bounds(&out, "Razor tool").is_some() || named_bounds(&out, "Hand tool").is_some(),
+        "the More tools popover lists the cells that left the surface"
+    );
+    assert!(
+        named_bounds(&out, "Customize tools…").is_some(),
+        "the More tools popover is the palette menu"
     );
     let fit = named_bounds(&out, "Fit stage").expect("Fit must have an accessible button");
     editor.zoom = 1.5;
@@ -591,8 +599,17 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
     );
     assert_eq!(editor.project, before);
     assert!(!editor.dirty());
-    let settled = frame(&mut editor, &ctx, size, 1., vec![]);
-    let source = named_bounds(&settled, "Symbol 099").unwrap().center();
+    // Selecting a symbol opens the inline preview above the tree; the tree then scrolls the
+    // selected row back into view, which the next frame lays out.
+    frame(&mut editor, &ctx, size, 1., vec![]);
+    frame(&mut editor, &ctx, size, 1.02, vec![]);
+    let settled = frame(&mut editor, &ctx, size, 1.04, vec![]);
+    let source = named_bounds(&settled, "Symbol 099").unwrap();
+    assert!(
+        library.contains_rect(source),
+        "the selected symbol stays visible after the preview opens: {source:?} in {library:?}"
+    );
+    let source = source.center();
     // Between the Tools and Library columns, above the bottom dock: the stage.
     let destination = Pos2::new(
         (tools.right() + library.left()) / 2.,
@@ -3220,8 +3237,8 @@ fn code_editor_preferences_wire_ui_editing_hints_layout_and_format_on_save() {
     d.click("Code hints");
     d.click("Format on save");
     d.click("Highlight current line");
-    d.click("Tab: 4 spaces");
-    d.click("Tab: 2 spaces");
+    d.click("Tab, 4 spaces");
+    d.click("2 spaces");
     {
         let ce = &d.editor.preferences.as_ref().unwrap().code_editor;
         assert!(!ce.line_numbers);
@@ -3241,8 +3258,8 @@ fn code_editor_preferences_wire_ui_editing_hints_layout_and_format_on_save() {
     );
 
     // Configure custom settings and click Save; verify WorkspacePrefs persistence & clean project.
-    d.click("Tab: 4 spaces");
-    d.click("Tab: 2 spaces");
+    d.click("Tab, 4 spaces");
+    d.click("2 spaces");
     d.click("Line numbers");
     d.click("Highlight current line");
     {
@@ -5936,26 +5953,80 @@ fn density_profiles_resize_chrome_and_follow_preferences_preview() {
     };
     let play = |out: &egui::FullOutput| named_bounds(out, "Play preview").expect("Play").height();
 
-    let out = run(&mut editor);
-    assert_eq!(play(&out), 32.);
-    assert_eq!(ctx.style().spacing.interact_size.y, 32.);
+    // Expected sizes come from the density table, never from literals.
+    let metric = |name: &str, density: DensityPref| {
+        let column = DensityPref::ALL.iter().position(|d| *d == density).unwrap();
+        metrics::DENSITY_TABLE
+            .iter()
+            .find(|(metric, _)| *metric == name)
+            .unwrap_or_else(|| panic!("no density metric {name}"))
+            .1[column]
+    };
+    let right_dock = |editor: &Editor| {
+        editor
+            .detached
+            .dock_groups
+            .iter()
+            .find(|g| g.tabs.iter().any(|(p, _)| *p == PanelId::Properties))
+            .expect("right dock")
+            .rect
+            .width()
+    };
 
-    editor.set_density(&ctx, DensityPref::ClassicFlash);
+    let normal = DensityPref::Comfortable;
     let out = run(&mut editor);
-    assert_eq!(play(&out), 24.);
-    assert_eq!(ctx.style().spacing.interact_size.y, 24.);
+    assert_eq!(play(&out), metric("control", normal));
+    assert_eq!(
+        ctx.style().spacing.interact_size.y,
+        metric("control", normal)
+    );
+    // The right dock is exactly the inspector wide (its 6 pt resize strip is outside the groups).
+    assert_eq!(editor.workspace.dock.right.size, metrics::INSPECTOR + 6.);
+    assert!((right_dock(&editor) - metrics::INSPECTOR).abs() < 0.5);
+
+    let classic = DensityPref::ClassicFlash;
+    editor.set_density(&ctx, classic);
+    let out = run(&mut editor);
+    assert_eq!(play(&out), metric("control", classic));
+    assert_eq!(
+        ctx.style().spacing.interact_size.y,
+        metric("control", classic)
+    );
     assert!(editor.workspace.timeline.compact_rows);
-    assert_eq!(editor.workspace.timeline.row_height(), 16.);
-    assert_eq!(editor.workspace.sizes.layer_column_width, 292.);
+    assert_eq!(
+        editor.workspace.timeline.row_height(),
+        metrics::LAYER_ROW_COMPACT
+    );
+    assert_eq!(
+        editor.workspace.sizes.layer_column_width,
+        metrics::LAYER_COLUMN_MODE_SOLO - 44.
+    );
+    // A dock still at the previous profile's default width follows the new profile.
+    assert_eq!(
+        editor.workspace.dock.right.size,
+        metric("inspector", classic) + 6.
+    );
+    assert!((right_dock(&editor) - metric("inspector", classic)).abs() < 0.5);
+    assert_eq!(
+        editor.workspace.dock.left.size,
+        metric("tools_two_columns", classic) + 6.
+    );
+
+    // A width the user chose is kept across profiles.
+    editor.workspace.dock.right.size = 400.;
+    editor.set_density(&ctx, DensityPref::Compact);
+    assert_eq!(editor.workspace.dock.right.size, 400.);
+    editor.workspace.dock.right.size = metric("inspector", DensityPref::Compact) + 6.;
+    editor.set_density(&ctx, classic);
 
     // Preferences previews the draft's density; Cancel (dropping the draft) restores the saved one.
     editor.open_preferences(0);
     editor.preferences.as_mut().unwrap().density = DensityPref::Compact;
     editor.apply_density(&ctx);
-    assert_eq!(metrics::control(), 28.);
+    assert_eq!(metrics::control(), metric("control", DensityPref::Compact));
     editor.preferences = None;
     editor.apply_density(&ctx);
-    assert_eq!(metrics::control(), 24.);
+    assert_eq!(metrics::control(), metric("control", classic));
 
     // Save applies the profile with its layer-row preset and column width.
     editor.open_preferences(0);
@@ -5963,7 +6034,8 @@ fn density_profiles_resize_chrome_and_follow_preferences_preview() {
     let draft = editor.preferences.take().unwrap();
     editor.save_preferences(&ctx, &draft);
     let out = run(&mut editor);
-    assert_eq!(play(&out), 32.);
+    assert_eq!(play(&out), metric("control", normal));
+    assert_eq!(editor.workspace.dock.right.size, metrics::INSPECTOR + 6.);
     assert_eq!(editor.workspace.density, DensityPref::Comfortable);
     assert!(!editor.workspace.timeline.short_rows && !editor.workspace.timeline.compact_rows);
     assert_eq!(
@@ -5978,6 +6050,385 @@ fn density_profiles_resize_chrome_and_follow_preferences_preview() {
     assert!(json.contains("\"density\":\"comfortable\""));
     assert_eq!(editor.project, before);
     assert!(!editor.history.can_undo());
+}
+
+/// T-389: a side dock keeps one width whichever tab is active. Its limits are the union over
+/// every visible tab on the edge, so a remembered width below or above one tab's own limits is
+/// never applied per tab, and the remembered preference is not rewritten.
+#[test]
+fn side_dock_width_does_not_follow_the_active_tab() {
+    use crate::workspace::DockEdge;
+    use neoflash_ui::metrics;
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    editor.show_panel(PanelId::Transform);
+    assert!(editor.workspace.is_panel_visible(PanelId::Properties));
+    let size = Vec2::new(1920., 1080.);
+    let mut time = 0.;
+    let mut dock_width = |editor: &mut Editor, active: PanelId| {
+        editor.show_panel(active);
+        for _ in 0..3 {
+            time += 0.05;
+            frame(editor, &ctx, size, time, vec![]);
+        }
+        let group = editor
+            .workspace
+            .dock
+            .right
+            .groups
+            .iter()
+            .find(|g| g.tabs.contains(&active))
+            .expect("right dock group");
+        assert_eq!(group.active, active);
+        assert!(group.tabs.contains(&PanelId::Properties));
+        assert!(group.tabs.contains(&PanelId::Transform));
+        editor
+            .detached
+            .dock_groups
+            .iter()
+            .find(|g| g.edge == DockEdge::Right && g.tabs.iter().any(|(p, _)| *p == active))
+            .expect("painted right dock group")
+            .rect
+            .width()
+    };
+    // Transform alone allows at most 640 pt; Properties alone has no upper limit.
+    let transform_max = crate::workspace::maximum_window_size(PanelId::Transform)[0];
+    assert!(transform_max < crate::workspace::maximum_window_size(PanelId::Properties)[0]);
+    for remembered in [120., metrics::inspector() + 6., 300., transform_max + 160.] {
+        editor.workspace.dock.right.size = remembered;
+        let properties = dock_width(&mut editor, PanelId::Properties);
+        // At this window width the 1000 pt cap binds, whatever the left dock takes.
+        let limits = editor.side_dock_width_limits(DockEdge::Right, size);
+        let transform = dock_width(&mut editor, PanelId::Transform);
+        assert_eq!(
+            properties, transform,
+            "right dock must keep its width across tabs at a remembered {remembered} pt"
+        );
+        assert_eq!(limits, editor.side_dock_width_limits(DockEdge::Right, size));
+        // The 6 pt resize strip is outside the groups.
+        let expected = remembered.clamp(metrics::inspector() + 6., limits.1) - 6.;
+        assert!(
+            (transform - expected).abs() < 0.5,
+            "remembered {remembered}: {transform} vs {expected}"
+        );
+        assert_eq!(editor.workspace.dock.right.size, remembered);
+    }
+    // Every inspector-family panel shares the one `inspector()` minimum.
+    for panel in [
+        PanelId::Properties,
+        PanelId::Transform,
+        PanelId::Align,
+        PanelId::Color,
+        PanelId::Library,
+        PanelId::Swatches,
+        PanelId::Filters,
+        PanelId::History,
+        PanelId::Info,
+        PanelId::Scene,
+        PanelId::Project,
+        PanelId::CodeSnippets,
+        PanelId::MovieExplorer,
+        PanelId::Actions,
+        PanelId::Output,
+        PanelId::Accessibility,
+    ] {
+        assert_eq!(
+            crate::workspace::minimum_window_size(panel)[0],
+            metrics::inspector(),
+            "{panel:?}"
+        );
+    }
+}
+
+/// T-389 F: the right dock keeps one outer rect across all of its tabs in Normal, Compact and
+/// Classic Flash, at the default `inspector()` width of the density.
+#[test]
+fn right_dock_keeps_one_outer_rect_across_its_tabs_in_every_density() {
+    use crate::workspace::{DensityPref, DockEdge};
+    use neoflash_ui::metrics;
+    let tabs = [
+        PanelId::Properties,
+        PanelId::Transform,
+        PanelId::Align,
+        PanelId::Color,
+        PanelId::Swatches,
+        PanelId::Filters,
+        PanelId::Info,
+        PanelId::History,
+    ];
+    for density in DensityPref::ALL {
+        // A new workspace takes its default dock widths from the Normal profile.
+        neoflash_ui::metrics::set_density(neoflash_ui::metrics::Density::Comfortable);
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut editor = Editor::from_project(&ctx, Project::demo());
+        editor.set_density(&ctx, density);
+        let instance = editor
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .flat_map(|l| &l.keyframes)
+            .flat_map(|k| &k.elements)
+            .find(|e| matches!(e.kind, ElementKind::Instance { .. }))
+            .map(|e| e.id.clone())
+            .expect("demo instance");
+        editor.select_single_id(instance);
+        let size = Vec2::new(1440., 900.);
+        let mut time = 0.;
+        let mut outer = |editor: &mut Editor, active: PanelId| {
+            editor.show_panel(active);
+            for _ in 0..3 {
+                time += 0.05;
+                editor.apply_density(&ctx);
+                frame(editor, &ctx, size, time, vec![]);
+            }
+            let painted: Vec<Rect> = editor
+                .detached
+                .dock_groups
+                .iter()
+                .filter(|g| g.edge == DockEdge::Right)
+                .map(|g| g.rect)
+                .collect();
+            // The header may move tabs that do not fit into its ⋯ menu: match by group id.
+            let docked = editor
+                .workspace
+                .dock
+                .right
+                .groups
+                .iter()
+                .find(|g| g.tabs.contains(&active))
+                .unwrap_or_else(|| panic!("{density:?}: {active:?} is not in the right dock"));
+            assert_eq!(docked.active, active, "{density:?}");
+            let id = docked.id;
+            let group = editor
+                .detached
+                .dock_groups
+                .iter()
+                .find(|g| g.edge == DockEdge::Right && g.group == id)
+                .unwrap_or_else(|| panic!("{density:?}: {active:?} group is not painted"));
+            (group.rect, painted)
+        };
+        // Reveal every candidate once, then keep the ones this workspace docks on the right.
+        for tab in tabs {
+            editor.show_panel(tab);
+        }
+        let tabs: Vec<PanelId> = tabs
+            .into_iter()
+            .filter(|tab| {
+                editor
+                    .workspace
+                    .dock
+                    .right
+                    .groups
+                    .iter()
+                    .any(|group| group.tabs.contains(tab))
+            })
+            .collect();
+        assert!(
+            tabs.len() >= 5 && tabs.contains(&PanelId::Properties),
+            "{density:?}: right dock tabs {tabs:?}"
+        );
+        let (reference, reference_groups) = outer(&mut editor, tabs[0]);
+        assert!(
+            (reference.width() - metrics::inspector()).abs() < 0.5,
+            "{density:?}: right dock is {} wide, expected {}",
+            reference.width(),
+            metrics::inspector()
+        );
+        for tab in tabs.iter().copied().chain([tabs[0]]) {
+            let (rect, groups) = outer(&mut editor, tab);
+            assert_eq!(
+                rect, reference,
+                "{density:?}: the right dock group moved or resized with {tab:?} active"
+            );
+            assert_eq!(
+                groups, reference_groups,
+                "{density:?}: a right dock group moved or resized with {tab:?} active"
+            );
+        }
+    }
+    neoflash_ui::metrics::set_density(neoflash_ui::metrics::Density::Comfortable);
+}
+
+/// T-389: a dock group header is one `size/tab` strip with one tab or several, in every density,
+/// so adding or removing a tab never moves the panel body.
+#[test]
+fn dock_group_header_height_is_the_same_for_one_tab_and_several() {
+    use crate::workspace::{DensityPref, DockEdge};
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    editor.show_panel(PanelId::Transform);
+    let size = Vec2::new(1920., 1080.);
+    let mut time = 0.;
+    for density in DensityPref::ALL {
+        editor.set_density(&ctx, density);
+        for _ in 0..3 {
+            time += 0.05;
+            editor.apply_density(&ctx);
+            frame(&mut editor, &ctx, size, time, vec![]);
+        }
+        let header = |panel: PanelId| {
+            editor
+                .detached
+                .dock_groups
+                .iter()
+                .find(|g| g.tabs.iter().any(|(p, _)| *p == panel))
+                .unwrap_or_else(|| panic!("{panel:?} group"))
+                .header
+        };
+        let several = editor
+            .workspace
+            .dock
+            .right
+            .groups
+            .iter()
+            .find(|g| g.tabs.contains(&PanelId::Properties))
+            .unwrap();
+        assert!(
+            several
+                .tabs
+                .iter()
+                .filter(|p| editor.workspace.is_panel_visible(**p))
+                .count()
+                > 1
+        );
+        let expected = neoflash_ui::metrics::panel_tab();
+        for panel in [PanelId::Properties, PanelId::Library, PanelId::Timeline] {
+            assert!(
+                (header(panel).height() - expected).abs() < 0.01,
+                "{panel:?} header in {density:?}: {:?} vs {expected}",
+                header(panel)
+            );
+        }
+        // Tab labels sit on the same axis in a single-tab and a multi-tab side header.
+        let properties = editor
+            .detached
+            .dock_groups
+            .iter()
+            .find(|g| {
+                g.edge == DockEdge::Right && g.tabs.iter().any(|(p, _)| *p == PanelId::Properties)
+            })
+            .unwrap();
+        let library = editor
+            .detached
+            .dock_groups
+            .iter()
+            .find(|g| g.tabs.iter().any(|(p, _)| *p == PanelId::Library))
+            .unwrap();
+        assert!((properties.tabs[0].1.left() - properties.header.left()).abs() < 0.5);
+        assert!((library.tabs[0].1.left() - library.header.left()).abs() < 0.5);
+    }
+    editor.set_density(&ctx, DensityPref::Comfortable);
+    editor.apply_density(&ctx);
+}
+
+/// T-389: the collapsed Stage toolbar pill keeps its exact place when the other controls slide out
+/// to its left (also on the frame the state changes), and the edit-bar group is placed from
+/// metrics on its first frame, flush with the bar's right edge.
+#[test]
+fn stage_toolbar_pill_and_edit_bar_group_do_not_move() {
+    use crate::workspace::StageToolbarMode;
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    let size = Vec2::new(1440., 900.);
+    assert_eq!(editor.workspace.stage_toolbar, StageToolbarMode::Collapsed);
+    let mut out = frame(&mut editor, &ctx, size, 0.05, vec![]);
+    for step in 2..5 {
+        out = frame(&mut editor, &ctx, size, 0.05 * f64::from(step), vec![]);
+    }
+    let chevron = named_bounds(&out, "Show stage toolbar").expect("pill");
+    assert!(named_bounds(&out, "Zoom in").is_none());
+    let canvas = editor.stage_view.canvas;
+    let pad = neoflash_ui::tokens::space::s4();
+    let pill_right = canvas.right() - pad;
+    // Pinned by the bar's right-bottom corner: the pill content ends one frame margin inside it.
+    let margin = neoflash_ui::components::ZoomControl::bar_frame(&ctx)
+        .total_margin()
+        .right;
+    assert!(
+        (chevron.left() - (pill_right - margin - crate::shell::stage_toolbar_pill_width())).abs()
+            < 0.6,
+        "{chevron:?} in {canvas:?}"
+    );
+
+    // The pointer enters the pill: this frame still shows the pill, the next one is expanded.
+    let hover = vec![Event::PointerMoved(chevron.center())];
+    let entering = frame(&mut editor, &ctx, size, 0.30, hover);
+    assert_eq!(named_bounds(&entering, "Show stage toolbar"), Some(chevron));
+    let expanded = frame(&mut editor, &ctx, size, 0.35, vec![]);
+    assert_eq!(
+        named_bounds(&expanded, "Show stage toolbar"),
+        Some(chevron),
+        "the pill must not move on the frame it expands"
+    );
+    for label in [
+        "Zoom in",
+        "Zoom out",
+        "Fit stage in window",
+        "Rulers",
+        "Guides",
+        "Grid",
+        "Snap to guides",
+        "Rulers, guides and grid…",
+    ] {
+        let control = named_bounds_in(&expanded, label, canvas)
+            .unwrap_or_else(|| panic!("{label} slides out inside the canvas"));
+        assert!(
+            control.right() <= chevron.left() + 0.5,
+            "{label}: {control:?}"
+        );
+        assert!((control.center().y - chevron.center().y).abs() < 0.5);
+    }
+    // It collapses again 1 s after the pointer leaves, still without moving the pill.
+    frame(
+        &mut editor,
+        &ctx,
+        size,
+        0.40,
+        vec![Event::PointerMoved(canvas.center())],
+    );
+    frame(&mut editor, &ctx, size, 2.0, vec![]);
+    let collapsed = frame(&mut editor, &ctx, size, 2.05, vec![]);
+    assert!(named_bounds(&collapsed, "Zoom in").is_none());
+    assert_eq!(
+        named_bounds(&collapsed, "Show stage toolbar"),
+        Some(chevron)
+    );
+
+    // Edit bar: the very first frame already has the group at its final place.
+    editor.workspace.stage_toolbar = StageToolbarMode::EditBar;
+    let first = frame(&mut editor, &ctx, size, 2.10, vec![]);
+    let settled = frame(&mut editor, &ctx, size, 2.15, vec![]);
+    let canvas = editor.stage_view.canvas;
+    let bar = Rect::from_min_max(
+        Pos2::new(
+            canvas.left(),
+            canvas.top() - 2.0 * neoflash_ui::metrics::panel_tab(),
+        ),
+        Pos2::new(canvas.right(), canvas.top()),
+    );
+    let bounds = |out: &egui::FullOutput, label: &str| {
+        named_bounds_in(out, label, bar).unwrap_or_else(|| panic!("{label} in the edit bar"))
+    };
+    let settings = bounds(&settled, "Rulers, guides and grid…");
+    let hand = bounds(&settled, "Hand");
+    assert!(
+        (settings.right() - (canvas.right() - neoflash_ui::tokens::space::s2())).abs() < 0.6,
+        "{settings:?} flush right in {bar:?}"
+    );
+    assert!(
+        (settings.right() - hand.left() - crate::shell::stage_toolbar_row_width()).abs() < 0.6,
+        "computed group width {} vs laid out {}",
+        crate::shell::stage_toolbar_row_width(),
+        settings.right() - hand.left()
+    );
+    for label in ["Hand", "Zoom in", "Rulers, guides and grid…"] {
+        assert_eq!(bounds(&first, label), bounds(&settled, label), "{label}");
+    }
 }
 
 /// T-101 / R-053: the Stage toolbar is a collapsed pill, a floating bar or a Flash-style edit bar;
@@ -7316,13 +7767,13 @@ fn compact_text_and_movie_clip_properties_inspectors_expose_two_column_rows_and_
     );
     for control in [
         "Edit symbol",
-        "Duplicate…",
-        "Style: Alpha",
+        "Duplicate symbol…",
+        "Style, Alpha",
         "Opacity",
         "Visible",
         "Cache as bitmap",
-        "Blending: Normal",
-        "Render: Original",
+        "Blend, Normal",
+        "Render, Original",
     ] {
         assert!(
             named_bounds(&mc_out, control).is_some(),
@@ -7372,11 +7823,20 @@ fn compact_text_and_movie_clip_properties_inspectors_expose_two_column_rows_and_
         (size_rect.center().y - spacing_rect.center().y).abs() < 12.0,
         "Size and Letter spacing must be side-by-side in two columns"
     );
+    // v3: Indent · Block indent share a row; Leading and its unit select share the next one, each
+    // a full grid cell so the leading value is never truncated.
     let indent_rect = named_bounds(&txt_out, "Indent").expect("Indent field");
-    let leading_rect = named_bounds(&txt_out, "Leading").expect("Line / Leading field");
+    let block_rect = named_bounds(&txt_out, "Block indent").expect("Block indent field");
     assert!(
-        (indent_rect.center().y - leading_rect.center().y).abs() < 12.0,
-        "Indent and Line spacing must be side-by-side in two columns"
+        (indent_rect.center().y - block_rect.center().y).abs() < 12.0,
+        "Indent and Block indent must be side-by-side in two columns"
+    );
+    let leading_rect = named_bounds(&txt_out, "Leading").expect("Leading field");
+    assert!(
+        (leading_rect.left() - indent_rect.left()).abs() <= 1.0
+            && (leading_rect.width() - indent_rect.width()).abs() <= 1.0
+            && leading_rect.top() > indent_rect.bottom(),
+        "Leading is a full first-column cell on the row below Indent"
     );
     let left_rect = named_bounds(&txt_out, "Left margin").expect("Left margin field");
     let right_rect = named_bounds(&txt_out, "Right margin").expect("Right margin field");
@@ -7748,14 +8208,14 @@ fn properties_easing_on_a_hold_only_frame_range_is_a_noop() {
     render(&mut editor, &ctx, 0.1, vec![]);
     let output = render(&mut editor, &ctx, 0.2, vec![]);
     assert!(
-        named_bounds(&output, "Tween: None").is_some(),
+        named_bounds(&output, "Tween, None").is_some(),
         "untweened hold range shows Tween: None"
     );
     for disabled_ctrl in [
         "Scale",
         "Linear",
         "Edit…",
-        "Rotate: Auto",
+        "Rotate, Auto",
         "times",
         "Orient to path",
         "Sync",
@@ -7832,12 +8292,12 @@ fn properties_locked_active_tween_only_enables_range_easing_controls() {
 
     render(&mut editor, &ctx, 0.1);
     let output = render(&mut editor, &ctx, 0.2);
-    assert_eq!(named_disabled(&output, "Tween: Classic"), Some(false));
+    assert_eq!(named_disabled(&output, "Tween, Classic"), Some(false));
     assert_eq!(named_disabled(&output, "Linear"), Some(false));
     assert_eq!(named_disabled(&output, "Edit…"), Some(false));
     for control in [
         "Scale",
-        "Rotate: Auto",
+        "Rotate, Auto",
         "times",
         "Orient to path",
         "Sync",
@@ -7891,9 +8351,9 @@ fn text_properties_two_column_grid_aligns_and_reflows_without_clipping() {
     let size = named_bounds(&output, "Size").expect("Size");
     let tracking = named_bounds(&output, "Letter spacing").expect("Letter spacing");
     assert!((size.center().y - tracking.center().y).abs() <= 1.0);
-    let second_column = ["Leading", "Right margin", "Space after"];
+    let second_column = ["Block indent", "Right margin", "Space after"];
     let x = named_bounds(&output, second_column[0])
-        .expect("Leading")
+        .expect("Block indent")
         .left();
     for label in second_column {
         let rect = named_bounds(&output, label).unwrap_or_else(|| panic!("missing {label}"));
@@ -7909,9 +8369,16 @@ fn text_properties_two_column_grid_aligns_and_reflows_without_clipping() {
     let gutter = named_bounds(&output, "Column gutter").expect("Column gutter field");
     assert!(gutter.right() <= width + 0.5, "gutter clips at {width} pt");
 
+    // Narrower than two `width/num` cells and their gap (inside the 8 pt panel margins): stack.
+    let narrow_width =
+        2.0 * crate::paint_controls::form_cell_min() + neoflash_ui::tokens::space::s2() + 16.0
+            - 4.0;
     let narrow = ctx.run(
         egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(160.0, 160.0))),
+            screen_rect: Some(Rect::from_min_size(
+                Pos2::ZERO,
+                Vec2::new(narrow_width, 160.0),
+            )),
             time: Some(5.0),
             ..Default::default()
         },
@@ -7938,10 +8405,10 @@ fn text_properties_two_column_grid_aligns_and_reflows_without_clipping() {
     let first = named_bounds(&narrow, "First field").expect("First field");
     let second = named_bounds(&narrow, "Second field").expect("Second field");
     assert!(second.top() >= first.bottom());
-    assert!(first.right() <= 160.5 && second.right() <= 160.5);
+    assert!(first.right() <= narrow_width + 0.5 && second.right() <= narrow_width + 0.5);
 
     // The Leading unit selector is a real trailing control inside cell two. The
-    // shared 80 pt threshold must not let it push that cell past the form at the
+    // shared cell minimum must not let it push that cell past the form at the
     // intermediate widths where the row remains two-column.
     for screen_width in [184.0, 200.0, 239.0] {
         let mut geometry = None;
@@ -7974,10 +8441,10 @@ fn text_properties_two_column_grid_aligns_and_reflows_without_clipping() {
                             |ui, width| {
                                 ui.horizontal(|ui| {
                                     ui.spacing_mut().item_spacing.x =
-                                        neoflash_ui::tokens::space::S1;
+                                        neoflash_ui::tokens::space::s1();
                                     let mode_width = 48.0;
                                     let field_width =
-                                        (width - mode_width - neoflash_ui::tokens::space::S1)
+                                        (width - mode_width - neoflash_ui::tokens::space::s1())
                                             .max(0.0);
                                     let field_prefix =
                                         if field_width >= 56.0 { "Line" } else { "" };
@@ -8017,7 +8484,7 @@ fn text_properties_two_column_grid_aligns_and_reflows_without_clipping() {
             "test width must exercise the intermediate two-column range: {form_width}"
         );
         assert!(
-            leading.left() >= indent.right() + neoflash_ui::tokens::space::S2 - 0.5,
+            leading.left() >= indent.right() + neoflash_ui::tokens::space::s2() - 0.5,
             "Leading must start on the common second-column axis at {form_width} pt"
         );
         assert!(
@@ -8028,7 +8495,7 @@ fn text_properties_two_column_grid_aligns_and_reflows_without_clipping() {
 }
 
 #[test]
-fn shared_form_grid_aligns_color_and_trailing_action_without_shifting_columns() {
+fn shared_form_grid_aligns_color_and_numeric_pairs_on_one_axis() {
     let ctx = egui::Context::default();
     ctx.enable_accesskit();
     let mut numeric_rects = None;
@@ -8084,31 +8551,7 @@ fn shared_form_grid_aligns_color_and_trailing_action_without_shifting_columns() 
                         )
                     })
                     .inner;
-                let mut linked_left = 30.0;
-                let mut linked_right = 40.0;
-                let (linked, link) = ui
-                    .push_id("linked-grid-row", |ui| {
-                        crate::paint_controls::numeric_pair_with_trailing(
-                            ui,
-                            ["Left", "Right"],
-                            [&mut linked_left, &mut linked_right],
-                            -1000.0..=1000.0,
-                            1.0,
-                            "",
-                            (crate::theme::control_h(), |ui| {
-                                ui.add(neoflash_ui::components::IconButton::new(
-                                    neoflash_ui::icons::i16::LINK,
-                                    "Link paired values",
-                                ))
-                            }),
-                        )
-                    })
-                    .inner;
-                numeric_rects = Some((
-                    [plain[0].rect, plain[1].rect],
-                    [linked[0].rect, linked[1].rect],
-                    link.rect,
-                ));
+                numeric_rects = Some([plain[0].rect, plain[1].rect]);
 
                 let mut color = [24, 80, 160, 192];
                 crate::paint_controls::color_row(
@@ -8124,7 +8567,7 @@ fn shared_form_grid_aligns_color_and_trailing_action_without_shifting_columns() 
 
     let right_one = named_bounds(&output, "Axis right one").expect("first grid row");
     let right_two = named_bounds(&output, "Axis right two").expect("second grid row");
-    let (plain, linked, link) = numeric_rects.expect("numeric grid geometry");
+    let plain = numeric_rects.expect("numeric grid geometry");
     let swatch = named_bounds(&output, "Grid color color").expect("color swatch");
     let hex = named_bounds(&output, "Grid color hex").expect("color hex field");
     let alpha = named_bounds(&output, "Grid color alpha").expect("color alpha field");
@@ -8135,20 +8578,8 @@ fn shared_form_grid_aligns_color_and_trailing_action_without_shifting_columns() 
         "second grid row shifted the shared second-column axis: {right_two:?}, axis={second_axis}"
     );
     assert!(
-        (plain[0].width() - linked[0].width()).abs() <= 1.0,
-        "a trailing action must not narrow the first cell"
-    );
-    assert!(
-        (plain[1].left() - linked[1].left()).abs() <= 1.0,
-        "a trailing action must not shift the second-column origin"
-    );
-    assert!(
-        linked[1].width() + 1.0 < plain[1].width(),
-        "Link must reserve width only inside the second cell"
-    );
-    assert!(
-        link.left() >= linked[1].right() - 0.5,
-        "Link must remain after its second-cell field"
+        plain[0].right() <= second_axis + 0.5 && plain[1].left() >= second_axis - 0.5,
+        "a numeric pair must keep one value on each side of the shared axis: {plain:?}, axis={second_axis}"
     );
     assert!(
         swatch.right() <= hex.left() + 0.5
@@ -8194,19 +8625,10 @@ fn editor_form_sources_reject_new_ad_hoc_half_width_pairs() {
             include_str!("panels/live_planned.rs"),
         ),
     ];
-    // The shared grid must divide its own available width. The other exception
-    // is the intentionally asymmetric Symbol behavior + Edit/Duplicate action row.
-    const EXACT_EXCEPTIONS: &[(&str, &str)] = &[
-        (
-            "paint_controls.rs",
-            "let width = (ui.available_width() - gap) / 2.0;",
-        ),
-        (
-            "panels/properties.rs",
-            "let half = ((ui.available_width() - space::S2) / 2.0).max(60.0);",
-        ),
-        ("panels/properties.rs", ".width(half)"),
-    ];
+    // The shared grid divides `paint_controls::visible_row_width`, which needs no exception. The
+    // Symbol behavior row no longer halves the width by hand (v3: the select fills, Edit symbol
+    // and Duplicate symbol… are icon buttons), so there is no named exception left.
+    const EXACT_EXCEPTIONS: &[(&str, &str)] = &[];
 
     let mut exception_hits = vec![0usize; EXACT_EXCEPTIONS.len()];
     let mut violations = Vec::new();
@@ -8291,9 +8713,9 @@ fn classic_flash_tools_modifiers_and_multicolumn_bottom_up_compaction() {
     ctx.enable_accesskit();
     let mut editor = Editor::from_project(&ctx, Project::blank());
 
-    // 1. In 2-column mode (`Select` tool), `Options` shows `Snap to objects` on Row 1 and
-    // `Smooth` + `Straighten` side-by-side on Row 2, with no `Tool options` sun button or inline
-    // `Tool properties…` dump even at wide widths.
+    // 1. In 2-column mode (`Select` tool) the options block wraps its cells like every other
+    // block: `Snap to objects` and `Smooth` on Row 1, `Straighten` under `Snap to objects`, with
+    // no `Tool options` sun button or inline `Tool properties…` dump even at wide widths.
     editor.set_tool(Tool::Select);
     render_tools(&mut editor, &ctx, 76.0, 0.1, vec![]);
     let out_2col = render_tools(&mut editor, &ctx, 76.0, 0.2, vec![]);
@@ -8313,13 +8735,14 @@ fn classic_flash_tools_modifiers_and_multicolumn_bottom_up_compaction() {
         "the middle paint block is centred in the 76 pt Tools body"
     );
     assert!(
-        snap_rect.bottom() <= smooth_rect.top() + 2.0,
-        "Snap to objects is on Row 1 above Smooth/Straighten in 2-column mode"
+        (snap_rect.center().y - smooth_rect.center().y).abs() < 2.0
+            && snap_rect.right() <= smooth_rect.left(),
+        "Snap to objects and Smooth share Row 1 of the options block"
     );
     assert!(
-        (smooth_rect.center().y - straighten_rect.center().y).abs() < 2.0
-            && smooth_rect.right() <= straighten_rect.left() + 2.0,
-        "Smooth and Straighten sit side-by-side on Row 2"
+        snap_rect.bottom() <= straighten_rect.top()
+            && (snap_rect.left() - straighten_rect.left()).abs() < 1.0,
+        "Straighten starts Row 2, under Snap to objects"
     );
 
     // 2. Add a jagged polyline path, select it, and verify Smooth and Straighten modify the path
@@ -8450,7 +8873,7 @@ fn classic_flash_tools_modifiers_and_multicolumn_bottom_up_compaction() {
     assert!(named_bounds(&out_zoom, "Enlarge").is_some());
     assert!(named_bounds(&out_zoom, "Reduce").is_some());
 
-    // 4. Stretch the Tools panel wider (4 columns) and verify tools reflow into 4 columns across
+    // 4. Stretch the Tools panel wider (180 pt) and verify tools reflow into more columns across
     // the width, desired height decreases from the bottom up, and `compact_floating_tools_window_bottom_up`
     // shrinks `inner_size[1]` while keeping the top edge `outer_position[1]` fixed.
     editor.set_tool(Tool::Select);
@@ -8475,9 +8898,13 @@ fn classic_flash_tools_modifiers_and_multicolumn_bottom_up_compaction() {
             && (sel_b.center().y - grad_b.center().y).abs() < 2.0,
         "First 4 tools share Row 1 when stretched wide"
     );
+    // `pad/tools` 6 pt and `gap/tool` 2 pt in Normal: as many `tool_button()` cells as fit 180 pt.
+    let wide_step = neoflash_ui::metrics::tool_button() + 2.0;
+    let wide_cols = ((180.0 - 2.0 * 6.0 + 2.0) / wide_step).floor();
+    let wide_left = 8.0 + (180.0 - (wide_cols * wide_step - 2.0)) * 0.5;
     assert!(
-        sel_b.min.x < 24.0 && (sel_b.min.x - hand_b.min.x).abs() < 1.0,
-        "Multi-column Tools rows are left-aligned: sel_b.min.x={}, hand_b.min.x={}",
+        (sel_b.min.x - wide_left).abs() < 1.0 && (sel_b.min.x - hand_b.min.x).abs() < 1.0,
+        "Multi-column Tools grids are centred and their rows share the left edge: sel_b.min.x={}, hand_b.min.x={}",
         sel_b.min.x,
         hand_b.min.x
     );
@@ -8632,13 +9059,14 @@ fn top_bar_logo_scales_proportionally_without_stretching_bar_across_densities() 
     use neoflash_ui::metrics::Density;
     let ctx = egui::Context::default();
     let mut editor = Editor::from_project(&ctx, Project::blank());
-    for (pref, ui_density, expected_bar_h) in [
-        (DensityPref::Comfortable, Density::Comfortable, 48.0_f32),
-        (DensityPref::Compact, Density::Compact, 40.0_f32),
-        (DensityPref::ClassicFlash, Density::ClassicFlash, 32.0_f32),
+    for (pref, ui_density) in [
+        (DensityPref::Comfortable, Density::Comfortable),
+        (DensityPref::Compact, Density::Compact),
+        (DensityPref::ClassicFlash, Density::ClassicFlash),
     ] {
         editor.workspace.set_density(pref);
         neoflash_ui::metrics::set_density(ui_density);
+        let expected_bar_h = neoflash_ui::metrics::top_bar();
         let mut bar_h = 0.0_f32;
         let out = ctx.run(
             egui::RawInput {
@@ -9664,7 +10092,7 @@ fn t224_inspector_tab_focus_transfer_commits_distinct_undos_and_clamps_bounds() 
     d.settle();
 
     // Focus Rotate in Transform, type 30, then press Tab on the next frame to transfer focus to Skew.
-    d.click("Rotate");
+    d.click("Rotation");
     assert!(d.ctx.wants_keyboard_input(), "Rotate field focused");
     d.step(vec![Event::Text("30".into())]);
     d.step(vec![Event::Key {
@@ -9715,7 +10143,7 @@ fn t224_inspector_tab_focus_transfer_commits_distinct_undos_and_clamps_bounds() 
     d.editor.project.validate().unwrap();
 
     // Focus Rotate again and press Escape: surrenders focus WITHOUT clearing Stage selection!
-    d.click("Rotate");
+    d.click("Rotation");
     assert!(d.ctx.wants_keyboard_input());
     d.step(vec![Event::Key {
         key: egui::Key::Escape,
@@ -9760,12 +10188,19 @@ fn t295_r077_r078_stacked_dock_collapse_priority_snap_and_top_bar_workspace_clam
 
     // R-077: Library minimum stacked height scales with density profile.
     let saved_density = density();
-    set_density(Density::Comfortable);
-    assert_eq!(PanelId::Library.min_stacked_height(), 245.0);
-    set_density(Density::Compact);
-    assert_eq!(PanelId::Library.min_stacked_height(), 213.0);
-    set_density(Density::ClassicFlash);
-    assert_eq!(PanelId::Library.min_stacked_height(), 185.0);
+    // Header, search and footer rows, the type bar, three tree rows and a separator.
+    let library_minimum = || {
+        use neoflash_ui::{metrics as m, tokens::space};
+        m::panel_header() + 3.0 * m::control() + 3.0 * m::row() + 3.0 * space::s2() + 1.0
+    };
+    let mut previous = f32::INFINITY;
+    for profile in Density::ALL {
+        set_density(profile);
+        let minimum = PanelId::Library.min_stacked_height();
+        assert_eq!(minimum, library_minimum());
+        assert!(minimum < previous, "{profile:?} must be denser: {minimum}");
+        previous = minimum;
+    }
     set_density(saved_density);
 
     // Tall column fits both groups above their useful minima without collapsing.
@@ -9785,8 +10220,8 @@ fn t295_r077_r078_stacked_dock_collapse_priority_snap_and_top_bar_workspace_clam
     ];
     let tall = compute_vertical_dock_layout(&groups, 600.0, 40.0);
     assert_eq!(tall.collapsed, vec![false, false]);
-    assert!(tall.extents[0] >= 220.0);
-    assert!(tall.extents[1] >= 245.0);
+    assert!(tall.extents[0] >= PanelId::Properties.min_stacked_height());
+    assert!(tall.extents[1] >= PanelId::Library.min_stacked_height());
 
     // Tight 1024x720 window preserves >= 360px Stage, collapses crowded lower-priority Library to
     // header strip with Expand Library button, preserves 0.68/0.32 weights, and flips on click.
@@ -9918,26 +10353,73 @@ fn t295_r077_r078_stacked_dock_collapse_priority_snap_and_top_bar_workspace_clam
     assert!(editor.workspace.dock.right.groups[1].weight <= 0.002);
     assert!(named_bounds(&out_snapped, "Expand Library").is_some());
 
-    // R-078 #4: Top bar workspace selector clamps between 132..=180 below 1280px and hides when < 132pt free.
+    // R-078 #4 (v3): the top bar workspace selector is one `width/field-m` slot. When the window
+    // narrows, the menu titles collapse into one ☰ menu first; the selector hides only when its
+    // slot does not fit next to that button, and Test Movie / Publish keep their place throughout.
+    let slot = neoflash_ui::metrics::field_m();
+    let top_bar = |width: f32| {
+        Rect::from_min_size(
+            Pos2::ZERO,
+            Vec2::new(width, neoflash_ui::metrics::top_bar()),
+        )
+    };
+    let actions_from_right = |out: &egui::FullOutput, width: f32| {
+        let publish = named_bounds_in(out, "Publish", top_bar(width)).expect("Publish");
+        let test = named_bounds_in(out, "Test Movie", top_bar(width)).expect("Test Movie");
+        (width - publish.right(), width - test.left())
+    };
     let ws_label = editor.workspace.active_workspace_label().to_owned();
     let (out_mid, _) = run_shell(&mut editor, Vec2::new(1140., 720.), 1.8, vec![]);
-    let ws_mid = named_bounds(&out_mid, &ws_label)
-        .expect("workspace selector shown below 1280px when free >= 132pt");
+    let ws_mid =
+        named_bounds(&out_mid, &ws_label).expect("workspace selector shown while its slot fits");
     assert!(
-        (131.0..=181.0).contains(&ws_mid.width()),
-        "workspace selector width {} out of 132..=180",
+        (ws_mid.width() - slot).abs() < 1.5,
+        "workspace selector width {} must be the {slot} pt slot at 1140 px",
         ws_mid.width()
     );
     let ws_hd = named_bounds(&out_hd, &ws_label).expect("workspace selector shown at 1920px");
     assert!(
-        (ws_hd.width() - 180.0).abs() < 1.5,
-        "workspace selector width {} expected 180pt at 1920px",
+        (ws_hd.width() - slot).abs() < 1.5,
+        "workspace selector width {} must be the {slot} pt slot at 1920 px",
         ws_hd.width()
     );
-    let (out_narrow, _) = run_shell(&mut editor, Vec2::new(500., 720.), 2.0, vec![]);
+    let menus_expanded = |out: &egui::FullOutput, width: f32| {
+        let file = named_bounds_in(out, "File", top_bar(width)).is_some();
+        let burger = named_bounds_in(out, "☰", top_bar(width)).is_some();
+        assert_ne!(
+            file, burger,
+            "the top bar shows either the menu titles or the ☰ menu"
+        );
+        file
+    };
+    assert!(menus_expanded(&out_mid, 1140.) && menus_expanded(&out_hd, 1920.));
+    // Too narrow for the menu titles next to the right group: they collapse, the selector stays.
+    let (out_tight, _) = run_shell(&mut editor, Vec2::new(700., 720.), 2.0, vec![]);
+    assert!(
+        !menus_expanded(&out_tight, 700.),
+        "menu titles collapse first"
+    );
+    let ws_tight = named_bounds(&out_tight, &ws_label)
+        .expect("workspace selector stays while its slot fits beside the ☰ menu");
+    assert!((ws_tight.width() - slot).abs() < 1.5);
+    // Too narrow for the selector slot as well: it hides, the ☰ menu and both buttons stay.
+    let (out_narrow, _) = run_shell(&mut editor, Vec2::new(420., 720.), 2.2, vec![]);
+    assert!(!menus_expanded(&out_narrow, 420.));
     assert!(
         named_bounds(&out_narrow, &ws_label).is_none(),
-        "workspace selector must hide when remaining width < 132pt"
+        "workspace selector must hide when its slot does not fit"
+    );
+    let anchored = actions_from_right(&out_mid, 1140.);
+    assert_eq!(anchored, actions_from_right(&out_hd, 1920.));
+    assert_eq!(
+        anchored,
+        actions_from_right(&out_tight, 700.),
+        "Test Movie and Publish must not move when the menu titles collapse"
+    );
+    assert_eq!(
+        anchored,
+        actions_from_right(&out_narrow, 420.),
+        "Test Movie and Publish must not move when the workspace selector hides"
     );
 }
 
@@ -10007,7 +10489,9 @@ fn t295_r061_r062_r072_r076_r079_r080_to_r087_interface_answers() {
     assert!(d.editor.publish_settings.is_some());
 
     // R-072 & R-086: Publish settings uses "Desktop app (macOS / Windows / Linux)" and "Choose a folder".
+    // v3: the sidebar rows carry short names; the full name is the title of the selected page.
     d.settle();
+    d.click("Desktop app");
     let texts = d.texts();
     assert!(
         texts
@@ -10021,16 +10505,15 @@ fn t295_r061_r062_r072_r076_r079_r080_to_r087_interface_answers() {
         .as_ref()
         .and_then(|u| {
             u.nodes.iter().find_map(|(_, n)| {
-                (n.label() == Some("Image sequence / sprite sheet")
-                    || n.value() == Some("Image sequence / sprite sheet"))
-                .then(|| n.bounds())
-                .flatten()
-                .map(|r| {
-                    Pos2::new(
-                        (r.x0 as f32 + r.x1 as f32) * 0.5,
-                        (r.y0 as f32 + r.y1 as f32) * 0.5,
-                    )
-                })
+                (n.label() == Some("Image sequence") || n.value() == Some("Image sequence"))
+                    .then(|| n.bounds())
+                    .flatten()
+                    .map(|r| {
+                        Pos2::new(
+                            (r.x0 as f32 + r.x1 as f32) * 0.5,
+                            (r.y0 as f32 + r.y1 as f32) * 0.5,
+                        )
+                    })
             })
         })
         .expect("Image sequence / sprite sheet target row");
@@ -11069,7 +11552,8 @@ fn t300_open_popups_block_single_key_shortcuts_and_local_modal_enter() {
     // 4. Open Select popup inside a modal dialog (Document settings -> Units) must suppress Enter confirm.
     d.inner.editor.open_document_settings();
     d.settle();
-    d.click("Units: Pixels");
+    // v3: the `Units` row label names the select, the select shows the value.
+    d.click("Pixels");
     assert!(d.inner.editor.has_open_popup(&d.inner.ctx));
     d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
     assert!(
@@ -12534,7 +13018,8 @@ fn t319_two_step_escape_across_modals_popups_and_tracked_rgba_popovers() {
     // 2. Layer properties: Select popup -> 1st Esc closes popup, 2nd closes modal.
     d.editor.open_layer_properties(&d.ctx, 0);
     d.settle();
-    d.click("Layer height: 100 %");
+    // v3: labelled rows, value-only selects (`Layer height` ▸ `100 %`).
+    d.click("100 %");
     assert!(d.editor.has_open_popup(&d.ctx));
     d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
     assert!(!d.editor.has_open_popup(&d.ctx));
@@ -12549,7 +13034,7 @@ fn t319_two_step_escape_across_modals_popups_and_tracked_rgba_popovers() {
     d.editor.open_font_embedding(&d.ctx);
     d.settle();
     d.click("Add font");
-    d.click("Style: Regular");
+    d.click("Regular");
     assert!(d.editor.has_open_popup(&d.ctx));
     d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
     assert!(!d.editor.has_open_popup(&d.ctx));
@@ -12565,7 +13050,7 @@ fn t319_two_step_escape_across_modals_popups_and_tracked_rgba_popovers() {
     // 4. Stroke style (`PR-03`): Select popup -> 1st Esc closes popup, 2nd closes modal.
     d.editor.open_stroke_style(&d.ctx);
     d.settle();
-    d.click("Type: Solid");
+    d.click("Solid");
     assert!(d.editor.has_open_popup(&d.ctx));
     d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
     assert!(!d.editor.has_open_popup(&d.ctx));
@@ -12582,11 +13067,13 @@ fn t319_two_step_escape_across_modals_popups_and_tracked_rgba_popovers() {
     d.editor
         .open_sound_properties(&d.ctx, Some("snd_click".to_owned()));
     d.settle();
-    let comp_label = d
-        .labels()
-        .into_iter()
-        .find(|l| l.starts_with("Compression: "))
-        .expect("Sound properties Compression Select");
+    // v3: the `Compression` row label names the select, the select shows the value.
+    let comp_label = crate::panels::sound_properties::sound_properties_draft(&d.ctx)
+        .expect("Sound properties draft")
+        .export
+        .compression
+        .label()
+        .to_owned();
     d.click(&comp_label);
     assert!(d.editor.has_open_popup(&d.ctx));
     d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
@@ -12603,7 +13090,7 @@ fn t319_two_step_escape_across_modals_popups_and_tracked_rgba_popovers() {
     d.editor.edit_envelope.as_mut().unwrap().selected_left = Some(1);
     d.settle();
     assert_eq!(d.editor.edit_envelope.as_ref().unwrap().left.len(), 3);
-    d.click("Effect: Custom");
+    d.click("Effect, Custom");
     assert!(d.editor.has_open_popup(&d.ctx));
     d.key_tap(egui::Key::Delete, egui::Modifiers::NONE);
     d.key_tap(egui::Key::Backspace, egui::Modifiers::NONE);
@@ -12697,7 +13184,7 @@ fn t319_two_step_escape_across_modals_popups_and_tracked_rgba_popovers() {
     d.editor.open_help_manual(&d.ctx);
     d.settle();
     assert!(crate::panels::help_manual::is_help_manual_open(&d.ctx));
-    d.click("Filter topics, tools, modes or shortcuts…");
+    d.click("Search NeoFlash Help");
     assert!(d.ctx.wants_keyboard_input());
     d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
     assert!(
@@ -13233,15 +13720,15 @@ fn t359_t360_t362_properties_empty_symbol_size_independent_instance_behavior_and
         "Frame section precedes Tween"
     );
     assert!(named_bounds(&out_frame, "Frame script…").is_some());
-    assert!(named_bounds(&out_frame, "Tween: None").is_some());
+    assert!(named_bounds(&out_frame, "Tween, None").is_some());
 
     // Create Classic tween and verify Classic Flash rows (Scale, Ease + Edit…, Rotate + times, Orient/Sync/Snap).
     editor.create_tween(TweenKind::Classic);
     let _ = render_props(&mut editor, 0.7, vec![]);
     let out_classic = render_props(&mut editor, 0.8, vec![]);
-    assert!(named_bounds(&out_classic, "Tween: Classic").is_some());
+    assert!(named_bounds(&out_classic, "Tween, Classic").is_some());
     assert!(named_bounds(&out_classic, "Scale").is_some());
-    assert!(named_bounds(&out_classic, "Rotate: Auto").is_some());
+    assert!(named_bounds(&out_classic, "Rotate, Auto").is_some());
     assert!(named_bounds(&out_classic, "times").is_some());
     assert!(named_bounds(&out_classic, "Orient to path").is_some());
     assert!(named_bounds(&out_classic, "Sync").is_some());
@@ -13378,15 +13865,15 @@ fn t383_frame_properties_always_renders_classic_flash_controls_on_held_motion_an
     );
     assert_eq!(named_disabled(&out_held_none, "Frame label"), Some(false));
     assert_eq!(named_disabled(&out_held_none, "Name"), Some(false));
-    assert_eq!(named_disabled(&out_held_none, "Tween: None"), Some(false));
+    assert_eq!(named_disabled(&out_held_none, "Tween, None"), Some(false));
     for ctrl in [
         "Frame label",
         "Name",
-        "Tween: None",
+        "Tween, None",
         "Scale",
         "Linear",
         "Edit…",
-        "Rotate: Auto",
+        "Rotate, Auto",
         "times",
         "Orient to path",
         "Sync",
@@ -13418,7 +13905,7 @@ fn t383_frame_properties_always_renders_classic_flash_controls_on_held_motion_an
     let _ = render_floating(&mut editor, vec![]);
     let out_motion_held = render_floating(&mut editor, vec![]);
     assert_eq!(
-        named_disabled(&out_motion_held, "Tween: Motion"),
+        named_disabled(&out_motion_held, "Tween, Motion"),
         Some(false),
         "held frame after ◆ key inside Motion span must still show Tween: Motion"
     );
@@ -13426,7 +13913,7 @@ fn t383_frame_properties_always_renders_classic_flash_controls_on_held_motion_an
         "Scale",
         "Linear",
         "Edit…",
-        "Rotate: Auto",
+        "Rotate, Auto",
         "Orient to path",
         "Sync",
         "Snap",
@@ -13468,12 +13955,12 @@ fn t383_frame_properties_always_renders_classic_flash_controls_on_held_motion_an
     editor.create_tween(TweenKind::Shape);
     let _ = render_floating(&mut editor, vec![]);
     let out_shape = render_floating(&mut editor, vec![]);
-    assert_eq!(named_disabled(&out_shape, "Tween: Shape"), Some(false));
+    assert_eq!(named_disabled(&out_shape, "Tween, Shape"), Some(false));
     assert_eq!(named_disabled(&out_shape, "Linear"), Some(false));
     assert_eq!(named_disabled(&out_shape, "Edit…"), Some(false));
     for disabled_on_shape in [
         "Scale",
-        "Rotate: Auto",
+        "Rotate, Auto",
         "times",
         "Orient to path",
         "Sync",
@@ -13499,11 +13986,11 @@ fn t383_frame_properties_always_renders_classic_flash_controls_on_held_motion_an
     for disabled_ctrl in [
         "Frame label",
         "Name",
-        "Tween: None",
+        "Tween, None",
         "Scale",
         "Linear",
         "Edit…",
-        "Rotate: Auto",
+        "Rotate, Auto",
         "times",
         "Orient to path",
         "Sync",
@@ -13516,4 +14003,215 @@ fn t383_frame_properties_always_renders_classic_flash_controls_on_held_motion_an
         );
     }
     editor.project.validate().unwrap();
+}
+
+/// T-389 E8a: every inspector-width panel fits a docked `inspector()` body in Normal, Compact and
+/// Classic Flash. No widget of the panel may end past the body's right edge.
+#[test]
+fn v3_inspector_width_panels_fit_the_inspector_at_every_density() {
+    use crate::workspace::DensityPref;
+    use neoflash_ui::metrics;
+
+    #[derive(Clone, Copy, Debug)]
+    enum Pick {
+        Nothing,
+        Instance,
+        Shape,
+        Text,
+    }
+    let cases: &[(&str, PanelId, Pick)] = &[
+        ("Library", PanelId::Library, Pick::Nothing),
+        ("History", PanelId::History, Pick::Shape),
+        ("Info", PanelId::Info, Pick::Instance),
+        ("Scene", PanelId::Scene, Pick::Nothing),
+        ("Project", PanelId::Project, Pick::Nothing),
+        ("Filters", PanelId::Filters, Pick::Instance),
+        ("Filters, nothing selected", PanelId::Filters, Pick::Nothing),
+        ("Movie Explorer", PanelId::MovieExplorer, Pick::Nothing),
+        ("Code snippets", PanelId::CodeSnippets, Pick::Nothing),
+        ("Accessibility", PanelId::Accessibility, Pick::Instance),
+        ("Brushes", PanelId::Brushes, Pick::Nothing),
+        ("Align", PanelId::Align, Pick::Instance),
+        ("Transform", PanelId::Transform, Pick::Instance),
+        ("Color", PanelId::Color, Pick::Shape),
+        ("Color, expanded picker", PanelId::Color, Pick::Shape),
+        ("Swatches", PanelId::Swatches, Pick::Shape),
+        ("Properties, document", PanelId::Properties, Pick::Nothing),
+        ("Properties, shape", PanelId::Properties, Pick::Shape),
+        ("Properties, text", PanelId::Properties, Pick::Text),
+    ];
+    let mut failures = Vec::new();
+    for density in DensityPref::ALL {
+        for (name, panel, pick) in cases {
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            let mut editor = Editor::from_project(&ctx, Project::demo());
+            editor.set_density(&ctx, density);
+            editor.apply_density(&ctx);
+            editor.workspace.color_picker_expanded = name.contains("expanded picker");
+            let element = |editor: &Editor, wanted: &dyn Fn(&ElementKind) -> bool| {
+                editor
+                    .symbol()
+                    .timeline
+                    .layers
+                    .iter()
+                    .flat_map(|l| &l.keyframes)
+                    .flat_map(|k| &k.elements)
+                    .find(|e| wanted(&e.kind))
+                    .map(|e| e.id.clone())
+            };
+            match pick {
+                Pick::Nothing => {}
+                Pick::Instance => {
+                    let id = element(&editor, &|k| matches!(k, ElementKind::Instance { .. }))
+                        .expect("demo instance");
+                    editor.select_single_id(id);
+                }
+                Pick::Shape => {
+                    editor.add_element(
+                        ElementKind::Rectangle {
+                            width: 120.0,
+                            height: 80.0,
+                            fill: [91, 140, 255, 255],
+                            stroke: [0, 0, 0, 255],
+                            stroke_width: 1.0,
+                        },
+                        40.0,
+                        40.0,
+                    );
+                }
+                Pick::Text => {
+                    editor.add_element(
+                        ElementKind::TextBox {
+                            text: "Fit".into(),
+                            width: 240.0,
+                            height: 60.0,
+                            format: TextFormat::default(),
+                            word_wrap: true,
+                            multiline: true,
+                        },
+                        40.0,
+                        40.0,
+                    );
+                }
+            }
+            // The body of a docked panel: the dock at its minimum width minus the panel's padding.
+            let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(metrics::inspector(), 6000.0));
+            let body = screen.shrink(panel.body_padding());
+            let mut time = 0.0;
+            let mut run = |editor: &mut Editor, events: Vec<Event>| {
+                time += 0.1;
+                ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(screen),
+                        time: Some(time),
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        editor.apply_density(ctx);
+                        egui::CentralPanel::default()
+                            .frame(egui::Frame::NONE)
+                            .show(ctx, |ui| {
+                                let mut content = ui.new_child(
+                                    egui::UiBuilder::new().id_salt("fit-body").max_rect(body),
+                                );
+                                content.set_clip_rect(body);
+                                content.set_min_size(body.size());
+                                editor.dock_panel_contents(&mut content, *panel);
+                            });
+                    },
+                )
+            };
+            let mut out = None;
+            for _ in 0..3 {
+                out = Some(run(&mut editor, vec![]));
+            }
+            // Open every collapsed section (a full-width header row that reports "not toggled"),
+            // so the rows inside are laid out and measured too.
+            for _ in 0..32 {
+                let collapsed = out
+                    .as_ref()
+                    .and_then(|o: &egui::FullOutput| o.platform_output.accesskit_update.as_ref())
+                    .unwrap()
+                    .nodes
+                    .iter()
+                    .filter(|(_, node)| {
+                        node.toggled() == Some(egui::accesskit::Toggled::False)
+                            && node.role() != egui::accesskit::Role::CheckBox
+                    })
+                    .filter_map(|(_, node)| node.bounds())
+                    .find(|b| {
+                        ((b.y1 - b.y0) - f64::from(metrics::section_header())).abs() < 0.5
+                            && b.x1 - b.x0 > f64::from(body.width()) * 0.75
+                    })
+                    .map(|b| Pos2::new(((b.x0 + b.x1) * 0.5) as f32, ((b.y0 + b.y1) * 0.5) as f32));
+                let Some(center) = collapsed else {
+                    break;
+                };
+                run(
+                    &mut editor,
+                    vec![Event::PointerMoved(center), primary_button(center, true)],
+                );
+                run(&mut editor, vec![primary_button(center, false)]);
+                out = Some(run(&mut editor, vec![]));
+            }
+            let out = out.unwrap();
+            if *name == "Properties, text" {
+                let nodes = &out.platform_output.accesskit_update.as_ref().unwrap().nodes;
+                assert!(
+                    nodes.iter().any(|(_, node)| {
+                        node.label() == Some("Advanced character")
+                            && node.toggled() == Some(egui::accesskit::Toggled::True)
+                    }),
+                    "sections that start collapsed are opened before measuring"
+                );
+            }
+            // The Used colours header (title, `Only on stage`, ⋯) shows its whole title.
+            if matches!(*name, "Swatches" | "Properties, document") {
+                let nodes = &out.platform_output.accesskit_update.as_ref().unwrap().nodes;
+                let titles: Vec<&str> = nodes
+                    .iter()
+                    .filter_map(|(_, node)| node.label())
+                    .filter(|label| label.starts_with("Used"))
+                    .collect();
+                assert!(
+                    titles.contains(&"Used colours"),
+                    "{density:?} · {name}: the Used colours title is elided: {titles:?}"
+                );
+                for label in ["Only on stage", "Used colours options"] {
+                    assert!(
+                        named_bounds(&out, label).is_some(),
+                        "{density:?} · {name}: {label} missing from the Used colours header"
+                    );
+                }
+            }
+            // Properties and Accessibility pad inside their scroll areas (`panels/actions.rs`).
+            let inner = match panel {
+                PanelId::Properties => neoflash_ui::tokens::space::s4(),
+                PanelId::Accessibility => neoflash_ui::tokens::space::s3(),
+                _ => 0.0,
+            };
+            let limit = f64::from(body.right() - inner) + 0.5;
+            for (_, node) in &out.platform_output.accesskit_update.as_ref().unwrap().nodes {
+                let Some(bounds) = node.bounds() else {
+                    continue;
+                };
+                if bounds.x1 > limit && bounds.x1 - bounds.x0 < f64::from(screen.width()) * 4.0 {
+                    failures.push(format!(
+                        "{density:?} · {name}: {:?} {:?} ends at {:.1} (rows end at {:.1})",
+                        node.role(),
+                        node.label().or(node.value()).unwrap_or(""),
+                        bounds.x1,
+                        body.right() - inner,
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "widgets past the panel's right edge:\n{}",
+        failures.join("\n")
+    );
 }

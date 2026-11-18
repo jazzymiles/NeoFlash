@@ -1,31 +1,55 @@
-//! Tools panel — `NF2/Tools Panel`.
+//! Tools panel — `NF3 Panel / Tools`.
 //!
-//! The layout follows the available width, not a setting:
+//! One layout for every width: four blocks separated by 1 px dividers — tools · view · colours ·
+//! options — each a grid of `tool_button()` cells centred in the panel. The column count follows the
+//! available width (`tool_columns_for_width`); N columns need `tools_natural_width(N)`.
 //!
-//! * **2 Columns** (base layout, docked default 80 pt and floating): every tool visible; dividers
-//!   separate tools, view commands, colours and contextual modifiers without redundant captions.
-//! * **1 Column** (panel narrower than two tool buttons): related tools share one `NF2/Tool Button`
-//!   with a flyout (corner-mark click, right-click, long-press or → opens the group), groups separated by
-//!   `NF2/Divider`s. As many groups as fit are shown; a trailing "…" button lists the rest. Paint
-//!   colours (`NF2/Fill Stroke Chip`, black-and-white, swap) and the tool-options popover stay
-//!   pinned to the bottom.
+//! * **2 or more columns**: every tool is a cell; the view block holds Hand, Zoom, Zoom out and Fit.
+//! * **1 column** (rail): related tools share one cell with a flyout (corner-mark click, right-click,
+//!   long-press or → opens the group); the view block holds Hand and Zoom, the colours block the
+//!   two chips, the options block Snap.
 //!
-//! Only tools the editor implements are shown. NF2 tools without an engine (Deco, Spray, Bone, Bind,
-//! PolyStar, primitives, 3D) and the Snap toggle are omitted rather than faked.
+//! "⋯" closes the tools block — as its last cell, or as a low full-width bar under the grid when
+//! the tools fill their rows and the cell would start a row of its own (two or more columns). It
+//! opens the palette menu: the tools and commands that are not on the
+//! surface (a short panel; Zoom out, Fit, default colours and swap on the rail), Customize tools
+//! and the panel placement commands. The options block reserves the rows of the largest modifier set of all tools, so the
+//! panel height never depends on the active tool.
 use crate::app::*;
 use crate::theme::ScrollTheme as _;
 use crate::{ui_icons::Icon, workspace::PanelId};
 use eframe::egui::{self, Key, Rect, Vec2};
 use neoflash_ui::components::{self as nf, menu::menu_style};
 use neoflash_ui::icons::i20;
+use neoflash_ui::metrics;
 use neoflash_ui::tokens::space;
 
-/// Gap between tool buttons (`NF2/Tools Panel` tool grid gap).
-const TOOL_GAP: f32 = space::S1 / 2.0;
+/// Gap between tool cells (`gap/tool`).
+fn tool_gap() -> f32 {
+    metrics::density().pick(2.0, 2.0, 1.0)
+}
+/// Padding around every block of the palette (`pad/tools`).
+fn tools_pad() -> f32 {
+    metrics::density().pick(6.0, 6.0, 5.0)
+}
+/// Line between two blocks.
+const DIVIDER: f32 = 1.0;
+/// Height of the "⋯" bar under a tools grid whose rows are full, and its glyph size.
+fn more_bar_height() -> f32 {
+    metrics::density().pick(14.0, 12.0, 12.0)
+}
+fn more_bar_glyph() -> f32 {
+    metrics::density().pick(16.0, 12.0, 12.0)
+}
 /// Hold time that opens a tool group (§13.4: long-press opens the flyout).
 const LONG_PRESS: f64 = 0.45;
-/// Width of the colour-action icon buttons under the Fill Stroke Chip (outline `Color actions`).
-const COLOR_ACTION: f32 = 20.0;
+/// Swatch inside the stroke and fill chips, and the ring of the hollow stroke chip.
+const CHIP_SWATCH: f32 = 16.0;
+const CHIP_RING: f32 = 3.0;
+/// Cells of the colours block: stroke chip, fill chip, then default colours and swap (the rail
+/// keeps the two chips and lists the two commands in "⋯").
+const COLOUR_CELLS: usize = 4;
+const RAIL_COLOUR_CELLS: usize = 2;
 
 #[derive(Clone, Copy)]
 pub(crate) struct ToolSpec {
@@ -203,11 +227,230 @@ fn popover_side_id() -> egui::Id {
     popover_id().with("prefer-left")
 }
 
+/// Natural Tools panel width for `cols` columns: `N × cell + (N − 1) × gap + 2 × padding`.
+pub(crate) fn tools_natural_width(cols: usize) -> f32 {
+    let cols = cols.max(1) as f32;
+    cols * metrics::tool_button() + (cols - 1.0) * tool_gap() + 2.0 * tools_pad()
+}
+
 pub(crate) fn tool_columns_for_width(available_width: f32) -> usize {
-    let side = neoflash_ui::metrics::tool_button();
-    ((available_width + TOOL_GAP) / (side + TOOL_GAP))
+    cells_fitting(available_width).max(1)
+}
+
+/// Cells of one row (or rows of one block) that fit `extent` once the block padding is taken off.
+fn cells_fitting(extent: f32) -> usize {
+    let step = metrics::tool_button() + tool_gap();
+    (((extent - 2.0 * tools_pad() + tool_gap()) / step) + 0.01)
         .floor()
-        .max(1.0) as usize
+        .max(0.0) as usize
+}
+
+/// Height of a block of `rows` cell rows with its padding; an empty block takes no room.
+fn block_height(rows: usize) -> f32 {
+    if rows == 0 {
+        0.0
+    } else {
+        tools_natural_width(rows)
+    }
+}
+
+/// Height of the non-empty `blocks` stacked with a divider between neighbours.
+fn stack_height(blocks: &[f32]) -> f32 {
+    let shown = blocks.iter().filter(|height| **height > 0.0).count();
+    blocks.iter().sum::<f32>() + shown.saturating_sub(1) as f32 * DIVIDER
+}
+
+fn is_view_tool(spec: &ToolSpec) -> bool {
+    matches!(spec.tool, Tool::Hand | Tool::Zoom)
+}
+
+/// One cell of the tools block.
+#[derive(Clone, Copy)]
+enum ToolCell<'a> {
+    Tool(ToolSpec),
+    /// Rail: a slot of related tools behind one button with a flyout.
+    Group(usize, &'a [ToolSpec]),
+}
+
+/// One cell of the view block, or a view command listed in the "⋯" menu.
+#[derive(Clone, Copy)]
+enum ViewCell {
+    Tool(ToolSpec),
+    ZoomOut,
+    Fit,
+}
+
+/// Content of the palette for a column count, before it is fitted to the panel height.
+struct ToolsPlan<'a> {
+    cols: usize,
+    tools: Vec<ToolCell<'a>>,
+    view: Vec<ViewCell>,
+    /// View commands that are never on the surface in this layout (rail: Zoom out, Fit).
+    menu_only: Vec<ViewCell>,
+    /// Rows the options block reserves, whatever the active tool is.
+    option_rows: usize,
+}
+
+/// What of a [`ToolsPlan`] fits the panel height.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ToolsFit {
+    tool_rows: usize,
+    /// "⋯" is the bar under the grid, not its last cell.
+    more_bar: bool,
+    show_view: bool,
+    option_rows: usize,
+}
+
+impl<'a> ToolsPlan<'a> {
+    fn new(groups: &'a [Vec<ToolSpec>], cols: usize) -> Self {
+        let cols = cols.max(1);
+        if cols == 1 {
+            let view_only = |group: &&Vec<ToolSpec>| group.iter().all(is_view_tool);
+            return Self {
+                cols,
+                tools: groups
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, group)| !view_only(group))
+                    .map(|(slot, group)| ToolCell::Group(slot, group.as_slice()))
+                    .collect(),
+                view: groups
+                    .iter()
+                    .filter(view_only)
+                    .flatten()
+                    .map(|spec| ViewCell::Tool(*spec))
+                    .collect(),
+                menu_only: vec![ViewCell::ZoomOut, ViewCell::Fit],
+                // Snap to objects.
+                option_rows: 1,
+            };
+        }
+        let all = || groups.iter().flatten().copied();
+        Self {
+            cols,
+            tools: all()
+                .filter(|spec| !is_view_tool(spec))
+                .map(ToolCell::Tool)
+                .collect(),
+            view: all()
+                .filter(is_view_tool)
+                .map(ViewCell::Tool)
+                .chain([ViewCell::ZoomOut, ViewCell::Fit])
+                .collect(),
+            menu_only: Vec::new(),
+            option_rows: max_modifier_rows(cols),
+        }
+    }
+
+    /// With every tool on the surface "⋯" is a bar when it would otherwise start a row of its
+    /// own: two or more columns and the tools fill their rows.
+    fn more_is_bar(&self) -> bool {
+        self.cols > 1 && !self.tools.is_empty() && self.tools.len().is_multiple_of(self.cols)
+    }
+    /// Rows of the tools block with every tool on the surface.
+    fn tool_rows(&self) -> usize {
+        if self.more_is_bar() {
+            self.tools.len() / self.cols
+        } else {
+            (self.tools.len() + 1).div_ceil(self.cols)
+        }
+    }
+    fn view_rows(&self) -> usize {
+        self.view.len().div_ceil(self.cols)
+    }
+    fn colour_cells(&self) -> usize {
+        if self.cols == 1 {
+            RAIL_COLOUR_CELLS
+        } else {
+            COLOUR_CELLS
+        }
+    }
+    fn colour_rows(&self) -> usize {
+        self.colour_cells().div_ceil(self.cols)
+    }
+
+    fn height(&self, fit: ToolsFit) -> f32 {
+        let more_bar = if fit.more_bar { more_bar_height() } else { 0.0 };
+        stack_height(&[
+            block_height(fit.tool_rows) + more_bar,
+            if fit.show_view {
+                block_height(self.view_rows())
+            } else {
+                0.0
+            },
+            block_height(self.colour_rows()),
+            block_height(fit.option_rows),
+        ])
+    }
+
+    /// Height of the whole palette. It does not depend on the active tool.
+    fn natural_height(&self) -> f32 {
+        self.height(ToolsFit {
+            tool_rows: self.tool_rows(),
+            more_bar: self.more_is_bar(),
+            show_view: true,
+            option_rows: self.option_rows,
+        })
+    }
+
+    /// Tools on the surface for `fit`: every cell of its rows, less the one "⋯" takes as a cell.
+    fn tools_shown(&self, fit: &ToolsFit) -> usize {
+        (fit.tool_rows * self.cols)
+            .saturating_sub(usize::from(!fit.more_bar))
+            .min(self.tools.len())
+    }
+
+    /// What fits `available`. A panel shorter than the palette first gives up the option rows
+    /// reserved for other tools. If that is not enough, tools leave the surface row by row, or the
+    /// view block does, whichever hides fewer cells; whatever is hidden is listed in "⋯".
+    fn fit(&self, available: f32, active_option_rows: usize) -> ToolsFit {
+        let active = active_option_rows.min(self.option_rows);
+        let fits = |fit: &ToolsFit| self.height(*fit) <= available + 0.5;
+        let everything = (active..=self.option_rows)
+            .rev()
+            .map(|option_rows| ToolsFit {
+                tool_rows: self.tool_rows(),
+                more_bar: self.more_is_bar(),
+                show_view: true,
+                option_rows,
+            })
+            .find(fits);
+        if let Some(fit) = everything {
+            return fit;
+        }
+        // Every tool first; then "⋯" as the last cell of fewer and fewer rows.
+        let most_tools = |show_view: bool| {
+            let rows = |tool_rows, more_bar| ToolsFit {
+                tool_rows,
+                more_bar,
+                show_view,
+                option_rows: active,
+            };
+            std::iter::once(rows(self.tool_rows(), self.more_is_bar()))
+                .chain((1..=self.tool_rows()).rev().map(|n| rows(n, false)))
+                .find(fits)
+        };
+        let hidden = |fit: &ToolsFit| {
+            self.tools.len() - self.tools_shown(fit)
+                + if fit.show_view { 0 } else { self.view.len() }
+        };
+        match (most_tools(true), most_tools(false)) {
+            (Some(with_view), Some(without)) if hidden(&without) < hidden(&with_view) => without,
+            (Some(with_view), _) => with_view,
+            (None, Some(without)) => without,
+            (None, None) => ToolsFit {
+                tool_rows: 1,
+                more_bar: false,
+                show_view: false,
+                option_rows: active,
+            },
+        }
+    }
+}
+
+/// Icon button that fills one tool cell, with the glyph master of the current density.
+fn cell_button(icon: neoflash_ui::Icon, label: &str) -> nf::IconButton<'_> {
+    nf::IconButton::new(icon.at(metrics::icon_tool()), label).side(metrics::tool_button())
 }
 
 impl Editor {
@@ -221,6 +464,20 @@ impl Editor {
                 data.remove::<bool>(popover_side_id());
             }
         });
+        // A popover whose panel was not painted in the previous frame, or moved to another window,
+        // has lost its anchor: close it instead of reopening it somewhere else.
+        let ctx = ui.ctx().clone();
+        let painted = (
+            ctx.cumulative_frame_nr_for(egui::ViewportId::ROOT),
+            ctx.viewport_id(),
+        );
+        let last_painted = ctx.data_mut(|data| {
+            let slot = data.get_temp_mut_or(popover_id().with("painted"), painted);
+            std::mem::replace(slot, painted)
+        });
+        if last_painted.1 != painted.1 || painted.0 > last_painted.0 + 1 {
+            set_popover(&ctx, None);
+        }
         let id = (
             "neoflash-panel-content",
             PanelId::Tools,
@@ -232,183 +489,190 @@ impl Editor {
                 ui.painter()
                     .rect_filled(full_rect, 0.0, neoflash_ui::palette(ui.ctx()).bg_panel);
             }
-            ui.spacing_mut().item_spacing = Vec2::splat(TOOL_GAP);
-            let cols = if stage_anchor.is_some_and(|anchor| anchor.vertical()) {
+            // A side-centre Stage anchor is always the one-column rail and keeps the Stage height.
+            let rail_anchor = stage_anchor.is_some_and(|anchor| anchor.vertical());
+            let cols = if rail_anchor {
                 1
             } else {
                 tool_columns_for_width(ui.available_width())
             };
-            if cols >= 2 {
-                let panel_top = ui.cursor().top().max(0.0);
-                let tools = self.grid_tools();
-                let view = self.view_tools();
-                let full_grid_h = Self::tool_grid_full_height(tools.len(), view.len() + 2, cols);
-                let bottom_h = Self::two_col_bottom_height(self.tool, cols);
-                self.detached.tools_desired_inner_height =
-                    Some((panel_top + full_grid_h + bottom_h + space::S2).ceil());
-
-                let panel_rect = ui.available_rect_before_wrap();
-                let pinned_h = bottom_h.min(panel_rect.height());
-                let top_rect = Rect::from_min_max(
-                    panel_rect.min,
-                    egui::pos2(
-                        panel_rect.right(),
-                        (panel_rect.bottom() - pinned_h).max(panel_rect.top()),
-                    ),
-                );
-                let bottom_rect = Rect::from_min_max(
-                    egui::pos2(panel_rect.left(), top_rect.bottom()),
-                    panel_rect.max,
-                );
-                let mut top_ui = ui.new_child(
-                    egui::UiBuilder::new()
-                        .max_rect(top_rect)
-                        .layout(egui::Layout::top_down(egui::Align::Min)),
-                );
-                top_ui.set_clip_rect(ui.clip_rect().intersect(top_rect));
-                top_ui.spacing_mut().item_spacing = Vec2::splat(TOOL_GAP);
-                self.tool_grid_fitted(&mut top_ui, cols, &tools, &view, top_rect.height());
-
-                let mut bottom_ui = ui.new_child(
-                    egui::UiBuilder::new()
-                        .max_rect(bottom_rect)
-                        .layout(egui::Layout::top_down(egui::Align::Min)),
-                );
-                bottom_ui.set_clip_rect(ui.clip_rect().intersect(bottom_rect));
-                bottom_ui.spacing_mut().item_spacing = Vec2::splat(TOOL_GAP);
-                nf::divider(&mut bottom_ui, false);
-                self.colors_section(&mut bottom_ui, cols);
-                nf::divider(&mut bottom_ui, false);
-                self.tool_modifiers_ui(&mut bottom_ui, cols);
-                ui.allocate_rect(panel_rect, egui::Sense::hover());
-                return;
-            }
-            let panel_top = ui.cursor().top().max(0.0);
             let groups = self.tool_groups();
-            let entries = rail_entries(
-                &groups,
-                self.workspace.tools.slots == crate::tool_preferences::default_slots(),
-            );
-            let rail_total: f32 = entries.iter().map(|entry| entry.height()).sum();
-            let bottom_h = space::S1
-                + neoflash_ui::metrics::tool_button()
-                + TOOL_GAP
-                + COLOR_ACTION
-                + TOOL_GAP
-                + 36.0
-                + TOOL_GAP
-                + (1.0 + space::S2 + TOOL_GAP);
-            let desired_1col = (panel_top + rail_total + bottom_h + space::S2)
-                .ceil()
-                .min(crate::workspace::maximum_window_size(PanelId::Tools)[1]);
-            self.detached.tools_desired_inner_height =
-                if stage_anchor.is_some_and(|anchor| anchor.vertical()) {
-                    None
-                } else {
-                    Some(desired_1col)
-                };
-            // Rail: paint colours and snap modifier stay pinned while only the tools scroll.
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                ui.add_space(space::S1);
-                self.snap_to_objects_button(ui);
-                self.color_actions(ui);
-                self.fill_stroke_chip(ui);
-                nf::divider(ui, false);
-                ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                    self.tool_rail(ui);
-                });
+            let plan = ToolsPlan::new(&groups, cols);
+            let panel_top = ui.cursor().top().max(0.0);
+            self.detached.tools_desired_inner_height = (!rail_anchor).then(|| {
+                (panel_top + plan.natural_height())
+                    .ceil()
+                    .min(crate::workspace::maximum_window_size(PanelId::Tools)[1])
             });
+            let mut panel = ui.available_rect_before_wrap();
+            if !panel.height().is_finite() {
+                panel.set_height(plan.natural_height());
+            }
+            let active_option_rows = if cols == 1 {
+                1
+            } else {
+                tool_modifier_row_count(self.tool, cols)
+            };
+            let fit = plan.fit(panel.height(), active_option_rows);
+            let mut body = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(panel)
+                    .layout(egui::Layout::top_down(egui::Align::Min)),
+            );
+            body.set_clip_rect(ui.clip_rect().intersect(panel));
+            self.tools_blocks(&mut body, panel, &plan, fit);
+            ui.allocate_rect(panel, egui::Sense::hover());
         });
     }
 
-    /// 1 Column: as many groups as fit, then "…" listing the remaining tools and view commands.
-    fn tool_rail(&mut self, ui: &mut egui::Ui) {
-        let groups = self.tool_groups();
-        let entries = rail_entries(
-            &groups,
-            self.workspace.tools.slots == crate::tool_preferences::default_slots(),
-        );
-        let available = ui.available_height();
-        let total: f32 = entries.iter().map(|entry| entry.height()).sum();
-        let shown = if total <= available {
-            entries.len()
+    /// Paints the fitted blocks top to bottom, then the popover of the "⋯" cell.
+    fn tools_blocks(
+        &mut self,
+        ui: &mut egui::Ui,
+        panel: Rect,
+        plan: &ToolsPlan<'_>,
+        fit: ToolsFit,
+    ) {
+        let cols = plan.cols;
+        let mut top = panel.top();
+        // Tools: "⋯" closes the grid as its last cell, or as the bar under full rows.
+        let shown = plan.tools_shown(&fit);
+        for (index, cell) in plan.tools[..shown].iter().enumerate() {
+            let mut cell_ui = tool_cell_ui(ui, panel, top, cols, index);
+            match *cell {
+                ToolCell::Tool(spec) => self.single_tool_button(&mut cell_ui, spec),
+                ToolCell::Group(slot, group) => self.tool_group_button(&mut cell_ui, group, slot),
+            }
+        }
+        top += block_height(fit.tool_rows);
+        let more = if fit.more_bar {
+            let bar = Rect::from_min_size(
+                egui::pos2(panel.left(), top),
+                Vec2::new(panel.width(), more_bar_height()),
+            );
+            top = bar.bottom();
+            self.overflow_more_bar(ui, bar).rect
         } else {
-            let budget = available - (neoflash_ui::metrics::tool_button() + TOOL_GAP);
-            let mut used = 0.;
-            let mut count = 0;
-            for entry in &entries {
-                used += entry.height();
-                if used > budget {
-                    break;
-                }
-                count += 1;
-            }
-            while count > 0 && matches!(entries[count - 1], RailEntry::Divider) {
-                count -= 1;
-            }
-            count
+            let cell_top = top - block_height(fit.tool_rows);
+            self.overflow_more_button(&mut tool_cell_ui(ui, panel, cell_top, cols, shown))
+                .rect
         };
-        for entry in &entries[..shown] {
-            match *entry {
-                RailEntry::Divider => {
-                    nf::divider(ui, false);
-                }
-                RailEntry::Group(index, group) => self.tool_group_button(ui, group, index),
-                RailEntry::Tool(spec) => self.single_tool_button(ui, spec),
-                RailEntry::ZoomOut => {
-                    if ui
-                        .add(nf::IconButton::new(i20::ZOOMOUT, "Zoom out"))
-                        .clicked()
-                    {
-                        self.zoom_out_stage();
-                    }
-                }
-                RailEntry::Fit => {
-                    if ui.add(nf::IconButton::new(i20::FIT, "Fit stage")).clicked() {
-                        self.fit_stage_from_tools();
-                    }
+
+        let mut menu_view = plan.menu_only.clone();
+        if fit.show_view && !plan.view.is_empty() {
+            top = block_divider(ui, panel, top);
+            for (index, cell) in plan.view.iter().enumerate() {
+                self.view_cell(&mut tool_cell_ui(ui, panel, top, cols, index), *cell);
+            }
+            top += block_height(plan.view_rows());
+        } else {
+            menu_view = plan.view.iter().chain(&plan.menu_only).copied().collect();
+        }
+
+        top = block_divider(ui, panel, top);
+        self.colour_cells(ui, panel, top, cols, plan.colour_cells());
+        top += block_height(plan.colour_rows());
+
+        if fit.option_rows > 0 {
+            top = block_divider(ui, panel, top);
+            if cols == 1 {
+                self.snap_to_objects_button(&mut tool_cell_ui(ui, panel, top, cols, 0));
+            } else {
+                let cells = tool_modifier_count(self.tool).min(fit.option_rows * cols);
+                for index in 0..cells {
+                    self.tool_modifier_cell(&mut tool_cell_ui(ui, panel, top, cols, index), index);
                 }
             }
         }
-        if shown < entries.len() {
-            self.rail_overflow(ui, &entries[shown..]);
+        let colour_commands = plan.colour_cells() < COLOUR_CELLS;
+        self.palette_menu_popover(ui, more, &plan.tools[shown..], &menu_view, colour_commands);
+    }
+
+    fn view_cell(&mut self, ui: &mut egui::Ui, cell: ViewCell) {
+        match cell {
+            ViewCell::Tool(spec) => self.single_tool_button(ui, spec),
+            ViewCell::ZoomOut => {
+                if ui.add(cell_button(i20::ZOOMOUT, "Zoom out")).clicked() {
+                    self.zoom_out_stage();
+                }
+            }
+            ViewCell::Fit => {
+                if ui.add(cell_button(i20::FIT, "Fit stage")).clicked() {
+                    self.fit_stage_from_tools();
+                }
+            }
         }
     }
 
-    /// "…" at the end of a short rail or grid: a popover with every tool and command that did not fit.
-    fn rail_overflow(&mut self, ui: &mut egui::Ui, hidden: &[RailEntry]) {
-        let response = self.overflow_more_button(ui);
-        self.rail_overflow_popover(ui, response.rect, hidden);
+    /// Opens the palette menu of the "⋯" cell (screenshot aid).
+    pub(crate) fn open_tools_menu(&self, ctx: &egui::Context) {
+        set_popover(ctx, Some(RailPopover::Overflow));
     }
 
+    /// "⋯", the last cell of the tools block: opens the palette menu.
     fn overflow_more_button(&self, ui: &mut egui::Ui) -> egui::Response {
         let ctx = ui.ctx().clone();
         let open = popover(&ctx) == Some(RailPopover::Overflow);
-        let response = ui.add(nf::IconButton::new(i20::MORE, "More tools").selected(open));
+        let response = ui.add(cell_button(i20::MORE, "More tools").selected(open));
         if response.clicked() {
-            set_popover(
-                &ctx,
-                if open {
-                    None
-                } else {
-                    Some(RailPopover::Overflow)
-                },
-            );
+            set_popover(&ctx, (!open).then_some(RailPopover::Overflow));
         }
         response
     }
 
+    /// "⋯" as a low bar across the panel, under a tools grid whose rows are full: the same menu,
+    /// tooltip and accessible name as the cell.
+    fn overflow_more_bar(&self, ui: &mut egui::Ui, bar: Rect) -> egui::Response {
+        let ctx = ui.ctx().clone();
+        let open = popover(&ctx) == Some(RailPopover::Overflow);
+        let response = ui.interact(bar, ui.id().with("more-bar"), egui::Sense::click());
+        if response.clicked() {
+            set_popover(&ctx, (!open).then_some(RailPopover::Overflow));
+        }
+        if ui.is_rect_visible(bar) {
+            let p = neoflash_ui::palette(&ctx);
+            let (bg, fg) = match (open, response.hovered()) {
+                (true, _) => (p.bg_selected, p.accent_default),
+                (false, true) => (p.bg_hover, p.text_primary),
+                (false, false) => (p.bg_panel, p.text_secondary),
+            };
+            ui.painter().rect_filled(bar, 0.0, bg);
+            let glyph = more_bar_glyph();
+            neoflash_ui::icons::paint_sized(
+                ui.painter(),
+                &ctx,
+                Rect::from_center_size(bar.center(), Vec2::splat(glyph)),
+                neoflash_ui::icons::i16::MORE,
+                glyph,
+                fg,
+            );
+            if neoflash_ui::theme::keyboard_focus(ui, &response) {
+                neoflash_ui::theme::focus_ring(ui, bar, neoflash_ui::tokens::radius::sm());
+            }
+        }
+        let enabled = response.enabled();
+        response.widget_info(move || {
+            let mut info =
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, "More tools");
+            info.selected = Some(open);
+            info
+        });
+        nf::tooltip(response, "More tools", None)
+    }
+
+    /// Row of a tool list (group flyout or "⋯" menu). Returns `true` when it was chosen.
     fn paint_overflow_tool_item(
         &mut self,
         ui: &mut egui::Ui,
         spec: ToolSpec,
         group: Option<(usize, &[ToolSpec])>,
+        width: f32,
     ) -> bool {
         let key = self.tool_display_key(spec);
         let label = format!("{} tool", spec.name);
-        let mut item = nf::ToolFlyoutItem::new(spec.icon.nf2(true), &label)
+        let mut item = nf::ToolFlyoutItem::new(spec.icon.tool_glyph(), &label)
             .active(self.tool == spec.tool)
-            .width(260.);
+            .width(width);
         if !key.is_empty() {
             item = item.shortcut(&key);
         }
@@ -425,64 +689,109 @@ impl Editor {
         false
     }
 
-    fn rail_overflow_popover(&mut self, ui: &mut egui::Ui, anchor: Rect, hidden: &[RailEntry]) {
+    /// Width of a tool list: `menu_width()`, wider only when a tool name with its shortcut needs it.
+    fn tool_list_width<'s>(&self, ui: &egui::Ui, specs: impl Iterator<Item = &'s ToolSpec>) -> f32 {
+        let measure = |text: &str, style: neoflash_ui::TextStyle| {
+            ui.painter()
+                .layout_no_wrap(
+                    text.to_owned(),
+                    neoflash_ui::typography::font(style),
+                    egui::Color32::PLACEHOLDER,
+                )
+                .size()
+                .x
+        };
+        // `ToolFlyoutItem`: active mark, 20 pt icon box, label and shortcut with `s2` gaps, 10 pt end.
+        let chrome = 5.0 * space::s2() + 6.0 + 20.0 + 10.0;
+        specs
+            .map(|spec| {
+                chrome
+                    + measure(&format!("{} tool", spec.name), neoflash_ui::TextStyle::Body)
+                    + measure(
+                        &self.tool_display_key(*spec),
+                        neoflash_ui::TextStyle::MonoSmall,
+                    )
+            })
+            .fold(metrics::menu_width(), f32::max)
+            .ceil()
+    }
+
+    /// Popover of the "⋯" cell: the tools, view commands and (`colour_commands`) colour commands
+    /// that are not on the surface, Customize tools and the panel placement commands.
+    fn palette_menu_popover(
+        &mut self,
+        ui: &mut egui::Ui,
+        anchor: Rect,
+        tools: &[ToolCell<'_>],
+        view: &[ViewCell],
+        colour_commands: bool,
+    ) {
         let ctx = ui.ctx().clone();
         if popover(&ctx) != Some(RailPopover::Overflow) {
             return;
         }
+        let mut customize = false;
         let keep = rail_popover(ui, anchor, |ui| {
-            ui.set_min_width(260.);
-            let mut done = false;
-            let split = hidden
+            let listed = tools
                 .iter()
-                .position(|e| matches!(e, RailEntry::ZoomOut | RailEntry::Fit))
-                .unwrap_or(hidden.len());
-            let mut tool_hidden = &hidden[..split];
-            let view_hidden = &hidden[split..];
-            let trailing_sep = !view_hidden.is_empty()
-                && tool_hidden
-                    .last()
-                    .is_some_and(|e| matches!(e, RailEntry::Divider));
-            if trailing_sep {
-                tool_hidden = &tool_hidden[..tool_hidden.len() - 1];
-            }
-            if !tool_hidden.is_empty() {
-                let max_h = (ui.ctx().content_rect().height() - 120.).max(80.);
+                .flat_map(|cell| match cell {
+                    ToolCell::Tool(spec) => std::slice::from_ref(spec),
+                    ToolCell::Group(_, group) => *group,
+                })
+                .chain(view.iter().filter_map(|cell| match cell {
+                    ViewCell::Tool(spec) => Some(spec),
+                    ViewCell::ZoomOut | ViewCell::Fit => None,
+                }));
+            let width = self.tool_list_width(ui, listed);
+            ui.set_width(width);
+            let mut done = false;
+            let view_tools = view.iter().filter_map(|cell| match cell {
+                ViewCell::Tool(spec) => Some(*spec),
+                ViewCell::ZoomOut | ViewCell::Fit => None,
+            });
+            let commands = view.len() - view_tools.clone().count();
+            if !tools.is_empty() || view.len() > commands {
+                // Only the tool list scrolls; the commands below it stay in reach.
+                let colour_rows = if colour_commands { 2.0 } else { 0.0 };
+                let pinned = (commands as f32 + colour_rows) * metrics::row()
+                    + 7.0 * crate::theme::row_h()
+                    + 4.0 * metrics::menu_separator();
+                let max_height =
+                    (ui.ctx().content_rect().height() - pinned - 2.0 * space::s5()).max(80.0);
                 egui::ScrollArea::vertical()
-                    .id_salt("rail_overflow_tools")
-                    .max_height(max_h)
+                    .id_salt("tools_palette_menu")
+                    .max_height(max_height)
                     .themed()
                     .show(ui, |ui| {
-                        for entry in tool_hidden {
-                            match *entry {
-                                RailEntry::Divider => nf::menu_separator(ui),
-                                RailEntry::Group(index, group) => {
+                        for cell in tools {
+                            match *cell {
+                                ToolCell::Tool(spec) => {
+                                    done |= self.paint_overflow_tool_item(ui, spec, None, width);
+                                }
+                                ToolCell::Group(slot, group) => {
                                     for spec in group {
-                                        if self.paint_overflow_tool_item(
+                                        done |= self.paint_overflow_tool_item(
                                             ui,
                                             *spec,
-                                            Some((index, group)),
-                                        ) {
-                                            done = true;
-                                        }
+                                            Some((slot, group)),
+                                            width,
+                                        );
                                     }
                                 }
-                                RailEntry::Tool(spec) => {
-                                    if self.paint_overflow_tool_item(ui, spec, None) {
-                                        done = true;
-                                    }
-                                }
-                                RailEntry::ZoomOut | RailEntry::Fit => {}
                             }
                         }
+                        if !tools.is_empty() && view.len() > commands {
+                            nf::menu_separator(ui);
+                        }
+                        for spec in view_tools {
+                            done |= self.paint_overflow_tool_item(ui, spec, None, width);
+                        }
                     });
-            }
-            if !tool_hidden.is_empty() && !view_hidden.is_empty() && trailing_sep {
                 nf::menu_separator(ui);
             }
-            for entry in view_hidden {
-                match *entry {
-                    RailEntry::ZoomOut => {
+            for cell in view {
+                match *cell {
+                    ViewCell::ZoomOut => {
                         if ui
                             .add(nf::MenuItem::new("Zoom out").icon(Icon::ZoomOut.nf2(false)))
                             .clicked()
@@ -491,19 +800,56 @@ impl Editor {
                             done = true;
                         }
                     }
-                    RailEntry::Fit
+                    ViewCell::Fit => {
                         if ui
                             .add(nf::MenuItem::new("Fit stage").icon(Icon::Fit.nf2(false)))
-                            .clicked() =>
-                    {
-                        self.fit_stage_from_tools();
-                        done = true;
+                            .clicked()
+                        {
+                            self.fit_stage_from_tools();
+                            done = true;
+                        }
                     }
-                    _ => {}
+                    ViewCell::Tool(_) => {}
                 }
             }
+            if commands > 0 {
+                nf::menu_separator(ui);
+            }
+            if colour_commands {
+                use neoflash_ui::icons::i16;
+                if ui
+                    .add(nf::MenuItem::new("Black and white").icon(i16::COLOR_DEFAULT))
+                    .clicked()
+                {
+                    self.reset_default_paints();
+                    done = true;
+                }
+                if ui
+                    .add(nf::MenuItem::new("Swap colors").icon(i16::COLOR_SWAP))
+                    .clicked()
+                {
+                    self.swap_active_paints();
+                    done = true;
+                }
+                nf::menu_separator(ui);
+            }
+            if crate::ui_icons::menu_item(ui, "Customize tools…", "").clicked() {
+                customize = true;
+                done = true;
+            }
+            nf::menu_separator(ui);
+            // The placement rows close their menu themselves; catch that here.
+            done |= ui
+                .scope_builder(egui::UiBuilder::new().closable(), |ui| {
+                    self.panel_dock_menu(ui, PanelId::Tools);
+                })
+                .response
+                .should_close();
             done
         });
+        if customize {
+            self.open_customize_tools(&ctx);
+        }
         if !keep {
             set_popover(&ctx, None);
         }
@@ -518,175 +864,103 @@ impl Editor {
         self.fit_stage();
     }
 
-    fn grid_tools(&self) -> Vec<ToolSpec> {
-        self.tool_groups()
-            .into_iter()
-            .flatten()
-            .filter(|spec| !matches!(spec.tool, Tool::Hand | Tool::Zoom))
-            .collect()
-    }
-
-    fn view_tools(&self) -> Vec<ToolSpec> {
-        self.tool_groups()
-            .into_iter()
-            .flatten()
-            .filter(|spec| matches!(spec.tool, Tool::Hand | Tool::Zoom))
-            .collect()
-    }
-
-    fn tool_grid_full_height(tool_count: usize, view_count: usize, cols: usize) -> f32 {
-        let cols = cols.max(1);
-        let row_h = neoflash_ui::metrics::tool_button() + TOOL_GAP;
-        let div_h = 1.0 + space::S2 + TOOL_GAP;
-        let t_rows = tool_count.div_ceil(cols);
-        let v_rows = view_count.div_ceil(cols);
-        t_rows as f32 * row_h + div_h + v_rows as f32 * row_h
-    }
-
-    fn two_col_bottom_height(tool: Tool, cols: usize) -> f32 {
-        let div_h = 1.0 + space::S2 + TOOL_GAP;
-        let colors_h = if cols >= 3 {
-            36.0_f32.max(COLOR_ACTION) + TOOL_GAP
-        } else {
-            36.0 + TOOL_GAP + COLOR_ACTION + TOOL_GAP
-        };
-        let mod_rows = tool_modifier_row_count(tool, cols);
-        let mods_h = mod_rows as f32 * (neoflash_ui::metrics::tool_button() + TOOL_GAP);
-        (div_h + colors_h + div_h + mods_h - TOOL_GAP).max(0.)
-    }
-
-    fn paint_view_cell(&mut self, ui: &mut egui::Ui, view: &[ToolSpec], item: usize) {
-        if let Some(&spec) = view.get(item) {
-            self.single_tool_button(ui, spec);
-        } else if item == view.len() {
-            if ui
-                .add(nf::IconButton::new(i20::ZOOMOUT, "Zoom out"))
-                .clicked()
-            {
-                self.zoom_out_stage();
-            }
-        } else if ui.add(nf::IconButton::new(i20::FIT, "Fit stage")).clicked() {
-            self.fit_stage_from_tools();
-        }
-    }
-
-    /// Lays out as many tool/view rows as fit inside `max_height` without scrolling. When items
-    /// remain, replaces the last visible cell with `More tools` opening `rail_overflow_popover`.
-    fn tool_grid_fitted(
+    /// Colours block: stroke chip, fill chip and, with `cells` = 4, default colours and swap. A chip
+    /// opens the NF2 Color & Fill Type popover (the real Color panel when Tools is detached).
+    fn colour_cells(
         &mut self,
         ui: &mut egui::Ui,
+        panel: Rect,
+        top: f32,
         cols: usize,
-        tools: &[ToolSpec],
-        view: &[ToolSpec],
-        max_height: f32,
+        cells: usize,
     ) {
-        let cols = cols.max(1);
-        let total_view = view.len() + 2;
-        let full_h = Self::tool_grid_full_height(tools.len(), total_view, cols);
-        if full_h <= max_height + 0.5 {
-            for row in tools.chunks(cols) {
-                tool_grid_row(ui, cols, row.len(), |ui, idx| {
-                    self.single_tool_button(ui, row[idx]);
-                });
+        let ctx = ui.ctx().clone();
+        let solid = |color: [u8; 4], gradient: Option<&neoflash_core::GradientPaint>| {
+            let color = gradient
+                .and_then(|gradient| gradient.stops.first())
+                .map_or(color, |stop| stop.color);
+            (color != [0, 0, 0, 0]).then(|| {
+                egui::Color32::from_rgba_unmultiplied(color[0], color[1], color[2], color[3])
+            })
+        };
+        let (fill, fill_gradient, stroke, stroke_gradient, _) = self.contextual_paints();
+        let stroke_chip = paint_chip(
+            &mut tool_cell_ui(ui, panel, top, cols, 0),
+            true,
+            solid(stroke, stroke_gradient.as_ref()),
+            stroke_gradient.as_ref(),
+        );
+        let fill_chip = paint_chip(
+            &mut tool_cell_ui(ui, panel, top, cols, 1),
+            false,
+            solid(fill, fill_gradient.as_ref()),
+            fill_gradient.as_ref(),
+        );
+        if cells > 2
+            && tool_cell_ui(ui, panel, top, cols, 2)
+                .add(cell_button(i20::COLOR_DEFAULT, "Black and white"))
+                .clicked()
+        {
+            self.reset_default_paints();
+        }
+        if cells > 3
+            && tool_cell_ui(ui, panel, top, cols, 3)
+                .add(cell_button(i20::COLOR_SWAP, "Swap colors"))
+                .clicked()
+        {
+            self.swap_active_paints();
+        }
+
+        let tools_detached = !self.workspace.is_panel_docked(PanelId::Tools);
+        let clicked = if fill_chip.clicked() {
+            Some(RailPopover::Fill)
+        } else if stroke_chip.clicked() {
+            Some(RailPopover::Stroke)
+        } else {
+            None
+        };
+        if let Some(target) = clicked {
+            ctx.data_mut(|d| {
+                d.insert_temp(
+                    egui::Id::new("color-panel-active-stroke"),
+                    target == RailPopover::Stroke,
+                )
+            });
+            self.authoring_modify.color_selection = true;
+            if tools_detached {
+                set_popover(&ctx, None);
+                self.show_panel(PanelId::Color);
+                self.focus_dock_panel(&ctx, PanelId::Color);
+                return;
             }
-            nf::divider(ui, false);
-            let indices: Vec<usize> = (0..total_view).collect();
-            for row in indices.chunks(cols) {
-                tool_grid_row(ui, cols, row.len(), |ui, idx| {
-                    self.paint_view_cell(ui, view, row[idx]);
-                });
+            set_popover(&ctx, (popover(&ctx) != Some(target)).then_some(target));
+        } else if tools_detached {
+            // Native child viewports clip egui popovers to their own bounds. Never carry an
+            // inline colour picker into a detached Tools window; the next click opens the real
+            // Color panel with the same target instead.
+            if matches!(popover(&ctx), Some(RailPopover::Fill | RailPopover::Stroke)) {
+                set_popover(&ctx, None);
             }
             return;
         }
-
-        let row_h = neoflash_ui::metrics::tool_button() + TOOL_GAP;
-        let div_h = 1.0 + space::S2 + TOOL_GAP;
-        let t_rows = tools.len().div_ceil(cols);
-        let tools_and_div_h = t_rows as f32 * row_h + div_h;
-        let mut more_anchor: Option<Rect> = None;
-        let mut hidden: Vec<RailEntry<'_>> = Vec::new();
-
-        if tools_and_div_h + row_h <= max_height + 0.5 {
-            for row in tools.chunks(cols) {
-                tool_grid_row(ui, cols, row.len(), |ui, idx| {
-                    self.single_tool_button(ui, row[idx]);
-                });
-            }
-            nf::divider(ui, false);
-            let v_fit_rows = ((max_height + 0.5 - tools_and_div_h) / row_h)
-                .floor()
-                .max(1.) as usize;
-            let cap = v_fit_rows * cols;
-            let shown_view = (cap.saturating_sub(1)).min(total_view);
-            let mut cells: Vec<Option<usize>> = (0..shown_view).map(Some).collect();
-            cells.push(None);
-            for row in cells.chunks(cols) {
-                tool_grid_row(ui, cols, row.len(), |ui, idx| match row[idx] {
-                    Some(item) => self.paint_view_cell(ui, view, item),
-                    None => more_anchor = Some(self.overflow_more_button(ui).rect),
-                });
-            }
-            for item in shown_view..total_view {
-                if let Some(&spec) = view.get(item) {
-                    hidden.push(RailEntry::Tool(spec));
-                } else if item == view.len() {
-                    hidden.push(RailEntry::ZoomOut);
+        if !matches!(popover(&ctx), Some(RailPopover::Fill | RailPopover::Stroke)) {
+            return;
+        }
+        let anchor = stroke_chip.rect.union(fill_chip.rect);
+        let keep = rail_popover(ui, anchor, |ui| self.color_fill_popover_contents(ui));
+        if !keep {
+            set_popover(&ctx, None);
+        } else if let Some(active_stroke) =
+            ctx.data(|d| d.get_temp::<bool>(egui::Id::new("color-panel-active-stroke")))
+        {
+            set_popover(
+                &ctx,
+                Some(if active_stroke {
+                    RailPopover::Stroke
                 } else {
-                    hidden.push(RailEntry::Fit);
-                }
-            }
-        } else {
-            let side = neoflash_ui::metrics::tool_button();
-            let fit_rows = if max_height + 0.5 >= side {
-                ((max_height + 0.5 + TOOL_GAP) / row_h)
-                    .floor()
-                    .clamp(1., t_rows.max(1) as f32) as usize
-            } else {
-                0
-            };
-            let shown_tools = (fit_rows * cols).saturating_sub(1).min(tools.len());
-            let mut cells: Vec<Option<usize>> = (0..shown_tools).map(Some).collect();
-            if fit_rows > 0 {
-                cells.push(None);
-            }
-            for row in cells.chunks(cols) {
-                tool_grid_row(ui, cols, row.len(), |ui, idx| match row[idx] {
-                    Some(t_idx) => self.single_tool_button(ui, tools[t_idx]),
-                    None => more_anchor = Some(self.overflow_more_button(ui).rect),
-                });
-            }
-            if shown_tools < tools.len() {
-                for &spec in &tools[shown_tools..] {
-                    hidden.push(RailEntry::Tool(spec));
-                }
-                hidden.push(RailEntry::Divider);
-            }
-            for &spec in view {
-                hidden.push(RailEntry::Tool(spec));
-            }
-            hidden.push(RailEntry::ZoomOut);
-            hidden.push(RailEntry::Fit);
-        }
-
-        if let Some(anchor) = more_anchor {
-            self.rail_overflow_popover(ui, anchor, &hidden);
-        }
-    }
-
-    fn colors_section(&mut self, ui: &mut egui::Ui, cols: usize) {
-        let chip_w = 36.0;
-        let actions_w = 2.0 * COLOR_ACTION + TOOL_GAP;
-        if cols >= 3 {
-            let row_w = chip_w + space::S2 + actions_w;
-            let row_h = 36.0_f32.max(COLOR_ACTION);
-            centered_tools_row(ui, row_w, row_h, |ui| {
-                ui.spacing_mut().item_spacing.x = space::S2;
-                self.fill_stroke_chip(ui);
-                self.color_actions(ui);
-            });
-        } else {
-            centered_tools_row(ui, chip_w, 36.0, |ui| self.fill_stroke_chip(ui));
-            centered_tools_row(ui, actions_w, COLOR_ACTION, |ui| self.color_actions(ui));
+                    RailPopover::Fill
+                }),
+            );
         }
     }
 
@@ -738,13 +1012,14 @@ impl Editor {
         }
         let mut chosen = None;
         let keep = rail_popover(ui, response.rect, |ui| {
-            ui.set_min_width(260.);
+            let width = self.tool_list_width(ui, group.iter());
+            ui.set_min_width(width);
             for (i, spec) in group.iter().enumerate() {
                 let key = self.tool_display_key(*spec);
                 let label = format!("{} tool", spec.name);
-                let mut item = nf::ToolFlyoutItem::new(spec.icon.nf2(true), &label)
+                let mut item = nf::ToolFlyoutItem::new(spec.icon.tool_glyph(), &label)
                     .active(i == current)
-                    .width(260.);
+                    .width(width);
                 if !key.is_empty() {
                     item = item.shortcut(&key);
                 }
@@ -766,142 +1041,10 @@ impl Editor {
         }
     }
 
-    /// Black-and-white and swap, under the Fill Stroke Chip.
-    fn color_actions(&mut self, ui: &mut egui::Ui) {
-        let gap = if ui.available_width() < 2. * COLOR_ACTION + TOOL_GAP {
-            0.0
-        } else {
-            TOOL_GAP
-        };
-        let (reset, swap) = ui
-            .allocate_ui_with_layout(
-                Vec2::new(2. * COLOR_ACTION + gap, COLOR_ACTION),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
-                    ui.spacing_mut().item_spacing.x = gap;
-                    let reset = ui
-                        .add(
-                            nf::IconButton::new(i20::COLOR_DEFAULT, "Black and white")
-                                .side(COLOR_ACTION),
-                        )
-                        .clicked();
-                    let swap = ui
-                        .add(nf::IconButton::new(i20::COLOR_SWAP, "Swap colors").side(COLOR_ACTION))
-                        .clicked();
-                    (reset, swap)
-                },
-            )
-            .inner;
-        if reset {
-            self.reset_default_paints();
-        }
-        if swap {
-            self.swap_active_paints();
-        }
-    }
-
-    /// `NF2/Fill Stroke Chip`: click Fill or Stroke to open the full NF2 Color & Fill Type
-    /// popover (Fill type selector `None / Solid colour / Linear gradient / Radial gradient /
-    /// Bitmap fill`, 2D colour picker, RGB/HSB fields, interactive gradient stops, bitmap tiles,
-    /// `Add to swatches`, `Eyedropper`, and collapsible `Swatches`).
-    fn fill_stroke_chip(&mut self, ui: &mut egui::Ui) {
-        let ctx = ui.ctx().clone();
-        let chip_color =
-            |c: [u8; 4], grad: Option<&neoflash_core::GradientPaint>| -> Option<egui::Color32> {
-                if let Some(g) = grad
-                    && let Some(stop) = g.stops.first()
-                {
-                    return Some(egui::Color32::from_rgba_unmultiplied(
-                        stop.color[0],
-                        stop.color[1],
-                        stop.color[2],
-                        stop.color[3],
-                    ));
-                }
-                (c != [0, 0, 0, 0])
-                    .then(|| egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]))
-            };
-        let (ctx_fill, ctx_fill_grad, ctx_stroke, ctx_stroke_grad, _) = self.contextual_paints();
-        let fill_solid = chip_color(ctx_fill, ctx_fill_grad.as_ref());
-        let stroke_solid = chip_color(ctx_stroke, ctx_stroke_grad.as_ref());
-        let chip = nf::FillStrokeChip {
-            fill: fill_solid,
-            stroke: stroke_solid,
-        }
-        .show(ui);
-        crate::paint_controls::paint_fill_stroke_chip_gradients(
-            ui,
-            chip.response.rect,
-            fill_solid,
-            ctx_fill_grad.as_ref(),
-            ctx_stroke_grad.as_ref(),
-        );
-        let tools_detached = !self.workspace.is_panel_docked(PanelId::Tools);
-        if chip.fill_clicked {
-            let next = if popover(&ctx) == Some(RailPopover::Fill) {
-                None
-            } else {
-                Some(RailPopover::Fill)
-            };
-            ctx.data_mut(|d| d.insert_temp(egui::Id::new("color-panel-active-stroke"), false));
-            self.authoring_modify.color_selection = true;
-            if tools_detached {
-                set_popover(&ctx, None);
-                self.show_panel(PanelId::Color);
-                self.focus_dock_panel(&ctx, PanelId::Color);
-                return;
-            }
-            set_popover(&ctx, next);
-        } else if chip.stroke_clicked {
-            let next = if popover(&ctx) == Some(RailPopover::Stroke) {
-                None
-            } else {
-                Some(RailPopover::Stroke)
-            };
-            ctx.data_mut(|d| d.insert_temp(egui::Id::new("color-panel-active-stroke"), true));
-            self.authoring_modify.color_selection = true;
-            if tools_detached {
-                set_popover(&ctx, None);
-                self.show_panel(PanelId::Color);
-                self.focus_dock_panel(&ctx, PanelId::Color);
-                return;
-            }
-            set_popover(&ctx, next);
-        } else if tools_detached {
-            // Native child viewports clip egui popovers to their own bounds. Never carry an
-            // inline colour picker into a detached Tools window; the next click opens the real
-            // Color panel with the same target instead.
-            if matches!(popover(&ctx), Some(RailPopover::Fill | RailPopover::Stroke)) {
-                set_popover(&ctx, None);
-            }
-            return;
-        }
-        if !matches!(popover(&ctx), Some(RailPopover::Fill | RailPopover::Stroke)) {
-            return;
-        }
-        let keep = rail_popover(ui, chip.response.rect, |ui| {
-            self.color_fill_popover_contents(ui)
-        });
-        if !keep {
-            set_popover(&ctx, None);
-        } else if let Some(active_stroke) =
-            ctx.data(|d| d.get_temp::<bool>(egui::Id::new("color-panel-active-stroke")))
-        {
-            set_popover(
-                &ctx,
-                Some(if active_stroke {
-                    RailPopover::Stroke
-                } else {
-                    RailPopover::Fill
-                }),
-            );
-        }
-    }
-
     fn snap_to_objects_button(&mut self, ui: &mut egui::Ui) {
         let snap_on = self.stage_view.prefs.objects_snap;
         if ui
-            .add(nf::IconButton::new(i20::TOOL_SNAP, "Snap to objects").selected(snap_on))
+            .add(cell_button(i20::TOOL_SNAP, "Snap to objects").selected(snap_on))
             .clicked()
         {
             self.toggle_object_snap();
@@ -928,7 +1071,7 @@ impl Editor {
         use neoflash_ui::icons::i16;
         let locked = self.authoring_tools.brush_lock_fill;
         if ui
-            .add(nf::IconButton::new(i16::LOCK_FILL, "Lock fill").selected(locked))
+            .add(cell_button(i16::LOCK_FILL, "Lock fill").selected(locked))
             .clicked()
         {
             self.authoring_tools.brush_lock_fill = !locked;
@@ -945,7 +1088,7 @@ impl Editor {
             PencilMode::Smooth => i16::PENCIL_SMOOTH,
             PencilMode::Ink => i16::PENCIL_INK,
         };
-        let response = ui.add(nf::IconButton::new(icon, "Pencil mode").selected(open));
+        let response = ui.add(cell_button(icon, "Pencil mode").selected(open));
         if response.clicked() {
             set_popover(&ctx, (!open).then_some(RailPopover::PencilMode));
         }
@@ -954,7 +1097,7 @@ impl Editor {
         }
         let mut chosen = None;
         let keep = rail_popover(ui, response.rect, |ui| {
-            ui.set_min_width(180.);
+            ui.set_width(metrics::menu_width());
             for (mode, mode_icon, label) in [
                 (PencilMode::Straighten, i16::PENCIL_STRAIGHTEN, "Straighten"),
                 (PencilMode::Smooth, i16::PENCIL_SMOOTH, "Smooth"),
@@ -1001,7 +1144,7 @@ impl Editor {
         }
         let mut chosen = None;
         let keep = rail_popover(ui, response.rect, |ui| {
-            ui.set_min_width(180.);
+            ui.set_width(metrics::menu_width());
             for (mode, label) in [
                 (BrushPaintMode::PaintNormal, "Paint normal"),
                 (BrushPaintMode::PaintFills, "Paint fills"),
@@ -1048,7 +1191,7 @@ impl Editor {
         }
         let mut chosen = None;
         let keep = rail_popover(ui, response.rect, |ui| {
-            ui.set_min_width(160.);
+            ui.set_width(metrics::menu_width());
             for preset in [2.0_f32, 4.0, 8.0, 12.0, 18.0, 24.0, 36.0, 48.0] {
                 let is_cur = (self.authoring_tools.brush_size - preset).abs() < 0.5;
                 if ui
@@ -1088,7 +1231,7 @@ impl Editor {
         }
         let mut chosen = None;
         let keep = rail_popover(ui, response.rect, |ui| {
-            ui.set_min_width(180.);
+            ui.set_width(metrics::menu_width());
             for shape in BrushShapeKind::ALL {
                 if ui
                     .add(
@@ -1130,7 +1273,7 @@ impl Editor {
         }
         let mut chosen = None;
         let keep = rail_popover(ui, response.rect, |ui| {
-            ui.set_min_width(180.);
+            ui.set_width(metrics::menu_width());
             for (mode, label) in [
                 (GapCloseMode::None, "Don’t close gaps"),
                 (GapCloseMode::Small, "Close small gaps"),
@@ -1174,7 +1317,7 @@ impl Editor {
         }
         let mut chosen = None;
         let keep = rail_popover(ui, response.rect, |ui| {
-            ui.set_min_width(180.);
+            ui.set_width(metrics::menu_width());
             for (mode, label) in [
                 (EraserMode::StrokeSegments, "Erase normal"),
                 (EraserMode::Fills, "Erase fills"),
@@ -1224,7 +1367,7 @@ impl Editor {
         let mut chosen_size = None;
         let mut chosen_shape = None;
         let keep = rail_popover(ui, response.rect, |ui| {
-            ui.set_min_width(160.);
+            ui.set_width(metrics::menu_width());
             for (shape, label) in [
                 (EraserShape::Round, "Round"),
                 (EraserShape::Square, "Square"),
@@ -1262,417 +1405,274 @@ impl Editor {
         }
     }
 
-    /// Classic Flash per-tool icon modifiers under `Options` in the multi-column Tools panel.
-    fn tool_modifiers_ui(&mut self, ui: &mut egui::Ui, cols: usize) {
+    fn smooth_modifier_button(&mut self, ui: &mut egui::Ui) {
+        let enabled = self.can_smooth_or_straighten_selection();
+        if ui
+            .add_enabled(enabled, cell_button(i20::TOOL_SMOOTH, "Smooth"))
+            .clicked()
+        {
+            self.smooth_selection();
+        }
+    }
+
+    fn straighten_modifier_button(&mut self, ui: &mut egui::Ui) {
+        let enabled = self.can_smooth_or_straighten_selection();
+        if ui
+            .add_enabled(enabled, cell_button(i20::TOOL_STRAIGHTEN, "Straighten"))
+            .clicked()
+        {
+            self.straighten_selection();
+        }
+    }
+
+    /// Free Transform sub-mode toggle: a second click returns to plain Free Transform.
+    fn transform_mode_modifier_button(
+        &mut self,
+        ui: &mut egui::Ui,
+        icon: crate::ui_icons::TransformModifierIcon,
+        mode: crate::authoring_tools::FreeTransformMode,
+        label: &str,
+    ) {
+        use crate::authoring_tools::FreeTransformMode;
+        let active = self.active_free_transform_mode();
+        let enabled = !matches!(
+            mode,
+            FreeTransformMode::Distort | FreeTransformMode::Envelope
+        ) || self.can_distort_or_envelope_selection();
+        if crate::ui_icons::transform_modifier_button(ui, icon, active == mode, enabled, label)
+            .clicked()
+        {
+            self.set_free_transform_mode(if active == mode {
+                FreeTransformMode::FreeTransform
+            } else {
+                mode
+            });
+        }
+    }
+
+    fn lasso_modifier_button(&mut self, ui: &mut egui::Ui, index: usize) {
+        use crate::ui_icons::{ToolModifierGlyph, tool_modifier_button};
+        match index {
+            0 => {
+                let on = self.authoring_tools.lasso_contact;
+                if tool_modifier_button(
+                    ui,
+                    ToolModifierGlyph::TouchSelects,
+                    on,
+                    true,
+                    "Touch selects",
+                )
+                .clicked()
+                {
+                    self.authoring_tools.lasso_contact = !on;
+                }
+            }
+            1 => {
+                let on = self.authoring_tools.lasso_partial_fills;
+                if tool_modifier_button(
+                    ui,
+                    ToolModifierGlyph::SliceMergeFills,
+                    on,
+                    true,
+                    "Slice merge fills",
+                )
+                .clicked()
+                {
+                    self.authoring_tools.lasso_partial_fills = !on;
+                }
+            }
+            2 => {
+                let on = self.authoring_tools.lasso_polygon_mode;
+                if tool_modifier_button(
+                    ui,
+                    ToolModifierGlyph::LassoPolygon,
+                    on,
+                    true,
+                    "Polygon mode",
+                )
+                .clicked()
+                {
+                    self.authoring_tools.lasso_polygon_mode = !on;
+                    if self.authoring_tools.lasso_polygon_mode {
+                        self.authoring_tools.lasso_magic_wand = false;
+                    } else {
+                        self.authoring_tools.lasso_polygon.clear();
+                    }
+                }
+            }
+            3 => {
+                let on = self.authoring_tools.lasso_magic_wand;
+                if tool_modifier_button(ui, ToolModifierGlyph::MagicWand, on, true, "Magic wand")
+                    .clicked()
+                {
+                    self.authoring_tools.lasso_magic_wand = !on;
+                    if self.authoring_tools.lasso_magic_wand {
+                        self.authoring_tools.lasso_polygon_mode = false;
+                        self.authoring_tools.lasso_polygon.clear();
+                    }
+                }
+            }
+            _ => {
+                let open = self.authoring_tools.magic_wand_dialog.is_some();
+                if tool_modifier_button(
+                    ui,
+                    ToolModifierGlyph::MagicWandSettings,
+                    open,
+                    true,
+                    "Magic wand settings…",
+                )
+                .clicked()
+                {
+                    self.open_magic_wand_settings();
+                }
+            }
+        }
+    }
+
+    /// Option cell `index` of the active tool (classic Flash per-tool modifiers). The cells of a
+    /// tool wrap by the column count; see [`tool_modifier_count`].
+    fn tool_modifier_cell(&mut self, ui: &mut egui::Ui, index: usize) {
         use crate::authoring_tools::{EraserMode, FreeTransformMode};
-        use crate::ui_icons::{
-            ToolModifierGlyph, TransformModifierIcon, tool_modifier_button,
-            transform_modifier_button,
-        };
+        use crate::ui_icons::{ToolModifierGlyph, TransformModifierIcon, tool_modifier_button};
         use neoflash_ui::icons::i16;
 
-        match self.tool {
-            Tool::Select => {
-                let can_shape = self.can_smooth_or_straighten_selection();
-                if cols == 2 {
-                    tool_grid_row(ui, cols, 1, |ui, _| {
-                        self.snap_to_objects_button(ui);
-                    });
-                    tool_grid_row(ui, cols, 2, |ui, idx| match idx {
-                        0 => {
-                            if ui
-                                .add_enabled(
-                                    can_shape,
-                                    nf::IconButton::new(i20::TOOL_SMOOTH, "Smooth"),
-                                )
-                                .clicked()
-                            {
-                                self.smooth_selection();
-                            }
-                        }
-                        _ => {
-                            if ui
-                                .add_enabled(
-                                    can_shape,
-                                    nf::IconButton::new(i20::TOOL_STRAIGHTEN, "Straighten"),
-                                )
-                                .clicked()
-                            {
-                                self.straighten_selection();
-                            }
-                        }
-                    });
-                } else {
-                    let items = [0_usize, 1, 2];
-                    for row in items.chunks(cols) {
-                        tool_grid_row(ui, cols, row.len(), |ui, idx| match row[idx] {
-                            0 => self.snap_to_objects_button(ui),
-                            1 => {
-                                if ui
-                                    .add_enabled(
-                                        can_shape,
-                                        nf::IconButton::new(i20::TOOL_SMOOTH, "Smooth"),
-                                    )
-                                    .clicked()
-                                {
-                                    self.smooth_selection();
-                                }
-                            }
-                            _ => {
-                                if ui
-                                    .add_enabled(
-                                        can_shape,
-                                        nf::IconButton::new(i20::TOOL_STRAIGHTEN, "Straighten"),
-                                    )
-                                    .clicked()
-                                {
-                                    self.straighten_selection();
-                                }
-                            }
-                        });
-                    }
+        match (self.tool, index) {
+            (Tool::Select, 0) => self.snap_to_objects_button(ui),
+            (Tool::Select, 1) => self.smooth_modifier_button(ui),
+            (Tool::Select, _) => self.straighten_modifier_button(ui),
+            (Tool::Transform, 0) => self.snap_to_objects_button(ui),
+            (Tool::Transform, 1) => self.transform_mode_modifier_button(
+                ui,
+                TransformModifierIcon::RotateAndSkew,
+                FreeTransformMode::RotateAndSkew,
+                "Rotate and Skew",
+            ),
+            (Tool::Transform, 2) => self.transform_mode_modifier_button(
+                ui,
+                TransformModifierIcon::Scale,
+                FreeTransformMode::Scale,
+                "Scale",
+            ),
+            (Tool::Transform, 3) => self.transform_mode_modifier_button(
+                ui,
+                TransformModifierIcon::Distort,
+                FreeTransformMode::Distort,
+                "Distort",
+            ),
+            (Tool::Transform, _) => self.transform_mode_modifier_button(
+                ui,
+                TransformModifierIcon::Envelope,
+                FreeTransformMode::Envelope,
+                "Envelope",
+            ),
+            (Tool::Line | Tool::Pen | Tool::Rectangle | Tool::Ellipse | Tool::PolyStar, 0) => {
+                self.object_drawing_modifier_button(ui)
+            }
+            (Tool::PolyStar, 2..) => {
+                if ui
+                    .add(cell_button(i16::SETTINGS, "PolyStar tool settings…"))
+                    .clicked()
+                {
+                    self.open_polystar_settings();
                 }
             }
-            Tool::Transform => {
-                let active = self.active_free_transform_mode();
-                let can_deform = self.can_distort_or_envelope_selection();
-                let render_item = |s: &mut Self, ui: &mut egui::Ui, item: usize| match item {
-                    0 => s.snap_to_objects_button(ui),
-                    1 => {
-                        if transform_modifier_button(
-                            ui,
-                            TransformModifierIcon::RotateAndSkew,
-                            active == FreeTransformMode::RotateAndSkew,
-                            true,
-                            "Rotate and Skew",
-                        )
-                        .clicked()
-                        {
-                            let next = if active == FreeTransformMode::RotateAndSkew {
-                                FreeTransformMode::FreeTransform
-                            } else {
-                                FreeTransformMode::RotateAndSkew
-                            };
-                            s.set_free_transform_mode(next);
-                        }
-                    }
-                    2 => {
-                        if transform_modifier_button(
-                            ui,
-                            TransformModifierIcon::Scale,
-                            active == FreeTransformMode::Scale,
-                            true,
-                            "Scale",
-                        )
-                        .clicked()
-                        {
-                            let next = if active == FreeTransformMode::Scale {
-                                FreeTransformMode::FreeTransform
-                            } else {
-                                FreeTransformMode::Scale
-                            };
-                            s.set_free_transform_mode(next);
-                        }
-                    }
-                    3 => {
-                        if transform_modifier_button(
-                            ui,
-                            TransformModifierIcon::Distort,
-                            active == FreeTransformMode::Distort,
-                            can_deform,
-                            "Distort",
-                        )
-                        .clicked()
-                        {
-                            let next = if active == FreeTransformMode::Distort {
-                                FreeTransformMode::FreeTransform
-                            } else {
-                                FreeTransformMode::Distort
-                            };
-                            s.set_free_transform_mode(next);
-                        }
-                    }
-                    _ => {
-                        if transform_modifier_button(
-                            ui,
-                            TransformModifierIcon::Envelope,
-                            active == FreeTransformMode::Envelope,
-                            can_deform,
-                            "Envelope",
-                        )
-                        .clicked()
-                        {
-                            let next = if active == FreeTransformMode::Envelope {
-                                FreeTransformMode::FreeTransform
-                            } else {
-                                FreeTransformMode::Envelope
-                            };
-                            s.set_free_transform_mode(next);
-                        }
-                    }
-                };
-                if cols == 2 {
-                    tool_grid_row(ui, cols, 1, |ui, _| render_item(self, ui, 0));
-                    tool_grid_row(ui, cols, 2, |ui, idx| render_item(self, ui, 1 + idx));
-                    tool_grid_row(ui, cols, 2, |ui, idx| render_item(self, ui, 3 + idx));
-                } else {
-                    let items = [0_usize, 1, 2, 3, 4];
-                    for row in items.chunks(cols) {
-                        tool_grid_row(ui, cols, row.len(), |ui, idx| {
-                            render_item(self, ui, row[idx]);
-                        });
-                    }
+            (Tool::Line | Tool::Pen | Tool::Rectangle | Tool::Ellipse | Tool::PolyStar, _) => {
+                self.snap_to_objects_button(ui)
+            }
+            (Tool::Pencil, 0) => self.object_drawing_modifier_button(ui),
+            (Tool::Pencil, _) => self.pencil_mode_modifier_button(ui),
+            (Tool::Brush, 0) => self.object_drawing_modifier_button(ui),
+            (Tool::Brush, 1) => self.lock_fill_modifier_button(ui),
+            (Tool::Brush, 2) => self.brush_mode_modifier_button(ui),
+            (Tool::Brush, 3) => self.brush_size_modifier_button(ui),
+            (Tool::Brush, 4) => self.brush_shape_modifier_button(ui),
+            (Tool::Brush, 5) => {
+                let on = self.authoring_tools.brush_pressure;
+                if ui
+                    .add(cell_button(i16::PRESSURE, "Use pressure").selected(on))
+                    .clicked()
+                {
+                    self.authoring_tools.brush_pressure = !on;
                 }
             }
-            Tool::Line | Tool::Pen | Tool::Rectangle | Tool::Ellipse => {
-                tool_grid_row(ui, cols, 2, |ui, idx| match idx {
-                    0 => self.object_drawing_modifier_button(ui),
-                    _ => self.snap_to_objects_button(ui),
-                });
-            }
-            Tool::PolyStar => {
-                let items = [0_usize, 1, 2];
-                for row in items.chunks(cols) {
-                    tool_grid_row(ui, cols, row.len(), |ui, idx| match row[idx] {
-                        0 => self.object_drawing_modifier_button(ui),
-                        1 => self.snap_to_objects_button(ui),
-                        _ => {
-                            if ui
-                                .add(nf::IconButton::new(
-                                    i16::SETTINGS,
-                                    "PolyStar tool settings…",
-                                ))
-                                .clicked()
-                            {
-                                self.open_polystar_settings();
-                            }
-                        }
-                    });
+            (Tool::Brush, _) => {
+                let on = self.authoring_tools.brush_tilt;
+                if ui
+                    .add(cell_button(i16::TILT, "Use tilt").selected(on))
+                    .clicked()
+                {
+                    self.authoring_tools.brush_tilt = !on;
                 }
             }
-            Tool::Pencil => {
-                tool_grid_row(ui, cols, 2, |ui, idx| match idx {
-                    0 => self.object_drawing_modifier_button(ui),
-                    _ => self.pencil_mode_modifier_button(ui),
-                });
-            }
-            Tool::Brush => {
-                let items = [0_usize, 1, 2, 3, 4, 5, 6];
-                for row in items.chunks(cols) {
-                    tool_grid_row(ui, cols, row.len(), |ui, idx| match row[idx] {
-                        0 => self.object_drawing_modifier_button(ui),
-                        1 => self.lock_fill_modifier_button(ui),
-                        2 => self.brush_mode_modifier_button(ui),
-                        3 => self.brush_size_modifier_button(ui),
-                        4 => self.brush_shape_modifier_button(ui),
-                        5 => {
-                            let on = self.authoring_tools.brush_pressure;
-                            if ui
-                                .add(
-                                    nf::IconButton::new(i16::PRESSURE, "Use pressure").selected(on),
-                                )
-                                .clicked()
-                            {
-                                self.authoring_tools.brush_pressure = !on;
-                            }
-                        }
-                        _ => {
-                            let on = self.authoring_tools.brush_tilt;
-                            if ui
-                                .add(nf::IconButton::new(i16::TILT, "Use tilt").selected(on))
-                                .clicked()
-                            {
-                                self.authoring_tools.brush_tilt = !on;
-                            }
-                        }
-                    });
+            (Tool::Bucket, 0) => self.gap_size_modifier_button(ui),
+            (Tool::Bucket, _) => self.lock_fill_modifier_button(ui),
+            (Tool::Eraser, 0) => self.eraser_mode_modifier_button(ui),
+            (Tool::Eraser, 1) => {
+                let faucet_on = self.authoring_tools.eraser_mode == EraserMode::Objects;
+                if tool_modifier_button(ui, ToolModifierGlyph::Faucet, faucet_on, true, "Faucet")
+                    .clicked()
+                {
+                    self.authoring_tools.eraser_mode = if faucet_on {
+                        EraserMode::StrokeSegments
+                    } else {
+                        EraserMode::Objects
+                    };
                 }
             }
-            Tool::Bucket => {
-                tool_grid_row(ui, cols, 2, |ui, idx| match idx {
-                    0 => self.gap_size_modifier_button(ui),
-                    _ => self.lock_fill_modifier_button(ui),
-                });
-            }
-            Tool::Eraser => {
-                let items = [0_usize, 1, 2];
-                for row in items.chunks(cols) {
-                    tool_grid_row(ui, cols, row.len(), |ui, idx| match row[idx] {
-                        0 => self.eraser_mode_modifier_button(ui),
-                        1 => {
-                            let faucet_on = self.authoring_tools.eraser_mode == EraserMode::Objects;
-                            if tool_modifier_button(
-                                ui,
-                                ToolModifierGlyph::Faucet,
-                                faucet_on,
-                                true,
-                                "Faucet",
-                            )
-                            .clicked()
-                            {
-                                self.authoring_tools.eraser_mode = if faucet_on {
-                                    EraserMode::StrokeSegments
-                                } else {
-                                    EraserMode::Objects
-                                };
-                            }
-                        }
-                        _ => self.eraser_size_modifier_button(ui),
-                    });
-                }
-            }
-            Tool::Lasso => {
-                let items = [0_usize, 1, 2, 3, 4];
-                for row in items.chunks(cols) {
-                    tool_grid_row(ui, cols, row.len(), |ui, idx| match row[idx] {
-                        0 => {
-                            let on = self.authoring_tools.lasso_contact;
-                            if tool_modifier_button(
-                                ui,
-                                ToolModifierGlyph::TouchSelects,
-                                on,
-                                true,
-                                "Touch selects",
-                            )
-                            .clicked()
-                            {
-                                self.authoring_tools.lasso_contact = !on;
-                            }
-                        }
-                        1 => {
-                            let on = self.authoring_tools.lasso_partial_fills;
-                            if tool_modifier_button(
-                                ui,
-                                ToolModifierGlyph::SliceMergeFills,
-                                on,
-                                true,
-                                "Slice merge fills",
-                            )
-                            .clicked()
-                            {
-                                self.authoring_tools.lasso_partial_fills = !on;
-                            }
-                        }
-                        2 => {
-                            let on = self.authoring_tools.lasso_polygon_mode;
-                            if tool_modifier_button(
-                                ui,
-                                ToolModifierGlyph::LassoPolygon,
-                                on,
-                                true,
-                                "Polygon mode",
-                            )
-                            .clicked()
-                            {
-                                self.authoring_tools.lasso_polygon_mode = !on;
-                                if self.authoring_tools.lasso_polygon_mode {
-                                    self.authoring_tools.lasso_magic_wand = false;
-                                } else {
-                                    self.authoring_tools.lasso_polygon.clear();
-                                }
-                            }
-                        }
-                        3 => {
-                            let on = self.authoring_tools.lasso_magic_wand;
-                            if tool_modifier_button(
-                                ui,
-                                ToolModifierGlyph::MagicWand,
-                                on,
-                                true,
-                                "Magic wand",
-                            )
-                            .clicked()
-                            {
-                                self.authoring_tools.lasso_magic_wand = !on;
-                                if self.authoring_tools.lasso_magic_wand {
-                                    self.authoring_tools.lasso_polygon_mode = false;
-                                    self.authoring_tools.lasso_polygon.clear();
-                                }
-                            }
-                        }
-                        _ => {
-                            let open = self.authoring_tools.magic_wand_dialog.is_some();
-                            if tool_modifier_button(
-                                ui,
-                                ToolModifierGlyph::MagicWandSettings,
-                                open,
-                                true,
-                                "Magic wand settings…",
-                            )
-                            .clicked()
-                            {
-                                self.open_magic_wand_settings();
-                            }
-                        }
-                    });
-                }
-            }
-            Tool::Zoom => {
+            (Tool::Eraser, _) => self.eraser_size_modifier_button(ui),
+            (Tool::Lasso, index) => self.lasso_modifier_button(ui, index),
+            (Tool::Zoom, 0) => {
                 let zoom_out = self.authoring_tools.zoom_out;
-                tool_grid_row(ui, cols, 2, |ui, idx| match idx {
-                    0 => {
-                        if ui
-                            .add(nf::IconButton::new(i20::ZOOMIN, "Enlarge").selected(!zoom_out))
-                            .clicked()
-                        {
-                            self.authoring_tools.zoom_out = false;
-                        }
-                    }
-                    _ => {
-                        if ui
-                            .add(nf::IconButton::new(i20::ZOOMOUT, "Reduce").selected(zoom_out))
-                            .clicked()
-                        {
-                            self.authoring_tools.zoom_out = true;
-                        }
-                    }
-                });
+                if ui
+                    .add(cell_button(i20::ZOOMIN, "Enlarge").selected(!zoom_out))
+                    .clicked()
+                {
+                    self.authoring_tools.zoom_out = false;
+                }
             }
-            Tool::Subselect
-            | Tool::Gradient
-            | Tool::Text
-            | Tool::Ink
-            | Tool::Eyedropper
-            | Tool::Hand
-            | Tool::Razor
-            | Tool::Deco
-            | Tool::SprayBrush
-            | Tool::Bone
-            | Tool::Bind
-            | Tool::AssetWarp
-            | Tool::Translate3D
-            | Tool::Rotate3D => {}
+            (Tool::Zoom, _) => {
+                let zoom_out = self.authoring_tools.zoom_out;
+                if ui
+                    .add(cell_button(i20::ZOOMOUT, "Reduce").selected(zoom_out))
+                    .clicked()
+                {
+                    self.authoring_tools.zoom_out = true;
+                }
+            }
+            (
+                Tool::Subselect
+                | Tool::Gradient
+                | Tool::Text
+                | Tool::Ink
+                | Tool::Eyedropper
+                | Tool::Hand
+                | Tool::Razor
+                | Tool::Deco
+                | Tool::SprayBrush
+                | Tool::Bone
+                | Tool::Bind
+                | Tool::AssetWarp
+                | Tool::Translate3D
+                | Tool::Rotate3D,
+                _,
+            ) => {}
         }
     }
 }
 
-fn tool_modifier_row_count(tool: Tool, cols: usize) -> usize {
-    let cols = cols.max(1);
+/// Option cells of `tool` in the multi-column layouts.
+fn tool_modifier_count(tool: Tool) -> usize {
     match tool {
-        Tool::Select => {
-            if cols == 2 {
-                2
-            } else {
-                3_usize.div_ceil(cols)
-            }
-        }
-        Tool::Transform => {
-            if cols == 2 {
-                3
-            } else {
-                5_usize.div_ceil(cols)
-            }
-        }
+        Tool::Brush => 7,
+        Tool::Transform | Tool::Lasso => 5,
+        Tool::Select | Tool::PolyStar | Tool::Eraser => 3,
         Tool::Line
         | Tool::Pen
         | Tool::Rectangle
         | Tool::Ellipse
         | Tool::Pencil
         | Tool::Bucket
-        | Tool::Zoom => 1,
-        Tool::PolyStar | Tool::Eraser => 3_usize.div_ceil(cols),
-        Tool::Brush => 7_usize.div_ceil(cols),
-        Tool::Lasso => 5_usize.div_ceil(cols),
+        | Tool::Zoom => 2,
         Tool::Subselect
         | Tool::Gradient
         | Tool::Text
@@ -1690,36 +1690,18 @@ fn tool_modifier_row_count(tool: Tool, cols: usize) -> usize {
     }
 }
 
-/// One entry of the 1 Column rail or overflowing Tools grid.
-#[derive(Clone, Copy)]
-enum RailEntry<'a> {
-    Group(usize, &'a [ToolSpec]),
-    Tool(ToolSpec),
-    Divider,
-    ZoomOut,
-    Fit,
+fn tool_modifier_row_count(tool: Tool, cols: usize) -> usize {
+    tool_modifier_count(tool).div_ceil(cols.max(1))
 }
 
-impl RailEntry<'_> {
-    fn height(self) -> f32 {
-        match self {
-            // `NF2/Divider` (horizontal): 1 pt line + S2 margin.
-            Self::Divider => 1. + space::S2 + TOOL_GAP,
-            _ => neoflash_ui::metrics::tool_button() + TOOL_GAP,
-        }
-    }
-}
-
-fn rail_entries(groups: &[Vec<ToolSpec>], default_layout: bool) -> Vec<RailEntry<'_>> {
-    let mut entries = Vec::new();
-    for (index, group) in groups.iter().enumerate() {
-        if default_layout && [3, 7, 11].contains(&index) {
-            entries.push(RailEntry::Divider);
-        }
-        entries.push(RailEntry::Group(index, group));
-    }
-    entries.extend([RailEntry::ZoomOut, RailEntry::Fit]);
-    entries
+/// Rows of the largest modifier set over every tool: the options block reserves them, so the
+/// palette keeps its height when the tool changes.
+fn max_modifier_rows(cols: usize) -> usize {
+    tool_catalogue()
+        .iter()
+        .map(|spec| tool_modifier_row_count(spec.tool, cols))
+        .max()
+        .unwrap_or(0)
 }
 
 pub(crate) fn tool_catalogue() -> Vec<ToolSpec> {
@@ -1830,55 +1812,83 @@ impl Editor {
     }
 }
 
-/// Lays out up to `cols` tool/modifier buttons on one row, aligned to the left edge.
-fn tool_grid_row(
-    ui: &mut egui::Ui,
-    cols: usize,
-    items: usize,
-    mut render_item: impl FnMut(&mut egui::Ui, usize),
-) {
+/// A child UI over cell `index` of the block that starts at `top`: `cols` cells per row, rows
+/// left-aligned inside a grid that is centred in `panel`.
+fn tool_cell_ui(ui: &mut egui::Ui, panel: Rect, top: f32, cols: usize, index: usize) -> egui::Ui {
     let cols = cols.max(1);
-    let side = neoflash_ui::metrics::tool_button();
-    let natural_w = cols as f32 * side + (cols.saturating_sub(1)) as f32 * TOOL_GAP;
-    let avail_w = ui.available_width().max(natural_w);
-    let step = side + TOOL_GAP;
-    let (row_rect, _) = ui.allocate_exact_size(Vec2::new(avail_w, side), egui::Sense::hover());
-    let start_x = row_rect.left();
-    for idx in 0..items.min(cols) {
-        let cell_rect = Rect::from_min_size(
-            egui::pos2(start_x + idx as f32 * step, row_rect.top()),
-            Vec2::splat(side),
-        );
-        let mut cell_ui = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(cell_rect)
-                .layout(egui::Layout::left_to_right(egui::Align::Center)),
-        );
-        render_item(&mut cell_ui, idx);
-    }
+    let side = metrics::tool_button();
+    let step = side + tool_gap();
+    let grid = cols as f32 * step - tool_gap();
+    let left = (panel.center().x - grid * 0.5).round();
+    let min = egui::pos2(
+        left + (index % cols) as f32 * step,
+        top + tools_pad() + (index / cols) as f32 * step,
+    );
+    ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(Rect::from_min_size(min, Vec2::splat(side)))
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    )
 }
 
-fn centered_tools_row<R>(
+/// 1 px line between two blocks at `top`; returns the top of the next block.
+fn block_divider(ui: &egui::Ui, panel: Rect, top: f32) -> f32 {
+    ui.painter().hline(
+        panel.x_range(),
+        top + DIVIDER * 0.5,
+        egui::Stroke::new(DIVIDER, neoflash_ui::palette(ui.ctx()).border_subtle),
+    );
+    top + DIVIDER
+}
+
+/// Stroke or fill chip: a tool cell with a 16 pt swatch inside; the stroke chip is a hollow square.
+fn paint_chip(
     ui: &mut egui::Ui,
-    content_width: f32,
-    height: f32,
-    content: impl FnOnce(&mut egui::Ui) -> R,
-) -> R {
-    let (row, _) = ui.allocate_exact_size(
-        Vec2::new(ui.available_width().max(content_width), height),
-        egui::Sense::hover(),
-    );
-    let content_rect = Rect::from_center_size(
-        row.center(),
-        Vec2::new(content_width.min(row.width()), height),
-    );
-    ui.scope_builder(
-        egui::UiBuilder::new()
-            .max_rect(content_rect)
-            .layout(egui::Layout::left_to_right(egui::Align::Center)),
-        content,
-    )
-    .inner
+    stroke: bool,
+    solid: Option<egui::Color32>,
+    gradient: Option<&neoflash_core::GradientPaint>,
+) -> egui::Response {
+    let label = if stroke {
+        "Stroke colour"
+    } else {
+        "Fill colour"
+    };
+    let p = neoflash_ui::palette(ui.ctx());
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::splat(metrics::tool_button()), egui::Sense::click());
+    if ui.is_rect_visible(rect) {
+        let radius = neoflash_ui::tokens::radius::md();
+        let bg = if response.hovered() {
+            p.bg_hover
+        } else {
+            p.bg_panel
+        };
+        ui.painter().rect_filled(rect, radius, bg);
+        let swatch = Rect::from_center_size(rect.center(), Vec2::splat(CHIP_SWATCH));
+        let swatch_radius = neoflash_ui::tokens::radius::sm();
+        match (gradient, solid) {
+            (Some(gradient), _) => crate::paint_controls::paint_gradient_swatch(
+                ui.painter(),
+                swatch,
+                gradient,
+                swatch_radius,
+            ),
+            (None, Some(color)) => nf::display::paint_swatch(ui, swatch, color, swatch_radius),
+            (None, None) => nf::color::paint_none(ui, swatch),
+        }
+        if stroke && (gradient.is_some() || solid.is_some()) {
+            // Hollow square: the cell shows through the middle of the swatch.
+            ui.painter().rect_filled(swatch.shrink(CHIP_RING), 0.0, bg);
+        }
+        if neoflash_ui::theme::keyboard_focus(ui, &response) {
+            neoflash_ui::theme::focus_ring(ui, rect, radius);
+        }
+    }
+    let enabled = response.enabled();
+    response.widget_info(move || {
+        egui::WidgetInfo::labeled(egui::WidgetType::ColorButton, enabled, label)
+    });
+    nf::tooltip(response, label, None)
 }
 
 fn long_press(ui: &egui::Ui, response: &egui::Response) -> bool {
@@ -1920,7 +1930,7 @@ fn rail_popover(ui: &egui::Ui, anchor: Rect, content: impl FnOnce(&mut egui::Ui)
     .open(true)
     .align(primary)
     .align_alternatives(&[alt])
-    .gap(space::S2)
+    .gap(space::s2())
     .frame(nf::popover_frame(&ctx))
     .close_behavior(egui::PopupCloseBehavior::IgnoreClicks)
     .show(|ui| {
@@ -1950,4 +1960,269 @@ fn rail_popover(ui: &egui::Ui, anchor: Rect, content: impl FnOnce(&mut egui::Ui)
                     .is_none_or(|layer| layer.order < egui::Order::Foreground)
         });
     !(shown.inner || outside || escape)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eframe::egui::Pos2;
+    use neoflash_core::Project;
+
+    /// Runs `body` in every density and restores Normal afterwards.
+    fn in_every_density(mut body: impl FnMut(metrics::Density)) {
+        for density in metrics::Density::ALL {
+            metrics::set_density(density);
+            body(density);
+        }
+        metrics::set_density(metrics::Density::default());
+    }
+
+    fn render(editor: &mut Editor, ctx: &egui::Context, size: Vec2) -> egui::FullOutput {
+        let panel = Rect::from_min_size(Pos2::new(8.0, 8.0), size);
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size + Vec2::splat(16.0))),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(panel), |ui| {
+                        editor.tools_contents(ui)
+                    });
+                });
+            },
+        )
+    }
+
+    fn bounds(output: &egui::FullOutput, label: &str) -> Option<Rect> {
+        output
+            .platform_output
+            .accesskit_update
+            .as_ref()?
+            .nodes
+            .iter()
+            .find_map(|(_, node)| {
+                (node.label() == Some(label))
+                    .then(|| node.bounds())
+                    .flatten()
+                    .map(|r| {
+                        Rect::from_min_max(
+                            Pos2::new(r.x0 as f32, r.y0 as f32),
+                            Pos2::new(r.x1 as f32, r.y1 as f32),
+                        )
+                    })
+            })
+    }
+
+    #[test]
+    fn natural_widths_are_the_docked_tools_metrics() {
+        in_every_density(|density| {
+            assert_eq!(
+                tools_natural_width(1),
+                metrics::tools_rail(),
+                "{density:?}: one column is the rail"
+            );
+            let slack = metrics::tools_two_columns() - tools_natural_width(2);
+            assert!(
+                (0.0..=2.0).contains(&slack),
+                "{density:?}: two columns leave {slack} pt"
+            );
+            assert_eq!(tool_columns_for_width(metrics::tools_rail()), 1);
+            assert_eq!(tool_columns_for_width(metrics::tools_two_columns()), 2);
+            for cols in 1..=6 {
+                assert_eq!(tool_columns_for_width(tools_natural_width(cols)), cols);
+                assert_eq!(
+                    tool_columns_for_width(tools_natural_width(cols + 1) - 0.5),
+                    cols,
+                    "{density:?}: a column appears only at its natural width"
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn desired_height_does_not_depend_on_the_active_tool() {
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        in_every_density(|density| {
+            for cols in 1..=3 {
+                let size = Vec2::new(tools_natural_width(cols), 2000.0);
+                let mut heights = Vec::new();
+                for spec in tool_catalogue() {
+                    editor.set_tool(spec.tool);
+                    render(&mut editor, &ctx, size);
+                    let height = editor
+                        .detached
+                        .tools_desired_inner_height
+                        .expect("a free palette records its height");
+                    heights.push((spec.name, height));
+                }
+                let expected = heights[0].1;
+                assert!(
+                    heights.iter().all(|(_, height)| *height == expected),
+                    "{density:?}, {cols} columns: {heights:?}"
+                );
+                let groups = editor.tool_groups();
+                assert_eq!(
+                    expected,
+                    (8.0 + ToolsPlan::new(&groups, cols).natural_height()).ceil(),
+                    "{density:?}, {cols} columns: the height is the stacked blocks"
+                );
+            }
+        });
+    }
+
+    /// Slots with the first `count` drawing tools of the catalogue, two per slot, then Hand and Zoom.
+    fn slots_with(count: usize) -> Vec<Vec<String>> {
+        let names: Vec<String> = GRID.iter().map(|spec| spec.name.to_owned()).collect();
+        let mut slots: Vec<Vec<String>> =
+            names[..count].chunks(2).map(<[String]>::to_vec).collect();
+        slots.push(VIEW.iter().map(|spec| spec.name.to_owned()).collect());
+        slots
+    }
+
+    #[test]
+    fn tools_grid_is_centred_and_more_never_leaves_a_hole_before_it() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        in_every_density(|density| {
+            for (count, cols) in [(17, 2), (18, 2), (25, 2), (17, 3), (18, 3), (25, 3)] {
+                editor.workspace.tools.slots = slots_with(count);
+                let width = if cols == 2 {
+                    metrics::tools_two_columns()
+                } else {
+                    tools_natural_width(cols)
+                };
+                let size = Vec2::new(width, 2000.0);
+                render(&mut editor, &ctx, size);
+                let out = render(&mut editor, &ctx, size);
+                let case = format!("{density:?}, {count} tools, {cols} columns");
+                let side = metrics::tool_button();
+                let step = side + tool_gap();
+                let left = 8.0 + (width - (cols as f32 * step - tool_gap())) * 0.5;
+                let top = 8.0 + tools_pad();
+                let cell_at = |index: usize| {
+                    Rect::from_min_size(
+                        Pos2::new(
+                            left + (index % cols) as f32 * step,
+                            top + (index / cols) as f32 * step,
+                        ),
+                        Vec2::splat(side),
+                    )
+                };
+                let same = |a: Rect, b: Rect| {
+                    (a.min - b.min).length() < 0.6 && (a.max - b.max).length() < 0.6
+                };
+                // Every tool is a cell, in order, row after row.
+                for (index, spec) in GRID[..count].iter().enumerate() {
+                    let label =
+                        editor.tool_accessible_label(*spec, &editor.tool_display_key(*spec));
+                    let cell = bounds(&out, &label).unwrap_or_else(|| panic!("{case}: {label}"));
+                    assert!(same(cell, cell_at(index)), "{case}: {label} at {cell:?}");
+                }
+                let more = bounds(&out, "More tools").unwrap_or_else(|| panic!("{case}: More"));
+                let rows = count.div_ceil(cols);
+                if count % cols == 0 {
+                    // Full rows: a bar across the panel right under the grid, not a lonely cell.
+                    let bar = Rect::from_min_size(
+                        Pos2::new(8.0, 8.0 + block_height(rows)),
+                        Vec2::new(width, more_bar_height()),
+                    );
+                    assert!(same(more, bar), "{case}: bar {more:?}, expected {bar:?}");
+                } else {
+                    // Otherwise the cell right after the last tool, in the same row.
+                    assert!(same(more, cell_at(count)), "{case}: cell {more:?}");
+                    assert_eq!(count / cols, (rows * cols - 1) / cols, "{case}: same row");
+                }
+                if cols == 2 && count % cols != 0 {
+                    assert_eq!(
+                        count % cols,
+                        cols - 1,
+                        "{case}: the cell fills the last row"
+                    );
+                }
+                // The next block starts right under the tools block.
+                let hand = bounds(&out, "Hand (H / hold Space)").expect("view block");
+                let tools_bottom = 8.0
+                    + block_height(rows)
+                    + if count % cols == 0 {
+                        more_bar_height()
+                    } else {
+                        0.0
+                    };
+                assert!(
+                    (hand.top() - (tools_bottom + DIVIDER + tools_pad())).abs() < 0.6,
+                    "{case}: view block at {hand:?}"
+                );
+                // The grid is centred: the same margin on both sides.
+                let first = cell_at(0);
+                let last_in_row = cell_at(cols - 1);
+                assert!(
+                    ((first.left() - 8.0) - (8.0 + width - last_in_row.right())).abs() < 1.1,
+                    "{case}"
+                );
+                // Chips are tool cells, and the four view cells are on the surface.
+                for chip in ["Stroke colour", "Fill colour"] {
+                    let cell = bounds(&out, chip).unwrap();
+                    assert_eq!(cell.size(), Vec2::splat(side), "{case}: {chip}");
+                }
+                for view in ["Zoom (Z / M)", "Zoom out", "Fit stage"] {
+                    assert!(bounds(&out, view).is_some(), "{case}: {view}");
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn a_short_panel_moves_cells_into_more_without_losing_any() {
+        let groups: Vec<Vec<ToolSpec>> = crate::tool_preferences::default_slots()
+            .iter()
+            .map(|slot| {
+                slot.iter()
+                    .filter_map(|name| tool_catalogue().into_iter().find(|s| s.name == name))
+                    .collect()
+            })
+            .collect();
+        in_every_density(|density| {
+            for cols in 1..=3 {
+                let plan = ToolsPlan::new(&groups, cols);
+                let natural = plan.natural_height();
+                let full = plan.fit(natural, 0);
+                assert_eq!(
+                    full,
+                    ToolsFit {
+                        tool_rows: plan.tool_rows(),
+                        more_bar: plan.more_is_bar(),
+                        show_view: true,
+                        option_rows: plan.option_rows,
+                    },
+                    "{density:?}, {cols} columns"
+                );
+                // One row short: the reserved option rows go first, every cell stays.
+                let active = plan.option_rows.saturating_sub(1);
+                let tight = plan.fit(natural - metrics::tool_button(), active);
+                if active < plan.option_rows {
+                    assert_eq!(
+                        (tight.tool_rows, tight.show_view, tight.option_rows),
+                        (plan.tool_rows(), true, active),
+                        "{density:?}, {cols} columns"
+                    );
+                }
+                // Always at least one row of tools, never taller than the panel allows.
+                let mut height = natural;
+                while height > block_height(1) + block_height(plan.colour_rows()) + 2.0 * DIVIDER {
+                    let fit = plan.fit(height, 0);
+                    assert!(fit.tool_rows >= 1);
+                    assert!(
+                        plan.height(fit) <= height + 0.5,
+                        "{density:?}, {cols}: {fit:?}"
+                    );
+                    assert!(plan.tools_shown(&fit) <= plan.tools.len());
+                    assert!(!fit.more_bar || plan.tools_shown(&fit) == plan.tools.len());
+                    height -= 7.0;
+                }
+            }
+        });
+    }
 }

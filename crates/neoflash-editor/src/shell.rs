@@ -18,7 +18,7 @@ impl Editor {
         let publish_sc = self.tooltip_sc(CommandId::FilePublish);
         let test_sc = self.tooltip_sc(CommandId::ControlTestMovie);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = space::S2;
+            ui.spacing_mut().item_spacing.x = space::s2();
             let mut publish = nf::Button::primary("Publish").icon(i16::UPLOAD);
             if let Some(sc) = publish_sc.as_deref() {
                 publish = publish.shortcut(sc);
@@ -41,11 +41,13 @@ impl Editor {
             {
                 self.export(true);
             }
-            let free = ui.available_width();
-            if free >= 132. {
+            // Publish and Test Movie are placed first from the right edge, so they keep their
+            // place when the workspace select (one fixed `width/field-m` slot) does not fit.
+            let slot = neoflash_ui::metrics::field_m();
+            if ui.available_width() >= slot {
                 let label = self.workspace.active_workspace_label().to_owned();
                 nf::Select::new("workspace", &label)
-                    .width(free.clamp(132., 180.))
+                    .width(slot)
                     .show(ui, |ui| {
                         self.workspace_menu(ui, &ctx);
                     });
@@ -99,7 +101,10 @@ impl Editor {
             .show_separator_line(false)
             .frame(egui::Frame::new().fill(p.bg_app))
             .show(ctx, |ui| {
-                let hints: Vec<(&str, &str)> = if ui.available_width() > 900. {
+                // Shortcut chips need the message, the summary and four chips side by side:
+                // six `width/field-m` slots.
+                let hints_from = 6.0 * neoflash_ui::metrics::field_m();
+                let hints: Vec<(&str, &str)> = if ui.available_width() > hints_from {
                     raw_hints
                         .iter()
                         .filter(|(k, _)| !k.is_empty())
@@ -128,7 +133,7 @@ impl Editor {
             }
             if path.len() > 4 && slot == 1 {
                 let overflow = nf::breadcrumb_overflow(ui);
-                nf::popup_below(&overflow, 200.0, |ui| {
+                nf::popup_below(&overflow, neoflash_ui::metrics::menu_width(), |ui| {
                     for (hidden, hidden_id) in path.iter().enumerate().take(path.len() - 2).skip(1)
                     {
                         let hidden_name = self
@@ -171,7 +176,7 @@ impl Editor {
             }
         }
         if self.onion {
-            ui.add_space(space::S2);
+            ui.add_space(space::s2());
             let badge = ui.add(nf::Badge::new("Onion skin", nf::BadgeType::Accent));
             nf::tooltip(
                 badge,
@@ -180,8 +185,8 @@ impl Editor {
             );
         }
         if self.vector.draft.is_some() {
-            ui.add_space(space::S2);
-            ui.spacing_mut().item_spacing.x = space::S1;
+            ui.add_space(space::s2());
+            ui.spacing_mut().item_spacing.x = space::s1();
             let finish = ui.add(nf::Button::primary("Finish").shortcut("Esc"));
             if nf::tooltip(
                 finish,
@@ -222,12 +227,12 @@ impl Editor {
         };
         egui::Area::new(egui::Id::new("stage-breadcrumb"))
             .order(egui::Order::Middle)
-            .fixed_pos(canvas.min + Vec2::splat(space::S3 + ruler))
+            .fixed_pos(canvas.min + Vec2::splat(space::s3() + ruler))
             .constrain_to(canvas)
             .show(&ctx, |ui| {
                 nf::Surface::Floating
                     .frame(&ctx)
-                    .corner_radius(neoflash_ui::tokens::radius::LG)
+                    .corner_radius(neoflash_ui::tokens::radius::lg())
                     .inner_margin(egui::Margin::same(3))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| self.stage_breadcrumb_row(ui));
@@ -238,7 +243,7 @@ impl Editor {
         egui::Area::new(egui::Id::new("stage-size-badge"))
             .order(egui::Order::Middle)
             .pivot(egui::Align2::RIGHT_TOP)
-            .fixed_pos(canvas.right_top() + Vec2::new(-space::S3, space::S3 + ruler))
+            .fixed_pos(canvas.right_top() + Vec2::new(-space::s3(), space::s3() + ruler))
             .interactable(false)
             .show(&ctx, |ui| {
                 let label = format!("{} × {}", self.project.width, self.project.height);
@@ -273,36 +278,38 @@ impl Editor {
         }
         let control = self.zoom_control();
         let id = egui::Id::new("stage-zoom-control");
-        let corner = canvas.right_bottom() - Vec2::splat(space::S4);
+        let corner = canvas.right_bottom() - Vec2::splat(space::s4());
         let (action, settings, area) = match mode {
             Mode::Collapsed => {
-                // Context expansion: the pill expands in place while the pointer is over it (or a
-                // popover it opened is shown) and collapses 1 s after the pointer leaves.
+                // Context expansion: the other controls slide out to the left of the pill while the
+                // pointer is over it (or a popover it opened is shown) and go away 1 s after the
+                // pointer leaves. The pill itself (‹ and the percentage) never moves.
                 let linger_id = egui::Id::new("stage-toolbar-linger");
                 let now = ctx.input(|i| i.time);
                 let until: f64 = ctx.data(|d| d.get_temp(linger_id)).unwrap_or(0.);
-                if now < until || self.stage_view.settings_open {
-                    let ((action, settings), area) =
-                        control.show_floating(&ctx, id, corner, egui::Align2::RIGHT_BOTTOM);
-                    if area.contains_pointer() || self.stage_view.settings_open {
-                        ctx.data_mut(|d| d.insert_temp(linger_id, now + 1.0));
-                    }
-                    ctx.request_repaint_after(std::time::Duration::from_millis(250));
-                    (action, settings, area)
-                } else {
-                    let (action, expand, area) = control.show_collapsed(&ctx, id, corner);
-                    if expand || area.contains_pointer() {
-                        ctx.data_mut(|d| d.insert_temp(linger_id, now + 1.0));
+                let expanded = now < until || self.stage_view.settings_open;
+                let nf::surface::ZoomPillResponse {
+                    action,
+                    settings,
+                    expand,
+                    area,
+                } = control.show_pill(&ctx, id, corner, expanded);
+                if expand || area.contains_pointer() || self.stage_view.settings_open {
+                    ctx.data_mut(|d| d.insert_temp(linger_id, now + 1.0));
+                    if !expanded {
                         ctx.request_repaint();
                     }
-                    (action, None, area)
                 }
+                if expanded {
+                    ctx.request_repaint_after(std::time::Duration::from_millis(250));
+                }
+                (action, settings, area)
             }
             _ => {
                 let ((action, settings), area) = control.show_floating(
                     &ctx,
                     id,
-                    canvas.center_bottom() - Vec2::new(0., space::S4),
+                    canvas.center_bottom() - Vec2::new(0., space::s4()),
                     egui::Align2::CENTER_BOTTOM,
                 );
                 (action, settings, area)
@@ -329,32 +336,45 @@ impl Editor {
         let background = ui.interact(bar, egui::Id::new("stage-edit-bar"), egui::Sense::click());
         self.stage_toolbar_menu(&background);
         let control = self.zoom_control();
-        let mut outcome = (ZoomAction::None, None);
-        // The right group keeps its left-to-right order: it is placed by its measured width.
-        let width_id = egui::Id::new("stage-edit-bar-tools-width");
-        let tools_width: f32 = ui.ctx().data(|d| d.get_temp(width_id)).unwrap_or(560.);
-        ui.scope_builder(
+        let inner = bar.shrink2(Vec2::new(space::s2(), 0.));
+        // The right group is anchored to the bar's right edge and sized from metrics, never from a
+        // previous frame's measurement; the breadcrumb gets what is left of it.
+        let mut right = ui.new_child(
             egui::UiBuilder::new()
-                .max_rect(bar.shrink2(Vec2::new(space::S2, 0.)))
-                .layout(egui::Layout::left_to_right(egui::Align::Center)),
-            |ui| {
-                self.stage_breadcrumb_row(ui);
-                let gap = ui.available_width() - tools_width;
-                if gap > 0. {
-                    ui.add_space(gap);
-                }
-                let start = ui.cursor().left();
-                let label = format!("{} × {}", self.project.width, self.project.height);
-                ui.add(nf::Badge::new(&label, nf::BadgeType::Neutral));
-                ui.add_space(space::S2);
-                outcome = control.contents(ui);
-                let measured = ui.min_rect().right() - start;
-                if (measured - tools_width).abs() > 0.5 {
-                    ui.ctx().data_mut(|d| d.insert_temp(width_id, measured));
-                    ui.ctx().request_repaint();
-                }
-            },
+                .id_salt("stage-edit-bar-right")
+                .max_rect(inner)
+                .layout(egui::Layout::right_to_left(egui::Align::Center)),
         );
+        right.spacing_mut().item_spacing.x = 0.;
+        let (zoom_rect, _) = right.allocate_exact_size(
+            Vec2::new(stage_toolbar_row_width(), neoflash_ui::metrics::control()),
+            egui::Sense::hover(),
+        );
+        let mut zoom = right.new_child(
+            egui::UiBuilder::new()
+                .id_salt("stage-edit-bar-zoom")
+                .max_rect(zoom_rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        let outcome = control.contents(&mut zoom);
+        right.add_space(space::s2());
+        let label = format!("{} × {}", self.project.width, self.project.height);
+        let badge = right.add(nf::Badge::new(&label, nf::BadgeType::Neutral));
+        let crumbs = Rect::from_min_max(
+            inner.min,
+            egui::pos2(
+                (badge.rect.left() - space::s2()).max(inner.left()),
+                inner.bottom(),
+            ),
+        );
+        let mut left = ui.new_child(
+            egui::UiBuilder::new()
+                .id_salt("stage-edit-bar-breadcrumb")
+                .max_rect(crumbs)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        left.set_clip_rect(ui.clip_rect().intersect(crumbs));
+        self.stage_breadcrumb_row(&mut left);
         self.stage_view.settings_button = outcome.1.map(|r| r.rect);
         self.apply_zoom_action(outcome.0);
     }
@@ -467,6 +487,17 @@ impl Editor {
         self.stage_view.fitted_zoom = None;
         self.stage_view.last_stage_size = None;
     }
+}
+
+/// Width of the Stage toolbar row with all four view toggles (see `ZoomControl::row_width`).
+pub(crate) fn stage_toolbar_row_width() -> f32 {
+    nf::ZoomControl::row_width()
+}
+
+/// Width of the collapsed pill: ‹ and the zoom percentage.
+#[cfg(test)]
+pub(crate) fn stage_toolbar_pill_width() -> f32 {
+    nf::ZoomControl::pill_width()
 }
 
 /// `NEOFLASH_SCREENSHOT=path.png` saves a PNG of the main window after a few frames and quits.

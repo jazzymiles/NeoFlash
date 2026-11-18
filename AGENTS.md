@@ -93,11 +93,23 @@ The NF2 design system is owned by the design track (the project owner with the F
 - Turning a planned preview (`crates/neoflash-editor/src/panels/planned_*.rs`) into a real panel by moving its body unchanged into a panel file and registering it.
 - Fixing behaviour bugs inside panel files without altering their look.
 
+**v3 layout rules (they apply to every panel file you touch while wiring behaviour).** The current reference is
+design system v3 — `docs/DESIGN-SYSTEM.md` › "v3 — density-aware atoms and stable layouts".
+- Sizes come only from `neoflash_ui::metrics::*()` and `tokens::space::s1()…s6()` / `radius::sm()…xl()` (density-aware
+  functions for Normal / Compact / Classic Flash). No literal heights, paddings, gaps or widths for chrome; the
+  uppercase `space::S*` / `radius::*` constants are legacy.
+- Nothing may jump: a dialog has one size per density (`metrics::dialog_s|m|l|xl()`, `dialog_l_height()`,
+  `dialog_xl_height()`), scroll areas use `auto_shrink([false, false])`, a row is budgeted from
+  `ui.available_width()` and never overflows its panel, a control keeps its label in every context.
+- Inspector rows use the two-column grid (label inside the field); dialogs use a `dialog_label()` label column and
+  controls at natural width (`field_num()`, `field_s()`, `field_m()`, `field_l()`). One row per record. One Primary
+  button per surface; options are checkboxes, a switch only for an instantly applied application state.
+
 **When the design is missing, unclear or blocks the work,** do not improvise: add an entry to `docs/NF2-REQUESTS.md` (what is needed, where, why, which reference/outline you checked, proposed component or state) and continue with the parts that do not need it. The design track answers the request and updates the design system.
 
 **Rulers, guides, grid and snapping are finished features** — read `docs/NF2-RULERS-GUIDES-GRID.md` (data model, invariants, tests, "Do not change") before touching `stage_view.rs`, `snapping.rs`, `panels/view_settings.rs`, `Timeline::guides` or the stage event order in `stage.rs`. Keep `stage_view_tests.rs` passing.
 
-**Checks:** `python3 scripts/design-lock.py` must pass (it is part of `scripts/check.sh`); it fails on any change to locked files. Functional scope and order of work: `docs/NF2-FUNCTIONAL-SPEC.md` and `docs/NF2-WIRING-PLAN.md`. Visual verification: `NEOFLASH_WINDOW=1920x1080 NEOFLASH_SCREENSHOT=target/ui-shots/x.png NEOFLASH_SCREENSHOT_THEME=dark|light [NEOFLASH_SCREENSHOT_WORKSPACE=developer] cargo run -p neoflash-editor`, compared with `interface/design-system/exports/` (local, not versioned).
+**Checks:** `python3 scripts/design-lock.py` must pass (it is part of `scripts/check.sh`); it fails on any change to locked files. Functional scope and order of work: `docs/NF2-FUNCTIONAL-SPEC.md` and `docs/NF2-WIRING-PLAN.md`. Visual verification: `NEOFLASH_WINDOW=1920x1080 NEOFLASH_SCREENSHOT=target/ui-shots/x.png NEOFLASH_SCREENSHOT_THEME=dark|light [NEOFLASH_SCREENSHOT_DENSITY=compact|classic] [NEOFLASH_SCREENSHOT_WORKSPACE=developer] cargo run -p neoflash-editor` in all three densities, compared with the `v3 · <Density> · <Theme>` Figma pages (builder: `interface/figma-plugin/v3`); `interface/design-system/exports/` still holds the v2.25 exports.
 
 ## Timeline engine
 

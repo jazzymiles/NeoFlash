@@ -4,7 +4,6 @@
 //! picked solid colours, no-colour or gradient swatches to the active fill/stroke and editable
 //! selection in one Undo step.
 use crate::app::{Editor, Tool};
-use crate::theme::ScrollTheme as _;
 use crate::workspace::PanelId;
 use eframe::egui::{self, Color32, Ui};
 use neoflash_core::*;
@@ -692,11 +691,12 @@ impl Editor {
         let mut color = to_color32(active);
         let before = color;
 
-        let out = egui::ScrollArea::vertical()
-            .id_salt("swatches-panel-scroll")
-            .auto_shrink([false, false])
-            .themed()
-            .show(ui, |ui| {
+        // The scrollbar lives in the panel's right padding, so it never covers the last column.
+        let out = crate::authoring_modify::panel_scroll_body(
+            ui,
+            PanelId::Swatches,
+            "swatches-panel-scroll",
+            |ui| {
                 let pop_out = c::SwatchesPopover {
                     color: &mut color,
                     recent: &recent,
@@ -705,13 +705,11 @@ impl Editor {
                     gradients: &gradients,
                 }
                 .show(ui);
-                ui.add_space(neoflash_ui::tokens::space::S2);
-                crate::panels::properties::inspector_section(ui, "Used colours", |ui| {
-                    self.project_colors_section_ui(ui, false);
-                });
+                ui.add_space(neoflash_ui::tokens::space::s2());
+                self.used_colours_section_ui(ui, true);
                 pop_out
-            })
-            .inner;
+            },
+        );
 
         if out.no_colour {
             self.apply_swatch_solid(&ctx, [0, 0, 0, 0]);
@@ -1173,20 +1171,62 @@ impl Editor {
         }
     }
 
-    /// Figma-style interactive list of used colours on Stage / in Library (or current selection) with live
-    /// RGBA popover replacement, usage counts/roles, stage selection, and JSFL Change Colour (`T-197`, `T-386`).
-    pub(crate) fn project_colors_section_ui(&mut self, ui: &mut Ui, selection_only: bool) {
-        let ctx = ui.ctx().clone();
-        if !selection_only
-            && ui
-                .add(c::Checkbox::new(
-                    &mut self.workspace.used_colors_only_on_stage,
-                    "Only on stage",
-                ))
-                .changed()
-        {
+    /// `Used colours` section (v3, `R-106`): the header carries `Only on stage` and the ⋯ menu
+    /// (`Import palette…`), the body is [`Self::project_colors_section_ui`].
+    pub(crate) fn used_colours_section_ui(&mut self, ui: &mut Ui, default_open: bool) {
+        use crate::panels::properties::{
+            checkbox_width, inspector_section_with_trailing, section_more_cell,
+        };
+        const ONLY_ON_STAGE: &str = "Only on stage";
+        let mut only_on_stage = self.workspace.used_colors_only_on_stage;
+        let mut import_palette = false;
+        // Checkbox, a tiny gap and the icon-wide ⋯ cell: the title keeps its full text at the
+        // inspector width in every density.
+        let more_cell = section_more_cell();
+        let trailing_width =
+            checkbox_width(ui, ONLY_ON_STAGE) + neoflash_ui::tokens::space::s1() + more_cell.x;
+        let toggled = inspector_section_with_trailing(
+            ui,
+            "Used colours",
+            default_open,
+            trailing_width,
+            |ui| self.project_colors_section_ui(ui, false),
+            |ui| {
+                let more = ui.add(
+                    c::IconButton::new(neoflash_ui::icons::i16::MORE, "Used colours options")
+                        .cell(more_cell.x, more_cell.y),
+                );
+                c::popup_below(&more, neoflash_ui::metrics::menu_width(), |ui| {
+                    if c::tooltip(
+                        ui.add(c::MenuItem::new("Import palette (.act, .clr, .ase)…")),
+                        "Import colour swatches from an Adobe Color Table (.act), Flash Color Set (.clr), or Adobe Swatch Exchange (.ase) palette",
+                        None,
+                    )
+                    .clicked()
+                    {
+                        import_palette = true;
+                        ui.close();
+                    }
+                });
+                ui.add(c::Checkbox::new(&mut only_on_stage, ONLY_ON_STAGE))
+                    .changed()
+            },
+        );
+        if toggled {
+            self.workspace.used_colors_only_on_stage = only_on_stage;
             self.persist_workspace_requested = true;
         }
+        if import_palette {
+            self.import_palette_dialog();
+        }
+    }
+
+    /// Interactive list of used colours on Stage / in Library (or of the current selection), one row
+    /// per colour: swatch with the RGBA popover, `#RRGGBB` with alpha, usage roles and, for the
+    /// document list, `Select on stage`; then the one-row `Replace` bar that records a JSFL
+    /// Change Colour command (`T-197`, `T-386`, `R-106`).
+    pub(crate) fn project_colors_section_ui(&mut self, ui: &mut Ui, selection_only: bool) {
+        let ctx = ui.ctx().clone();
         let only_on_stage = self.workspace.used_colors_only_on_stage;
         let scope_tag = if selection_only {
             "selection-colors"
@@ -1247,87 +1287,82 @@ impl Editor {
             return;
         }
 
-        let p = neoflash_ui::palette(&ctx);
         let mut select_color_requested: Option<Color> = None;
 
         ui.vertical(|ui| {
-            ui.spacing_mut().item_spacing.y = neoflash_ui::tokens::space::S3;
+            ui.spacing_mut().item_spacing.y = neoflash_ui::metrics::row_gap();
             for (row_idx, used) in used_entries.iter().enumerate() {
                 let entry = &used.entry;
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = neoflash_ui::tokens::space::S1;
-                    let row_id = format!("{scope_tag}-row-{row_idx}");
-                    let label = format!("Colour {}", row_idx + 1);
-                    let current = self
-                        .active_used_color_edit(scope)
-                        .filter(|edit| edit.row == row_idx)
-                        .map_or(entry.color, |edit| edit.current);
-                    let mut edited = current;
+                let row_id = format!("{scope_tag}-row-{row_idx}");
+                let name = format!("Colour {}", row_idx + 1);
+                let current = self
+                    .active_used_color_edit(scope)
+                    .filter(|edit| edit.row == row_idx)
+                    .map_or(entry.color, |edit| edit.current);
+                let mut edited = current;
+                // The cell shows the roles; the stage / library split of the whole-document list
+                // is in its tooltip and accessible name.
+                let roles = Self::color_usage_text(entry);
+                let summary = Self::used_color_usage_text(used, !selection_only && !only_on_stage);
 
-                    let resp = ui
-                        .push_id(scope, |ui| {
-                            crate::paint_controls::color_row(ui, &row_id, "#", &label, &mut edited)
-                        })
-                        .inner;
-                    if !resp.changed() {
-                        super::dialog_helpers::track_rgba_popup(ui.ctx(), resp.id);
-                    }
-                    if resp.changed() && edited != current {
-                        self.preview_used_color_edit(
-                            scope,
-                            resp.id,
-                            (row_idx, &used_entries),
-                            edited,
-                            selection_only,
-                            only_on_stage,
-                        );
-                    }
+                let row = ui
+                    .push_id((scope, &row_id), |ui| {
+                        used_colour_row(ui, &name, &mut edited, (&roles, &summary), !selection_only)
+                    })
+                    .inner;
+                super::dialog_helpers::track_rgba_popup(ui.ctx(), row.popup);
+                if let Some(control) = row.changed
+                    && edited != current
+                {
+                    self.preview_used_color_edit(
+                        scope,
+                        control,
+                        (row_idx, &used_entries),
+                        edited,
+                        selection_only,
+                        only_on_stage,
+                    );
+                }
+                if row.select {
+                    select_color_requested = Some(entry.color);
+                }
+            }
 
-                    let summary =
-                        Self::used_color_usage_text(used, !selection_only && !only_on_stage);
-                    if selection_only {
-                        ui.add(
-                            egui::Label::new(
-                                neoflash_ui::typography::rich(
-                                    &summary,
-                                    neoflash_ui::TextStyle::Small,
-                                )
-                                .color(p.text_tertiary),
-                            )
-                            .wrap(),
-                        );
-                    } else {
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(ui.available_width(), 20.0),
-                            egui::Layout::left_to_right(egui::Align::Center),
-                            |ui| {
-                                ui.spacing_mut().item_spacing.x = neoflash_ui::tokens::space::S2;
-                                ui.add(
-                                    egui::Label::new(
-                                        neoflash_ui::typography::rich(
-                                            &summary,
-                                            neoflash_ui::TextStyle::Small,
-                                        )
-                                        .color(p.text_tertiary),
-                                    )
-                                    .wrap(),
-                                );
-                                if ui
-                                    .add(
-                                        c::IconButton::new(
-                                            neoflash_ui::icons::i16::SELECT_ALL,
-                                            "Select elements with this colour on the current frame",
-                                        )
-                                        .side(20.0),
-                                    )
-                                    .clicked()
-                                {
-                                    select_color_requested = Some(entry.color);
-                                }
-                            },
-                        );
-                    }
-                });
+            // Replace bar: `Replace [From] › [To] … [Replace all]` runs the built-in
+            // `change_color.jsfl` across the project.
+            if !selection_only {
+                let jsfl_pair_id =
+                    egui::Id::new(("jsfl-change-color-pair", &self.clipboard.session));
+                let default_from = used_entries
+                    .first()
+                    .map(|u| u.entry.color)
+                    .unwrap_or(self.fill);
+                let default_to = self.fill;
+                let (mut jsfl_from, mut jsfl_to) = ctx
+                    .data(|d| d.get_temp::<(Color, Color)>(jsfl_pair_id))
+                    .unwrap_or((default_from, default_to));
+                if !used_entries.iter().any(|u| u.entry.color == jsfl_from)
+                    && let Some(first) = used_entries.first()
+                {
+                    jsfl_from = first.entry.color;
+                }
+                let bar = ui
+                    .push_id("jsfl-change-color-bar", |ui| {
+                        replace_colour_bar(ui, &mut jsfl_from, &mut jsfl_to)
+                    })
+                    .inner;
+                for popup in bar.popups {
+                    super::dialog_helpers::track_rgba_popup(ui.ctx(), popup);
+                }
+                if bar.changed {
+                    ctx.data_mut(|d| d.insert_temp(jsfl_pair_id, (jsfl_from, jsfl_to)));
+                }
+                if bar.replace
+                    && let Ok(count) = self.run_jsfl_change_color_command(jsfl_from, jsfl_to)
+                    && count > 0
+                {
+                    ctx.data_mut(|d| d.insert_temp(jsfl_pair_id, (jsfl_to, jsfl_to)));
+                }
             }
         });
 
@@ -1335,70 +1370,385 @@ impl Editor {
             self.select_elements_with_color_on_frame(target_color);
         }
 
-        // Batch JSFL Change Colour bar (minimal & scriptable `change_color.jsfl` runner)
-        if !selection_only {
-            let jsfl_pair_id = egui::Id::new(("jsfl-change-color-pair", &self.clipboard.session));
-            let default_from = used_entries
-                .first()
-                .map(|u| u.entry.color)
-                .unwrap_or(self.fill);
-            let default_to = self.fill;
-            let (mut jsfl_from, mut jsfl_to) = ctx
-                .data(|d| d.get_temp::<(Color, Color)>(jsfl_pair_id))
-                .unwrap_or((default_from, default_to));
-            if !used_entries.iter().any(|u| u.entry.color == jsfl_from)
-                && let Some(first) = used_entries.first()
-            {
-                jsfl_from = first.entry.color;
-            }
-            ui.add_space(neoflash_ui::tokens::space::S1);
-            let from_resp = crate::paint_controls::color_row(
-                ui,
-                "jsfl-change-color-from",
-                "From",
-                "From colour",
-                &mut jsfl_from,
-            );
-            if !from_resp.changed() {
-                super::dialog_helpers::track_rgba_popup(ui.ctx(), from_resp.id);
-            }
-            let to_resp = crate::paint_controls::color_row(
-                ui,
-                "jsfl-change-color-to",
-                "To",
-                "To colour",
-                &mut jsfl_to,
-            );
-            if !to_resp.changed() {
-                super::dialog_helpers::track_rgba_popup(ui.ctx(), to_resp.id);
-            }
-            if from_resp.changed() || to_resp.changed() {
-                ctx.data_mut(|d| d.insert_temp(jsfl_pair_id, (jsfl_from, jsfl_to)));
-            }
-            if c::tooltip(
-                ui.add(c::Button::new("Replace colour across project (JSFL)")),
-                "Run built-in change_color.jsfl across all scenes, Library symbols, gradients, strokes and text",
-                None,
-            )
-            .clicked()
-                && let Ok(count) = self.run_jsfl_change_color_command(jsfl_from, jsfl_to)
-                    && count > 0
-                {
-                    ctx.data_mut(|d| d.insert_temp(jsfl_pair_id, (jsfl_to, jsfl_to)));
-                }
-            if c::tooltip(
-                ui.add(c::Button::new("Import palette (.act, .clr, .ase)…")),
-                "Import colour swatches from an Adobe Color Table (.act), Flash Color Set (.clr), or Adobe Swatch Exchange (.ase) palette",
-                None,
-            )
-            .clicked()
-            {
-                self.import_palette_dialog();
-            }
-        }
-
         self.end_property_interaction(&ctx);
     }
+}
+
+/// Width of the usage cell of a colour row: wide enough for "12 × stroke".
+fn usage_cell_width(ui: &Ui) -> f32 {
+    crate::panels::properties::text_width(ui, "12 × stroke", neoflash_ui::TextStyle::Small).ceil()
+}
+
+/// Swatch well of a colour record: a `metrics::swatch()` chip in a `control()`-high hit area. A click
+/// opens the RGBA popover; `name` is the accessible name, `tip` the tooltip.
+fn colour_chip(ui: &mut Ui, name: &str, tip: &str, value: &mut Color) -> egui::Response {
+    let side = neoflash_ui::metrics::swatch();
+    let (rect, mut response) = ui.allocate_exact_size(
+        egui::vec2(side, neoflash_ui::metrics::control()),
+        egui::Sense::click(),
+    );
+    let chip = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(side));
+    let radius = neoflash_ui::tokens::radius::sm();
+    if ui.is_rect_visible(rect) {
+        c::display::paint_swatch(ui, chip, to_color32(*value), radius);
+        if response.hovered() && ui.is_enabled() {
+            ui.painter().rect_stroke(
+                chip.expand(1.0),
+                egui::CornerRadius::same(radius as u8),
+                egui::Stroke::new(1.0_f32, neoflash_ui::palette(ui.ctx()).border_strong),
+                egui::StrokeKind::Outside,
+            );
+        }
+        if neoflash_ui::theme::keyboard_focus(ui, &response) {
+            neoflash_ui::theme::focus_ring(ui, chip, radius);
+        }
+    }
+    if crate::paint_controls::show_rgba_color_popup(ui, &response, chip, name, value) {
+        response.mark_changed();
+    }
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::ColorButton, ui.is_enabled(), name)
+    });
+    c::tooltip(response, tip, None)
+}
+
+/// Alpha percent as shown in the colour field: whole numbers, one decimal otherwise.
+fn alpha_percent_text(percent: f64) -> String {
+    if (percent - percent.round()).abs() < 0.05 {
+        format!("{percent:.0}")
+    } else {
+        format!("{percent:.1}")
+    }
+}
+
+/// One field frame with `#` + `RRGGBB` (typed; applied on Enter or blur, Escape restores) and the
+/// alpha percent as its right-hand part (drag or type). RGB and alpha are edited separately, so a
+/// transparent colour keeps its RGB. Returns the id of the part that changed `value`.
+fn hex_alpha_field(ui: &mut Ui, width: f32, name: &str, value: &mut Color) -> Option<egui::Id> {
+    use crate::panels::properties::text_width;
+    use neoflash_ui::{TextStyle, tokens::space, typography};
+    let p = neoflash_ui::palette(ui.ctx());
+    let (rect, outer) = ui.allocate_exact_size(
+        egui::vec2(width, neoflash_ui::metrics::control()),
+        egui::Sense::hover(),
+    );
+    let frame_shape = ui.painter().add(egui::Shape::Noop);
+    let enabled = ui.is_enabled();
+    let fg = if enabled {
+        p.text_primary
+    } else {
+        p.text_disabled
+    };
+    let pad = space::s3();
+    let mut changed = None;
+
+    let mut alpha = f64::from(value[3]) / 255.0 * 100.0;
+    let alpha_before = alpha;
+    let alpha_w = text_width(
+        ui,
+        &format!("{} %", alpha_percent_text(alpha)),
+        TextStyle::Body,
+    )
+    .max(text_width(ui, "100 %", TextStyle::Body))
+    .ceil()
+        + 2.0;
+    let alpha_rect = egui::Rect::from_min_max(
+        egui::pos2(
+            (rect.right() - pad - alpha_w).max(rect.left()),
+            rect.top() + 1.0,
+        ),
+        egui::pos2(rect.right() - pad, rect.bottom() - 1.0),
+    );
+
+    // Left part: "#" and the hex value.
+    let hash = ui.painter().layout_no_wrap(
+        "#".to_owned(),
+        typography::font(TextStyle::Small),
+        p.text_tertiary,
+    );
+    let hash_x = rect.left() + pad;
+    let hex_left = hash_x + hash.size().x + space::s1();
+    ui.painter().galley(
+        egui::pos2(hash_x, rect.center().y - hash.size().y / 2.0),
+        hash,
+        p.text_tertiary,
+    );
+    let hex_rect = egui::Rect::from_min_max(
+        egui::pos2(hex_left, rect.top()),
+        egui::pos2(
+            (alpha_rect.left() - space::s1()).max(hex_left),
+            rect.bottom(),
+        ),
+    );
+    let hex_id = outer.id.with("hex");
+    let draft_id = outer.id.with("hex-draft");
+    let stored = format!("{:02X}{:02X}{:02X}", value[0], value[1], value[2]);
+    let mut text = ui
+        .data(|d| d.get_temp::<String>(draft_id))
+        .unwrap_or_else(|| stored.clone());
+    let plain = |ui: &mut Ui| {
+        let v = ui.visuals_mut();
+        v.override_text_color = Some(fg);
+        v.extreme_bg_color = Color32::TRANSPARENT;
+        v.selection.stroke = egui::Stroke::new(0.0_f32, fg);
+        for w in [
+            &mut v.widgets.inactive,
+            &mut v.widgets.hovered,
+            &mut v.widgets.active,
+            &mut v.widgets.open,
+        ] {
+            w.bg_fill = Color32::TRANSPARENT;
+            w.weak_bg_fill = Color32::TRANSPARENT;
+            w.bg_stroke = egui::Stroke::NONE;
+            w.expansion = 0.0;
+            w.fg_stroke.color = fg;
+        }
+    };
+    let mut hex_ui = ui.new_child(egui::UiBuilder::new().max_rect(hex_rect));
+    plain(&mut hex_ui);
+    let hex = hex_ui.add(
+        egui::TextEdit::singleline(&mut text)
+            .id(hex_id)
+            .frame(false)
+            .font(typography::font(TextStyle::Mono))
+            .margin(egui::Margin::ZERO)
+            .char_limit(7)
+            .desired_width(hex_rect.width())
+            .min_size(hex_rect.size())
+            .vertical_align(egui::Align::Center),
+    );
+    if hex.lost_focus() {
+        if !ui.input(|i| i.key_pressed(egui::Key::Escape))
+            && let Some(rgb) = c::field::parse_hex(&text)
+            && rgb[..] != value[..3]
+        {
+            value[..3].copy_from_slice(&rgb);
+            *value = crate::authoring_modify::ensure_solid_non_none(*value);
+            changed = Some(hex.id);
+        }
+        ui.data_mut(|d| d.remove::<String>(draft_id));
+    } else if hex.has_focus() {
+        ui.data_mut(|d| d.insert_temp(draft_id, text.clone()));
+    } else {
+        ui.data_mut(|d| d.remove::<String>(draft_id));
+    }
+    hex.widget_info(|| {
+        let mut info = egui::WidgetInfo::text_edit(enabled, &text, &text, "");
+        info.label = Some(format!("{name} hex"));
+        info
+    });
+
+    // Right-hand part: the alpha percent, a frameless drag value.
+    let mut alpha_ui = ui.new_child(
+        egui::UiBuilder::new()
+            .id_salt(outer.id.with("alpha"))
+            .max_rect(alpha_rect)
+            // The value is right-aligned in its part of the field.
+            .layout(
+                egui::Layout::left_to_right(egui::Align::Center).with_main_align(egui::Align::Max),
+            ),
+    );
+    plain(&mut alpha_ui);
+    {
+        let style = alpha_ui.style_mut();
+        style.drag_value_text_style = egui::TextStyle::Body;
+        style.spacing.interact_size = alpha_rect.size();
+        style.spacing.button_padding = egui::Vec2::ZERO;
+        style.explanation_tooltips = false;
+    }
+    let alpha_response = alpha_ui.add(
+        egui::DragValue::new(&mut alpha)
+            .range(0.0..=100.0)
+            .clamp_existing_to_range(false)
+            .speed(0.5)
+            .suffix(" %")
+            .custom_formatter(|v, _| alpha_percent_text(v))
+            .update_while_editing(false),
+    );
+    if alpha != alpha_before {
+        value[3] = (alpha / 100.0 * 255.0).round().clamp(0.0, 255.0) as u8;
+        *value = crate::authoring_modify::ensure_solid_non_none(*value);
+        changed = Some(alpha_response.id);
+    }
+    alpha_response.widget_info(|| {
+        let mut info = egui::WidgetInfo::labeled(
+            egui::WidgetType::DragValue,
+            enabled,
+            format!("{name} alpha"),
+        );
+        info.value = Some(alpha);
+        info
+    });
+
+    // The shared field frame, now that focus and hover are known.
+    let editing = ui.memory(|m| m.has_focus(hex_id) || m.has_focus(alpha_response.id));
+    let hovered = enabled && (outer.hovered() || hex.hovered() || alpha_response.hovered());
+    let (bg, border, stroke) = if !enabled {
+        (p.bg_panel, p.border_subtle, 1.0)
+    } else if editing {
+        (p.bg_field, p.border_focus, 2.0)
+    } else if hovered {
+        (p.bg_field, p.border_strong, 1.0)
+    } else {
+        (p.bg_field, p.border_default, 1.0_f32)
+    };
+    ui.painter().set(
+        frame_shape,
+        egui::epaint::RectShape::new(
+            rect,
+            egui::CornerRadius::same(neoflash_ui::tokens::radius::md() as u8),
+            bg,
+            egui::Stroke::new(stroke, border),
+            egui::StrokeKind::Inside,
+        ),
+    );
+    c::tooltip(hex, &format!("{name} · #{stored}"), None);
+    c::tooltip(alpha_response, &format!("{name} alpha"), None);
+    changed
+}
+
+/// Usage text of a colour row: right-aligned `Small` tertiary, shortened with "…" to its cell.
+/// The tooltip and the accessible name carry `full`.
+fn usage_cell(ui: &mut Ui, width: f32, text: &str, full: &str) {
+    let p = neoflash_ui::palette(ui.ctx());
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(width, neoflash_ui::metrics::control()),
+        egui::Sense::hover(),
+    );
+    let mut job = egui::text::LayoutJob::single_section(
+        text.to_owned(),
+        neoflash_ui::typography::format_line(neoflash_ui::TextStyle::Small, p.text_tertiary),
+    );
+    job.wrap.max_width = width;
+    job.wrap.max_rows = 1;
+    job.wrap.break_anywhere = true;
+    job.wrap.overflow_character = Some('…');
+    let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+    let elided = galley.elided;
+    if ui.is_rect_visible(rect) {
+        ui.painter().galley(
+            egui::pos2(
+                rect.right() - galley.size().x,
+                rect.center().y - galley.size().y / 2.0,
+            ),
+            galley,
+            p.text_tertiary,
+        );
+    }
+    // `Other`: egui exposes a `Label`'s text as its value, not as its name.
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, ui.is_enabled(), full));
+    if elided || text != full {
+        c::tooltip(response, full, None);
+    }
+}
+
+struct UsedColourRow {
+    /// Control that changed the colour this frame.
+    changed: Option<egui::Id>,
+    /// Swatch response id: owner of the RGBA popover.
+    popup: egui::Id,
+    select: bool,
+}
+
+/// One colour record (v3, `R-106`), `control()` high and budgeted from the available width:
+/// swatch · `#RRGGBB` with alpha (fills) · usage (fixed cell) · `Select on stage` (optional).
+fn used_colour_row(
+    ui: &mut Ui,
+    name: &str,
+    value: &mut Color,
+    (usage, usage_full): (&str, &str),
+    select_button: bool,
+) -> UsedColourRow {
+    let height = neoflash_ui::metrics::control();
+    let gap = neoflash_ui::tokens::space::s2();
+    let width = ui.available_width();
+    let usage_w = usage_cell_width(ui);
+    let button_w = if select_button { height + gap } else { 0.0 };
+    let field_w =
+        (width - neoflash_ui::metrics::swatch() - gap - gap - usage_w - button_w).max(0.0);
+    ui.allocate_ui_with_layout(
+        egui::vec2(width, height),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            let chip = colour_chip(ui, name, name, value);
+            let mut changed = chip.changed().then_some(chip.id);
+            if let Some(control) = hex_alpha_field(ui, field_w, name, value) {
+                changed = Some(control);
+            }
+            usage_cell(ui, usage_w, usage, usage_full);
+            let select = select_button
+                && ui
+                    .add(c::IconButton::new(
+                        neoflash_ui::icons::i16::TO_STAGE,
+                        "Select elements with this colour on the current frame",
+                    ))
+                    .clicked();
+            UsedColourRow {
+                changed,
+                popup: chip.id,
+                select,
+            }
+        },
+    )
+    .inner
+}
+
+struct ReplaceColourBar {
+    changed: bool,
+    replace: bool,
+    popups: [egui::Id; 2],
+}
+
+/// `Replace [From] › [To] … [Replace all]` on one row. The chips open the RGBA popover; their hex
+/// values are in the tooltips.
+fn replace_colour_bar(ui: &mut Ui, from: &mut Color, to: &mut Color) -> ReplaceColourBar {
+    let p = neoflash_ui::palette(ui.ctx());
+    let height = neoflash_ui::metrics::control();
+    let hex = |c: &Color| format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2]);
+    ui.allocate_ui_with_layout(
+        egui::vec2(ui.available_width(), height),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.spacing_mut().item_spacing.x = neoflash_ui::tokens::space::s2();
+            ui.add(egui::Label::new(
+                neoflash_ui::typography::rich("Replace", neoflash_ui::TextStyle::Body)
+                    .color(p.text_secondary),
+            ));
+            let from_chip = colour_chip(
+                ui,
+                "From colour",
+                &format!("From colour {}", hex(from)),
+                from,
+            );
+            let (arrow, _) = ui.allocate_exact_size(egui::vec2(12.0, height), egui::Sense::hover());
+            neoflash_ui::icons::paint(
+                ui.painter(),
+                ui.ctx(),
+                egui::Rect::from_center_size(arrow.center(), egui::Vec2::splat(12.0)),
+                neoflash_ui::icons::i16::CHEVRIGHT.at(12.0),
+                p.text_tertiary,
+            );
+            let to_chip = colour_chip(ui, "To colour", &format!("To colour {}", hex(to)), to);
+            let replace = ui
+                .with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    c::tooltip(
+                        ui.add(c::Button::new("Replace all")),
+                        "Replaces the colour across the project (recorded as a JSFL command)",
+                        None,
+                    )
+                    .clicked()
+                })
+                .inner;
+            ReplaceColourBar {
+                changed: from_chip.changed() || to_chip.changed(),
+                replace,
+                popups: [from_chip.id, to_chip.id],
+            }
+        },
+    )
+    .inner
 }
 
 #[cfg(test)]
@@ -1587,7 +1937,7 @@ mod tests {
     }
 
     #[test]
-    fn r094_selection_and_project_colors_render_small_tertiary_usage_text_at_60pt_pitch() {
+    fn r094_r106_selection_and_project_colors_render_one_row_per_colour_with_tertiary_usage() {
         let coral_only = ProjectColorEntry {
             color: [230, 57, 70, 255],
             hex: "#E63946".to_owned(),
@@ -1717,9 +2067,9 @@ mod tests {
                         );
                     } else if txt == "1 × stroke" {
                         usage_teal_y = Some(t.pos.y);
-                    } else if txt.eq_ignore_ascii_case("#E63946") {
+                    } else if txt.eq_ignore_ascii_case("E63946") {
                         row1_y.get_or_insert(t.pos.y);
-                    } else if txt.eq_ignore_ascii_case("#2A9D8F") {
+                    } else if txt.eq_ignore_ascii_case("2A9D8F") {
                         row2_y.get_or_insert(t.pos.y);
                     }
                 }
@@ -1730,18 +2080,17 @@ mod tests {
             );
             let y1 = row1_y.expect("first color row rendered");
             let y2 = row2_y.expect("second color row rendered");
+            // R-106: one row per colour, `control()` high, rows `row_gap()` apart.
             let pitch = y2 - y1;
-            if selection_only {
-                assert!(
-                    (46.0..=64.0).contains(&pitch),
-                    "R-094 Selection colours pitch should be ~60 pt (got {pitch})"
-                );
-            } else {
-                assert!(
-                    (50.0..=70.0).contains(&pitch),
-                    "R-094 Project colours compact pitch should stay well under 88 pt (got {pitch})"
-                );
-            }
+            let expected = neoflash_ui::metrics::control() + neoflash_ui::metrics::row_gap();
+            assert!(
+                (pitch - expected).abs() < 0.5,
+                "colour rows must be one control() + row_gap() apart (got {pitch}, expected {expected}, selection_only={selection_only})"
+            );
+            assert!(
+                (usage_coral_y.unwrap() - y1).abs() < neoflash_ui::metrics::control() / 2.0,
+                "usage text sits in the colour's own row (selection_only={selection_only})"
+            );
             // No Badge pill background should sit behind the usage text.
             let uy = usage_coral_y.unwrap();
             let has_badge_pill = out.shapes.iter().any(|s| {
@@ -2060,12 +2409,15 @@ mod tests {
                 crate::tests::primary_button(center, true),
             ],
         );
-        let out_unchecked = run_swatches(
+        let _ = run_swatches(
             &mut editor,
             vec![crate::tests::primary_button(center, false)],
         );
         assert!(!editor.workspace.used_colors_only_on_stage);
         assert!(editor.persist_workspace_requested);
+        // R-106: the row shows the roles; the stage / library split is the usage cell's
+        // accessible name and tooltip.
+        let out_unchecked = run_swatches(&mut editor, vec![]);
         let rendered_texts: Vec<String> = out_unchecked
             .shapes
             .iter()
@@ -2075,10 +2427,300 @@ mod tests {
             })
             .collect();
         assert!(
-            rendered_texts
-                .iter()
-                .any(|t| t.contains("1 on stage · 2 in library")),
-            "unchecking Only on stage displays stage/library breakdown, got {rendered_texts:?}"
+            rendered_texts.iter().any(|t| t == "3 × fill"),
+            "the usage cell shows the roles, got {rendered_texts:?}"
         );
+        let ak_unchecked = out_unchecked
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap();
+        assert!(
+            ak_unchecked
+                .nodes
+                .iter()
+                .any(|(_, n)| n.label() == Some("1 on stage · 2 in library · 3 × fill")),
+            "unchecking Only on stage exposes the stage/library breakdown of each colour"
+        );
+    }
+
+    /// The hex part of a colour row is typed and applied on Enter; the edit replaces the colour
+    /// everywhere on the stage in one Undo step and keeps the alpha.
+    #[test]
+    fn r106_typing_a_hex_in_a_used_colour_row_replaces_the_colour_in_one_undo_step() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let original = [230, 57, 70, 128];
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.symbol_mut().timeline.layers[0].keyframes[0].elements = (0..2)
+            .map(|i| Element {
+                id: format!("colour-{i}"),
+                kind: ElementKind::Rectangle {
+                    width: 80.0,
+                    height: 60.0,
+                    fill: original,
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                },
+                ..Default::default()
+            })
+            .collect();
+        let before = editor.project.clone();
+        let fills = |ed: &Editor| {
+            ed.symbol().timeline.layers[0].keyframes[0]
+                .elements
+                .iter()
+                .map(|el| match el.kind {
+                    ElementKind::Rectangle { fill, .. } => fill,
+                    _ => unreachable!(),
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut time = 0.0;
+        let mut run = |ed: &mut Editor, events: Vec<egui::Event>| {
+            time += 0.1;
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(neoflash_ui::metrics::inspector(), 400.0),
+                    )),
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        ed.used_colours_section_ui(ui, true);
+                    });
+                },
+            )
+        };
+        let _ = run(&mut editor, vec![]);
+        let out = run(&mut editor, vec![]);
+        let hex = out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|(_, n)| n.label() == Some("Colour 1 hex"))
+            .and_then(|(_, n)| n.bounds())
+            .expect("hex part of the first colour row");
+        let center = egui::pos2(
+            ((hex.x0 + hex.x1) * 0.5) as f32,
+            ((hex.y0 + hex.y1) * 0.5) as f32,
+        );
+        let key = |key, modifiers| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        };
+        let _ = run(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(center),
+                crate::tests::primary_button(center, true),
+            ],
+        );
+        let _ = run(
+            &mut editor,
+            vec![crate::tests::primary_button(center, false)],
+        );
+        let _ = run(
+            &mut editor,
+            vec![key(egui::Key::A, egui::Modifiers::COMMAND)],
+        );
+        let _ = run(&mut editor, vec![egui::Event::Text("2A9D8F".into())]);
+        assert_eq!(
+            fills(&editor),
+            [original, original],
+            "typing alone changes nothing"
+        );
+        let _ = run(
+            &mut editor,
+            vec![key(egui::Key::Enter, egui::Modifiers::NONE)],
+        );
+        let _ = run(&mut editor, vec![]);
+        editor.finish_property_edit();
+        let replaced = [42, 157, 143, 128];
+        assert_eq!(fills(&editor), [replaced, replaced]);
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before, "one Undo restores both shapes");
+    }
+
+    /// Nothing in the inspector may run past the panel: `Used colours` rows, the `Replace` bar and
+    /// the instance header rows are budgeted from the available width at every density.
+    #[test]
+    fn v3_used_colours_and_instance_header_rows_fit_the_inspector_at_every_density() {
+        use neoflash_ui::metrics::{self, Density};
+        for density in Density::ALL {
+            metrics::set_density(density);
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            let mut editor = Editor::from_project(&ctx, Project::demo());
+            editor.workspace.used_colors_only_on_stage = true;
+            // The body of a docked Properties panel at the minimum inspector width.
+            let width = metrics::inspector() - 2.0 * neoflash_ui::tokens::space::s4();
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 2400.0));
+            let run = |ed: &mut Editor, body: &dyn Fn(&mut Editor, &mut Ui)| {
+                let mut content = egui::Rect::NOTHING;
+                let mut out = None;
+                for _ in 0..2 {
+                    out = Some(ctx.run(
+                        egui::RawInput {
+                            screen_rect: Some(screen),
+                            ..Default::default()
+                        },
+                        |ctx| {
+                            egui::CentralPanel::default().frame(egui::Frame::NONE).show(
+                                ctx,
+                                |ui| {
+                                    body(ed, ui);
+                                    content = ui.min_rect();
+                                },
+                            );
+                        },
+                    ));
+                }
+                (out.unwrap(), content)
+            };
+            let bounds = |out: &egui::FullOutput, label: &str| {
+                out.platform_output
+                    .accesskit_update
+                    .as_ref()
+                    .unwrap()
+                    .nodes
+                    .iter()
+                    .find(|(_, n)| n.label() == Some(label))
+                    .and_then(|(_, n)| n.bounds())
+                    .unwrap_or_else(|| panic!("{label} missing at {density:?}"))
+            };
+            let inside = |what: &str, right: f64| {
+                assert!(
+                    right <= f64::from(width) + 0.5,
+                    "{what} ends at {right}, past the {width} pt panel at {density:?}"
+                );
+            };
+
+            // Used colours: every part of a row and of the Replace bar stays inside the panel.
+            assert!(editor.used_colors(true).len() >= 2);
+            let (out, content) = run(&mut editor, &|ed, ui| ed.used_colours_section_ui(ui, true));
+            inside("Used colours section", f64::from(content.right()));
+            let chip = bounds(&out, "Colour 1");
+            let hex = bounds(&out, "Colour 1 hex");
+            let alpha = bounds(&out, "Colour 1 alpha");
+            let select = bounds(
+                &out,
+                "Select elements with this colour on the current frame",
+            );
+            let second = bounds(&out, "Colour 2");
+            assert!((chip.x1 - chip.x0 - f64::from(metrics::swatch())).abs() < 0.5);
+            assert!(chip.x1 <= hex.x0 && hex.x1 <= alpha.x0 && alpha.x1 <= select.x0);
+            assert!(
+                hex.x1 - hex.x0 >= 40.0,
+                "six hex digits need room at {density:?}, got {}",
+                hex.x1 - hex.x0
+            );
+            inside("Select on stage", select.x1);
+            assert!(
+                (select.x1 - f64::from(width)).abs() < 0.5,
+                "actions end the row"
+            );
+            assert!(
+                (second.y0 - chip.y0 - f64::from(metrics::control() + metrics::row_gap())).abs()
+                    < 0.5,
+                "one row per colour at {density:?}"
+            );
+            let only = bounds(&out, "Only on stage");
+            let more = bounds(&out, "Used colours options");
+            assert!(
+                only.x1 <= more.x0,
+                "Only on stage sits left of the ⋯ button"
+            );
+            inside("⋯ button", more.x1);
+            assert!(
+                (only.y0 + only.y1) / 2.0 < chip.y0,
+                "Only on stage is in the section header row"
+            );
+            let replace = bounds(&out, "Replace all");
+            let from = bounds(&out, "From colour");
+            let to = bounds(&out, "To colour");
+            assert!(from.x1 <= to.x0 && to.x1 <= replace.x0);
+            assert!(
+                (from.y0 + from.y1 - replace.y0 - replace.y1).abs() < 1.0,
+                "From, To and Replace all share one row"
+            );
+            inside("Replace all", replace.x1);
+
+            // Instance header rows.
+            let orbit = editor
+                .symbol()
+                .timeline
+                .layers
+                .iter()
+                .flat_map(|l| &l.keyframes)
+                .flat_map(|k| &k.elements)
+                .find(|e| matches!(e.kind, ElementKind::Instance { .. }))
+                .unwrap()
+                .id
+                .clone();
+            editor.select_single_id(orbit);
+            let (out, content) = run(&mut editor, &|ed, ui| {
+                let ctx = ui.ctx().clone();
+                ed.properties(ui, &ctx)
+            });
+            inside("instance Properties", f64::from(content.right()));
+            let name = bounds(&out, "Name");
+            let swap = bounds(&out, "Swap…");
+            assert!(name.x1 <= swap.x0 && (name.y0 - swap.y0).abs() < 1.0);
+            assert!(
+                (swap.x1 - f64::from(width)).abs() < 0.5,
+                "Swap… ends the row"
+            );
+            let edit = bounds(&out, "Edit symbol");
+            let duplicate = bounds(&out, "Duplicate symbol…");
+            assert!(edit.x1 <= duplicate.x0 && (edit.y0 - duplicate.y0).abs() < 1.0);
+            assert!((edit.x1 - edit.x0 - f64::from(metrics::control())).abs() < 0.5);
+            assert!(
+                (duplicate.x1 - f64::from(width)).abs() < 0.5,
+                "the icon buttons end the row"
+            );
+            // X / Y and W / H share one column axis: the link toggle is in the header.
+            let (x, y) = (
+                bounds(&out, "Position X (px)"),
+                bounds(&out, "Position Y (px)"),
+            );
+            let (w, h) = (bounds(&out, "Width (px)"), bounds(&out, "Height (px)"));
+            // (The bounds are the value editors, which end at the same inset of their fields.)
+            assert!(
+                (x.x1 - w.x1).abs() < 0.5,
+                "W ends where X ends at {density:?}"
+            );
+            assert!(
+                (y.x1 - h.x1).abs() < 0.5,
+                "H ends where Y ends at {density:?}"
+            );
+            assert!((x.y0 - y.y0).abs() < 0.5 && (w.y0 - h.y0).abs() < 0.5 && x.y0 < w.y0);
+            let link = bounds(&out, "Constrain proportions");
+            assert!(
+                link.y1 <= x.y0 + 0.5,
+                "Constrain proportions is in the section header"
+            );
+            inside("Constrain proportions", link.x1);
+
+            // Document Properties (nothing selected).
+            editor.clear_selection();
+            let (_, content) = run(&mut editor, &|ed, ui| {
+                let ctx = ui.ctx().clone();
+                ed.properties(ui, &ctx)
+            });
+            inside("document Properties", f64::from(content.right()));
+        }
+        metrics::set_density(Density::Comfortable);
     }
 }

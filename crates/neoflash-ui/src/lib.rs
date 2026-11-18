@@ -5,7 +5,7 @@
 //!
 //! | Module | Figma source | Contents |
 //! |---|---|---|
-//! | [`tokens`] | `NF2 · Tokens` colour modes | [`Palette`], [`DARK`], [`LIGHT`], [`MID_NEUTRAL_GRAY`], [`DARK_GRAPHITE`], `space::S1..S6`, `radius::SM..FULL`, [`TextStyle`] |
+//! | [`tokens`] | `NF2 · Tokens` colour modes | [`Palette`], [`DARK`], [`LIGHT`], [`MID_NEUTRAL_GRAY`], [`DARK_GRAPHITE`], `space::s1()..S6`, `radius::sm()..FULL`, [`TextStyle`] |
 //! | [`metrics`] | §3.2, §4, §5 of the reference | fixed control heights, window regions, timeline geometry |
 //! | [`theme`] | — | [`Theme`], [`theme::install`], [`palette`] (current colours for a `Ui`) |
 //! | [`typography`] | `NF2/*` text styles | bundled Inter + Roboto Mono, [`typography::rich`] |

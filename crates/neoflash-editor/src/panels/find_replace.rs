@@ -6,6 +6,7 @@
 //! zero external dependencies), `Live edit`, target filters (`Text field contents`,
 //! `Frames / layers / scenes`, `ActionScript`), result-table click navigation, `Replace`, and
 //! `Replace all` in a single `"Find and replace"` Undo transaction.
+use super::dialog_helpers::{FormDialog, PageArea, field_block, fixed_dialog_size, form_row};
 use super::planned::caption;
 use crate::app::Editor;
 use crate::panels::actions_sidebar::ScriptLocation;
@@ -13,10 +14,9 @@ use crate::theme::ScrollTheme as _;
 use eframe::egui::{self, Ui};
 use neoflash_core::{Color, ElementKind, Id, ObjectEvent, Project};
 use neoflash_ui::components as c;
+use neoflash_ui::metrics;
 use neoflash_ui::tokens::space;
 use std::collections::HashSet;
-
-const DIALOG_WIDTH: f32 = 640.0;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum FindKind {
@@ -2103,35 +2103,32 @@ impl Editor {
         let mut clicked_row: Option<usize> = None;
 
         let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
+        // One size with or without results: the result list fills the page.
+        let size = find_replace_size(ctx);
         let modal = egui::Modal::new(egui::Id::new("find-replace"))
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
-                ui.set_width(DIALOG_WIDTH);
-                let top = ui.cursor().min;
-                close |= c::DialogHeader {
-                    title: "Find and replace",
-                }
-                .show(ui);
-                ui.painter().hline(
-                    top.x..=top.x + DIALOG_WIDTH,
-                    top.y + neoflash_ui::metrics::dialog_header() - 0.5,
-                    egui::Stroke::new(1.0_f32, p.border_subtle),
+                let dialog = FormDialog::show(ui, "Find and replace", size.x, Some(size.y));
+                close |= dialog.close;
+                dialog.page(ui, "find-replace-page", |ui, area| {
+                    find_replace_body(
+                        ui,
+                        area,
+                        &self.project,
+                        &mut state,
+                        &mut do_find_all,
+                        &mut clicked_row,
+                    );
+                });
+                find_replace_footer(
+                    ui,
+                    &dialog,
+                    &state,
+                    &mut do_find_all,
+                    &mut do_replace_one,
+                    &mut do_replace_all,
                 );
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S5 as i8))
-                    .show(ui, |ui| {
-                        ui.set_width(DIALOG_WIDTH - 2.0 * space::S5);
-                        find_replace_body(
-                            ui,
-                            &self.project,
-                            &mut state,
-                            &mut do_find_all,
-                            &mut do_replace_one,
-                            &mut do_replace_all,
-                            &mut clicked_row,
-                        );
-                    });
             });
 
         if !close
@@ -2168,16 +2165,19 @@ impl Editor {
     }
 }
 
+/// Find and replace: `dialog_l` × `dialog_l_height` in every state.
+pub(crate) fn find_replace_size(ctx: &egui::Context) -> egui::Vec2 {
+    fixed_dialog_size(ctx, metrics::dialog_l(), metrics::dialog_l_height())
+}
+
 fn find_replace_body(
     ui: &mut Ui,
+    area: PageArea,
     project: &Project,
     state: &mut FindReplaceState,
     do_find_all: &mut bool,
-    do_replace_one: &mut bool,
-    do_replace_all: &mut bool,
     clicked_row: &mut Option<usize>,
 ) {
-    ui.spacing_mut().item_spacing.y = space::S3;
     let prev_kind = state.kind;
     c::Segmented::show(
         ui,
@@ -2198,13 +2198,13 @@ fn find_replace_body(
         state.selected = 0;
     }
 
-    ui.horizontal(|ui| {
+    form_row(ui, "In", |ui| {
         c::Select::options(
             ui,
             "find-replace-scope-in",
             &mut state.in_current_scene,
-            &[(false, "In: Current document"), (true, "In: Current scene")],
-            220.0,
+            &[(false, "Current document"), (true, "Current scene")],
+            metrics::field_l(),
         );
         let scene_label = match &state.scene_filter {
             None => "Scene: All scenes".to_owned(),
@@ -2215,7 +2215,7 @@ fn find_replace_body(
         };
         ui.add_enabled_ui(!state.in_current_scene, |ui| {
             c::Select::new("find-replace-scene", &scene_label)
-                .width(200.0)
+                .width(metrics::field_l())
                 .show(ui, |ui| {
                     if ui
                         .add(
@@ -2253,24 +2253,27 @@ fn find_replace_body(
         FindKind::Video => ("Video name (empty = all)", "Replacement instance name"),
         FindKind::Bitmap => ("Bitmap path (empty = all)", "Replacement image path"),
     };
-    let w = ui.available_width();
-    let mut find_resp = ui.add(
-        c::TextField::new(&mut state.find, "Find")
-            .prefix("Find")
-            .hint(find_hint)
-            .width(w),
-    );
+    let mut find_resp = form_row(ui, "Find", |ui| {
+        let w = ui.available_width();
+        ui.add(
+            c::TextField::new(&mut state.find, "Find")
+                .hint(find_hint)
+                .width(w),
+        )
+    });
     find_resp.id = c::TextField::edit_id(find_resp.id);
     if state.focus_find {
         find_resp.request_focus();
         state.focus_find = false;
     }
-    let mut replace_resp = ui.add(
-        c::TextField::new(&mut state.replace, "Replace")
-            .prefix("Replace")
-            .hint(replace_hint)
-            .width(w),
-    );
+    let mut replace_resp = form_row(ui, "Replace", |ui| {
+        let w = ui.available_width();
+        ui.add(
+            c::TextField::new(&mut state.replace, "Replace")
+                .hint(replace_hint)
+                .width(w),
+        )
+    });
     replace_resp.id = c::TextField::edit_id(replace_resp.id);
     if (find_resp.has_focus()
         || find_resp.lost_focus()
@@ -2283,7 +2286,8 @@ fn find_replace_body(
 
     let is_text = state.kind == FindKind::Text;
     let case_applicable = !matches!(state.kind, FindKind::Colour);
-    ui.horizontal(|ui| {
+    form_row(ui, "Match", |ui| {
+        ui.spacing_mut().item_spacing.x = space::s4();
         ui.add_enabled(
             is_text,
             c::Checkbox::new(&mut state.whole_word, "Whole word"),
@@ -2298,7 +2302,8 @@ fn find_replace_body(
         );
         ui.add(c::Checkbox::new(&mut state.live_edit, "Live edit"));
     });
-    ui.horizontal(|ui| {
+    form_row(ui, "Look in", |ui| {
+        ui.spacing_mut().item_spacing.x = space::s4();
         ui.add_enabled(
             is_text,
             c::Checkbox::new(&mut state.in_text_fields, "Text field contents"),
@@ -2313,38 +2318,57 @@ fn find_replace_body(
         );
     });
 
-    ui.vertical(|ui| {
-        ui.spacing_mut().item_spacing.y = 0.0;
-        let cols = &[0.0, 0.42];
-        ui.add(c::TableRow {
-            cells: &["Location", "Found"],
-            kind: c::TableRowKind::Header,
-            columns: cols,
-        });
-        egui::ScrollArea::vertical()
-            .id_salt("find-replace-results")
-            .max_height(168.0)
-            .auto_shrink([false, true])
-            .themed()
-            .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = 0.0;
-                for (i, hit) in state.results.iter().enumerate() {
-                    let resp = ui.add(c::TableRow {
-                        cells: &[&hit.location_label, &hit.found_preview],
-                        kind: if state.selected == i {
-                            c::TableRowKind::Selected
-                        } else {
-                            c::TableRowKind::Row
-                        },
-                        columns: cols,
-                    });
-                    if resp.clicked() {
-                        *clicked_row = Some(i);
-                    }
-                }
-            });
+    // Results: a header and one `row()` per hit; the list takes the rest of the page.
+    let list_height = area.fill_height(ui, "find-replace-results", 0.0, 3.0 * metrics::row());
+    let list = field_block(ui, egui::vec2(ui.available_width(), list_height));
+    let mut list_ui = ui.new_child(
+        egui::UiBuilder::new()
+            .id_salt("find-replace-results-block")
+            .max_rect(list.shrink(1.0))
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+    );
+    list_ui.set_clip_rect(list.shrink(1.0).intersect(ui.clip_rect()));
+    list_ui.spacing_mut().item_spacing.y = 0.0;
+    let cols = &[0.0, 0.42];
+    list_ui.add(c::TableRow {
+        cells: &["Location", "Found"],
+        kind: c::TableRowKind::Header,
+        columns: cols,
     });
+    egui::ScrollArea::vertical()
+        .id_salt("find-replace-results")
+        .auto_shrink([false, false])
+        .themed()
+        .show(&mut list_ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for (i, hit) in state.results.iter().enumerate() {
+                let resp = ui.add(c::TableRow {
+                    cells: &[&hit.location_label, &hit.found_preview],
+                    kind: if state.selected == i {
+                        c::TableRowKind::Selected
+                    } else {
+                        c::TableRowKind::Row
+                    },
+                    columns: cols,
+                });
+                if resp.clicked() {
+                    *clicked_row = Some(i);
+                }
+            }
+        });
+    area.remember_below(ui, "find-replace-results", list.bottom());
+}
 
+/// Footer: the result count on the left, `Find all`, `Replace` and the primary `Replace all`.
+fn find_replace_footer(
+    ui: &mut Ui,
+    dialog: &FormDialog,
+    state: &FindReplaceState,
+    do_find_all: &mut bool,
+    do_replace_one: &mut bool,
+    do_replace_all: &mut bool,
+) {
+    let is_text = state.kind == FindKind::Text;
     let places = count_distinct_places(&state.results);
     let summary = format!(
         "{} result{} in {} place{}",
@@ -2362,10 +2386,10 @@ fn find_replace_body(
         }
         FindKind::Video => true,
     };
-
-    ui.horizontal(|ui| {
-        caption(ui, &summary);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+    dialog.footer(
+        ui,
+        |ui| caption(ui, &summary),
+        |ui| {
             if ui
                 .add_enabled(
                     can_replace && (!state.results.is_empty() || can_find),
@@ -2390,8 +2414,8 @@ fn find_replace_body(
             {
                 *do_find_all = true;
             }
-        });
-    });
+        },
+    );
 }
 
 // ---------------------------------------------------------------------------

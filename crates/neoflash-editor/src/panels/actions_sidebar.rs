@@ -1,7 +1,7 @@
 //! Actions sidebar: toolbox (search + API tree) and Script navigator.
 //!
 //! NF2 reference: `panels/*/png/panel-actions-floating.png` and `interface/*/png/editor-actions-tab.png`,
-//! outline `panel-actions-floating.txt` › Sidebar (248 pt incl. its 1 pt border; 8 pt inner padding,
+//! outline `panel-actions-floating.txt` › Sidebar (`width/tree` incl. its 1 pt border; control-gap padding,
 //! `NF2/Search` + `NF2/Tree Item` rows, overline "Script navigator").
 //!
 //! The toolbox lists only APIs the runtime implements (see `crate::script_api`); double-clicking an
@@ -17,10 +17,20 @@ use neoflash_ui::icons::{Icon, i16};
 use neoflash_ui::tokens::{TextStyle, space};
 use std::collections::HashSet;
 
-/// Sidebar width including its right border (outline: Sidebar 248).
-pub(crate) const SIDEBAR_WIDTH: f32 = 248.;
-/// Below this panel width the sidebar is hidden so the code keeps a usable width.
-pub(crate) const SIDEBAR_MIN_PANEL: f32 = 640.;
+/// Sidebar width including its right border (`width/tree`).
+pub(crate) fn sidebar_width() -> f32 {
+    neoflash_ui::metrics::tree_width()
+}
+/// Below this panel width the sidebar is hidden so the code keeps a usable width: the sidebar, the
+/// same again for code and one `width/field-m` of slack.
+pub(crate) fn sidebar_min_panel() -> f32 {
+    2. * sidebar_width() + neoflash_ui::metrics::field_m()
+}
+/// Height of the Script navigator below the toolbox: 42 % of the sidebar, 5 to 11 tree rows.
+pub(crate) fn navigator_height(sidebar_height: f32) -> f32 {
+    let row = neoflash_ui::metrics::row();
+    (sidebar_height * 0.42).clamp(5. * row, 11. * row)
+}
 
 /// Actions panel state that is not part of the document (not saved, not in history).
 pub(crate) struct ActionsUi {
@@ -125,13 +135,13 @@ impl Editor {
     ) {
         let language = self.sidebar_language(script_language);
         let full = ui.available_rect_before_wrap();
-        let navigator_h = (full.height() * 0.42).clamp(120., 260.);
+        let navigator_h = navigator_height(full.height());
         ui.add(nf::Search::new(
             &mut self.actions_ui.search,
             "Search toolbox",
         ));
-        ui.add_space(space::S1);
-        let toolbox_h = (ui.available_height() - navigator_h - space::S2).max(row_min());
+        ui.add_space(space::s1());
+        let toolbox_h = (ui.available_height() - navigator_h - space::s2()).max(row_min());
         egui::ScrollArea::vertical()
             .id_salt("actions-toolbox")
             .max_height(toolbox_h)
@@ -142,19 +152,19 @@ impl Editor {
                 self.toolbox_tree(ui, language);
             });
         let p = neoflash_ui::palette(ui.ctx());
-        ui.add_space(space::S1);
+        ui.add_space(space::s1());
         let y = ui.cursor().top();
         ui.painter().hline(
             ui.max_rect().x_range(),
             y,
             egui::Stroke::new(1.0_f32, p.border_subtle),
         );
-        ui.add_space(space::S3);
+        ui.add_space(space::s3());
         ui.label(
             neoflash_ui::typography::rich("Script navigator", TextStyle::Overline)
                 .color(p.text_secondary),
         );
-        ui.add_space(space::S1);
+        ui.add_space(space::s1());
         egui::ScrollArea::vertical()
             .id_salt("actions-navigator")
             .auto_shrink([false, false])
@@ -206,7 +216,7 @@ impl Editor {
     fn toolbox_tree(&mut self, ui: &mut egui::Ui, language: ScriptLanguage) {
         let Some(api) = script_api::api(language) else {
             let p = neoflash_ui::palette(ui.ctx());
-            ui.add_space(space::S2);
+            ui.add_space(space::s2());
             ui.label(
                 neoflash_ui::typography::rich_block(
                     "The toolbox lists the ActionScript 2.0 and 3.0 APIs NeoFlash runs. JavaScript and TypeScript call the browser host directly.",

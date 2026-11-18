@@ -913,10 +913,13 @@ impl crate::app::Editor {
     }
 
     pub(crate) fn bitmap_properties_dialog(&mut self, ctx: &egui::Context) {
-        use crate::panels::planned::caption;
+        use crate::panels::dialog_helpers::{
+            FormDialog, dialog_width, first_field, form_row, group_caption,
+        };
         use neoflash_core::{BitmapCompression, VALID_JPEG_QUALITY_RANGE};
         use neoflash_ui::components as c;
         use neoflash_ui::components::timeline as tl;
+        use neoflash_ui::metrics;
         use neoflash_ui::tokens::{TextStyle, space};
         use neoflash_ui::typography::rich;
 
@@ -953,111 +956,100 @@ impl crate::app::Editor {
         let mut do_import = false;
         let kb = crate::panels::dialog_helpers::DialogKeyboardState::capture(ctx);
 
+        let width = dialog_width(ctx, metrics::dialog_m());
+        let mut in_name = false;
         let modal = egui::Modal::new(egui::Id::new("bitmap-properties"))
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
-                ui.set_width(520.0);
-                let header_top = ui.cursor().min;
-                close_cancel |= c::DialogHeader {
-                    title: "Bitmap properties",
-                }
-                .show(ui);
-                ui.painter().hline(
-                    header_top.x..=header_top.x + 520.0,
-                    header_top.y + neoflash_ui::metrics::dialog_header() - 0.5,
-                    egui::Stroke::new(1.0_f32, p.border_subtle),
-                );
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S5 as i8))
-                    .show(ui, |ui| {
-                        let w = 520.0 - 2.0 * space::S5;
-                        ui.set_width(w);
-                        ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
-
-                        ui.horizontal(|ui| {
-                            let (span, _) = ui
-                                .allocate_exact_size(egui::vec2(120.0, 64.0), egui::Sense::hover());
-                            tl::paint_span(
-                                ui.painter(),
-                                ui.ctx(),
-                                span,
-                                tl::SpanType::Static,
-                                true,
-                            );
-                            ui.vertical(|ui| {
-                                ui.spacing_mut().item_spacing.y = space::S1;
+                let dialog = FormDialog::show(ui, "Bitmap properties", width, None);
+                close_cancel |= dialog.close;
+                dialog.page(ui, "bitmap-properties-page", |ui, _| {
+                    // Thumbnail placeholder beside the name, the source path and the format line.
+                    let thumb = egui::vec2(
+                        metrics::dialog_label(),
+                        2.0 * metrics::control() + metrics::row_gap(),
+                    );
+                    ui.horizontal_top(|ui| {
+                        let (span, _) = ui.allocate_exact_size(thumb, egui::Sense::hover());
+                        tl::paint_span(ui.painter(), ui.ctx(), span, tl::SpanType::Static, true);
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = space::s1();
+                            let w = ui.available_width();
+                            ui.set_width(w);
+                            let name =
+                                ui.add(c::TextField::new(&mut draft.name, "Bitmap name").width(w));
+                            in_name = first_field(ui, "bitmap-properties", &name);
+                            for line in [&source_display, &stats_display] {
                                 ui.add(
-                                    c::TextField::new(&mut draft.name, "Bitmap name")
-                                        .width(w - 120.0 - space::S2),
+                                    egui::Label::new(
+                                        rich(line.as_str(), TextStyle::Small)
+                                            .color(p.text_secondary),
+                                    )
+                                    .truncate(),
                                 );
-                                caption(ui, &source_display);
-                                caption(ui, &stats_display);
-                            });
+                            }
                         });
+                    });
 
-                        ui.add_space(space::S1);
-                        ui.label(rich("Export", TextStyle::Overline).color(p.text_tertiary));
-                        let comp_label =
-                            format!("Compression: {}", draft.export.compression.label());
-                        c::Select::new(ui.id().with("bitmap-props-compression"), &comp_label)
-                            .width(w)
-                            .show(ui, |ui| {
-                                for comp in BitmapCompression::ALL {
-                                    if ui
-                                        .add(
-                                            c::MenuItem::new(&format!(
-                                                "Compression: {}",
-                                                comp.label()
-                                            ))
-                                            .checked(draft.export.compression == comp),
-                                        )
-                                        .clicked()
-                                    {
-                                        draft.export.compression = comp;
-                                        draft.export_modified = true;
-                                        ui.close();
-                                    }
-                                }
-                            });
-                        let is_jpeg = draft.export.compression == BitmapCompression::PhotoJpeg;
-                        ui.add_enabled_ui(is_jpeg, |ui| {
-                            ui.horizontal(|ui| {
+                    group_caption(ui, "Export");
+                    form_row(ui, "Compression", |ui| {
+                        c::Select::new(
+                            ui.id().with("bitmap-props-compression"),
+                            draft.export.compression.label(),
+                        )
+                        .width(metrics::field_m())
+                        .show(ui, |ui| {
+                            for comp in BitmapCompression::ALL {
                                 if ui
-                                    .add(c::Checkbox::new(
-                                        &mut draft.export.use_imported_jpeg_data,
-                                        "Use publish quality",
-                                    ))
+                                    .add(
+                                        c::MenuItem::new(comp.label())
+                                            .checked(draft.export.compression == comp),
+                                    )
+                                    .clicked()
+                                {
+                                    draft.export.compression = comp;
+                                    draft.export_modified = true;
+                                    ui.close();
+                                }
+                            }
+                        });
+                    });
+                    let is_jpeg = draft.export.compression == BitmapCompression::PhotoJpeg;
+                    form_row(ui, "Quality", |ui| {
+                        ui.add_enabled_ui(is_jpeg, |ui| {
+                            ui.add_enabled_ui(!draft.export.use_imported_jpeg_data, |ui| {
+                                let mut q = f64::from(draft.export.jpeg_quality);
+                                if ui
+                                    .add(
+                                        c::Field::new(&mut q, "Quality")
+                                            .unit("%")
+                                            .range(
+                                                f64::from(*VALID_JPEG_QUALITY_RANGE.start())
+                                                    ..=f64::from(*VALID_JPEG_QUALITY_RANGE.end()),
+                                            )
+                                            .decimals(0)
+                                            .step(1.0)
+                                            .width(metrics::field_s()),
+                                    )
                                     .changed()
                                 {
+                                    draft.export.jpeg_quality = q.round().clamp(0.0, 100.0) as u8;
                                     draft.export_modified = true;
                                 }
-                                ui.add_enabled_ui(!draft.export.use_imported_jpeg_data, |ui| {
-                                    let mut q = f64::from(draft.export.jpeg_quality);
-                                    if ui
-                                        .add(
-                                            c::Field::new(&mut q, "Quality")
-                                                .prefix("Quality")
-                                                .unit("%")
-                                                .range(
-                                                    f64::from(*VALID_JPEG_QUALITY_RANGE.start())
-                                                        ..=f64::from(
-                                                            *VALID_JPEG_QUALITY_RANGE.end(),
-                                                        ),
-                                                )
-                                                .decimals(0)
-                                                .step(1.0)
-                                                .width(140.0),
-                                        )
-                                        .changed()
-                                    {
-                                        draft.export.jpeg_quality =
-                                            q.round().clamp(0.0, 100.0) as u8;
-                                        draft.export_modified = true;
-                                    }
-                                });
                             });
+                            if ui
+                                .add(c::Checkbox::new(
+                                    &mut draft.export.use_imported_jpeg_data,
+                                    "Use publish quality",
+                                ))
+                                .changed()
+                            {
+                                draft.export_modified = true;
+                            }
                         });
+                    });
+                    form_row(ui, "", |ui| {
                         if ui
                             .add(c::Checkbox::new(
                                 &mut draft.export.allow_smoothing,
@@ -1067,24 +1059,16 @@ impl crate::app::Editor {
                         {
                             draft.export_modified = true;
                         }
-
-                        ui.horizontal(|ui| {
-                            if ui.add(c::Button::ghost("Import…")).clicked() {
-                                do_import = true;
-                            }
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if ui.add(c::Button::primary("OK")).clicked() {
-                                        close_ok = true;
-                                    }
-                                    if ui.add(c::Button::new("Cancel")).clicked() {
-                                        close_cancel = true;
-                                    }
-                                },
-                            );
-                        });
                     });
+                });
+                dialog.footer(
+                    ui,
+                    |ui| do_import |= ui.add(c::Button::ghost("Import…")).clicked(),
+                    |ui| {
+                        close_ok |= ui.add(c::Button::primary("OK")).clicked();
+                        close_cancel |= ui.add(c::Button::new("Cancel")).clicked();
+                    },
+                );
             });
 
         if do_import
@@ -1110,7 +1094,7 @@ impl crate::app::Editor {
         }
 
         if !close_cancel && !close_ok && !do_import {
-            match kb.resolve(ctx, &modal, !draft.name.trim().is_empty()) {
+            match kb.resolve_first_field(ctx, &modal, !draft.name.trim().is_empty(), in_name) {
                 crate::panels::dialog_helpers::DialogKeyboardOutcome::Cancel => {
                     close_cancel = true;
                 }

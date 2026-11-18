@@ -5,7 +5,8 @@
 //! `OK` / `Enter` commits stage size, optional content scaling / anchoring, units, background and
 //! frame rate in a single Undo step (`"Document settings"`). `Make default` persists default stage
 //! settings in `WorkspacePrefs::document_defaults`.
-use super::planned::{FooterClick, caption, footer_clicked, form_label};
+use super::dialog_helpers::{FormDialog, fixed_dialog_size, form_dialog_height, form_row};
+use super::planned::caption;
 use crate::app::Editor;
 use crate::stage_view::RulerUnits;
 use crate::theme::DesignUi as _;
@@ -15,6 +16,7 @@ use neoflash_core::*;
 use neoflash_ui::components as c;
 use neoflash_ui::components::view_settings as vs;
 use neoflash_ui::icons::i16;
+use neoflash_ui::metrics;
 use neoflash_ui::tokens::space;
 
 #[derive(Clone, Debug)]
@@ -62,7 +64,24 @@ fn units_label(units: RulerUnits) -> &'static str {
         .iter()
         .position(|u| *u == units)
         .unwrap_or(0);
+    // The row label names the control; the select shows the value only.
     vs::UNITS[idx]
+        .strip_prefix("Units: ")
+        .unwrap_or(vs::UNITS[idx])
+}
+
+/// One size for the three states of the dialog (normal, scripts in other languages, no
+/// compatible language): eight rows and room for the two-line script message.
+pub(crate) fn document_settings_size(ctx: &egui::Context) -> egui::Vec2 {
+    fixed_dialog_size(
+        ctx,
+        metrics::dialog_m(),
+        form_dialog_height(
+            8,
+            0,
+            metrics::row_gap() + 2.0 * metrics::toggle_row() + space::s3(),
+        ),
+    )
 }
 
 impl Editor {
@@ -250,234 +269,203 @@ impl Editor {
         let mut make_default = false;
 
         let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
+        let size = document_settings_size(ctx);
         let modal = egui::Modal::new(egui::Id::new("document-settings"))
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
-                ui.set_width(520.0);
-                let header_top = ui.cursor().min;
-                close_cancel |= c::DialogHeader {
-                    title: "Document settings",
-                }
-                .show(ui);
-                ui.painter().hline(
-                    header_top.x..=header_top.x + 520.0,
-                    header_top.y + neoflash_ui::metrics::dialog_header() - 0.5,
-                    egui::Stroke::new(1.0_f32, p.border_subtle),
-                );
-
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S5 as i8))
-                    .show(ui, |ui| {
-                        const L: f32 = 100.0;
-                        ui.set_width(520.0 - 2.0 * space::S5);
-                        ui.spacing_mut().item_spacing.y = space::S3;
-
-                        let (old_w, old_h) = (draft.width, draft.height);
-                        ui.horizontal(|ui| {
-                            form_label(ui, "Stage size", L);
-                            let rw = ui.add(
-                                c::Field::new(&mut draft.width, "Stage width")
-                                    .prefix("W")
-                                    .decimals(0)
-                                    .range(1.0..=65535.0)
-                                    .width(120.0),
-                            );
-                            let rh = ui.add(
-                                c::Field::new(&mut draft.height, "Stage height")
-                                    .prefix("H")
-                                    .decimals(0)
-                                    .range(1.0..=65535.0)
-                                    .width(120.0),
-                            );
-                            if ui
-                                .add(
-                                    c::IconButton::new(i16::LINK, "Constrain proportions")
-                                        .selected(draft.constrain),
-                                )
-                                .clicked()
-                            {
-                                draft.constrain = !draft.constrain;
-                                if draft.constrain {
-                                    draft.aspect = draft.width.max(1.0) / draft.height.max(1.0);
-                                }
-                            }
-                            if rw.changed() || rh.changed() {
-                                draft.match_shift = None;
-                                if draft.constrain && draft.aspect > 1e-6 {
-                                    if rw.changed() && (draft.width - old_w).abs() > 1e-6 {
-                                        draft.height = (draft.width / draft.aspect)
-                                            .round()
-                                            .clamp(1.0, 65535.0);
-                                    } else if rh.changed() && (draft.height - old_h).abs() > 1e-6 {
-                                        draft.width = (draft.height * draft.aspect)
-                                            .round()
-                                            .clamp(1.0, 65535.0);
-                                    }
-                                } else {
-                                    draft.aspect = draft.width.max(1.0) / draft.height.max(1.0);
-                                }
-                            }
-                        });
-
-                        ui.horizontal(|ui| {
-                            form_label(ui, "", L);
-                            if ui.add(c::Button::ghost("Match contents")).clicked() {
-                                match_contents = true;
-                            }
-                            if ui.add(c::Button::ghost("Match printer")).clicked() {
-                                match_printer = true;
-                            }
-                        });
-
-                        ui.horizontal(|ui| {
-                            form_label(ui, "Scale", L);
-                            ui.add(c::Checkbox::new(
-                                &mut draft.scale_content,
-                                "Scale content with stage",
-                            ));
-                            ui.add(c::RegistrationPicker {
-                                point: &mut draft.anchor,
-                            });
-                        });
-
-                        ui.horizontal(|ui| {
-                            form_label(ui, "Units", L);
-                            c::Select::new("doc-settings-units", units_label(draft.units))
-                                .width(160.0)
-                                .show(ui, |ui| {
-                                    for unit in RulerUnits::ALL {
-                                        let label = units_label(unit);
-                                        if ui
-                                            .add(
-                                                c::MenuItem::new(label)
-                                                    .checked(draft.units == unit),
-                                            )
-                                            .clicked()
-                                        {
-                                            draft.units = unit;
-                                            ui.close();
-                                        }
-                                    }
-                                });
-                        });
-
-                        ui.horizontal(|ui| {
-                            form_label(ui, "Background", L);
-                            let cf = c::ColorField::new(&mut draft.background, "Background")
-                                .width(200.0)
-                                .show(ui);
-                            super::dialog_helpers::track_rgba_popup(ui.ctx(), cf.response.id);
-                            crate::paint_controls::show_color32_field_popup(
-                                ui,
-                                &cf.response,
-                                cf.swatch_clicked,
-                                "Background",
-                                &mut draft.background,
-                            );
-                        });
-
-                        ui.horizontal(|ui| {
-                            form_label(ui, "Frame rate", L);
-                            ui.add(
-                                c::Field::new(&mut draft.fps, "Frame rate")
-                                    .prefix("fps")
-                                    .decimals(0)
-                                    .range(1.0..=120.0)
-                                    .stepper()
-                                    .width(140.0),
-                            );
-                            let secs = total_frames as f64 / draft.fps.round().clamp(1.0, 120.0);
-                            caption(
-                                ui,
-                                &format!(
-                                    "{total_frames} frame{} · {secs:.2} s",
-                                    if total_frames == 1 { "" } else { "s" }
-                                ),
-                            );
-                        });
-
-                        ui.horizontal(|ui| {
-                            form_label(ui, "Script", L);
-                            c::Select::new(
-                                "doc-settings-script",
-                                draft.script_language.display_label(),
+                let dialog = FormDialog::show(ui, "Document settings", size.x, Some(size.y));
+                close_cancel |= dialog.close;
+                dialog.page(ui, "document-settings-page", |ui, _| {
+                    let (old_w, old_h) = (draft.width, draft.height);
+                    form_row(ui, "Stage size", |ui| {
+                        let rw = ui.add(
+                            c::Field::new(&mut draft.width, "Stage width")
+                                .prefix("W")
+                                .unit("px")
+                                .decimals(0)
+                                .range(1.0..=65535.0)
+                                .width(metrics::field_s()),
+                        );
+                        let rh = ui.add(
+                            c::Field::new(&mut draft.height, "Stage height")
+                                .prefix("H")
+                                .unit("px")
+                                .decimals(0)
+                                .range(1.0..=65535.0)
+                                .width(metrics::field_s()),
+                        );
+                        if ui
+                            .add(
+                                c::IconButton::new(i16::LINK, "Constrain proportions")
+                                    .selected(draft.constrain),
                             )
-                            .width(220.0)
+                            .clicked()
+                        {
+                            draft.constrain = !draft.constrain;
+                            if draft.constrain {
+                                draft.aspect = draft.width.max(1.0) / draft.height.max(1.0);
+                            }
+                        }
+                        if rw.changed() || rh.changed() {
+                            draft.match_shift = None;
+                            if draft.constrain && draft.aspect > 1e-6 {
+                                if rw.changed() && (draft.width - old_w).abs() > 1e-6 {
+                                    draft.height =
+                                        (draft.width / draft.aspect).round().clamp(1.0, 65535.0);
+                                } else if rh.changed() && (draft.height - old_h).abs() > 1e-6 {
+                                    draft.width =
+                                        (draft.height * draft.aspect).round().clamp(1.0, 65535.0);
+                                }
+                            } else {
+                                draft.aspect = draft.width.max(1.0) / draft.height.max(1.0);
+                            }
+                        }
+                    });
+
+                    form_row(ui, "", |ui| {
+                        if ui.add(c::Button::ghost("Match contents")).clicked() {
+                            match_contents = true;
+                        }
+                        if ui.add(c::Button::ghost("Match printer")).clicked() {
+                            match_printer = true;
+                        }
+                    });
+
+                    form_row(ui, "Scale", |ui| {
+                        ui.spacing_mut().item_spacing.x = space::s3();
+                        ui.add(c::Checkbox::new(
+                            &mut draft.scale_content,
+                            "Scale content with stage",
+                        ));
+                        ui.add(c::RegistrationPicker {
+                            point: &mut draft.anchor,
+                        });
+                    });
+
+                    form_row(ui, "Units", |ui| {
+                        c::Select::new("doc-settings-units", units_label(draft.units))
+                            .width(metrics::field_m())
                             .show(ui, |ui| {
-                                for lang in ScriptLanguage::PROJECT_ORDER {
+                                for unit in RulerUnits::ALL {
+                                    let label = units_label(unit);
                                     if ui
-                                        .add(
-                                            c::MenuItem::new(lang.display_label())
-                                                .checked(draft.script_language == lang),
-                                        )
+                                        .add(c::MenuItem::new(label).checked(draft.units == unit))
                                         .clicked()
                                     {
-                                        draft.script_language = lang;
+                                        draft.units = unit;
                                         ui.close();
                                     }
                                 }
                             });
-                        });
+                    });
 
-                        ui.horizontal(|ui| {
-                            form_label(ui, "", L);
-                            if let Some(compat) = draft.script_language.compatible_language() {
-                                let label = format!("Also compile {}", compat.display_label());
-                                ui.add(c::Checkbox::new(
-                                    &mut draft.also_compile_compatible_scripts,
-                                    &label,
-                                ));
-                            } else {
-                                let mut unchecked = false;
-                                let resp = ui.add_enabled_semantic(
-                                    false,
-                                    c::Checkbox::new(
-                                        &mut unchecked,
-                                        "Also compile compatible languages",
-                                    ),
-                                );
-                                crate::ui_icons::hover_tooltip(
-                                    resp,
-                                    "",
-                                    None,
-                                    Some("ActionScript 3.0 has no compatible language"),
-                                );
+                    form_row(ui, "Background", |ui| {
+                        let cf = c::ColorField::new(&mut draft.background, "Background")
+                            .width(metrics::field_l())
+                            .show(ui);
+                        super::dialog_helpers::track_rgba_popup(ui.ctx(), cf.response.id);
+                        crate::paint_controls::show_color32_field_popup(
+                            ui,
+                            &cf.response,
+                            cf.swatch_clicked,
+                            "Background",
+                            &mut draft.background,
+                        );
+                    });
+
+                    form_row(ui, "Frame rate", |ui| {
+                        ui.add(
+                            c::Field::new(&mut draft.fps, "Frame rate")
+                                .unit("fps")
+                                .decimals(0)
+                                .range(1.0..=120.0)
+                                .stepper()
+                                .width(metrics::field_s()),
+                        );
+                        let secs = total_frames as f64 / draft.fps.round().clamp(1.0, 120.0);
+                        caption(
+                            ui,
+                            &format!(
+                                "{total_frames} frame{} · {secs:.2} s",
+                                if total_frames == 1 { "" } else { "s" }
+                            ),
+                        );
+                    });
+
+                    form_row(ui, "Script", |ui| {
+                        c::Select::new(
+                            "doc-settings-script",
+                            draft.script_language.display_label(),
+                        )
+                        .width(metrics::field_l())
+                        .show(ui, |ui| {
+                            for lang in ScriptLanguage::PROJECT_ORDER {
+                                if ui
+                                    .add(
+                                        c::MenuItem::new(lang.display_label())
+                                            .checked(draft.script_language == lang),
+                                    )
+                                    .clicked()
+                                {
+                                    draft.script_language = lang;
+                                    ui.close();
+                                }
                             }
                         });
+                    });
 
-                        if let Some((is_warning, msg)) = self
-                            .project
-                            .foreign_script_counts_for(
-                                draft.script_language,
-                                draft.also_compile_compatible_scripts,
-                            )
-                            .count_message()
-                        {
-                            ui.horizontal(|ui| {
-                                form_label(ui, "", L);
-                                let w = ui.available_width();
-                                let im = if is_warning {
-                                    c::InlineMessage::warning(&msg)
-                                } else {
-                                    c::InlineMessage::info(&msg)
-                                };
-                                ui.add(im.width(w));
-                            });
-                        }
-
-                        match footer_clicked(
-                            ui,
-                            "",
-                            Some(("Make default", true)),
-                            &["Cancel", "OK"],
-                        ) {
-                            Some(FooterClick::Ghost) => make_default = true,
-                            Some(FooterClick::Button(0)) => close_cancel = true,
-                            Some(FooterClick::Button(_)) => close_ok = true,
-                            None => {}
+                    // The option keeps its row in every state; only its label and state change.
+                    form_row(ui, "", |ui| {
+                        if let Some(compat) = draft.script_language.compatible_language() {
+                            let label = format!("Also compile {}", compat.display_label());
+                            ui.add(c::Checkbox::new(
+                                &mut draft.also_compile_compatible_scripts,
+                                &label,
+                            ));
+                        } else {
+                            let mut unchecked = false;
+                            let resp = ui.add_enabled_semantic(
+                                false,
+                                c::Checkbox::new(
+                                    &mut unchecked,
+                                    "Also compile compatible languages",
+                                ),
+                            );
+                            crate::ui_icons::hover_tooltip(
+                                resp,
+                                "",
+                                None,
+                                Some("ActionScript 3.0 has no compatible language"),
+                            );
                         }
                     });
+
+                    if let Some((is_warning, msg)) = self
+                        .project
+                        .foreign_script_counts_for(
+                            draft.script_language,
+                            draft.also_compile_compatible_scripts,
+                        )
+                        .count_message()
+                    {
+                        let w = ui.available_width();
+                        let im = if is_warning {
+                            c::InlineMessage::warning(&msg)
+                        } else {
+                            c::InlineMessage::info(&msg)
+                        };
+                        ui.add(im.width(w));
+                    }
+                });
+                dialog.footer(
+                    ui,
+                    |ui| make_default |= ui.add(c::Button::ghost("Make default")).clicked(),
+                    |ui| {
+                        close_ok |= ui.add(c::Button::primary("OK")).clicked();
+                        close_cancel |= ui.add(c::Button::new("Cancel")).clicked();
+                    },
+                );
             });
 
         if match_contents {

@@ -166,11 +166,11 @@ impl ViewSettings<'_> {
         let p = palette(ui.ctx());
         let s = self.state;
         let mut out = ViewSettingsResponse::default();
-        ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S3);
+        ui.spacing_mut().item_spacing = egui::vec2(space::s2(), space::s3());
         let w = ui.available_width();
         let section = |ui: &mut Ui, body: &mut dyn FnMut(&mut Ui)| {
             ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
+                ui.spacing_mut().item_spacing = egui::vec2(space::s2(), space::s2());
                 // Rows hug their content (16 pt captions, 20 pt checkboxes) instead of the 32 pt
                 // control minimum; fields and selects keep their own 32 pt height.
                 ui.spacing_mut().interact_size.y = 16.0;
@@ -264,7 +264,7 @@ impl ViewSettings<'_> {
                     ui,
                     "nf2-view-guide-snap",
                     &mut s.guide_snap,
-                    w - COLOR_W - space::S2,
+                    w - COLOR_W - space::s2(),
                 );
             });
         });
@@ -289,7 +289,7 @@ impl ViewSettings<'_> {
                     }
                 });
             ui.horizontal(|ui| {
-                let fw = (w - CONTROL - 2.0 * space::S2) / 2.0;
+                let fw = (w - CONTROL - 2.0 * space::s2()) / 2.0;
                 let before = s.grid_w;
                 ui.add(
                     Field::new(&mut s.grid_w, "Grid spacing horizontal")
@@ -329,7 +329,7 @@ impl ViewSettings<'_> {
                     ui,
                     "nf2-view-grid-snap",
                     &mut s.grid_snap_accuracy,
-                    w - COLOR_W - space::S2,
+                    w - COLOR_W - space::s2(),
                 );
             });
         });
@@ -352,7 +352,7 @@ const CONTROL: f32 = 32.0;
 fn heading(ui: &mut Ui, icon: Icon, label: &str) {
     let p = palette(ui.ctx());
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = space::S2;
+        ui.spacing_mut().item_spacing.x = space::s2();
         icons::show(ui, icon, p.text_tertiary);
         ui.label(crate::typography::rich(label, TextStyle::Overline).color(p.text_tertiary));
     });

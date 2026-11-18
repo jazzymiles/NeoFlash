@@ -84,12 +84,11 @@ impl Editor {
 
     fn properties_contents(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         use crate::paint_controls::{
-            PropertyChanges, color_row, numeric_pair, numeric_pair_with_suffix,
-            numeric_pair_with_trailing, numeric_row, paint_row, percent_row, property_row,
-            set_paint_row_gradient, text_row, two_column_row,
+            PropertyChanges, color_row, numeric_pair, numeric_pair_with_suffix, numeric_row,
+            paint_row, percent_row, property_row, set_paint_row_gradient, text_row, two_column_row,
         };
         // Figma inspector body: V gap 12 between all rows.
-        ui.spacing_mut().item_spacing.y = space::S3;
+        ui.spacing_mut().item_spacing.y = space::s3();
         // Context is automatic: authored selection and Timeline ranges always
         // win, an empty Select-tool click means the Stage, and any other active
         // tool exposes its options/defaults. This preserves the full former
@@ -198,8 +197,10 @@ impl Editor {
                             ui,
                             "Click Stream video or audio spans in the Timeline to cut and advance source offsets; click Graphic, Button, or MovieClip spans to insert a keyframe.",
                         );
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = space::S2;
+                        // Wraps: the three buttons do not fit one row of a minimum-width inspector.
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing =
+                                egui::vec2(space::s2(), neoflash_ui::metrics::row_gap());
                             if ui
                                 .add_enabled(can_split, nf::Button::new("Split at playhead"))
                                 .clicked()
@@ -269,7 +270,7 @@ impl Editor {
                 subtitle: "Mixed selection",
             });
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = space::S2;
+                ui.spacing_mut().item_spacing.x = space::s2();
                 if ui.add(nf::Button::new("Transform…")).clicked() {
                     self.show_panel(crate::workspace::PanelId::Transform);
                 }
@@ -295,9 +296,7 @@ impl Editor {
             inspector_section(ui, "Selection colours", |ui| {
                 self.project_colors_section_ui(ui, true);
             });
-            inspector_section_with_open(ui, "Used colours", false, |ui| {
-                self.project_colors_section_ui(ui, false);
-            });
+            self.used_colours_section_ui(ui, false);
             return;
         }
         // Inspect the tweened authored pose before expressions, rigs, parenting, inherited
@@ -333,9 +332,9 @@ impl Editor {
                             .unwrap_or(SymbolKind::MovieClip);
                         // Row 1: Instance Name + Swap… button on one compact row (NF2 Properties — Movie clip).
                         ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = space::S2;
-                            let swap_w = 72.0;
-                            let name_w = (ui.available_width() - swap_w - space::S2).max(80.0);
+                            ui.spacing_mut().item_spacing.x = space::s2();
+                            let swap_w = button_width(ui, "Swap…");
+                            let name_w = (ui.available_width() - swap_w - space::s2()).max(0.0);
                             let mut n_resp = ui.add(
                                 nf::TextField::new(&mut element.name, "<Instance Name>")
                                     .prefix("Name")
@@ -355,7 +354,7 @@ impl Editor {
                             changes.note(n_resp);
 
                             let swap_btn = nf::tooltip(
-                                ui.add(nf::Button::new("Swap…")),
+                                ui.add(nf::Button::new("Swap…").width(swap_w)),
                                 "Swap symbol instance with another Library symbol",
                                 None,
                             );
@@ -399,17 +398,19 @@ impl Editor {
                             });
                         });
 
-                        // Row 2: Symbol behavior selector (Movie Clip / Button / Graphic) + Edit / Duplicate.
+                        // Row 2: Symbol behavior selector (Movie Clip / Button / Graphic) fills; Edit symbol and
+                        // Duplicate symbol… are outlined icon buttons at the end of the row.
                         ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = space::S2;
-                            let half = ((ui.available_width() - space::S2) / 2.0).max(60.0);
+                            ui.spacing_mut().item_spacing.x = space::s2();
+                            let actions_w = 2.0 * (crate::theme::control_h() + space::s2());
+                            let behavior_w = (ui.available_width() - actions_w).max(0.0);
                             let kind_label = match cur_sym_kind {
                                 SymbolKind::MovieClip => "Movie Clip",
                                 SymbolKind::Button => "Button",
                                 SymbolKind::Graphic => "Graphic",
                             };
                             nf::Select::new("instance-symbol-behavior", kind_label)
-                                .width(half)
+                                .width(behavior_w)
                                 .show(ui, |ui| {
                                     for (k, label) in [
                                         (SymbolKind::MovieClip, "Movie Clip"),
@@ -427,16 +428,11 @@ impl Editor {
                                         }
                                     }
                                 });
-                            if ui.add(nf::Button::new("Edit symbol")).clicked() {
+                            if ui.add(nf::IconButton::outlined(i16::SYMBOL, "Edit symbol")).clicked() {
                                 edit_symbol = true;
                             }
-                            if nf::tooltip(
-                                ui.add(nf::Button::new("Duplicate…")),
-                                "Duplicate symbol and swap this instance",
-                                None,
-                            )
-                            .clicked()
-                            {
+                            // Duplicates the symbol and swaps this instance to the copy.
+                            if ui.add(nf::IconButton::outlined(i16::COPY, "Duplicate symbol…")).clicked() {
                                 duplicate_symbol_clicked = true;
                             }
                         });
@@ -447,39 +443,37 @@ impl Editor {
                     let is_text_any =
                         is_text_box || matches!(element.kind, ElementKind::Text { .. });
                     // R-100: one title for every kind of object.
-                    inspector_section_with_open(ui, "Position and size", !is_text_any, |ui| {
-                        // Row 1: W and H + Constrain proportions lock icon on one line.
-                        let link_id = egui::Id::new("properties-element-size-linked");
-                        let mut linked =
-                            ui.data(|d| d.get_temp::<bool>(link_id).unwrap_or(false));
+                    // `Constrain proportions` sits in the section header, so X / Y and W / H share one
+                    // column axis.
+                    let link_id = egui::Id::new("properties-element-size-linked");
+                    inspector_section_with_trailing(ui, "Position and size", !is_text_any, section_action_side(), |ui| {
+                        let linked = ui.data(|d| d.get_temp::<bool>(link_id).unwrap_or(false));
+                        // Row 1: X and Y.
+                        for r in numeric_pair(
+                            ui,
+                            ["X", "Y"],
+                            [&mut element.transform.x, &mut element.transform.y],
+                            -1_000_000. ..=1_000_000.,
+                            1.,
+                        ) {
+                            changes.note(r);
+                        }
+
+                        // Row 2: W and H.
                         match &mut element.kind {
                             ElementKind::TextBox { width, height, .. }
                             | ElementKind::Rectangle { width, height, .. }
                             | ElementKind::Ellipse { width, height, .. }
                             | ElementKind::Video { width, height } => {
                                 let (old_w, old_h) = (*width, *height);
-                                let (responses, link) = numeric_pair_with_trailing(
+                                for response in numeric_pair(
                                     ui,
                                     ["W", "H"],
                                     [width, height],
                                     1. ..=10000.,
                                     1.,
-                                    "",
-                                    (crate::theme::control_h(), |ui| {
-                                        ui.add(
-                                            nf::IconButton::new(
-                                                i16::LINK,
-                                                "Constrain proportions",
-                                            )
-                                            .selected(linked),
-                                        )
-                                    }),
-                                );
-                                for response in responses {
+                                ) {
                                     changes.note(response);
-                                }
-                                if link.clicked() {
-                                    linked = !linked;
                                 }
                                 if linked && old_w > 0.0 && old_h > 0.0 {
                                     if (*width - old_w).abs() > 1e-6 {
@@ -538,28 +532,14 @@ impl Editor {
                                         0.01
                                     };
                                 let (old_w, old_h) = (w, h);
-                                let (responses, link) = numeric_pair_with_trailing(
+                                for response in numeric_pair(
                                     ui,
                                     ["W", "H"],
                                     [&mut w, &mut h],
                                     min_dim..=100_000.,
                                     1.,
-                                    "",
-                                    (crate::theme::control_h(), |ui| {
-                                        ui.add(
-                                            nf::IconButton::new(
-                                                i16::LINK,
-                                                "Constrain proportions",
-                                            )
-                                            .selected(linked),
-                                        )
-                                    }),
-                                );
-                                for response in responses {
+                                ) {
                                     changes.note(response);
-                                }
-                                if link.clicked() {
-                                    linked = !linked;
                                 }
                                 let w_changed = (w - old_w).abs() > 1e-6;
                                 let h_changed = (h - old_h).abs() > 1e-6;
@@ -590,19 +570,6 @@ impl Editor {
                                 }
                             }
                         }
-                        ui.data_mut(|d| d.insert_temp(link_id, linked));
-
-                        // Row 2: X and Y.
-                        for r in numeric_pair(
-                            ui,
-                            ["X", "Y"],
-                            [&mut element.transform.x, &mut element.transform.y],
-                            -1_000_000. ..=1_000_000.,
-                            1.,
-                        ) {
-                            changes.note(r);
-                        }
-
                         // Row 3: Scale X and Scale Y in 100 % (instead of 1.0).
                         let mut sx_pct = element.transform.scale_x * 100.0;
                         let mut sy_pct = element.transform.scale_y * 100.0;
@@ -654,7 +621,7 @@ impl Editor {
                                 1.,
                             ));
                         }
-                    });
+                    }, |ui| section_link_toggle(ui, link_id, "Constrain proportions"));
                     let eff_instance_kind = element.effective_symbol_kind(&self.project);
                     if let ElementKind::Instance { symbol_id, playback } = &mut element.kind
                         && eff_instance_kind == Some(SymbolKind::MovieClip)
@@ -736,9 +703,9 @@ impl Editor {
                                 changes.note(text_resp);
                                 let before = font_family.clone();
                                 ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = space::S2;
-                                    let btn_w = 104.0;
-                                    let font_w = (ui.available_width() - btn_w - space::S2).max(80.0);
+                                    ui.spacing_mut().item_spacing.x = space::s2();
+                                    let btn_w = button_width(ui, "Use text box");
+                                    let font_w = (ui.available_width() - btn_w - space::s2()).max(0.0);
                                     let current = font_family.clone();
                                     let (mut response, _) = nf::Select::new("font_family", &current)
                                         .width(font_w)
@@ -758,7 +725,7 @@ impl Editor {
                                         response.mark_changed();
                                     }
                                     changes.note(response);
-                                    let convert_resp = ui.add(nf::Button::new("Use text box"));
+                                    let convert_resp = ui.add(nf::Button::new("Use text box").width(btn_w));
                                     if convert_resp.clicked() {
                                         convert_text = true;
                                         changes.control = Some(convert_resp.id);
@@ -1072,31 +1039,15 @@ impl Editor {
                     (active_layer_editable && span_key_frame.is_some()) || has_range_ease_targets;
                 let mut clear_motion_scale = false;
                 if !frame_context {
-                inspector_section(ui, "Stage", |ui| {
+                let link_id = egui::Id::new("properties-stage-size-linked");
+                inspector_section_with_trailing(ui, "Stage", true, section_action_side(), |ui| {
                 changes.note(text_row(ui, "Name", &mut document.name));
                 let (mut width, mut height) = (document.width as f64, document.height as f64);
                 let (old_width, old_height) = (width, height);
-                let link_id = egui::Id::new("properties-stage-size-linked");
-                let mut linked = ui.data(|d| d.get_temp::<bool>(link_id).unwrap_or(false));
-                let (responses, link) = numeric_pair_with_trailing(
-                    ui,
-                    ["W", "H"],
-                    [&mut width, &mut height],
-                    1. ..=8192.,
-                    1.,
-                    "",
-                    (crate::theme::control_h(), |ui| {
-                        ui.add(
-                            nf::IconButton::new(i16::LINK, "Constrain stage proportions")
-                                .selected(linked),
-                        )
-                    }),
-                );
-                for response in responses {
+                let linked = ui.data(|d| d.get_temp::<bool>(link_id).unwrap_or(false));
+                for response in numeric_pair(ui, ["W", "H"], [&mut width, &mut height], 1. ..=8192., 1.) {
                     changes.note(response);
                 }
-                if link.clicked() { linked = !linked; }
-                ui.data_mut(|d| d.insert_temp(link_id, linked));
                 if linked && old_width > 0. && old_height > 0. {
                     if width != old_width { height = (width * old_height / old_width).round().clamp(1., 8192.); }
                     else if height != old_height { width = (height * old_width / old_height).round().clamp(1., 8192.); }
@@ -1107,7 +1058,7 @@ impl Editor {
                     super::dialog_helpers::track_rgba_popup(ui.ctx(), bg_resp.id);
                 }
                 changes.note(bg_resp);
-                });
+                }, |ui| section_link_toggle(ui, link_id, "Constrain stage proportions"));
                 }
                 let mut fps = document.fps;
                 let timeline = &mut document.symbol_mut(&symbol_id).unwrap().timeline;
@@ -1335,13 +1286,14 @@ impl Editor {
 
                         // Row 1: Tween selector (None, Motion, Classic, Shape) + [x] Scale on the same row.
                         ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = space::S2;
-                            let select_w = (ui.available_width() - 74.0 - space::S2).max(96.0);
+                            ui.spacing_mut().item_spacing.x = space::s2();
+                            let select_w = (ui.available_width()
+                                - checkbox_width(ui, "Scale")
+                                - space::s2())
+                            .max(0.0);
                             ui.add_enabled_ui_semantic(can_edit_selected_tween, |ui| {
-                                nf::Select::new(
-                                    "frame-tween-kind",
-                                    &format!("Tween: {}", cur_tween_choice.label()),
-                                )
+                                nf::Select::new("frame-tween-kind", cur_tween_choice.label())
+                                    .prefix("Tween")
                                 .width(select_w)
                                 .show(ui, |ui| {
                                     for (choice, label) in FrameTweenChoice::ALL {
@@ -1462,11 +1414,13 @@ impl Editor {
                         };
                         ui.add_enabled_ui_semantic(can_edit_ease, |ui| {
                             ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S2;
-                                let edit_w = 58.0;
-                                let rem = (ui.available_width() - edit_w - space::S2).max(120.0);
-                                let field_w = (rem * 0.52).max(64.0);
-                                let preset_w = (rem - field_w - space::S2).max(56.0);
+                                ui.spacing_mut().item_spacing.x = space::s2();
+                                // Budget: Edit… hugs its label, the Ease field and the preset
+                                // select share the rest of the row.
+                                let edit_w = button_width(ui, "Edit…");
+                                let rem = (ui.available_width() - edit_w - space::s2()).max(0.0);
+                                let field_w = ((rem - space::s2()) * 0.5).max(0.0);
+                                let preset_w = (rem - field_w - space::s2()).max(0.0);
                                 let r_ease = ui.add(
                                     nf::Field::new(&mut ease_val, "Ease")
                                         .prefix("Ease")
@@ -1531,7 +1485,9 @@ impl Editor {
                                             }
                                         });
                                 let _ = r_preset;
-                                if ui.add(nf::Button::new("Edit…")).clicked() && can_edit_ease {
+                                if ui.add(nf::Button::new("Edit…").width(edit_w)).clicked()
+                                    && can_edit_ease
+                                {
                                     open_ease_panel = true;
                                 }
                             });
@@ -1615,13 +1571,14 @@ impl Editor {
                                 old_direction,
                                 ClassicRotateDirection::Cw | ClassicRotateDirection::Ccw
                             );
-                        let dir_label = format!("Rotate: {}", direction.label());
+                        let dir_label = direction.label();
                         let (mut r_dir, r_turns) = two_column_row(
                             ui,
                             |ui, width| {
                                 ui.add_enabled_ui_semantic(can_edit_span_props, |ui| {
                                     let (response, _) =
-                                        nf::Select::new("classic-direction", &dir_label)
+                                        nf::Select::new("classic-direction", dir_label)
+                                            .prefix("Rotate")
                                             .width(width)
                                             .show(ui, |ui| {
                                                 for dir in ClassicRotateDirection::ALL {
@@ -1916,15 +1873,10 @@ impl Editor {
                             document.format_version = self.project.format_version;
                         }
                         let effective_lang = self.project.effective_script_language();
+                        // The option starts at the left edge (v3 form grid): indented by the label
+                        // column, its longest label ran past the panel.
                         ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = space::S2;
-                            ui.allocate_exact_size(
-                                egui::vec2(
-                                    crate::theme::LABEL_WIDTH,
-                                    neoflash_ui::metrics::TOGGLE_ROW,
-                                ),
-                                egui::Sense::hover(),
-                            );
+                            ui.spacing_mut().item_spacing.x = space::s2();
                             if let Some(compat) = effective_lang.compatible_language() {
                                 let mut also = self.project.also_compile_compatible_scripts;
                                 let label = format!("Also compile {}", compat.display_label());
@@ -1972,9 +1924,8 @@ impl Editor {
                             self.open_publish_settings();
                         }
                     });
-                    inspector_section_with_open(ui, "Used colours", false, |ui| {
-                        self.project_colors_section_ui(ui, false);
-                    });
+                    // Open by default (v3 `Properties — Document`): one row per colour keeps it short.
+                    self.used_colours_section_ui(ui, true);
                 }
                 document.fps = fps;
                 let edited_tween = frame_context.then(|| {
@@ -2241,11 +2192,11 @@ impl Editor {
             .unwrap_or(inferred);
 
         let style_label = match style {
-            ColorEffectStyle::None => "Style: None",
-            ColorEffectStyle::Brightness => "Style: Brightness",
-            ColorEffectStyle::Tint => "Style: Tint",
-            ColorEffectStyle::Advanced => "Style: Advanced",
-            ColorEffectStyle::Alpha => "Style: Alpha",
+            ColorEffectStyle::None => "None",
+            ColorEffectStyle::Brightness => "Brightness",
+            ColorEffectStyle::Tint => "Tint",
+            ColorEffectStyle::Advanced => "Advanced",
+            ColorEffectStyle::Alpha => "Alpha",
         };
         let mut picked_style = None;
         let style_select = |ui: &mut egui::Ui,
@@ -2253,6 +2204,7 @@ impl Editor {
                             current: ColorEffectStyle,
                             picked: &mut Option<ColorEffectStyle>| {
             let (response, _) = nf::Select::new("mc-color-effect-style", style_label)
+                .prefix("Style")
                 .width(width)
                 .show(ui, |ui| {
                     for (style, name) in [
@@ -2794,4 +2746,108 @@ pub(crate) fn inspector_section_with_open<R>(
             .default_open(default_open)
             .show(ui, content);
     });
+}
+
+/// Width of a single-line label in an NF text style, to budget a row before it is painted.
+pub(crate) fn text_width(ui: &egui::Ui, text: &str, style: TextStyle) -> f32 {
+    let job = egui::text::LayoutJob::single_section(
+        text.to_owned(),
+        neoflash_ui::typography::format_line(style, egui::Color32::PLACEHOLDER),
+    );
+    ui.fonts_mut(|fonts| fonts.layout_job(job)).size().x
+}
+
+/// Natural width of an `nf::Button` with this label (padding + text).
+pub(crate) fn button_width(ui: &egui::Ui, label: &str) -> f32 {
+    (space::s3() * 2.0 + text_width(ui, label, TextStyle::Body)).ceil()
+}
+
+/// Natural width of an `nf::Checkbox` with this label (box + gap + text).
+pub(crate) fn checkbox_width(ui: &egui::Ui, label: &str) -> f32 {
+    (neoflash_ui::metrics::check_box() + space::s2() + text_width(ui, label, TextStyle::Body))
+        .ceil()
+}
+
+/// Side of an icon button that sits in a section header row.
+pub(crate) fn section_action_side() -> f32 {
+    neoflash_ui::metrics::section_header().min(neoflash_ui::metrics::control())
+}
+
+/// Width of the ⋯ cell in a section header: icon-wide, as high as the header.
+pub(crate) fn section_more_cell() -> egui::Vec2 {
+    egui::vec2(
+        neoflash_ui::metrics::ICON_UI,
+        neoflash_ui::metrics::section_header(),
+    )
+}
+
+/// `title` shortened with "…" until its overline fits `room`.
+fn fit_section_title(ui: &egui::Ui, title: &str, room: f32) -> String {
+    let fits = |text: &str| text_width(ui, &text.to_uppercase(), TextStyle::Overline) <= room + 0.5;
+    if fits(title) {
+        return title.to_owned();
+    }
+    let mut kept: Vec<char> = title.chars().collect();
+    while kept.len() > 1 {
+        kept.pop();
+        let candidate = format!("{}…", kept.iter().collect::<String>().trim_end());
+        if fits(&candidate) {
+            return candidate;
+        }
+    }
+    "…".to_owned()
+}
+
+/// Section header whose right side hosts `trailing` widgets (v3 `Section Header` › `Action`): they are
+/// laid out right to left inside the header row, also while the section is collapsed.
+/// `trailing_width` is their total width; the title is shortened with "…" to stay clear of them.
+pub(crate) fn inspector_section_with_trailing<R, T>(
+    ui: &mut egui::Ui,
+    title: &str,
+    default_open: bool,
+    trailing_width: f32,
+    content: impl FnOnce(&mut egui::Ui) -> R,
+    trailing: impl FnOnce(&mut egui::Ui) -> T,
+) -> T {
+    ui.scope(|ui| {
+        ui.spacing_mut().interact_size.y = crate::theme::control_h();
+        let header = egui::Rect::from_min_size(
+            ui.cursor().min,
+            egui::vec2(ui.available_width(), neoflash_ui::metrics::section_header()),
+        );
+        // The title starts after the chevron (`SectionHeader`) and ends a tiny gap before the
+        // trailing group; it is shortened only when the panel is narrower than the inspector.
+        let title_x = neoflash_ui::components::headers::section_title_inset();
+        let room = header.width() - title_x - trailing_width - space::s1();
+        let label = fit_section_title(ui, title, room);
+        SectionHeader::new(&label)
+            .id_salt(("inspector-section", title, default_open))
+            .default_open(default_open)
+            .show(ui, content);
+        // Painted after the header so these widgets take the pointer inside the header row.
+        let mut row = ui.new_child(
+            egui::UiBuilder::new()
+                .id(ui.id().with(("inspector-section-trailing", title)))
+                .max_rect(header)
+                .layout(egui::Layout::right_to_left(egui::Align::Center)),
+        );
+        row.spacing_mut().item_spacing.x = space::s1();
+        trailing(&mut row)
+    })
+    .inner
+}
+
+/// `Constrain proportions` toggle of a section header; the state lives in `link_id`.
+fn section_link_toggle(ui: &mut egui::Ui, link_id: egui::Id, label: &str) {
+    let linked = ui.data(|d| d.get_temp::<bool>(link_id).unwrap_or(false));
+    if ui
+        .add(
+            nf::IconButton::new(i16::LINK, label)
+                .selected(linked)
+                .side(section_action_side()),
+        )
+        .clicked()
+    {
+        ui.data_mut(|d| d.insert_temp(link_id, !linked));
+    }
 }

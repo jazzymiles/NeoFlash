@@ -7,7 +7,8 @@ use crate::theme::{cr, palette};
 use crate::tokens::{TextStyle, radius, space};
 use eframe::egui::{self, Rect, Response, Sense, Stroke, Ui, Widget};
 
-/// `NF2/Dock Tab` — 40 px, icon + label, 2 px accent underline when `Active`.
+/// `NF3/Tab` (dock) — `dock_tab()` high, `space::s4()` side padding, icon + label, 2 px accent
+/// underline when `Active` (painted inside the tab, so the label never moves).
 pub struct DockTab<'a> {
     pub label: &'a str,
     pub icon: Option<Icon>,
@@ -23,12 +24,13 @@ impl Widget for DockTab<'_> {
             self.active,
             crate::metrics::dock_tab(),
             TextStyle::Body,
-            space::S4,
+            space::s4(),
         )
     }
 }
 
-/// `NF2/Panel Tab` — 36 px, text only, underline when `Active` (inspector and floating panels).
+/// `NF3/Tab` (panel) — `panel_tab()` high, `space::s4()` side padding, text only, underline when
+/// `Active` (inspector and floating panels). Width: [`panel_tab_width`].
 pub struct PanelTab<'a> {
     pub label: &'a str,
     pub active: bool,
@@ -42,10 +44,21 @@ impl Widget for PanelTab<'_> {
             None,
             self.active,
             crate::metrics::panel_tab(),
-            TextStyle::SmallStrong,
-            space::S3,
+            PANEL_TAB_STYLE,
+            space::s4(),
         )
     }
+}
+
+const PANEL_TAB_STYLE: TextStyle = TextStyle::SmallStrong;
+
+/// Width of a [`PanelTab`] with `label` at the current density (label + 2 × `space::s4()`), for
+/// callers that hit-test the tabs of a [`FloatingPanelHeader`].
+pub fn panel_tab_width(ui: &Ui, label: &str) -> f32 {
+    galley(ui, label, PANEL_TAB_STYLE, egui::Color32::WHITE)
+        .size()
+        .x
+        + 2.0 * space::s4()
 }
 
 fn tab(
@@ -60,7 +73,7 @@ fn tab(
     let p = palette(ui.ctx());
     let g = galley(ui, label, style, p.text_primary);
     let icon_w = if icon.is_some() {
-        16.0 + space::S2
+        16.0 + space::s2()
     } else {
         0.0
     };
@@ -99,7 +112,7 @@ fn tab(
         );
         ui.painter().rect_filled(line, cr(1.0), p.accent_default);
     }
-    super::focus(ui, s, rect.shrink(2.0), radius::SM);
+    super::focus(ui, s, rect.shrink(2.0), radius::sm());
     a11y(
         &response,
         egui::WidgetType::SelectableLabel,
@@ -132,24 +145,29 @@ impl<'a> ScriptTab<'a> {
         let p = palette(ui.ctx());
         let g = galley(ui, self.label, TextStyle::Small, p.text_primary);
         let has_pin_slot = pinnable || self.pinned;
-        let w = space::S3
+        let w = space::s3()
             + 16.0
-            + space::S2
+            + space::s2()
             + g.size().x
-            + if has_pin_slot { space::S2 + 16.0 } else { 0.0 }
-            + space::S3;
+            + if has_pin_slot {
+                space::s2() + 16.0
+            } else {
+                0.0
+            }
+            + space::s3();
         let (rect, full_resp) =
             ui.allocate_exact_size(egui::vec2(w, crate::metrics::script_tab()), Sense::hover());
         let (tab_resp, raw_pin_resp, pin_center_x) = if has_pin_slot {
-            let pin_hit_left = (rect.right() - space::S3 - 16.0 - space::S1 * 0.5).max(rect.left());
+            let pin_hit_left =
+                (rect.right() - space::s3() - 16.0 - space::s1() * 0.5).max(rect.left());
             let body_rect = Rect::from_min_max(rect.min, egui::pos2(pin_hit_left, rect.bottom()));
             let pin_rect = Rect::from_min_max(egui::pos2(pin_hit_left, rect.top()), rect.max);
             let tab_r = ui.interact(body_rect, full_resp.id.with("body"), Sense::click());
             let pin_r = ui.interact(pin_rect, full_resp.id.with("pin"), Sense::click());
-            (tab_r, Some(pin_r), rect.right() - space::S3 - 8.0)
+            (tab_r, Some(pin_r), rect.right() - space::s3() - 8.0)
         } else {
             let tab_r = ui.interact(rect, full_resp.id.with("body"), Sense::click());
-            (tab_r, None, rect.right() - space::S3 - 8.0)
+            (tab_r, None, rect.right() - space::s3() - 8.0)
         };
         let pin_hovered = raw_pin_resp.as_ref().is_some_and(Response::hovered);
         let any_hovered = full_resp.hovered() || tab_resp.hovered() || pin_hovered;
@@ -168,7 +186,7 @@ impl<'a> ScriptTab<'a> {
                 Stroke::new(2.0_f32, p.accent_default),
             );
         }
-        let mut x = rect.left() + space::S3;
+        let mut x = rect.left() + space::s3();
         let icon_fg = if self.active { p.accent_default } else { fg };
         icons::paint(
             ui.painter(),
@@ -177,7 +195,7 @@ impl<'a> ScriptTab<'a> {
             icon,
             icon_fg,
         );
-        x += 16.0 + space::S2;
+        x += 16.0 + space::s2();
         text_at(
             ui,
             x,
@@ -247,7 +265,9 @@ impl Widget for ScriptTab<'_> {
     }
 }
 
-/// `NF2/Section Header` — collapsible 32 px overline row. Remembers its state per id.
+/// `NF3/Section Header` — collapsible `section_header()` overline row with a 12 px chevron.
+/// Remembers its state per id. The row starts at the left edge of its Ui: the host panel supplies
+/// the `space::s4()` side padding (`pad/panel`), so the chevron lines up with the fields below.
 pub struct SectionHeader<'a> {
     label: &'a str,
     id: egui::Id,
@@ -271,7 +291,8 @@ impl<'a> SectionHeader<'a> {
         self
     }
 
-    /// Show the header and, when expanded, `body`. Body gets 8 px gaps between rows.
+    /// Show the header and, when expanded, `body`. The body starts `metrics::row_gap()` below the
+    /// header and its rows are `row_gap()` apart.
     pub fn show<R>(self, ui: &mut Ui, body: impl FnOnce(&mut Ui) -> R) -> Option<R> {
         let p = palette(ui.ctx());
         let id = ui.id().with(self.id);
@@ -293,24 +314,29 @@ impl<'a> SectionHeader<'a> {
             p.text_secondary
         };
         let chev = if open { i16::CHEVDOWN } else { i16::CHEVRIGHT };
-        icons::paint(
+        icons::paint_sized(
             ui.painter(),
             ui.ctx(),
             Rect::from_center_size(
-                egui::pos2(rect.left() + 8.0, rect.center().y),
-                egui::vec2(16.0, 16.0),
+                egui::pos2(rect.left() + SECTION_CHEVRON / 2.0, rect.center().y),
+                egui::vec2(SECTION_CHEVRON, SECTION_CHEVRON),
             ),
             chev,
-            fg,
+            SECTION_CHEVRON,
+            if s.hovered {
+                p.text_primary
+            } else {
+                p.text_tertiary
+            },
         );
         text_at(
             ui,
-            rect.left() + 16.0 + space::S1 + 2.0,
+            rect.left() + section_title_inset(),
             rect,
             galley(ui, self.label, TextStyle::Overline, fg),
             fg,
         );
-        super::focus(ui, s, rect, radius::SM);
+        super::focus(ui, s, rect, radius::sm());
         response.widget_info(|| {
             let mut info =
                 egui::WidgetInfo::labeled(egui::WidgetType::CollapsingHeader, true, self.label);
@@ -318,15 +344,26 @@ impl<'a> SectionHeader<'a> {
             info
         });
         open.then(|| {
+            let gap = crate::metrics::row_gap();
+            // Whatever the host's row spacing is, the body starts exactly `gap/row` below.
+            ui.add_space(gap - ui.spacing().item_spacing.y);
             ui.scope(|ui| {
-                // Figma inspector body: 12 pt between section header, fields and rows.
-                ui.spacing_mut().item_spacing.y = space::S3;
-                // No trailing space: the parent's 12 pt gap separates sections (Figma body V gap 12).
+                ui.spacing_mut().item_spacing.y = gap;
+                // No trailing space: the parent's gap separates sections.
                 body(ui)
             })
             .inner
         })
     }
+}
+
+/// Side of the Section Header chevron (the 12 px master).
+const SECTION_CHEVRON: f32 = 12.0;
+
+/// Distance from the left edge of a [`SectionHeader`] to its title: chevron + tiny gap. Rows that
+/// align with section titles (shortcut list) use it as their indent.
+pub fn section_title_inset() -> f32 {
+    SECTION_CHEVRON + space::s1()
 }
 
 /// What the user did with a panel header this frame.
@@ -337,7 +374,7 @@ pub struct HeaderActions {
     pub close: bool,
 }
 
-/// `NF2/Panel Header` — docked panel title (`NF2/Title` 16 semibold), ⋯ menu, bottom separator. 40 px.
+/// `NF3/Panel Header` — docked panel title (`NF2/Title`), ⋯ menu, bottom separator; `panel_header()` high.
 /// Returns the title response (drag handle) and the ⋯ button response (anchor for the panel menu).
 pub struct PanelHeader<'a> {
     pub title: &'a str,
@@ -357,7 +394,7 @@ impl PanelHeader<'_> {
         );
         text_at(
             ui,
-            rect.left() + space::S3,
+            rect.left() + space::s4(),
             rect,
             galley(ui, self.title, TextStyle::Title, p.text_primary),
             p.text_primary,
@@ -365,10 +402,10 @@ impl PanelHeader<'_> {
         let more = ui
             .scope_builder(
                 egui::UiBuilder::new()
-                    .max_rect(rect.shrink2(egui::vec2(space::S2, 4.0)))
+                    .max_rect(rect.shrink2(egui::vec2(space::s1(), 0.0)))
                     .layout(egui::Layout::right_to_left(egui::Align::Center)),
                 |ui| {
-                    ui.spacing_mut().item_spacing.x = space::S1;
+                    ui.spacing_mut().item_spacing.x = space::s1();
                     let more = ui.add(super::IconButton::new(i16::MORE, "Panel menu"));
                     trailing(ui);
                     more
@@ -379,7 +416,10 @@ impl PanelHeader<'_> {
     }
 }
 
-/// `NF2/Floating Panel Header` — 36 px: drag grip, up to 3 panel tabs, ⋯, collapse, close.
+/// `NF3/Floating Panel Header` — `panel_tab()` high: drag grip, up to 3 panel tabs, ⋯, collapse,
+/// close (`control()` squares). Narrower than [`FloatingPanelHeader::NARROW_BELOW`] it shows only the
+/// grip and ⋯ — no title to clip; the caller then offers Collapse and Close in the ⋯ menu
+/// ([`FloatingHeaderResponse::narrow`]).
 pub struct FloatingPanelHeader<'a> {
     pub tabs: &'a [&'a str],
     pub active: usize,
@@ -395,9 +435,29 @@ pub struct FloatingHeaderResponse {
     pub menu: Response,
     pub collapse: bool,
     pub close: bool,
+    /// The header was too narrow for tabs, collapse and close: only the grip and ⋯ were shown.
+    pub narrow: bool,
 }
 
 impl FloatingPanelHeader<'_> {
+    /// Below this width the header shows only the grip and the ⋯ button.
+    pub const NARROW_BELOW: f32 = 120.0;
+    /// Gap between the ⋯ / collapse / close buttons.
+    const ACTION_GAP: f32 = 2.0;
+
+    /// Distance from the left edge to the first tab: gap, grip, tiny gap.
+    pub fn tab_strip_start() -> f32 {
+        space::s2() + i16::GRIP.side() + space::s1()
+    }
+    /// Width taken by ⋯, collapse and close at the right edge, including the edge inset.
+    pub fn actions_width() -> f32 {
+        space::s1() + 3.0 * crate::metrics::control() + 2.0 * Self::ACTION_GAP
+    }
+    /// Smallest width of the full header without tabs: grip + the three buttons.
+    pub fn chrome_width() -> f32 {
+        Self::tab_strip_start() + space::s1() + Self::actions_width()
+    }
+
     pub fn show(self, ui: &mut Ui) -> FloatingHeaderResponse {
         let p = palette(ui.ctx());
         let (rect, drag) = ui.allocate_exact_size(
@@ -418,13 +478,31 @@ impl FloatingPanelHeader<'_> {
             tab: None,
             collapse: false,
             close: false,
+            narrow: rect.width() < Self::NARROW_BELOW,
         };
+        if out.narrow {
+            // Grip centred in the space left of ⋯; nothing else fits without clipping.
+            let side = crate::metrics::control().min(rect.width());
+            let more = Rect::from_center_size(
+                egui::pos2(rect.right() - space::s1() - side / 2.0, rect.center().y),
+                egui::vec2(side, side),
+            );
+            let grip = Rect::from_min_max(rect.min, egui::pos2(more.left(), rect.bottom()));
+            if grip.width() >= i16::GRIP_H.side() {
+                icons::paint(ui.painter(), ui.ctx(), grip, i16::GRIP_H, p.text_tertiary);
+            }
+            out.menu = ui.put(
+                more,
+                super::IconButton::new(i16::MORE, "Panel menu").side(side),
+            );
+            return out;
+        }
         ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
-                ui.add_space(space::S2);
+                ui.add_space(space::s2());
                 icons::show(ui, i16::GRIP, p.text_tertiary);
-                ui.add_space(space::S1);
+                ui.add_space(space::s1());
                 for (i, t) in self.tabs.iter().enumerate() {
                     if ui
                         .add(PanelTab {
@@ -437,24 +515,18 @@ impl FloatingPanelHeader<'_> {
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add_space(space::S1);
-                    ui.spacing_mut().item_spacing.x = 2.0;
+                    ui.add_space(space::s1());
+                    ui.spacing_mut().item_spacing.x = Self::ACTION_GAP;
                     out.close = ui
-                        .add(
-                            super::IconButton::new(i16::X, "Close panel")
-                                .shortcut("⌘W")
-                                .side(28.0),
-                        )
+                        .add(super::IconButton::new(i16::X, "Close panel").shortcut("⌘W"))
                         .clicked();
                     let (icon, name) = if self.collapsed {
                         (i16::CHEVDOWN, "Expand panel")
                     } else {
                         (i16::CHEVUP, "Collapse panel")
                     };
-                    out.collapse = ui
-                        .add(super::IconButton::new(icon, name).side(28.0))
-                        .clicked();
-                    out.menu = ui.add(super::IconButton::new(i16::MORE, "Panel menu").side(28.0));
+                    out.collapse = ui.add(super::IconButton::new(icon, name)).clicked();
+                    out.menu = ui.add(super::IconButton::new(i16::MORE, "Panel menu"));
                 });
             });
         });
@@ -462,7 +534,7 @@ impl FloatingPanelHeader<'_> {
     }
 }
 
-/// `NF2/Dialog Header` — 60 px: `NF2/Dialog Title`, close ✕ (Esc).
+/// `NF3/Dialog Header` — `dialog_header()` high: `NF2/Dialog Title` after `space::s5()`, close ✕ (Esc).
 pub struct DialogHeader<'a> {
     pub title: &'a str,
 }
@@ -477,14 +549,14 @@ impl DialogHeader<'_> {
         );
         text_at(
             ui,
-            rect.left() + space::S5,
+            rect.left() + space::s5(),
             rect,
             galley(ui, self.title, TextStyle::DialogTitle, p.text_primary),
             p.text_primary,
         );
         ui.scope_builder(
             egui::UiBuilder::new()
-                .max_rect(rect.shrink2(egui::vec2(space::S4, 0.0)))
+                .max_rect(rect.shrink2(egui::vec2(space::s4(), 0.0)))
                 .layout(egui::Layout::right_to_left(egui::Align::Center)),
             |ui| {
                 ui.add(super::IconButton::new(i16::X, "Close").shortcut("Esc"))
@@ -495,9 +567,18 @@ impl DialogHeader<'_> {
     }
 }
 
-/// Width limits of `NF2/Document Tab` (R-035): 96–220 pt, the label ends with "…" beyond that.
-pub const DOCUMENT_TAB_MIN: f32 = 96.0;
-pub const DOCUMENT_TAB_MAX: f32 = 220.0;
+/// Normal-density width limits of `NF2/Document Tab` (R-035); layout uses [`document_tab_min`] and
+/// [`document_tab_max`].
+pub const DOCUMENT_TAB_MIN: f32 = crate::metrics::FIELD_S;
+pub const DOCUMENT_TAB_MAX: f32 = crate::metrics::FIELD_L;
+/// Width limits of a document tab at the current density (`width/field-s` … `width/field-l`); the
+/// label ends with "…" beyond the maximum.
+pub fn document_tab_min() -> f32 {
+    crate::metrics::field_s()
+}
+pub fn document_tab_max() -> f32 {
+    crate::metrics::field_l()
+}
 /// Height of `NF2/Document Tab` (same as controls in the top bar) at the current density.
 pub fn document_tab_height() -> f32 {
     crate::metrics::control()
@@ -528,11 +609,11 @@ impl DocumentTabTrailing {
 }
 
 /// Outer width of a document tab whose label (plus optional folder text) is `content` points wide:
-/// 12 left padding, 16 file icon, 8 gap, content, 8 gap, 16 trailing slot, 8 right padding,
-/// clamped to [`DOCUMENT_TAB_MIN`]…[`DOCUMENT_TAB_MAX`].
+/// field padding, 16 file icon, gap, content, gap, 16 trailing slot, gap,
+/// clamped to [`document_tab_min`]…[`document_tab_max`].
 pub fn document_tab_width(content: f32) -> f32 {
-    (space::S3 + 16.0 + space::S2 + content + space::S2 + 16.0 + space::S2)
-        .clamp(DOCUMENT_TAB_MIN, DOCUMENT_TAB_MAX)
+    (space::s3() + 16.0 + space::s2() + content + space::s2() + 16.0 + space::s2())
+        .clamp(document_tab_min(), document_tab_max())
 }
 
 /// `NF2/Document Tab` (`126:18291`, R-035) — one open document in the top-bar strip.
@@ -606,7 +687,7 @@ impl<'a> DocumentTab<'a> {
         let hovered = enabled && ui.rect_contains_pointer(rect);
         let trailing = DocumentTabTrailing::of(self.active, hovered, self.dirty);
         let slot = Rect::from_min_size(
-            egui::pos2(rect.right() - space::S2 - 16.0, rect.center().y - 8.0),
+            egui::pos2(rect.right() - space::s2() - 16.0, rect.center().y - 8.0),
             egui::vec2(16.0, 16.0),
         );
         let close = (enabled && trailing == DocumentTabTrailing::Close)
@@ -620,7 +701,7 @@ impl<'a> DocumentTab<'a> {
                 None
             };
             if let Some(bg) = bg {
-                ui.painter().rect_filled(rect, cr(radius::MD), bg);
+                ui.painter().rect_filled(rect, cr(radius::md()), bg);
             }
             let fg = if !enabled {
                 p.text_disabled
@@ -630,7 +711,7 @@ impl<'a> DocumentTab<'a> {
                 p.text_secondary
             };
             let icon_rect = Rect::from_min_size(
-                egui::pos2(rect.left() + space::S3, rect.center().y - 8.0),
+                egui::pos2(rect.left() + space::s3(), rect.center().y - 8.0),
                 egui::vec2(16.0, 16.0),
             );
             icons::paint(
@@ -644,8 +725,8 @@ impl<'a> DocumentTab<'a> {
                     p.text_disabled
                 },
             );
-            let x = icon_rect.right() + space::S2;
-            let room = (slot.left() - space::S2 - x).max(0.0);
+            let x = icon_rect.right() + space::s2();
+            let room = (slot.left() - space::s2() - x).max(0.0);
             let label = super::galley_truncated(ui, self.label, TextStyle::Small, fg, room);
             let label_w = label.size().x;
             text_at(ui, x, rect, label, fg);
@@ -675,7 +756,7 @@ impl<'a> DocumentTab<'a> {
                 DocumentTabTrailing::Close => {
                     let over = close.as_ref().is_some_and(Response::hovered);
                     if over {
-                        ui.painter().rect_filled(slot, cr(radius::SM), p.bg_hover);
+                        ui.painter().rect_filled(slot, cr(radius::sm()), p.bg_hover);
                     }
                     let c = if over {
                         p.text_primary
@@ -686,7 +767,7 @@ impl<'a> DocumentTab<'a> {
                 }
             }
             let s = State::of(ui, &response);
-            super::focus(ui, s, rect, radius::MD);
+            super::focus(ui, s, rect, radius::md());
         }
         let name = if self.dirty {
             format!("{} — unsaved", self.label)

@@ -12,7 +12,6 @@ use eframe::egui::{self, Ui};
 use neoflash_core::{Element, ElementKind, Id, Symbol, SymbolKind};
 use neoflash_ui::components as c;
 use neoflash_ui::icons::i16;
-use neoflash_ui::tokens::space;
 use std::collections::HashSet;
 
 /// Minimum number of rows in the Movie Explorer tree before row virtualization activates.
@@ -981,7 +980,7 @@ impl Editor {
     }
 
     pub(crate) fn movie_explorer_panel_ui(&mut self, ui: &mut Ui) {
-        ui.spacing_mut().item_spacing.y = space::S1;
+        ui.spacing_mut().item_spacing.y = neoflash_ui::metrics::row_gap();
 
         let active_solo = {
             let cats = self.movie_explorer.show_categories;
@@ -1050,8 +1049,8 @@ impl Editor {
         .frame(c::popover_frame(ui.ctx()))
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
-            ui.set_min_width(240.0);
-            ui.spacing_mut().item_spacing.y = 2.0;
+            ui.set_min_width(neoflash_ui::metrics::menu_width());
+            ui.spacing_mut().item_spacing.y = 0.0;
             for (idx, label) in [
                 (CAT_TEXT, "Show text"),
                 (CAT_SYMBOLS, "Show buttons, movie clips and graphics"),
@@ -1113,17 +1112,19 @@ impl Editor {
         let mut find_in_lib: Option<String> = None;
         let mut select_all_inst: Option<String> = None;
 
-        let tree_h = (ui.available_height() - 24.0).max(80.0);
+        // The path of the selection is the last line (`Mono Small`), under the tree.
+        let note_h = neoflash_ui::metrics::row() + ui.spacing().item_spacing.y;
+        let tree_h = (ui.available_height() - note_h).max(3.0 * neoflash_ui::metrics::row());
         egui::ScrollArea::vertical()
             .id_salt("movie-explorer-tree")
             .max_height(tree_h)
             .auto_shrink([false, false])
             .themed()
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = space::S1;
+                // One row per record at `size/row`; rows touch.
+                ui.spacing_mut().item_spacing.y = 0.0;
                 let total_rows = rows.len();
-                let row_h = neoflash_ui::metrics::control();
-                let row_pitch = row_h + space::S1;
+                let row_pitch = neoflash_ui::metrics::row();
                 let list_top = ui.cursor().min.y;
                 let clip = ui.clip_rect();
                 let row_range = visible_movie_explorer_row_range(
@@ -1134,7 +1135,7 @@ impl Editor {
                     total_rows,
                     MOVIE_EXPLORER_OVERSCAN_ROWS,
                 );
-                let top_spacer = (row_range.start as f32 * row_pitch - space::S1).max(0.0);
+                let top_spacer = row_range.start as f32 * row_pitch;
                 if top_spacer > 0.0 {
                     ui.allocate_exact_size(
                         egui::vec2(ui.available_width(), top_spacer),
@@ -1142,7 +1143,7 @@ impl Editor {
                     );
                 }
                 let bottom_rows = total_rows.saturating_sub(row_range.end);
-                let bottom_spacer = (bottom_rows as f32 * row_pitch - space::S1).max(0.0);
+                let bottom_spacer = bottom_rows as f32 * row_pitch;
                 let drawn_rows = row_range.len();
                 let stats = MovieExplorerVirtualStats {
                     total_rows,

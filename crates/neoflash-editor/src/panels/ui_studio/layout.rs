@@ -68,67 +68,64 @@ impl ComputedStudioLayout {
     }
 }
 
-/// Intrinsic default height of a leaf widget given the active [`UiStudioSystems`].
+/// Intrinsic default height of a leaf widget in the current density (the heights the atoms use).
 pub fn intrinsic_leaf_height(
     kind: &UiNodeKind,
-    systems: &UiStudioSystems,
+    _systems: &UiStudioSystems,
     typo: &TypographyOverride,
 ) -> f32 {
-    let density = systems.density.active();
+    use neoflash_ui::metrics;
     match kind {
         UiNodeKind::Field { .. }
         | UiNodeKind::TextField { .. }
         | UiNodeKind::Select { .. }
         | UiNodeKind::Button { .. }
-        | UiNodeKind::ColorSwatch { .. } => density.control_height,
-        UiNodeKind::IconButton { md_size: true, .. } => (density.control_height + 8.0).max(28.0),
-        UiNodeKind::IconButton { md_size: false, .. } => {
-            if systems.tool_rail.button_side > 0.0 {
-                density.control_height
-            } else {
-                32.0
-            }
-        }
-        UiNodeKind::Checkbox { .. } | UiNodeKind::Switch { .. } | UiNodeKind::Slider { .. } => {
-            density.row_height.max(20.0)
-        }
+        | UiNodeKind::ColorSwatch { .. } => metrics::control(),
+        UiNodeKind::IconButton { md_size: true, .. } => metrics::icon_button_md(),
+        UiNodeKind::IconButton { md_size: false, .. } => metrics::control(),
+        UiNodeKind::Checkbox { .. } | UiNodeKind::Switch { .. } => metrics::toggle_row(),
+        UiNodeKind::Slider { .. } => metrics::control(),
         UiNodeKind::Label => typo.line_height_pt.max(typo.size_pt + 4.0).max(16.0),
         UiNodeKind::Separator { vertical: false } => 1.0,
-        UiNodeKind::Separator { vertical: true } => 20.0,
-        UiNodeKind::TableRow { .. } => density.row_height,
+        UiNodeKind::Separator { vertical: true } => metrics::control(),
+        UiNodeKind::TableRow { .. } => metrics::row(),
         UiNodeKind::Panel { .. }
         | UiNodeKind::Section { .. }
         | UiNodeKind::Row
         | UiNodeKind::Column
-        | UiNodeKind::Grid { .. } => density.control_height,
+        | UiNodeKind::Grid { .. } => metrics::control(),
     }
 }
 
 /// Intrinsic default width of a leaf widget when `UiSizeUnit::Auto` is used.
 pub fn intrinsic_leaf_width(
     node: &UiStudioNode,
-    systems: &UiStudioSystems,
+    _systems: &UiStudioSystems,
     typo: &TypographyOverride,
 ) -> f32 {
-    let density = systems.density.active();
+    use neoflash_ui::metrics;
     match &node.kind {
-        UiNodeKind::IconButton { md_size: true, .. } => (density.control_height + 8.0).max(28.0),
-        UiNodeKind::IconButton { md_size: false, .. } => density.control_height,
-        UiNodeKind::ColorSwatch { .. } => 74.0,
+        UiNodeKind::IconButton { md_size: true, .. } => metrics::icon_button_md(),
+        UiNodeKind::IconButton { md_size: false, .. } => metrics::control(),
+        UiNodeKind::ColorSwatch { .. } => c::color::color_well_width(),
         UiNodeKind::Button { .. } => {
             let char_w = (typo.size_pt * 0.58).max(5.5);
-            (node.label.chars().count() as f32 * char_w + 28.0).max(64.0)
+            (node.label.chars().count() as f32 * char_w + 2.0 * c::button::button_padding())
+                .max(metrics::field_num())
         }
         UiNodeKind::Checkbox { .. } | UiNodeKind::Switch { .. } => {
             let char_w = (typo.size_pt * 0.58).max(5.5);
-            (node.label.chars().count() as f32 * char_w + 36.0).max(64.0)
+            (node.label.chars().count() as f32 * char_w
+                + metrics::switch_width()
+                + neoflash_ui::tokens::space::s2())
+            .max(metrics::field_num())
         }
         UiNodeKind::Label => {
             let char_w = (typo.size_pt * 0.58).max(5.5);
             (node.label.chars().count() as f32 * char_w + 8.0).max(32.0)
         }
         UiNodeKind::Separator { vertical: true } => 1.0,
-        _ => 120.0,
+        _ => metrics::field_s(),
     }
 }
 
@@ -181,13 +178,33 @@ pub fn resolve_node_spacing(node: &UiStudioNode, systems: &UiStudioSystems) -> (
     (pad, gap)
 }
 
-/// Compute the deterministic layout (`ComputedStudioLayout`) for `doc` and `systems`.
+/// Compute the deterministic layout (`ComputedStudioLayout`) for `doc` and `systems` in the
+/// Studio's preview density (`systems.density.active_profile`).
 pub fn compute_studio_layout(
     doc: &UiStudioDocument,
     systems: &UiStudioSystems,
     origin: Pos2,
     available_size: Vec2,
 ) -> ComputedStudioLayout {
+    compute_studio_layout_in(
+        doc,
+        systems,
+        systems.density.active_profile.ui(),
+        origin,
+        available_size,
+    )
+}
+
+/// [`compute_studio_layout`] in an explicit density (the "All" view lays one document out three
+/// times). The density of the UI thread is restored before returning.
+pub fn compute_studio_layout_in(
+    doc: &UiStudioDocument,
+    systems: &UiStudioSystems,
+    density: neoflash_ui::metrics::Density,
+    origin: Pos2,
+    available_size: Vec2,
+) -> ComputedStudioLayout {
+    let _scope = PreviewDensity::enter(density);
     let mut out = ComputedStudioLayout::default();
     let root_rect = layout_node_recursive(
         &doc.root,
@@ -250,10 +267,10 @@ fn layout_node_recursive(
             if tabs.is_empty() {
                 0.0
             } else {
-                systems.panel_header.height.max(24.0)
+                systems.panel_header.resolved_height()
             }
         }
-        UiNodeKind::Section { .. } => systems.section_header.height.max(20.0),
+        UiNodeKind::Section { .. } => systems.section_header.resolved_height(),
         _ => 0.0,
     };
 
@@ -295,7 +312,7 @@ fn layout_node_recursive(
         UiNodeKind::Grid { columns } => {
             let effective_cols = if node.style.system_binding == Some(SharedSystemKind::ToolRail) {
                 vec![
-                    UiSizeUnit::Px(systems.tool_rail.button_side);
+                    UiSizeUnit::Px(systems.tool_rail.resolved_button_side());
                     systems.tool_rail.columns.max(1)
                 ]
             } else if columns.is_empty() {

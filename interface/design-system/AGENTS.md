@@ -33,41 +33,70 @@ to HTML5 / Rust + WebAssembly, video, images, audio). The design is made in Figm
    `mid-neutral-gray` and `dark-graphite`.
 4. **Component API mirrors Figma.** Variant properties → props with the same option names; booleans → boolean props;
    text properties → strings. Hover / focus / disabled are states, not props. See §10 and §13 of the reference.
-5. **Timeline geometry is exact:** 12 px per frame (Normal), rows 28 px, ruler 32 px, frame `n` at `(n − 1) × 12`;
-   view modes Tiny 6 · Small 9 · Normal 12 · Medium 16 · Large 22 px; Short rows 18 px. Major frame labels are
-   centred on their ticks (1-, 2- and 3-digit); frame 1 uses the edge-safe rule and the seconds row is independent.
-   Virtualise rows and frames.
+5. **Timeline geometry is exact:** 12 px per frame (Normal), frame `n` at `(n − 1) × 12`; view modes Tiny 6 ·
+   Small 9 · Normal 12 · Medium 16 · Large 22 px; layer row presets Normal 22 · Short 18 · Compact 16 px (the density
+   picks the default); ruler and layers header 24 / 22 / 20 px by density. Major frame labels are centred on their
+   ticks (1-, 2- and 3-digit); frame 1 uses the edge-safe rule and the seconds row is independent. Virtualise rows
+   and frames.
 6. **Flash semantics are part of the spec:** layer kinds (normal, folder, guide, motion guide, mask, masked, sound,
    video, armature), keyframe glyphs (● ○ ▯ ◆ a), tween colours, symbol types, shortcuts (F5 / F6 / F7, F8, F9, ⌘↵).
 7. Accessibility: `text/primary` and `text/secondary` are ≥ 4.5:1 on every surface; `text/tertiary` and the accent,
    danger, warning and success text colours are ≥ 4.5:1 on app, panel, raised and field and ≥ 3:1 on hover and
    selected, and never carry meaning alone (icon + text). Mid Neutral Gray is a deliberately low-contrast palette:
    it guarantees 4.5:1 only for `text/primary` and has no red / amber semantics, so errors and warnings there always
-   show icon + text. 2 px focus ring on keyboard focus only, hit areas ≥ 32 px (28 Compact, 24 Classic Flash), every
+   show icon + text. 2 px focus ring on keyboard focus only, hit areas ≥ 24 px (22 Compact, 20 Classic Flash), every
    icon-only control has a tooltip with its shortcut.
 8. v1 (`NF1`) is the legacy UI kept for comparison. Do not implement or reuse it.
-9. **v2.25 preserves features.** Tools has one standard title and no redundant body captions; Properties and Color
-   are contextual and have no Selection / Tool or Selection / Drawing mode switches. Never remove an implemented
-   tool, modifier, colour mode, text option, panel command or floating-tab operation while applying the layout rules.
+9. **Layout changes preserve features.** Tools has no redundant body captions; Properties and Color are contextual
+   and have no Selection / Tool or Selection / Drawing mode switches. Never remove an implemented tool, modifier,
+   colour mode, text option, panel command or floating-tab operation while applying the layout rules: it moves to an
+   icon button with a tooltip or a ⋯ menu.
+10. **v3: density is a property of every atom.** Three paradigms — Normal, Compact, Classic Flash — set heights,
+   inner paddings, gaps, radii, toggle sizes, label columns and default panel and dialog widths (Figma collection
+   `NF3 · Density`; code `neoflash_ui::metrics`). Type scale and colours never depend on density. Never use a literal
+   size for chrome.
+11. **v3: nothing jumps.** A dialog has one size per density (never per page, target or tab); a dock keeps its width
+   across tabs; scroll areas never shrink to content; a control keeps its label in every context; a row never
+   overflows its panel.
+12. **v3: one form grid, one row per record, accent discipline.** Inspector rows are two equal columns with the label
+   inside the field; dialogs use a label column and controls at natural width; a colour, shortcut, target or layer is
+   one row; one Primary button per surface; options are checkboxes, a switch only for an instantly applied
+   application state.
 
 ## Key numbers
 
-- Window regions (1920 × 1080): top bar 48 · tools rail 56 · inspector 320 · bottom dock 420 (tabs 40, controls 44,
-  timeline body 336) · status bar 24.
-- Control heights: 32 fields / buttons / icon buttons, 28 rows / menu items / layer rows, 40 panel header, 36 panel tabs,
-  40 dock tabs and the main play button, 24 status bar.
-- Spacing scale 4 / 8 / 12 / 16 / 24 / 32; radii 4 / 6 / 8 / 12 / full.
-- Fonts: Inter (UI), Roboto Mono (code, timecode, numbers).
-- Panel minima (W × H): Tools 88×160; Timeline 320×180; Library 248×300; Properties 320×220;
-  Align/Transform/Color/Scene/History/Info 248×190; Swatches 300×360; Project 248×280; Filters 268×260;
-  Code Snippets/Movie Explorer 280×280; Compiler Errors 360×180; Ease 320×420; Motion Editor 640×260;
-  remaining panels 320×220. Width applies docked and floating; panel-specific height only floating.
-- Detached Tools uses eight Stage anchors at 16 px inset with 112 px capture. Middle-left/right use one column;
-  all other anchors keep the two-column palette. Fill/Stroke opens or focuses the Color panel.
-- Help is a clamped 920×760 shell with fixed 52 px header, 212 px sidebar and independent content scrolling.
-  Function Search opens focused, preserves the first character, is at most 560 px wide and shows at most 24 results.
+Normal / Compact / Classic Flash (logical px). The full table is `docs/DESIGN-SYSTEM.md` › "Density table" in the
+repository root; the v2.25 exports in `exports/` are drawn at the previous Comfortable sizes.
+
+- Window regions: top bar 36 / 32 / 28 · tools rail 40 / 36 / 32 (two columns 72 / 64 / 57) · inspector 264 / 240 /
+  224 · bottom dock 300 by default (tabs 30 / 26 / 22, controls row 34 / 30 / 26) · status bar 22 / 20 / 18.
+- Control heights: 26 / 22 / 20 fields, selects, buttons, icon buttons; 24 / 20 / 18 rows and menu items; 30 / 26 / 22
+  panel tabs, panel and dock headers and the play button; 24 / 22 / 20 section headers; 44 / 38 / 32 dialog headers.
+- Toggles: row 18 / 16 / 16, check box and radio 14 / 14 / 12, switch 26 × 14 / 24 × 12 / 22 × 12, slider thumb
+  12 / 10 / 10. Badge and Kbd 18 / 16 / 16.
+- Spacing steps 1–6: 4 · 6 · 8 · 12 · 20 · 28 / 3 · 4 · 6 · 8 · 16 · 22 / 2 · 4 · 5 · 6 · 12 · 16 (tiny gap · control
+  gap · field padding · panel padding · dialog padding · block gap); form row gap 6 / 4 / 3. Radii sm–xl:
+  3 · 5 · 8 · 10 / 3 · 4 · 6 · 8 / 2 · 3 · 4 · 6.
+- Dialog widths S / M / L / XL: 360 / 480 / 720 / 880 (Compact 328 / 440 / 660 / 820, Classic Flash 304 / 408 / 620 /
+  760); shared heights 576 / 500 / 440 (Preferences, Publish settings, Find and replace …) and 640 / 600 / 560
+  (Scripting Reference, Help, 960 / 900 / 860 wide). Label column in dialogs 112 / 100 / 92, in inspectors
+  72 / 64 / 60. Natural control widths: number 64 / 56 / 52, small 96 / 88 / 80, medium 160 / 148 / 136, large
+  224 / 204 / 188.
+- Fonts: Inter (UI), Roboto Mono (code, timecode, numbers); the type scale is the same in every density.
+- Panel minima: every side panel shares one minimum width, the inspector width (264 / 240 / 224), so a dock never
+  changes width with its active tab; Tools is one or two columns; wide panels (Compiler errors, Ease, Motion editor,
+  Timeline) keep larger, density-scaled minima.
+- Detached Tools uses eight Stage anchors; middle-left / right use one column, the others two. The palette shows a
+  grip instead of a title, its ⋯ menu closes the tool grid, and its height does not depend on the active tool.
+  Fill / Stroke opens or focuses the Color panel.
+- Help and the Scripting Reference are fixed-size windows (tree column 240 / 220 / 204). The Scripting Reference
+  shows exactly one language at a time. Function Search opens focused, preserves the first character and shows at
+  most 24 results.
 
 ## Regenerating
+
+v3 pages of the Figma file are generated by the builder in `../figma-plugin/v3` (see its README); change a surface
+by editing its builder and re-running it. The export below still produces the PNG / SVG / outline references.
 
 Design changed in Figma → `python3 tools/receiver.py`, run the **NeoFlash Export** dev plugin in Figma Desktop
 (`tools/export-plugin/manifest.json`), then `python3 tools/build-docs.py && tools/build-pdf.sh`. See `tools/README.md`.

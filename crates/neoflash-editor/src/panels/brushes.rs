@@ -15,6 +15,10 @@ use neoflash_ui::{
 fn note(ui: &mut egui::Ui, text: &str) {
     ui.label(rich(text, TextStyle::Small).color(neoflash_ui::palette(ui.ctx()).text_tertiary));
 }
+/// Label column of the slider rows (`width/label`).
+fn slider_label_width() -> f32 {
+    neoflash_ui::metrics::label_width()
+}
 fn slider(
     ui: &mut egui::Ui,
     label: &str,
@@ -23,16 +27,18 @@ fn slider(
     unit: &str,
 ) {
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 10.;
+        ui.spacing_mut().item_spacing.x = space::s2();
+        let label_width = slider_label_width();
         ui.allocate_ui_with_layout(
-            egui::vec2(60., 32.),
+            egui::vec2(label_width, neoflash_ui::metrics::control()),
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
-                ui.set_min_width(60.);
+                ui.set_min_width(label_width);
                 ui.label(rich(label, TextStyle::Body));
             },
         );
-        let width = (ui.available_width() - nf::toggle::SLIDER_FIELD - 10.).max(24.);
+        let width =
+            (ui.available_width() - nf::toggle::slider_field() - nf::toggle::slider_gap()).max(24.);
         ui.add(
             nf::Slider::new(value, range, label)
                 .width(width)
@@ -42,12 +48,15 @@ fn slider(
     });
 }
 fn slider_range(ui: &mut egui::Ui, minimum: &str, maximum: &str) {
-    let rail_width = (ui.available_width() - 70. - nf::toggle::SLIDER_FIELD - 10.).max(24.);
+    let lead = slider_label_width() + space::s2();
+    let rail_width =
+        (ui.available_width() - lead - nf::toggle::slider_field() - nf::toggle::slider_gap())
+            .max(24.);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.;
-        ui.add_space(70.);
+        ui.add_space(lead);
         ui.allocate_ui_with_layout(
-            egui::vec2(rail_width, 14.),
+            egui::vec2(rail_width, neoflash_ui::metrics::check_box()),
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
                 note(ui, minimum);
@@ -60,12 +69,15 @@ fn slider_range(ui: &mut egui::Ui, minimum: &str, maximum: &str) {
 }
 impl Editor {
     pub(crate) fn brushes_contents(&mut self, ui: &mut egui::Ui) {
-        ui.spacing_mut().item_spacing.y = space::S3;
-        let width = ui.available_width();
+        ui.spacing_mut().item_spacing.y = neoflash_ui::metrics::row_gap();
+        let width = crate::paint_controls::visible_row_width(ui);
         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = space::s2();
+            // Search takes the row; Brush options ends it.
+            let side = neoflash_ui::metrics::control();
             ui.add(
                 nf::Search::new(&mut self.authoring_tools.brush_search, "Find brush")
-                    .width((width - 40.).max(72.)),
+                    .width((width - side - space::s2()).max(side)),
             );
             if ui
                 .add(nf::IconButton::new(i16::SETTINGS, "Brush options"))
@@ -77,7 +89,8 @@ impl Editor {
             }
         });
         nf::SectionHeader::new("Basic").show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 2.;
+            // One row per preset, rows touch.
+            ui.spacing_mut().item_spacing.y = 0.;
             for (label, size, shape, sample) in [
                 (
                     "Round",
@@ -154,7 +167,7 @@ impl Editor {
         slider(ui, "Size", &mut size, 1. ..=200., "px");
         self.authoring_tools.brush_size = size as f32;
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 2.;
+            ui.spacing_mut().item_spacing.x = space::s1();
             if ui
                 .add(nf::IconButton::new(i16::PLUS, "New brush"))
                 .clicked()
@@ -238,7 +251,7 @@ impl Editor {
         });
         nf::SectionHeader::new("Shape and size").show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 6.;
+                ui.spacing_mut().item_spacing.x = space::s1();
                 for shape in nf::BrushShapeKind::ALL {
                     if ui
                         .add(
@@ -273,7 +286,7 @@ impl Editor {
                     i16::PRESSURE,
                     neoflash_ui::palette(ui.ctx()).text_secondary,
                 );
-                ui.add(nf::Switch::new(
+                ui.add(nf::Checkbox::new(
                     &mut self.authoring_tools.brush_pressure,
                     "Pressure controls size",
                 ));
@@ -284,7 +297,7 @@ impl Editor {
                     i16::TILT,
                     neoflash_ui::palette(ui.ctx()).text_secondary,
                 );
-                ui.add(nf::Switch::new(
+                ui.add(nf::Checkbox::new(
                     &mut self.authoring_tools.brush_tilt,
                     "Tilt controls angle",
                 ));
@@ -377,8 +390,9 @@ impl Editor {
             let adv_resp = ui
                 .add_enabled_ui(false, |ui| {
                     ui.horizontal(|ui| {
-                        ui.add(nf::Switch::new(&mut false, "Stroke hinting"));
-                        nf::Select::new("pencil-scale", "Scale: Normal")
+                        ui.add(nf::Checkbox::new(&mut false, "Stroke hinting"));
+                        nf::Select::new("pencil-scale", "Normal")
+                            .prefix("Scale")
                             .width(ui.available_width())
                             .show(ui, |_| {});
                     });

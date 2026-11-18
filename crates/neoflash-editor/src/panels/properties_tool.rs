@@ -1302,7 +1302,7 @@ impl Editor {
             .id_salt("ik-bone-inspector")
             .default_open(true)
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = space::S2;
+                ui.spacing_mut().item_spacing.y = space::s2();
                 ui.label(
                     rich(
                         "Connect instances or shapes to build an IK chain, or bake poses to keyframes.",
@@ -1342,7 +1342,7 @@ impl Editor {
             .id_salt("asset-warp-inspector")
             .default_open(true)
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = space::S2;
+                ui.spacing_mut().item_spacing.y = space::s2();
                 let msg = if !editable {
                     "Unlock and show the active layer before placing or dragging warp pins."
                 } else if element_id.is_none() {
@@ -1365,7 +1365,7 @@ impl Editor {
                         .color(p.text_secondary),
                     );
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
+                        ui.spacing_mut().item_spacing.x = space::s2();
                         if ui
                             .add_enabled(
                                 editable && pin_count > 0,

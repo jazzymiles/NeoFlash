@@ -5,10 +5,9 @@
 //!
 //! Every edit runs through `Editor::transact` / `begin_property_edit` (`commit_history`),
 //! upgrading the document to format 7 when authored display/filter properties are used.
-use super::planned::type_header;
 use crate::app::Editor;
-use crate::paint_controls::{color_row, numeric_pair_with_trailing, two_column_row};
-use crate::theme::{DesignUi as _, ScrollTheme as _};
+use crate::paint_controls::{color_row, two_column_row};
+use crate::theme::DesignUi as _;
 use crate::workspace::PanelId;
 use eframe::egui::{self, Ui};
 use neoflash_core::*;
@@ -360,18 +359,18 @@ pub(crate) fn render_filtered_element_texture(
 
 fn quality_label(quality: u8) -> &'static str {
     match quality {
-        0 | 1 => "Quality: Low",
-        2 => "Quality: Medium",
-        3 => "Quality: High",
-        _ => "Quality: Custom",
+        0 | 1 => "Low",
+        2 => "Medium",
+        3 => "High",
+        _ => "Custom",
     }
 }
 
 fn placement_label(placement: &str) -> &'static str {
     match placement {
-        "outer" => "Type: Outer",
-        "full" => "Type: Full",
-        _ => "Type: Inner",
+        "outer" => "Outer",
+        "full" => "Full",
+        _ => "Inner",
     }
 }
 
@@ -984,21 +983,23 @@ impl Editor {
     pub(crate) fn filters_panel_ui(&mut self, ui: &mut Ui) {
         self.panel_title(ui, PanelId::Filters, "Filters");
         let ctx = ui.ctx().clone();
-        egui::ScrollArea::vertical()
-            .id_salt("filters-content")
-            .auto_shrink([false, false])
-            .themed()
-            .show(ui, |ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
-                self.filters_panel(ui);
-            });
+        crate::authoring_modify::panel_scroll_body(ui, PanelId::Filters, "filters-content", |ui| {
+            ui.spacing_mut().item_spacing =
+                egui::vec2(space::s2(), neoflash_ui::metrics::row_gap());
+            self.filters_panel(ui);
+        });
         self.end_property_interaction(&ctx);
     }
 
     /// Panel / Filters body (bound to the selected `Element`'s or active Keyframe/Layer's `filters`).
     fn filters_panel(&mut self, ui: &mut Ui) {
         let (header_icon, header_title, header_sub) = self.selected_type_header();
-        type_header(ui, header_icon, header_title, &header_sub);
+        // v3: one-line type header, as in Properties.
+        ui.add(c::TypeHeader {
+            icon: header_icon,
+            title: header_title,
+            subtitle: &header_sub,
+        });
         self.display_and_filters_sections_ui(ui, "filters", true, true);
     }
 
@@ -1092,7 +1093,7 @@ impl Editor {
                     .show(ui, |ui| {
                         ui.add_enabled_ui_semantic(element_editable, |ui| {
                             ui.horizontal(|ui| {
-                                if ui.add(c::Switch::new(&mut visible, "Visible")).changed() {
+                                if ui.add(c::Checkbox::new(&mut visible, "Visible")).changed() {
                                     next_visible = Some(visible);
                                 }
                                 if ui
@@ -1106,8 +1107,8 @@ impl Editor {
                         two_column_row(
                             ui,
                             |ui, width| {
-                                let blend_label = format!("Blending: {}", blend_mode.label());
-                                c::Select::new((id_prefix, "filters-blending"), &blend_label)
+                                c::Select::new((id_prefix, "filters-blending"), blend_mode.label())
+                                    .prefix("Blend")
                                     .width(width)
                                     .show(ui, |ui| {
                                         for mode in BlendMode::ALL {
@@ -1151,11 +1152,12 @@ impl Editor {
                                 } else {
                                     ui.add_enabled_ui_semantic(element_editable, |ui| {
                                         let render_label = if cache_as_bitmap {
-                                            "Render: Export as bitmap"
+                                            "Bitmap"
                                         } else {
-                                            "Render: Original"
+                                            "Original"
                                         };
                                         c::Select::new((id_prefix, "filters-render"), render_label)
+                                            .prefix("Render")
                                             .width(width)
                                             .show(ui, |ui| {
                                                 for (cached, label) in [
@@ -1218,8 +1220,8 @@ impl Editor {
                         }
                     }
 
-                    ui.add_space(space::S2);
-                    ui.spacing_mut().item_spacing.y = space::S2;
+                    ui.add_space(space::s2());
+                    ui.spacing_mut().item_spacing.y = space::s2();
 
                     let idx = state.selected_index;
                     let key_id = (target_key.clone().unwrap_or_default(), idx);
@@ -1421,26 +1423,19 @@ impl Editor {
                                         .get(&key_id)
                                         .copied()
                                         .unwrap_or_else(|| (blur_x - blur_y).abs() <= 1e-6);
-                                    let ([rx, ry], lock_btn) = numeric_pair_with_trailing(
+                                    let [rx, ry] = crate::paint_controls::numeric_pair_with_suffix(
                                         ui,
                                         ["Blur X", "Blur Y"],
                                         [&mut blur_x, &mut blur_y],
                                         0.0..=255.0,
                                         0.5,
                                         " px",
-                                        (24.0, |ui| {
-                                            ui.add(
-                                                c::IconButton::new(
-                                                    i16::LINK,
-                                                    "Lock Blur X and Blur Y",
-                                                )
-                                                .selected(locked)
-                                                .side(24.0),
-                                            )
-                                        }),
                                     );
-                                    if lock_btn.clicked() {
-                                        locked = !locked;
+                                    let lock = ui.add(c::Checkbox::new(
+                                        &mut locked,
+                                        "Lock Blur X and Blur Y",
+                                    ));
+                                    if lock.changed() {
                                         state.blur_locked.insert(key_id.clone(), locked);
                                         if locked && (blur_x - blur_y).abs() > 1e-6 {
                                             blur_y = blur_x;
@@ -1483,6 +1478,7 @@ impl Editor {
                                                     (id_prefix, "filters-quality"),
                                                     quality_label(cur_q),
                                                 )
+                                                .prefix("Quality")
                                                 .width(width)
                                                 .show(ui, |ui| {
                                                     for (level, label) in
@@ -1726,6 +1722,7 @@ impl Editor {
                                                     (id_prefix, "filters-bevel-type"),
                                                     placement_label(&cur_pl),
                                                 )
+                                                .prefix("Type")
                                                 .width(width)
                                                 .show(ui, |ui| {
                                                     for (val, label) in [
@@ -1965,6 +1962,7 @@ impl Editor {
                                                     (id_prefix, "filters-gradient-type"),
                                                     placement_label(&cur_pl),
                                                 )
+                                                .prefix("Type")
                                                 .width(width)
                                                 .show(ui, |ui| {
                                                     for (val, label) in [
@@ -2049,12 +2047,10 @@ impl Editor {
                                     )
                                 },
                                 |ui, width| {
-                                    c::Select::new(
-                                        (id_prefix, "filters-quality-empty"),
-                                        "Quality: Low",
-                                    )
-                                    .width(width)
-                                    .show(ui, |_| {})
+                                    c::Select::new((id_prefix, "filters-quality-empty"), "Low")
+                                        .prefix("Quality")
+                                        .width(width)
+                                        .show(ui, |_| {})
                                 },
                             );
                         });
@@ -2077,7 +2073,7 @@ impl Editor {
                     ui.horizontal(|ui| {
                         let add_btn =
                             ui.add_enabled(can_add, c::IconButton::new(i16::PLUS, "Add filter"));
-                        c::popup_below(&add_btn, 180.0, |ui| {
+                        c::popup_below(&add_btn, neoflash_ui::metrics::menu_width(), |ui| {
                             for kind in AuthoringFilterKind::ALL {
                                 if ui.add(c::MenuItem::new(kind.label())).clicked() {
                                     add_kind = Some(kind);
@@ -2127,7 +2123,7 @@ impl Editor {
                             filters_editable,
                             c::IconButton::new(i16::MORE, "Filter presets and options"),
                         );
-                        c::popup_below(&more_btn, 220.0, |ui| {
+                        c::popup_below(&more_btn, neoflash_ui::metrics::menu_width(), |ui| {
                             if ui
                                 .add_enabled(can_del, c::MenuItem::new("Reset filter"))
                                 .clicked()

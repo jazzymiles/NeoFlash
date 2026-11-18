@@ -164,11 +164,11 @@ impl Editor {
                 window.max.y -= neoflash_ui::metrics::status_bar();
                 window
             });
-        let available = viewport.width() - 2. * space::S4;
+        let available = viewport.width() - 2. * space::s4();
         if available <= 0. {
             return;
         }
-        let mut bottom = viewport.bottom() - space::S4;
+        let mut bottom = viewport.bottom() - space::s4();
         let mut remove = Vec::new();
         let mut action = None;
         let mut action_payload = None;
@@ -202,12 +202,19 @@ impl Editor {
                         )
                         .size()
                         .x
-                }) + 2. * space::S3
+                }) + 2. * space::s3()
             });
-            // Shared Toast uses 24 pt close, 16 pt icon, 3 pt stripe, padding and four row gaps.
-            let controls_width = action_width + 24. + 16. + 3. + 2. * space::S3 + 4. * space::S2;
+            // Shared Toast: one control for Dismiss, the 16 pt icon, its 3 pt stripe, the field padding
+            // on both sides and four row gaps.
+            let controls_width = action_width
+                + neoflash_ui::metrics::control()
+                + neoflash_ui::metrics::ICON_UI
+                + TOAST_STRIPE
+                + 2. * space::s3()
+                + 4. * space::s2();
+            let (min_width, max_width) = toast_width_range();
             let width = (text_width + controls_width)
-                .clamp(320., 480.)
+                .clamp(min_width, max_width)
                 .min(available);
             // Toast's horizontal label precedes its trailing controls. Reserve their space before
             // passing text to the shared component: plain Wrap would consume the entire row and
@@ -260,7 +267,7 @@ impl Editor {
                     .show(ui, width)
                 });
             toast.rect = shown.response.rect;
-            bottom = toast.rect.top() - space::S2;
+            bottom = toast.rect.top() - space::s2();
             if shown.inner.close || shown.inner.action {
                 remove.push(toast.id);
             }
@@ -295,6 +302,17 @@ impl Editor {
             ctx.request_repaint_after(next);
         }
     }
+}
+
+/// Width of the Toast's severity stripe (`nf::Toast`).
+const TOAST_STRIPE: f32 = 3.;
+
+/// Narrowest and widest toast: `width/dialog-s` to `width/dialog-m`.
+pub(crate) fn toast_width_range() -> (f32, f32) {
+    (
+        neoflash_ui::metrics::dialog_s(),
+        neoflash_ui::metrics::dialog_m(),
+    )
 }
 
 #[cfg(test)]
@@ -448,8 +466,9 @@ mod tests {
             let rect = editor.notifications.visible[0].rect;
             assert!(canvas.contains_rect(rect));
             assert!((rect.center().x - canvas.center().x).abs() < 1.);
-            assert!((rect.bottom() - (canvas.bottom() - space::S4)).abs() < 1.);
-            assert!((320. ..=482.).contains(&rect.width()));
+            assert!((rect.bottom() - (canvas.bottom() - space::s4())).abs() < 1.);
+            let (min_width, max_width) = toast_width_range();
+            assert!((min_width..=max_width + 2.).contains(&rect.width()));
             assert_message_bounds(&output, error, rect, true);
             let error_id = live_node(
                 &output,
@@ -499,7 +518,8 @@ mod tests {
             frame(&mut editor, &ctx, canvas, vec![]);
             let output = frame(&mut editor, &ctx, canvas, vec![]);
             let rect = editor.notifications.visible[0].rect;
-            assert!((320. ..=482.).contains(&rect.width()));
+            let (min_width, max_width) = toast_width_range();
+            assert!((min_width..=max_width + 2.).contains(&rect.width()));
             assert_message_bounds(&output, warning, rect, false);
             live_node(
                 &output,

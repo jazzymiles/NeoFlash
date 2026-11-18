@@ -88,7 +88,7 @@ impl Editor {
                         .prefix("FPS")
                         .range(1.0..=1000.0)
                         .step(0.25)
-                        .width(92.),
+                        .width(neoflash_ui::metrics::field_num()),
                 ),
                 "Frame rate. Frame count stays fixed; duration changes",
                 None,
@@ -101,13 +101,15 @@ impl Editor {
         if show_duration {
             let duration = nf::tooltip(
                 ui.add(
+                    // "Dur" keeps the value and its unit readable in `width/field-s`; the accessible
+                    // name and the tooltip carry the full word.
                     nf::Field::new(&mut draft.seconds, "Duration")
-                        .prefix("Duration")
+                        .prefix("Dur")
                         .unit("s")
                         .range(frames as f64 / 1000. ..=frames as f64)
                         .step(0.02)
                         .decimals(2)
-                        .width(140.),
+                        .width(neoflash_ui::metrics::field_s()),
                 ),
                 "Total duration. Keeps all frames and sets the nearest whole-number FPS",
                 None,

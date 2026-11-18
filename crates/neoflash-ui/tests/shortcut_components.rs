@@ -2,7 +2,8 @@
 //! conflict strip lay out at the Figma sizes in both themes.
 use eframe::egui;
 use neoflash_ui::components::{self as c, shortcuts};
-use neoflash_ui::{Theme, theme, typography};
+use neoflash_ui::tokens::space;
+use neoflash_ui::{Theme, metrics, theme, typography};
 
 fn run<R>(theme_: Theme, mut content: impl FnMut(&mut egui::Ui) -> R) -> R {
     let ctx = egui::Context::default();
@@ -25,7 +26,7 @@ fn run<R>(theme_: Theme, mut content: impl FnMut(&mut egui::Ui) -> R) -> R {
 }
 
 #[test]
-fn rows_are_32_pt_with_a_140_pt_cell_on_the_right() {
+fn rows_are_one_control_high_with_a_field_wide_cell_on_the_right() {
     for t in [Theme::Dark, Theme::Light] {
         let (assigned, empty) = run(t, |ui| {
             let a = c::ShortcutRow::new("Keyframe")
@@ -36,9 +37,11 @@ fn rows_are_32_pt_with_a_140_pt_cell_on_the_right() {
             ((a.row.rect, a.cell.rect), (e.row.rect, e.cell.rect))
         });
         for (row, cell) in [assigned, empty] {
-            assert_eq!(row.size(), egui::vec2(650.0, shortcuts::SHORTCUT_ROW));
-            assert_eq!(cell.width(), shortcuts::SHORTCUT_CELL);
-            assert!((row.right() - cell.right() - 12.0).abs() < 0.5);
+            assert_eq!(shortcuts::shortcut_row(), metrics::control());
+            assert_eq!(shortcuts::shortcut_cell(), metrics::field_m());
+            assert_eq!(row.size(), egui::vec2(650.0, shortcuts::shortcut_row()));
+            assert_eq!(cell.width(), shortcuts::shortcut_cell());
+            assert!((row.right() - cell.right() - space::s3()).abs() < 0.5);
         }
     }
 }
@@ -69,7 +72,8 @@ fn recorder_and_conflict_strip_report_nothing_without_clicks() {
                 .show(ui, 650.0);
             ui.cursor().top() - top
         });
-        // Row (40 pt) + 4 pt + strip (at least one 32 pt row).
-        assert!(h >= 40.0 + 4.0 + 32.0, "{h}");
+        // Recorder row (a row plus one gap) + tiny gap + strip (at least one row).
+        let row = shortcuts::shortcut_row();
+        assert!(h >= row + space::s2() + space::s1() + row, "{h}");
     }
 }

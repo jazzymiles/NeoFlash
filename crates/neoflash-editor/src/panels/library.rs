@@ -1455,69 +1455,8 @@ impl Editor {
             .max(1.);
         ui.set_max_width(content_width);
         self.panel_title(ui, PanelId::Library, "Library");
-        ui.spacing_mut().item_spacing = Vec2::splat(space::S2);
-        let height = ui.available_height();
-        let selected_id = if self.library_source_is_active() {
-            self.library_selected.as_deref()
-        } else {
-            self.library_panel.source_selected.as_deref()
-        };
-        let selected = selected_id
-            .and_then(|id| self.library_source_project().symbol(id))
-            .map(LibrarySymbol::from_symbol);
-        let mut overflow = None;
-        if let Some(symbol) = selected {
-            let spacing = ui.spacing().item_spacing.y;
-            let metadata = preview_metadata(&symbol);
-            let text_height = |text: &str, style: TextStyle| {
-                ui.painter()
-                    .layout_no_wrap(
-                        text.to_owned(),
-                        neoflash_ui::typography::font(style),
-                        ui.visuals().text_color(),
-                    )
-                    .size()
-                    .y
-                    .max(16.)
-            };
-            let name_height = text_height(&symbol.name, TextStyle::BodyStrong);
-            let metadata_height = text_height(&metadata, TextStyle::Small);
-            // Reserve search, the item-count row, three list rows and the footer.
-            let reserved = neoflash_ui::metrics::control() * 2.
-                + neoflash_ui::metrics::row() * 3.
-                + crate::theme::footer_h()
-                + 1.
-                + 7. * spacing;
-            let image_budget = height
-                - reserved
-                - neoflash_ui::metrics::section_header()
-                - name_height
-                - metadata_height
-                - 4. * spacing;
-            if image_budget >= 64. {
-                let open = *self
-                    .library_panel
-                    .preview_open
-                    .get_or_insert(height >= 330.);
-                let shown = nf::SectionHeader::new("Preview")
-                    .id_salt("library-preview")
-                    .default_open(open)
-                    .show(ui, |ui| {
-                        self.library_preview(ui, &symbol, &metadata, image_budget.min(160.))
-                    });
-                self.library_panel.preview_open = Some(shown.is_some());
-            } else {
-                overflow = Some((symbol, metadata));
-            }
-        }
-        let search = ui.add(
-            nf::Search::new(&mut self.library_panel.search, "Search library").width(content_width),
-        );
-        nf::tooltip(
-            search,
-            "Search symbol names, folders, linkage identifiers and classes",
-            None,
-        );
+        ui.spacing_mut().item_spacing = Vec2::splat(space::s2());
+        // v3 order: source select, preview, then one row of search · preview · options.
         if self.sessions.len() > 1 || self.library_panel.external_library.is_some() {
             let current_label = match &self.library_panel.source {
                 LibrarySource::ActiveDocument => format!("{} (active)", self.project.name),
@@ -1590,6 +1529,62 @@ impl Editor {
                         }
                     }
                 });
+        }
+        let height = ui.available_height();
+        let selected_id = if self.library_source_is_active() {
+            self.library_selected.as_deref()
+        } else {
+            self.library_panel.source_selected.as_deref()
+        };
+        let selected = selected_id
+            .and_then(|id| self.library_source_project().symbol(id))
+            .map(LibrarySymbol::from_symbol);
+        let mut overflow = None;
+        if let Some(symbol) = selected {
+            let spacing = ui.spacing().item_spacing.y;
+            let metadata = preview_metadata(&symbol);
+            let text_height = |text: &str, style: TextStyle| {
+                ui.painter()
+                    .layout_no_wrap(
+                        text.to_owned(),
+                        neoflash_ui::typography::font(style),
+                        ui.visuals().text_color(),
+                    )
+                    .size()
+                    .y
+                    .max(16.)
+            };
+            let name_height = text_height(&symbol.name, TextStyle::BodyStrong);
+            let metadata_height = text_height(&metadata, TextStyle::Small);
+            // Reserve the search row, four list rows and the footer: the inline preview may not
+            // squeeze the tree below the three rows of the stacked minimum (R-077) plus one.
+            let reserved = neoflash_ui::metrics::control()
+                + neoflash_ui::metrics::row() * 3.
+                + neoflash_ui::metrics::control()
+                + crate::theme::footer_h()
+                + 1.
+                + 7. * spacing;
+            let image_budget = height
+                - reserved
+                - neoflash_ui::metrics::section_header()
+                - name_height
+                - metadata_height
+                - 4. * spacing;
+            if image_budget >= 64. {
+                let open = *self
+                    .library_panel
+                    .preview_open
+                    .get_or_insert(height >= 330.);
+                let shown = nf::SectionHeader::new("Preview")
+                    .id_salt("library-preview")
+                    .default_open(open)
+                    .show(ui, |ui| {
+                        self.library_preview(ui, &symbol, &metadata, image_budget.min(160.))
+                    });
+                self.library_panel.preview_open = Some(shown.is_some());
+            } else {
+                overflow = Some((symbol, metadata));
+            }
         }
         self.library_browser(ui, overflow);
     }
@@ -1737,7 +1732,7 @@ impl Editor {
                 .filter(|symbol| symbol_matches(symbol, &query))
                 .count()
         };
-        self.library_count_row(
+        let (count, count_detail) = self.library_search_row(
             ui,
             &symbols,
             folders.len(),
@@ -1761,7 +1756,9 @@ impl Editor {
         let mut action = None;
         let footer = crate::theme::footer_h() + 1. + 2. * ui.spacing().item_spacing.y;
         let tree_height = (ui.available_height() - footer).max(0.);
-        egui::ScrollArea::vertical()
+        // Row (top, bottom) to bring into view after this pass, in screen coordinates.
+        let mut reveal: Option<(f32, f32)> = None;
+        let tree = egui::ScrollArea::vertical()
             .id_salt("library-tree")
             .max_width(ui.available_width())
             .auto_shrink([false, false])
@@ -1824,8 +1821,24 @@ impl Editor {
                     }
                 });
                 let total_rows = rows.len();
-                let row_h = neoflash_ui::metrics::control();
+                // One row per record at `size/row` (the height of `TreeItem`).
+                let row_h = neoflash_ui::metrics::row();
                 let list_top = ui.cursor().min.y;
+                // Keep a newly selected symbol in view: the inline preview opens above the tree
+                // and would otherwise push a row picked near the bottom out of the viewport.
+                let reveal_id = ui.id().with("library-reveal-selection");
+                let revealed: Option<String> = ui.data(|d| d.get_temp(reveal_id));
+                let current = selected_id.clone().unwrap_or_default();
+                if revealed.as_deref() != Some(current.as_str()) {
+                    let index = rows.iter().position(|row| {
+                        matches!(row, LibraryRow::Symbol { symbol, .. } if symbol.id == current)
+                    });
+                    if let Some(index) = index {
+                        let top = list_top + index as f32 * row_h;
+                        reveal = Some((top, top + row_h));
+                    }
+                    ui.data_mut(|d| d.insert_temp(reveal_id, current));
+                }
                 let clip = ui.clip_rect();
                 let row_range = visible_library_row_range(
                     clip.top(),
@@ -2121,6 +2134,24 @@ impl Editor {
                     self.resource_library(ui);
                 }
             });
+        // Applied to the stored scroll state rather than `scroll_to_rect`: a wheel gesture still in
+        // flight cancels egui's scroll targets.
+        if let Some((top, bottom)) = reveal {
+            let view = tree.inner_rect;
+            let shift = if bottom > view.bottom() {
+                bottom - view.bottom()
+            } else if top < view.top() {
+                top - view.top()
+            } else {
+                0.0
+            };
+            if shift != 0.0 {
+                let mut state = tree.state;
+                state.offset.y = (state.offset.y + shift).max(0.0);
+                state.store(ui.ctx(), tree.id);
+                ui.ctx().request_repaint();
+            }
+        }
         if let Some(action) = action {
             match action {
                 Action::SelectFolder(folder) => {
@@ -2245,12 +2276,13 @@ impl Editor {
             }
         }
         nf::divider(ui, false);
-        self.library_footer(ui, &selected, source_active);
+        self.library_footer(ui, &selected, source_active, (&count, &count_detail));
     }
 
-    /// "N items", the overflow preview and the ⋯ menu (sort order and item commands).
+    /// Search row: the search field, the overflow preview and the ⋯ menu (sort order and item
+    /// commands). Returns the "N items" caption and its tooltip for the footer (R-077).
     #[allow(clippy::too_many_arguments)]
-    fn library_count_row(
+    fn library_search_row(
         &mut self,
         ui: &mut egui::Ui,
         symbols: &[LibrarySymbol],
@@ -2261,45 +2293,50 @@ impl Editor {
         overflow: Option<(LibrarySymbol, String)>,
         resource_count: usize,
         source_active: bool,
-    ) {
-        let p = neoflash_ui::palette(ui.ctx());
+    ) -> (String, String) {
         let total = symbols.len() + resource_count;
         let count = if query.is_empty() {
             format!("{total} item{}", if total == 1 { "" } else { "s" })
         } else {
             format!("{matching} of {} symbols", symbols.len())
         };
-        let width = ui.available_width();
+        let detail = format!(
+            "{} symbols · {folders} folders · {} resource files",
+            symbols.len(),
+            resource_count
+        );
+        let width = crate::paint_controls::visible_row_width(ui);
+        let side = neoflash_ui::metrics::control();
+        let actions = if overflow.is_some() { 2.0 } else { 1.0 };
+        let search_width = (width - actions * (side + space::s1())).max(side);
         ui.allocate_ui_with_layout(
-            Vec2::new(width, neoflash_ui::metrics::control()),
+            Vec2::new(width, side),
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
-                ui.spacing_mut().item_spacing.x = space::S1;
-                let label = ui.label(rich(&count, TextStyle::Small).color(p.text_secondary));
+                ui.spacing_mut().item_spacing.x = space::s1();
+                let search = ui.add(
+                    nf::Search::new(&mut self.library_panel.search, "Search library")
+                        .width(search_width),
+                );
                 nf::tooltip(
-                    label,
-                    &format!(
-                        "{} symbols · {folders} folders · {} resource files",
-                        symbols.len(),
-                        resource_count
-                    ),
+                    search,
+                    "Search symbol names, folders, linkage identifiers and classes",
                     None,
                 );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let menu = ui
-                        .push_id("library-options", |ui| {
-                            ui.add(nf::IconButton::new(i16::MORE, "Library options"))
-                        })
-                        .inner;
-                    nf::popup_below(&menu, 240., |ui| {
-                        self.library_menu(ui, selected, source_active)
-                    });
-                    if let Some((symbol, metadata)) = overflow {
-                        self.library_preview_overflow(ui, &symbol, &metadata, width);
-                    }
+                if let Some((symbol, metadata)) = overflow {
+                    self.library_preview_overflow(ui, &symbol, &metadata, width);
+                }
+                let menu = ui
+                    .push_id("library-options", |ui| {
+                        ui.add(nf::IconButton::new(i16::MORE, "Library options"))
+                    })
+                    .inner;
+                nf::popup_below(&menu, neoflash_ui::metrics::menu_width(), |ui| {
+                    self.library_menu(ui, selected, source_active)
                 });
             },
         );
+        (count, detail)
     }
 
     fn library_menu(
@@ -2591,7 +2628,7 @@ impl Editor {
         let popup = egui::Popup::from_toggle_button_response(&trigger)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
             .frame(nf::Surface::Popover.frame(ui.ctx()))
-            .width(width.clamp(248., 360.));
+            .width(width.clamp(neoflash_ui::metrics::tree_width(), 360.));
         let popup_id = popup.get_id();
         let was_open = popup.is_open();
         popup.show(|ui| self.library_preview(ui, symbol, metadata, 160.));
@@ -2606,13 +2643,14 @@ impl Editor {
         ui: &mut egui::Ui,
         selected: &Option<LibrarySymbol>,
         source_active: bool,
+        (count, count_detail): (&str, &str),
     ) {
-        let width = ui.available_width();
+        let width = crate::paint_controls::visible_row_width(ui);
         ui.allocate_ui_with_layout(
             Vec2::new(width, crate::theme::footer_h()),
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
-                ui.spacing_mut().item_spacing.x = space::S1;
+                ui.spacing_mut().item_spacing.x = space::s1();
                 if ui
                     .add_enabled(source_active, nf::IconButton::new(i16::PLUS, "New symbol"))
                     .clicked()
@@ -2677,6 +2715,27 @@ impl Editor {
                                 Err(error) => self.message(error),
                             }
                         }
+                    }
+                    // The item count takes what is left between the icons and Import….
+                    let room = ui.available_width() - space::s2();
+                    if room > 0.0 {
+                        let p = neoflash_ui::palette(ui.ctx());
+                        let label = ui
+                            .allocate_ui_with_layout(
+                                Vec2::new(room, neoflash_ui::metrics::control()),
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    ui.add_space(space::s2());
+                                    ui.add(
+                                        egui::Label::new(
+                                            rich(count, TextStyle::Small).color(p.text_secondary),
+                                        )
+                                        .truncate(),
+                                    )
+                                },
+                            )
+                            .inner;
+                        nf::tooltip(label, count_detail, None);
                     }
                 });
             },
@@ -2764,7 +2823,7 @@ impl Editor {
             || super::dialog_helpers::prev_popup_open(ui.ctx());
         let p = neoflash_ui::palette(ui.ctx());
         ui.scope(|ui| {
-            ui.spacing_mut().item_spacing.y = space::S2;
+            ui.spacing_mut().item_spacing.y = space::s2();
             nf::menu_section(
                 ui,
                 match edit.target {
@@ -2841,7 +2900,8 @@ impl Editor {
                         ));
                         if edit.scale9_enabled {
                             ui.horizontal(|ui| {
-                                let fw = ((ui.available_width() - space::S2 * 3.0) / 4.0).max(40.0);
+                                let fw =
+                                    ((ui.available_width() - space::s2() * 3.0) / 4.0).max(40.0);
                                 ui.add(
                                     nf::Field::new(&mut edit.scale9_grid[0], "9-slice X")
                                         .prefix("X")
@@ -2887,7 +2947,7 @@ impl Editor {
                         ));
                         if edit.shared_import {
                             ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S2;
+                                ui.spacing_mut().item_spacing.x = space::s2();
                                 if ui.add(nf::Button::new("Source file…")).clicked() {
                                     pick_source_file = true;
                                 }
@@ -2904,7 +2964,7 @@ impl Editor {
                 ui.label(rich(error, TextStyle::Small).color(p.danger_default));
             }
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = space::S2;
+                ui.spacing_mut().item_spacing.x = space::s2();
                 accept = ui.add(nf::Button::primary("Save")).clicked();
                 cancel = ui.add(nf::Button::new("Cancel")).clicked();
             });

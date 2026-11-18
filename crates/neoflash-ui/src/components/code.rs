@@ -748,7 +748,7 @@ pub fn gutter_width(ui: &Ui, lines: usize) -> f32 {
     )
     .size()
     .x;
-    (space::S1 + 16.0 + space::S1 + probe + space::S3).max(48.0)
+    (space::s1() + 16.0 + space::s1() + probe + space::s3()).max(48.0)
 }
 
 /// `Gutter` of `NF2/Code Editor`: `bg/panel` column, line numbers (`text/tertiary`, current line
@@ -798,7 +798,7 @@ impl Gutter<'_> {
                 };
                 let g = galley(ui, &line.to_string(), TextStyle::Mono, color);
                 let pos = egui::pos2(
-                    rect.right() - space::S3 - g.size().x,
+                    rect.right() - space::s3() - g.size().x,
                     r.center().y - g.size().y / 2.0,
                 );
                 painter.galley(pos, g, color);
@@ -810,7 +810,7 @@ impl Gutter<'_> {
                     .max_by_key(|s| *s as u8);
                 let has_bp = breakpoints.contains(&line);
                 let icon_rect = Rect::from_center_size(
-                    egui::pos2(rect.left() + space::S1 + 8.0, r.center().y),
+                    egui::pos2(rect.left() + space::s1() + 8.0, r.center().y),
                     egui::vec2(16.0, 16.0),
                 );
                 match (marker, has_bp) {
@@ -944,7 +944,7 @@ pub fn script_status(
         })
     });
 
-    let gap = space::S1;
+    let gap = space::s1();
     let icon_sz = 16.0;
     let mut problems_only_w = 0.0;
     if let Some(ne) = &no_errors_galley {
@@ -1023,7 +1023,7 @@ pub fn script_status(
     let has_problems = problems.is_some_and(|(e, w)| e > 0 || w > 0);
     let s = State::of(ui, &response);
     if has_problems && s.hovered {
-        ui.painter().rect_filled(rect, cr(radius::SM), p.bg_hover);
+        ui.painter().rect_filled(rect, cr(radius::sm()), p.bg_hover);
     }
 
     let mut x = rect.left();
@@ -1082,7 +1082,7 @@ pub fn script_status(
         }
     }
     if has_problems {
-        super::focus(ui, s, rect, radius::SM);
+        super::focus(ui, s, rect, radius::sm());
     }
     let pos_label = full_pos_label;
     let a11y_label = match problems {
@@ -1136,7 +1136,8 @@ impl Widget for CompilerMessage<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let p = palette(ui.ctx());
         let width = ui.available_width();
-        let text_w = (width - space::S3 - 16.0 - space::S3 - 16.0 - space::S3 * 2.0).max(40.0);
+        let text_w =
+            (width - space::s3() - 16.0 - space::s3() - 16.0 - space::s3() * 2.0).max(40.0);
         let fg = if self.severity == Severity::Error || self.severity == Severity::Warning {
             p.text_primary
         } else {
@@ -1150,7 +1151,7 @@ impl Widget for CompilerMessage<'_> {
         let message = ui.fonts_mut(|f| f.layout_job(job));
         let location = (!self.location.is_empty())
             .then(|| galley(ui, self.location, TextStyle::Small, p.text_secondary));
-        let h = space::S2 * 2.0
+        let h = space::s2() * 2.0
             + message.size().y
             + location.as_ref().map_or(0.0, |g| g.size().y + 2.0);
         let (rect, response) = ui.allocate_exact_size(
@@ -1159,17 +1160,17 @@ impl Widget for CompilerMessage<'_> {
         );
         let s = State::of(ui, &response);
         ui.painter()
-            .rect_filled(rect, cr(radius::MD), self.severity.fill(p));
+            .rect_filled(rect, cr(radius::md()), self.severity.fill(p));
         if s.hovered {
             ui.painter().rect_stroke(
                 rect,
-                cr(radius::MD),
+                cr(radius::md()),
                 Stroke::new(1.0_f32, self.severity.color(p)),
                 egui::StrokeKind::Inside,
             );
         }
         let icon = Rect::from_min_size(
-            rect.min + egui::vec2(space::S3, space::S2 + 2.0),
+            rect.min + egui::vec2(space::s3(), space::s2() + 2.0),
             egui::vec2(16.0, 16.0),
         );
         icons::paint(
@@ -1179,19 +1180,19 @@ impl Widget for CompilerMessage<'_> {
             self.severity.icon(),
             self.severity.color(p),
         );
-        let x = icon.right() + space::S3;
+        let x = icon.right() + space::s3();
         let message_h = message.size().y;
         ui.painter()
-            .galley(egui::pos2(x, rect.top() + space::S2), message, fg);
+            .galley(egui::pos2(x, rect.top() + space::s2()), message, fg);
         if let Some(g) = location {
             ui.painter().galley(
-                egui::pos2(x, rect.top() + space::S2 + message_h + 2.0),
+                egui::pos2(x, rect.top() + space::s2() + message_h + 2.0),
                 g,
                 p.text_secondary,
             );
         }
         let chev = Rect::from_center_size(
-            egui::pos2(rect.right() - space::S3 - 8.0, rect.center().y),
+            egui::pos2(rect.right() - space::s3() - 8.0, rect.center().y),
             egui::vec2(16.0, 16.0),
         );
         icons::paint(
@@ -1205,7 +1206,7 @@ impl Widget for CompilerMessage<'_> {
                 p.text_secondary
             },
         );
-        super::focus(ui, s, rect, radius::MD);
+        super::focus(ui, s, rect, radius::md());
         let label = format!(
             "{}: {} {}",
             self.severity.label(),
@@ -1235,22 +1236,24 @@ impl Widget for LogLine<'_> {
         };
         let time = (!self.time.is_empty())
             .then(|| galley(ui, self.time, TextStyle::Mono, p.text_tertiary));
-        let x0 =
-            space::S2 + 16.0 + space::S2 + time.as_ref().map_or(0.0, |g| g.size().x + space::S3);
+        let x0 = space::s2()
+            + 16.0
+            + space::s2()
+            + time.as_ref().map_or(0.0, |g| g.size().x + space::s3());
         let mut job = LayoutJob::single_section(
             self.text.to_owned(),
             crate::typography::format(TextStyle::Mono, color),
         );
-        job.wrap.max_width = (width - x0 - space::S2).max(40.0);
+        job.wrap.max_width = (width - x0 - space::s2()).max(40.0);
         let text = ui.fonts_mut(|f| f.layout_job(job));
         let line_h = TextStyle::Mono.spec().line_height;
         let (rect, response) = ui.allocate_exact_size(
-            egui::vec2(width, text.size().y.max(line_h) + space::S1),
+            egui::vec2(width, text.size().y.max(line_h) + space::s1()),
             Sense::hover(),
         );
-        let top = rect.top() + space::S1 / 2.0;
+        let top = rect.top() + space::s1() / 2.0;
         let icon = Rect::from_center_size(
-            egui::pos2(rect.left() + space::S2 + 8.0, top + line_h / 2.0),
+            egui::pos2(rect.left() + space::s2() + 8.0, top + line_h / 2.0),
             egui::vec2(16.0, 16.0),
         );
         icons::paint(
@@ -1262,7 +1265,7 @@ impl Widget for LogLine<'_> {
         );
         if let Some(g) = time {
             ui.painter().galley(
-                egui::pos2(icon.right() + space::S2, top),
+                egui::pos2(icon.right() + space::s2(), top),
                 g,
                 p.text_tertiary,
             );
@@ -1369,8 +1372,8 @@ impl<'a> ErrorPeek<'a> {
         let action = self
             .action
             .map(|a| galley(ui, a, TextStyle::SmallStrong, p.accent_default));
-        let action_w = action.as_ref().map_or(0.0, |g| space::S2 + g.size().x);
-        let fixed = pad.x * 2.0 + 16.0 + space::S2 + action_w;
+        let action_w = action.as_ref().map_or(0.0, |g| space::s2() + g.size().x);
+        let fixed = pad.x * 2.0 + 16.0 + space::s2() + action_w;
         let max = self.max_width.unwrap_or(f32::INFINITY);
         let message = super::galley_truncated(
             ui,
@@ -1389,10 +1392,10 @@ impl<'a> ErrorPeek<'a> {
         let mut out_action = None;
         if ui.is_rect_visible(rect) {
             ui.painter()
-                .rect_filled(rect, cr(radius::MD), self.severity.fill(p));
+                .rect_filled(rect, cr(radius::md()), self.severity.fill(p));
             ui.painter().rect_stroke(
                 rect,
-                cr(radius::MD),
+                cr(radius::md()),
                 Stroke::new(1.0_f32, border),
                 egui::StrokeKind::Inside,
             );
@@ -1407,11 +1410,11 @@ impl<'a> ErrorPeek<'a> {
                 self.severity.icon(),
                 self.severity.color(p),
             );
-            let x = icon.right() + space::S2;
+            let x = icon.right() + space::s2();
             let mw = message.size().x;
             super::text_at(ui, x, rect, message, p.text_primary);
             if let Some(g) = action {
-                let ax = x + mw + space::S2;
+                let ax = x + mw + space::s2();
                 let hit = Rect::from_min_size(
                     egui::pos2(ax, rect.top()),
                     egui::vec2(g.size().x, rect.height()),

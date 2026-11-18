@@ -2,7 +2,6 @@
 //! `NF2/Spinner`, `NF2/Progress`, `NF2/Toast`, `NF2/Empty State`.
 use super::{fill, galley, text_at};
 use crate::icons::{self, Icon, i16};
-use crate::metrics::{BADGE, KBD};
 use crate::theme::{cr, palette};
 use crate::tokens::{TextStyle, radius, space};
 use eframe::egui::{self, Color32, Rect, Response, Sense, Stroke, Ui, Widget};
@@ -15,9 +14,23 @@ pub enum BadgeType {
     Accent,
     /// Unsaved changes, pending state.
     Warning,
+    /// Confirmed state ("Working", "Published").
+    Success,
 }
 
-/// `NF2/Badge` — pill with a leading dot ("Unsaved", "HTML5 · Rust / WebAssembly", "1 warning").
+/// Horizontal padding of [`Badge`] and of [`kbd`] chips.
+const BADGE_PAD: f32 = 6.0;
+const KBD_PAD: f32 = 5.0;
+/// Corner radius of a [`kbd`] chip.
+const KBD_RADIUS: f32 = 3.0;
+
+/// Width of a [`kbd`] chip around a key label `text_width` wide: 5 pt padding, never narrower than
+/// it is high.
+pub(crate) fn kbd_width(text_width: f32) -> f32 {
+    (text_width + 2.0 * KBD_PAD).max(crate::metrics::kbd())
+}
+
+/// `NF3/Badge` — `badge()` high pill, 6 pt padding ("Unsaved", "HTML5 · Rust / WebAssembly", "1 warning").
 pub struct Badge<'a> {
     label: &'a str,
     kind: BadgeType,
@@ -36,23 +49,14 @@ impl Widget for Badge<'_> {
             BadgeType::Neutral => (p.bg_hover, p.text_secondary),
             BadgeType::Accent => (p.accent_subtle, p.accent_default),
             BadgeType::Warning => (p.warning_subtle, p.warning_default),
+            BadgeType::Success => (p.bg_hover, p.success_default),
         };
         let g = galley(ui, self.label, TextStyle::Small, fg);
-        let w = space::S2 + 6.0 + space::S1 + 2.0 + g.size().x + space::S2;
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(w, BADGE), Sense::hover());
+        let w = g.size().x + 2.0 * BADGE_PAD;
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(w, crate::metrics::badge()), Sense::hover());
         fill(ui, rect, radius::FULL, bg, None);
-        ui.painter().circle_filled(
-            egui::pos2(rect.left() + space::S2 + 3.0, rect.center().y),
-            3.0,
-            fg,
-        );
-        text_at(
-            ui,
-            rect.left() + space::S2 + 6.0 + space::S1 + 2.0,
-            rect,
-            g,
-            fg,
-        );
+        text_at(ui, rect.left() + BADGE_PAD, rect, g, fg);
         response
             .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, self.label));
         response
@@ -119,19 +123,21 @@ pub fn shortcut_in_words(shortcut: &str) -> std::borrow::Cow<'_, str> {
     std::borrow::Cow::Owned(parts.join("+"))
 }
 
-/// `NF2/Kbd` — shortcut chip ("F6", "⌘↵"). `inverse` = drawn inside a tooltip.
+/// `NF3/Kbd` — shortcut chip ("F6", "⌘↵"): `kbd()` high, 5 pt padding, radius 3. `inverse` = drawn
+/// inside a tooltip.
 pub fn kbd(ui: &mut Ui, key: &str, inverse: bool) -> Response {
     let key = &*platform_shortcut(key);
     let p = palette(ui.ctx());
     let (bg, border, fg) = if inverse {
         (p.text_primary, p.text_primary, p.text_inverse)
     } else {
-        (Color32::TRANSPARENT, p.border_default, p.text_secondary)
+        (p.bg_raised, p.border_default, p.text_secondary)
     };
     let g = galley(ui, key, TextStyle::Small, fg);
-    let w = (g.size().x + 2.0 * 6.0).max(20.0);
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(w, KBD), Sense::hover());
-    fill(ui, rect, radius::SM, bg, Some(border));
+    let w = kbd_width(g.size().x);
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(w, crate::metrics::kbd()), Sense::hover());
+    fill(ui, rect, KBD_RADIUS, bg, Some(border));
     let x = rect.center().x - g.size().x / 2.0;
     text_at(ui, x, rect, g, fg);
     response
@@ -194,25 +200,26 @@ pub fn paint_tooltip_bubble(
             crate::typography::format_line(TextStyle::Small, p.text_inverse),
         );
         let g = ctx.fonts_mut(|f| f.layout_job(job));
-        let chip_w = (g.size().x + 12.0).max(20.0);
+        let chip_w = kbd_width(g.size().x);
         Some((g, chip_w))
     });
 
-    let pad_x = 10.0;
-    let pad_y = 5.0;
+    let kbd_h = crate::metrics::kbd();
+    let pad_x = space::s3();
+    let pad_y = space::s1();
     let content_w = label_galley.size().x
         + kbd_layout
             .as_ref()
-            .map_or(0.0, |(_, chip_w)| space::S3 + *chip_w);
+            .map_or(0.0, |(_, chip_w)| space::s3() + *chip_w);
     let content_h = label_galley
         .size()
         .y
-        .max(if kbd_layout.is_some() { KBD } else { 0.0 });
+        .max(if kbd_layout.is_some() { kbd_h } else { 0.0 });
     let box_w = content_w + 2.0 * pad_x;
     let box_h = content_h + 2.0 * pad_y;
 
-    let below_y = target_rect.bottom() + space::S2;
-    let above_y = target_rect.top() - space::S2 - box_h;
+    let below_y = target_rect.bottom() + space::s2();
+    let above_y = target_rect.top() - space::s2() - box_h;
     let y = if below_y + box_h <= screen.bottom() - 2.0 {
         below_y
     } else if above_y >= screen.top() + 2.0 {
@@ -232,11 +239,10 @@ pub fn paint_tooltip_bubble(
         egui::Id::new("nf2-tooltip-layer"),
     ));
     painter.add(
-        crate::metrics::SHADOW_POPOVER
-            .egui()
-            .as_shape(box_rect, cr(radius::MD)),
+        super::surface::fitted_shadow(crate::metrics::SHADOW_POPOVER, box_h)
+            .as_shape(box_rect, cr(radius::md())),
     );
-    painter.rect_filled(box_rect, cr(radius::MD), p.tooltip_bg);
+    painter.rect_filled(box_rect, cr(radius::md()), p.tooltip_bg);
 
     let label_pos = egui::pos2(
         box_rect.left() + pad_x,
@@ -247,15 +253,15 @@ pub fn paint_tooltip_bubble(
     if let Some((kbd_galley, chip_w)) = kbd_layout {
         let chip_rect = Rect::from_min_size(
             egui::pos2(
-                box_rect.left() + pad_x + label_galley.size().x + space::S3,
-                box_rect.center().y - KBD * 0.5,
+                box_rect.left() + pad_x + label_galley.size().x + space::s3(),
+                box_rect.center().y - kbd_h * 0.5,
             ),
-            egui::vec2(chip_w, KBD),
+            egui::vec2(chip_w, kbd_h),
         );
-        painter.rect_filled(chip_rect, cr(radius::SM), p.text_primary);
+        painter.rect_filled(chip_rect, cr(KBD_RADIUS), p.text_primary);
         painter.rect_stroke(
             chip_rect,
-            cr(radius::SM),
+            cr(KBD_RADIUS),
             Stroke::new(1.0_f32, p.text_primary),
             egui::StrokeKind::Inside,
         );
@@ -285,7 +291,7 @@ pub fn tooltip(response: Response, label: &str, shortcut: Option<&str>) -> Respo
 /// `NF2/Swatch` — 22 px colour chip (checkerboard behind translucent colours).
 pub fn swatch(ui: &mut Ui, color: Color32, side: f32) -> Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(side, side), Sense::click());
-    paint_swatch(ui, rect, color, radius::SM);
+    paint_swatch(ui, rect, color, radius::sm());
     response
 }
 
@@ -319,13 +325,14 @@ pub fn paint_swatch(ui: &Ui, rect: Rect, color: Color32, r: f32) {
     );
 }
 
-/// `NF2/Divider` — 1 px `border/subtle` line; `vertical` = between grouped controls (20 px tall).
+/// `NF2/Divider` — 1 px `border/subtle` line; `vertical` = between grouped controls (a control
+/// minus one gap tall).
 pub fn divider(ui: &mut Ui, vertical: bool) -> Response {
     let p = palette(ui.ctx());
     let size = if vertical {
-        egui::vec2(1.0 + space::S2, 20.0)
+        egui::vec2(1.0 + space::s2(), crate::metrics::control() - space::s2())
     } else {
-        egui::vec2(ui.available_width(), 1.0 + space::S2)
+        egui::vec2(ui.available_width(), 1.0 + space::s2())
     };
     let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
     let stroke = Stroke::new(1.0_f32, p.border_subtle);
@@ -343,7 +350,7 @@ pub fn logo(ui: &mut Ui, side: f32) -> Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(side, side), Sense::hover());
     let k = side / 28.0;
     ui.painter()
-        .rect_filled(rect, cr(radius::LG * k), p.accent_default);
+        .rect_filled(rect, cr(radius::lg() * k), p.accent_default);
     let c = rect.center();
     ui.painter()
         .circle_stroke(c, 8.0 * k, Stroke::new(2.0 * k, p.text_on_accent));
@@ -351,19 +358,21 @@ pub fn logo(ui: &mut Ui, side: f32) -> Response {
     response
 }
 
-/// `NF2/Spinner` — 20 px indeterminate ring.
+/// `NF2/Spinner` — indeterminate ring, 6 pt smaller than a control (20 / 16 / 14).
 pub fn spinner(ui: &mut Ui) -> Response {
     let p = palette(ui.ctx());
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), Sense::hover());
+    let side = crate::metrics::control() - 6.0;
+    let r = side / 2.0 - 2.0;
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(side, side), Sense::hover());
     let t = ui.input(|i| i.time) as f32;
     let c = rect.center();
     ui.painter()
-        .circle_stroke(c, 8.0, Stroke::new(2.0_f32, p.border_default));
+        .circle_stroke(c, r, Stroke::new(2.0_f32, p.border_default));
     let start = t * 5.0;
     let pts: Vec<_> = (0..=16)
         .map(|i| {
             let a = start + i as f32 / 16.0 * std::f32::consts::FRAC_PI_2 * 1.5;
-            c + 8.0 * egui::vec2(a.cos(), a.sin())
+            c + r * egui::vec2(a.cos(), a.sin())
         })
         .collect();
     ui.painter().add(egui::Shape::line(
@@ -374,11 +383,15 @@ pub fn spinner(ui: &mut Ui) -> Response {
     response
 }
 
-/// `NF2/Progress` — label row + 4 px bar. `fraction = None` = indeterminate.
+/// `NF3/Progress` — `toggle_row()` label row, `space::s1()` gap, 4 px bar. `fraction = None` = indeterminate.
 pub fn progress(ui: &mut Ui, label: &str, fraction: Option<f32>, width: f32) -> Response {
     let p = palette(ui.ctx());
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 28.0), Sense::hover());
-    let label_rect = Rect::from_min_size(rect.min, egui::vec2(width, 16.0));
+    let label_h = crate::metrics::toggle_row();
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(width, label_h + space::s1() + 4.0),
+        Sense::hover(),
+    );
+    let label_rect = Rect::from_min_size(rect.min, egui::vec2(width, label_h));
     text_at(
         ui,
         rect.left(),
@@ -427,7 +440,8 @@ pub enum ToastType {
     Error,
 }
 
-/// `NF2/Toast` — 46 px notification with a coloured stripe, icon, message, optional action and close.
+/// `NF2/Toast` — notification one control plus two gaps high, with a coloured stripe, icon, message,
+/// optional action and close.
 pub struct Toast<'a> {
     pub kind: ToastType,
     pub message: &'a str,
@@ -454,13 +468,22 @@ impl Toast<'_> {
         egui::Frame::new()
             .fill(p.bg_raised)
             .stroke(Stroke::new(1.0_f32, p.border_subtle))
-            .corner_radius(cr(radius::LG))
-            .inner_margin(egui::Margin::symmetric(space::S3 as i8, 7))
-            .shadow(crate::metrics::SHADOW_POPOVER.egui())
+            .corner_radius(cr(radius::lg()))
+            .inner_margin(egui::Margin::symmetric(
+                space::s3() as i8,
+                space::s2() as i8,
+            ))
+            .shadow(super::surface::fitted_shadow(
+                crate::metrics::SHADOW_POPOVER,
+                crate::metrics::control() + 2.0 * space::s2() + 2.0,
+            ))
             .show(ui, |ui| {
-                ui.set_width(width - 2.0 * space::S3);
+                ui.set_width(width - 2.0 * space::s3());
                 ui.horizontal(|ui| {
-                    let (stripe, _) = ui.allocate_exact_size(egui::vec2(3.0, 20.0), Sense::hover());
+                    let (stripe, _) = ui.allocate_exact_size(
+                        egui::vec2(3.0, crate::metrics::control() - space::s2()),
+                        Sense::hover(),
+                    );
                     ui.painter().rect_filled(stripe, cr(1.5), color);
                     icons::show(ui, icon, color);
                     ui.label(
@@ -468,9 +491,7 @@ impl Toast<'_> {
                             .color(p.text_primary),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        out.close = ui
-                            .add(super::IconButton::new(i16::X, "Dismiss").side(24.0))
-                            .clicked();
+                        out.close = ui.add(super::IconButton::new(i16::X, "Dismiss")).clicked();
                         if let Some(a) = self.action {
                             out.action = ui.add(super::Button::ghost(a)).clicked();
                         }
@@ -495,20 +516,23 @@ impl EmptyState<'_> {
         let p = palette(ui.ctx());
         let mut clicked = false;
         ui.vertical_centered(|ui| {
-            ui.add_space(space::S4);
-            let (rect, _) = ui.allocate_exact_size(egui::vec2(36.0, 36.0), Sense::hover());
-            ui.painter().circle_filled(rect.center(), 18.0, p.bg_hover);
+            ui.add_space(space::s4());
+            // Icon disc: two toggle rows across (36 / 32 / 32).
+            let side = 2.0 * crate::metrics::toggle_row();
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(side, side), Sense::hover());
+            ui.painter()
+                .circle_filled(rect.center(), side / 2.0, p.bg_hover);
             icons::paint(ui.painter(), ui.ctx(), rect, self.icon, p.text_secondary);
-            ui.add_space(space::S2);
+            ui.add_space(space::s2());
             ui.label(
                 crate::typography::rich(self.title, TextStyle::BodyStrong).color(p.text_primary),
             );
             ui.label(crate::typography::rich(self.body, TextStyle::Small).color(p.text_tertiary));
             if let Some(a) = self.action {
-                ui.add_space(space::S2);
+                ui.add_space(space::s2());
                 clicked = ui.add(super::Button::new(a)).clicked();
             }
-            ui.add_space(space::S4);
+            ui.add_space(space::s4());
         });
         clicked
     }
@@ -524,19 +548,24 @@ pub enum InlineMessageType {
     Warning,
     /// Blocks the action (invalid name, invalid runtime URL, trace failed).
     Error,
+    /// Confirms that something works or finished ("Working. The documented behaviour runs …").
+    Success,
 }
 
 impl InlineMessageType {
     pub fn icon(self) -> Icon {
         match self {
+            Self::Success => i16::CHECK,
             Self::Info => i16::INFO,
             Self::Warning => i16::WARNING,
             Self::Error => i16::ERROR,
         }
     }
-    /// Icon and text colour: Info `text/secondary`, Warning `warning/default`, Error `danger/default`.
+    /// Icon and text colour: Info `text/secondary`, Warning `warning/default`, Error `danger/default`,
+    /// Success `success/default`.
     pub fn color(self, p: &crate::Palette) -> Color32 {
         match self {
+            Self::Success => p.success_default,
             Self::Info => p.text_secondary,
             Self::Warning => p.warning_default,
             Self::Error => p.danger_default,
@@ -571,6 +600,9 @@ impl<'a> InlineMessage<'a> {
     pub fn error(text: &'a str) -> Self {
         Self::new(InlineMessageType::Error, text)
     }
+    pub fn success(text: &'a str) -> Self {
+        Self::new(InlineMessageType::Success, text)
+    }
     pub fn width(mut self, width: f32) -> Self {
         self.width = Some(width);
         self
@@ -582,7 +614,7 @@ impl Widget for InlineMessage<'_> {
         let p = palette(ui.ctx());
         let color = self.kind.color(p);
         let width = self.width.unwrap_or_else(|| ui.available_width()).max(48.0);
-        let text_w = width - 16.0 - space::S2;
+        let text_w = width - 16.0 - space::s2();
         let g = super::galley_wrapped(ui, self.text, TextStyle::Small, color, text_w);
         let height = g.size().y.max(16.0);
         let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), Sense::hover());
@@ -590,7 +622,7 @@ impl Widget for InlineMessage<'_> {
             let icon = Rect::from_min_size(rect.min, egui::vec2(16.0, 16.0));
             icons::paint(ui.painter(), ui.ctx(), icon, self.kind.icon(), color);
             ui.painter()
-                .galley(egui::pos2(icon.right() + space::S2, rect.top()), g, color);
+                .galley(egui::pos2(icon.right() + space::s2(), rect.top()), g, color);
         }
         response
             .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, self.text));

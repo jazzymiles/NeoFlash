@@ -2,12 +2,12 @@
 //! `W1.7`; reference `dialogs-sound-stroke.png`), opened from `Tool options ▸ Stroke style…`,
 //! `Properties ▸ Custom…`, and `Window ▸ Panels ▸ Planned panels ▸ Stroke style`.
 
+use super::dialog_helpers::{FormDialog, dialog_width, field_block, form_row};
 use crate::app::Editor;
-use eframe::egui::{self, Color32, Ui};
+use eframe::egui::{self, Ui};
 use neoflash_core::{AppearancePaintEntry, ElementAppearance, ElementKind, PatternBrushKind};
 use neoflash_ui::components as c;
-use neoflash_ui::components::color_picker::hsv;
-use neoflash_ui::tokens::{radius, space};
+use neoflash_ui::metrics;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum StrokeStyleKind {
@@ -100,7 +100,6 @@ pub(crate) fn update_stroke_style_draft(
 }
 
 impl Editor {
-    #[cfg(test)]
     pub(crate) fn init_stroke_style_draft(&self) -> StrokeStyleDraft {
         let mut draft = StrokeStyleDraft {
             thickness: self.stroke_width.clamp(0.1, 200.0),
@@ -149,7 +148,6 @@ impl Editor {
     }
 
     /// Open the `Stroke style` modal dialog (`PR-03`).
-    #[cfg(test)]
     pub(crate) fn open_stroke_style(&mut self, ctx: &egui::Context) {
         self.finish_edits();
         let draft = self.init_stroke_style_draft();
@@ -353,37 +351,22 @@ impl Editor {
         true
     }
 
-    pub(crate) fn stroke_style_body(
-        &mut self,
-        ui: &mut Ui,
-        draft: &mut StrokeStyleDraft,
-    ) -> (bool, bool) {
-        let mut close_cancel = false;
-        let mut do_apply = false;
+    /// Page rows of the dialog: preview, Type, Thickness, Dash / Gap, Sharp corners.
+    pub(crate) fn stroke_style_body(&mut self, ui: &mut Ui, draft: &mut StrokeStyleDraft) {
         let nf = neoflash_ui::palette(ui.ctx());
-        ui.spacing_mut().item_spacing.y = space::S3;
-
-        let (preview, _) =
-            ui.allocate_exact_size(egui::vec2(ui.available_width(), 96.0), egui::Sense::hover());
-        ui.painter().rect_filled(
-            preview,
-            egui::CornerRadius::same(radius::MD as u8),
-            Color32::from(hsv(0.0, 0.0, 1.0, 1.0)),
-        );
-        ui.painter().rect_stroke(
-            preview,
-            egui::CornerRadius::same(radius::MD as u8),
-            egui::Stroke::new(1.0_f32, nf.border_subtle),
-            egui::StrokeKind::Inside,
-        );
+        let preview = field_block(ui, egui::vec2(ui.available_width(), 3.0 * metrics::row()));
         let y = preview.center().y;
         let zoom = if draft.zoom_4x { 1.0_f32 } else { 0.5_f32 };
         let disp_w = ((draft.thickness as f32) * zoom).clamp(1.0, 24.0);
-        let p0 = egui::pos2(preview.left() + 48.0, y);
-        let p1 = egui::pos2(preview.right() - 48.0, y);
-        let stroke = egui::Stroke::new(disp_w, Color32::from(hsv(0.0, 0.0, 0.0, 1.0)));
+        let inset = 2.0 * metrics::row();
+        let p0 = egui::pos2(preview.left() + inset, y);
+        let p1 = egui::pos2(preview.right() - inset, y);
+        let stroke = egui::Stroke::new(disp_w, nf.text_primary);
+        let painter = ui
+            .painter()
+            .with_clip_rect(preview.intersect(ui.clip_rect()));
         if draft.kind == StrokeStyleKind::Solid {
-            ui.painter().line_segment([p0, p1], stroke);
+            painter.line_segment([p0, p1], stroke);
         } else {
             let dash_len = if draft.kind == StrokeStyleKind::Dotted {
                 disp_w.max(2.0)
@@ -391,7 +374,7 @@ impl Editor {
                 ((draft.dash as f32) * zoom).max(2.0)
             };
             let gap_len = ((draft.gap as f32) * zoom).max(2.0);
-            ui.painter().extend(egui::Shape::dashed_line(
+            painter.extend(egui::Shape::dashed_line(
                 &[p0, p1],
                 stroke,
                 dash_len,
@@ -399,13 +382,11 @@ impl Editor {
             ));
         }
 
-        ui.horizontal(|ui| {
-            let type_lbl = format!("Type: {}", draft.kind.label());
-            c::Select::new(ui.id().with("stroke-style-type"), &type_lbl)
-                .width(196.0)
+        form_row(ui, "Type", |ui| {
+            c::Select::new(ui.id().with("stroke-style-type"), draft.kind.label())
+                .width(metrics::field_m())
                 .show(ui, |ui| {
                     for kind in StrokeStyleKind::ALL {
-                        let lbl = format!("Type: {}", kind.label());
                         let supported = matches!(
                             kind,
                             StrokeStyleKind::Solid
@@ -414,7 +395,7 @@ impl Editor {
                         );
                         if supported {
                             if ui
-                                .add(c::MenuItem::new(&lbl).checked(draft.kind == kind))
+                                .add(c::MenuItem::new(kind.label()).checked(draft.kind == kind))
                                 .clicked()
                             {
                                 draft.kind = kind;
@@ -424,31 +405,33 @@ impl Editor {
                                 ui.close();
                             }
                         } else {
-                            let resp = ui.add_enabled(false, c::MenuItem::new(&lbl));
+                            let resp = ui.add_enabled(false, c::MenuItem::new(kind.label()));
                             let _ = c::not_available(resp, kind.label());
                         }
                     }
                 });
+        });
+        form_row(ui, "Thickness", |ui| {
             ui.add(
                 c::Field::new(&mut draft.thickness, "Thickness")
                     .unit("pt")
                     .range(0.1..=200.0)
                     .presets(&[0.25, 0.5, 1.0, 2.0, 4.0, 8.0])
-                    .width(108.0),
+                    .width(metrics::field_s()),
             );
+            // A switch: it changes the preview at once and is not part of the stroke.
             ui.add(c::Switch::new(&mut draft.zoom_4x, "4× zoom"));
         });
-        ui.horizontal(|ui| {
+        form_row(ui, "Dash", |ui| {
             let dash_enabled = draft.kind == StrokeStyleKind::Dashed;
             let dash_resp = ui.add_enabled(
                 dash_enabled,
                 c::Field::new(&mut draft.dash, "Dash")
-                    .prefix("Dash")
                     .unit("pt")
                     .range(1.0..=200.0)
                     .decimals(0)
                     .stepper()
-                    .width(140.0),
+                    .width(metrics::field_s()),
             );
             if !dash_enabled {
                 let _ = c::not_available(
@@ -472,31 +455,19 @@ impl Editor {
                     .range(1.0..=200.0)
                     .decimals(0)
                     .stepper()
-                    .width(140.0),
+                    .width(metrics::field_s()),
             );
             if !gap_enabled {
                 let _ = c::not_available(gap_resp, "Gap length (Solid)");
             }
+        });
+        form_row(ui, "", |ui| {
             let sharp_resp = ui.add_enabled(
                 false,
                 c::Checkbox::new(&mut draft.sharp_corners, "Sharp corners"),
             );
             let _ = c::not_available(sharp_resp, "Sharp corners");
         });
-        ui.horizontal(|ui| {
-            if ui.add(c::Button::ghost("Reset")).clicked() {
-                *draft = StrokeStyleDraft::default();
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.add(c::Button::primary("OK")).clicked() {
-                    do_apply = true;
-                }
-                if ui.add(c::Button::new("Cancel")).clicked() {
-                    close_cancel = true;
-                }
-            });
-        });
-        (close_cancel, do_apply)
     }
 
     pub(crate) fn stroke_style_dialog(&mut self, ctx: &egui::Context) {
@@ -508,29 +479,28 @@ impl Editor {
         let mut close_cancel = false;
         let mut do_apply = false;
 
+        let width = dialog_width(ctx, metrics::dialog_m());
         let modal = egui::Modal::new(egui::Id::new("stroke-style"))
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
-                ui.set_width(480.0);
-                let header_top = ui.cursor().min;
-                close_cancel |= c::DialogHeader {
-                    title: "Stroke style",
-                }
-                .show(ui);
-                ui.painter().hline(
-                    header_top.x..=header_top.x + 480.0,
-                    header_top.y + neoflash_ui::metrics::dialog_header() - 0.5,
-                    egui::Stroke::new(1.0_f32, p.border_subtle),
+                let dialog = FormDialog::show(ui, "Stroke style", width, None);
+                close_cancel |= dialog.close;
+                dialog.page(ui, "stroke-style-page", |ui, _| {
+                    self.stroke_style_body(ui, &mut draft);
+                });
+                dialog.footer(
+                    ui,
+                    |ui| {
+                        if ui.add(c::Button::ghost("Reset")).clicked() {
+                            draft = StrokeStyleDraft::default();
+                        }
+                    },
+                    |ui| {
+                        do_apply |= ui.add(c::Button::primary("OK")).clicked();
+                        close_cancel |= ui.add(c::Button::new("Cancel")).clicked();
+                    },
                 );
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S5 as i8))
-                    .show(ui, |ui| {
-                        ui.set_width(480.0 - 2.0 * space::S5);
-                        let (c, ok) = self.stroke_style_body(ui, &mut draft);
-                        close_cancel |= c;
-                        do_apply |= ok;
-                    });
             });
 
         if !close_cancel && !do_apply {

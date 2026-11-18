@@ -1,0 +1,12 @@
+{
+  "name": "NeoFlash v3 Builder",
+  "id": "neoflash-v3-builder-local",
+  "api": "1.0.0",
+  "main": "code.js",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "capabilities": [],
+  "enableProposedApi": false,
+  "permissions": [],
+  "networkAccess": { "allowedDomains": ["none"] }
+}

@@ -1,5 +1,6 @@
-//! `NF2/Field`, `NF2/Search`, `NF2/Select`, `NF2/Stepper Field`, `NF2/Combo Field`, `NF2/Color Field`,
-//! `NF2/Line Style Select`.
+//! `NF3/Field`, `NF3/Search`, `NF3/Select`, `NF2/Stepper Field`, `NF2/Combo Field`, `NF2/Color Field`,
+//! `NF2/Line Style Select`. Height `control()`, inner padding `space::s3()`, gap `space::s2()`,
+//! radius `radius::md()`; default widths come from `metrics::field_*()`.
 //!
 //! Field interaction rules (§13.4): drag the prefix to scrub, ↑/↓ step, ⇧ = ×10, Enter commits,
 //! Escape restores the value from before editing, units are shown in the value ("5.00 s", "100 %").
@@ -30,14 +31,17 @@ fn frame(ui: &Ui, rect: Rect, s: State, editing: bool) {
     } else {
         (p.bg_field, p.border_default, 1.0_f32)
     };
-    ui.painter().rect_filled(rect, cr(radius::MD), bg);
+    ui.painter().rect_filled(rect, cr(radius::md()), bg);
     ui.painter().rect_stroke(
         rect,
-        cr(radius::MD),
+        cr(radius::md()),
         Stroke::new(w, border),
         StrokeKind::Inside,
     );
 }
+
+/// Side of the 12 px glyphs inside fields (select chevron, stepper chevrons, clear ×).
+const MARK: f32 = 12.0;
 
 fn edit_style(ui: &mut Ui, fg: Color32) {
     let v = ui.visuals_mut();
@@ -127,9 +131,10 @@ struct Draft {
 impl Widget for Field<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let p = palette(ui.ctx());
-        let width = self
-            .width
-            .unwrap_or(ui.available_width().clamp(64.0, 160.0));
+        let width = self.width.unwrap_or_else(|| {
+            ui.available_width()
+                .clamp(crate::metrics::field_num(), crate::metrics::field_m())
+        });
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(width, crate::metrics::control()), Sense::hover());
         let id = response.id;
@@ -152,12 +157,12 @@ impl Widget for Field<'_> {
         }
 
         // Prefix: drag to scrub.
-        let mut x = rect.left() + space::S3;
+        let mut x = rect.left() + space::s3();
         if !self.prefix.is_empty() {
             let g = galley(ui, self.prefix, TextStyle::Small, p.text_tertiary);
             let prefix_rect = Rect::from_min_max(
                 egui::pos2(rect.left(), rect.top()),
-                egui::pos2(x + g.size().x + space::S1, rect.bottom()),
+                egui::pos2(x + g.size().x + space::s1(), rect.bottom()),
             );
             let scrub = ui.interact(prefix_rect, id.with("scrub"), Sense::drag());
             if scrub.hovered() || scrub.dragged() {
@@ -181,7 +186,7 @@ impl Widget for Field<'_> {
                 p.text_disabled
             };
             text_at(ui, x, rect, g, fg);
-            x = prefix_rect.right() + space::S1;
+            x = prefix_rect.right() + space::s1();
         }
 
         // Value: a frameless TextEdit holding a draft while focused.
@@ -197,44 +202,49 @@ impl Widget for Field<'_> {
                 before: *self.value,
             };
         }
+        // Trailing 12 px glyph column: preset chevron or the two stepper chevrons.
+        let preset_w = MARK + 2.0 * space::s2();
         let trailing = if !self.presets.is_empty() {
-            32.0
+            preset_w - space::s2()
         } else if self.stepper {
-            20.0
+            MARK + space::s2()
         } else {
             0.0
         };
         let value_rect = Rect::from_min_max(
             egui::pos2(x, rect.top()),
-            egui::pos2(rect.right() - space::S2 - trailing, rect.bottom()),
+            egui::pos2(rect.right() - space::s2() - trailing, rect.bottom()),
         );
         if self.stepper && s.enabled {
-            let arrows = Rect::from_min_max(
-                egui::pos2(rect.right() - 22.0, rect.top() + 4.0),
-                egui::pos2(rect.right() - 4.0, rect.bottom() - 4.0),
-            );
+            // Two 12 px chevrons 8 pt apart (they overlap by 4 pt), so the pair fits a 20 pt control.
+            let cx = rect.right() - space::s3() - MARK / 2.0;
+            let cy = rect.center().y;
+            let hit_x = egui::Rangef::new(cx - MARK / 2.0 - space::s1(), rect.right() - 1.0);
             let halves = [
                 (
-                    Rect::from_min_max(arrows.min, egui::pos2(arrows.right(), arrows.center().y)),
+                    Rect::from_x_y_ranges(hit_x, rect.top() + 1.0..=cy),
+                    egui::pos2(cx, cy - 4.0),
                     1.0,
                     i16::CHEVUP,
                     "Increase",
                 ),
                 (
-                    Rect::from_min_max(egui::pos2(arrows.left(), arrows.center().y), arrows.max),
+                    Rect::from_x_y_ranges(hit_x, cy..=rect.bottom() - 1.0),
+                    egui::pos2(cx, cy + 4.0),
                     -1.0,
                     i16::CHEVDOWN,
                     "Decrease",
                 ),
             ];
-            for (r, dir, icon, name) in halves {
+            for (r, centre, dir, icon, name) in halves {
                 let b = ui.interact(r, id.with(name), Sense::click());
                 let c = if b.hovered() {
                     p.text_primary
                 } else {
                     p.text_tertiary
                 };
-                icons::paint_sized(ui.painter(), ui.ctx(), r, icon, 12.0, c);
+                let glyph = Rect::from_center_size(centre, egui::vec2(MARK, MARK));
+                icons::paint_sized(ui.painter(), ui.ctx(), glyph, icon, MARK, c);
                 a11y(&b, egui::WidgetType::Button, name, None);
                 if b.clicked() {
                     let k = if ui.input(|i| i.modifiers.shift) {
@@ -248,7 +258,7 @@ impl Widget for Field<'_> {
             }
         }
         if !self.presets.is_empty() {
-            let btn = Rect::from_min_max(egui::pos2(rect.right() - 32.0, rect.top()), rect.max);
+            let btn = Rect::from_min_max(egui::pos2(rect.right() - preset_w, rect.top()), rect.max);
             ui.painter().vline(
                 btn.left(),
                 btn.y_range().shrink(1.0),
@@ -262,9 +272,9 @@ impl Widget for Field<'_> {
             } else {
                 p.text_secondary
             };
-            icons::paint(ui.painter(), ui.ctx(), btn, i16::CHEVDOWN, c);
+            icons::paint_sized(ui.painter(), ui.ctx(), btn, i16::CHEVDOWN, MARK, c);
             a11y(&b, egui::WidgetType::ComboBox, "Presets", None);
-            let picked = super::menu::popup_below(&b, 120.0, |ui| {
+            let picked = super::menu::popup_below(&b, crate::metrics::field_s(), |ui| {
                 let mut picked = None;
                 for v in self.presets {
                     if ui.add(super::MenuItem::new(fmt(*v).as_str())).clicked() {
@@ -358,6 +368,9 @@ pub fn parse_number(text: &str) -> Option<f64> {
 }
 
 /// `NF2/Field` (text) — prefix + free text ("Name  Ideas in motion").
+///
+/// [`TextField::compact`] is the inline editor of a list row (layer name, tree label): as high as
+/// the row, a 1 px accent border, no vertical padding.
 pub struct TextField<'a> {
     text: &'a mut String,
     prefix: &'a str,
@@ -365,6 +378,8 @@ pub struct TextField<'a> {
     width: Option<f32>,
     label: &'a str,
     mono: bool,
+    compact: Option<f32>,
+    style: Option<TextStyle>,
 }
 
 impl<'a> TextField<'a> {
@@ -376,6 +391,8 @@ impl<'a> TextField<'a> {
             width: None,
             label,
             mono: false,
+            compact: None,
+            style: None,
         }
     }
     pub fn prefix(mut self, prefix: &'a str) -> Self {
@@ -395,6 +412,17 @@ impl<'a> TextField<'a> {
         self.mono = true;
         self
     }
+    /// Inline editor exactly `height` high (a layer or tree row, 16–24 pt): `bg/field`, a 1 px
+    /// `border/focus` outline, `space::s1()` at the sides and no vertical padding.
+    pub fn compact(mut self, height: f32) -> Self {
+        self.compact = Some(height);
+        self
+    }
+    /// Text style of the value (default `Body`, or `Mono` with [`Self::mono`]); short rows use `Small`.
+    pub fn text_style(mut self, style: TextStyle) -> Self {
+        self.style = Some(style);
+        self
+    }
     /// Id of the inner text editor for a `TextField` response (to request focus or read its cursor).
     pub fn edit_id(response_id: egui::Id) -> egui::Id {
         response_id.with("edit")
@@ -405,32 +433,44 @@ impl Widget for TextField<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let p = palette(ui.ctx());
         let width = self.width.unwrap_or(ui.available_width());
-        let (rect, response) =
-            ui.allocate_exact_size(egui::vec2(width, crate::metrics::control()), Sense::hover());
+        let height = self.compact.unwrap_or_else(crate::metrics::control);
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), Sense::hover());
         let edit_id = response.id.with("edit");
         let focused = ui.memory(|m| m.has_focus(edit_id));
-        frame(ui, rect, State::of(ui, &response), focused);
-        let mut x = rect.left() + space::S3;
+        let pad = if self.compact.is_some() {
+            ui.painter().rect_filled(rect, cr(radius::sm()), p.bg_field);
+            ui.painter().rect_stroke(
+                rect,
+                cr(radius::sm()),
+                Stroke::new(1.0_f32, p.border_focus),
+                StrokeKind::Inside,
+            );
+            space::s1()
+        } else {
+            frame(ui, rect, State::of(ui, &response), focused);
+            space::s3()
+        };
+        let mut x = rect.left() + pad;
         if !self.prefix.is_empty() {
             let g = galley(ui, self.prefix, TextStyle::Small, p.text_tertiary);
             let w = g.size().x;
             text_at(ui, x, rect, g, p.text_tertiary);
-            x += w + space::S2;
+            x += w + space::s2();
         }
         let r = Rect::from_min_max(
             egui::pos2(x, rect.top()),
-            egui::pos2(rect.right() - space::S2, rect.bottom()),
+            egui::pos2(rect.right() - pad.min(space::s2()), rect.bottom()),
         );
         let fg = if ui.is_enabled() {
             p.text_primary
         } else {
             p.text_disabled
         };
-        let style = if self.mono {
+        let style = self.style.unwrap_or(if self.mono {
             TextStyle::Mono
         } else {
             TextStyle::Body
-        };
+        });
         let edit = inside(ui, r, |ui| {
             edit_style(ui, fg);
             ui.add(
@@ -482,7 +522,7 @@ impl Widget for Search<'_> {
         let focused = ui.memory(|m| m.has_focus(edit_id));
         frame(ui, rect, State::of(ui, &response), focused);
         let icon_rect = Rect::from_center_size(
-            egui::pos2(rect.left() + space::S3 + 8.0, rect.center().y),
+            egui::pos2(rect.left() + space::s3() + 8.0, rect.center().y),
             egui::vec2(16.0, 16.0),
         );
         icons::paint(
@@ -492,10 +532,14 @@ impl Widget for Search<'_> {
             i16::SEARCH,
             p.text_tertiary,
         );
-        let clear_w = if self.text.is_empty() { 0.0 } else { 24.0 };
+        let clear_w = if self.text.is_empty() {
+            0.0
+        } else {
+            MARK + space::s2()
+        };
         let r = Rect::from_min_max(
-            egui::pos2(icon_rect.right() + space::S2, rect.top()),
-            egui::pos2(rect.right() - space::S2 - clear_w, rect.bottom()),
+            egui::pos2(icon_rect.right() + space::s2(), rect.top()),
+            egui::pos2(rect.right() - space::s2() - clear_w, rect.bottom()),
         );
         let edit = inside(ui, r, |ui| {
             edit_style(ui, p.text_primary);
@@ -515,9 +559,10 @@ impl Widget for Search<'_> {
         });
         let mut response = response | edit;
         if !self.text.is_empty() {
+            let side = crate::metrics::control().min(20.0);
             let cr_ = Rect::from_center_size(
-                egui::pos2(rect.right() - space::S2 - 12.0, rect.center().y),
-                egui::vec2(24.0, 24.0),
+                egui::pos2(rect.right() - space::s3() - MARK / 2.0, rect.center().y),
+                egui::vec2(side, side),
             );
             let clear = ui.interact(cr_, response.id.with("clear"), Sense::click());
             let c = if clear.hovered() {
@@ -525,7 +570,7 @@ impl Widget for Search<'_> {
             } else {
                 p.text_tertiary
             };
-            icons::paint(ui.painter(), ui.ctx(), cr_, i16::X, c);
+            icons::paint_sized(ui.painter(), ui.ctx(), cr_, i16::X, MARK, c);
             let clear = super::display::tooltip(clear, "Clear search", Some("Esc"));
             let esc = response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape));
             if clear.clicked() || esc {
@@ -538,19 +583,23 @@ impl Widget for Search<'_> {
     }
 }
 
-/// `NF2/Select` — closed state looks like a field with ▾; the popup holds `NF2/Menu Item`s.
+/// `NF3/Select` — closed state looks like a field with ▾; the popup holds `NF2/Menu Item`s.
+/// Optional `Label` slot: a tertiary caption before the value ("Profile  Default").
 pub struct Select<'a> {
     id_salt: egui::Id,
     label: &'a str,
+    prefix: &'a str,
     width: Option<f32>,
     icon: Option<Icon>,
 }
 
 impl<'a> Select<'a> {
+    /// `label` is the current value as shown in the closed select.
     pub fn new(id_salt: impl std::hash::Hash, label: &'a str) -> Self {
         Self {
             id_salt: egui::Id::new(id_salt),
             label,
+            prefix: "",
             width: None,
             icon: None,
         }
@@ -563,11 +612,29 @@ impl<'a> Select<'a> {
         self.icon = Some(icon);
         self
     }
+    /// Caption inside the select, before the value, in `NF2/Small` `text/tertiary` (the `Label`
+    /// slot of the Figma master). It is dropped when caption and value do not both fit; the
+    /// accessible name stays "Caption, value".
+    pub fn prefix(mut self, prefix: &'a str) -> Self {
+        self.prefix = prefix;
+        self
+    }
+
+    /// Accessible name of a select: the value, or "Caption, value" with a [`Self::prefix`].
+    pub fn accessible_name(prefix: &str, value: &str) -> String {
+        if prefix.is_empty() {
+            value.to_owned()
+        } else {
+            format!("{prefix}, {value}")
+        }
+    }
 
     /// Show the closed select; `menu` fills the popup (use [`super::MenuItem`]).
     pub fn show<R>(self, ui: &mut Ui, menu: impl FnOnce(&mut Ui) -> R) -> (Response, Option<R>) {
         let p = palette(ui.ctx());
-        let width = self.width.unwrap_or(ui.available_width().min(200.0));
+        let width = self
+            .width
+            .unwrap_or_else(|| ui.available_width().min(crate::metrics::field_m()));
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(width, crate::metrics::control()), Sense::click());
         let response = ui.interact(rect, ui.id().with(self.id_salt), Sense::click()) | response;
@@ -575,18 +642,20 @@ impl<'a> Select<'a> {
         let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&response));
         let (bg, border) = if !s.enabled {
             (p.bg_panel, p.border_subtle)
-        } else if s.hovered || open {
-            (p.bg_hover, p.border_strong)
+        } else if open {
+            (p.bg_field, p.border_focus)
+        } else if s.hovered {
+            (p.bg_field, p.border_strong)
         } else {
-            (p.bg_raised, p.border_default)
+            (p.bg_field, p.border_default)
         };
-        fill(ui, rect, radius::MD, bg, Some(border));
+        fill(ui, rect, radius::md(), bg, Some(border));
         let fg = if s.enabled {
             p.text_primary
         } else {
             p.text_disabled
         };
-        let mut x = rect.left() + space::S3;
+        let mut x = rect.left() + space::s3();
         if let Some(icon) = self.icon {
             icons::paint(
                 ui.painter(),
@@ -598,10 +667,29 @@ impl<'a> Select<'a> {
                 icon,
                 p.text_secondary,
             );
-            x += 16.0 + space::S2;
+            x += 16.0 + space::s2();
         }
-        let max = rect.right() - 32.0 - x;
+        // 12 px chevron with the field padding on its right, one control gap before it.
+        let chev = Rect::from_center_size(
+            egui::pos2(rect.right() - space::s3() - MARK / 2.0, rect.center().y),
+            egui::vec2(MARK, MARK),
+        );
+        let right = chev.left() - space::s2();
         let g = galley(ui, self.label, TextStyle::Body, fg);
+        if !self.prefix.is_empty() {
+            let caption_fg = if s.enabled {
+                p.text_tertiary
+            } else {
+                p.text_disabled
+            };
+            let caption = galley(ui, self.prefix, TextStyle::Small, caption_fg);
+            let caption_w = caption.size().x + space::s2();
+            if x + caption_w + g.size().x <= right + 0.5 {
+                text_at(ui, x, rect, caption, caption_fg);
+                x += caption_w;
+            }
+        }
+        let max = (right - x).max(0.0);
         let clip = Rect::from_min_max(
             egui::pos2(x, rect.top()),
             egui::pos2(x + max, rect.bottom()),
@@ -611,23 +699,21 @@ impl<'a> Select<'a> {
             g,
             fg,
         );
-        let chev = Rect::from_center_size(
-            egui::pos2(rect.right() - space::S3 - 8.0, rect.center().y),
-            egui::vec2(16.0, 16.0),
-        );
-        icons::paint(
+        icons::paint_sized(
             ui.painter(),
             ui.ctx(),
             chev,
             i16::CHEVDOWN,
+            MARK,
             if s.enabled {
-                p.text_primary
+                p.text_secondary
             } else {
                 p.text_disabled
             },
         );
-        super::focus(ui, s, rect, radius::MD);
-        a11y(&response, egui::WidgetType::ComboBox, self.label, None);
+        super::focus(ui, s, rect, radius::md());
+        let name = Self::accessible_name(self.prefix, self.label);
+        a11y(&response, egui::WidgetType::ComboBox, &name, None);
         let inner = super::menu::popup_below(&response, width, menu);
         (response, inner)
     }
@@ -686,25 +772,27 @@ impl<'a> ColorField<'a> {
     }
     pub fn show(self, ui: &mut Ui) -> ColorFieldResponse {
         let p = palette(ui.ctx());
-        let width = self.width.unwrap_or(ui.available_width().min(200.0));
+        let width = self
+            .width
+            .unwrap_or_else(|| ui.available_width().min(crate::metrics::field_l()));
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(width, crate::metrics::control()), Sense::hover());
         let id = response.id;
         frame(ui, rect, State::of(ui, &response), false);
-        let sw = Rect::from_center_size(
-            egui::pos2(rect.left() + 6.0 + 9.0, rect.center().y),
-            egui::vec2(18.0, 18.0),
-        );
-        super::display::paint_swatch(ui, sw, *self.color, radius::SM);
+        // The chip sits the same distance from the left, top and bottom edges.
+        let side = crate::metrics::swatch();
+        let inset = ((rect.height() - side) / 2.0).round();
+        let sw = Rect::from_min_size(rect.min + egui::vec2(inset, inset), egui::vec2(side, side));
+        super::display::paint_swatch(ui, sw, *self.color, radius::sm());
         let swatch_clicked = super::display::tooltip(
             ui.interact(sw, id.with("swatch"), Sense::click()),
             "Open colour picker",
             None,
         )
         .clicked();
-        let alpha_w = 64.0;
+        let alpha_w = crate::metrics::field_num();
         let hex_rect = Rect::from_min_max(
-            egui::pos2(sw.right() + space::S2, rect.top()),
+            egui::pos2(sw.right() + space::s2(), rect.top()),
             egui::pos2(rect.right() - alpha_w, rect.bottom()),
         );
         let [r, g, b, a] = self.color.to_srgba_unmultiplied();
@@ -739,7 +827,7 @@ impl<'a> ColorField<'a> {
         ui.data_mut(|d| d.insert_temp(id.with("hex"), hex));
         ui.painter().vline(
             rect.right() - alpha_w,
-            rect.y_range().shrink(8.0),
+            rect.y_range().shrink(space::s2()),
             Stroke::new(1.0_f32, p.border_default),
         );
         let mut alpha = (a as f64 / 255.0 * 100.0).round();
@@ -888,9 +976,18 @@ impl LineStyleSelect {
                 }
             });
         let r = resp.rect;
+        // The preview starts after the widest style name, so it never moves between styles.
+        let label_w = LineStyle::ALL
+            .iter()
+            .map(|s| {
+                galley(ui, s.label(), TextStyle::Body, p.text_primary)
+                    .size()
+                    .x
+            })
+            .fold(0.0, f32::max);
         let preview = Rect::from_min_max(
-            egui::pos2(r.left() + 84.0, r.top()),
-            egui::pos2(r.right() - 36.0, r.bottom()),
+            egui::pos2(r.left() + space::s3() + label_w + space::s3(), r.top()),
+            egui::pos2(r.right() - space::s3() - MARK - space::s2(), r.bottom()),
         );
         if preview.width() > 16.0 {
             value.paint(ui.painter(), preview, p.text_primary);

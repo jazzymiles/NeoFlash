@@ -104,6 +104,70 @@ fn bounds(output: &egui::FullOutput, label: &str) -> Option<egui::Rect> {
             })
         })
 }
+/// v3: one rectangle per density, with `Advanced options` closed and with an error line.
+#[test]
+fn t389_trace_bitmap_dialog_keeps_its_rect_across_states_in_every_density() {
+    use neoflash_ui::metrics::{self, Density};
+    for density in Density::ALL {
+        metrics::set_density(density);
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut e = editor(&ctx);
+        e.open_trace_bitmap(&ctx);
+        wait(&mut e, &ctx);
+        let rect = |e: &mut Editor, time: f64| {
+            let mut out = frame(e, &ctx, time, vec![]);
+            for step in 1..3 {
+                out = frame(e, &ctx, time + 0.01 * f64::from(step), vec![]);
+            }
+            let rect = ctx
+                .memory(|m| m.area_rect(egui::Id::new("trace-bitmap-dialog")))
+                .expect("Trace dialog");
+            (rect, out)
+        };
+        let (opened, out) = rect(&mut e, 0.1);
+        let size = Editor::trace_bitmap_dialog_size(&ctx);
+        assert!(
+            (opened.width() - size.x - 2.).abs() <= 1.
+                && (opened.height() - size.y - 2.).abs() <= 1.,
+            "{}: {opened:?} is not the metric size {size:?}",
+            density.label()
+        );
+        let header = bounds(&out, "Advanced options").unwrap().center();
+        frame(
+            &mut e,
+            &ctx,
+            0.3,
+            vec![
+                egui::Event::PointerMoved(header),
+                crate::tests::primary_button(header, true),
+            ],
+        );
+        frame(
+            &mut e,
+            &ctx,
+            0.4,
+            vec![crate::tests::primary_button(header, false)],
+        );
+        let (collapsed, out) = rect(&mut e, 0.5);
+        assert!(
+            bounds(&out, "Paths").is_none(),
+            "Advanced options collapsed"
+        );
+        assert_eq!(collapsed, opened, "{}: collapsing resized", density.label());
+        e.bitmap_trace.dialog.as_mut().unwrap().error = Some("Trace failed".into());
+        let (with_error, _) = rect(&mut e, 0.7);
+        assert_eq!(
+            with_error,
+            opened,
+            "{}: the error line resized",
+            density.label()
+        );
+        e.bitmap_trace.cancel();
+    }
+    metrics::set_density(Density::Comfortable);
+}
+
 #[test]
 fn trace_bitmap_family_controls_cancel_stale_and_one_undo() {
     for theme in [ThemeMode::Dark, ThemeMode::Light] {
@@ -120,25 +184,27 @@ fn trace_bitmap_family_controls_cancel_stale_and_one_undo() {
         assert_eq!(e.project, before);
         frame(&mut e, &ctx, 0.1, vec![]);
         let out = frame(&mut e, &ctx, 0.2, vec![]);
-        fn dialog_rect(shape: &egui::Shape) -> Option<egui::Rect> {
+        // The dialog surface is the metric size plus its 1 pt border on every side.
+        let size = Editor::trace_bitmap_dialog_size(&ctx);
+        fn dialog_rect(shape: &egui::Shape, width: f32) -> Option<egui::Rect> {
             match shape {
                 egui::Shape::Rect(r)
-                    if (679.0..=681.).contains(&r.rect.width()) && r.rect.height() > 500. =>
+                    if (r.rect.width() - width).abs() <= 1. && r.rect.height() > 300. =>
                 {
                     Some(r.rect)
                 }
-                egui::Shape::Vec(shapes) => shapes.iter().find_map(dialog_rect),
+                egui::Shape::Vec(shapes) => shapes.iter().find_map(|s| dialog_rect(s, width)),
                 _ => None,
             }
         }
         let dialog = out
             .shapes
             .iter()
-            .find_map(|s| dialog_rect(&s.shape))
+            .find_map(|s| dialog_rect(&s.shape, size.x + 2.))
             .expect("Trace dialog surface");
         assert!(
-            (683.0..=685.).contains(&dialog.height()),
-            "approved 680 × 684 dialog: {dialog:?}"
+            (dialog.height() - (size.y + 2.)).abs() <= 1.,
+            "dialog_l × form height from metrics ({size:?}): {dialog:?}"
         );
         for label in ["Colours", "Paths", "Corners", "Noise"] {
             let widths: Vec<_> = out
@@ -149,11 +215,12 @@ fn trace_bitmap_family_controls_cancel_stale_and_one_undo() {
                 .nodes
                 .iter()
                 .filter(|(_, node)| node.label() == Some(label))
-                .filter_map(|(_, node)| node.bounds().map(|r| r.x1 - r.x0))
+                .filter_map(|(_, node)| node.bounds().map(|r| (r.x1 - r.x0) as f32))
                 .collect();
+            let field = neoflash_ui::metrics::field_num();
             assert!(
-                widths.iter().any(|w| (133.0..=135.).contains(w)),
-                "{label} field must use outline width134: {widths:?}"
+                widths.iter().any(|w| (w - field).abs() <= 1.),
+                "{label} field must be `field_num()` wide: {widths:?}"
             );
         }
         for label in [

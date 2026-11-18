@@ -23,6 +23,43 @@ use neoflash_ui::{
 };
 use std::collections::{HashMap, HashSet};
 
+/// Vertical scroll body of a padded inspector panel. A form row ends at the body's right edge,
+/// so the floating scrollbar is laid out in the panel's right padding (`PanelId::body_padding`)
+/// instead of over the last points of every row; the rows keep their width whether the bar shows
+/// or not. The area never shrinks to its content.
+pub(crate) fn panel_scroll_body<R>(
+    ui: &mut egui::Ui,
+    panel: PanelId,
+    id_salt: &str,
+    body: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    let gutter = panel.body_padding();
+    let rect = ui.available_rect_before_wrap();
+    let mut outer = rect;
+    outer.max.x += gutter;
+    let mut clip = ui.clip_rect();
+    // Only a body that reaches its clip edge owns the padding next to it.
+    if (clip.right() - rect.right()).abs() < 0.5 {
+        clip.max.x += gutter;
+    }
+    let mut child = ui.new_child(egui::UiBuilder::new().id(ui.id()).max_rect(outer));
+    child.set_clip_rect(clip);
+    let output = egui::ScrollArea::vertical()
+        .id_salt(id_salt)
+        .auto_shrink([false, false])
+        .themed()
+        .show(&mut child, |ui| {
+            // Rows still end, and clip, at the body's edge; only the scrollbar uses the gutter.
+            ui.set_max_width(rect.width());
+            let mut content_clip = ui.clip_rect();
+            content_clip.max.x = content_clip.max.x.min(rect.right());
+            ui.set_clip_rect(content_clip);
+            body(ui)
+        });
+    ui.allocate_rect(rect, egui::Sense::hover());
+    output.inner
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PaintFillType {
     None,
@@ -933,59 +970,59 @@ impl Editor {
         else {
             return;
         };
-        use neoflash_ui::{
-            components as c,
-            tokens::{TextStyle, space},
-            typography::rich,
-        };
+        use neoflash_ui::{components as c, tokens::TextStyle, typography::rich};
         let mut accept = false;
         let mut cancel = false;
         let kb = crate::panels::dialog_helpers::DialogKeyboardState::capture(ctx);
+        use crate::panels::dialog_helpers::{FormDialog, dialog_width, form_row};
+        let width = dialog_width(ctx, neoflash_ui::metrics::dialog_s());
         let modal = egui::Modal::new(egui::Id::new("nf2-scale-and-rotate"))
             .frame(c::Surface::Dialog.frame(ctx))
+            .backdrop_color(neoflash_ui::palette(ctx).overlay)
             .show(ctx, |ui| {
-                ui.set_width(340.0);
-                ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
-                cancel |= c::DialogHeader {
-                    title: "Scale and Rotate",
-                }
-                .show(ui);
-                let w = ui.available_width();
-                ui.add(
-                    c::Field::new(&mut scale_pct, "Scale")
-                        .prefix("Scale")
-                        .unit("%")
-                        .range(1.0..=1000.0)
-                        .decimals(1)
-                        .stepper()
-                        .width(w),
-                );
-                ui.add(
-                    c::Field::new(&mut rotate_deg, "Rotate")
-                        .prefix("Rotate")
-                        .unit("°")
-                        .range(-360.0..=360.0)
-                        .decimals(1)
-                        .stepper()
-                        .width(w),
-                );
-                let p = neoflash_ui::palette(ui.ctx());
-                ui.label(
-                    rich(
-                        "Scales and rotates the selection around its transformation point.",
-                        TextStyle::Small,
-                    )
-                    .color(p.text_tertiary),
-                );
-                ui.add_space(space::S2);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add(c::Button::primary("OK").shortcut("↵")).clicked() {
-                        accept = true;
-                    }
-                    if ui.add(c::Button::new("Cancel").shortcut("Esc")).clicked() {
-                        cancel = true;
-                    }
+                let dialog = FormDialog::show(ui, "Scale and Rotate", width, None);
+                cancel |= dialog.close;
+                dialog.page(ui, "scale-and-rotate-page", |ui, _| {
+                    form_row(ui, "Scale", |ui| {
+                        ui.add(
+                            c::Field::new(&mut scale_pct, "Scale")
+                                .unit("%")
+                                .range(1.0..=1000.0)
+                                .decimals(1)
+                                .stepper()
+                                .width(neoflash_ui::metrics::field_s()),
+                        );
+                    });
+                    form_row(ui, "Rotate", |ui| {
+                        ui.add(
+                            c::Field::new(&mut rotate_deg, "Rotate")
+                                .unit("°")
+                                .range(-360.0..=360.0)
+                                .decimals(1)
+                                .stepper()
+                                .width(neoflash_ui::metrics::field_s()),
+                        );
+                    });
+                    let p = neoflash_ui::palette(ui.ctx());
+                    ui.add(
+                        egui::Label::new(
+                            rich(
+                                "Scales and rotates the selection around its transformation point.",
+                                TextStyle::Small,
+                            )
+                            .color(p.text_tertiary),
+                        )
+                        .wrap(),
+                    );
                 });
+                dialog.footer(
+                    ui,
+                    |_| {},
+                    |ui| {
+                        accept |= ui.add(c::Button::primary("OK").shortcut("↵")).clicked();
+                        cancel |= ui.add(c::Button::new("Cancel").shortcut("Esc")).clicked();
+                    },
+                );
             });
         if !accept && !cancel {
             match kb.resolve(ctx, &modal, true) {
@@ -2719,37 +2756,36 @@ impl Editor {
 
     pub(crate) fn align_panel_ui(&mut self, ui: &mut egui::Ui) {
         self.panel_title(ui, PanelId::Align, "Align");
-        egui::ScrollArea::vertical()
-            .id_salt("align-content")
-            .auto_shrink([false, false])
-            .themed()
-            .show(ui, |ui| self.align_panel_contents(ui));
+        panel_scroll_body(ui, PanelId::Align, "align-content", |ui| {
+            self.align_panel_contents(ui)
+        });
     }
 
     fn align_panel_contents(&mut self, ui: &mut egui::Ui) {
-        ui.spacing_mut().item_spacing.y = space::S2;
+        use crate::panels::properties::inspector_section;
+        ui.spacing_mut().item_spacing.y = neoflash_ui::metrics::row_gap();
+        // `Align to` stays on top: the caption takes the free width, the choice ends the row.
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = space::S2;
+            ui.spacing_mut().item_spacing.x = space::s2();
             caption_label(ui, "Align to");
-            Segmented::show(
-                ui,
-                &mut self.authoring_modify.to_stage,
-                &[(false, "Selection"), (true, "Stage")],
-                false,
-            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                Segmented::show(
+                    ui,
+                    &mut self.authoring_modify.to_stage,
+                    &[(false, "Selection"), (true, "Stage")],
+                    false,
+                );
+            });
         });
         let count = self.modify_layout_units(ui.ctx()).len();
-        ui.add_enabled_ui_semantic(count > 0, |ui| {
-            overline(ui, "Align");
+        let to_stage = self.authoring_modify.to_stage;
+        inspector_section(ui, "Align", |ui| {
             let align_resp = ui
-                .add_enabled_ui_semantic(
-                    count >= 2 || (count > 0 && self.authoring_modify.to_stage),
-                    |ui| {
-                        alignment_groups(ui, "Align", ALIGN_ICONS, |ui, axis, edge| {
-                            self.align_selection(ui.ctx(), axis, edge)
-                        });
-                    },
-                )
+                .add_enabled_ui_semantic(count >= 2 || (count > 0 && to_stage), |ui| {
+                    alignment_groups(ui, "Align", ALIGN_ICONS, |ui, axis, edge| {
+                        self.align_selection(ui.ctx(), axis, edge)
+                    });
+                })
                 .response;
             crate::ui_icons::hover_tooltip(
                 align_resp,
@@ -2757,16 +2793,14 @@ impl Editor {
                 None,
                 Some("Select two objects, or choose Stage to align one object"),
             );
-            overline(ui, "Distribute");
+        });
+        inspector_section(ui, "Distribute", |ui| {
             let dist_resp = ui
-                .add_enabled_ui_semantic(
-                    count >= 3 || (count >= 2 && self.authoring_modify.to_stage),
-                    |ui| {
-                        alignment_groups(ui, "Distribute", DISTRIBUTE_ICONS, |ui, axis, edge| {
-                            self.distribute_selection(ui.ctx(), axis, edge)
-                        })
-                    },
-                )
+                .add_enabled_ui_semantic(count >= 3 || (count >= 2 && to_stage), |ui| {
+                    alignment_groups(ui, "Distribute", DISTRIBUTE_ICONS, |ui, axis, edge| {
+                        self.distribute_selection(ui.ctx(), axis, edge)
+                    })
+                })
                 .response;
             crate::ui_icons::hover_tooltip(
                 dist_resp,
@@ -2774,11 +2808,12 @@ impl Editor {
                 None,
                 Some("Select at least three objects to distribute their positions"),
             );
-            overline(ui, "Spacing");
+        });
+        inspector_section(ui, "Spacing", |ui| {
             let space_resp = ui
                 .add_enabled_ui_semantic(count >= 2, |ui| {
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
+                        ui.spacing_mut().item_spacing.x = space::s2();
                         let even = IconGroup {
                             items: &[
                                 (
@@ -2795,20 +2830,23 @@ impl Editor {
                         }
                         let gap = &mut self.authoring_modify.horizontal_gap;
                         let before = *gap;
+                        // The gap field takes what the icon group leaves of the row.
+                        let width = crate::paint_controls::visible_row_width(ui)
+                            .max(neoflash_ui::metrics::field_num());
                         ui.add(
                             DragField::new(gap, "Spacing gap (px)")
                                 .prefix("Gap")
                                 .suffix(" px")
                                 .range(-100_000. ..=100_000.)
                                 .max_decimals(2)
-                                .width(ui.available_width().min(132.)),
+                                .width(width),
                         );
                         if *gap != before {
                             self.authoring_modify.vertical_gap = *gap;
                         }
                     });
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
+                        ui.spacing_mut().item_spacing.x = space::s2();
                         let apply = IconGroup {
                             items: &[
                                 (i16::SPACE_H, "Apply gap horizontally"),
@@ -2835,24 +2873,22 @@ impl Editor {
                 None,
                 Some("Select two or more objects to space them"),
             );
-            overline(ui, "Match size");
+        });
+        inspector_section(ui, "Match size", |ui| {
             let match_resp = ui
-                .add_enabled_ui_semantic(
-                    count >= 2 || (count > 0 && self.authoring_modify.to_stage),
-                    |ui| {
-                        let clicked = IconGroup {
-                            items: &[
-                                (i16::MATCH_W, "Match width"),
-                                (i16::MATCH_H, "Match height"),
-                            ],
-                            selected: None,
-                        }
-                        .show(ui);
-                        if let Some(axis) = clicked {
-                            self.match_selection_size(ui.ctx(), axis);
-                        }
-                    },
-                )
+                .add_enabled_ui_semantic(count >= 2 || (count > 0 && to_stage), |ui| {
+                    let clicked = IconGroup {
+                        items: &[
+                            (i16::MATCH_W, "Match width"),
+                            (i16::MATCH_H, "Match height"),
+                        ],
+                        selected: None,
+                    }
+                    .show(ui);
+                    if let Some(axis) = clicked {
+                        self.match_selection_size(ui.ctx(), axis);
+                    }
+                })
                 .response;
             crate::ui_icons::hover_tooltip(
                 match_resp,
@@ -2865,15 +2901,13 @@ impl Editor {
 
     pub(crate) fn transform_panel_ui(&mut self, ui: &mut egui::Ui) {
         self.panel_title(ui, PanelId::Transform, "Transform");
-        egui::ScrollArea::vertical()
-            .id_salt("transform-content")
-            .auto_shrink([false, false])
-            .themed()
-            .show(ui, |ui| self.transform_panel_contents(ui));
+        panel_scroll_body(ui, PanelId::Transform, "transform-content", |ui| {
+            self.transform_panel_contents(ui)
+        });
     }
 
     fn transform_panel_contents(&mut self, ui: &mut egui::Ui) {
-        ui.spacing_mut().item_spacing.y = space::S2;
+        ui.spacing_mut().item_spacing.y = neoflash_ui::metrics::row_gap();
         let placements = self.modify_placements(ui.ctx());
         if placements.is_empty() {
             crate::panels::properties::hint(ui, "Select artwork on the Stage.");
@@ -2890,24 +2924,40 @@ impl Editor {
                 bounds.height() as f64,
             ];
             let original = fields;
-            overline(ui, "Position and size");
-            let [ref mut x, ref mut y, ref mut width, ref mut height] = fields;
-            let [rx, ry] = field_pair(ui, ["X", "Y"], [x, y], -1_000_000. ..=1_000_000., "", None);
-            let linked = &mut self.authoring_modify.linked_scale;
             let size_min = if original[2] <= 1e-6 || original[3] <= 1e-6 {
                 0.0
             } else {
                 0.01
             };
-            let [rw, rh] = field_pair(
-                ui,
-                ["W", "H"],
-                [width, height],
-                size_min..=1_000_000.,
-                "",
-                Some(linked),
-            );
-            for (index, response) in [rx, ry, rw, rh].into_iter().enumerate() {
+            // v3: two equal columns in every row; the constrain toggle sits in the section header.
+            let mut position = Vec::new();
+            {
+                let [ref mut x, ref mut y, ref mut width, ref mut height] = fields;
+                crate::panels::properties::inspector_section_with_trailing(
+                    ui,
+                    "Position and size",
+                    true,
+                    crate::panels::properties::section_action_side(),
+                    |ui| {
+                        position.extend(field_pair(
+                            ui,
+                            ["X", "Y"],
+                            [x, y],
+                            -1_000_000. ..=1_000_000.,
+                            "",
+                        ));
+                        position.extend(field_pair(
+                            ui,
+                            ["W", "H"],
+                            [width, height],
+                            size_min..=1_000_000.,
+                            "",
+                        ));
+                    },
+                    |ui| section_link_toggle(ui, &mut self.authoring_modify.linked_scale),
+                );
+            }
+            for (index, response) in position.into_iter().enumerate() {
                 if response.changed() {
                     let mut matrix = [1., 0., 0., 1., 0., 0.];
                     if index < 2 {
@@ -2947,34 +2997,9 @@ impl Editor {
                     old.rotation,
                     old.skew,
                 ];
-                overline(ui, "Scale");
-                let [ref mut sx, ref mut sy, ref mut rotation, ref mut skew] = values;
-                let linked = &mut self.authoring_modify.linked_scale;
-                let [rsx, rsy] = field_pair(
-                    ui,
-                    ["W", "H"],
-                    [sx, sy],
-                    -1_000_000. ..=1_000_000.,
-                    " %",
-                    Some(linked),
-                );
-                overline(ui, "Rotate and skew");
-                let (rr, rk) = two_column_row(
-                    ui,
-                    |ui, width| {
-                        number_field(
-                            ui,
-                            "Rotate",
-                            rotation,
-                            -360_000. ..=360_000.,
-                            1.,
-                            "°",
-                            Some(width),
-                        )
-                    },
-                    |ui, width| number_field(ui, "Skew", skew, -89. ..=89., 1., "°", Some(width)),
-                );
-                for (index, response) in [rsx, rsy, rr, rk].into_iter().enumerate() {
+                let responses =
+                    scale_rotate_sections(ui, &mut values, &mut self.authoring_modify.linked_scale);
+                for (index, response) in responses {
                     if !response.changed() {
                         continue;
                     }
@@ -3017,33 +3042,8 @@ impl Editor {
                 }
             } else if placements.len() > 1 {
                 let mut values = [100.0_f64, 100.0_f64, 0.0_f64, 0.0_f64];
-                overline(ui, "Scale");
-                let [ref mut sx, ref mut sy, ref mut rotation, ref mut skew] = values;
-                let linked = &mut self.authoring_modify.linked_scale;
-                let [rsx, rsy] = field_pair(
-                    ui,
-                    ["W", "H"],
-                    [sx, sy],
-                    -1_000_000. ..=1_000_000.,
-                    " %",
-                    Some(linked),
-                );
-                overline(ui, "Rotate and skew");
-                let (rr, rk) = two_column_row(
-                    ui,
-                    |ui, width| {
-                        number_field(
-                            ui,
-                            "Rotate",
-                            rotation,
-                            -360_000. ..=360_000.,
-                            1.,
-                            "°",
-                            Some(width),
-                        )
-                    },
-                    |ui, width| number_field(ui, "Skew", skew, -89. ..=89., 1., "°", Some(width)),
-                );
+                let responses =
+                    scale_rotate_sections(ui, &mut values, &mut self.authoring_modify.linked_scale);
                 let pivot = self
                     .authoring_modify
                     .group_pivot
@@ -3051,7 +3051,7 @@ impl Editor {
                     .filter(|(targets, _)| *targets == self.selection.targets)
                     .map(|(_, p)| Pos2::new(p[0] as f32, p[1] as f32))
                     .unwrap_or_else(|| bounds.center());
-                for (index, response) in [rsx, rsy, rr, rk].into_iter().enumerate() {
+                for (index, response) in responses {
                     if !response.changed() {
                         continue;
                     }
@@ -3093,7 +3093,7 @@ impl Editor {
             }
             neoflash_ui::components::divider(ui, false);
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = space::S2;
+                ui.spacing_mut().item_spacing.x = space::s2();
                 let clicked = IconGroup {
                     items: &[
                         (i16::ROTATE_CCW, "Rotate 90° CCW"),
@@ -3157,11 +3157,9 @@ impl Editor {
             d.insert_temp(color_recent(), recent);
             d.remove::<bool>(color_picker_toggle());
         });
-        egui::ScrollArea::vertical()
-            .id_salt("color-content")
-            .auto_shrink([false, false])
-            .themed()
-            .show(ui, |ui| self.color_panel_contents(ui));
+        panel_scroll_body(ui, PanelId::Color, "color-content", |ui| {
+            self.color_panel_contents(ui)
+        });
         if ui.data_mut(|d| d.remove_temp::<bool>(color_picker_toggle())) == Some(true) {
             self.workspace.color_picker_expanded = !self.workspace.color_picker_expanded;
         }
@@ -3777,7 +3775,7 @@ impl Editor {
                     };
                     ui.painter().rect_stroke(
                         rect,
-                        egui::CornerRadius::same(neoflash_ui::tokens::radius::MD as u8),
+                        egui::CornerRadius::same(neoflash_ui::tokens::radius::md() as u8),
                         egui::Stroke::new(w, color),
                         egui::StrokeKind::Inside,
                     );
@@ -3821,8 +3819,9 @@ impl Editor {
     }
 
     pub(crate) fn color_fill_popover_contents(&mut self, ui: &mut egui::Ui) -> bool {
-        ui.set_min_width(276.0);
-        ui.set_max_width(276.0);
+        let width = crate::paint_controls::paint_popover_width();
+        ui.set_min_width(width);
+        ui.set_max_width(width);
         ui.data_mut(|d| {
             d.remove::<bool>(color_picker_expanded());
             d.remove::<bool>(color_picker_toggle());
@@ -3896,7 +3895,7 @@ impl Editor {
     }
 
     fn color_panel_contents(&mut self, ui: &mut egui::Ui) {
-        ui.spacing_mut().item_spacing.y = space::S2;
+        ui.spacing_mut().item_spacing.y = space::s2();
         let targets = self
             .sampled_targets()
             .into_iter()
@@ -4716,21 +4715,28 @@ fn color_wells_and_actions(
     let overpaint_well_gradient =
         |ui: &egui::Ui, well_rect: egui::Rect, grad: Option<&GradientPaint>| {
             if let Some(g) = grad {
-                let sw = egui::Rect::from_center_size(
-                    egui::pos2(well_rect.left() + 38.0, well_rect.center().y),
-                    egui::vec2(18.0, 18.0),
+                // The well's chip: field padding, 16 px icon, control gap, then the swatch.
+                let side = neoflash_ui::metrics::swatch();
+                let sw = egui::Rect::from_min_size(
+                    egui::pos2(
+                        well_rect.left() + space::s3() + 16.0 + space::s2(),
+                        well_rect.center().y - side / 2.0,
+                    ),
+                    egui::vec2(side, side),
                 );
                 crate::paint_controls::paint_gradient_swatch(
                     ui.painter(),
                     sw,
                     g,
-                    neoflash_ui::tokens::radius::SM,
+                    neoflash_ui::tokens::radius::sm(),
                 );
             }
         };
     let mut action = None;
+    // Tool-sized quick actions (28 / 24 / 22), so the row fits the inspector in every density.
+    let action_side = neoflash_ui::metrics::tool_button();
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.spacing_mut().item_spacing.x = space::s2();
         let fill_well = ui.add(ColorWell {
             target: ColorWellTarget::Fill,
             color: shown(fill, fill_grad),
@@ -4756,20 +4762,20 @@ fn color_wells_and_actions(
             if ui
                 .add_enabled(
                     stroke_enabled,
-                    IconButton::new(i20::COLOR_SWAP, "Swap colours").side(28.0),
+                    IconButton::new(i20::COLOR_SWAP, "Swap colours").side(action_side),
                 )
                 .clicked()
             {
                 action = Some(WellAction::Swap);
             }
             if ui
-                .add(IconButton::new(i20::COLOR_NONE, "No colour").side(28.0))
+                .add(IconButton::new(i20::COLOR_NONE, "No colour").side(action_side))
                 .clicked()
             {
                 action = Some(WellAction::NoColor);
             }
             if ui
-                .add(IconButton::new(i20::COLOR_DEFAULT, "Black and white").side(28.0))
+                .add(IconButton::new(i20::COLOR_DEFAULT, "Black and white").side(action_side))
                 .clicked()
             {
                 action = Some(WellAction::DefaultBlackWhite);
@@ -4883,7 +4889,7 @@ fn flow_row(
         };
         let closed_preview = egui::Rect::from_center_size(
             egui::pos2(
-                select_resp.rect.left() + space::S3 + 8.0,
+                select_resp.rect.left() + space::s3() + 8.0,
                 select_resp.rect.center().y,
             ),
             egui::vec2(20.0, 13.0),
@@ -5003,7 +5009,7 @@ fn color_mixer_ui(
         let recent: Vec<Color> = ui.data(|d| d.get_temp(color_recent())).unwrap_or_default();
         if !recent.is_empty() {
             ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(space::S1, space::S1);
+                ui.spacing_mut().item_spacing = egui::vec2(space::s1(), space::s1());
                 for c in recent {
                     let c32 = egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
                     let hex = format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2]);
@@ -5075,7 +5081,12 @@ fn color_mixer_ui(
 
     Segmented::show(ui, model_hsb, &[(false, "RGB"), (true, "HSB")], false);
 
+    // Three-value row: three equal cells and two `gap/control` across the visible row.
+    let third = ((crate::paint_controls::visible_row_width(ui) - 2.0 * space::s2()) / 3.0)
+        .floor()
+        .max(0.0);
     ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = space::s2();
         if !*model_hsb {
             let mut r = f64::from(color[0]);
             let mut g = f64::from(color[1]);
@@ -5085,21 +5096,21 @@ fn color_mixer_ui(
                     .prefix("R")
                     .range(0.0..=255.0)
                     .decimals(0)
-                    .width(80.0),
+                    .width(third),
             );
             let rg = ui.add(
                 Field::new(&mut g, "Green")
                     .prefix("G")
                     .range(0.0..=255.0)
                     .decimals(0)
-                    .width(80.0),
+                    .width(third),
             );
             let rb = ui.add(
                 Field::new(&mut b, "Blue")
                     .prefix("B")
                     .range(0.0..=255.0)
                     .decimals(0)
-                    .width(80.0),
+                    .width(third),
             );
             for resp in [&rr, &rg, &rb] {
                 if resp.changed() {
@@ -5124,7 +5135,7 @@ fn color_mixer_ui(
                     .unit("°")
                     .range(0.0..=360.0)
                     .decimals(0)
-                    .width(80.0),
+                    .width(third),
             );
             let rs = ui.add(
                 Field::new(&mut s_pct, "Saturation")
@@ -5132,7 +5143,7 @@ fn color_mixer_ui(
                     .unit("%")
                     .range(0.0..=100.0)
                     .decimals(0)
-                    .width(80.0),
+                    .width(third),
             );
             let rv = ui.add(
                 Field::new(&mut v_pct, "Brightness")
@@ -5140,7 +5151,7 @@ fn color_mixer_ui(
                     .unit("%")
                     .range(0.0..=100.0)
                     .decimals(0)
-                    .width(80.0),
+                    .width(third),
             );
             for resp in [&rh, &rs, &rv] {
                 if resp.changed() {
@@ -5202,7 +5213,7 @@ fn gradient_stops_bar_ui(
     ui.painter().add(egui::Shape::mesh(mesh));
     ui.painter().rect_stroke(
         bar,
-        egui::CornerRadius::same(neoflash_ui::tokens::radius::SM as u8),
+        egui::CornerRadius::same(neoflash_ui::tokens::radius::sm() as u8),
         egui::Stroke::new(1.0_f32, p.border_default),
         egui::StrokeKind::Inside,
     );
@@ -5331,14 +5342,14 @@ fn gradient_stops_bar_ui(
 fn stroke_section_ui(ui: &mut egui::Ui, width: &mut f64, with_divider: bool) -> Option<egui::Id> {
     let nf = neoflash_ui::palette(ui.ctx());
     if with_divider {
-        ui.add_space(space::S1);
+        ui.add_space(space::s1());
         let r = ui.available_rect_before_wrap();
         ui.painter().hline(
             r.x_range(),
             r.top(),
             egui::Stroke::new(1.0_f32, nf.border_subtle),
         );
-        ui.add_space(space::S2);
+        ui.add_space(space::s2());
     }
     ui.label(rich("Stroke", TextStyle::Overline).color(nf.text_tertiary));
     let mut changed = None;
@@ -5411,7 +5422,7 @@ fn alignment_groups(
     mut action: impl FnMut(&mut egui::Ui, usize, usize),
 ) {
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = space::S2;
+        ui.spacing_mut().item_spacing.x = space::s2();
         for (axis, group) in icons.iter().enumerate() {
             let names = group.map(|(_, label)| format!("{operation} {label}"));
             let items: Vec<(Icon, &str)> = group
@@ -5431,18 +5442,6 @@ fn alignment_groups(
     });
 }
 
-/// Uncollapsible group caption (`NF2/Overline`, secondary), as in Align and Transform.
-fn overline(ui: &mut egui::Ui, text: &str) {
-    let p = neoflash_ui::palette(ui.ctx());
-    let color = if ui.is_enabled() {
-        p.text_secondary
-    } else {
-        p.text_disabled
-    };
-    ui.add_space(space::S1);
-    ui.label(rich(text, TextStyle::Overline).color(color));
-}
-
 /// Inline row label (`NF2/Body`, secondary).
 fn caption_label(ui: &mut egui::Ui, text: &str) {
     let p = neoflash_ui::palette(ui.ctx());
@@ -5454,46 +5453,88 @@ fn caption_label(ui: &mut egui::Ui, text: &str) {
     ui.label(rich(text, TextStyle::Body).color(color));
 }
 
-/// Two prefixed fields side by side and an optional link (constrain) toggle.
+/// Two prefixed fields on the shared two-column grid.
 fn field_pair(
     ui: &mut egui::Ui,
     prefixes: [&str; 2],
     values: [&mut f64; 2],
     range: std::ops::RangeInclusive<f64>,
     suffix: &str,
-    link: Option<&mut bool>,
 ) -> [egui::Response; 2] {
     let [a, b] = values;
     let first_range = range.clone();
-    if let Some(linked) = link {
-        let (first, (second, link_response)) = two_column_row(
-            ui,
-            |ui, width| number_field(ui, prefixes[0], a, first_range, 1., suffix, Some(width)),
-            |ui, width| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = space::S2;
-                    let field_width = (width - crate::theme::control_h() - space::S2).max(0.0);
-                    let second =
-                        number_field(ui, prefixes[1], b, range, 1., suffix, Some(field_width));
-                    let link_response = ui
-                        .add(IconButton::new(i16::LINK, "Constrain proportions").selected(*linked));
-                    (second, link_response)
-                })
-                .inner
-            },
-        );
-        if link_response.clicked() {
-            *linked = !*linked;
-        }
-        [first, second]
-    } else {
-        let (first, second) = two_column_row(
-            ui,
-            |ui, width| number_field(ui, prefixes[0], a, first_range, 1., suffix, Some(width)),
-            |ui, width| number_field(ui, prefixes[1], b, range, 1., suffix, Some(width)),
-        );
-        [first, second]
+    let (first, second) = two_column_row(
+        ui,
+        |ui, width| number_field(ui, prefixes[0], a, first_range, 1., suffix, Some(width)),
+        |ui, width| number_field(ui, prefixes[1], b, range, 1., suffix, Some(width)),
+    );
+    [first, second]
+}
+
+/// `Constrain proportions` toggle on the right side of a section header (v3 `Section Header` › `Action`).
+fn section_link_toggle(ui: &mut egui::Ui, linked: &mut bool) {
+    if ui
+        .add(
+            IconButton::new(i16::LINK, "Constrain proportions")
+                .selected(*linked)
+                .side(crate::panels::properties::section_action_side()),
+        )
+        .clicked()
+    {
+        *linked = !*linked;
     }
+}
+
+/// Transform panel › `Scale` (W · H with the constrain toggle in its header) and `Rotate and skew`.
+/// `values` = scale X %, scale Y %, rotation°, skew°. Each response comes with its index in
+/// `values`; a collapsed section has none.
+fn scale_rotate_sections(
+    ui: &mut egui::Ui,
+    values: &mut [f64; 4],
+    linked: &mut bool,
+) -> Vec<(usize, egui::Response)> {
+    let [sx, sy, rotation, skew] = values;
+    let mut scale = Vec::new();
+    crate::panels::properties::inspector_section_with_trailing(
+        ui,
+        "Scale",
+        true,
+        crate::panels::properties::section_action_side(),
+        |ui| {
+            scale.extend(field_pair(
+                ui,
+                ["W", "H"],
+                [sx, sy],
+                -1_000_000. ..=1_000_000.,
+                " %",
+            ));
+        },
+        |ui| section_link_toggle(ui, linked),
+    );
+    let mut turn = Vec::new();
+    crate::panels::properties::inspector_section(ui, "Rotate and skew", |ui| {
+        let (rotate, skew) = two_column_row(
+            ui,
+            |ui, width| {
+                number_field(
+                    ui,
+                    "Rotation",
+                    rotation,
+                    -360_000. ..=360_000.,
+                    1.,
+                    "°",
+                    Some(width),
+                )
+            },
+            |ui, width| number_field(ui, "Skew", skew, -89. ..=89., 1., "°", Some(width)),
+        );
+        turn.extend([rotate, skew]);
+    });
+    scale
+        .into_iter()
+        .enumerate()
+        .chain(turn.into_iter().enumerate().map(|(i, r)| (i + 2, r)))
+        .collect()
 }
 
 fn combined_bounds(items: &[Placement]) -> Rect {

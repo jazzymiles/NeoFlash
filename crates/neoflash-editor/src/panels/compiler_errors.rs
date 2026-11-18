@@ -13,7 +13,6 @@ use neoflash_core::{ElementKind, Project};
 use neoflash_ui::components as c;
 use neoflash_ui::icons::{self, i16};
 use neoflash_ui::tokens::{TextStyle, space};
-use neoflash_ui::typography::rich;
 use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -831,9 +830,12 @@ impl Editor {
         };
 
         ui.horizontal(|ui| {
+            ui.set_height(neoflash_ui::metrics::control());
+            ui.spacing_mut().item_spacing.x = space::s2();
             ui.add(c::Badge::new(&warnings_badge, c::BadgeType::Warning));
             ui.add(c::Badge::new(&errors_badge, c::BadgeType::Neutral));
         });
+        ui.add_space(space::s1());
 
         if self.compiler_errors.items.is_empty() {
             c::EmptyState {
@@ -853,7 +855,9 @@ impl Editor {
             .auto_shrink([false, false])
             .themed()
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = space::S2;
+                ui.spacing_mut().item_spacing.y = 0.0;
+                let gap = space::s2();
+                let button = neoflash_ui::metrics::control();
                 for (idx, item) in self.compiler_errors.items.iter().enumerate() {
                     let (icon, color) = if item.is_error {
                         (i16::ERROR, nf.danger_default)
@@ -861,51 +865,146 @@ impl Editor {
                         (i16::WARNING, nf.warning_default)
                     };
                     let can_jump = item.script.is_some();
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 10.0;
-                        icons::show(ui, icon, color);
-                        let text_resp = ui
-                            .vertical(|ui| {
-                                ui.spacing_mut().item_spacing.y = 2.0;
-                                ui.label(
-                                    rich(&item.message, TextStyle::Body).color(nf.text_primary),
-                                );
-                                ui.label(
-                                    rich(&item.location_label, TextStyle::Small)
-                                        .color(nf.text_secondary),
-                                );
-                            })
-                            .response;
-                        if can_jump && text_resp.interact(egui::Sense::click()).clicked() {
+                    // One record per row: icon, message, location, then its actions at the end.
+                    let (rect, _) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), button),
+                        egui::Sense::hover(),
+                    );
+                    ui.painter().hline(
+                        rect.x_range(),
+                        rect.bottom() - 0.5,
+                        egui::Stroke::new(1.0_f32, nf.border_subtle),
+                    );
+                    let action_count = if item.quick_fixes.is_empty() {
+                        1.0
+                    } else {
+                        2.0
+                    };
+                    let actions_width = action_count * button + (action_count - 1.0) * gap;
+                    let actions = rect.with_min_x(rect.right() - actions_width - space::s1());
+                    let icon_rect = egui::Rect::from_center_size(
+                        egui::pos2(
+                            rect.left() + space::s1() + icon.side() / 2.0,
+                            rect.center().y,
+                        ),
+                        egui::Vec2::splat(icon.side()),
+                    );
+                    icons::paint(ui.painter(), ui.ctx(), icon_rect, icon, color);
+                    let text = egui::Rect::from_min_max(
+                        egui::pos2(icon_rect.right() + gap, rect.top()),
+                        egui::pos2(
+                            (actions.left() - gap).max(icon_rect.right() + gap),
+                            rect.bottom(),
+                        ),
+                    );
+                    let line = |ui: &Ui, text: &str, style: TextStyle, color, width: f32| {
+                        let mut job = egui::text::LayoutJob::single_section(
+                            text.to_owned(),
+                            neoflash_ui::typography::format_line(style, color),
+                        );
+                        job.wrap.max_width = width.max(0.0);
+                        job.wrap.max_rows = 1;
+                        job.wrap.break_anywhere = true;
+                        ui.fonts_mut(|fonts| fonts.layout_job(job))
+                    };
+                    let message = line(
+                        ui,
+                        &item.message,
+                        TextStyle::Body,
+                        nf.text_primary,
+                        text.width(),
+                    );
+                    let message_width = message.size().x;
+                    let location_room = text.width() - message_width - gap;
+                    let location = (location_room > neoflash_ui::metrics::field_num()).then(|| {
+                        line(
+                            ui,
+                            &item.location_label,
+                            TextStyle::Small,
+                            nf.text_secondary,
+                            location_room,
+                        )
+                    });
+                    let clipped =
+                        message.elided || location.as_ref().is_none_or(|location| location.elided);
+                    let painter = ui.painter().with_clip_rect(text.intersect(ui.clip_rect()));
+                    painter.galley(
+                        egui::pos2(text.left(), text.center().y - message.size().y / 2.0),
+                        message,
+                        nf.text_primary,
+                    );
+                    if let Some(location) = location {
+                        painter.galley(
+                            egui::pos2(
+                                text.left() + message_width + gap,
+                                text.center().y - location.size().y / 2.0,
+                            ),
+                            location,
+                            nf.text_secondary,
+                        );
+                    }
+                    let text_resp = ui.interact(
+                        text,
+                        ui.id().with(("compiler-error-row", idx)),
+                        if can_jump {
+                            egui::Sense::click()
+                        } else {
+                            egui::Sense::hover()
+                        },
+                    );
+                    text_resp.widget_info(|| {
+                        egui::WidgetInfo::labeled(
+                            egui::WidgetType::Label,
+                            true,
+                            format!("{} {}", item.message, item.location_label),
+                        )
+                    });
+                    let text_resp = if clipped {
+                        // The row keeps one line; the full record is in its tooltip.
+                        c::tooltip(
+                            text_resp,
+                            &format!("{}\n{}", item.message, item.location_label),
+                            None,
+                        )
+                    } else {
+                        text_resp
+                    };
+                    if can_jump && text_resp.clicked() {
+                        jump_target = Some(idx);
+                    }
+                    let mut actions_ui = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(actions.with_max_x(rect.right() - space::s1()))
+                            .layout(egui::Layout::right_to_left(egui::Align::Center)),
+                    );
+                    let ui = &mut actions_ui;
+                    ui.spacing_mut().item_spacing.x = gap;
+                    ui.push_id(("compiler-error-actions", idx), |ui| {
+                        if ui
+                            .add_enabled(
+                                can_jump,
+                                c::IconButton::new(i16::EXTERNAL, "Go to source"),
+                            )
+                            .clicked()
+                        {
                             jump_target = Some(idx);
                         }
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui
-                                .add_enabled(
-                                    can_jump,
-                                    c::IconButton::new(i16::EXTERNAL, "Go to source"),
-                                )
-                                .clicked()
+                        if let Some(first_fix) = item.quick_fixes.first() {
+                            let fix_resp = ui.add_enabled(
+                                can_jump,
+                                c::IconButton::new(i16::WAND, &first_fix.title),
+                            );
+                            if crate::ui_icons::hover_tooltip(
+                                fix_resp,
+                                &format!("Quick fix: {}", first_fix.title),
+                                None,
+                                Some("Fix target is unavailable in the current document"),
+                            )
+                            .clicked()
                             {
-                                jump_target = Some(idx);
+                                quick_fix_target = Some((idx, 0));
                             }
-                            if let Some(first_fix) = item.quick_fixes.first() {
-                                let fix_resp = ui.add_enabled(
-                                    can_jump,
-                                    c::IconButton::new(i16::WAND, &first_fix.title),
-                                );
-                                if crate::ui_icons::hover_tooltip(
-                                    fix_resp,
-                                    &format!("Quick fix: {}", first_fix.title),
-                                    None,
-                                    Some("Fix target is unavailable in the current document"),
-                                )
-                                .clicked()
-                                {
-                                    quick_fix_target = Some((idx, 0));
-                                }
-                            }
-                        });
+                        }
                     });
                 }
             });

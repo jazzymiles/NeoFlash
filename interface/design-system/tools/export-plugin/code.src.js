@@ -3,7 +3,7 @@
 // ITEMS is injected by build.py from exports/manifest.json.
 const ITEMS = /*ITEMS*/[];
 
-figma.showUI(__html__, { width: 380, height: 220 });
+figma.showUI(__html__, { width: 400, height: 330 });
 
 const pending = {};
 const post = (path, bytes, text) => new Promise(resolve => {
@@ -43,7 +43,7 @@ async function dump() {
   for (const page of figma.root.children) {
     await page.loadAsync();
     out.pages.push({ name: page.name, id: page.id, frames: page.children.filter(n => n.type !== 'TEXT').map(n => ({ id: n.id, name: n.name, w: Math.round(n.width), h: Math.round(n.height) })) });
-    if (!/Components/.test(page.name)) continue;
+    if (!/Components|^v3 · Atoms$/.test(page.name)) continue;
     const list = [];
     for (const n of page.findAll(n => n.type === 'COMPONENT_SET' || (n.type === 'COMPONENT' && n.parent.type !== 'COMPONENT_SET'))) {
       let shelf = n.parent; while (shelf && shelf.parent && shelf.parent.type !== 'PAGE') shelf = shelf.parent;
@@ -105,6 +105,64 @@ async function exportParts(node, it, opts, used, failed) {
   return n;
 }
 
+// v3 reference pages are found by name ("v3 · <Density> · <Theme>"), so a rebuild of the Figma pages needs no
+// manifest edit. Every board (a top-level frame whose first child is "Board title") becomes one file.
+const V3_DENSITIES = [['Normal', 'normal'], ['Compact', 'compact'], ['Classic Flash', 'classic-flash']];
+const V3_THEMES = [['Light', 'light'], ['Dark', 'dark'], ['Mid Neutral Gray', 'mid-neutral-gray'], ['Dark Graphite', 'dark-graphite']];
+const V3_OUTLINE_PAGE = 'v3 · Normal · Light';
+const v3Boards = page => page.children.filter(n => n.type === 'FRAME' && n.children.length && n.children[0].name === 'Board title');
+async function v3Frame(node, base, slug, opts, failed) {
+  try {
+    if (!(await post(`${base}/png/${slug}.png`, await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: opts.scale } })))) throw new Error('receiver rejected the PNG');
+    if (opts.svg && !(await post(`${base}/svg/${slug}.svg`, await node.exportAsync({ format: 'SVG', svgOutlineText: true, svgIdAttribute: false })))) throw new Error('receiver rejected the SVG');
+    return 1;
+  } catch (e) { failed.push(`${base}/${slug}: ${e.message}`); return 0; }
+}
+async function runV3(opts, failed) {
+  const pageNamed = name => figma.root.children.find(p => p.name === name);
+  const combos = [];
+  for (const d of V3_DENSITIES) for (const t of V3_THEMES) if (opts.v3.densities.includes(d[1]) && opts.v3.themes.includes(t[1])) combos.push([d, t]);
+  let frames = 0, pages = 0;
+  for (const [d, t] of combos) {
+    const name = `v3 · ${d[0]} · ${t[0]}`, page = pageNamed(name);
+    if (!page) { failed.push(name + ': page not found'); continue; }
+    await page.loadAsync(); pages++;
+    const boards = v3Boards(page), used = {};
+    let k = 0;
+    for (const b of boards) {
+      status(`v3 ${pages}/${combos.length}  ${d[1]}/${t[1]}  ${++k}/${boards.length}  ${b.name}`);
+      let slug = slugify(b.name); used[slug] = (used[slug] || 0) + 1; if (used[slug] > 1) slug += '-' + used[slug];
+      frames += await v3Frame(b, `exports/v3/${d[1]}/${t[1]}`, slug, opts, failed);
+    }
+  }
+  if (opts.v3.system) {
+    const concept = pageNamed('v3 · Concept'), atoms = pageNamed('v3 · Atoms');
+    if (concept) { await concept.loadAsync(); for (const n of concept.children) if (n.type === 'FRAME') { status('v3 system  ' + n.name); frames += await v3Frame(n, 'exports/v3/system', 'concept-' + slugify(n.name), opts, failed); } }
+    else failed.push('v3 · Concept: page not found');
+    if (atoms) { await atoms.loadAsync(); for (const n of atoms.children) if (n.type === 'FRAME' && n.name.indexOf('NF3 /') === 0) { status('v3 system  ' + n.name); frames += await v3Frame(n, 'exports/v3/system', slugify(n.name), opts, failed); } }
+    else failed.push('v3 · Atoms: page not found');
+  }
+  if (opts.v3.data) {
+    // Structure is the same in every theme and density; the sizes in the outlines are the Normal ones.
+    const page = pageNamed(V3_OUTLINE_PAGE);
+    if (!page) failed.push(V3_OUTLINE_PAGE + ': page not found');
+    else {
+      await page.loadAsync();
+      const boards = v3Boards(page), used = {};
+      let k = 0;
+      for (const b of boards) {
+        status(`v3 outlines ${++k}/${boards.length}  ${b.name}`);
+        let slug = slugify(b.name); used[slug] = (used[slug] || 0) + 1; if (used[slug] > 1) slug += '-' + used[slug];
+        try { await postText(`docs/data/outline-v3/${slug}.txt`, (await outline(b)).join('\n')); } catch (e) { failed.push('outline ' + slug + ': ' + e.message); }
+      }
+    }
+    // A separate file: crates/neoflash-ui/build.rs reads docs/data/figma-dump.json and must keep its v2.25 input.
+    status('Writing docs/data/figma-dump-v3.json …');
+    try { await postText('docs/data/figma-dump-v3.json', JSON.stringify(await dump(), null, 1)); } catch (e) { failed.push('v3 dump: ' + e.message); }
+  }
+  return { pages, frames };
+}
+
 async function run(opts) {
   const items = ITEMS.filter(i => opts.groups.includes(i.group));
   const t0 = Date.now();
@@ -129,14 +187,17 @@ async function run(opts) {
       if (it.split) singles += await exportParts(node, it, opts, used, failed);
     } catch (e) { failed.push(it.id + ' ' + it.png + ': ' + e.message); }
   }
+  const v3 = opts.v3 && opts.v3.on ? await runV3(opts, failed) : null;
   if (opts.icons) {
     // Prefer the current live component page while retaining older export compatibility.
-    const sys = ['v2.25 · System & Components', 'v2.2 · System & Components', 'v2 · System & Components']
-      .map(name => figma.root.children.find(page => page.name === name))
-      .find(Boolean);
-    if (!sys) throw new Error('NF2 System & Components page not found');
-    await sys.loadAsync();
-    const comps = sys.findAll(n => n.type === 'COMPONENT' && /^NF2 (Icon|Cursor)\//.test(n.name));
+    // Icon masters live on "v3 · Atoms" since v3; cursors stayed on the (now archived) v2.25 component page.
+    const comps = [];
+    for (const page of figma.root.children) {
+      if (page.name !== 'v3 · Atoms' && !/^v2(\.\d+)? · System & Components/.test(page.name)) continue;
+      await page.loadAsync();
+      for (const n of page.findAll(n => n.type === 'COMPONENT' && /^NF2 (Icon|Cursor)\//.test(n.name))) if (!comps.some(c => c.name === n.name)) comps.push(n);
+    }
+    if (!comps.length) throw new Error('No NF2 Icon / Cursor components found');
     let k = 0;
     for (const c of comps) {
       status(`icons & cursors ${++k}/${comps.length}`);
@@ -149,9 +210,9 @@ async function run(opts) {
     try { await postText('docs/data/figma-dump.json', JSON.stringify(await dump(), null, 1)); } catch (e) { failed.push('dump: ' + e.message); }
   }
   await figma.setCurrentPageAsync(original);
-  const report = { frames: items.length, singlePanels: singles, failed, seconds: Math.round((Date.now() - t0) / 1000) };
+  const report = { frames: items.length, singlePanels: singles, v3, failed, seconds: Math.round((Date.now() - t0) / 1000) };
   await postText('exports/export-report.json', JSON.stringify(report, null, 1));
-  status(`Done: ${items.length} frames + ${singles} single panels in ${report.seconds}s` + (failed.length ? ` — ${failed.length} failed (see exports/export-report.json)` : ''));
+  status('Done: ' + (v3 ? `${v3.frames} v3 frames from ${v3.pages} pages, ` : '') + `${items.length} v2.25 frames + ${singles} single panels in ${report.seconds}s` + (failed.length ? ` — ${failed.length} failed (see exports/export-report.json)` : ''));
 }
 
 figma.ui.onmessage = m => {

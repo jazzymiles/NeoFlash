@@ -431,10 +431,38 @@ impl Editor {
         }
     }
 
+    /// Width of the expanded menu titles: label + `space::s3()` on both sides, one control gap between.
+    fn menu_titles_width(ui: &egui::Ui) -> f32 {
+        let pad = neoflash_ui::tokens::space::s3();
+        let gap = neoflash_ui::tokens::space::s2();
+        let measure = |text: &str, font: egui::FontId| {
+            ui.painter()
+                .layout_no_wrap(text.to_owned(), font, egui::Color32::PLACEHOLDER)
+                .size()
+                .x
+        };
+        let button_font = egui::TextStyle::Button.resolve(ui.style());
+        let mut width = 0.0;
+        for (index, title) in NativeMenuSpec::TOP_LEVEL_TITLES.into_iter().enumerate() {
+            let font = if title == "NeoFlash" {
+                neoflash_ui::typography::font(neoflash_ui::TextStyle::Title)
+            } else {
+                button_font.clone()
+            };
+            width += measure(title, font) + 2.0 * pad;
+            if index > 0 {
+                width += gap;
+            }
+        }
+        // The product name is followed by one extra field padding.
+        width + pad + gap
+    }
+
     pub fn menu(&mut self, ctx: &egui::Context) {
+        use neoflash_ui::tokens::space;
         let clipboard_target = self.clipboard_target(ctx);
         let mut edit_open = false;
-        // NF2 top bar (48 pt): logo · menu bar · centred title + Unsaved badge · workspace · Test Movie · Publish.
+        // Top bar: logo · menu bar (or the collapsed ≡ menu) · workspace · Test Movie · Publish.
         let nf = neoflash_ui::palette(ctx);
         egui::TopBottomPanel::top("menu")
             .exact_height(neoflash_ui::metrics::top_bar())
@@ -442,7 +470,7 @@ impl Editor {
             .frame(
                 egui::Frame::new()
                     .fill(nf.bg_app)
-                    .inner_margin(egui::Margin::symmetric(12, 0)),
+                    .inner_margin(egui::Margin::symmetric(space::s4() as i8, 0)),
             )
             .show(ctx, |ui| {
                 if self.has_modal_dialog_in(ctx) {
@@ -455,11 +483,54 @@ impl Editor {
                     egui::Stroke::new(1.0_f32, nf.border_subtle),
                 );
                 ui.horizontal_centered(|ui| {
-                    // Figma: logo, 4 pt, product name (Title, interactive NeoFlash app menu), then the menu titles.
-                    ui.spacing_mut().item_spacing.x = 4.;
+                    // Logo, tiny gap, product name (the NeoFlash app menu), then the menu titles.
+                    ui.spacing_mut().item_spacing.x = space::s1();
                     let logo_side = neoflash_ui::metrics::density().pick(28.0, 22.0, 18.0);
                     neoflash_ui::components::logo(ui, logo_side);
-                    let menus_end = neoflash_ui::components::menu_bar(ui, |ui| {
+                    let menus_left = ui.cursor().left();
+                    // The right group is anchored to the right edge and laid out first. It is offered
+                    // everything right of the collapsed ≡ button, so the menu titles collapse before
+                    // the workspace select hides (`top_bar_actions` drops it when its slot does not fit).
+                    let control = neoflash_ui::metrics::control();
+                    let actions = egui::Rect::from_min_max(
+                        egui::pos2(
+                            (menus_left + control + space::s2()).min(bar.right()),
+                            bar.top(),
+                        ),
+                        bar.right_bottom(),
+                    );
+                    let mut actions_ui = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(actions)
+                            .layout(egui::Layout::right_to_left(egui::Align::Center)),
+                    );
+                    self.top_bar_actions(&mut actions_ui);
+                    let actions_left = actions_ui.min_rect().left();
+                    let collapsed =
+                        menus_left + Self::menu_titles_width(ui) + space::s2() > actions_left;
+                    neoflash_ui::components::menu_bar(ui, |ui| {
+                        // Menu titles are one control high with field padding on both sides.
+                        ui.spacing_mut().interact_size.y = control;
+                        if collapsed {
+                            let burger = ui.menu_button("☰", |ui| {
+                                let width = crate::ui_icons::menu_width(ui, "NeoFlash", "▸");
+                                crate::ui_icons::menu_contents(ui, width, |ui| {
+                                    for title in NativeMenuSpec::TOP_LEVEL_TITLES {
+                                        crate::ui_icons::menu_submenu(ui, title, |ui| {
+                                            self.render_top_menu_popup(
+                                                ui,
+                                                ctx,
+                                                title,
+                                                &clipboard_target,
+                                                &mut edit_open,
+                                            );
+                                        });
+                                    }
+                                });
+                            });
+                            nf::tooltip(burger.response, "Menu", None);
+                            return;
+                        }
                         for title in NativeMenuSpec::TOP_LEVEL_TITLES {
                             if title == "NeoFlash" {
                                 ui.menu_button(
@@ -478,7 +549,7 @@ impl Editor {
                                         );
                                     },
                                 );
-                                ui.add_space(8.);
+                                ui.add_space(space::s3());
                             } else {
                                 ui.menu_button(title, |ui| {
                                     self.render_top_menu_popup(
@@ -491,18 +562,7 @@ impl Editor {
                                 });
                             }
                         }
-                        ui.cursor().left()
                     });
-                    let actions = egui::Rect::from_min_max(
-                        egui::pos2(menus_end + neoflash_ui::tokens::space::S2, bar.top()),
-                        bar.right_bottom(),
-                    );
-                    let mut actions_ui = ui.new_child(
-                        egui::UiBuilder::new()
-                            .max_rect(actions)
-                            .layout(egui::Layout::left_to_right(egui::Align::Center)),
-                    );
-                    self.top_bar_actions(&mut actions_ui);
                 });
             });
         self.function_search_popover(ctx);

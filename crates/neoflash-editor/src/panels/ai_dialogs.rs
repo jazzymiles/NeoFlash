@@ -1,16 +1,18 @@
 //! AI workflow dialogs (`R-097` & `R-099`):
-//! - `Dialog / AI connection` (`480 pt`): add or edit an OpenAI, Anthropic, Google Gemini or
+//! - `Dialog / AI connection` (`dialog_m()`, fixed height): add or edit an OpenAI, Anthropic, Google Gemini or
 //!   local OpenAI-compatible connection profile and test it without persisting secrets in
 //!   `WorkspacePrefs` or `.nflash` documents.
-//! - `Dialog / Send to AI` (`560 pt`): mandatory consent review dialog listing the exact
+//! - `Dialog / Send to AI` (`dialog_m()`): mandatory consent review dialog listing the exact
 //!   `AiContextPack` sections, omissions, redaction notice and destination host before anything
 //!   leaves the computer.
-//! - `Dialog / AI answer` (`480 pt` waiting/streaming/failed, `600 pt` with proposals): streaming
+//! - `Dialog / AI answer` (`dialog_m()` × `dialog_xl_height()` in every state): streaming
 //!   progress, `Stop` cancellation, untrusted proposal cards (`Insert into Actions` at caret and
 //!   `Apply to timeline` with layer/range validation), and single-step Undo.
 
-use super::dialog_helpers::{DialogKeyboardOutcome, DialogKeyboardState};
-use super::planned::{FooterClick, footer_clicked_with_enabled};
+use super::dialog_helpers::{
+    DialogKeyboardOutcome, DialogKeyboardState, FormDialog, dialog_width, fixed_dialog_size,
+    form_block, form_dialog_height, form_row, group_caption, note,
+};
 use crate::ai_connections::{
     AiConnectionError, AiConnectionManager, AiConnectionWorker, AiContextPack, AiContextSelection,
     AiPrefs, AiProfileTestState, AiPromptRequest, AiProviderCapabilities, AiProviderKind,
@@ -26,14 +28,38 @@ use neoflash_core::{
 };
 use neoflash_ui::components as c;
 use neoflash_ui::icons::{self, i16};
+use neoflash_ui::metrics;
 use neoflash_ui::tokens::{TextStyle, radius, space};
 use neoflash_ui::typography::rich;
 use std::sync::Arc;
 
-const CONNECTION_DIALOG_WIDTH: f32 = 480.0;
-const SEND_DIALOG_WIDTH: f32 = 560.0;
-const ANSWER_COMPACT_WIDTH: f32 = 480.0;
-const ANSWER_PROPOSALS_WIDTH: f32 = 600.0;
+/// Lines reserved for the API-key hint and for the connection test message.
+const HINT_LINES: usize = 2;
+
+/// Block of exactly `lines` Small lines: text that appears later never moves the rows below it.
+fn reserved_lines(ui: &mut Ui, lines: usize, add: impl FnOnce(&mut Ui)) {
+    let height = lines as f32 * TextStyle::Small.spec().line_height;
+    ui.allocate_ui_with_layout(
+        egui::vec2(ui.available_width(), height),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
+            ui.set_min_height(height);
+            add(ui);
+        },
+    );
+}
+
+/// `AI connection` has one height per density for every provider and test result: eight form
+/// rows, the Advanced caption and the two reserved text blocks.
+pub(crate) fn ai_connection_dialog_height() -> f32 {
+    let reserved = HINT_LINES as f32 * TextStyle::Small.spec().line_height + metrics::row_gap();
+    form_dialog_height(8, 1, 2.0 * reserved)
+}
+
+/// `AI answer` has one size per density in every state.
+pub(crate) fn ai_answer_dialog_size(ctx: &egui::Context) -> egui::Vec2 {
+    fixed_dialog_size(ctx, metrics::dialog_m(), metrics::dialog_xl_height())
+}
 
 const MASKED_KEY_HINT: &str = "••••••••••••••••••••";
 
@@ -55,7 +81,7 @@ pub(crate) enum AiConnectionModalTarget {
     Workspace,
 }
 
-/// State of `Dialog / AI connection` (`R-097` item 2, `480 pt`).
+/// State of `Dialog / AI connection` (`R-097` item 2, `dialog_m()`).
 #[derive(Clone)]
 pub(crate) struct AiConnectionModal {
     pub(crate) target: AiConnectionModalTarget,
@@ -258,7 +284,7 @@ impl SecretStore for DraftOverlaySecretStore {
     }
 }
 
-/// Consent review dialog (`Dialog / Send to AI`, `R-097` item 3, `560 pt`).
+/// Consent review dialog (`Dialog / Send to AI`, `R-097` item 3, `dialog_m()`).
 #[derive(Clone)]
 pub(crate) struct SendToAiDialog {
     pub(crate) profile_id: String,
@@ -571,7 +597,7 @@ impl AiDocumentSession {
 fn success_inline_message(ui: &mut Ui, text: &str) {
     let p = neoflash_ui::palette(ui.ctx());
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = space::S2;
+        ui.spacing_mut().item_spacing.x = space::s2();
         icons::show(ui, i16::CHECK, p.success_default);
         ui.add(egui::Label::new(rich(text, TextStyle::Small).color(p.success_default)).wrap());
     });
@@ -1145,6 +1171,104 @@ impl Editor {
         }
     }
 
+    /// Open an AI dialog in a sample state for captures and layout tests (nothing is sent and no
+    /// preference is touched): `ai_connection`, `ai_connection_failed`, `ai_answer_waiting`,
+    /// `ai_answer_streaming`, `ai_answer_proposals`, `ai_answer_cancelled`, `ai_answer_failed`.
+    pub(crate) fn open_sample_ai_dialog(&mut self, state: &str) -> bool {
+        if let Some(local) = match state {
+            "ai_connection" => Some(false),
+            "ai_connection_failed" => Some(true),
+            _ => None,
+        } {
+            let mut modal =
+                AiConnectionModal::new_add(&self.workspace.ai, AiConnectionModalTarget::Workspace);
+            if local {
+                modal.set_provider(AiProviderKind::LocalOpenAiCompatible, &self.workspace.ai);
+                modal.test_outcome = Some(Err(
+                    "Provider unreachable (offline): connection refused".to_owned(),
+                ));
+            }
+            self.ai_connection_modal = Some(modal);
+            return true;
+        }
+        let profile = AiProviderProfile::new(
+            "sample-profile",
+            "Work — Anthropic",
+            AiProviderKind::Anthropic,
+            "https://api.anthropic.com",
+            "claude-sonnet",
+        );
+        let mut send = SendToAiDialog::new(profile.id.clone(), self.build_ai_context_pack());
+        send.request_text = "Why does the orbit clip stop at frame 30?".to_owned();
+        let request = send.build_prompt_request(&profile, 0);
+        let mut answer = AiAnswerDialog::from_sent(&profile, send, request);
+        let text = "The clip stops on a leftover stop() in frame 30.\n\nIt was needed for the intro, and the loop label after it is never reached. Jump back to the label instead of stopping, and ease the ball out before the hand-off so the loop does not jerk.";
+        match state {
+            "ai_answer_waiting" => {
+                answer.phase = AiAnswerPhase::Waiting {
+                    retry_notice: Some(
+                        "The provider limits requests. Trying again in 12 s (attempt 2 of 3)."
+                            .to_owned(),
+                    ),
+                };
+            }
+            "ai_answer_streaming" => {
+                answer.streamed_text = text.to_owned();
+                answer.phase = AiAnswerPhase::Streaming;
+            }
+            "ai_answer_cancelled" => {
+                answer.streamed_text = text.to_owned();
+                answer.phase = AiAnswerPhase::Cancelled;
+            }
+            "ai_answer_proposals" => {
+                let layer_name = self
+                    .symbol()
+                    .timeline
+                    .layers
+                    .first()
+                    .map_or_else(|| "Layer 1".to_owned(), |layer| layer.name.clone());
+                answer.apply_event(AiStreamEvent::Completed {
+                    request_id: "sample".to_owned(),
+                    full_text: text.to_owned(),
+                    proposals: vec![
+                        AiUntrustedProposal::CodeSnippetProposal {
+                            language: ScriptLanguage::ActionScript3,
+                            target_hint: "Frame script · orbit_mc, frame 30".to_owned(),
+                            code:
+                                "// return to the loop instead of stopping\ngotoAndPlay(\"loop\");"
+                                    .to_owned(),
+                            explanation:
+                                "Replaces the stop() call so the clip returns to the loop label."
+                                    .to_owned(),
+                        },
+                        AiUntrustedProposal::KeyframeTimingProposal {
+                            layer_name,
+                            start_frame: 1,
+                            end_frame: 30,
+                            easing_hint: "ease_out".to_owned(),
+                            notes: "Slows the ball before the hand-off at frame 30.".to_owned(),
+                        },
+                    ],
+                });
+                if let Some(card) = answer.cards.first_mut() {
+                    card.state = ProposalCardState::Applied {
+                        message: "Inserted into Actions at the caret.".to_owned(),
+                        post_revision: self.history.revision(),
+                    };
+                }
+            }
+            "ai_answer_failed" => {
+                answer.phase = AiAnswerPhase::Failed {
+                    error_text: "HTTP 401: invalid x-api-key".to_owned(),
+                };
+            }
+            _ => return false,
+        }
+        self.ai_session.cancel_and_clear();
+        self.ai_session.answer_dialog = Some(answer);
+        true
+    }
+
     pub(crate) fn ai_dialogs(&mut self, ctx: &egui::Context) {
         self.poll_ai_session(ctx);
         self.send_to_ai_dialog(ctx);
@@ -1169,33 +1293,21 @@ impl Editor {
         let mut close_save = false;
         let mut trigger_test = false;
 
+        // v3: one size for every provider and test result; the Advanced group is always shown
+        // and the test message has its reserved lines.
+        let width = dialog_width(ctx, metrics::dialog_m());
+        let height = ai_connection_dialog_height();
         let modal_id = egui::Id::new("nf2-ai-connection-dialog");
         let modal = egui::Modal::new(modal_id)
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
-                ui.set_width(CONNECTION_DIALOG_WIDTH);
-                let top = ui.cursor().min;
-                close_cancel |= c::DialogHeader {
-                    title: "AI connection",
-                }
-                .show(ui);
-                ui.painter().hline(
-                    top.x..=top.x + CONNECTION_DIALOG_WIDTH,
-                    top.y + neoflash_ui::metrics::dialog_header() - 0.5,
-                    Stroke::new(1.0_f32, p.border_subtle),
-                );
-                let inner_w = CONNECTION_DIALOG_WIDTH - 2.0 * space::S5;
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S5 as i8))
-                    .show(ui, |ui| {
-                        ui.set_width(inner_w);
-                        ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S3);
-
-                        let provider_label =
-                            format!("Provider: {}", modal_state.kind.display_name());
-                        c::Select::new("ai-conn-provider", &provider_label)
-                            .width(inner_w)
+                let dialog = FormDialog::show(ui, "AI connection", width, Some(height));
+                close_cancel |= dialog.close;
+                dialog.page(ui, "ai-connection-page", |ui, _| {
+                    form_row(ui, "Provider", |ui| {
+                        c::Select::new("ai-conn-provider", modal_state.kind.display_name())
+                            .width(metrics::field_l())
                             .show(ui, |ui| {
                                 for candidate in AiProviderKind::ALL {
                                     if ui
@@ -1210,39 +1322,43 @@ impl Editor {
                                     }
                                 }
                             });
-
+                    });
+                    form_row(ui, "Name", |ui| {
                         if ui
                             .add(
                                 c::TextField::new(&mut modal_state.display_name, "Name")
-                                    .prefix("Name")
-                                    .width(inner_w),
+                                    .width(ui.available_width()),
                             )
                             .changed()
                         {
                             modal_state.test_outcome = None;
                         }
+                    });
+                    form_row(ui, "Base URL", |ui| {
                         if ui
                             .add(
                                 c::TextField::new(&mut modal_state.base_url, "Base URL")
-                                    .prefix("Base URL")
-                                    .width(inner_w),
+                                    .width(ui.available_width()),
                             )
                             .changed()
                         {
                             modal_state.test_outcome = None;
                         }
+                    });
+                    form_row(ui, "Model", |ui| {
                         if ui
                             .add(
                                 c::TextField::new(&mut modal_state.default_model, "Model")
-                                    .prefix("Model")
-                                    .width(inner_w),
+                                    .width(metrics::field_l()),
                             )
                             .changed()
                         {
                             modal_state.test_outcome = None;
                         }
-
-                        if modal_state.kind.requires_secret() {
+                    });
+                    let requires_secret = modal_state.kind.requires_secret();
+                    form_row(ui, "API key", |ui| {
+                        if requires_secret {
                             let hint = if modal_state.has_stored_key {
                                 MASKED_KEY_HINT
                             } else {
@@ -1251,104 +1367,87 @@ impl Editor {
                             if ui
                                 .add(
                                     c::TextField::new(&mut modal_state.api_key_input, "API key")
-                                        .prefix("API key")
                                         .hint(hint)
-                                        .width(inner_w),
+                                        .width(ui.available_width()),
                                 )
                                 .changed()
                             {
                                 modal_state.test_outcome = None;
                             }
-                            ui.add(
-                                egui::Label::new(
-                                    rich(
-                                        "Stored in the system keychain. The key is never shown again and never saved with the project.",
-                                        TextStyle::Small,
-                                    )
-                                    .color(p.text_secondary),
-                                )
-                                .wrap(),
-                            );
                         } else {
                             let mut not_required = "Not required".to_owned();
                             ui.scope(|ui| {
                                 ui.disable();
                                 ui.add(
                                     c::TextField::new(&mut not_required, "API key")
-                                        .prefix("API key")
-                                        .width(inner_w),
+                                        .width(ui.available_width()),
                                 );
                             });
-                            ui.add(
-                                egui::Label::new(
-                                    rich(
-                                        "A local provider may use http:// on this computer. Cloud providers must use https://.",
-                                        TextStyle::Small,
-                                    )
-                                    .color(p.text_secondary),
-                                )
-                                .wrap(),
-                            );
-                        }
-
-                        c::SectionHeader::new("Advanced")
-                            .id_salt("ai-conn-advanced")
-                            .default_open(false)
-                            .show(ui, |ui| {
-                                let half_w = (inner_w - space::S2) * 0.5;
-                                ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = space::S2;
-                                    ui.add(
-                                        c::Field::new(&mut modal_state.timeout_secs, "Timeout")
-                                            .prefix("Timeout")
-                                            .unit("s")
-                                            .range(1.0..=300.0)
-                                            .decimals(0)
-                                            .width(half_w),
-                                    );
-                                    ui.add(
-                                        c::Field::new(&mut modal_state.max_retries, "Retries")
-                                            .prefix("Retries")
-                                            .range(0.0..=5.0)
-                                            .decimals(0)
-                                            .width(half_w),
-                                    );
-                                });
-                                ui.add(c::Checkbox::new(
-                                    &mut modal_state.streaming,
-                                    "Streaming responses",
-                                ));
-                                ui.add(c::Checkbox::new(
-                                    &mut modal_state.vision_input,
-                                    "Image input",
-                                ));
-                            });
-
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = space::S3;
-                            if ui.add(c::Button::new("Test connection")).clicked() {
-                                trigger_test = true;
-                            }
-                            match &modal_state.test_outcome {
-                                Some(Ok(msg)) => success_inline_message(ui, msg),
-                                Some(Err(err)) => {
-                                    ui.add(c::InlineMessage::error(err));
-                                }
-                                None => {}
-                            }
-                        });
-
-                        match footer_clicked_with_enabled(
-                            ui,
-                            "",
-                            None,
-                            &[("Cancel", true), ("Save", true)],
-                        ) {
-                            Some(FooterClick::Button(0)) => close_cancel = true,
-                            Some(FooterClick::Button(_)) => close_save = true,
-                            _ => {}
                         }
                     });
+                    form_block(ui, |ui| {
+                        reserved_lines(ui, HINT_LINES, |ui| {
+                            note(
+                                ui,
+                                if requires_secret {
+                                    "Stored in the system keychain. The key is never shown again and never saved with the project."
+                                } else {
+                                    "A local provider may use http:// on this computer. Cloud providers must use https://."
+                                },
+                            );
+                        });
+                    });
+
+                    group_caption(ui, "Advanced");
+                    form_row(ui, "Timeout", |ui| {
+                        ui.add(
+                            c::Field::new(&mut modal_state.timeout_secs, "Timeout")
+                                .unit("s")
+                                .range(1.0..=300.0)
+                                .decimals(0)
+                                .width(metrics::field_s()),
+                        );
+                        ui.add(
+                            c::Field::new(&mut modal_state.max_retries, "Retries")
+                                .prefix("Retries")
+                                .range(0.0..=5.0)
+                                .decimals(0)
+                                .width(metrics::field_s()),
+                        );
+                    });
+                    form_row(ui, "Options", |ui| {
+                        ui.add(c::Checkbox::new(
+                            &mut modal_state.streaming,
+                            "Streaming responses",
+                        ));
+                        ui.add(c::Checkbox::new(
+                            &mut modal_state.vision_input,
+                            "Image input",
+                        ));
+                    });
+                    form_row(ui, "", |ui| {
+                        if ui.add(c::Button::new("Test connection")).clicked() {
+                            trigger_test = true;
+                        }
+                    });
+                    form_block(ui, |ui| {
+                        reserved_lines(ui, HINT_LINES, |ui| match &modal_state.test_outcome {
+                            Some(Ok(msg)) => success_inline_message(ui, msg),
+                            Some(Err(err)) => {
+                                ui.add(c::InlineMessage::error(err));
+                            }
+                            None => {}
+                        });
+                    });
+                });
+                dialog.footer(
+                    ui,
+                    |_| {},
+                    |ui| {
+                        close_save |= ui.add(c::Button::primary("Save")).clicked();
+                        close_cancel |= ui.add(c::Button::new("Cancel")).clicked();
+                    },
+                );
             });
 
         if trigger_test {
@@ -1407,40 +1506,22 @@ impl Editor {
         let mut confirm_send = false;
         let can_send = active_profile.is_some() && !dialog.request_text.trim().is_empty();
 
+        let width = dialog_width(ctx, metrics::dialog_m());
         let modal_id = egui::Id::new("nf2-send-to-ai-dialog");
         let modal = egui::Modal::new(modal_id)
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
-                ui.set_width(SEND_DIALOG_WIDTH);
-                let top = ui.cursor().min;
-                close_cancel |= c::DialogHeader {
-                    title: "Send to AI",
-                }
-                .show(ui);
-                ui.painter().hline(
-                    top.x..=top.x + SEND_DIALOG_WIDTH,
-                    top.y + neoflash_ui::metrics::dialog_header() - 0.5,
-                    Stroke::new(1.0_f32, p.border_subtle),
-                );
-                let inner_w = SEND_DIALOG_WIDTH - 2.0 * space::S5;
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S5 as i8))
-                    .show(ui, |ui| {
-                        ui.set_width(inner_w);
-                        ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S3);
-
+                let form = FormDialog::show(ui, "Send to AI", width, None);
+                close_cancel |= form.close;
+                form.page(ui, "send-to-ai-page", |ui, _| {
+                    form_row(ui, "Connection", |ui| {
                         let conn_label = active_profile.as_ref().map_or_else(
-                            || "Connection: —".to_owned(),
-                            |prof| {
-                                format!(
-                                    "Connection: {} · {}",
-                                    prof.display_name, prof.default_model
-                                )
-                            },
+                            || "—".to_owned(),
+                            |prof| format!("{} · {}", prof.display_name, prof.default_model),
                         );
                         c::Select::new("send-ai-connection", &conn_label)
-                            .width(inner_w)
+                            .width(ui.available_width())
                             .show(ui, |ui| {
                                 for prof in &ready {
                                     let row_label =
@@ -1457,143 +1538,132 @@ impl Editor {
                                     }
                                 }
                             });
+                    });
 
-                        ui.label(rich("Request", TextStyle::BodyStrong).color(p.text_primary));
+                    group_caption(ui, "Request");
+                    form_row(ui, "Ask", |ui| {
                         ui.add(
                             c::TextField::new(&mut dialog.request_text, "Ask")
-                                .prefix("Ask")
                                 .hint("Describe what to inspect or explain…")
-                                .width(inner_w),
+                                .width(ui.available_width()),
                         );
-
-                        ui.label(
-                            rich("What will be sent", TextStyle::BodyStrong).color(p.text_primary),
-                        );
-
-                        egui::Frame::new()
-                            .fill(p.bg_panel)
-                            .stroke(Stroke::new(1.0_f32, p.border_subtle))
-                            .corner_radius(egui::CornerRadius::same(radius::MD as u8))
-                            .show(ui, |ui| {
-                                ui.set_width(inner_w);
-                                ui.spacing_mut().item_spacing.y = 0.0;
-
-                                let proj_summary = format!(
-                                    "{} · {} · frame {}",
-                                    dialog.context_pack.project_name,
-                                    dialog.context_pack.symbol_name,
-                                    dialog.context_pack.active_frame + 1
-                                );
-                                context_checkbox_row(
-                                    ui,
-                                    &mut dialog.selection.project_and_symbol,
-                                    true,
-                                    "Project and symbol names",
-                                    &proj_summary,
-                                    true,
-                                );
-
-                                let el_count = dialog.context_pack.selected_elements.len();
-                                let el_label = format!("Selected elements ({el_count})");
-                                let el_summary = if el_count > 0 {
-                                    "name, type and position"
-                                } else {
-                                    "none selected"
-                                };
-                                context_checkbox_row(
-                                    ui,
-                                    &mut dialog.selection.selected_elements,
-                                    el_count > 0,
-                                    &el_label,
-                                    el_summary,
-                                    true,
-                                );
-
-                                let (has_script, script_summary) =
-                                    match &dialog.context_pack.script_excerpt {
-                                        Some(s) => (
-                                            true,
-                                            format!(
-                                                "{} · {}",
-                                                script_language_badge_label(s.language),
-                                                format_byte_size_short(s.source.len())
-                                            ),
-                                        ),
-                                        None => (false, "none".to_owned()),
-                                    };
-                                context_checkbox_row(
-                                    ui,
-                                    &mut dialog.selection.script_excerpt,
-                                    has_script,
-                                    "Script excerpt",
-                                    &script_summary,
-                                    true,
-                                );
-
-                                let asset_count = dialog.context_pack.included_asset_count();
-                                let asset_label = format!("Asset list ({asset_count})");
-                                let asset_summary = if asset_count > 0 {
-                                    "name, type and size only"
-                                } else {
-                                    "none"
-                                };
-                                context_checkbox_row(
-                                    ui,
-                                    &mut dialog.selection.asset_list,
-                                    asset_count > 0,
-                                    &asset_label,
-                                    asset_summary,
-                                    false,
-                                );
-                            });
-
-                        if let Some(omitted_note) = dialog.context_pack.omitted_items_note() {
-                            ui.add(
-                                egui::Label::new(
-                                    rich(&omitted_note, TextStyle::Small).color(p.text_tertiary),
-                                )
-                                .wrap(),
-                            );
-                        }
-
-                        ui.add(
-                            c::InlineMessage::info(
-                                "Keys, tokens and passwords found in the text are replaced with [REDACTED_SECRET] before sending.",
-                            )
-                            .width(inner_w),
-                        );
-
-                        let dest_line = match active_profile
-                            .as_ref()
-                            .and_then(|prof| validate_profile_endpoint(prof).ok())
-                        {
-                            Some(ep) => {
-                                let proto = if ep.is_https { "HTTPS" } else { "HTTP" };
-                                format!(
-                                    "Destination: {} over {proto}. The answer is a proposal: nothing in the document changes until you apply it.",
-                                    ep.host_display
-                                )
-                            }
-                            None => "Destination: invalid endpoint URL. Check the connection in Preferences ▸ AI.".to_owned(),
-                        };
-                        ui.add(
-                            egui::Label::new(
-                                rich(&dest_line, TextStyle::Small).color(p.text_secondary),
-                            )
-                            .wrap(),
-                        );
-
-                        match footer_clicked_with_enabled(
-                            ui,
-                            "",
-                            None,
-                            &[("Cancel", true), ("Send", can_send)],
-                        ) {
-                            Some(FooterClick::Button(0)) => close_cancel = true,
-                            Some(FooterClick::Button(_)) if can_send => confirm_send = true,
-                            _ => {}
-                        }
                     });
+
+                    group_caption(ui, "What will be sent");
+                    // One row per context item: checkbox · what exactly is sent.
+                    let inner_w = ui.available_width();
+                    egui::Frame::new()
+                        .stroke(Stroke::new(1.0_f32, p.border_subtle))
+                        .corner_radius(egui::CornerRadius::same(radius::md() as u8))
+                        .show(ui, |ui| {
+                            ui.set_width(inner_w - 2.0);
+                            ui.spacing_mut().item_spacing.y = 0.0;
+
+                            let proj_summary = format!(
+                                "{} · {} · frame {}",
+                                dialog.context_pack.project_name,
+                                dialog.context_pack.symbol_name,
+                                dialog.context_pack.active_frame + 1
+                            );
+                            context_checkbox_row(
+                                ui,
+                                &mut dialog.selection.project_and_symbol,
+                                true,
+                                "Project and symbol names",
+                                &proj_summary,
+                                true,
+                            );
+
+                            let el_count = dialog.context_pack.selected_elements.len();
+                            let el_label = format!("Selected elements ({el_count})");
+                            let el_summary = if el_count > 0 {
+                                "name, type and position"
+                            } else {
+                                "none selected"
+                            };
+                            context_checkbox_row(
+                                ui,
+                                &mut dialog.selection.selected_elements,
+                                el_count > 0,
+                                &el_label,
+                                el_summary,
+                                true,
+                            );
+
+                            let (has_script, script_summary) =
+                                match &dialog.context_pack.script_excerpt {
+                                    Some(s) => (
+                                        true,
+                                        format!(
+                                            "{} · {}",
+                                            script_language_badge_label(s.language),
+                                            format_byte_size_short(s.source.len())
+                                        ),
+                                    ),
+                                    None => (false, "none".to_owned()),
+                                };
+                            context_checkbox_row(
+                                ui,
+                                &mut dialog.selection.script_excerpt,
+                                has_script,
+                                "Script excerpt",
+                                &script_summary,
+                                true,
+                            );
+
+                            let asset_count = dialog.context_pack.included_asset_count();
+                            let asset_label = format!("Asset list ({asset_count})");
+                            let asset_summary = if asset_count > 0 {
+                                "name, type and size only"
+                            } else {
+                                "none"
+                            };
+                            context_checkbox_row(
+                                ui,
+                                &mut dialog.selection.asset_list,
+                                asset_count > 0,
+                                &asset_label,
+                                asset_summary,
+                                false,
+                            );
+                        });
+
+                    if let Some(omitted_note) = dialog.context_pack.omitted_items_note() {
+                        note(ui, &omitted_note);
+                    }
+
+                    ui.add(
+                        c::InlineMessage::info(
+                            "Keys, tokens and passwords found in the text are replaced with [REDACTED_SECRET] before sending.",
+                        )
+                        .width(inner_w),
+                    );
+
+                    let dest_line = match active_profile
+                        .as_ref()
+                        .and_then(|prof| validate_profile_endpoint(prof).ok())
+                    {
+                        Some(ep) => {
+                            let proto = if ep.is_https { "HTTPS" } else { "HTTP" };
+                            format!(
+                                "Destination: {} over {proto}. The answer is a proposal: nothing in the document changes until you apply it.",
+                                ep.host_display
+                            )
+                        }
+                        None => "Destination: invalid endpoint URL. Check the connection in Preferences ▸ AI.".to_owned(),
+                    };
+                    note(ui, &dest_line);
+                });
+                form.footer(
+                    ui,
+                    |_| {},
+                    |ui| {
+                        confirm_send |= ui
+                            .add_enabled(can_send, c::Button::primary("Send"))
+                            .clicked();
+                        close_cancel |= ui.add(c::Button::new("Cancel")).clicked();
+                    },
+                );
             });
 
         if !close_cancel && !confirm_send {
@@ -1622,13 +1692,6 @@ impl Editor {
             return;
         };
 
-        let dialog_w = if matches!(answer.phase, AiAnswerPhase::Completed) {
-            ANSWER_PROPOSALS_WIDTH
-        } else {
-            ANSWER_COMPACT_WIDTH
-        };
-        let inner_w = dialog_w - 2.0 * space::S5;
-
         let kb = DialogKeyboardState::capture(ctx);
         let p = neoflash_ui::palette(ctx);
         let mut close_dialog = false;
@@ -1643,169 +1706,122 @@ impl Editor {
         let current_revision = self.history.revision();
         let can_undo_now = self.history.can_undo();
 
+        // v3: one size in every state (waiting, streaming, proposals, cancelled, failed); the
+        // page scrolls instead of the dialog growing with the answer.
+        let size = ai_answer_dialog_size(ctx);
         let modal_id = egui::Id::new("nf2-ai-answer-dialog");
         let modal = egui::Modal::new(modal_id)
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
-                ui.set_width(dialog_w);
-                let top = ui.cursor().min;
-                close_dialog |= c::DialogHeader { title: "AI answer" }.show(ui);
-                ui.painter().hline(
-                    top.x..=top.x + dialog_w,
-                    top.y + neoflash_ui::metrics::dialog_header() - 0.5,
-                    Stroke::new(1.0_f32, p.border_subtle),
-                );
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S5 as i8))
-                    .show(ui, |ui| {
-                        ui.set_width(inner_w);
-                        ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S3);
+                let form = FormDialog::show(ui, "AI answer", size.x, Some(size.y));
+                close_dialog |= form.close;
+                form.page(ui, "ai-answer-page", |ui, area| {
+                    let inner_w = ui.available_width();
+                    let subtitle = format!("{} · {}", answer.connection_label, answer.model_label);
+                    ui.add(
+                        egui::Label::new(rich(&subtitle, TextStyle::Small).color(p.text_secondary))
+                            .truncate(),
+                    );
 
-                        let subtitle =
-                            format!("{} · {}", answer.connection_label, answer.model_label);
-                        ui.label(rich(&subtitle, TextStyle::Small).color(p.text_secondary));
-
-                        match &answer.phase {
-                            AiAnswerPhase::Waiting { retry_notice } => {
-                                c::progress(ui, "Waiting for the provider…", None, inner_w);
-                                if let Some(notice) = retry_notice {
-                                    ui.add(c::InlineMessage::info(notice).width(inner_w));
-                                }
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        if ui.add(c::Button::new("Stop")).clicked() {
-                                            stop_clicked = true;
-                                        }
-                                    },
-                                );
+                    match &answer.phase {
+                        AiAnswerPhase::Waiting { retry_notice } => {
+                            c::progress(ui, "Waiting for the provider…", None, inner_w);
+                            if let Some(notice) = retry_notice {
+                                ui.add(c::InlineMessage::info(notice).width(inner_w));
                             }
-                            AiAnswerPhase::Streaming => {
-                                c::progress(ui, "Receiving the answer…", None, inner_w);
+                        }
+                        AiAnswerPhase::Streaming => {
+                            c::progress(ui, "Receiving the answer…", None, inner_w);
+                            // The answer box fills the rest of the page and follows the stream.
+                            let fill = area.fill_height(ui, "ai-answer-stream", 0.0, 0.0);
+                            readonly_answer_box(
+                                ui,
+                                inner_w,
+                                None,
+                                &answer.streamed_text,
+                                Some(fill),
+                            );
+                        }
+                        AiAnswerPhase::Cancelled => {
+                            if !answer.streamed_text.trim().is_empty() {
                                 readonly_answer_box(
                                     ui,
                                     inner_w,
                                     None,
                                     &answer.streamed_text,
-                                    180.0,
-                                );
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        if ui.add(c::Button::new("Stop")).clicked() {
-                                            stop_clicked = true;
-                                        }
-                                    },
+                                    None,
                                 );
                             }
-                            AiAnswerPhase::Cancelled => {
-                                if !answer.streamed_text.trim().is_empty() {
-                                    readonly_answer_box(
+                            ui.add(c::InlineMessage::info("Request cancelled.").width(inner_w));
+                        }
+                        AiAnswerPhase::Completed => {
+                            readonly_answer_box(
+                                ui,
+                                inner_w,
+                                Some(&answer.explanation_summary),
+                                &answer.explanation_body,
+                                None,
+                            );
+
+                            if !answer.cards.is_empty() {
+                                group_caption(ui, "Proposals");
+                                for (idx, card) in answer.cards.iter_mut().enumerate() {
+                                    render_proposal_card(
                                         ui,
+                                        self,
                                         inner_w,
-                                        None,
-                                        &answer.streamed_text,
-                                        180.0,
+                                        idx,
+                                        card,
+                                        current_revision,
+                                        can_undo_now,
+                                        &mut apply_code_idx,
+                                        &mut apply_timing_idx,
+                                        &mut undo_card_idx,
                                     );
                                 }
-                                ui.add(
-                                    c::InlineMessage::info("Request cancelled.").width(inner_w),
-                                );
-                                match footer_clicked_with_enabled(
-                                    ui,
-                                    "",
-                                    Some(("New request…", true)),
-                                    &[("Done", true)],
-                                ) {
-                                    Some(FooterClick::Ghost) => reopen_new_request = true,
-                                    Some(FooterClick::Button(_)) => close_dialog = true,
-                                    None => {}
-                                }
                             }
-                            AiAnswerPhase::Completed => {
-                                egui::ScrollArea::vertical()
-                                    .id_salt("ai-answer-completed-scroll")
-                                    .max_height(420.0)
-                                    .scroll_bar_visibility(
-                                        egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded,
-                                    )
-                                    .auto_shrink([false, true])
-                                    .themed()
-                                    .show(ui, |ui| {
-                                        ui.set_width(inner_w);
-                                        ui.spacing_mut().item_spacing.y = space::S3;
-                                        readonly_answer_box(
-                                            ui,
-                                            inner_w,
-                                            Some(&answer.explanation_summary),
-                                            &answer.explanation_body,
-                                            160.0,
-                                        );
 
-                                        if !answer.cards.is_empty() {
-                                            ui.label(
-                                                rich("Proposals", TextStyle::Overline)
-                                                    .color(p.text_secondary),
-                                            );
-                                            for (idx, card) in answer.cards.iter_mut().enumerate() {
-                                                render_proposal_card(
-                                                    ui,
-                                                    self,
-                                                    inner_w,
-                                                    idx,
-                                                    card,
-                                                    current_revision,
-                                                    can_undo_now,
-                                                    &mut apply_code_idx,
-                                                    &mut apply_timing_idx,
-                                                    &mut undo_card_idx,
-                                                );
-                                            }
-                                        }
-                                    });
-
-                                ui.add(
-                                    c::InlineMessage::warning(
-                                        "NeoFlash does not check AI output. Read a proposal before applying it; each one is a single Undo step.",
-                                    )
-                                    .width(inner_w),
-                                );
-
-                                match footer_clicked_with_enabled(
-                                    ui,
-                                    "",
-                                    Some(("New request…", true)),
-                                    &[("Done", true)],
-                                ) {
-                                    Some(FooterClick::Ghost) => reopen_new_request = true,
-                                    Some(FooterClick::Button(_)) => close_dialog = true,
-                                    None => {}
-                                }
-                            }
-                            AiAnswerPhase::Failed { error_text } => {
-                                ui.add(c::InlineMessage::error(error_text).width(inner_w));
-                                ui.label(
-                                    rich(
-                                        "Nothing was changed in the document.",
-                                        TextStyle::Small,
-                                    )
-                                    .color(p.text_secondary),
-                                );
-                                match footer_clicked_with_enabled(
-                                    ui,
-                                    "",
-                                    Some(("Edit connection…", true)),
-                                    &[("Close", true), ("Try again", true)],
-                                ) {
-                                    Some(FooterClick::Ghost) => edit_connection = true,
-                                    Some(FooterClick::Button(0)) => close_dialog = true,
-                                    Some(FooterClick::Button(_)) => retry_clicked = true,
-                                    None => {}
-                                }
-                            }
+                            ui.add(
+                                c::InlineMessage::warning(
+                                    "NeoFlash does not check AI output. Read a proposal before applying it; each one is a single Undo step.",
+                                )
+                                .width(inner_w),
+                            );
                         }
-                    });
+                        AiAnswerPhase::Failed { error_text } => {
+                            ui.add(c::InlineMessage::error(error_text).width(inner_w));
+                            note(ui, "Nothing was changed in the document.");
+                        }
+                    }
+                });
+                // Footer: ghost action on the left, then Close / Stop, then the single Primary.
+                form.footer(
+                    ui,
+                    |ui| match &answer.phase {
+                        AiAnswerPhase::Cancelled | AiAnswerPhase::Completed => {
+                            reopen_new_request |=
+                                ui.add(c::Button::ghost("New request…")).clicked();
+                        }
+                        AiAnswerPhase::Failed { .. } => {
+                            edit_connection |=
+                                ui.add(c::Button::ghost("Edit connection…")).clicked();
+                        }
+                        AiAnswerPhase::Waiting { .. } | AiAnswerPhase::Streaming => {}
+                    },
+                    |ui| match &answer.phase {
+                        AiAnswerPhase::Waiting { .. } | AiAnswerPhase::Streaming => {
+                            stop_clicked |= ui.add(c::Button::new("Stop")).clicked();
+                        }
+                        AiAnswerPhase::Cancelled | AiAnswerPhase::Completed => {
+                            close_dialog |= ui.add(c::Button::primary("Done")).clicked();
+                        }
+                        AiAnswerPhase::Failed { .. } => {
+                            retry_clicked |= ui.add(c::Button::primary("Try again")).clicked();
+                            close_dialog |= ui.add(c::Button::new("Close")).clicked();
+                        }
+                    },
+                );
             });
 
         if !close_dialog
@@ -1896,9 +1912,8 @@ fn context_checkbox_row(
     bottom_border: bool,
 ) {
     let p = neoflash_ui::palette(ui.ctx());
-    let row_h = neoflash_ui::metrics::control();
     let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width(), row_h),
+        egui::vec2(ui.available_width(), metrics::row()),
         egui::Sense::hover(),
     );
     if bottom_border {
@@ -1908,7 +1923,7 @@ fn context_checkbox_row(
             Stroke::new(1.0_f32, p.border_subtle),
         );
     }
-    let inner = rect.shrink2(egui::vec2(space::S3, 0.0));
+    let inner = rect.shrink2(egui::vec2(space::s3(), 0.0));
     ui.scope_builder(
         egui::UiBuilder::new()
             .max_rect(inner)
@@ -1921,52 +1936,88 @@ fn context_checkbox_row(
                 ui.add(c::Checkbox::new(checked, label));
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(rich(summary, TextStyle::Small).color(p.text_secondary));
+                ui.add(
+                    egui::Label::new(rich(summary, TextStyle::Small).color(p.text_tertiary))
+                        .truncate(),
+                );
             });
         },
     );
 }
 
+/// Read-only answer text on `bg/field`. `fill_height: Some` makes the box exactly that high with
+/// a scroll area that follows the stream; `None` shows the whole text (the dialog page scrolls).
 fn readonly_answer_box(
     ui: &mut Ui,
     width: f32,
     summary: Option<&str>,
     body: &str,
-    max_height: f32,
+    fill_height: Option<f32>,
 ) {
     let p = neoflash_ui::palette(ui.ctx());
+    let pad = space::s3();
     egui::Frame::new()
         .fill(p.bg_field)
         .stroke(Stroke::new(1.0_f32, p.border_subtle))
-        .corner_radius(egui::CornerRadius::same(radius::MD as u8))
-        .inner_margin(egui::Margin::same(space::S3 as i8))
+        .corner_radius(egui::CornerRadius::same(radius::md() as u8))
+        .inner_margin(egui::Margin::same(pad as i8))
         .show(ui, |ui| {
-            let content_w = (width - 2.0 * space::S3).max(48.0);
+            let content_w = (width - 2.0 * (pad + 1.0)).max(48.0);
             ui.set_width(content_w);
-            egui::ScrollArea::vertical()
-                .id_salt(("ai-readonly-answer", summary.unwrap_or("stream")))
-                .max_height(max_height)
-                .auto_shrink([false, true])
-                .themed()
-                .show(ui, |ui| {
-                    ui.set_width(content_w);
-                    ui.spacing_mut().item_spacing.y = space::S2;
-                    if let Some(s) = summary
-                        && !s.trim().is_empty()
-                    {
-                        ui.add(
-                            egui::Label::new(rich(s, TextStyle::BodyStrong).color(p.text_primary))
-                                .wrap(),
-                        );
-                    }
-                    if !body.trim().is_empty() {
-                        ui.add(
-                            egui::Label::new(rich(body, TextStyle::Body).color(p.text_primary))
-                                .wrap(),
-                        );
-                    }
-                });
+            let text = |ui: &mut Ui| {
+                ui.set_width(content_w);
+                ui.spacing_mut().item_spacing.y = space::s2();
+                if let Some(s) = summary
+                    && !s.trim().is_empty()
+                {
+                    ui.add(
+                        egui::Label::new(rich(s, TextStyle::BodyStrong).color(p.text_primary))
+                            .wrap(),
+                    );
+                }
+                if !body.trim().is_empty() {
+                    ui.add(
+                        egui::Label::new(rich(body, TextStyle::Body).color(p.text_primary)).wrap(),
+                    );
+                }
+            };
+            match fill_height {
+                Some(height) => {
+                    let inner_h = (height - 2.0 * (pad + 1.0)).max(metrics::control());
+                    ui.set_height(inner_h);
+                    egui::ScrollArea::vertical()
+                        .id_salt("ai-readonly-answer")
+                        .max_height(inner_h)
+                        .auto_shrink([false, false])
+                        .stick_to_bottom(true)
+                        .themed()
+                        .show(ui, text);
+                }
+                None => text(ui),
+            }
         });
+}
+
+/// Header row of a proposal card: badge, title (truncates), then the card's actions at the end.
+fn proposal_header(ui: &mut Ui, badge: &str, title: &str, actions: impl FnOnce(&mut Ui)) {
+    let p = neoflash_ui::palette(ui.ctx());
+    ui.allocate_ui_with_layout(
+        egui::vec2(ui.available_width(), metrics::control()),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.spacing_mut().item_spacing.x = space::s2();
+            ui.add(c::Badge::new(badge, c::BadgeType::Neutral));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                actions(ui);
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.add(
+                        egui::Label::new(rich(title, TextStyle::Body).color(p.text_primary))
+                            .truncate(),
+                    );
+                });
+            });
+        },
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1983,15 +2034,36 @@ fn render_proposal_card(
     undo_card_idx: &mut Option<usize>,
 ) {
     let p = neoflash_ui::palette(ui.ctx());
+    let pad = space::s4();
     egui::Frame::new()
-        .fill(p.bg_panel)
+        .fill(p.bg_app)
         .stroke(Stroke::new(1.0_f32, p.border_subtle))
-        .corner_radius(egui::CornerRadius::same(radius::MD as u8))
-        .inner_margin(egui::Margin::same(space::S3 as i8))
+        .corner_radius(egui::CornerRadius::same(radius::md() as u8))
+        .inner_margin(egui::Margin::same(pad as i8))
         .show(ui, |ui| {
-            let card_w = (width - 2.0 * space::S3).max(64.0);
+            let card_w = (width - 2.0 * (pad + 1.0)).max(64.0);
             ui.set_width(card_w);
-            ui.spacing_mut().item_spacing.y = space::S2;
+            ui.spacing_mut().item_spacing.y = metrics::row_gap();
+            let dismissed = matches!(card.state, ProposalCardState::Dismissed);
+            let applied_revision = match &card.state {
+                ProposalCardState::Applied { post_revision, .. } => Some(*post_revision),
+                _ => None,
+            };
+            // Actions shared by both proposal kinds once a card is applied or dismissed.
+            let settled_actions = |ui: &mut Ui, undo_card_idx: &mut Option<usize>| {
+                if dismissed {
+                    ui.label(rich("Dismissed", TextStyle::Small).color(p.text_tertiary));
+                } else if let Some(post_revision) = applied_revision {
+                    let can_undo_this = can_undo_now && current_revision == post_revision;
+                    if ui
+                        .add_enabled(can_undo_this, c::Button::ghost("Undo"))
+                        .clicked()
+                    {
+                        *undo_card_idx = Some(idx);
+                    }
+                }
+            };
+            let mut dismiss_now = false;
 
             match &card.proposal {
                 AiUntrustedProposal::CodeSnippetProposal {
@@ -2000,35 +2072,35 @@ fn render_proposal_card(
                     code,
                     explanation,
                 } => {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        ui.add(c::Badge::new(
-                            script_language_badge_label(*language),
-                            c::BadgeType::Neutral,
-                        ));
-                        ui.label(rich(target_hint, TextStyle::BodyStrong).color(p.text_primary));
-                        if matches!(card.state, ProposalCardState::Dismissed) {
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.label(
-                                        rich("Dismissed", TextStyle::Small).color(p.text_tertiary),
-                                    );
-                                },
-                            );
-                        }
-                    });
-                    if matches!(card.state, ProposalCardState::Dismissed) {
+                    let pending = matches!(card.state, ProposalCardState::Pending);
+                    proposal_header(
+                        ui,
+                        script_language_badge_label(*language),
+                        target_hint,
+                        |ui| {
+                            if pending {
+                                if ui.add(c::Button::ghost("Copy")).clicked() {
+                                    ui.ctx().copy_text(code.clone());
+                                }
+                                if ui.add(c::Button::new("Insert into Actions")).clicked() {
+                                    *apply_code_idx = Some(idx);
+                                }
+                            } else {
+                                settled_actions(ui, undo_card_idx);
+                            }
+                        },
+                    );
+                    if dismissed {
                         return;
                     }
 
                     egui::Frame::new()
-                        .fill(p.bg_app)
+                        .fill(p.bg_field)
                         .stroke(Stroke::new(1.0_f32, p.border_subtle))
-                        .corner_radius(egui::CornerRadius::same(radius::SM as u8))
-                        .inner_margin(egui::Margin::same(space::S2 as i8))
+                        .corner_radius(egui::CornerRadius::same(radius::sm() as u8))
+                        .inner_margin(egui::Margin::same(space::s2() as i8))
                         .show(ui, |ui| {
-                            let code_w = (card_w - 2.0 * space::S2).max(48.0);
+                            let code_w = (card_w - 2.0 * (space::s2() + 1.0)).max(48.0);
                             ui.set_width(code_w);
                             // R-099: at most eight lines before scrolling.
                             let eight_lines_h = 8.0 * TextStyle::Mono.spec().line_height;
@@ -2049,48 +2121,7 @@ fn render_proposal_card(
                         });
 
                     if !explanation.trim().is_empty() {
-                        ui.add(
-                            egui::Label::new(
-                                rich(explanation, TextStyle::Small).color(p.text_secondary),
-                            )
-                            .wrap(),
-                        );
-                    }
-
-                    match &card.state {
-                        ProposalCardState::Pending => {
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S2;
-                                if ui.add(c::Button::new("Insert into Actions")).clicked() {
-                                    *apply_code_idx = Some(idx);
-                                }
-                                if ui.add(c::Button::ghost("Copy")).clicked() {
-                                    ui.ctx().copy_text(code.clone());
-                                }
-                            });
-                        }
-                        ProposalCardState::Applied {
-                            message,
-                            post_revision,
-                        } => {
-                            let can_undo_this = can_undo_now && current_revision == *post_revision;
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S3;
-                                success_inline_message(ui, message);
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        if ui
-                                            .add_enabled(can_undo_this, c::Button::ghost("Undo"))
-                                            .clicked()
-                                        {
-                                            *undo_card_idx = Some(idx);
-                                        }
-                                    },
-                                );
-                            });
-                        }
-                        ProposalCardState::Dismissed => {}
+                        note(ui, explanation);
                     }
                 }
                 AiUntrustedProposal::KeyframeTimingProposal {
@@ -2101,22 +2132,27 @@ fn render_proposal_card(
                     notes,
                 } => {
                     let header_title = format!("Layer {layer_name}");
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        ui.add(c::Badge::new("Timing", c::BadgeType::Neutral));
-                        ui.label(rich(&header_title, TextStyle::BodyStrong).color(p.text_primary));
-                        if matches!(card.state, ProposalCardState::Dismissed) {
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.label(
-                                        rich("Dismissed", TextStyle::Small).color(p.text_tertiary),
-                                    );
-                                },
-                            );
-                        }
+                    let validation = matches!(card.state, ProposalCardState::Pending).then(|| {
+                        editor.validate_ai_timing_proposal(layer_name, *start_frame, *end_frame)
                     });
-                    if matches!(card.state, ProposalCardState::Dismissed) {
+                    proposal_header(ui, "Timing", &header_title, |ui| match &validation {
+                        Some(validation) => {
+                            if ui.add(c::Button::ghost("Dismiss")).clicked() {
+                                dismiss_now = true;
+                            }
+                            if ui
+                                .add_enabled(
+                                    validation.is_ok(),
+                                    c::Button::new("Apply to timeline"),
+                                )
+                                .clicked()
+                            {
+                                *apply_timing_idx = Some(idx);
+                            }
+                        }
+                        None => settled_actions(ui, undo_card_idx),
+                    });
+                    if dismissed {
                         return;
                     }
 
@@ -2137,72 +2173,20 @@ fn render_proposal_card(
                     });
 
                     if !notes.trim().is_empty() {
-                        ui.add(
-                            egui::Label::new(rich(notes, TextStyle::Small).color(p.text_secondary))
-                                .wrap(),
-                        );
+                        note(ui, notes);
                     }
-
-                    match &card.state {
-                        ProposalCardState::Pending => {
-                            let validation = editor.validate_ai_timing_proposal(
-                                layer_name,
-                                *start_frame,
-                                *end_frame,
-                            );
-                            if let Err(reason) = &validation {
-                                ui.add(
-                                    egui::Label::new(
-                                        rich(reason, TextStyle::Small).color(p.warning_default),
-                                    )
-                                    .wrap(),
-                                );
-                            }
-                            let mut dismiss_now = false;
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S2;
-                                if ui
-                                    .add_enabled(
-                                        validation.is_ok(),
-                                        c::Button::new("Apply to timeline"),
-                                    )
-                                    .clicked()
-                                {
-                                    *apply_timing_idx = Some(idx);
-                                }
-                                if ui.add(c::Button::ghost("Dismiss")).clicked() {
-                                    dismiss_now = true;
-                                }
-                            });
-                            if dismiss_now {
-                                card.state = ProposalCardState::Dismissed;
-                            }
-                        }
-                        ProposalCardState::Applied {
-                            message,
-                            post_revision,
-                        } => {
-                            let can_undo_this = can_undo_now && current_revision == *post_revision;
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S3;
-                                success_inline_message(ui, message);
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        if ui
-                                            .add_enabled(can_undo_this, c::Button::ghost("Undo"))
-                                            .clicked()
-                                        {
-                                            *undo_card_idx = Some(idx);
-                                        }
-                                    },
-                                );
-                            });
-                        }
-                        ProposalCardState::Dismissed => {}
+                    if let Some(Err(reason)) = &validation {
+                        ui.add(c::InlineMessage::warning(reason).width(card_w));
                     }
                 }
                 AiUntrustedProposal::ExplanationText { .. } => {}
+            }
+
+            if let ProposalCardState::Applied { message, .. } = &card.state {
+                success_inline_message(ui, message);
+            }
+            if dismiss_now {
+                card.state = ProposalCardState::Dismissed;
             }
         });
 }

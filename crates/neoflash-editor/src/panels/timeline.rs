@@ -234,6 +234,28 @@ pub(crate) fn visible_layer_row_range(
     start..end
 }
 
+/// Resize bounds of the layer column and the frame area it must leave. The toggle columns and the
+/// Mode cell keep their size in every density, so these widths do not scale.
+const LAYER_COLUMN_MIN: f32 = 140.;
+const LAYER_COLUMN_MAX: f32 = 420.;
+const FRAMES_MIN: f32 = 100.;
+/// Layer icon and name keep at least this much before the Mode column appears.
+const LAYER_NAME_MIN: f32 = 100.;
+
+/// Layer column width from which the header and the rows show the `Mode` cell: name, Mode cell,
+/// four toggle columns and the insets on both sides of the toggles.
+fn mode_column_from() -> f32 {
+    LAYER_NAME_MIN
+        + neoflash_ui::metrics::LAYER_MODE
+        + 4. * LAYER_TOGGLE
+        + 2. * neoflash_ui::components::timeline::TOGGLES_INSET
+}
+
+/// Context menus with long command labels: one menu plus one numeric field wide.
+fn wide_menu_width() -> f32 {
+    neoflash_ui::metrics::menu_width() + neoflash_ui::metrics::field_num()
+}
+
 impl Editor {
     /// Return the virtualization telemetry recorded by the most recent `timeline_contents` pass.
     #[allow(dead_code)]
@@ -336,12 +358,13 @@ impl Editor {
         let previous_cell = self.timeline_cell;
         let row_height = self.workspace.timeline.row_height();
         let timeline_width = ui.available_width();
-        let maximum_layer_width = (timeline_width - 100.).clamp(140., 420.);
+        let maximum_layer_width =
+            (timeline_width - FRAMES_MIN).clamp(LAYER_COLUMN_MIN, LAYER_COLUMN_MAX);
         let mut layer_column_width = self
             .workspace
             .sizes
             .layer_column_width
-            .clamp(140., maximum_layer_width);
+            .clamp(LAYER_COLUMN_MIN, maximum_layer_width);
         ui.scope_builder(egui::UiBuilder::new().id(id), |ui| {
             // Keep a usable frame canvas even in the smallest native Timeline window. Bar controls
             // that do not fit hide by priority into the More menu (R-052).
@@ -350,7 +373,7 @@ impl Editor {
             let controls = self.timeline_controls_bar(
                 ui,
                 layer_column_width,
-                timeline_width - layer_column_width - space::S4,
+                timeline_width - layer_column_width - space::s4(),
             );
             let zoom_changed = self.timeline_cell != previous_cell;
             if zoom_changed {
@@ -365,7 +388,7 @@ impl Editor {
             } else {
                 self.timeline_cell
             };
-            let height = (ui.available_height() - ruler_height()).max(25.);
+            let height = (ui.available_height() - ruler_height()).max(neoflash_ui::metrics::row());
             let (header, _) = ui.allocate_exact_size(
                 Vec2::new(ui.available_width(), ruler_height()),
                 Sense::hover(),
@@ -412,14 +435,14 @@ impl Editor {
             {
                 drag.moved |= (position.x - drag.start.x).abs() > 0.5;
                 if drag.moved {
-                    layer_column_width =
-                        (drag.width + position.x - drag.start.x).clamp(140., maximum_layer_width);
+                    layer_column_width = (drag.width + position.x - drag.start.x)
+                        .clamp(LAYER_COLUMN_MIN, maximum_layer_width);
                     self.workspace.sizes.layer_column_width = layer_column_width;
                     ctx.request_repaint();
                 }
             }
             // NF2/TL Layers Header: "LAYERS" + Mode + eye / solo / lock / outline columns.
-            let show_mode = layer_column_width >= 260.;
+            let show_mode = layer_column_width >= mode_column_from();
             let header_toggles = ui
                 .scope_builder(
                     egui::UiBuilder::new().max_rect(Rect::from_min_size(
@@ -503,7 +526,7 @@ impl Editor {
             let rows = egui::ScrollArea::vertical()
                 .id_salt("timeline_rows")
                 .scroll_source(scroll_source)
-                .min_scrolled_height(25.)
+                .min_scrolled_height(neoflash_ui::metrics::row())
                 .max_height(height)
                 .auto_shrink([false, false])
                 .themed()
@@ -659,14 +682,16 @@ impl Editor {
                                             .open_memory(
                                                 row.mode.then_some(egui::SetOpenCommand::Toggle),
                                             )
-                                            .gap(space::S1)
-                                            .width(180.0)
+                                            .gap(space::s1())
+                                            .width(neoflash_ui::metrics::menu_width())
                                             .frame(nf::popover_frame(ui.ctx()))
                                             .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
                                             .show(
                                                 |ui| {
                                                     nf::menu::menu_style(ui.style_mut());
-                                                    ui.set_min_width(180.0);
+                                                    ui.set_min_width(
+                                                        neoflash_ui::metrics::menu_width(),
+                                                    );
                                                     crate::layer_controls::populate_blend_mode_menu(
                                                         ui,
                                                         layer.properties.blend_mode,
@@ -681,7 +706,9 @@ impl Editor {
                                     // The outline swatch keeps its right-click colour menu.
                                     let swatch = Rect::from_min_size(
                                         Pos2::new(
-                                            row_rect.right() - space::S2 - LAYER_TOGGLE,
+                                            row_rect.right()
+                                                - neoflash_ui::components::timeline::TOGGLES_INSET
+                                                - LAYER_TOGGLE,
                                             row_rect.top(),
                                         ),
                                         Vec2::new(LAYER_TOGGLE, row_rect.height()),
@@ -700,19 +727,29 @@ impl Editor {
                                     if let Some(draft) =
                                         rename.as_mut().filter(|draft| draft.layer == layer.id)
                                     {
-                                        let rename_style = if row_height < 18.0 {
-                                            TextStyle::Small
-                                        } else {
-                                            TextStyle::Body
-                                        };
-                                        let field = ui.put(
-                                            row.label_rect,
-                                            egui::TextEdit::singleline(&mut draft.text)
-                                                .id(ui.id().with(("layer-name", &layer.id)))
-                                                .font(typography::font(rename_style))
-                                                .vertical_align(egui::Align::Center)
-                                                .hint_text("Layer name"),
+                                        let rename_style =
+                                            if row_height < neoflash_ui::metrics::LAYER_ROW_SHORT {
+                                                TextStyle::Small
+                                            } else {
+                                                TextStyle::Body
+                                            };
+                                        // The NF text field in its row-high inline form.
+                                        let mut slot = ui.new_child(
+                                            egui::UiBuilder::new()
+                                                .id_salt(("layer-name", &layer.id))
+                                                .max_rect(row.label_rect)
+                                                .layout(egui::Layout::left_to_right(
+                                                    egui::Align::Min,
+                                                )),
                                         );
+                                        let mut field = slot.add(
+                                            nf::TextField::new(&mut draft.text, "Layer name")
+                                                .hint("Layer name")
+                                                .compact(row.label_rect.height())
+                                                .text_style(rename_style)
+                                                .width(row.label_rect.width()),
+                                        );
+                                        field.id = nf::TextField::edit_id(field.id);
                                         if draft.focus {
                                             field.request_focus();
                                             if let Some(mut state) =
@@ -768,7 +805,9 @@ impl Editor {
                                     let grab = Rect::from_min_max(
                                         row_rect.min,
                                         Pos2::new(
-                                            row_rect.right() - space::S2 - 4. * LAYER_TOGGLE,
+                                            row_rect.right()
+                                                - neoflash_ui::components::timeline::TOGGLES_INSET
+                                                - 4. * LAYER_TOGGLE,
                                             row_rect.bottom(),
                                         ),
                                     );
@@ -849,62 +888,66 @@ impl Editor {
                                             });
                                             ui.ctx().request_repaint();
                                         }
-                                        crate::ui_icons::menu_contents(ui, 280., |ui| {
-                                            neoflash_ui::components::menu_separator(ui);
-                                            if crate::ui_icons::menu_item_enabled(
-                                                ui,
-                                                self.can_link_av_layers(),
-                                                "Link video & audio",
-                                                "",
-                                            )
-                                            .clicked()
-                                            {
-                                                self.link_selected_or_adjacent_av_layers();
-                                                ui.close();
-                                            }
-                                            if crate::ui_icons::menu_item_enabled(
-                                                ui,
-                                                self.can_unlink_av_layers(),
-                                                "Unlink video & audio",
-                                                "",
-                                            )
-                                            .clicked()
-                                            {
-                                                self.unlink_active_layers();
-                                                ui.close();
-                                            }
-                                            neoflash_ui::components::menu_separator(ui);
-                                            if crate::ui_icons::menu_item(
-                                                ui,
-                                                "Delete empty layers",
-                                                "",
-                                            )
-                                            .clicked()
-                                            {
-                                                self.delete_empty_layers();
-                                                ui.close();
-                                            }
-                                            if crate::ui_icons::menu_item(
-                                                ui,
-                                                "Rename layers from symbol",
-                                                "",
-                                            )
-                                            .clicked()
-                                            {
-                                                self.rename_layers_from_content();
-                                                ui.close();
-                                            }
-                                            if crate::ui_icons::menu_item(
-                                                ui,
-                                                "Add actions & stop() layer",
-                                                "",
-                                            )
-                                            .clicked()
-                                            {
-                                                self.add_actions_and_stop_layer();
-                                                ui.close();
-                                            }
-                                        });
+                                        crate::ui_icons::menu_contents(
+                                            ui,
+                                            wide_menu_width(),
+                                            |ui| {
+                                                neoflash_ui::components::menu_separator(ui);
+                                                if crate::ui_icons::menu_item_enabled(
+                                                    ui,
+                                                    self.can_link_av_layers(),
+                                                    "Link video & audio",
+                                                    "",
+                                                )
+                                                .clicked()
+                                                {
+                                                    self.link_selected_or_adjacent_av_layers();
+                                                    ui.close();
+                                                }
+                                                if crate::ui_icons::menu_item_enabled(
+                                                    ui,
+                                                    self.can_unlink_av_layers(),
+                                                    "Unlink video & audio",
+                                                    "",
+                                                )
+                                                .clicked()
+                                                {
+                                                    self.unlink_active_layers();
+                                                    ui.close();
+                                                }
+                                                neoflash_ui::components::menu_separator(ui);
+                                                if crate::ui_icons::menu_item(
+                                                    ui,
+                                                    "Delete empty layers",
+                                                    "",
+                                                )
+                                                .clicked()
+                                                {
+                                                    self.delete_empty_layers();
+                                                    ui.close();
+                                                }
+                                                if crate::ui_icons::menu_item(
+                                                    ui,
+                                                    "Rename layers from symbol",
+                                                    "",
+                                                )
+                                                .clicked()
+                                                {
+                                                    self.rename_layers_from_content();
+                                                    ui.close();
+                                                }
+                                                if crate::ui_icons::menu_item(
+                                                    ui,
+                                                    "Add actions & stop() layer",
+                                                    "",
+                                                )
+                                                .clicked()
+                                                {
+                                                    self.add_actions_and_stop_layer();
+                                                    ui.close();
+                                                }
+                                            },
+                                        );
                                     });
                                 }
                                 let bottom_spacer =
@@ -1067,8 +1110,8 @@ impl Editor {
                                     };
                                     painter.text(
                                         Pos2::new(
-                                            grid_clip.left() + space::S1,
-                                            grid_clip.bottom() - space::S1,
+                                            grid_clip.left() + space::s1(),
+                                            grid_clip.bottom() - space::s1(),
                                         ),
                                         Align2::LEFT_BOTTOM,
                                         text,
@@ -1086,9 +1129,11 @@ impl Editor {
                                     })
                                 {
                                     response.context_menu(|ui| {
-                                        crate::ui_icons::menu_contents(ui, 280., |ui| {
-                                            self.frame_context_menu(ui)
-                                        });
+                                        crate::ui_icons::menu_contents(
+                                            ui,
+                                            wide_menu_width(),
+                                            |ui| self.frame_context_menu(ui),
+                                        );
                                     });
                                 }
                             });
@@ -1482,7 +1527,10 @@ impl Editor {
                     if needs_ruler_marker && frame < count {
                         let cell = geo.cell(ruler, frame + 1);
                         rp.text(
-                            Pos2::new(cell.center().x, ruler.top() + seconds_row / 2. + space::S1),
+                            Pos2::new(
+                                cell.center().x,
+                                ruler.top() + seconds_row / 2. + space::s1(),
+                            ),
                             Align2::CENTER_CENTER,
                             "a",
                             typography::font(TextStyle::MonoSmall),
@@ -2192,7 +2240,7 @@ impl Editor {
             ui.close();
         }
         nf::submenu(ui, "Utils", |ui| {
-            crate::ui_icons::menu_contents(ui, 310., |ui| {
+            crate::ui_icons::menu_contents(ui, wide_menu_width(), |ui| {
                 let can_step_keys = editable && self.can_convert_to_keyframes_stepped();
                 if menu_item_enabled(ui, can_step_keys, "Tween2Keys (On 2s)", "").clicked() {
                     self.tween_to_keys_on_twos();
@@ -2393,7 +2441,7 @@ impl Editor {
             Pos2::new(mode_rect.left(), mode_rect.top().max(row_rect.top())),
             Pos2::new(mode_rect.right(), mode_rect.bottom().min(row_rect.bottom())),
         );
-        let half_s1 = space::S1 * 0.5;
+        let half_s1 = space::s1() * 0.5;
         let icon_side = tl::layer_row_icon(row_rect.height());
         let icon_w = icon_side;
         let icon_h = icon_side.min(row_rect.height());
@@ -2439,7 +2487,7 @@ impl Editor {
         if mode_active || channel_resp.hovered() {
             ui.painter().rect_filled(
                 channel_icon_rect,
-                neoflash_ui::tokens::radius::SM,
+                neoflash_ui::tokens::radius::sm(),
                 if mode_active {
                     p.accent_subtle
                 } else {
@@ -2471,7 +2519,7 @@ impl Editor {
         if mask_invert || invert_resp.hovered() {
             ui.painter().rect_filled(
                 invert_icon_rect,
-                neoflash_ui::tokens::radius::SM,
+                neoflash_ui::tokens::radius::sm(),
                 if mask_invert {
                     p.accent_subtle
                 } else {
@@ -2510,13 +2558,13 @@ impl Editor {
         )
         .kind(egui::PopupKind::Menu)
         .open_memory(open_popup.then_some(egui::SetOpenCommand::Toggle))
-        .gap(space::S1)
-        .width(180.0)
+        .gap(space::s1())
+        .width(neoflash_ui::metrics::menu_width())
         .frame(nf::popover_frame(ui.ctx()))
         .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
         .show(|ui| {
             nf::menu::menu_style(ui.style_mut());
-            ui.set_min_width(180.0);
+            ui.set_min_width(neoflash_ui::metrics::menu_width());
             crate::layer_controls::populate_mask_mode_menu(ui, mask_mode, |picked| {
                 self.set_layer_mask_mode(idx, picked);
             });

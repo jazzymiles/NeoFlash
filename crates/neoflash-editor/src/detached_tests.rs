@@ -579,11 +579,13 @@ fn borderless_floating_window_moves_by_header_without_self_docking_and_resizes_f
     let mut editor = Editor::from_project(&ctx, Project::blank());
     editor.show_panel(PanelId::Align);
     editor.set_panel_placement(&ctx, PanelId::Align, PanelPlacement::Detached);
+    // The window starts at the panel's minimum width (the inspector width of the density).
+    let width = crate::workspace::minimum_window_size(PanelId::Align)[0];
     editor.workspace.remember_floating_geometry(
         PanelId::Align,
         crate::workspace::WindowGeometry {
             outer_position: [300., 200.],
-            inner_size: [260., 240.],
+            inner_size: [width, 240.],
         },
     );
     let align_id = egui::ViewportId::from_hash_of(PanelId::Align.viewport_key().unwrap());
@@ -620,15 +622,15 @@ fn borderless_floating_window_moves_by_header_without_self_docking_and_resizes_f
     run_floating_frame(
         &mut editor,
         egui::pos2(300., 200.),
-        egui::vec2(260., 240.),
+        egui::vec2(width, 240.),
         vec![],
     );
-    // Dragging the header to (80, 54) — still well inside the 260x240 floating window —
+    // Dragging the header to (80, 54) — still well inside the floating window —
     // must move the floating window to a new outer_position and never self-dock it.
     run_floating_frame(
         &mut editor,
         egui::pos2(300., 200.),
-        egui::vec2(260., 240.),
+        egui::vec2(width, 240.),
         vec![
             egui::Event::PointerMoved(egui::pos2(30., 14.)),
             crate::tests::primary_button(egui::pos2(30., 14.), true),
@@ -657,19 +659,19 @@ fn borderless_floating_window_moves_by_header_without_self_docking_and_resizes_f
     run_floating_frame(
         &mut editor,
         egui::pos2(350., 240.),
-        egui::vec2(260., 240.),
+        egui::vec2(width, 240.),
         vec![
-            egui::Event::PointerMoved(egui::pos2(259., 239.)),
-            crate::tests::primary_button(egui::pos2(259., 239.), true),
+            egui::Event::PointerMoved(egui::pos2(width - 1., 239.)),
+            crate::tests::primary_button(egui::pos2(width - 1., 239.), true),
         ],
     );
     run_floating_frame(
         &mut editor,
         egui::pos2(350., 240.),
-        egui::vec2(260., 240.),
+        egui::vec2(width, 240.),
         vec![
-            egui::Event::PointerMoved(egui::pos2(299., 269.)),
-            crate::tests::primary_button(egui::pos2(299., 269.), false),
+            egui::Event::PointerMoved(egui::pos2(width + 39., 269.)),
+            crate::tests::primary_button(egui::pos2(width + 39., 269.), false),
         ],
     );
     let resized = editor
@@ -677,7 +679,7 @@ fn borderless_floating_window_moves_by_header_without_self_docking_and_resizes_f
         .detached_geometry(PanelId::Align)
         .expect("Align resized geometry");
     assert_eq!(resized.outer_position, [350., 240.]);
-    assert_eq!(resized.inner_size, [300., 270.]);
+    assert_eq!(resized.inner_size, [width + 40., 270.]);
 }
 
 #[test]
@@ -862,6 +864,9 @@ fn native_borderless_header_exposes_a_working_close_control() {
                 .then(|| node.bounds())
                 .flatten()
         })
+        // The v3 Align panel body has a collapsible `Align` section of its own; only nodes in
+        // the window's header strip are title chrome.
+        .filter(|bounds| bounds.y1 <= f64::from(neoflash_ui::metrics::panel_tab()) + 0.5)
         .collect();
     assert_eq!(
         title_nodes.len(),
@@ -1114,6 +1119,127 @@ fn floating_tools_header_fits_its_title_and_window_actions() {
     );
 }
 
+/// T-389 F: without native child windows a newly floated lone Tools palette opens at its natural
+/// two-column size (not egui's 340 pt window default) with the narrow header: grip and ⋯ only,
+/// Collapse and Close in the ⋯ menu. It keeps one outer rect whichever tool is active.
+#[test]
+fn embedded_floating_tools_opens_at_its_natural_two_column_size_in_every_density() {
+    use crate::workspace::DensityPref;
+    for density in DensityPref::ALL {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        ctx.set_embed_viewports(true);
+        let mut editor = Editor::from_project(&ctx, Project::demo());
+        editor.set_density(&ctx, density);
+        editor.apply_density(&ctx);
+        editor.show_panel(PanelId::Tools);
+        editor.set_panel_placement(&ctx, PanelId::Tools, PanelPlacement::Detached);
+        let mut time = 0.0;
+        let mut render = |editor: &mut Editor| {
+            time += 0.1;
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1440., 900.),
+                    )),
+                    time: Some(time),
+                    ..Default::default()
+                },
+                |ctx| {
+                    editor.apply_density(ctx);
+                    editor.dock_grid(ctx);
+                    editor.detached_panels(ctx);
+                },
+            )
+        };
+        let window_id = egui::Id::new(("floating-dock", PanelId::Tools));
+        let mut output = render(&mut editor);
+        for _ in 0..4 {
+            output = render(&mut editor);
+        }
+        let outer = ctx
+            .memory(|m| m.area_rect(window_id))
+            .expect("embedded Tools window");
+        let natural = crate::panels::tools_natural_width(2);
+        assert!(
+            outer.width() >= natural && outer.width() <= natural + 4.0,
+            "{density:?}: Tools window is {} wide, two columns need {natural}",
+            outer.width()
+        );
+        let nodes = &output
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .expect("accessibility tree")
+            .nodes;
+        let bounds = |label: &str| {
+            nodes.iter().find_map(|(_, node)| {
+                (node.label() == Some(label))
+                    .then(|| node.bounds())
+                    .flatten()
+            })
+        };
+        let inside = |rect: egui::accesskit::Rect| {
+            rect.x0 >= f64::from(outer.left()) - 0.5
+                && rect.x1 <= f64::from(outer.right()) + 0.5
+                && rect.y0 >= f64::from(outer.top()) - 0.5
+                && rect.y1 <= f64::from(outer.bottom()) + 0.5
+        };
+        // Narrow header: ⋯ only, no clipped title and no window buttons.
+        let menu = bounds("Panel menu").expect("header ⋯ button");
+        assert!(inside(menu), "{density:?}: ⋯ {menu:?} outside {outer:?}");
+        for absent in ["Close panel", "Collapse panel"] {
+            assert!(
+                bounds(absent).is_none(),
+                "{density:?}: the narrow header must not show {absent}"
+            );
+        }
+        // Two columns: Selection and Subselection share a row; every block fits the window.
+        let select = bounds("Selection (V)").expect("Selection tool");
+        let subselect = bounds("Subselection (A)").expect("Subselection tool");
+        assert!(
+            (select.y0 - subselect.y0).abs() < 0.5 && subselect.x0 >= select.x1 - 0.5,
+            "{density:?}: two-column palette expected, got {select:?} / {subselect:?}"
+        );
+        for label in [
+            "Selection (V)",
+            "Subselection (A)",
+            "Hand (H / hold Space)",
+            "Zoom (Z / M)",
+            "Swap colors",
+            "Snap to objects",
+        ] {
+            let rect = bounds(label).unwrap_or_else(|| panic!("{density:?}: missing {label}"));
+            assert!(
+                inside(rect),
+                "{density:?}: {label} {rect:?} outside the window {outer:?}"
+            );
+        }
+        // The window does not jump when another tool becomes active.
+        for tool in [
+            crate::app::Tool::Brush,
+            crate::app::Tool::Rectangle,
+            crate::app::Tool::Text,
+            crate::app::Tool::Select,
+        ] {
+            editor.tool = tool;
+            for _ in 0..3 {
+                render(&mut editor);
+            }
+            let now = ctx
+                .memory(|m| m.area_rect(window_id))
+                .expect("embedded Tools window");
+            assert!(
+                (now.width() - outer.width()).abs() < 0.5
+                    && (now.height() - outer.height()).abs() < 0.5
+                    && (now.min - outer.min).length() < 0.5,
+                "{density:?}: Tools window moved with {tool:?}: {outer:?} → {now:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn detached_tools_supports_one_two_and_five_column_widths_full_painting_compaction_and_roundtrip() {
     let ctx = egui::Context::default();
@@ -1260,8 +1386,10 @@ fn detached_tools_supports_one_two_and_five_column_widths_full_painting_compacti
         "5-column width (220 pt) places Select, Subselect, Line, Lasso, Pen across the first row"
     );
     assert!(bg_right_5 >= 220.0 - 0.5);
+    // The one-column rail is its own composition (grouped tools, two chips, Snap), so only the
+    // every-tool layouts are compared with each other.
     assert!(
-        h_1col > h_2col && h_2col > h_3col && h_3col >= h_4col && h_4col >= h_5col,
+        h_1col > h_3col && h_2col > h_3col && h_3col >= h_4col && h_4col >= h_5col,
         "desired height must monotonically compact as column count increases: 1col={h_1col}, 2col={h_2col}, 3col={h_3col}, 4col={h_4col}, 5col={h_5col}"
     );
 
@@ -2987,14 +3115,15 @@ fn t384_live_drag_and_drop_parity_and_modifier_suppression_across_floating_and_t
         PanelId::Color,
         WindowGeometry {
             outer_position: [900.0, 240.0],
-            inner_size: [340.0, 380.0],
+            // 360 pt high: its bottom edge stays clear of the Stage inset (bottom dock at 300 pt).
+            inner_size: [340.0, 360.0],
         },
     );
     let group_vp = egui::ViewportId::from_hash_of(group_win.viewport_key().unwrap());
     let run_group_frame = |ed: &mut Editor,
                            events: Vec<egui::Event>|
      -> Vec<egui::ViewportCommand> {
-        let size = egui::vec2(340.0, 380.0);
+        let size = egui::vec2(340.0, 360.0);
         let origin = egui::pos2(900.0, 240.0);
         let mut input = egui::RawInput {
             viewport_id: group_vp,

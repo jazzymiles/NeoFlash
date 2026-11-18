@@ -774,7 +774,10 @@ impl Editor {
                 ctx.data(|data| data.get_temp::<egui::Rect>(rect_id))
             })
             .unwrap_or_else(|| {
-                egui::Rect::from_center_size(ctx.content_rect().center(), egui::vec2(16.0, 16.0))
+                egui::Rect::from_center_size(
+                    ctx.content_rect().center(),
+                    egui::Vec2::splat(neoflash_ui::metrics::ICON_UI),
+                )
             });
         let color = layer_outline_color(layer);
         let draft = LayerOutlineDraft {
@@ -882,7 +885,7 @@ impl Editor {
     pub(crate) fn layer_outline_menu(&mut self, response: &egui::Response, layer: &Layer) {
         let swatch_rect = response.rect;
         response.context_menu(|ui| {
-            crate::ui_icons::menu_contents(ui, 240., |ui| {
+            crate::ui_icons::menu_contents(ui, neoflash_ui::metrics::menu_width(), |ui| {
                 neoflash_ui::components::menu_section(ui, &layer.name);
                 if ui
                     .add(neoflash_ui::components::MenuItem::new("Outline color…"))
@@ -1026,7 +1029,10 @@ impl Editor {
         let area_resp = egui::Area::new(id.with("outline-popover-area"))
             .order(egui::Order::Foreground)
             .constrain(true)
-            .fixed_pos(egui::pos2(draft.anchor.left(), draft.anchor.bottom() + 4.0))
+            .fixed_pos(egui::pos2(
+                draft.anchor.left(),
+                draft.anchor.bottom() + neoflash_ui::tokens::space::s1(),
+            ))
             .show(ctx, |ui| {
                 neoflash_ui::components::popover_frame(ctx).show(ui, |ui| {
                     let (c, should_close) = crate::paint_controls::rgba_color_popover(
@@ -1690,7 +1696,9 @@ impl Editor {
     }
     /// Returns true when the caller should enter its inline name editor.
     pub(crate) fn timeline_layer_menu(&mut self, ui: &mut egui::Ui, index: usize) -> bool {
-        crate::ui_icons::menu_contents(ui, 280., |ui| self.timeline_layer_commands(ui, index))
+        // Layer commands carry long labels: a menu plus one numeric field wide.
+        let width = neoflash_ui::metrics::menu_width() + neoflash_ui::metrics::field_num();
+        crate::ui_icons::menu_contents(ui, width, |ui| self.timeline_layer_commands(ui, index))
     }
 
     /// Contextless 10-item menu opened when right-clicking the empty space below the layer rows (`T-385`).
@@ -1698,7 +1706,7 @@ impl Editor {
         use crate::ui_icons::{menu_item, menu_item_enabled};
         use neoflash_ui::components as nf;
         let ctx = ui.ctx().clone();
-        crate::ui_icons::menu_contents(ui, 220., |ui| {
+        crate::ui_icons::menu_contents(ui, neoflash_ui::metrics::menu_width(), |ui| {
             if menu_item(ui, "Add new layer", "").clicked() {
                 self.add_new_layer_at_top();
                 ui.close();

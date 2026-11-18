@@ -4,7 +4,10 @@
 //! Opened by `File ▸ Export ▸ Export Lottie…` (`⌥⇧⌘L`, [`crate::commands::CommandId::FileExportLottie`])
 //! and by `Library ▸ Export symbol as Lottie…` (which preselects that symbol as `Source` and turns
 //! `Background colour layer` off).
-use super::dialog_helpers::{group, preview_box};
+use super::dialog_helpers::{
+    DialogShell, FormDialog, fixed_dialog_size, footer_note, form_line, form_row, group_caption,
+    note, preview_box,
+};
 use super::planned::caption;
 use crate::app::Editor;
 use crate::workspace::PanelId;
@@ -16,8 +19,8 @@ use neoflash_export::{
 };
 use neoflash_ui::components as c;
 use neoflash_ui::icons::i16;
-use neoflash_ui::tokens::{TextStyle, radius, space};
-use neoflash_ui::typography::rich;
+use neoflash_ui::metrics;
+use neoflash_ui::tokens::{radius, space};
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc, Mutex,
@@ -25,6 +28,11 @@ use std::sync::{
     mpsc::{self, Receiver, RecvTimeoutError, TryRecvError},
 };
 use std::time::Duration;
+
+/// `Export Lottie` has one size per density in every state (idle, estimating, exporting, error).
+pub(crate) fn export_lottie_dialog_size(ctx: &egui::Context) -> egui::Vec2 {
+    fixed_dialog_size(ctx, metrics::dialog_xl(), metrics::dialog_xl_height())
+}
 
 fn select_index(
     ui: &mut egui::Ui,
@@ -700,6 +708,362 @@ impl Editor {
         }
     }
 
+    /// The form column of `Export Lottie` on the dialog form grid (Export image layout rules).
+    fn export_lottie_form(&self, ui: &mut egui::Ui, draft: &mut ExportLottieDraft) {
+        form_line(ui, |ui| {
+            let mut fmt_idx = match draft.options.format {
+                LottieFormat::Json => 0usize,
+                LottieFormat::DotLottie => 1usize,
+            };
+            c::Segmented::show(
+                ui,
+                &mut fmt_idx,
+                &[(0, "JSON"), (1, "dotLottie (.lottie)")],
+                false,
+            );
+            let new_fmt = if fmt_idx == 1 {
+                LottieFormat::DotLottie
+            } else {
+                LottieFormat::Json
+            };
+            if new_fmt != draft.options.format {
+                draft.set_format(new_fmt);
+            }
+        });
+        form_row(ui, "Source", |ui| {
+            let mut sources: Vec<(LottieSourceChoice, String)> = vec![(
+                LottieSourceChoice::AllScenes,
+                "Main timeline · all scenes".into(),
+            )];
+            for scene_id in root_scene_ids(&self.project) {
+                if let Some(sym) = self.project.symbol(&scene_id) {
+                    sources.push((
+                        LottieSourceChoice::Scene(scene_id),
+                        format!("Scene: {}", sym.name),
+                    ));
+                }
+            }
+            for sym in &self.project.symbols {
+                if !self.project.is_scene(&sym.id) && sym.id != self.project.root {
+                    let kind_str = match sym.kind {
+                        SymbolKind::MovieClip => "MovieClip",
+                        SymbolKind::Graphic => "Graphic",
+                        SymbolKind::Button => "Button",
+                    };
+                    sources.push((
+                        LottieSourceChoice::Symbol(sym.id.clone()),
+                        format!("Symbol: {} ({kind_str})", sym.name),
+                    ));
+                }
+            }
+            let mut src_idx = sources
+                .iter()
+                .position(|(c, _)| *c == draft.source)
+                .unwrap_or(0);
+            let src_labels: Vec<&str> = sources.iter().map(|(_, l)| l.as_str()).collect();
+            if select_index(
+                ui,
+                "lottie-source",
+                &mut src_idx,
+                &src_labels,
+                ui.available_width(),
+            ) {
+                draft.source = sources[src_idx].0.clone();
+                let max_f = source_frame_count(&self.project, &draft.source);
+                draft.from_frame = 1.0;
+                draft.to_frame = f64::from(max_f);
+                if matches!(draft.source, LottieSourceChoice::Symbol(_)) {
+                    draft.options.include_background = false;
+                }
+                draft.dirty = true;
+            }
+        });
+        form_row(ui, "Range", |ui| {
+            let mut range_idx = usize::from(draft.custom_range);
+            if select_index(
+                ui,
+                "lottie-range",
+                &mut range_idx,
+                &["All frames", "Frame range"],
+                metrics::field_m(),
+            ) {
+                draft.custom_range = range_idx == 1;
+                draft.dirty = true;
+            }
+            // From / To keep their place; they are editable for a frame range only.
+            ui.add_enabled_ui(draft.custom_range, |ui| {
+                if ui
+                    .add(
+                        c::Field::new(&mut draft.from_frame, "From frame")
+                            .prefix("From")
+                            .decimals(0)
+                            .width(metrics::field_s()),
+                    )
+                    .changed()
+                {
+                    draft.dirty = true;
+                }
+                if ui
+                    .add(
+                        c::Field::new(&mut draft.to_frame, "To frame")
+                            .prefix("To")
+                            .decimals(0)
+                            .width(metrics::field_s()),
+                    )
+                    .changed()
+                {
+                    draft.dirty = true;
+                }
+            });
+        });
+        form_row(ui, "Size", |ui| {
+            if ui
+                .add(
+                    c::Field::new(&mut draft.width, "Width")
+                        .prefix("W")
+                        .unit("px")
+                        .decimals(0)
+                        .width(metrics::field_s()),
+                )
+                .changed()
+                && draft.width.is_finite()
+            {
+                draft.width = draft.width.clamp(1.0, 16384.0);
+                if draft.constrain && draft.aspect.is_finite() && draft.aspect > 1e-6 {
+                    draft.height = (draft.width / draft.aspect).round().clamp(1.0, 16384.0);
+                }
+                draft.dirty = true;
+            }
+            if ui
+                .add(
+                    c::Field::new(&mut draft.height, "Height")
+                        .prefix("H")
+                        .unit("px")
+                        .decimals(0)
+                        .width(metrics::field_s()),
+                )
+                .changed()
+                && draft.height.is_finite()
+            {
+                draft.height = draft.height.clamp(1.0, 16384.0);
+                if draft.constrain && draft.aspect.is_finite() && draft.aspect > 1e-6 {
+                    draft.width = (draft.height * draft.aspect).round().clamp(1.0, 16384.0);
+                }
+                draft.dirty = true;
+            }
+            if ui
+                .add(
+                    c::IconButton::new(i16::LINK, "Constrain proportions")
+                        .selected(draft.constrain),
+                )
+                .clicked()
+            {
+                draft.constrain = !draft.constrain;
+                if draft.constrain
+                    && draft.width.is_finite()
+                    && draft.height.is_finite()
+                    && draft.height > 0.0
+                {
+                    draft.aspect = (draft.width / draft.height).max(0.01);
+                }
+            }
+            let scale_labels: Vec<&str> = SCALE_PRESETS.iter().map(|(_, l)| *l).collect();
+            if select_index(
+                ui,
+                "lottie-scale",
+                &mut draft.scale_idx,
+                &scale_labels,
+                metrics::field_num(),
+            ) {
+                draft.dirty = true;
+            }
+        });
+        form_row(ui, "Frame rate", |ui| {
+            let doc_fps_label = format!("Document ({} fps)", self.project.fps);
+            let fps_labels = [
+                doc_fps_label.as_str(),
+                "12 fps",
+                "24 fps",
+                "30 fps",
+                "60 fps",
+            ];
+            if select_index(
+                ui,
+                "lottie-fps",
+                &mut draft.fps_idx,
+                &fps_labels,
+                metrics::field_m(),
+            ) {
+                draft.dirty = true;
+            }
+        });
+
+        group_caption(ui, "Layers");
+        form_row(ui, "Include", |ui| {
+            if ui
+                .add(c::Checkbox::new(
+                    &mut draft.options.include_background,
+                    "Background colour layer",
+                ))
+                .changed()
+            {
+                draft.dirty = true;
+            }
+            if ui
+                .add(c::Checkbox::new(
+                    &mut draft.options.include_hidden_layers,
+                    "Hidden layers",
+                ))
+                .changed()
+            {
+                draft.dirty = true;
+            }
+        });
+        form_row(ui, "", |ui| {
+            if ui
+                .add(c::Checkbox::new(
+                    &mut draft.options.include_markers,
+                    "Frame labels as markers",
+                ))
+                .changed()
+            {
+                draft.dirty = true;
+            }
+        });
+
+        group_caption(ui, "Content");
+        form_row(ui, "Movie clips", |ui| {
+            let mut mc_idx = match draft.options.movie_clip_mode {
+                LottieMovieClipMode::Nested => 0usize,
+                LottieMovieClipMode::FirstFrame => 1usize,
+            };
+            if select_index(
+                ui,
+                "lottie-mc-mode",
+                &mut mc_idx,
+                &["Nested", "First frame"],
+                metrics::field_m(),
+            ) {
+                draft.options.movie_clip_mode = if mc_idx == 1 {
+                    LottieMovieClipMode::FirstFrame
+                } else {
+                    LottieMovieClipMode::Nested
+                };
+                draft.dirty = true;
+            }
+        });
+        form_row(ui, "Text", |ui| {
+            let mut txt_idx = match draft.options.text_mode {
+                LottieTextMode::Shapes => 0usize,
+                LottieTextMode::TextLayers => 1usize,
+            };
+            if select_index(
+                ui,
+                "lottie-text-mode",
+                &mut txt_idx,
+                &["Shapes", "Text layers"],
+                metrics::field_m(),
+            ) {
+                draft.options.text_mode = if txt_idx == 0 {
+                    LottieTextMode::Shapes
+                } else {
+                    LottieTextMode::TextLayers
+                };
+                draft.dirty = true;
+            }
+        });
+        form_row(ui, "Images", |ui| {
+            let mut img_idx = match draft.options.image_mode {
+                LottieImageMode::Embed => 0usize,
+                LottieImageMode::Folder => 1usize,
+            };
+            if select_index(
+                ui,
+                "lottie-img-mode",
+                &mut img_idx,
+                &["Embed", "Folder"],
+                metrics::field_s(),
+            ) {
+                draft.options.image_mode = if img_idx == 1 {
+                    LottieImageMode::Folder
+                } else {
+                    LottieImageMode::Embed
+                };
+                draft.dirty = true;
+            }
+            let mut fmt_img_idx = match draft.options.image_format {
+                LottieImageFormat::Original => 0usize,
+                LottieImageFormat::Png => 1usize,
+                LottieImageFormat::Jpeg => 2usize,
+                LottieImageFormat::Webp => 3usize,
+            };
+            if select_index(
+                ui,
+                "lottie-img-fmt",
+                &mut fmt_img_idx,
+                &["Original", "PNG", "JPEG", "WebP"],
+                metrics::field_s(),
+            ) {
+                draft.options.image_format = match fmt_img_idx {
+                    1 => LottieImageFormat::Png,
+                    2 => LottieImageFormat::Jpeg,
+                    3 => LottieImageFormat::Webp,
+                    _ => LottieImageFormat::Original,
+                };
+                draft.dirty = true;
+            }
+        });
+
+        group_caption(ui, "Output");
+        form_row(ui, "Player", |ui| {
+            let mut player_idx = match draft.options.player {
+                LottieTargetPlayer::LottieWeb => 0usize,
+                LottieTargetPlayer::Mobile => 1usize,
+                LottieTargetPlayer::Skottie => 2usize,
+            };
+            if select_index(
+                ui,
+                "lottie-player",
+                &mut player_idx,
+                &["lottie-web", "Mobile", "Skottie"],
+                metrics::field_m(),
+            ) {
+                draft.options.player = match player_idx {
+                    1 => LottieTargetPlayer::Mobile,
+                    2 => LottieTargetPlayer::Skottie,
+                    _ => LottieTargetPlayer::LottieWeb,
+                };
+                draft.dirty = true;
+            }
+        });
+        form_row(ui, "Precision", |ui| {
+            let mut prec = f64::from(draft.options.precision);
+            if ui
+                .add(
+                    c::Field::new(&mut prec, "Precision")
+                        .decimals(0)
+                        .width(metrics::field_num()),
+                )
+                .changed()
+                && prec.is_finite()
+            {
+                draft.options.precision = prec.round().clamp(0.0, 4.0) as u8;
+                draft.dirty = true;
+            }
+        });
+        form_row(ui, "Options", |ui| {
+            let mut minify = !draft.options.pretty;
+            if ui.add(c::Checkbox::new(&mut minify, "Minify")).changed() {
+                draft.options.pretty = !minify;
+                draft.dirty = true;
+            }
+            ui.add(c::Checkbox::new(
+                &mut draft.options.html_preview,
+                "Also write HTML preview page",
+            ));
+        });
+    }
+
     /// Render the `Export Lottie` modal dialog and optional `Lottie export — N notes` report modal (`R-043`).
     pub(crate) fn export_lottie_modal(&mut self, ctx: &egui::Context) {
         let Some(mut draft) = self.export_lottie.clone() else {
@@ -744,64 +1108,61 @@ impl Editor {
                 .unwrap_or_default();
             let nf = neoflash_ui::palette(ctx);
             let title = format!("Lottie export — {} notes", notes.len());
+            // Fixed size: the list scrolls and never shrinks to its content.
+            let size = fixed_dialog_size(ctx, metrics::dialog_l(), metrics::dialog_l_height());
             let modal = egui::Modal::new(egui::Id::new("export-lottie-notes-modal"))
                 .frame(c::Surface::Dialog.frame(ctx))
                 .backdrop_color(nf.overlay)
                 .show(ctx, |ui| {
-                    ui.set_width(560.0);
-                    close_notes |= c::DialogHeader { title: &title }.show(ui);
-                    egui::Frame::new()
-                        .inner_margin(egui::Margin::same(space::S5 as i8))
-                        .show(ui, |ui| {
-                            ui.set_width(560.0 - 2.0 * space::S5);
-                            ui.spacing_mut().item_spacing.y = space::S2;
-                            egui::ScrollArea::vertical()
-                                .max_height(320.0)
-                                .show(ui, |ui| {
-                                    for kind in [
-                                        LottieNoteKind::Missing,
-                                        LottieNoteKind::Approximated,
-                                        LottieNoteKind::NotExported,
-                                    ] {
-                                        let group_notes: Vec<&LottieNote> =
-                                            notes.iter().filter(|n| n.kind == kind).collect();
-                                        if group_notes.is_empty() {
-                                            continue;
+                    let dialog = FormDialog::show(ui, &title, size.x, Some(size.y));
+                    close_notes |= dialog.close;
+                    dialog.page(ui, "export-lottie-notes", |ui, _| {
+                        for kind in [
+                            LottieNoteKind::Missing,
+                            LottieNoteKind::Approximated,
+                            LottieNoteKind::NotExported,
+                        ] {
+                            let group_notes: Vec<&LottieNote> =
+                                notes.iter().filter(|n| n.kind == kind).collect();
+                            if group_notes.is_empty() {
+                                continue;
+                            }
+                            group_caption(ui, &format!("{} ({})", kind.label(), group_notes.len()));
+                            // One row per note: the message fills, `Show` sits at the end.
+                            for note in group_notes {
+                                let sev = match note.kind {
+                                    LottieNoteKind::Missing => c::Severity::Error,
+                                    LottieNoteKind::Approximated => c::Severity::Warning,
+                                    LottieNoteKind::NotExported => c::Severity::Info,
+                                };
+                                let can_show = note.symbol_id.is_some()
+                                    || note.layer_id.is_some()
+                                    || note.frame.is_some();
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Min),
+                                    |ui| {
+                                        if can_show && ui.add(c::Button::ghost("Show")).clicked() {
+                                            jump_target = Some((*note).clone());
                                         }
-                                        group(
-                                            ui,
-                                            &format!("{} ({})", kind.label(), group_notes.len()),
-                                        );
-                                        for note in group_notes {
-                                            let sev = match note.kind {
-                                                LottieNoteKind::Missing => c::Severity::Error,
-                                                LottieNoteKind::Approximated => {
-                                                    c::Severity::Warning
-                                                }
-                                                LottieNoteKind::NotExported => c::Severity::Info,
-                                            };
-                                            ui.horizontal(|ui| {
+                                        ui.with_layout(
+                                            egui::Layout::top_down(egui::Align::Min),
+                                            |ui| {
                                                 ui.add(c::LogLine {
                                                     severity: sev,
                                                     time: &note.location,
                                                     text: &note.message,
                                                 });
-                                                if (note.symbol_id.is_some()
-                                                    || note.layer_id.is_some()
-                                                    || note.frame.is_some())
-                                                    && ui.add(c::Button::ghost("Show")).clicked()
-                                                {
-                                                    jump_target = Some((*note).clone());
-                                                }
-                                            });
-                                        }
-                                    }
-                                });
-                        });
-                    c::surface::dialog_footer(
+                                            },
+                                        );
+                                    },
+                                );
+                            }
+                        }
+                    });
+                    dialog.footer(
                         ui,
                         |ui| {
-                            if ui.add(c::Button::new("Copy report")).clicked() {
+                            if ui.add(c::Button::ghost("Copy report")).clicked() {
                                 let formatted = notes
                                     .iter()
                                     .map(|n| {
@@ -854,508 +1215,126 @@ impl Editor {
         let mut do_export = false;
         let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let nf = neoflash_ui::palette(ctx);
+        // v3: one size while idle, estimating, exporting and with a blocking error.
+        let size = export_lottie_dialog_size(ctx);
+        let aside_width = (288.0 * size.x / metrics::DIALOG_XL).round();
         let modal = egui::Modal::new(egui::Id::new("export-lottie-modal"))
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(nf.overlay)
             .show(ctx, |ui| {
-                ui.set_width(760.0);
-                cancel |= c::DialogHeader {
-                    title: "Export Lottie",
-                }
-                .show(ui);
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S5 as i8))
-                    .show(ui, |ui| {
-                        ui.set_width(760.0 - 2.0 * space::S5);
-                        ui.horizontal_top(|ui| {
-                            // ── Left column (300 pt): Preview + Caption + Compatibility card ──
-                            ui.vertical(|ui| {
-                                ui.set_width(300.0);
-                                ui.spacing_mut().item_spacing.y = space::S2;
-                                let src_title = source_label(&self.project, &draft.source);
-                                preview_box(ui, 300.0, 188.0, &src_title);
-                                let scenes_cnt = root_scene_ids(&self.project).len();
-                                let frames_cnt = draft
-                                    .preview_report
-                                    .as_ref()
-                                    .map(|r| r.frame_count)
-                                    .unwrap_or_else(|| {
-                                        source_frame_count(&self.project, &draft.source)
-                                    });
-                                let fps_val = draft
-                                    .options
-                                    .fps
-                                    .unwrap_or(self.project.fps)
-                                    .clamp(1, 240);
-                                let out_w = draft
-                                    .preview_report
-                                    .as_ref()
-                                    .map(|r| r.width)
-                                    .unwrap_or(self.project.width);
-                                let out_h = draft
-                                    .preview_report
-                                    .as_ref()
-                                    .map(|r| r.height)
-                                    .unwrap_or(self.project.height);
-                                caption(
-                                    ui,
-                                    &format!(
-                                        "{src_title} · {scenes_cnt} scene(s) · {frames_cnt} frames · {fps_val} fps · {out_w} × {out_h}"
-                                    ),
-                                );
+                let shell = DialogShell::single(ui, "Export Lottie", size);
+                cancel |= shell.close;
+                // Artwork column: preview, summary, compatibility card, first notes / error.
+                shell.aside(ui, aside_width, |ui| {
+                    let src_title = source_label(&self.project, &draft.source);
+                    preview_box(ui, aside_width, (aside_width * 0.625).round(), &src_title);
+                    let scenes_cnt = root_scene_ids(&self.project).len();
+                    let frames_cnt = draft
+                        .preview_report
+                        .as_ref()
+                        .map(|r| r.frame_count)
+                        .unwrap_or_else(|| source_frame_count(&self.project, &draft.source));
+                    let fps_val = draft
+                        .options
+                        .fps
+                        .unwrap_or(self.project.fps)
+                        .clamp(1, 240);
+                    let out_w = draft
+                        .preview_report
+                        .as_ref()
+                        .map(|r| r.width)
+                        .unwrap_or(self.project.width);
+                    let out_h = draft
+                        .preview_report
+                        .as_ref()
+                        .map(|r| r.height)
+                        .unwrap_or(self.project.height);
+                    note(
+                        ui,
+                        &format!(
+                            "{src_title} · {scenes_cnt} scene(s) · {frames_cnt} frames · {fps_val} fps · {out_w} × {out_h}"
+                        ),
+                    );
 
-                                group(ui, "Compatibility");
-                                egui::Frame::new()
-                                    .fill(nf.bg_raised)
-                                    .corner_radius(egui::CornerRadius::same(radius::MD as u8))
-                                    .stroke(egui::Stroke::new(1.0_f32, nf.border_subtle))
-                                    .inner_margin(egui::Margin::same(space::S3 as i8))
-                                    .show(ui, |ui| {
-                                        ui.set_width(300.0 - 2.0 * space::S3);
-                                        let (exported, approx, omitted, note_cnt) =
-                                            if let Some(rep) = &draft.preview_report {
-                                                (
-                                                    rep.exported_count,
-                                                    rep.approximated_count,
-                                                    rep.not_exported_count,
-                                                    rep.notes.len(),
-                                                )
-                                            } else {
-                                                (0, 0, 0, 0)
-                                            };
-                                        ui.horizontal(|ui| {
-                                            ui.add(c::Badge::new(
-                                                &format!("{exported} exported"),
-                                                c::BadgeType::Accent,
-                                            ));
-                                            ui.add(c::Badge::new(
-                                                &format!("{approx} approx."),
-                                                if approx > 0 {
-                                                    c::BadgeType::Warning
-                                                } else {
-                                                    c::BadgeType::Neutral
-                                                },
-                                            ));
-                                            ui.add(c::Badge::new(
-                                                &format!("{omitted} omitted"),
-                                                if omitted > 0 {
-                                                    c::BadgeType::Accent
-                                                } else {
-                                                    c::BadgeType::Neutral
-                                                },
-                                            ));
-                                        });
-                                        ui.horizontal(|ui| {
-                                            caption(ui, &format!("{note_cnt} compatibility note(s)"));
-                                            ui.with_layout(
-                                                egui::Layout::right_to_left(egui::Align::Center),
-                                                |ui| {
-                                                    if ui
-                                                        .add_enabled(
-                                                            note_cnt > 0,
-                                                            c::Button::ghost("Show details"),
-                                                        )
-                                                        .clicked()
-                                                    {
-                                                        draft.show_notes_modal = true;
-                                                    }
-                                                },
-                                            );
-                                        });
-                                    });
-
-                                if let Some(err) = &draft.blocking_error {
-                                    ui.add(c::LogLine {
-                                        severity: c::Severity::Error,
-                                        time: "",
-                                        text: err,
-                                    });
-                                } else if let Some(rep) = &draft.preview_report {
-                                    for note in rep.notes.iter().take(2) {
-                                        ui.add(c::LogLine {
-                                            severity: match note.kind {
-                                                LottieNoteKind::Missing => c::Severity::Error,
-                                                LottieNoteKind::Approximated => {
-                                                    c::Severity::Warning
-                                                }
-                                                LottieNoteKind::NotExported => c::Severity::Info,
-                                            },
-                                            time: "",
-                                            text: &note.message,
-                                        });
-                                    }
-                                }
-                            });
-
-                            ui.add_space(space::S5);
-
-                            // ── Right column: Format, Source, Range, Size, Layers, Content, Output ──
-                            ui.vertical(|ui| {
-                                ui.spacing_mut().item_spacing.y = space::S2;
-                                let mut fmt_idx = match draft.options.format {
-                                    LottieFormat::Json => 0usize,
-                                    LottieFormat::DotLottie => 1usize,
-                                };
-                                c::Segmented::show(
-                                    ui,
-                                    &mut fmt_idx,
-                                    &[(0, "JSON"), (1, "dotLottie (.lottie)")],
-                                    false,
-                                );
-                                let new_fmt = if fmt_idx == 1 {
-                                    LottieFormat::DotLottie
+                    group_caption(ui, "Compatibility");
+                    egui::Frame::new()
+                        .fill(nf.bg_raised)
+                        .corner_radius(egui::CornerRadius::same(radius::md() as u8))
+                        .stroke(egui::Stroke::new(1.0_f32, nf.border_subtle))
+                        .inner_margin(egui::Margin::same(space::s3() as i8))
+                        .show(ui, |ui| {
+                            ui.set_width(aside_width - 2.0 * (space::s3() + 1.0));
+                            let (exported, approx, omitted, note_cnt) =
+                                if let Some(rep) = &draft.preview_report {
+                                    (
+                                        rep.exported_count,
+                                        rep.approximated_count,
+                                        rep.not_exported_count,
+                                        rep.notes.len(),
+                                    )
                                 } else {
-                                    LottieFormat::Json
+                                    (0, 0, 0, 0)
                                 };
-                                if new_fmt != draft.options.format {
-                                    draft.set_format(new_fmt);
-                                }
-
-                                // Source + Range
-                                group(ui, "Source & Range");
-                                let mut sources: Vec<(LottieSourceChoice, String)> = vec![(
-                                    LottieSourceChoice::AllScenes,
-                                    "Main timeline · all scenes".into(),
-                                )];
-                                for scene_id in root_scene_ids(&self.project) {
-                                    if let Some(sym) = self.project.symbol(&scene_id) {
-                                        sources.push((
-                                            LottieSourceChoice::Scene(scene_id),
-                                            format!("Scene: {}", sym.name),
-                                        ));
-                                    }
-                                }
-                                for sym in &self.project.symbols {
-                                    if !self.project.is_scene(&sym.id) && sym.id != self.project.root
-                                    {
-                                        let kind_str = match sym.kind {
-                                            SymbolKind::MovieClip => "MovieClip",
-                                            SymbolKind::Graphic => "Graphic",
-                                            SymbolKind::Button => "Button",
-                                        };
-                                        sources.push((
-                                            LottieSourceChoice::Symbol(sym.id.clone()),
-                                            format!("Symbol: {} ({kind_str})", sym.name),
-                                        ));
-                                    }
-                                }
-                                let mut src_idx = sources
-                                    .iter()
-                                    .position(|(c, _)| *c == draft.source)
-                                    .unwrap_or(0);
-                                let src_labels: Vec<&str> =
-                                    sources.iter().map(|(_, l)| l.as_str()).collect();
-                                if select_index(
-                                    ui,
-                                    "lottie-source",
-                                    &mut src_idx,
-                                    &src_labels,
-                                    ui.available_width(),
-                                ) {
-                                    draft.source = sources[src_idx].0.clone();
-                                    let max_f = source_frame_count(&self.project, &draft.source);
-                                    draft.from_frame = 1.0;
-                                    draft.to_frame = f64::from(max_f);
-                                    if matches!(draft.source, LottieSourceChoice::Symbol(_)) {
-                                        draft.options.include_background = false;
-                                    }
-                                    draft.dirty = true;
-                                }
-
-                                ui.horizontal(|ui| {
-                                    let mut range_idx = usize::from(draft.custom_range);
-                                    if select_index(
-                                        ui,
-                                        "lottie-range",
-                                        &mut range_idx,
-                                        &["All frames", "Frame range"],
-                                        160.0,
-                                    ) {
-                                        draft.custom_range = range_idx == 1;
-                                        draft.dirty = true;
-                                    }
-                                    if draft.custom_range {
-                                        if ui
-                                            .add(
-                                                c::Field::new(&mut draft.from_frame, "From frame")
-                                                    .prefix("From")
-                                                    .decimals(0)
-                                                    .width(96.0),
-                                            )
-                                            .changed()
-                                        {
-                                            draft.dirty = true;
-                                        }
-                                        if ui
-                                            .add(
-                                                c::Field::new(&mut draft.to_frame, "To frame")
-                                                    .prefix("To")
-                                                    .decimals(0)
-                                                    .width(96.0),
-                                            )
-                                            .changed()
-                                        {
-                                            draft.dirty = true;
-                                        }
-                                    }
-                                });
-
-                                // Size & Frame rate
-                                group(ui, "Size & Frame rate");
-                                ui.horizontal(|ui| {
-                                    if ui
-                                        .add(
-                                            c::Field::new(&mut draft.width, "Width")
-                                                .prefix("W")
-                                                .decimals(0)
-                                                .width(96.0),
-                                        )
-                                        .changed()
-                                        && draft.width.is_finite()
-                                    {
-                                        draft.width = draft.width.clamp(1.0, 16384.0);
-                                        if draft.constrain && draft.aspect.is_finite() && draft.aspect > 1e-6 {
-                                            draft.height = (draft.width / draft.aspect).round().clamp(1.0, 16384.0);
-                                        }
-                                        draft.dirty = true;
-                                    }
-                                    if ui
-                                        .add(
-                                            c::Field::new(&mut draft.height, "Height")
-                                                .prefix("H")
-                                                .decimals(0)
-                                                .width(96.0),
-                                        )
-                                        .changed()
-                                        && draft.height.is_finite()
-                                    {
-                                        draft.height = draft.height.clamp(1.0, 16384.0);
-                                        if draft.constrain && draft.aspect.is_finite() && draft.aspect > 1e-6 {
-                                            draft.width = (draft.height * draft.aspect).round().clamp(1.0, 16384.0);
-                                        }
-                                        draft.dirty = true;
-                                    }
-                                    if ui
-                                        .add(
-                                            c::IconButton::new(i16::LINK, "Constrain proportions")
-                                                .selected(draft.constrain),
-                                        )
-                                        .clicked()
-                                    {
-                                        draft.constrain = !draft.constrain;
-                                        if draft.constrain
-                                            && draft.width.is_finite()
-                                            && draft.height.is_finite()
-                                            && draft.height > 0.0
-                                        {
-                                            draft.aspect = (draft.width / draft.height).max(0.01);
-                                        }
-                                    }
-                                    let scale_labels: Vec<&str> =
-                                        SCALE_PRESETS.iter().map(|(_, l)| *l).collect();
-                                    if select_index(
-                                        ui,
-                                        "lottie-scale",
-                                        &mut draft.scale_idx,
-                                        &scale_labels,
-                                        72.0,
-                                    ) {
-                                        draft.dirty = true;
-                                    }
-                                });
-                                let doc_fps_label =
-                                    format!("Frame rate: Document ({} fps)", self.project.fps);
-                                let fps_labels = [
-                                    doc_fps_label.as_str(),
-                                    "Frame rate: 12 fps",
-                                    "Frame rate: 24 fps",
-                                    "Frame rate: 30 fps",
-                                    "Frame rate: 60 fps",
-                                ];
-                                if select_index(
-                                    ui,
-                                    "lottie-fps",
-                                    &mut draft.fps_idx,
-                                    &fps_labels,
-                                    ui.available_width(),
-                                ) {
-                                    draft.dirty = true;
-                                }
-
-                                // Layers
-                                group(ui, "Layers");
-                                ui.horizontal_wrapped(|ui| {
-                                    if ui
-                                        .add(c::Checkbox::new(
-                                            &mut draft.options.include_background,
-                                            "Background colour layer",
-                                        ))
-                                        .changed()
-                                    {
-                                        draft.dirty = true;
-                                    }
-                                    if ui
-                                        .add(c::Checkbox::new(
-                                            &mut draft.options.include_hidden_layers,
-                                            "Hidden layers",
-                                        ))
-                                        .changed()
-                                    {
-                                        draft.dirty = true;
-                                    }
-                                    if ui
-                                        .add(c::Checkbox::new(
-                                            &mut draft.options.include_markers,
-                                            "Frame labels as markers",
-                                        ))
-                                        .changed()
-                                    {
-                                        draft.dirty = true;
-                                    }
-                                });
-
-                                // Content
-                                group(ui, "Content");
-                                ui.horizontal(|ui| {
-                                    let mut mc_idx = match draft.options.movie_clip_mode {
-                                        LottieMovieClipMode::Nested => 0usize,
-                                        LottieMovieClipMode::FirstFrame => 1usize,
-                                    };
-                                    if select_index(
-                                        ui,
-                                        "lottie-mc-mode",
-                                        &mut mc_idx,
-                                        &["Movie clips: Nested", "Movie clips: First frame"],
-                                        196.0,
-                                    ) {
-                                        draft.options.movie_clip_mode = if mc_idx == 1 {
-                                            LottieMovieClipMode::FirstFrame
-                                        } else {
-                                            LottieMovieClipMode::Nested
-                                        };
-                                        draft.dirty = true;
-                                    }
-
-                                    let mut txt_idx = match draft.options.text_mode {
-                                        LottieTextMode::Shapes => 0usize,
-                                        LottieTextMode::TextLayers => 1usize,
-                                    };
-                                    if select_index(
-                                        ui,
-                                        "lottie-text-mode",
-                                        &mut txt_idx,
-                                        &["Text: Shapes", "Text: Text layers"],
-                                        196.0,
-                                    ) {
-                                        draft.options.text_mode = if txt_idx == 0 {
-                                            LottieTextMode::Shapes
-                                        } else {
-                                            LottieTextMode::TextLayers
-                                        };
-                                        draft.dirty = true;
-                                    }
-                                });
-                                ui.horizontal(|ui| {
-                                    let mut img_idx = match draft.options.image_mode {
-                                        LottieImageMode::Embed => 0usize,
-                                        LottieImageMode::Folder => 1usize,
-                                    };
-                                    if select_index(
-                                        ui,
-                                        "lottie-img-mode",
-                                        &mut img_idx,
-                                        &["Images: Embed", "Images: Folder"],
-                                        196.0,
-                                    ) {
-                                        draft.options.image_mode = if img_idx == 1 {
-                                            LottieImageMode::Folder
-                                        } else {
-                                            LottieImageMode::Embed
-                                        };
-                                        draft.dirty = true;
-                                    }
-
-                                    let mut fmt_img_idx = match draft.options.image_format {
-                                        LottieImageFormat::Original => 0usize,
-                                        LottieImageFormat::Png => 1usize,
-                                        LottieImageFormat::Jpeg => 2usize,
-                                        LottieImageFormat::Webp => 3usize,
-                                    };
-                                    if select_index(
-                                        ui,
-                                        "lottie-img-fmt",
-                                        &mut fmt_img_idx,
-                                        &[
-                                            "Image format: Original",
-                                            "Image format: PNG",
-                                            "Image format: JPEG",
-                                            "Image format: WebP",
-                                        ],
-                                        196.0,
-                                    ) {
-                                        draft.options.image_format = match fmt_img_idx {
-                                            1 => LottieImageFormat::Png,
-                                            2 => LottieImageFormat::Jpeg,
-                                            3 => LottieImageFormat::Webp,
-                                            _ => LottieImageFormat::Original,
-                                        };
-                                        draft.dirty = true;
-                                    }
-                                });
-
-                                // Output
-                                group(ui, "Output");
-                                ui.horizontal(|ui| {
-                                    let mut minify = !draft.options.pretty;
-                                    if ui.add(c::Switch::new(&mut minify, "Minify")).changed() {
-                                        draft.options.pretty = !minify;
-                                        draft.dirty = true;
-                                    }
-                                    let mut prec = f64::from(draft.options.precision);
-                                    if ui
-                                        .add(
-                                            c::Field::new(&mut prec, "Precision")
-                                                .prefix("Precision")
-                                                .decimals(0)
-                                                .width(116.0),
-                                        )
-                                        .changed()
-                                        && prec.is_finite()
-                                    {
-                                        draft.options.precision = prec.round().clamp(0.0, 4.0) as u8;
-                                        draft.dirty = true;
-                                    }
-                                    let mut player_idx = match draft.options.player {
-                                        LottieTargetPlayer::LottieWeb => 0usize,
-                                        LottieTargetPlayer::Mobile => 1usize,
-                                        LottieTargetPlayer::Skottie => 2usize,
-                                    };
-                                    if select_index(
-                                        ui,
-                                        "lottie-player",
-                                        &mut player_idx,
-                                        &[
-                                            "Player: lottie-web",
-                                            "Player: Mobile",
-                                            "Player: Skottie",
-                                        ],
-                                        164.0,
-                                    ) {
-                                        draft.options.player = match player_idx {
-                                            1 => LottieTargetPlayer::Mobile,
-                                            2 => LottieTargetPlayer::Skottie,
-                                            _ => LottieTargetPlayer::LottieWeb,
-                                        };
-                                        draft.dirty = true;
-                                    }
-                                });
-                                ui.add(c::Checkbox::new(
-                                    &mut draft.options.html_preview,
-                                    "Also write HTML preview page",
+                            ui.horizontal(|ui| {
+                                ui.add(c::Badge::new(
+                                    &format!("{exported} exported"),
+                                    c::BadgeType::Accent,
+                                ));
+                                ui.add(c::Badge::new(
+                                    &format!("{approx} approx."),
+                                    if approx > 0 {
+                                        c::BadgeType::Warning
+                                    } else {
+                                        c::BadgeType::Neutral
+                                    },
+                                ));
+                                ui.add(c::Badge::new(
+                                    &format!("{omitted} omitted"),
+                                    if omitted > 0 {
+                                        c::BadgeType::Accent
+                                    } else {
+                                        c::BadgeType::Neutral
+                                    },
                                 ));
                             });
+                            ui.horizontal(|ui| {
+                                caption(ui, &format!("{note_cnt} compatibility note(s)"));
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if ui
+                                            .add_enabled(
+                                                note_cnt > 0,
+                                                c::Button::ghost("Show details"),
+                                            )
+                                            .clicked()
+                                        {
+                                            draft.show_notes_modal = true;
+                                        }
+                                    },
+                                );
+                            });
                         });
-                    });
+
+                    if let Some(err) = &draft.blocking_error {
+                        ui.add(c::InlineMessage::error(err).width(aside_width));
+                    } else if let Some(rep) = &draft.preview_report {
+                        for note in rep.notes.iter().take(2) {
+                            ui.add(c::LogLine {
+                                severity: match note.kind {
+                                    LottieNoteKind::Missing => c::Severity::Error,
+                                    LottieNoteKind::Approximated => c::Severity::Warning,
+                                    LottieNoteKind::NotExported => c::Severity::Info,
+                                },
+                                time: "",
+                                text: &note.message,
+                            });
+                        }
+                    }
+                });
+                shell.form(ui, "export-lottie-form", aside_width, |ui, _| {
+                    self.export_lottie_form(ui, &mut draft);
+                });
 
                 let busy = draft.is_busy();
                 let exporting = draft.is_exporting();
@@ -1370,24 +1349,27 @@ impl Editor {
                 } else {
                     "~ 0 B · 0 layers · 0 frames".into()
                 };
-                c::surface::dialog_footer(
+                shell.footer(
                     ui,
                     |ui| {
                         if exporting {
-                            c::progress(ui, "Exporting Lottie…", Some(progress), 260.0);
+                            c::progress(ui, "Exporting Lottie…", Some(progress), metrics::field_l());
                         } else if busy {
-                            c::progress(ui, "Computing estimate…", Some(progress), 260.0);
-                        } else {
-                            ui.label(
-                                rich(&footer_summary, TextStyle::Small).color(nf.text_secondary),
+                            c::progress(
+                                ui,
+                                "Computing estimate…",
+                                Some(progress),
+                                metrics::field_l(),
                             );
+                        } else {
+                            footer_note(ui, &footer_summary);
                         }
                     },
                     |ui| {
                         do_export |= ui
                             .add_enabled(
                                 !exporting && draft.blocking_error.is_none(),
-                                c::Button::primary("Export Lottie"),
+                                c::Button::primary("Export Lottie").icon(i16::UPLOAD),
                             )
                             .clicked();
                         cancel |= ui.add(c::Button::new("Cancel")).clicked();

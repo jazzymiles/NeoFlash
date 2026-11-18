@@ -10,7 +10,8 @@ use neoflash_ui::{
 };
 
 const MAX_VISIBLE_RESULTS: usize = 24;
-const RESULTS_MAX_HEIGHT: f32 = 392.0;
+/// The result list shows up to this many `metrics::row()` rows before it scrolls.
+const RESULTS_VISIBLE_ROWS: f32 = 16.0;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct FunctionSearchState {
@@ -215,18 +216,20 @@ impl Editor {
         }
 
         let content = ctx.content_rect();
-        let min_x = content.left() + space::S2;
-        let max_x = (content.right() - 280.0).max(min_x);
+        let min_x = content.left() + space::s2();
+        // Popover width: `width/dialog-m`, or the window minus a dialog padding on both sides.
+        let width =
+            (content.width() - space::s5() * 2.0).clamp(1.0, neoflash_ui::metrics::dialog_m());
+        let max_x = (content.right() - width - space::s2()).max(min_x);
         let x = state
             .trigger_rect
             .map(|rect| rect.left())
-            .unwrap_or(content.left() + space::S5)
+            .unwrap_or(content.left() + space::s5())
             .clamp(min_x, max_x);
         let pos = Pos2::new(
             x,
-            content.top() + neoflash_ui::metrics::top_bar() + space::S1,
+            content.top() + neoflash_ui::metrics::top_bar() + space::s1(),
         );
-        let width = (content.width() - space::S5 * 2.0).clamp(1.0, 560.0);
         let mut activated = None;
         let mut open_manual = false;
         let mut search_edit_id = None;
@@ -257,7 +260,7 @@ impl Editor {
                     if search.changed() {
                         state.active = 0;
                     }
-                    ui.add_space(space::S1);
+                    ui.add_space(space::s1());
 
                     let results = results_for_editor(self, Some(ctx), &state.query);
                     let visible = results.len().min(MAX_VISIBLE_RESULTS);
@@ -270,19 +273,19 @@ impl Editor {
                     c::menu_section(ui, "Menu Items");
                     egui::ScrollArea::vertical()
                         .id_salt("nf2-function-search-results")
-                        .max_height(RESULTS_MAX_HEIGHT)
+                        .max_height(RESULTS_VISIBLE_ROWS * neoflash_ui::metrics::row())
                         .auto_shrink([false, true])
                         .show(ui, |ui| {
                             results_id = Some(ui.unique_id());
                             ui.set_width(ui.available_width());
                             ui.spacing_mut().item_spacing.y = 0.0;
                             if visible == 0 {
-                                ui.add_space(space::S2);
+                                ui.add_space(space::s2());
                                 ui.label(
                                     rich("No matching functions", TextStyle::Body)
                                         .color(neoflash_ui::palette(ctx).text_secondary),
                                 );
-                                ui.add_space(space::S2);
+                                ui.add_space(space::s2());
                             }
                             for (index, command) in results.into_iter().take(visible).enumerate() {
                                 let label = command.menu_path().replace(" ▸ ", " > ");
@@ -307,19 +310,19 @@ impl Editor {
 
                     c::menu_separator(ui);
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S1;
+                        ui.spacing_mut().item_spacing.x = space::s1();
                         c::kbd(ui, "↑↓", false);
                         ui.label(
                             rich("move", TextStyle::Small)
                                 .color(neoflash_ui::palette(ctx).text_secondary),
                         );
-                        ui.add_space(space::S2);
+                        ui.add_space(space::s2());
                         c::kbd(ui, "↵", false);
                         ui.label(
                             rich("run", TextStyle::Small)
                                 .color(neoflash_ui::palette(ctx).text_secondary),
                         );
-                        ui.add_space(space::S2);
+                        ui.add_space(space::s2());
                         c::kbd(ui, "Esc", false);
                         ui.label(
                             rich("close", TextStyle::Small)
@@ -497,11 +500,11 @@ mod tests {
         };
         let active = bounds(&active_label).expect("active command row");
         let visible_results_bottom = neoflash_ui::metrics::top_bar()
-            + space::S1
+            + space::s1()
             + neoflash_ui::metrics::control()
             + neoflash_ui::metrics::menu_section()
-            + RESULTS_MAX_HEIGHT
-            + 2.0 * space::S5;
+            + RESULTS_VISIBLE_ROWS * neoflash_ui::metrics::row()
+            + 2.0 * space::s5();
         assert!(
             active.y1 <= f64::from(visible_results_bottom),
             "active keyboard result must remain inside the results viewport"

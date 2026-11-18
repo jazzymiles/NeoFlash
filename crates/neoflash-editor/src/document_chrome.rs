@@ -55,7 +55,7 @@ impl Editor {
             .frame(
                 egui::Frame::new()
                     .fill(p.bg_app)
-                    .inner_margin(egui::Margin::symmetric(space::S3 as i8, 0)),
+                    .inner_margin(egui::Margin::symmetric(space::s3() as i8, 0)),
             )
             .show(ctx, |ui| {
                 let bar = ui.max_rect();
@@ -88,8 +88,9 @@ impl Editor {
             egui::vec2(width, nf::headers::document_tab_height()),
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
-                ui.spacing_mut().item_spacing.x = space::S1;
-                let max_tabs_width = (width - neoflash_ui::metrics::control() - space::S1).max(0.);
+                ui.spacing_mut().item_spacing.x = space::s1();
+                let max_tabs_width =
+                    (width - neoflash_ui::metrics::control() - space::s1()).max(0.);
                 let tabs = self.document_tabs();
                 egui::ScrollArea::horizontal()
                     .id_salt("document-strip")
@@ -98,7 +99,7 @@ impl Editor {
                     .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
                     .show(ui, |ui| {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            ui.spacing_mut().item_spacing.x = space::S1;
+                            ui.spacing_mut().item_spacing.x = space::s1();
                             for (index, tab) in tabs.iter().enumerate() {
                                 ui.push_id(index, |ui| {
                                     let mut widget = nf::DocumentTab::new(&tab.name)
@@ -124,7 +125,9 @@ impl Editor {
                         });
                     });
                 let list = ui.add(nf::IconButton::new(i16::CHEVDOWN, "Open documents"));
-                nf::popup_below(&list, 280., |ui| self.document_list(ui, &ctx));
+                nf::popup_below(&list, neoflash_ui::metrics::menu_width(), |ui| {
+                    self.document_list(ui, &ctx)
+                });
             },
         );
         if let Some(index) = close {

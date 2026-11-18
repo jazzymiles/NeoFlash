@@ -31,7 +31,7 @@ pub fn paint_frame_scale(
             ))
         });
         painter.galley(
-            egui::pos2(x + space::S1, rect.center().y - g.size().y / 2.0),
+            egui::pos2(x + space::s1(), rect.center().y - g.size().y / 2.0),
             g,
             p.text_tertiary,
         );
@@ -59,7 +59,7 @@ pub fn paint_curve_lane(
         Stroke::new(1.0_f32, p.border_subtle),
     );
     let frames = frames.max(2) as f32;
-    let inner = rect.shrink2(egui::vec2(space::S3, space::S3));
+    let inner = rect.shrink2(egui::vec2(space::s3(), space::s3()));
     let pos = |k: LaneKey| {
         egui::pos2(
             inner.left() + k.frame / (frames - 1.0) * inner.width(),

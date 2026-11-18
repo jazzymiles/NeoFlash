@@ -7,6 +7,9 @@ use crate::theme::{cr, palette};
 use crate::tokens::{TextStyle, radius, space};
 use eframe::egui::{self, Rect, Response, Sense, Ui, Widget};
 
+/// Side of the disclosure chevron (the 12 px master).
+const CHEVRON: f32 = 12.0;
+
 /// `Type` of `NF2/Tree Item`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TreeItemType {
@@ -16,7 +19,8 @@ pub enum TreeItemType {
     Symbol(Icon),
 }
 
-/// `NF2/Tree Item` — 32 px row (Figma 288×32), chevron for folders, 16 px type icon, label, optional trailing meta.
+/// `NF3/Tree Row` — `row()` high, `LAYER_INDENT` per level, 12 px chevron for folders, 16 px type
+/// icon, label, optional trailing meta.
 pub struct TreeItem<'a> {
     label: &'a str,
     kind: TreeItemType,
@@ -66,20 +70,22 @@ impl<'a> TreeItem<'a> {
     pub fn show(self, ui: &mut Ui) -> TreeItemResponse {
         let p = palette(ui.ctx());
         let (rect, row) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), crate::metrics::control()),
+            egui::vec2(ui.available_width(), crate::metrics::row()),
             Sense::click_and_drag(),
         );
         let s = State::of(ui, &row);
         if self.selected {
             ui.painter()
-                .rect_filled(rect, cr(radius::MD), p.bg_selected);
+                .rect_filled(rect, cr(radius::md()), p.bg_selected);
         } else if s.hovered {
-            ui.painter().rect_filled(rect, cr(radius::MD), p.bg_hover);
+            ui.painter().rect_filled(rect, cr(radius::md()), p.bg_hover);
         }
-        let mut x = rect.left() + space::S2 + self.depth as f32 * LAYER_INDENT;
+        let mut x = rect.left() + space::s2() + self.depth as f32 * LAYER_INDENT;
         let mut toggle = false;
-        let chev_rect =
-            Rect::from_center_size(egui::pos2(x + 8.0, rect.center().y), egui::vec2(16.0, 16.0));
+        let chev_rect = Rect::from_center_size(
+            egui::pos2(x + CHEVRON / 2.0, rect.center().y),
+            egui::vec2(CHEVRON, CHEVRON),
+        );
         let icon = match self.kind {
             TreeItemType::FolderOpen | TreeItemType::FolderClosed => {
                 let open = matches!(self.kind, TreeItemType::FolderOpen);
@@ -94,19 +100,20 @@ impl<'a> TreeItem<'a> {
                             (open && i.key_pressed(egui::Key::ArrowLeft))
                                 || (!open && i.key_pressed(egui::Key::ArrowRight))
                         }));
-                icons::paint(
+                icons::paint_sized(
                     ui.painter(),
                     ui.ctx(),
                     chev_rect,
                     if open { i16::CHEVDOWN } else { i16::CHEVRIGHT },
-                    p.text_secondary,
+                    CHEVRON,
+                    p.text_tertiary,
                 );
                 self.icon
                     .unwrap_or(if open { i16::FOLDEROPEN } else { i16::FOLDER })
             }
             TreeItemType::Symbol(icon) => icon,
         };
-        x += 16.0 + space::S1;
+        x += CHEVRON + space::s1();
         let ic = if self.selected {
             p.accent_default
         } else {
@@ -119,7 +126,7 @@ impl<'a> TreeItem<'a> {
             icon,
             ic,
         );
-        x += 16.0 + space::S2;
+        x += 16.0 + space::s2();
         let fg = if !s.enabled {
             p.text_disabled
         } else if self.selected {
@@ -127,12 +134,12 @@ impl<'a> TreeItem<'a> {
         } else {
             p.text_secondary
         };
-        let mut right = rect.right() - space::S2;
+        let mut right = rect.right() - space::s3();
         if !self.meta.is_empty() {
             let g = galley(ui, self.meta, TextStyle::Small, p.text_tertiary);
             right -= g.size().x;
             text_at(ui, right, rect, g, p.text_tertiary);
-            right -= space::S2;
+            right -= space::s2();
         }
         let clip = Rect::from_min_max(egui::pos2(x, rect.top()), egui::pos2(right, rect.bottom()));
         let g = galley(ui, self.label, TextStyle::Body, fg);
@@ -141,7 +148,7 @@ impl<'a> TreeItem<'a> {
             g,
             fg,
         );
-        super::focus(ui, s, rect, radius::MD);
+        super::focus(ui, s, rect, radius::md());
         a11y(
             &row,
             egui::WidgetType::SelectableLabel,
@@ -162,7 +169,7 @@ pub enum TableRowKind {
     Selected,
 }
 
-/// `NF2/Table Row` — 28 px, two or more columns at fixed fractions of the width.
+/// `NF2/Table Row` — `row()` high, two or more columns at fixed fractions of the width.
 pub struct TableRow<'a> {
     pub cells: &'a [&'a str],
     pub kind: TableRowKind,
@@ -210,10 +217,13 @@ impl Widget for TableRow<'_> {
                 (_, 0) => p.text_primary,
                 _ => p.text_secondary,
             };
-            let x0 = rect.left() + rect.width() * start + space::S3;
+            let x0 = rect.left() + rect.width() * start + space::s3();
             let clip = Rect::from_min_max(
                 egui::pos2(x0, rect.top()),
-                egui::pos2(rect.left() + rect.width() * end - space::S1, rect.bottom()),
+                egui::pos2(
+                    rect.left() + rect.width() * end - space::s1(),
+                    rect.bottom(),
+                ),
             );
             let g = galley(ui, cell, style, fg);
             ui.painter().with_clip_rect(clip).galley(

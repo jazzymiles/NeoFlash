@@ -136,7 +136,7 @@ fn cached_output_lines(
 
 /// Nominal height of a single-line `NF2/LogLine` row (`Mono` line height + `S1` vertical padding).
 pub fn output_row_height() -> f32 {
-    TextStyle::Mono.spec().line_height + space::S1
+    TextStyle::Mono.spec().line_height + space::s1()
 }
 
 /// Compute the visible Output row index range (`start..end`) inside `clip_top..=clip_bottom`
@@ -260,10 +260,10 @@ impl Editor {
         let mut clear_clicked = false;
         let mut visible_cache: Option<Arc<CachedOutputLines>> = None;
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = space::S2;
+            ui.spacing_mut().item_spacing.x = space::s2();
             let search = (ui.available_width()
-                - 2. * (neoflash_ui::metrics::control() + space::S2))
-                .max(80.);
+                - 2. * (neoflash_ui::metrics::control() + space::s2()))
+            .max(neoflash_ui::metrics::field_s());
             let search_resp = ui.add(nf::Search::new(&mut filter, "Filter output").width(search));
             if search_resp.changed() {
                 ui.ctx().request_repaint();
@@ -292,7 +292,7 @@ impl Editor {
             self.clear_output(Some(&ctx));
         }
         ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
-        ui.add_space(space::S2);
+        ui.add_space(space::s2());
         if self.output.is_empty() {
             ui.ctx().data_mut(|d| {
                 d.insert_temp(
@@ -318,8 +318,8 @@ impl Editor {
         let mut clicked_location = None;
         egui::Frame::new()
             .fill(p.bg_field)
-            .corner_radius(radius::MD)
-            .inner_margin(egui::Margin::same(space::S2 as i8))
+            .corner_radius(radius::md())
+            .inner_margin(egui::Margin::same(space::s2() as i8))
             .show(ui, |ui| {
                 ui.set_min_size(ui.available_size());
                 egui::ScrollArea::vertical()

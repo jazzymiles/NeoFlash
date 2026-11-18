@@ -1,12 +1,20 @@
-//! Preferences dialog (NF2 `Dialog / Preferences`, DL-01 / W3.6; references `dialog-preferences-*.png`),
+//! Preferences dialog (`Dialog / Preferences`, DL-01 / W3.6; v3 composition `S.preferences`),
 //! opened by Edit ▸ Preferences… (⌘U) and, on the Shortcuts page, Edit ▸ Keyboard shortcuts… (⌥⇧⌘K).
+//!
+//! One size for every category (`dialog_l()` × `dialog_l_height()` of the density): a category
+//! sidebar, one scrolling page on the form grid (label column + controls at their natural width)
+//! and a one-row footer. Options are checkboxes; only Autosave is a switch.
 //!
 //! Values are editor preferences (`WorkspacePrefs`), never document data. Edits live on a draft:
 //! the theme previews live while the dialog is open; `Save` / `Enter` applies and persists the draft,
 //! `Cancel` / `Esc` / ✕ restores the previous theme and discards it; `Reset to defaults` resets the
 //! current page. Controls whose engine or NF2 design role is not yet defined stay disabled (see
 //! `docs/NF2-WIRING-PLAN.md` W3.6/W3.7 and `docs/NF2-REQUESTS.md`).
-use super::planned::{FooterClick, body_text, caption, footer_clicked, form_label, select, switch};
+use super::dialog_helpers::{
+    DialogShell, PageArea, fixed_dialog_size, form_block, form_hint, form_row as row,
+    group_caption as section, nav_row,
+};
+use super::planned::{body_text, caption, select};
 use crate::app::Editor;
 use crate::build_info::BuildIdentity;
 use crate::theme::{ScrollTheme as _, ThemeMode};
@@ -22,14 +30,9 @@ use eframe::egui::{self, Color32, Ui};
 use neoflash_export::AudioExportPolicy;
 use neoflash_ui::components as c;
 use neoflash_ui::icons::{self, i16};
+use neoflash_ui::metrics;
 use neoflash_ui::tokens::{TextStyle, radius, space};
 use neoflash_ui::typography::rich;
-
-const LABEL: f32 = 120.0;
-/// Dialog width of the reference (`dialog-preferences-*.png`).
-/// Narrower Preferences composition (R-055): 720 pt dialog, 160 pt category list, 120 pt labels.
-const WIDTH: f32 = 720.0;
-const SIDEBAR: f32 = 160.0;
 
 pub(crate) const PREFERENCE_PAGES: [&str; 10] = [
     "General",
@@ -223,19 +226,6 @@ impl PreferencesDraft {
     }
 }
 
-fn section(ui: &mut Ui, s: &str) {
-    let nf = neoflash_ui::palette(ui.ctx());
-    ui.add_space(space::S2);
-    ui.label(rich(s, TextStyle::BodyStrong).color(nf.text_primary));
-}
-
-fn row(ui: &mut Ui, label: &str, content: impl FnOnce(&mut Ui)) {
-    ui.horizontal(|ui| {
-        form_label(ui, label, LABEL);
-        content(ui);
-    });
-}
-
 fn disabled(ui: &mut Ui, content: impl FnOnce(&mut Ui)) {
     ui.scope(|ui| {
         ui.disable();
@@ -243,8 +233,15 @@ fn disabled(ui: &mut Ui, content: impl FnOnce(&mut Ui)) {
     });
 }
 
-fn bound_switch(ui: &mut Ui, value: &mut bool, label: &str) {
-    ui.add(c::Switch::new(value, label));
+/// On/off option of a page: a checkbox bound to the draft.
+fn option(ui: &mut Ui, value: &mut bool, label: &str) {
+    ui.add(c::Checkbox::new(value, label));
+}
+
+/// Checkbox of an option that is not wired yet; call inside [`disabled`].
+fn fixed_option(ui: &mut Ui, on: bool, label: &str) {
+    let mut value = on;
+    ui.add(c::Checkbox::new(&mut value, label));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -361,72 +358,64 @@ impl Editor {
         let mut close_cancel = false;
         let mut close_save = false;
         let modal_id = egui::Id::new("preferences");
+        // v3: one size for every category; pages scroll inside it and the footer never moves.
+        let size = fixed_dialog_size(ctx, metrics::dialog_l(), metrics::dialog_l_height());
         let modal = egui::Modal::new(modal_id)
             .area(
                 egui::Modal::default_area(modal_id)
-                    .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, space::S5)),
+                    .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, space::s5())),
             )
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
-                ui.set_width(WIDTH);
-                let top = ui.cursor().min;
-                close_cancel |= c::DialogHeader {
-                    title: "Preferences",
-                }
-                .show(ui);
-                ui.painter().hline(
-                    top.x..=top.x + WIDTH,
-                    top.y + neoflash_ui::metrics::dialog_header() - 0.5,
-                    egui::Stroke::new(1.0_f32, p.border_subtle),
-                );
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S5 as i8))
-                    .show(ui, |ui| {
-                        ui.set_width(WIDTH - 2.0 * space::S5);
-                        ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
-                        let footer_height = neoflash_ui::metrics::control() + 2.0 * space::S2;
-                        let body_height = (ctx.content_rect().height()
-                            - 2.0 * space::S5
-                            - neoflash_ui::metrics::dialog_header()
-                            - 2.0 * space::S5
-                            - footer_height)
-                            .max(neoflash_ui::metrics::control());
-                        egui::ScrollArea::vertical()
-                            .id_salt("preferences-body")
-                            .max_height(body_height)
-                            .scroll_bar_visibility(
-                                egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded,
-                            )
-                            .auto_shrink([false, true])
-                            .themed()
-                            .show(ui, |ui| {
-                                body(
-                                    ui,
-                                    &mut draft,
-                                    &mut self.updater,
-                                    &mut self.ai_manager,
-                                    &mut self.ai_connection_modal,
-                                    installed_ext_count,
-                                )
-                            });
-                        match footer_clicked(
-                            ui,
-                            "",
-                            Some(("Reset to defaults", draft.page_has_settings())),
-                            &["Cancel", "Save"],
-                        ) {
-                            Some(FooterClick::Ghost) => {
-                                draft.reset_page();
-                                if draft.page == PAGE_SHORTCUTS {
-                                    cancel_shortcut_recording(ctx);
-                                }
-                            }
-                            Some(FooterClick::Button(0)) => close_cancel = true,
-                            Some(FooterClick::Button(_)) => close_save = true,
-                            None => {}
+                let shell = DialogShell::show(ui, "Preferences", size, metrics::sidebar());
+                close_cancel |= shell.close;
+                shell.sidebar(ui, |ui| {
+                    for (i, (name, icon)) in PREFERENCE_PAGES.iter().zip(PAGE_ICONS).enumerate() {
+                        if nav_row(ui, icon, name, draft.page == i, None).clicked() {
+                            draft.page = i;
                         }
-                    });
+                    }
+                });
+                shell.page(ui, "preferences-body", |ui, area| match draft.page {
+                    PAGE_GENERAL => prefs_general(ui, &mut draft),
+                    PAGE_CODE_EDITOR => prefs_code_editor(ui, &mut draft),
+                    PAGE_TIMELINE => prefs_timeline(ui, &mut draft),
+                    PAGE_DRAWING => prefs_drawing(ui, &mut draft),
+                    PAGE_TEXT => prefs_text(ui, &mut draft),
+                    PAGE_CLIPBOARD => prefs_clipboard(ui, &mut draft),
+                    PAGE_SHORTCUTS => prefs_shortcuts(ui, area, &mut draft),
+                    PAGE_PUBLISH => prefs_publish(ui, &mut draft),
+                    PAGE_AI => prefs_ai(
+                        ui,
+                        area,
+                        &mut draft,
+                        &mut self.ai_manager,
+                        &mut self.ai_connection_modal,
+                    ),
+                    _ => prefs_updates(ui, &mut draft, &mut self.updater, installed_ext_count),
+                });
+                shell.footer(
+                    ui,
+                    |ui| {
+                        if ui
+                            .add_enabled(
+                                draft.page_has_settings(),
+                                c::Button::ghost("Reset to defaults"),
+                            )
+                            .clicked()
+                        {
+                            draft.reset_page();
+                            if draft.page == PAGE_SHORTCUTS {
+                                cancel_shortcut_recording(ctx);
+                            }
+                        }
+                    },
+                    |ui| {
+                        close_save |= ui.add(c::Button::primary("Save")).clicked();
+                        close_cancel |= ui.add(c::Button::new("Cancel")).clicked();
+                    },
+                );
             });
         if !close_cancel && !close_save && !was_recording && self.ai_connection_modal.is_none() {
             match kb.resolve(ctx, &modal, true) {
@@ -457,75 +446,39 @@ impl Editor {
     }
 }
 
-/// Category list + the selected page.
-fn body(
-    ui: &mut Ui,
-    draft: &mut PreferencesDraft,
-    updater: &mut UpdaterController,
-    ai_manager: &mut crate::ai_connections::AiConnectionManager,
-    ai_connection_modal: &mut Option<super::ai_dialogs::AiConnectionModal>,
-    installed_ext_count: usize,
-) {
-    ui.horizontal_top(|ui| {
-        ui.allocate_ui_with_layout(
-            egui::vec2(SIDEBAR, 0.0),
-            egui::Layout::top_down(egui::Align::Min),
-            |ui| {
-                ui.set_width(SIDEBAR);
-                ui.spacing_mut().item_spacing.y = 2.0;
-                let icons = [
-                    i16::SETTINGS,
-                    i16::CODE,
-                    i16::FILM,
-                    i16::PEN,
-                    i16::TEXT,
-                    i16::PASTE,
-                    i16::KEYBOARD,
-                    i16::PUBLISH,
-                    i16::WAND,
-                    i16::RECENT,
-                ];
-                for (i, (name, icon)) in PREFERENCE_PAGES.iter().zip(icons).enumerate() {
-                    if c::TreeItem::new(name, c::TreeItemType::Symbol(icon))
-                        .selected(draft.page == i)
-                        .show(ui)
-                        .row
-                        .clicked()
-                    {
-                        draft.page = i;
-                    }
-                }
-            },
-        );
-        ui.add_space(space::S5);
-        ui.vertical(|ui| match draft.page {
-            0 => prefs_general(ui, draft),
-            1 => prefs_code_editor(ui, draft),
-            2 => prefs_timeline(ui, draft),
-            3 => prefs_drawing(ui, draft),
-            4 => prefs_text(ui, draft),
-            5 => prefs_clipboard(ui, draft),
-            6 => prefs_shortcuts(ui, draft),
-            7 => prefs_publish(ui, draft),
-            8 => prefs_ai(ui, draft, ai_manager, ai_connection_modal),
-            _ => prefs_updates(ui, draft, updater, installed_ext_count),
-        });
-    });
-}
+/// Sidebar icons, in the order of [`PREFERENCE_PAGES`].
+const PAGE_ICONS: [neoflash_ui::Icon; 10] = [
+    i16::SETTINGS,
+    i16::CODE,
+    i16::FILM,
+    i16::PEN,
+    i16::TEXT,
+    i16::PASTE,
+    i16::KEYBOARD,
+    i16::PUBLISH,
+    i16::WAND,
+    i16::RECENT,
+];
 
 fn prefs_general(ui: &mut Ui, draft: &mut PreferencesDraft) {
     let nf = neoflash_ui::palette(ui.ctx());
-    disabled(ui, |ui| section(ui, "Interface"));
+    section(ui, "Interface");
     row(ui, "Theme", |ui| {
         c::Select::options(
             ui,
             "prefs-theme",
             &mut draft.theme,
             &ThemeMode::ALL.map(|theme| (theme, theme.label())),
-            220.0,
+            metrics::field_m(),
         );
-        // Follow system has no control in the design (caption only): NF2-REQUESTS R-012.
-        disabled(ui, |ui| caption(ui, "or follow system"));
+        // Following the system theme is not wired yet (NF2-REQUESTS R-012).
+        disabled(ui, |ui| {
+            let mut follow = false;
+            c::not_available(
+                ui.add(c::Checkbox::new(&mut follow, "Follow system")),
+                "Follow the system theme",
+            );
+        });
     });
     row(ui, "Density", |ui| {
         c::Segmented::show(
@@ -541,7 +494,7 @@ fn prefs_general(ui: &mut Ui, draft: &mut PreferencesDraft) {
             "prefs-ui-scale",
             &mut draft.ui_scale,
             &WorkspacePrefs::UI_SCALES,
-            140.0,
+            metrics::field_s(),
         );
     });
     disabled(ui, |ui| {
@@ -562,16 +515,18 @@ fn prefs_general(ui: &mut Ui, draft: &mut PreferencesDraft) {
                 });
             }
         });
-        row(ui, "Language", |ui| select(ui, "English", 200.0));
-        section(ui, "Workspace");
+        row(ui, "Language", |ui| {
+            select(ui, "English", metrics::field_m())
+        });
     });
+    section(ui, "Workspace");
     row(ui, "On launch", |ui| {
         c::Select::options(
             ui,
             "prefs-on-launch",
             &mut draft.general.on_launch,
             &crate::workspace::OnLaunch::OPTIONS,
-            260.0,
+            metrics::field_l(),
         );
     });
     row(ui, "Undo levels", |ui| {
@@ -580,58 +535,55 @@ fn prefs_general(ui: &mut Ui, draft: &mut PreferencesDraft) {
             ui,
             &mut draft.undo_levels,
             "Undo levels",
-            "Steps",
+            "",
             *range.start() as f64..=*range.end() as f64,
-            140.0,
+            metrics::field_s(),
         );
     });
     row(ui, "Autosave", |ui| {
-        bound_switch(ui, &mut draft.general.autosave, "Every");
+        // Autosave applies at once, so it is the one switch of the dialog.
+        ui.add(c::Switch::new(&mut draft.general.autosave, "Every"));
         let mut minutes = f64::from(draft.general.autosave_minutes);
         ui.add_enabled(
             draft.general.autosave,
             c::Field::new(&mut minutes, "Autosave minutes")
-                .prefix("Min")
+                .unit("min")
                 .decimals(0)
                 .range(1.0..=120.0)
                 .stepper()
-                .width(100.0),
+                .width(metrics::field_s()),
         );
         draft.general.autosave_minutes = minutes.round().clamp(1.0, 120.0) as u32;
     });
     row(ui, "Tooltips", |ui| {
-        bound_switch(
+        option(
             ui,
             &mut draft.general.tooltip_shortcuts,
             "Show tooltips with shortcuts",
         )
     });
-    disabled(ui, |ui| {
-        section(ui, "Selection");
-    });
+    section(ui, "Selection");
     row(ui, "Shift-select", |ui| {
-        bound_switch(
+        option(
             ui,
             &mut draft.shift_select,
             "Add with Shift (otherwise click adds)",
         )
     });
     disabled(ui, |ui| {
-        row(ui, "Highlight", |ui| select(ui, "Layer colour", 200.0))
+        row(ui, "Highlight", |ui| {
+            select(ui, "Layer colour", metrics::field_m())
+        })
     });
 }
 
 fn prefs_code_editor(ui: &mut Ui, draft: &mut PreferencesDraft) {
     const BUNDLED_MONO: &str = "Roboto Mono";
-    const TAB_SIZES: [(u8, &str); 3] = [
-        (2, "Tab: 2 spaces"),
-        (4, "Tab: 4 spaces"),
-        (8, "Tab: 8 spaces"),
-    ];
+    const TAB_SIZES: [(u8, &str); 3] = [(2, "2 spaces"), (4, "4 spaces"), (8, "8 spaces")];
 
     let nf = neoflash_ui::palette(ui.ctx());
     section(ui, "Font");
-    ui.horizontal(|ui| {
+    row(ui, "Font", |ui| {
         let is_bundled = draft.code_editor.font.trim().is_empty()
             || draft
                 .code_editor
@@ -644,7 +596,7 @@ fn prefs_code_editor(ui: &mut Ui, draft: &mut PreferencesDraft) {
             draft.code_editor.font.clone()
         };
         c::Select::new("prefs-code-font", &current_font)
-            .width(220.0)
+            .width(metrics::field_l())
             .show(ui, |ui| {
                 egui::ScrollArea::vertical()
                     .id_salt("prefs-code-font-list")
@@ -674,27 +626,27 @@ fn prefs_code_editor(ui: &mut Ui, draft: &mut PreferencesDraft) {
             .add(
                 c::Field::new(&mut font_size, "Font size")
                     .prefix("Size")
-                    .unit("px")
                     .decimals(0)
                     .range(8.0..=32.0)
                     .step(1.0)
                     .stepper()
-                    .width(120.0),
+                    .width(metrics::field_s()),
             )
             .changed()
         {
             draft.code_editor.font_size = font_size.clamp(8.0, 32.0) as f32;
         }
+    });
+    row(ui, "Line height", |ui| {
         let mut line_height = f64::from(draft.code_editor.line_height);
         if ui
             .add(
                 c::Field::new(&mut line_height, "Line height")
-                    .prefix("Line")
                     .decimals(1)
                     .range(1.0..=3.0)
                     .step(0.1)
                     .stepper()
-                    .width(110.0),
+                    .width(metrics::field_s()),
             )
             .changed()
         {
@@ -702,24 +654,32 @@ fn prefs_code_editor(ui: &mut Ui, draft: &mut PreferencesDraft) {
         }
     });
     section(ui, "Editing");
-    ui.horizontal(|ui| {
-        bound_switch(ui, &mut draft.code_editor.line_numbers, "Line numbers");
-        bound_switch(ui, &mut draft.code_editor.word_wrap, "Word wrap");
-        bound_switch(
+    row(ui, "Display", |ui| {
+        option(ui, &mut draft.code_editor.line_numbers, "Line numbers");
+        option(ui, &mut draft.code_editor.word_wrap, "Word wrap");
+        option(
+            ui,
+            &mut draft.code_editor.highlight_current_line,
+            "Highlight current line",
+        );
+    });
+    row(ui, "Typing", |ui| {
+        option(
             ui,
             &mut draft.code_editor.auto_close_brackets,
             "Auto-close brackets",
         );
+        option(ui, &mut draft.code_editor.format_on_save, "Format on save");
     });
-    ui.horizontal(|ui| {
-        bound_switch(ui, &mut draft.code_editor.code_hints, "Code hints");
+    row(ui, "Hints", |ui| {
+        option(ui, &mut draft.code_editor.code_hints, "Code hints");
         caption(ui, "Delay");
         let mut delay = f64::from(draft.code_editor.hint_delay_ms);
         if ui
             .add(
                 c::Slider::new(&mut delay, 0.0..=1000.0, "Code hint delay")
                     .step(10.0)
-                    .width(160.0),
+                    .width(metrics::field_m()),
             )
             .changed()
         {
@@ -727,14 +687,15 @@ fn prefs_code_editor(ui: &mut Ui, draft: &mut PreferencesDraft) {
         }
         caption(ui, &format!("{} ms", draft.code_editor.hint_delay_ms));
     });
-    ui.horizontal(|ui| {
+    row(ui, "Indentation", |ui| {
         let tab_label = TAB_SIZES
             .iter()
             .find(|(n, _)| *n == draft.code_editor.tab_size)
             .map(|(_, label)| (*label).to_owned())
-            .unwrap_or_else(|| format!("Tab: {} spaces", draft.code_editor.tab_size));
+            .unwrap_or_else(|| format!("{} spaces", draft.code_editor.tab_size));
         c::Select::new("prefs-code-tab-size", &tab_label)
-            .width(180.0)
+            .prefix("Tab")
+            .width(metrics::field_m())
             .show(ui, |ui| {
                 for (size, label) in TAB_SIZES {
                     if ui
@@ -746,35 +707,36 @@ fn prefs_code_editor(ui: &mut Ui, draft: &mut PreferencesDraft) {
                     }
                 }
             });
-        bound_switch(ui, &mut draft.code_editor.format_on_save, "Format on save");
-        bound_switch(
-            ui,
-            &mut draft.code_editor.highlight_current_line,
-            "Highlight current line",
-        );
     });
     section(ui, "Colour scheme");
-    ui.horizontal(|ui| {
+    row(ui, "Scheme", |ui| {
         disabled(ui, |ui| {
-            select(ui, "Scheme: NF2 Night", 200.0);
+            select(ui, "Scheme: NF2 Night", metrics::field_m());
             let _ = ui.add(c::Button::ghost("Duplicate"));
             let _ = ui.add(c::Button::ghost("Import…"));
         });
+    });
+    row(ui, "Syntax colours", |ui| {
         if ui.add(c::Button::ghost("Reset colours")).clicked() {
             draft.code_editor.syntax_colors.clear();
         }
     });
-    // Three columns fit the narrower 720 pt dialog (R-055).
+    // Three columns share the page width; a cell is swatch · name · hex.
+    let column_gap = space::s3();
+    let column = ((ui.available_width() - 2.0 * column_gap) / 3.0).floor();
     egui::Grid::new("prefs-syntax")
         .num_columns(3)
-        .spacing(egui::vec2(space::S3, space::S1))
+        .min_col_width(column)
+        .max_col_width(column)
+        .spacing(egui::vec2(column_gap, space::s1()))
         .show(ui, |ui| {
             for (i, slot) in crate::sources::SyntaxColorSlot::ALL.into_iter().enumerate() {
                 ui.push_id(slot, |ui| {
                     ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = space::s2();
                         let default_color = slot.default_color(nf);
                         let color = draft.code_editor.syntax_colors.effective_color(slot, nf);
-                        let swatch_resp = c::swatch(ui, color, 18.0);
+                        let swatch_resp = c::swatch(ui, color, metrics::swatch());
                         let a11y_label = format!("{} colour", slot.label());
                         let enabled = swatch_resp.enabled();
                         swatch_resp.widget_info(|| {
@@ -787,8 +749,30 @@ fn prefs_code_editor(ui: &mut Ui, draft: &mut PreferencesDraft) {
                         let swatch_resp =
                             swatch_resp.on_hover_cursor(egui::CursorIcon::PointingHand);
                         let swatch_resp = c::tooltip(swatch_resp, &a11y_label, None);
-                        form_label(ui, slot.label(), 76.0);
                         let [r, g, b, _] = color.to_srgba_unmultiplied();
+                        let hex = format!("{r:02X}{g:02X}{b:02X}");
+                        let hex_width = ui.fonts_mut(|f| {
+                            f.layout_no_wrap(
+                                hex.clone(),
+                                neoflash_ui::typography::font(TextStyle::MonoSmall),
+                                Color32::WHITE,
+                            )
+                            .size()
+                            .x
+                        });
+                        let name_width =
+                            (column - metrics::swatch() - hex_width - 2.0 * space::s2()).max(0.0);
+                        let (name_rect, _) = ui.allocate_exact_size(
+                            egui::vec2(name_width, metrics::toggle_row()),
+                            egui::Sense::hover(),
+                        );
+                        ui.painter().with_clip_rect(name_rect).text(
+                            name_rect.left_center(),
+                            egui::Align2::LEFT_CENTER,
+                            slot.label(),
+                            neoflash_ui::typography::font(TextStyle::Body),
+                            nf.text_secondary,
+                        );
                         let hex_fg = if draft.code_editor.syntax_colors.get(slot).is_some() {
                             nf.text_primary
                         } else {
@@ -796,11 +780,8 @@ fn prefs_code_editor(ui: &mut Ui, draft: &mut PreferencesDraft) {
                         };
                         let hex_resp = ui
                             .add(
-                                egui::Label::new(
-                                    rich(format!("{r:02X}{g:02X}{b:02X}"), TextStyle::MonoSmall)
-                                        .color(hex_fg),
-                                )
-                                .sense(egui::Sense::click()),
+                                egui::Label::new(rich(hex, TextStyle::MonoSmall).color(hex_fg))
+                                    .sense(egui::Sense::click()),
                             )
                             .on_hover_cursor(egui::CursorIcon::PointingHand);
                         super::dialog_helpers::track_rgba_popup(ui.ctx(), swatch_resp.id);
@@ -819,9 +800,15 @@ fn prefs_code_editor(ui: &mut Ui, draft: &mut PreferencesDraft) {
                 }
             }
         });
-    caption(
-        ui,
-        "Red is reserved for errors by default. Click any swatch to customise; Reset colours restores theme defaults.",
+    ui.add(
+        egui::Label::new(
+            rich(
+                "Red is reserved for errors by default. Click any swatch to customise; Reset colours restores theme defaults.",
+                TextStyle::Small,
+            )
+            .color(nf.text_tertiary),
+        )
+        .wrap(),
     );
     let syn = draft.code_editor.syntax_colors.resolve_palette(nf);
     let preview_font = crate::sources::code_font_id(ui.ctx(), &draft.code_editor);
@@ -835,9 +822,12 @@ fn prefs_code_editor(ui: &mut Ui, draft: &mut PreferencesDraft) {
     };
     egui::Frame::new()
         .fill(nf.bg_field)
-        .corner_radius(egui::CornerRadius::same(radius::MD as u8))
+        .corner_radius(egui::CornerRadius::same(radius::md() as u8))
         .stroke(egui::Stroke::new(1.0_f32, nf.border_subtle))
-        .inner_margin(egui::Margin::symmetric(space::S2 as i8, space::S2 as i8))
+        .inner_margin(egui::Margin::symmetric(
+            space::s2() as i8,
+            space::s2() as i8,
+        ))
         .show(ui, |ui| {
             let preview_width = ui.available_width();
             ui.set_width(preview_width);
@@ -916,7 +906,7 @@ fn prefs_code_editor(ui: &mut Ui, draft: &mut PreferencesDraft) {
                     }
                     if draft.code_editor.line_numbers {
                         ui.painter().text(
-                            gutter.right_center() - egui::vec2(space::S2, 0.0),
+                            gutter.right_center() - egui::vec2(space::s2(), 0.0),
                             egui::Align2::RIGHT_CENTER,
                             (n + 1).to_string(),
                             neoflash_ui::typography::font(TextStyle::MonoSmall),
@@ -1044,7 +1034,7 @@ fn show_syntax_color_popup(
                 let width = neoflash_ui::components::color_picker::COLOR_PICKER.x;
                 ui.set_min_width(width);
                 ui.set_max_width(width);
-                ui.spacing_mut().item_spacing.y = space::S2;
+                ui.spacing_mut().item_spacing.y = space::s2();
 
                 ui.horizontal(|ui| {
                     ui.label(rich(slot.label(), TextStyle::BodyStrong).color(nf.text_primary));
@@ -1106,13 +1096,13 @@ fn prefs_timeline(ui: &mut Ui, draft: &mut PreferencesDraft) {
     let nf = neoflash_ui::palette(ui.ctx());
     section(ui, "Selection & view");
     row(ui, "Selection", |ui| {
-        bound_switch(
+        option(
             ui,
             &mut draft.timeline_prefs.span_selection,
             "Span-based selection",
         )
     });
-    row(ui, "Default frame view", |ui| {
+    row(ui, "Frame view", |ui| {
         let prev_preview = draft.timeline.preview;
         c::Select::options(
             ui,
@@ -1123,7 +1113,7 @@ fn prefs_timeline(ui: &mut Ui, draft: &mut PreferencesDraft) {
                 (FramePreview::Layer, "Preview"),
                 (FramePreview::InContext, "Preview in context"),
             ],
-            160.0,
+            metrics::field_m(),
         );
         if draft.timeline.preview != prev_preview && draft.timeline.preview != FramePreview::Off {
             draft.timeline.short_rows = false;
@@ -1142,7 +1132,7 @@ fn prefs_timeline(ui: &mut Ui, draft: &mut PreferencesDraft) {
             "prefs-frame-rows",
             &mut row_mode,
             &[(0, "Row: Normal"), (1, "Row: Short"), (2, "Row: Compact")],
-            160.0,
+            metrics::field_m(),
         );
         if row_mode != prev_row_mode {
             draft.timeline.preview = FramePreview::Off;
@@ -1151,8 +1141,8 @@ fn prefs_timeline(ui: &mut Ui, draft: &mut PreferencesDraft) {
         draft.timeline.compact_rows = row_mode == 2;
     });
     row(ui, "Ruler", |ui| {
-        bound_switch(ui, &mut draft.timeline.show_seconds, "Show seconds");
-        bound_switch(
+        option(ui, &mut draft.timeline.show_seconds, "Show seconds");
+        option(
             ui,
             &mut draft.timeline.snap_playhead,
             "Snap playhead to keyframes",
@@ -1160,7 +1150,7 @@ fn prefs_timeline(ui: &mut Ui, draft: &mut PreferencesDraft) {
     });
     disabled(ui, |ui| {
         row(ui, "Scenes", |ui| {
-            switch(ui, false, "Named anchor on each scene")
+            fixed_option(ui, false, "Named anchor on each scene")
         });
     });
     section(ui, "Onion skin defaults");
@@ -1172,7 +1162,7 @@ fn prefs_timeline(ui: &mut Ui, draft: &mut PreferencesDraft) {
             "Onion frames before",
             "Before",
             0.0..=max,
-            120.0,
+            metrics::field_s(),
         );
         bound_stepper(
             ui,
@@ -1180,7 +1170,7 @@ fn prefs_timeline(ui: &mut Ui, draft: &mut PreferencesDraft) {
             "Onion frames after",
             "After",
             0.0..=max,
-            120.0,
+            metrics::field_s(),
         );
     });
     disabled(ui, |ui| {
@@ -1200,7 +1190,10 @@ fn prefs_timeline(ui: &mut Ui, draft: &mut PreferencesDraft) {
     row(ui, "Opacity falloff", |ui| {
         let mut falloff = f64::from(draft.timeline_prefs.onion_falloff);
         if ui
-            .add(c::Slider::new(&mut falloff, 15.0..=100.0, "Opacity falloff").width(200.0))
+            .add(
+                c::Slider::new(&mut falloff, 15.0..=100.0, "Opacity falloff")
+                    .width(metrics::field_m()),
+            )
             .changed()
         {
             draft.timeline_prefs.onion_falloff = falloff as f32;
@@ -1212,7 +1205,7 @@ fn prefs_timeline(ui: &mut Ui, draft: &mut PreferencesDraft) {
     });
     section(ui, "Animation");
     row(ui, "Auto keyframe", |ui| {
-        bound_switch(
+        option(
             ui,
             &mut draft.timeline_prefs.auto_keyframe,
             "Create keyframe on transform",
@@ -1224,10 +1217,10 @@ fn prefs_timeline(ui: &mut Ui, draft: &mut PreferencesDraft) {
             "prefs-default-ease",
             &mut draft.default_ease,
             &WorkspacePrefs::EASES,
-            180.0,
+            metrics::field_m(),
         );
     });
-    row(ui, "Tween type on drag", |ui| {
+    row(ui, "Tween on drag", |ui| {
         use crate::workspace::TweenOnDrag;
         c::Select::options(
             ui,
@@ -1238,7 +1231,7 @@ fn prefs_timeline(ui: &mut Ui, draft: &mut PreferencesDraft) {
                 (TweenOnDrag::Classic, "Classic tween"),
                 (TweenOnDrag::Motion, "Motion tween"),
             ],
-            180.0,
+            metrics::field_m(),
         );
     });
 }
@@ -1254,81 +1247,86 @@ fn prefs_drawing(ui: &mut Ui, draft: &mut PreferencesDraft) {
         );
     });
     section(ui, "Pen tool");
-    ui.horizontal(|ui| {
-        bound_switch(ui, &mut draft.drawing.pen_preview, "Show pen preview");
+    row(ui, "Pen", |ui| {
+        option(ui, &mut draft.drawing.pen_preview, "Show pen preview");
         let mut solid_points = false;
         ui.add_enabled(
             false,
-            c::Switch::new(&mut solid_points, "Show solid points"),
+            c::Checkbox::new(&mut solid_points, "Show solid points"),
         );
-        bound_switch(ui, &mut draft.drawing.precise_cursors, "Precise cursors");
+    });
+    row(ui, "Cursors", |ui| {
+        option(ui, &mut draft.drawing.precise_cursors, "Precise cursors");
     });
     section(ui, "Recognition");
-    row(ui, "Connect lines", |ui| {
-        c::Select::options(
-            ui,
-            "prefs-drawing-connect-lines",
-            &mut draft.drawing.connect_lines,
-            &crate::workspace::Tolerance::OPTIONS,
-            160.0,
-        );
-    });
-    row(ui, "Smooth curves", |ui| {
-        c::Select::options(
-            ui,
-            "prefs-drawing-smooth-curves",
-            &mut draft.drawing.smooth_curves,
-            &crate::workspace::Tolerance::SMOOTH_OPTIONS,
-            160.0,
-        );
-    });
-    row(ui, "Recognise lines", |ui| {
-        c::Select::options(
-            ui,
-            "prefs-drawing-recognise-lines",
-            &mut draft.drawing.recognise_lines,
-            &crate::workspace::Tolerance::OPTIONS,
-            160.0,
-        );
-    });
-    row(ui, "Recognise shapes", |ui| {
-        c::Select::options(
-            ui,
-            "prefs-drawing-recognise-shapes",
-            &mut draft.drawing.recognise_shapes,
-            &crate::workspace::Tolerance::OPTIONS,
-            160.0,
-        );
-    });
-    row(ui, "Click accuracy", |ui| {
-        c::Select::options(
-            ui,
-            "prefs-drawing-click-accuracy",
-            &mut draft.drawing.click_accuracy,
-            &crate::workspace::Tolerance::OPTIONS,
-            160.0,
-        );
-    });
+    fn tolerance(
+        ui: &mut Ui,
+        label: &str,
+        id: &str,
+        value: &mut crate::workspace::Tolerance,
+        options: &[(crate::workspace::Tolerance, &str)],
+    ) {
+        row(ui, label, |ui| {
+            c::Select::options(ui, id, value, options, metrics::field_m());
+        });
+    }
+    tolerance(
+        ui,
+        "Connect lines",
+        "prefs-drawing-connect-lines",
+        &mut draft.drawing.connect_lines,
+        &crate::workspace::Tolerance::OPTIONS,
+    );
+    tolerance(
+        ui,
+        "Smooth curves",
+        "prefs-drawing-smooth-curves",
+        &mut draft.drawing.smooth_curves,
+        &crate::workspace::Tolerance::SMOOTH_OPTIONS,
+    );
+    tolerance(
+        ui,
+        "Lines",
+        "prefs-drawing-recognise-lines",
+        &mut draft.drawing.recognise_lines,
+        &crate::workspace::Tolerance::OPTIONS,
+    );
+    tolerance(
+        ui,
+        "Shapes",
+        "prefs-drawing-recognise-shapes",
+        &mut draft.drawing.recognise_shapes,
+        &crate::workspace::Tolerance::OPTIONS,
+    );
+    tolerance(
+        ui,
+        "Click accuracy",
+        "prefs-drawing-click-accuracy",
+        &mut draft.drawing.click_accuracy,
+        &crate::workspace::Tolerance::OPTIONS,
+    );
     section(ui, "Snapping");
     row(ui, "Tolerance", |ui| {
         let mut snap_tolerance = f64::from(draft.drawing.snap_tolerance);
-        bound_stepper(
-            ui,
-            &mut snap_tolerance,
-            "Snap tolerance",
-            "px",
-            1.0..=32.0,
-            120.0,
+        ui.add(
+            c::Field::new(&mut snap_tolerance, "Snap tolerance")
+                .unit("px")
+                .decimals(0)
+                .range(1.0..=32.0)
+                .stepper()
+                .width(metrics::field_s()),
         );
         draft.drawing.snap_tolerance = snap_tolerance as f32;
-        bound_switch(ui, &mut draft.pixels_snap, "Snap to pixels");
+    });
+    row(ui, "Snap", |ui| {
+        option(ui, &mut draft.pixels_snap, "Snap to pixels");
         let mut snap_align = true;
-        ui.add_enabled(false, c::Switch::new(&mut snap_align, "Snap align"));
+        ui.add_enabled(false, c::Checkbox::new(&mut snap_align, "Snap align"));
     });
 }
 
 fn prefs_text(ui: &mut Ui, draft: &mut PreferencesDraft) {
-    disabled(ui, |ui| section(ui, "Defaults"));
+    section(ui, "Defaults");
     row(ui, "Font", |ui| {
         let current = if draft.text_font.is_empty() {
             if draft.font_families.iter().any(|f| f == "Arial") {
@@ -1340,7 +1338,7 @@ fn prefs_text(ui: &mut Ui, draft: &mut PreferencesDraft) {
             draft.text_font.clone()
         };
         c::Select::new("prefs-text-font", &current)
-            .width(220.0)
+            .width(metrics::field_l())
             .show(ui, |ui| {
                 egui::ScrollArea::vertical()
                     .id_salt("prefs-text-font-list")
@@ -1363,48 +1361,54 @@ fn prefs_text(ui: &mut Ui, draft: &mut PreferencesDraft) {
             "Font size",
             "Size",
             WorkspacePrefs::TEXT_SIZES,
-            130.0,
+            metrics::field_s(),
         );
     });
     disabled(ui, |ui| {
-        row(ui, "Anti-alias", |ui| select(ui, "For readability", 220.0));
+        row(ui, "Anti-alias", |ui| {
+            select(ui, "For readability", metrics::field_l())
+        });
     });
-    row(ui, "Font substitution", |ui| {
+    row(ui, "Substitution", |ui| {
         c::Select::options(
             ui,
             "prefs-font-substitution",
             &mut draft.text_prefs.substitution_warning,
             &[(true, "Show warning"), (false, "Substitute silently")],
-            220.0,
+            metrics::field_l(),
         );
     });
+    section(ui, "Behaviour");
     disabled(ui, |ui| {
-        section(ui, "Behaviour");
-        ui.horizontal(|ui| {
-            switch(ui, true, "Embed used glyphs automatically");
-            switch(ui, true, "Spell check");
+        row(ui, "Fonts", |ui| {
+            fixed_option(ui, true, "Embed used glyphs automatically")
         });
-        ui.horizontal(|ui| {
-            switch(ui, false, "Vertical text: right-to-left flow");
-            switch(ui, true, "No kerning for vertical");
+        row(ui, "Editing", |ui| fixed_option(ui, true, "Spell check"));
+        row(ui, "Vertical text", |ui| {
+            fixed_option(ui, false, "Right-to-left flow");
+            fixed_option(ui, true, "No kerning");
         });
-        row(ui, "Input method", |ui| select(ui, "System default", 220.0));
+        row(ui, "Input method", |ui| {
+            select(ui, "System default", metrics::field_l())
+        });
     });
 }
 
 fn prefs_clipboard(ui: &mut Ui, draft: &mut PreferencesDraft) {
+    section(ui, "Copying");
     disabled(ui, |ui| {
-        section(ui, "Copying");
         row(ui, "Bitmaps", |ui| {
-            select(ui, "Match screen (144 ppi)", 220.0)
+            select(ui, "Match screen (144 ppi)", metrics::field_l())
         });
-        row(ui, "Gradient quality", |ui| select(ui, "Normal", 160.0));
-        ui.horizontal(|ui| {
-            switch(ui, true, "Copy as SVG to other apps");
-            switch(ui, true, "Keep layer names");
+        row(ui, "Gradients", |ui| {
+            select(ui, "Normal", metrics::field_m())
         });
-        section(ui, "Pasting");
+        row(ui, "Other apps", |ui| {
+            fixed_option(ui, true, "Copy as SVG to other apps");
+            fixed_option(ui, true, "Keep layer names");
+        });
     });
+    section(ui, "Pasting");
     row(ui, "Default paste", |ui| {
         c::Segmented::show(
             ui,
@@ -1413,14 +1417,16 @@ fn prefs_clipboard(ui: &mut Ui, draft: &mut PreferencesDraft) {
             false,
         );
     });
-    ui.horizontal(|ui| {
-        bound_switch(
+    row(ui, "Vectors", |ui| {
+        option(
             ui,
             &mut draft.clipboard_prefs.editable_vector_paste,
             "Import vector paste as editable paths",
         );
-        disabled(ui, |ui| {
-            switch(ui, true, "Ask before pasting large bitmaps")
+    });
+    disabled(ui, |ui| {
+        row(ui, "Bitmaps", |ui| {
+            fixed_option(ui, true, "Ask before pasting large bitmaps")
         });
     });
 }
@@ -1478,7 +1484,7 @@ fn is_recording_shortcut(ctx: &egui::Context, page: usize) -> bool {
     page == PAGE_SHORTCUTS && load_shortcuts_ui_state(ctx).recording.is_some()
 }
 
-fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
+fn prefs_shortcuts(ui: &mut Ui, area: PageArea, draft: &mut PreferencesDraft) {
     #[derive(Clone, Copy)]
     enum RecordedAction {
         Cancel,
@@ -1577,11 +1583,11 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
     }
 
     section(ui, "Shortcut set");
-    ui.horizontal(|ui| {
+    row(ui, "Set", |ui| {
         let active_label = draft.shortcuts.active_set_label().to_owned();
         let set_names: Vec<String> = draft.shortcuts.sets.keys().cloned().collect();
         let (set_resp, _) = c::Select::new("prefs-shortcut-set", &active_label)
-            .width(240.0)
+            .width(metrics::field_m())
             .show(ui, |ui| {
                 let is_default = draft.shortcuts.is_default_set();
                 if ui
@@ -1669,7 +1675,7 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
                 }
             }
             if ui
-                .add(c::Switch::new(&mut state.only_assigned, "Only assigned"))
+                .add(c::Checkbox::new(&mut state.only_assigned, "Only assigned"))
                 .changed()
             {
                 state.stop_recording();
@@ -1758,10 +1764,18 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
     let mut started_recording = false;
     let mut total_matches = 0usize;
 
-    egui::ScrollArea::vertical()
+    // The list fills the page down to the command row under it; one row per shortcut.
+    let list_height = area.fill_height(
+        ui,
+        "prefs-shortcuts",
+        metrics::control() + metrics::row_gap(),
+        6.0 * metrics::row(),
+    );
+    let list = egui::ScrollArea::vertical()
         .id_salt("prefs-shortcuts-list")
-        .max_height(232.0)
+        .max_height(list_height)
         .auto_shrink([false, false])
+        .themed()
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
             for category in crate::commands::CommandCategory::ALL {
@@ -1967,7 +1981,7 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
                     "No commands match “{}”. Clear the search or turn off Only assigned.",
                     state.search.trim()
                 );
-                ui.add_space(space::S3);
+                ui.add_space(space::s3());
                 ui.label(rich(msg, TextStyle::Body).color(nf.text_tertiary));
             }
         });
@@ -2013,6 +2027,7 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
         }
     });
 
+    area.remember_below(ui, "prefs-shortcuts", list.inner_rect.bottom());
     store_shortcuts_ui_state(ui.ctx(), state);
 }
 
@@ -2020,50 +2035,58 @@ fn prefs_publish(ui: &mut Ui, draft: &mut PreferencesDraft) {
     section(ui, "Target");
     row(ui, "Default target", |ui| {
         let prev = draft.publish.default_target;
+        // Same short names as the Publish settings sidebar.
+        let options = PublishTarget::OPTIONS
+            .map(|(target, _)| (target, super::publish_settings::target_short_name(target)));
         c::Select::options(
             ui,
             "prefs-publish-default-target",
             &mut draft.publish.default_target,
-            &PublishTarget::OPTIONS,
-            280.0,
+            &options,
+            metrics::field_m(),
         );
         if draft.publish.default_target != prev {
             draft.publish.enable_target(draft.publish.default_target);
         }
     });
     row(ui, "Output folder", |ui| {
-        let mut folder = draft.publish.output_folder.clone().unwrap_or_default();
-        if ui
-            .add(
-                c::TextField::new(&mut folder, "Output folder")
-                    .hint("~/Projects/ideas/publish")
-                    .width(240.0),
-            )
-            .changed()
-        {
-            draft.publish.output_folder = (!folder.trim().is_empty()).then_some(folder);
-        }
-        if ui.add(c::Button::new("Browse…")).clicked()
-            && let Some(dir) = rfd::FileDialog::new()
-                .set_title("Choose HTML5 output folder")
-                .pick_folder()
-        {
-            draft.publish.output_folder = Some(dir.to_string_lossy().into_owned());
-        }
+        // The path field is the only control that fills the row.
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.add(c::Button::new("Browse…")).clicked()
+                && let Some(dir) = rfd::FileDialog::new()
+                    .set_title("Choose HTML5 output folder")
+                    .pick_folder()
+            {
+                draft.publish.output_folder = Some(dir.to_string_lossy().into_owned());
+            }
+            let mut folder = draft.publish.output_folder.clone().unwrap_or_default();
+            let width = ui.available_width();
+            if ui
+                .add(
+                    c::TextField::new(&mut folder, "Output folder")
+                        .hint("~/Projects/ideas/publish")
+                        .width(width),
+                )
+                .changed()
+            {
+                draft.publish.output_folder = (!folder.trim().is_empty()).then_some(folder);
+            }
+        });
     });
-    ui.horizontal(|ui| {
-        ui.add(c::Checkbox::new(
-            &mut draft.publish.html_wrapper,
-            "HTML wrapper",
-        ));
-        ui.add(c::Checkbox::new(
-            &mut draft.publish.assets_folder,
-            "Assets folder",
-        ));
-        ui.add(c::Checkbox::new(
-            &mut draft.publish.source_maps,
-            "Source maps",
-        ));
+    row(ui, "Files", |ui| {
+        option(ui, &mut draft.publish.html_wrapper, "HTML wrapper");
+        option(ui, &mut draft.publish.assets_folder, "Assets folder");
+        option(ui, &mut draft.publish.source_maps, "Source maps");
+    });
+    // Scripts share the first group so that the whole page fits the dialog without scrolling.
+    row(ui, "Scripts", |ui| {
+        option(ui, &mut draft.publish.strict, "Strict mode");
+        option(
+            ui,
+            &mut draft.publish.warnings_as_errors,
+            "Treat warnings as errors",
+        );
+        option(ui, &mut draft.publish.publish_on_save, "Publish on save");
     });
     section(ui, "Preview & publish");
     row(ui, "Preview mode", |ui| {
@@ -2073,40 +2096,42 @@ fn prefs_publish(ui: &mut Ui, draft: &mut PreferencesDraft) {
             &[(false, "Technical bar"), (true, "Clean stage")],
             false,
         );
-        ui.add(c::Checkbox::new(
-            &mut draft.publish.publish_clean,
-            "Clean publish output",
-        ));
+        option(ui, &mut draft.publish.publish_clean, "Clean publish output");
     });
     ui.add_enabled_ui(!draft.publish.preview_chrome.clean, |ui| {
-        ui.horizontal_wrapped(|ui| {
-            ui.add(c::Checkbox::new(
+        row(ui, "Technical bar", |ui| {
+            option(
+                ui,
                 &mut draft.publish.preview_chrome.show_fps,
                 "FPS & frames",
-            ));
-            ui.add(c::Checkbox::new(
+            );
+            option(
+                ui,
                 &mut draft.publish.preview_chrome.show_dimensions,
                 "Stage size (W×H)",
-            ));
-            ui.add(c::Checkbox::new(
+            );
+            option(
+                ui,
                 &mut draft.publish.preview_chrome.show_controls,
                 "Playback controls",
-            ));
-            ui.add(c::Checkbox::new(
+            );
+            option(
+                ui,
                 &mut draft.publish.preview_chrome.show_load_summary,
                 "Weight & size report",
-            ));
-            ui.add(c::Checkbox::new(
+            );
+            option(
+                ui,
                 &mut draft.publish.preview_chrome.show_trace,
                 "Trace & diagnostics",
-            ));
+            );
         });
     });
     section(ui, "Compression");
     row(ui, "Images", |ui| {
         let mut q = f64::from(draft.publish.jpeg_quality.clamp(1, 100));
         if ui
-            .add(c::Slider::new(&mut q, 1.0..=100.0, "JPEG quality").width(200.0))
+            .add(c::Slider::new(&mut q, 1.0..=100.0, "JPEG quality").width(metrics::field_m()))
             .changed()
         {
             draft.publish.jpeg_quality = q.round().clamp(1.0, 100.0) as u8;
@@ -2118,7 +2143,7 @@ fn prefs_publish(ui: &mut Ui, draft: &mut PreferencesDraft) {
             ui.id().with("prefs-publish-audio"),
             draft.publish.options.audio.label(),
         )
-        .width(180.0)
+        .width(metrics::field_m())
         .show(ui, |ui| {
             for policy in AudioExportPolicy::ALL {
                 if ui
@@ -2133,13 +2158,13 @@ fn prefs_publish(ui: &mut Ui, draft: &mut PreferencesDraft) {
                 }
             }
         });
-    });
-    row(ui, "Acceleration", |ui| {
+        // Second control of the row: its caption stands in for the label column.
+        caption(ui, "Acceleration");
         c::Select::new(
             ui.id().with("prefs-publish-acceleration"),
             draft.publish.acceleration.label(),
         )
-        .width(180.0)
+        .width(metrics::field_m())
         .show(ui, |ui| {
             for accel in neoflash_export::HtmlAcceleration::ALL {
                 if ui
@@ -2160,7 +2185,7 @@ fn prefs_publish(ui: &mut Ui, draft: &mut PreferencesDraft) {
             ui.id().with("prefs-publish-seq-policy"),
             draft.publish.sequence_policy.label(),
         )
-        .width(180.0)
+        .width(metrics::field_l())
         .show(ui, |ui| {
             for policy in neoflash_export::SequencePublishPolicy::ALL {
                 if ui
@@ -2175,37 +2200,33 @@ fn prefs_publish(ui: &mut Ui, draft: &mut PreferencesDraft) {
                 }
             }
         });
+    });
+    row(ui, "Import", |ui| {
         let placement_lbl = match draft.sequence_import_options.placement {
-            neoflash_import::ImageSequencePlacement::KeyframesOnSingleLayer => {
-                "Import: Keyframes on layer"
-            }
-            neoflash_import::ImageSequencePlacement::SeparateLayers => "Import: Separate layers",
-            neoflash_import::ImageSequencePlacement::ConvertToMovieClip => {
-                "Import: MovieClip symbol"
-            }
-            neoflash_import::ImageSequencePlacement::ConvertToGraphicSymbol => {
-                "Import: Graphic symbol"
-            }
+            neoflash_import::ImageSequencePlacement::KeyframesOnSingleLayer => "Keyframes on layer",
+            neoflash_import::ImageSequencePlacement::SeparateLayers => "Separate layers",
+            neoflash_import::ImageSequencePlacement::ConvertToMovieClip => "MovieClip symbol",
+            neoflash_import::ImageSequencePlacement::ConvertToGraphicSymbol => "Graphic symbol",
         };
         c::Select::new(ui.id().with("prefs-seq-import-placement"), placement_lbl)
-            .width(190.0)
+            .width(metrics::field_l())
             .show(ui, |ui| {
                 for (val, lbl) in [
                     (
                         neoflash_import::ImageSequencePlacement::ConvertToGraphicSymbol,
-                        "Import: Graphic symbol",
+                        "Graphic symbol",
                     ),
                     (
                         neoflash_import::ImageSequencePlacement::ConvertToMovieClip,
-                        "Import: MovieClip symbol",
+                        "MovieClip symbol",
                     ),
                     (
                         neoflash_import::ImageSequencePlacement::KeyframesOnSingleLayer,
-                        "Import: Keyframes on layer",
+                        "Keyframes on layer",
                     ),
                     (
                         neoflash_import::ImageSequencePlacement::SeparateLayers,
-                        "Import: Separate layers",
+                        "Separate layers",
                     ),
                 ] {
                     if ui
@@ -2227,22 +2248,12 @@ fn prefs_publish(ui: &mut Ui, draft: &mut PreferencesDraft) {
                     .prefix("Step")
                     .decimals(0)
                     .range(1.0..=60.0)
-                    .width(84.0),
+                    .width(metrics::field_s()),
             )
             .changed()
         {
             draft.sequence_import_options.frame_step = step.round().clamp(1.0, 60.0) as u32;
         }
-    });
-    section(ui, "Scripts");
-    ui.horizontal(|ui| {
-        bound_switch(ui, &mut draft.publish.strict, "Strict mode");
-        bound_switch(
-            ui,
-            &mut draft.publish.warnings_as_errors,
-            "Treat warnings as errors",
-        );
-        bound_switch(ui, &mut draft.publish.publish_on_save, "Publish on save");
     });
 }
 
@@ -2283,8 +2294,10 @@ fn prefs_updates(
     let mut action: Option<UpdateUiAction> = None;
 
     section(ui, "Version");
-    ui.horizontal(|ui| {
+    row(ui, "Version", |ui| {
         body_text(ui, &id.version_prefix());
+    });
+    row(ui, "Updates", |ui| {
         if ui
             .add_enabled(!checking && !downloading, c::Button::new("Check now"))
             .clicked()
@@ -2296,116 +2309,119 @@ fn prefs_updates(
         }
     });
 
-    match &updater.state {
-        UpdateState::Idle => {
-            caption(
-                ui,
-                &format!(
-                    "Status: {}",
-                    format_last_checked(draft.updates.last_check_unix, now_unix)
-                ),
-            );
-        }
-        UpdateState::Checking { .. } => {
-            ui.horizontal(|ui| {
-                c::spinner(ui);
-                caption(ui, "Checking GitHub Releases for updates…");
-            });
-        }
-        UpdateState::UpToDate { latest_version, .. } => {
-            let status = match latest_version {
-                Some(v) => format!(
-                    "Up to date (latest {v}) · {}",
-                    format_last_checked(draft.updates.last_check_unix, now_unix)
-                ),
-                None => format!(
-                    "Up to date · {}",
-                    format_last_checked(draft.updates.last_check_unix, now_unix)
-                ),
-            };
-            caption(ui, &status);
-        }
-        UpdateState::UpdateAvailable { update, .. } => {
-            ui.add(c::InlineMessage::info(&format!(
-                "Update {} is available for {}.",
-                update.version,
-                updater.config.platform.label()
-            )));
-            match &update.download {
-                Ok(_) => {
-                    ui.horizontal(|ui| {
-                        if ui.add(c::Button::primary("Download")).clicked() {
-                            action = Some(UpdateUiAction::Download(update.clone()));
-                        }
-                        caption(ui, "Verified via SHA256SUMS before saving; manual install.");
-                    });
+    // Status and messages start on the control axis.
+    form_block(ui, |ui| {
+        match &updater.state {
+            UpdateState::Idle => {
+                caption(
+                    ui,
+                    &format!(
+                        "Status: {}",
+                        format_last_checked(draft.updates.last_check_unix, now_unix)
+                    ),
+                );
+            }
+            UpdateState::Checking { .. } => {
+                ui.horizontal(|ui| {
+                    c::spinner(ui);
+                    caption(ui, "Checking GitHub Releases for updates…");
+                });
+            }
+            UpdateState::UpToDate { latest_version, .. } => {
+                let status = match latest_version {
+                    Some(v) => format!(
+                        "Up to date (latest {v}) · {}",
+                        format_last_checked(draft.updates.last_check_unix, now_unix)
+                    ),
+                    None => format!(
+                        "Up to date · {}",
+                        format_last_checked(draft.updates.last_check_unix, now_unix)
+                    ),
+                };
+                caption(ui, &status);
+            }
+            UpdateState::UpdateAvailable { update, .. } => {
+                ui.add(c::InlineMessage::info(&format!(
+                    "Update {} is available for {}.",
+                    update.version,
+                    updater.config.platform.label()
+                )));
+                match &update.download {
+                    Ok(_) => {
+                        ui.horizontal(|ui| {
+                            if ui.add(c::Button::primary("Download")).clicked() {
+                                action = Some(UpdateUiAction::Download(update.clone()));
+                            }
+                            caption(ui, "Verified via SHA256SUMS before saving; manual install.");
+                        });
+                    }
+                    Err(reason) => {
+                        ui.add(c::InlineMessage::warning(reason));
+                    }
                 }
-                Err(reason) => {
-                    ui.add(c::InlineMessage::warning(reason));
+            }
+            UpdateState::Downloading {
+                update,
+                received_bytes,
+                total_bytes,
+                ..
+            } => {
+                let fraction = total_bytes
+                    .filter(|&tot| tot > 0)
+                    .map(|tot| (*received_bytes as f32 / tot as f32).clamp(0.0, 1.0));
+                let label = format!(
+                    "Downloading {} ({})",
+                    update.version,
+                    format_byte_progress(*received_bytes, *total_bytes)
+                );
+                ui.horizontal(|ui| {
+                    let bar_w = (ui.available_width() - 140.0).max(180.0);
+                    c::progress(ui, &label, fraction, bar_w);
+                    if ui.add(c::Button::new("Cancel download")).clicked() {
+                        action = Some(UpdateUiAction::CancelDownload);
+                    }
+                });
+            }
+            UpdateState::VerifiedDownloaded {
+                version,
+                path,
+                reveal_note,
+                ..
+            } => {
+                ui.add(c::InlineMessage::info(&format!(
+                    "Verified {version} (SHA-256) at {}. Quit NeoFlash and replace the application manually; Beta 1 does not auto-install.",
+                    path.display()
+                )));
+                ui.horizontal(|ui| {
+                    if ui.add(c::Button::new(reveal_button_label())).clicked() {
+                        action = Some(UpdateUiAction::RevealFile(path.clone()));
+                    }
+                    if let Some(note) = reveal_note {
+                        caption(ui, note);
+                    }
+                });
+            }
+            UpdateState::RateLimited { message, .. } => {
+                ui.add(c::InlineMessage::warning(message));
+            }
+            UpdateState::Error {
+                message,
+                retry_update,
+                ..
+            } => {
+                ui.add(c::InlineMessage::error(message));
+                if let Some(retry) = retry_update
+                    && retry.download.is_ok()
+                    && ui.add(c::Button::new("Download")).clicked()
+                {
+                    action = Some(UpdateUiAction::Download(retry.clone()));
                 }
             }
         }
-        UpdateState::Downloading {
-            update,
-            received_bytes,
-            total_bytes,
-            ..
-        } => {
-            let fraction = total_bytes
-                .filter(|&tot| tot > 0)
-                .map(|tot| (*received_bytes as f32 / tot as f32).clamp(0.0, 1.0));
-            let label = format!(
-                "Downloading {} ({})",
-                update.version,
-                format_byte_progress(*received_bytes, *total_bytes)
-            );
-            ui.horizontal(|ui| {
-                let bar_w = (ui.available_width() - 140.0).max(180.0);
-                c::progress(ui, &label, fraction, bar_w);
-                if ui.add(c::Button::new("Cancel download")).clicked() {
-                    action = Some(UpdateUiAction::CancelDownload);
-                }
-            });
+        if let Some(err) = &updater.action_error {
+            ui.add(c::InlineMessage::error(err));
         }
-        UpdateState::VerifiedDownloaded {
-            version,
-            path,
-            reveal_note,
-            ..
-        } => {
-            ui.add(c::InlineMessage::info(&format!(
-                "Verified {version} (SHA-256) at {}. Quit NeoFlash and replace the application manually; Beta 1 does not auto-install.",
-                path.display()
-            )));
-            ui.horizontal(|ui| {
-                if ui.add(c::Button::new(reveal_button_label())).clicked() {
-                    action = Some(UpdateUiAction::RevealFile(path.clone()));
-                }
-                if let Some(note) = reveal_note {
-                    caption(ui, note);
-                }
-            });
-        }
-        UpdateState::RateLimited { message, .. } => {
-            ui.add(c::InlineMessage::warning(message));
-        }
-        UpdateState::Error {
-            message,
-            retry_update,
-            ..
-        } => {
-            ui.add(c::InlineMessage::error(message));
-            if let Some(retry) = retry_update
-                && retry.download.is_ok()
-                && ui.add(c::Button::new("Download")).clicked()
-            {
-                action = Some(UpdateUiAction::Download(retry.clone()));
-            }
-        }
-    }
-    if let Some(err) = &updater.action_error {
-        ui.add(c::InlineMessage::error(err));
-    }
+    });
 
     row(ui, "Channel", |ui| {
         ui.add_enabled_ui(!checking && !downloading, |ui| {
@@ -2418,40 +2434,47 @@ fn prefs_updates(
         });
     });
     updater.sync_selected_channel(draft.updates.channel);
-    ui.horizontal(|ui| {
-        bound_switch(
+    row(ui, "Automatic", |ui| {
+        option(
             ui,
             &mut draft.updates.check_automatically,
             "Check for updates automatically",
         );
-        disabled(ui, |ui| {
+    });
+    disabled(ui, |ui| {
+        row(ui, "Background", |ui| {
             let mut background = false;
             c::not_available(
-                ui.add(c::Switch::new(&mut background, "Download in background")),
+                ui.add(c::Checkbox::new(&mut background, "Download in background")),
                 "Download in background",
             );
         });
     });
 
+    section(ui, "Privacy");
     disabled(ui, |ui| {
-        section(ui, "Privacy");
-        let mut usage = false;
-        c::not_available(
-            ui.add(c::Switch::new(
-                &mut usage,
+        row(ui, "Statistics", |ui| {
+            let mut usage = false;
+            c::not_available(
+                ui.add(c::Checkbox::new(
+                    &mut usage,
+                    "Send anonymous usage statistics",
+                )),
                 "Send anonymous usage statistics",
-            )),
-            "Send anonymous usage statistics",
-        );
-        let mut crashes = false;
-        c::not_available(
-            ui.add(c::Switch::new(&mut crashes, "Send crash reports")),
-            "Send crash reports",
-        );
+            );
+        });
+        row(ui, "Crash reports", |ui| {
+            let mut crashes = false;
+            c::not_available(
+                ui.add(c::Checkbox::new(&mut crashes, "Send crash reports")),
+                "Send crash reports",
+            );
+        });
     });
-    ui.add(c::InlineMessage::info(
+    form_hint(
+        ui,
         "Usage telemetry and crash reports are disabled; no data is collected or transmitted.",
-    ));
+    );
 
     section(ui, "Extensions");
     let ext_label = match installed_ext_count {
@@ -2464,9 +2487,7 @@ fn prefs_updates(
             c::not_available(ui.add(c::Button::new("Manage…")), "Extension management");
         });
     });
-    disabled(ui, |ui| {
-        caption(ui, "Extension update checks are not available yet.");
-    });
+    form_hint(ui, "Extension update checks are not available yet.");
 
     match action {
         Some(UpdateUiAction::CheckNow) => {
@@ -2494,6 +2515,7 @@ fn prefs_updates(
 
 fn prefs_ai(
     ui: &mut Ui,
+    area: PageArea,
     draft: &mut PreferencesDraft,
     ai_manager: &mut crate::ai_connections::AiConnectionManager,
     ai_connection_modal: &mut Option<super::ai_dialogs::AiConnectionModal>,
@@ -2505,106 +2527,144 @@ fn prefs_ai(
     draft.has_ready_ai = ai_manager.has_ready_connection(&draft.ai);
 
     section(ui, "Connections");
-    if draft.ai.profiles.is_empty() {
-        draft.selected_ai_profile = None;
-        if (c::EmptyState {
-            icon: i16::WAND,
-            title: "No AI connections",
-            body: "Add an OpenAI, Anthropic, Google Gemini or local provider to review and send prompts.",
-            action: Some("Add connection…"),
-        })
-        .show(ui)
-        {
+    let valid_selected = draft
+        .selected_ai_profile
+        .as_deref()
+        .is_some_and(|id| draft.ai.profiles.iter().any(|p| p.id == id));
+    if !valid_selected {
+        draft.selected_ai_profile = draft.ai.profiles.first().map(|p| p.id.clone());
+    }
+
+    let total = draft.ai.profiles.len();
+    let mut clicked_id: Option<String> = None;
+    let mut double_clicked_id: Option<String> = None;
+
+    // The list fills the page above its command row and the Default / Privacy groups; one row
+    // per connection. The 2 pt are the frame's border.
+    let list_height = area.fill_height(
+        ui,
+        "prefs-ai",
+        9.0 * metrics::control(),
+        4.0 * metrics::row() + 2.0,
+    ) - 2.0;
+    let table = egui::Frame::new()
+        .fill(nf.bg_panel)
+        .stroke(egui::Stroke::new(1.0_f32, nf.border_subtle))
+        .corner_radius(egui::CornerRadius::same(radius::md() as u8))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            egui::ScrollArea::vertical()
+                .id_salt("prefs-ai-list")
+                .max_height(list_height)
+                .auto_shrink([false, false])
+                .themed()
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    if draft.ai.profiles.is_empty() {
+                        // `Add connection…` is the first button of the command row below.
+                        let _ = c::EmptyState {
+                            icon: i16::WAND,
+                            title: "No AI connections",
+                            body: "Add an OpenAI, Anthropic, Google Gemini or local provider to review and send prompts.",
+                            action: None,
+                        }
+                        .show(ui);
+                    }
+                    let table_w = ui.available_width();
+                    for (row_idx, profile) in draft.ai.profiles.iter().enumerate() {
+                        let is_selected =
+                            draft.selected_ai_profile.as_deref() == Some(profile.id.as_str());
+                        let status = ai_manager.profile_status(profile);
+                        let badge_type = match status {
+                            AiConnectionStatus::Ready => c::BadgeType::Accent,
+                            AiConnectionStatus::NotTested => c::BadgeType::Neutral,
+                            AiConnectionStatus::NoKey | AiConnectionStatus::Failed => {
+                                c::BadgeType::Warning
+                            }
+                        };
+                        let (rect, resp) = ui.allocate_exact_size(
+                            egui::vec2(table_w, metrics::row()),
+                            egui::Sense::click(),
+                        );
+                        if is_selected {
+                            ui.painter().rect_filled(rect, 0.0, nf.bg_selected);
+                        } else if resp.hovered() {
+                            ui.painter().rect_filled(rect, 0.0, nf.bg_hover);
+                        }
+                        if row_idx + 1 < total {
+                            ui.painter().hline(
+                                rect.x_range(),
+                                rect.bottom() - 0.5,
+                                egui::Stroke::new(1.0_f32, nf.border_subtle),
+                            );
+                        }
+                        let inner = rect.shrink2(egui::vec2(space::s3(), 0.0));
+                        ui.scope_builder(
+                            egui::UiBuilder::new()
+                                .max_rect(inner)
+                                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                            |ui| {
+                                ui.spacing_mut().item_spacing.x = space::s2();
+                                ui.label(
+                                    rich(&profile.display_name, TextStyle::Body)
+                                        .color(nf.text_primary),
+                                );
+                                let sub = format!(
+                                    "{} · {}",
+                                    profile.kind.display_name(),
+                                    profile.default_model
+                                );
+                                ui.label(rich(&sub, TextStyle::Small).color(nf.text_secondary));
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        ui.add(c::Badge::new(status.label(), badge_type));
+                                    },
+                                );
+                            },
+                        );
+                        if resp.clicked() {
+                            clicked_id = Some(profile.id.clone());
+                        }
+                        if resp.double_clicked() {
+                            double_clicked_id = Some(profile.id.clone());
+                        }
+                    }
+                });
+        });
+    let table_bottom = table.response.rect.bottom();
+
+    if let Some(id) = clicked_id {
+        draft.selected_ai_profile = Some(id);
+    }
+    if let Some(id) = double_clicked_id
+        && let Some(prof) = draft.ai.profile(&id)
+    {
+        let has_key = ai_manager.has_secret(&prof.id);
+        *ai_connection_modal = Some(AiConnectionModal::new_edit(
+            prof,
+            has_key,
+            AiConnectionModalTarget::Preferences,
+        ));
+    }
+
+    let selected_profile = draft
+        .selected_ai_profile
+        .as_deref()
+        .and_then(|id| draft.ai.profile(id))
+        .cloned();
+    let has_sel = selected_profile.is_some();
+
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = space::s2();
+        if ui.add(c::Button::new("Add connection…")).clicked() {
             *ai_connection_modal = Some(AiConnectionModal::new_add(
                 &draft.ai,
                 AiConnectionModalTarget::Preferences,
             ));
         }
-    } else {
-        let valid_selected = draft
-            .selected_ai_profile
-            .as_deref()
-            .is_some_and(|id| draft.ai.profiles.iter().any(|p| p.id == id));
-        if !valid_selected {
-            draft.selected_ai_profile = draft.ai.profiles.first().map(|p| p.id.clone());
-        }
-
-        let total = draft.ai.profiles.len();
-        let mut clicked_id: Option<String> = None;
-        let mut double_clicked_id: Option<String> = None;
-
-        egui::Frame::new()
-            .fill(nf.bg_panel)
-            .stroke(egui::Stroke::new(1.0_f32, nf.border_subtle))
-            .corner_radius(egui::CornerRadius::same(radius::MD as u8))
-            .show(ui, |ui| {
-                let table_w = ui.available_width();
-                ui.set_width(table_w);
-                ui.spacing_mut().item_spacing.y = 0.0;
-                for (row_idx, profile) in draft.ai.profiles.iter().enumerate() {
-                    let is_selected =
-                        draft.selected_ai_profile.as_deref() == Some(profile.id.as_str());
-                    let status = ai_manager.profile_status(profile);
-                    let badge_type = match status {
-                        AiConnectionStatus::Ready => c::BadgeType::Accent,
-                        AiConnectionStatus::NotTested => c::BadgeType::Neutral,
-                        AiConnectionStatus::NoKey | AiConnectionStatus::Failed => {
-                            c::BadgeType::Warning
-                        }
-                    };
-                    let row_h = neoflash_ui::metrics::control() + space::S1;
-                    let (rect, resp) =
-                        ui.allocate_exact_size(egui::vec2(table_w, row_h), egui::Sense::click());
-                    if is_selected {
-                        ui.painter().rect_filled(rect, 0.0, nf.bg_selected);
-                    } else if resp.hovered() {
-                        ui.painter().rect_filled(rect, 0.0, nf.bg_hover);
-                    }
-                    if row_idx + 1 < total {
-                        ui.painter().hline(
-                            rect.x_range(),
-                            rect.bottom() - 0.5,
-                            egui::Stroke::new(1.0_f32, nf.border_subtle),
-                        );
-                    }
-                    let inner = rect.shrink2(egui::vec2(space::S3, 0.0));
-                    ui.scope_builder(
-                        egui::UiBuilder::new()
-                            .max_rect(inner)
-                            .layout(egui::Layout::left_to_right(egui::Align::Center)),
-                        |ui| {
-                            ui.spacing_mut().item_spacing.x = space::S2;
-                            ui.label(
-                                rich(&profile.display_name, TextStyle::Body).color(nf.text_primary),
-                            );
-                            let sub = format!(
-                                "{} · {}",
-                                profile.kind.display_name(),
-                                profile.default_model
-                            );
-                            ui.label(rich(&sub, TextStyle::Small).color(nf.text_secondary));
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.add(c::Badge::new(status.label(), badge_type));
-                                },
-                            );
-                        },
-                    );
-                    if resp.clicked() {
-                        clicked_id = Some(profile.id.clone());
-                    }
-                    if resp.double_clicked() {
-                        double_clicked_id = Some(profile.id.clone());
-                    }
-                }
-            });
-
-        if let Some(id) = clicked_id {
-            draft.selected_ai_profile = Some(id);
-        }
-        if let Some(id) = double_clicked_id
-            && let Some(prof) = draft.ai.profile(&id)
+        if ui.add_enabled(has_sel, c::Button::ghost("Edit…")).clicked()
+            && let Some(prof) = &selected_profile
         {
             let has_key = ai_manager.has_secret(&prof.id);
             *ai_connection_modal = Some(AiConnectionModal::new_edit(
@@ -2613,58 +2673,31 @@ fn prefs_ai(
                 AiConnectionModalTarget::Preferences,
             ));
         }
-
-        let selected_profile = draft
-            .selected_ai_profile
-            .as_deref()
-            .and_then(|id| draft.ai.profile(id))
-            .cloned();
-        let has_sel = selected_profile.is_some();
-
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = space::S2;
-            if ui.add(c::Button::new("Add connection…")).clicked() {
-                *ai_connection_modal = Some(AiConnectionModal::new_add(
-                    &draft.ai,
-                    AiConnectionModalTarget::Preferences,
-                ));
+        if ui.add_enabled(has_sel, c::Button::ghost("Test")).clicked()
+            && let Some(prof) = &selected_profile
+        {
+            let _ = ai_manager.test_profile(prof);
+            draft.has_ready_ai = ai_manager.has_ready_connection(&draft.ai);
+        }
+        if ui
+            .add_enabled(has_sel, c::Button::ghost("Remove"))
+            .clicked()
+            && let Some(prof) = &selected_profile
+        {
+            draft.ai.remove_profile(&prof.id);
+            ai_manager.clear_test_state(&prof.id);
+            if !draft.removed_ai_secrets.contains(&prof.id) {
+                draft.removed_ai_secrets.push(prof.id.clone());
             }
-            if ui.add_enabled(has_sel, c::Button::ghost("Edit…")).clicked()
-                && let Some(prof) = &selected_profile
-            {
-                let has_key = ai_manager.has_secret(&prof.id);
-                *ai_connection_modal = Some(AiConnectionModal::new_edit(
-                    prof,
-                    has_key,
-                    AiConnectionModalTarget::Preferences,
-                ));
-            }
-            if ui.add_enabled(has_sel, c::Button::ghost("Test")).clicked()
-                && let Some(prof) = &selected_profile
-            {
-                let _ = ai_manager.test_profile(prof);
-                draft.has_ready_ai = ai_manager.has_ready_connection(&draft.ai);
-            }
-            if ui
-                .add_enabled(has_sel, c::Button::ghost("Remove"))
-                .clicked()
-                && let Some(prof) = &selected_profile
-            {
-                draft.ai.remove_profile(&prof.id);
-                ai_manager.clear_test_state(&prof.id);
-                if !draft.removed_ai_secrets.contains(&prof.id) {
-                    draft.removed_ai_secrets.push(prof.id.clone());
-                }
-                draft.selected_ai_profile = draft.ai.profiles.first().map(|p| p.id.clone());
-                draft.has_ready_ai = ai_manager.has_ready_connection(&draft.ai);
-            }
-        });
-    }
+            draft.selected_ai_profile = draft.ai.profiles.first().map(|p| p.id.clone());
+            draft.has_ready_ai = ai_manager.has_ready_connection(&draft.ai);
+        }
+    });
 
     section(ui, "Default");
-    row(ui, "Default connection", |ui| {
+    row(ui, "Connection", |ui| {
         if draft.ai.profiles.is_empty() {
-            disabled(ui, |ui| select(ui, "None", 280.0));
+            disabled(ui, |ui| select(ui, "None", metrics::field_l()));
         } else {
             let current_label = draft
                 .ai
@@ -2675,7 +2708,7 @@ fn prefs_ai(
                 .map_or("None", |p| p.display_name.as_str())
                 .to_owned();
             c::Select::new("prefs-ai-default", &current_label)
-                .width(280.0)
+                .width(metrics::field_l())
                 .show(ui, |ui| {
                     let ids_and_names: Vec<(String, String)> = draft
                         .ai
@@ -2701,6 +2734,7 @@ fn prefs_ai(
     ui.add(c::InlineMessage::info(
         "API keys are kept in the system keychain. They are never written to the project, to preferences or to logs.",
     ));
+    area.remember_below(ui, "prefs-ai", table_bottom);
 }
 
 #[cfg(test)]
@@ -2708,6 +2742,84 @@ mod tests {
     use super::*;
     use crate::sources::{SyntaxColorOverrides, SyntaxColorSlot};
     use neoflash_core::{FrameScript, Project, Script, ScriptLanguage};
+
+    /// v3 "nothing jumps": the dialog rect and the footer are the same for every category, in
+    /// every density.
+    #[test]
+    fn preferences_dialog_rect_is_identical_for_every_category_in_each_density() {
+        use crate::workspace::DensityPref;
+
+        for density in DensityPref::ALL {
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            let mut editor = Editor::from_project(&ctx, Project::blank());
+            editor.workspace.density = density;
+            editor.open_preferences(PAGE_GENERAL);
+            let mut time = 0.0_f64;
+            let mut frame = |editor: &mut Editor| {
+                time += 0.1;
+                ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1920.0, 1080.0),
+                        )),
+                        time: Some(time),
+                        ..Default::default()
+                    },
+                    |ctx| editor.preferences_dialog(ctx),
+                )
+            };
+            let mut reference = None;
+            for (page, page_name) in PREFERENCE_PAGES.iter().enumerate() {
+                editor.preferences.as_mut().unwrap().page = page;
+                frame(&mut editor);
+                frame(&mut editor);
+                let out = frame(&mut editor);
+                let rect = ctx
+                    .memory(|m| m.area_rect(egui::Id::new("preferences")))
+                    .expect("Preferences modal area");
+                // The modal frame adds its 1 pt border on every side.
+                let expected = egui::vec2(metrics::dialog_l(), metrics::dialog_l_height());
+                assert!(
+                    (rect.width() - expected.x).abs() <= 2.0
+                        && (rect.height() - expected.y).abs() <= 2.0,
+                    "{density:?} · {page_name}: dialog is {:?}, expected {expected:?}",
+                    rect.size()
+                );
+                // "Save" is also a row of the Shortcuts page; the reset button is unique.
+                let footer = out
+                    .platform_output
+                    .accesskit_update
+                    .as_ref()
+                    .unwrap()
+                    .nodes
+                    .iter()
+                    .find_map(|(_, n)| {
+                        (n.label() == Some("Reset to defaults"))
+                            .then(|| n.bounds())
+                            .flatten()
+                    })
+                    .expect("Reset to defaults button");
+                match &reference {
+                    None => reference = Some((rect, footer)),
+                    Some((first, first_footer)) => {
+                        assert_eq!(
+                            rect, *first,
+                            "{density:?} · {}: dialog rect changed",
+                            PREFERENCE_PAGES[page]
+                        );
+                        assert_eq!(
+                            footer, *first_footer,
+                            "{density:?} · {}: footer moved",
+                            PREFERENCE_PAGES[page]
+                        );
+                    }
+                }
+            }
+        }
+        metrics::set_density(Default::default());
+    }
 
     #[test]
     fn t376_syntax_color_pickers_update_live_persist_and_reset_cleanly() {

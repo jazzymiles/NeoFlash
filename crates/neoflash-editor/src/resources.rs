@@ -301,7 +301,7 @@ impl Editor {
                 .mono(),
         );
         ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = egui::Vec2::splat(space::S2);
+            ui.spacing_mut().item_spacing = egui::Vec2::splat(space::s2());
             let changed = self.resource_panel.path != self.project.resources[index].path
                 || self.resource_panel.media_type != self.project.resources[index].media_type;
             if ui

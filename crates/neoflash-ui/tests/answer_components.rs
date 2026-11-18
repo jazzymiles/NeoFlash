@@ -3,7 +3,7 @@
 use eframe::egui;
 use neoflash_ui::components::{self as c, headers, weight};
 use neoflash_ui::icons::i20;
-use neoflash_ui::{Theme, theme, typography};
+use neoflash_ui::{Theme, metrics, theme, typography};
 
 /// Run `content` for a few frames (fonts are installed on the first one) and return its last value.
 fn run<R>(theme_: Theme, mut content: impl FnMut(&mut egui::Ui) -> R) -> R {
@@ -27,7 +27,7 @@ fn run<R>(theme_: Theme, mut content: impl FnMut(&mut egui::Ui) -> R) -> R {
 }
 
 #[test]
-fn document_tabs_clamp_between_96_and_220() {
+fn document_tabs_clamp_between_the_small_and_large_field_widths() {
     for t in [Theme::Dark, Theme::Light] {
         let widths = run(t, |ui| {
             ui.horizontal(|ui| {
@@ -46,9 +46,12 @@ fn document_tabs_clamp_between_96_and_220() {
             })
             .inner
         });
-        assert_eq!(widths[0], (headers::DOCUMENT_TAB_MIN, 32.0));
-        assert!(widths[1].0 > 96.0 && widths[1].0 < 220.0, "{widths:?}");
-        assert_eq!(widths[2].0, headers::DOCUMENT_TAB_MAX);
+        let (min, max) = (headers::document_tab_min(), headers::document_tab_max());
+        assert_eq!((min, max), (metrics::field_s(), metrics::field_l()));
+        assert_eq!(widths[0], (min, headers::document_tab_height()));
+        assert_eq!(headers::document_tab_height(), metrics::control());
+        assert!(widths[1].0 > min && widths[1].0 < max, "{widths:?}");
+        assert_eq!(widths[2].0, max);
     }
     use headers::DocumentTabTrailing as T;
     assert_eq!(T::of(true, false, false), T::Close);
@@ -196,12 +199,17 @@ fn v22_components_have_figma_sizes() {
             }
             (flyout, preset, shape, field, inline)
         });
-        assert_eq!(sizes.0, egui::vec2(260.0, 28.0));
-        assert_eq!(sizes.1, egui::vec2(272.0, 36.0));
-        assert_eq!(sizes.2, egui::vec2(24.0, 24.0));
-        // Slider 140 + 10 gap + 74 field, 32 pt high (field height).
-        assert_eq!(sizes.3, egui::vec2(224.0, 32.0));
-        assert_eq!(sizes.4.y, 20.0);
+        assert_eq!(sizes.0, egui::vec2(260.0, metrics::row()));
+        assert_eq!(
+            sizes.1,
+            egui::vec2(272.0, c::brushes::brush_preset_height())
+        );
+        assert_eq!(sizes.2, egui::Vec2::splat(c::brushes::BRUSH_SHAPE));
+        // Rail (field-m) + control gap + numeric field (num), one control high.
+        let paired = metrics::field_m() + c::toggle::slider_gap() + c::toggle::slider_field();
+        assert_eq!(c::toggle::slider_field(), metrics::field_num());
+        assert_eq!(sizes.3, egui::vec2(paired, metrics::control()));
+        assert_eq!(sizes.4.y, metrics::toggle_row());
     }
 }
 
@@ -218,11 +226,11 @@ fn keyboard_highlighted_menu_item_lays_out_like_a_row() {
         .rect
         .height()
     });
-    assert_eq!(h, 28.0);
+    assert_eq!(h, metrics::row());
 }
 
 #[test]
-fn compact_type_header_is_36_and_the_default_stays_48() {
+fn both_type_headers_are_one_panel_tab_line() {
     for t in [Theme::Dark, Theme::Light] {
         let (regular, compact) = run(t, |ui| {
             let regular = ui.add(c::TypeHeader {
@@ -237,7 +245,10 @@ fn compact_type_header_is_36_and_the_default_stays_48() {
             });
             (regular.rect.height(), compact.rect.height())
         });
-        assert_eq!((regular, compact), (48.0, 36.0));
+        assert_eq!(
+            (regular, compact),
+            (metrics::panel_tab(), metrics::panel_tab())
+        );
     }
 }
 

@@ -1,7 +1,9 @@
-//! R-006: approved Paste motion special composition, existing NF2 components only.
+//! R-006: Paste motion special (v3 `D2.pasteMotion`): property checkboxes in two equal columns,
+//! two override options, `Select none` as the ghost button of the footer.
+use super::dialog_helpers::{FormDialog, dialog_width, form_line, group_caption};
 use crate::app::Editor;
 use eframe::egui;
-use neoflash_ui::{TextStyle, components as c, tokens::space, typography::rich};
+use neoflash_ui::{components as c, metrics, tokens::space};
 
 impl Editor {
     pub(crate) fn paste_motion_special_dialog(&mut self, ctx: &egui::Context) {
@@ -13,71 +15,66 @@ impl Editor {
         let mut paste = false;
         let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let nf = neoflash_ui::palette(ctx);
+        let width = dialog_width(ctx, metrics::dialog_m());
+        let can_paste = options.any() && self.can_paste_motion();
         let modal = egui::Modal::new(egui::Id::new("paste-motion-special"))
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(nf.overlay)
             .show(ctx, |ui| {
-                ui.set_width(440.);
-                cancel |= c::DialogHeader {
-                    title: "Paste motion special",
-                }
-                .show(ui);
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S5 as i8))
-                    .show(ui, |ui| {
-                        ui.set_width(440. - 2. * space::S5);
-                        ui.spacing_mut().item_spacing.y = space::S3;
-                        ui.label(rich("PROPERTIES", TextStyle::Overline).color(nf.text_secondary));
-                        ui.columns(2, |columns| {
-                            for (column, choices) in [
-                                &[
-                                    (0, "X position"),
-                                    (2, "Horizontal scale"),
-                                    (4, "Rotation and skew"),
-                                    (6, "Filters"),
-                                    (8, "Ease"),
-                                ][..],
-                                &[
-                                    (1, "Y position"),
-                                    (3, "Vertical scale"),
-                                    (5, "Colour"),
-                                    (7, "Blend mode"),
-                                ][..],
-                            ]
-                            .into_iter()
-                            .enumerate()
-                            {
-                                columns[column].spacing_mut().item_spacing.y = 10.;
-                                for &(index, label) in choices {
-                                    columns[column].add(c::Checkbox::new(
-                                        &mut options.properties[index],
-                                        label,
-                                    ));
-                                }
+                let dialog = FormDialog::show(ui, "Paste motion special", width, None);
+                cancel |= dialog.close;
+                dialog.page(ui, "paste-motion-special", |ui, _| {
+                    group_caption(ui, "Properties");
+                    // Nine property checkboxes in two equal columns, one pair per row.
+                    let cell = ((ui.available_width() - space::s2()) / 2.0).floor();
+                    for pair in [
+                        [(0, "X position"), (1, "Y position")],
+                        [(2, "Horizontal scale"), (3, "Vertical scale")],
+                        [(4, "Rotation and skew"), (5, "Colour")],
+                        [(6, "Filters"), (7, "Blend mode")],
+                    ] {
+                        form_line(ui, |ui| {
+                            for (index, label) in pair {
+                                ui.allocate_ui_with_layout(
+                                    egui::vec2(cell, metrics::control()),
+                                    egui::Layout::left_to_right(egui::Align::Center),
+                                    |ui| {
+                                        ui.set_min_width(cell);
+                                        ui.add(c::Checkbox::new(
+                                            &mut options.properties[index],
+                                            label,
+                                        ));
+                                    },
+                                );
                             }
                         });
-                        ui.label(rich("OPTIONS", TextStyle::Overline).color(nf.text_secondary));
+                    }
+                    form_line(ui, |ui| {
+                        ui.add(c::Checkbox::new(&mut options.properties[8], "Ease"));
+                    });
+                    group_caption(ui, "Options");
+                    form_line(ui, |ui| {
                         ui.add(c::Checkbox::new(
                             &mut options.preserve_scale,
                             "Override target scale properties",
                         ));
+                    });
+                    form_line(ui, |ui| {
                         ui.add(c::Checkbox::new(
                             &mut options.preserve_rotation,
                             "Override target rotation and skew properties",
                         ));
                     });
+                });
                 let mut none = false;
-                c::surface::dialog_footer(
+                dialog.footer(
                     ui,
                     |ui| {
                         none = ui.add(c::Button::ghost("Select none")).clicked();
                     },
                     |ui| {
                         paste |= ui
-                            .add_enabled(
-                                options.any() && self.can_paste_motion(),
-                                c::Button::primary("Paste"),
-                            )
+                            .add_enabled(can_paste, c::Button::primary("Paste"))
                             .clicked();
                         cancel |= ui.add(c::Button::new("Cancel")).clicked();
                     },

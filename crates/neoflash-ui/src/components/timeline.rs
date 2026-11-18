@@ -243,7 +243,7 @@ impl LayerRow<'_> {
             rect.bottom() - 0.5,
             Stroke::new(1.0_f32, p.timeline_line),
         );
-        let mut x = rect.left() + space::S2 + self.indent as f32 * LAYER_INDENT;
+        let mut x = rect.left() + space::s2() + self.indent as f32 * LAYER_INDENT;
         let cy = rect.center().y;
         // `Size=Compact` (Figma 166:1038…): Short 22 pt / Compact 16 pt rows use 12 pt icons, 4 pt gaps
         // and NF2/Small / NF2/Caption labels; toggle columns keep their 20 pt width so the header icons line up.
@@ -274,7 +274,7 @@ impl LayerRow<'_> {
                 None,
             );
         }
-        x += icon + if compact { space::S1 } else { 2.0 };
+        x += icon + if compact { space::s1() } else { 2.0 };
         let ic = if self.selected {
             p.accent_default
         } else {
@@ -288,18 +288,18 @@ impl LayerRow<'_> {
             icon,
             ic,
         );
-        x += icon + if compact { space::S1 } else { space::S2 };
+        x += icon + if compact { space::s1() } else { space::s2() };
         let toggle_count = if columns.solo.is_some() { 4.0 } else { 3.0 };
-        let toggles_left = rect.right() - space::S2 - toggle_count * LAYER_TOGGLE;
-        let toggles_w = toggle_count * LAYER_TOGGLE + space::S2 + 8.0;
+        let toggles_left = rect.right() - TOGGLES_INSET - toggle_count * LAYER_TOGGLE;
+        let toggles_w = toggle_count * LAYER_TOGGLE + TOGGLES_INSET + 8.0;
         let narrow_mode = rect.width() < crate::metrics::LAYER_MODE_NARROW_BELOW;
         let mode_w = if columns.mode == ModeCell::Hidden {
             0.0
         } else if narrow_mode {
-            LAYER_TOGGLE + space::S1
+            LAYER_TOGGLE + MODE_GAP
         } else {
             // Cell + 4 pt to the toggles + 4 pt to the label: 92 pt with the Solo column (Figma 143:22609).
-            LAYER_MODE + space::S2
+            LAYER_MODE + 2.0 * MODE_GAP
         };
         let pencil_w = if self.editing { icon + 4.0 } else { 0.0 };
         let label_right = rect.right() - toggles_w - mode_w - pencil_w;
@@ -348,14 +348,14 @@ impl LayerRow<'_> {
                 LAYER_MODE
             };
             let r = Rect::from_min_size(
-                egui::pos2(toggles_left - space::S1 - cell_w, cy - mode_h / 2.0),
+                egui::pos2(toggles_left - MODE_GAP - cell_w, cy - mode_h / 2.0),
                 egui::vec2(cell_w, mode_h),
             );
             mode_rect = Some(r);
             if let ModeCell::Mode(name) = columns.mode {
                 let resp = ui.interact(r, row.id.with("mode"), Sense::click());
                 if resp.hovered() {
-                    ui.painter().rect_filled(r, cr(radius::SM), p.bg_hover);
+                    ui.painter().rect_filled(r, cr(radius::sm()), p.bg_hover);
                 }
                 if narrow_mode {
                     // Narrow column: the blend mode is a shape cue, shown only when it is not Normal.
@@ -388,7 +388,7 @@ impl LayerRow<'_> {
                     };
                     let g = galley(ui, name, style, color);
                     ui.painter().with_clip_rect(r).galley(
-                        egui::pos2(r.left() + space::S1, cy - g.size().y / 2.0),
+                        egui::pos2(r.left() + space::s1(), cy - g.size().y / 2.0),
                         g,
                         color,
                     );
@@ -462,6 +462,12 @@ impl LayerRow<'_> {
         }
     }
 }
+
+/// Fixed layer-column geometry (the same in every density, like `LAYER_TOGGLE` and `LAYER_MODE`):
+/// inset of the toggle columns from the right edge, and the gap on each side of the Mode cell.
+/// `metrics::layer_column_mode_solo()` counts them as its fixed `+ 8`.
+pub const TOGGLES_INSET: f32 = 8.0;
+const MODE_GAP: f32 = 4.0;
 
 /// `NF2/TL Layer` `Size=Compact` applies to rows shorter than the 28 pt default (Short 18, Compact 14).
 pub fn layer_row_is_compact(height: f32) -> bool {
@@ -618,14 +624,14 @@ pub fn layers_header_with(
     );
     text_at(
         ui,
-        rect.left() + space::S3,
+        rect.left() + space::s3(),
         rect,
         galley(ui, "Layers", TextStyle::Overline, p.text_tertiary),
         p.text_tertiary,
     );
     let mut out = LayersHeaderResponse::default();
     let toggle_count = if columns.solo { 4.0 } else { 3.0 };
-    let mut x = rect.right() - space::S2 - toggle_count * LAYER_TOGGLE;
+    let mut x = rect.right() - TOGGLES_INSET - toggle_count * LAYER_TOGGLE;
     if columns.mode && width >= crate::metrics::LAYER_MODE_NARROW_BELOW {
         let left = x - LAYER_MODE;
         text_at(
@@ -1235,7 +1241,7 @@ pub fn paint_onion_range(
         egui::pos2(x0, ruler.top() + 6.0),
         egui::pos2(x1, ruler.bottom() - 2.0),
     );
-    painter.rect_filled(band, cr(radius::SM), p.accent_subtle);
+    painter.rect_filled(band, cr(radius::sm()), p.accent_subtle);
     let h0 = Rect::from_min_max(
         egui::pos2(x0, band.top()),
         egui::pos2(x0 + 3.0, band.bottom()),

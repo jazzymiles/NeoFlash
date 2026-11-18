@@ -393,9 +393,12 @@ impl Editor {
         }
 
         let trigger = state.trigger_rect.unwrap_or_else(|| {
-            Rect::from_min_size(canvas.min + Vec2::splat(space::S3), egui::vec2(120.0, 28.0))
+            Rect::from_min_size(
+                canvas.min + Vec2::splat(space::s3()),
+                egui::vec2(120.0, 28.0),
+            )
         });
-        let pos = Pos2::new(trigger.left(), trigger.bottom() + space::S1);
+        let pos = Pos2::new(trigger.left(), trigger.bottom() + space::s1());
 
         let nf = neoflash_ui::palette(ctx);
         let query_was_empty = state.query.is_empty();
@@ -408,9 +411,12 @@ impl Editor {
             .constrain_to(ctx.content_rect())
             .show(ctx, |ui| {
                 c::popover_frame(ctx).show(ui, |ui| {
-                    ui.set_width(312.0);
+                    // 312 pt at Normal, scaled with the small-dialog width of the density.
+                    let metrics_scale =
+                        neoflash_ui::metrics::dialog_s() / neoflash_ui::metrics::DIALOG_S;
+                    ui.set_width((312.0 * metrics_scale).round());
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    ui.add_space(space::S1);
+                    ui.add_space(space::s1());
                     let search = ui
                         .add(c::Search::new(&mut state.query, "Find symbol or scene").width(312.0));
                     if state.just_opened {
@@ -420,7 +426,7 @@ impl Editor {
                     if search.changed() {
                         state.active = 0;
                     }
-                    ui.add_space(space::S1);
+                    ui.add_space(space::s1());
 
                     let model = self.build_symbols_popover_model(&state);
                     let flat = model.flat_targets();
@@ -465,19 +471,19 @@ impl Editor {
 
                     c::menu_separator(ui);
                     ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing = egui::vec2(space::S1, space::S1);
-                        ui.add_space(space::S2);
+                        ui.spacing_mut().item_spacing = egui::vec2(space::s1(), space::s1());
+                        ui.add_space(space::s2());
                         for (key, action) in [("↑↓", "move"), ("↵", "edit"), ("⌥↵", "in place")]
                         {
                             c::kbd(ui, key, false);
                             ui.label(rich(action, TextStyle::Small).color(nf.text_secondary));
-                            ui.add_space(space::S1);
+                            ui.add_space(space::s1());
                         }
                         let nw = ui
                             .scope(|ui| {
                                 ui.disable();
                                 ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = space::S1;
+                                    ui.spacing_mut().item_spacing.x = space::s1();
                                     c::kbd(ui, "⌘↵", false);
                                     ui.label(
                                         rich("new window", TextStyle::Small)

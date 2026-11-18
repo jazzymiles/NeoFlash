@@ -167,15 +167,24 @@ impl Editor {
             .auto_shrink([false, false])
             .themed()
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
+                ui.spacing_mut().item_spacing = egui::vec2(space::s2(), space::s2());
                 self.motion_editor(ui);
             });
         self.end_property_interaction(&ctx);
     }
 
-    /// Panel / Motion editor body: property column (448) + one curve lane per property over the span.
+    /// Panel / Motion editor body: property column (`width/dialog-m`: name, Value `field-s`, Ease
+    /// `field-m`, Keyframe `field-s`) + one curve lane per property over the span.
     fn motion_editor(&mut self, ui: &mut Ui) {
-        const LEFT: f32 = 448.0;
+        #[allow(non_snake_case)]
+        let LEFT = metrics::dialog_m();
+        // Narrowest curve area next to the property column.
+        let lanes_min = metrics::tree_width();
+        let gap = space::s2();
+        let (value_w, ease_w, key_w) = (metrics::field_s(), metrics::field_m(), metrics::field_s());
+        // Row of one property: `timeline_controls()` high, controls centred in it.
+        let row_h = metrics::timeline_controls();
+        let row_pad = (row_h - metrics::control()) / 2.0;
         let Some(span) = self.motion_tween_span() else {
             c::EmptyState {
                 icon: i20::FILM,
@@ -191,9 +200,9 @@ impl Editor {
         let frames = span.frames();
         let editable = self.layer_editable();
         let nf = neoflash_ui::palette(ui.ctx());
-        ui.set_min_width(LEFT + 240.);
+        ui.set_min_width(LEFT + lanes_min);
         ui.spacing_mut().item_spacing.y = 0.0;
-        let width = ui.available_width().max(LEFT + 240.);
+        let width = ui.available_width().max(LEFT + lanes_min);
         self.motion_sketch_and_wiggler_bar(ui, editable, width, None);
         let top = ui.cursor().min.y;
         let (header, _) = ui.allocate_exact_size(
@@ -212,14 +221,19 @@ impl Editor {
         .add(c::TableRow {
             cells: &["Property", "Value", "Ease", "Keyframe"],
             kind: c::TableRowKind::Header,
-            columns: &[0.0, 0.3, 0.52, 0.76],
+            columns: &{
+                // Captions start where the controls of the rows below start.
+                let key_x = LEFT - space::s3() - key_w;
+                let ease_x = key_x - gap - ease_w;
+                let value_x = ease_x - gap - value_w;
+                [0.0, value_x, ease_x, key_x].map(|x| (x - space::s3()).max(0.0) / LEFT)
+            },
         });
         let lanes_x = header.left() + LEFT;
         let scale = egui::Rect::from_min_max(egui::pos2(lanes_x, header.top()), header.max);
         ui.painter().rect_filled(scale, 0.0, nf.bg_raised);
         c::paint_frame_scale(ui.painter(), ui.ctx(), scale, frames, 5);
-        let collapsed_h = (neoflash_ui::metrics::control() + space::S2)
-            * (1. + ((state.graph_size - 55.).max(0.) / 45.) as f32);
+        let collapsed_h = row_h * (1. + ((state.graph_size - 55.).max(0.) / 45.) as f32);
         let expanded_h = (120. * state.expanded / 70.).clamp(f64::from(collapsed_h), 240.) as f32;
         let last = frames.saturating_sub(1).max(1) as f32;
         let skew_keys = self.motion_key_frames(&span, TweenProperty::Skew);
@@ -277,11 +291,13 @@ impl Editor {
                             .id_salt(("motion-section-row", *label))
                             .max_rect(egui::Rect::from_min_size(
                                 rect.min,
-                                egui::vec2(LEFT - space::S2, rect.height()),
+                                egui::vec2(LEFT - space::s2(), rect.height()),
                             )),
                     )
                     .horizontal(|ui| {
-                        ui.allocate_ui(egui::vec2(LEFT - 48.0, rect.height()), |ui| {
+                        let header_width =
+                            LEFT - 2.0 * space::s2() - metrics::control() - space::s3();
+                        ui.allocate_ui(egui::vec2(header_width, rect.height()), |ui| {
                             c::SectionHeader::new(label)
                                 .id_salt(("motion-editor", *label))
                                 .show(ui, |_| {});
@@ -289,11 +305,11 @@ impl Editor {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let add = ui.add_enabled(
                                 editable,
-                                c::IconButton::new(i16::PLUS, "Add property").side(24.0),
+                                c::IconButton::new(i16::PLUS, "Add property"),
                             );
                             match *label {
                                 "Basic motion" => {
-                                    c::popup_below(&add, 160.0, |ui| {
+                                    c::popup_below(&add, metrics::field_m(), |ui| {
                                         for (prop, item_label) in [
                                             (TweenProperty::X, "X"),
                                             (TweenProperty::Y, "Y"),
@@ -347,7 +363,7 @@ impl Editor {
                                     });
                                 }
                                 "Transformation" => {
-                                    c::popup_below(&add, 160.0, |ui| {
+                                    c::popup_below(&add, metrics::field_m(), |ui| {
                                         for (prop, item_label) in [
                                             (TweenProperty::ScaleX, "Scale X"),
                                             (TweenProperty::ScaleY, "Scale Y"),
@@ -386,7 +402,7 @@ impl Editor {
                                     });
                                 }
                                 "Colour effect" => {
-                                    c::popup_below(&add, 160.0, |ui| {
+                                    c::popup_below(&add, metrics::field_m(), |ui| {
                                         let has_alpha = self
                                             .motion_key_frames(&span, TweenProperty::Alpha)
                                             .len()
@@ -427,7 +443,7 @@ impl Editor {
                                     });
                                 }
                                 "Filters" => {
-                                    c::popup_below(&add, 160.0, |ui| {
+                                    c::popup_below(&add, metrics::field_m(), |ui| {
                                         for (item_label, filter) in [
                                             (
                                                 "Blur",
@@ -530,7 +546,7 @@ impl Editor {
                     }
                     c::paint_curve_lane(ui.painter(), ui.ctx(), lane, frames, &lane_keys, selected);
                     // Lane: click moves the playhead; on the selected lane a key drags its value.
-                    let inner = lane.shrink2(egui::vec2(space::S3, space::S3));
+                    let inner = lane.shrink2(egui::vec2(space::s3(), space::s3()));
                     let lane_response = ui.interact(
                         lane,
                         ui.id().with(("motion-lane", name)),
@@ -605,26 +621,27 @@ impl Editor {
                             state.drag = None;
                         }
                     }
-                    let left = egui::Rect::from_min_size(
-                        rect.min,
-                        egui::vec2(LEFT, neoflash_ui::metrics::control() + space::S2),
-                    );
+                    let left = egui::Rect::from_min_size(rect.min, egui::vec2(LEFT, row_h));
                     ui.new_child(
                         egui::UiBuilder::new()
                             .id_salt(("motion-prop-row", *name))
-                            .max_rect(left.shrink2(egui::vec2(space::S3, space::S1)))
+                            .max_rect(left.shrink2(egui::vec2(space::s3(), row_pad)))
                             .layout(egui::Layout::left_to_right(egui::Align::Center)),
                     )
                     .scope(|ui| {
+                        ui.spacing_mut().item_spacing.x = gap;
+                        // The name takes what the three fixed columns leave.
+                        let name_w =
+                            (ui.available_width() - value_w - ease_w - key_w - 3.0 * gap).max(0.0);
                         let (label, label_response) = ui.allocate_exact_size(
-                            egui::vec2(120.0, metrics::TOGGLE_ROW),
+                            egui::vec2(name_w, metrics::control()),
                             egui::Sense::click(),
                         );
                         if label_response.clicked() {
                             state.selected = property;
                         }
-                        ui.painter().text(
-                            label.left_center() + egui::vec2(space::S4, 0.0),
+                        ui.painter().with_clip_rect(label).text(
+                            label.left_center() + egui::vec2(space::s4(), 0.0),
                             egui::Align2::LEFT_CENTER,
                             *name,
                             neoflash_ui::typography::font(TextStyle::Body),
@@ -643,7 +660,7 @@ impl Editor {
                                 .unit(unit)
                                 .decimals(*decimals)
                                 .range(range)
-                                .width(96.0),
+                                .width(value_w),
                         );
                         if response.changed() {
                             self.set_motion_value(
@@ -660,7 +677,7 @@ impl Editor {
                         let mut open_curve = false;
                         ui.add_enabled_ui(editable, |ui| {
                             c::Select::new(("motion-editor-ease", *name), ease_name(shown_ease))
-                                .width(120.0)
+                                .width(ease_w)
                                 .show(ui, |ui| {
                                     if ui
                                         .add(
@@ -719,17 +736,21 @@ impl Editor {
                         }
                         let previous = key_frames.iter().rev().find(|f| **f < self.frame).copied();
                         let next = key_frames.iter().find(|f| **f > self.frame).copied();
+                        // Keyframe navigator centred in its column: previous · ◆ · next.
+                        const DIAMOND: f32 = 12.0;
+                        let nav = 2.0 * metrics::control() + DIAMOND + 2.0 * gap;
+                        ui.add_space(((key_w - nav) / 2.0).max(0.0));
                         if ui
                             .add_enabled(
                                 previous.is_some(),
-                                c::IconButton::new(i16::STEPBACK, "Previous keyframe").side(24.0),
+                                c::IconButton::new(i16::STEPBACK, "Previous keyframe"),
                             )
                             .clicked()
                         {
                             seek = previous;
                         }
-                        let (diamond, diamond_response) =
-                            ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::click());
+                        let (diamond, diamond_response) = ui
+                            .allocate_exact_size(egui::Vec2::splat(DIAMOND), egui::Sense::click());
                         let keyed_here = key_frames.contains(&self.frame);
                         c::motion::paint_key_diamond(
                             ui.painter(),
@@ -754,7 +775,7 @@ impl Editor {
                         if ui
                             .add_enabled(
                                 next.is_some(),
-                                c::IconButton::new(i16::STEPFWD, "Next keyframe").side(24.0),
+                                c::IconButton::new(i16::STEPFWD, "Next keyframe"),
                             )
                             .clicked()
                         {
@@ -771,9 +792,9 @@ impl Editor {
             egui::Stroke::new(1.0_f32, nf.border_subtle),
         );
         let playhead = lanes_x
-            + space::S3
+            + space::s3()
             + self.frame.saturating_sub(span.start) as f32 / last
-                * (width - LEFT - 2.0 * space::S3);
+                * (width - LEFT - 2.0 * space::s3());
         c::paint_lane_playhead(
             ui.painter(),
             ui.ctx(),
@@ -782,40 +803,49 @@ impl Editor {
             bottom,
             self.frame + 1,
         );
-        ui.add_space(space::S3);
-        ui.spacing_mut().item_spacing = egui::vec2(space::S3, space::S2);
-        ui.horizontal(|ui| {
-            caption(ui, "Graph size");
-            ui.add(c::Slider::new(&mut state.graph_size, 0.0..=100.0, "Graph size").width(120.0));
-            caption(ui, "Expanded");
-            ui.add(
-                c::Slider::new(&mut state.expanded, 0.0..=100.0, "Expanded graph size")
-                    .width(120.0),
-            );
-            let mut shown = f64::from(frames);
-            let response = ui.add_enabled(
-                editable,
-                c::Field::new(&mut shown, "Frames")
-                    .prefix("Frames")
-                    .decimals(0)
-                    .range(1.0..=10_000.0)
-                    .stepper()
-                    .width(120.0),
-            );
-            if response.changed() {
-                self.set_motion_span_frames(
-                    &span,
-                    shown.round().clamp(1.0, 10_000.0) as u32,
-                    Some(response.id),
+        // Footer: one `timeline_controls()` row.
+        ui.spacing_mut().item_spacing = egui::vec2(space::s3(), 0.0);
+        let footer = egui::vec2(width, metrics::timeline_controls());
+        ui.allocate_ui_with_layout(
+            footer,
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.add_space(space::s3());
+                caption(ui, "Graph size");
+                ui.add(
+                    c::Slider::new(&mut state.graph_size, 0.0..=100.0, "Graph size")
+                        .width(metrics::field_s()),
                 );
-            }
-            let curve_hint = if cfg!(target_os = "macos") {
-                "Click a curve to edit · Option-drag a keyframe to copy · Shift snaps to frames"
-            } else {
-                "Click a curve to edit · Alt-drag a keyframe to copy · Shift snaps to frames"
-            };
-            ui.label(rich(curve_hint, TextStyle::Small).color(nf.text_secondary));
-        });
+                caption(ui, "Expanded");
+                ui.add(
+                    c::Slider::new(&mut state.expanded, 0.0..=100.0, "Expanded graph size")
+                        .width(metrics::field_s()),
+                );
+                let mut shown = f64::from(frames);
+                let response = ui.add_enabled(
+                    editable,
+                    c::Field::new(&mut shown, "Frames")
+                        .prefix("Frames")
+                        .decimals(0)
+                        .range(1.0..=10_000.0)
+                        .stepper()
+                        .width(metrics::field_s()),
+                );
+                if response.changed() {
+                    self.set_motion_span_frames(
+                        &span,
+                        shown.round().clamp(1.0, 10_000.0) as u32,
+                        Some(response.id),
+                    );
+                }
+                let curve_hint = if cfg!(target_os = "macos") {
+                    "Click a curve to edit · Option-drag a keyframe to copy · Shift snaps to frames"
+                } else {
+                    "Click a curve to edit · Alt-drag a keyframe to copy · Shift snaps to frames"
+                };
+                ui.label(rich(curve_hint, TextStyle::Small).color(nf.text_secondary));
+            },
+        );
         ctx.data_mut(|d| d.insert_temp(state_id(), state));
         if let Some(frame) = seek {
             self.seek_frame(frame);
@@ -839,13 +869,14 @@ impl Editor {
             bar.bottom() - 0.5,
             egui::Stroke::new(1.0_f32, p.border_subtle),
         );
-        let inner = bar.shrink2(egui::vec2(space::S2, 0.0));
+        let inner = bar.shrink2(egui::vec2(space::s3(), 0.0));
         ui.scope_builder(
             egui::UiBuilder::new()
                 .max_rect(inner)
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
             |ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
+                ui.set_clip_rect(bar.intersect(ui.clip_rect()));
+                ui.spacing_mut().item_spacing = egui::vec2(space::s2(), space::s2());
                 ui.label(rich("Wiggler", TextStyle::Small).color(p.text_secondary));
                 let mut freq = self.timeline_motion.wiggler.frequency_hz.max(0.5);
                 if ui
@@ -856,7 +887,7 @@ impl Editor {
                             .unit("Hz")
                             .decimals(1)
                             .range(0.5..=60.0)
-                            .width(100.0),
+                            .width(metrics::field_s()),
                     )
                     .changed()
                 {
@@ -871,7 +902,7 @@ impl Editor {
                             .unit("px")
                             .decimals(1)
                             .range(0.0..=500.0)
-                            .width(100.0),
+                            .width(metrics::field_s()),
                     )
                     .changed()
                 {
@@ -894,7 +925,7 @@ impl Editor {
                             .prefix("Smooth")
                             .decimals(1)
                             .range(0.0..=100.0)
-                            .width(100.0),
+                            .width(metrics::field_s()),
                     )
                     .changed()
                 {

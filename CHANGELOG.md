@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- Redesigned the editor interface as **design system v3**: every control now follows one of three density paradigms
+  chosen in **Preferences ▸ General ▸ Density** or **Window ▸ Density** — **Normal** (the former Comfortable, now
+  noticeably tighter: 26 pt controls, 264 pt inspector), **Compact** and **Classic Flash** — including paddings,
+  gaps, corner radii, checkboxes, switches, sliders, label columns and default panel and dialog widths, not only
+  heights. Nothing resizes while you work: **Preferences**, **Publish settings**, **Scripting Reference**, Help,
+  Document settings, Convert to symbol, Trace bitmap, Find and replace, the export and import dialogs and the AI
+  dialogs keep one size for all their pages, targets and states; a side dock keeps its width when you switch tabs
+  (for example Properties ↔ Transform); the floating **Tools** palette keeps its height when you change tools.
+  **Properties** rows no longer run past the panel edge (`Name │ Swap…`, then the behaviour select with **Edit
+  symbol** and **Duplicate symbol** as icon buttons), and **Used colours** shows one row per colour (swatch, hex with
+  alpha, usage, **Select on stage**) with `Only on stage` and **Import palette…** in the section header and a
+  one-line **Replace** bar. **Publish settings** lists targets in a sidebar with one `Browse…` output row for every
+  target and profile actions in a ⋯ menu. **Scripting Reference** is now an API browser for exactly one language at
+  a time (ActionScript 2, ActionScript 3 or JavaScript / TypeScript, defaulting to the project language): packages
+  and classes, members with their support status in NeoFlash, signatures, parameters, examples and **Insert at
+  cursor**, plus plain **Guides**; Help has its own window with a chapter tree and page outline. The **Tools**
+  palette has no clipped title or empty cells and uses size-matched 16 px tool icons in Compact and Classic Flash
+  (14 new icon masters; PolyStar, Fit and Zoom redrawn to the same optical size). The top bar collapses its menus
+  into one button on narrow windows instead of pushing **Test Movie** and **Publish** off-screen. **UI Layout
+  Studio** has a one-row toolbar and previews a panel in all three densities at once. Saved workspaces and the
+  `comfortable` density preference keep loading (`T-389`).
+
 - Fixed **Used colours** edits so a new colour change preserves intervening document edits and Undo restores the
   correct version. **Auto format** in Actions handles unfinished strings and preserves multiline literal content
   and JavaScript / TypeScript exponent operators. **Output** keeps pending browser messages with their owning

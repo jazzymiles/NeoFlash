@@ -5,16 +5,15 @@
 //! Edits live on a draft in `egui::Context` temp memory until confirmed: `Cancel` / `Esc` discards
 //! without touching the project (and stops any active audition), while `OK` / `Enter` commits name
 //! and audio byte replacements in a single Undo step (`"Sound properties"`).
-use super::dialog_helpers::group;
-use super::planned::caption;
+use super::dialog_helpers::{FormDialog, dialog_width, first_field, form_row, group_caption};
 use crate::app::Editor;
-use crate::paint_controls::two_column_row;
 use crate::timeline_sound::decode_unit;
 use eframe::egui;
 use neoflash_core::*;
 use neoflash_ui::components as c;
 use neoflash_ui::components::timeline as tl;
 use neoflash_ui::icons::i16;
+use neoflash_ui::metrics;
 use neoflash_ui::tokens::{TextStyle, space};
 use neoflash_ui::typography::rich;
 use std::path::PathBuf;
@@ -383,131 +382,118 @@ impl Editor {
         let mut do_toggle_test = false;
 
         let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
+        let width = dialog_width(ctx, metrics::dialog_m());
+        let mut in_name = false;
         let modal = egui::Modal::new(egui::Id::new("sound-properties"))
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
-                ui.set_width(520.0);
-                let header_top = ui.cursor().min;
-                close_cancel |= c::DialogHeader {
-                    title: "Sound properties",
-                }
-                .show(ui);
-                ui.painter().hline(
-                    header_top.x..=header_top.x + 520.0,
-                    header_top.y + neoflash_ui::metrics::dialog_header() - 0.5,
-                    egui::Stroke::new(1.0_f32, p.border_subtle),
-                );
-
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S5 as i8))
-                    .show(ui, |ui| {
-                        let w = 520.0 - 2.0 * space::S5;
-                        ui.set_width(w);
-                        ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
-
-                        ui.horizontal(|ui| {
-                            let (span, _) = ui
-                                .allocate_exact_size(egui::vec2(120.0, 64.0), egui::Sense::hover());
-                            tl::paint_span(ui.painter(), ui.ctx(), span, tl::SpanType::Sound, true);
-                            ui.vertical(|ui| {
-                                ui.spacing_mut().item_spacing.y = space::S1;
+                let dialog = FormDialog::show(ui, "Sound properties", width, None);
+                close_cancel |= dialog.close;
+                dialog.page(ui, "sound-properties-page", |ui, _| {
+                    // Waveform artwork beside the name, the source path and the format line.
+                    let wave = egui::vec2(
+                        metrics::dialog_label(),
+                        2.0 * metrics::control() + metrics::row_gap(),
+                    );
+                    ui.horizontal_top(|ui| {
+                        let (span, _) = ui.allocate_exact_size(wave, egui::Sense::hover());
+                        tl::paint_span(ui.painter(), ui.ctx(), span, tl::SpanType::Sound, true);
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = space::s1();
+                            let w = ui.available_width();
+                            ui.set_width(w);
+                            let name =
+                                ui.add(c::TextField::new(&mut draft.name, "Sound name").width(w));
+                            in_name = first_field(ui, "sound-properties", &name);
+                            for line in [&source_display, &stats_display] {
                                 ui.add(
-                                    c::TextField::new(&mut draft.name, "Sound name")
-                                        .width(w - 120.0 - space::S2),
+                                    egui::Label::new(
+                                        rich(line.as_str(), TextStyle::Small)
+                                            .color(p.text_secondary),
+                                    )
+                                    .truncate(),
                                 );
-                                caption(ui, &source_display);
-                                caption(ui, &stats_display);
-                            });
+                            }
                         });
+                    });
 
-                        group(ui, "Export");
-                        let comp_label =
-                            format!("Compression: {}", draft.export.compression.label());
-                        c::Select::new(ui.id().with("sound-props-compression"), &comp_label)
-                            .width(w)
-                            .show(ui, |ui| {
-                                for comp in SoundCompression::ALL {
-                                    if ui
-                                        .add(
-                                            c::MenuItem::new(&format!(
-                                                "Compression: {}",
-                                                comp.label()
-                                            ))
+                    group_caption(ui, "Export");
+                    form_row(ui, "Compression", |ui| {
+                        c::Select::new(
+                            ui.id().with("sound-props-compression"),
+                            draft.export.compression.label(),
+                        )
+                        .width(metrics::field_m())
+                        .show(ui, |ui| {
+                            for comp in SoundCompression::ALL {
+                                if ui
+                                    .add(
+                                        c::MenuItem::new(comp.label())
                                             .checked(draft.export.compression == comp),
-                                        )
-                                        .clicked()
-                                    {
-                                        draft.export.compression = comp;
-                                        draft.export_modified = true;
-                                        ui.close();
-                                    }
+                                    )
+                                    .clicked()
+                                {
+                                    draft.export.compression = comp;
+                                    draft.export_modified = true;
+                                    ui.close();
                                 }
-                            });
-                        let is_mp3 = draft.export.compression == SoundCompression::Mp3;
-                        let old_bit_rate = draft.export.bit_rate_kbps;
-                        let old_quality = draft.export.quality;
-                        let mut bit_rate = old_bit_rate;
-                        let mut quality = old_quality;
-                        two_column_row(
-                            ui,
-                            |ui, width| {
-                                ui.add_enabled_ui(is_mp3, |ui| {
-                                    let br_label = format!("Bit rate: {bit_rate} kbps");
-                                    c::Select::new(ui.id().with("sound-props-bitrate"), &br_label)
-                                        .width(width)
-                                        .show(ui, |ui| {
-                                            for &kbps in &VALID_AUDIO_BIT_RATES_KBPS {
-                                                if ui
-                                                    .add(
-                                                        c::MenuItem::new(&format!(
-                                                            "Bit rate: {kbps} kbps"
-                                                        ))
-                                                        .checked(bit_rate == kbps),
-                                                    )
-                                                    .clicked()
-                                                {
-                                                    bit_rate = kbps;
-                                                    ui.close();
-                                                }
-                                            }
-                                        });
+                            }
+                        });
+                    });
+                    let is_mp3 = draft.export.compression == SoundCompression::Mp3;
+                    let old_bit_rate = draft.export.bit_rate_kbps;
+                    let old_quality = draft.export.quality;
+                    let mut bit_rate = old_bit_rate;
+                    let mut quality = old_quality;
+                    form_row(ui, "Bit rate", |ui| {
+                        ui.add_enabled_ui(is_mp3, |ui| {
+                            let br_label = format!("{bit_rate} kbps");
+                            c::Select::new(ui.id().with("sound-props-bitrate"), &br_label)
+                                .width(metrics::field_m())
+                                .show(ui, |ui| {
+                                    for &kbps in &VALID_AUDIO_BIT_RATES_KBPS {
+                                        if ui
+                                            .add(
+                                                c::MenuItem::new(&format!("{kbps} kbps"))
+                                                    .checked(bit_rate == kbps),
+                                            )
+                                            .clicked()
+                                        {
+                                            bit_rate = kbps;
+                                            ui.close();
+                                        }
+                                    }
                                 });
-                            },
-                            |ui, width| {
-                                ui.add_enabled_ui(is_mp3, |ui| {
-                                    let q_label = format!("Quality: {}", quality.label());
-                                    c::Select::new(ui.id().with("sound-props-quality"), &q_label)
-                                        .width(width)
-                                        .show(ui, |ui| {
-                                            for q in SoundExportQuality::ALL {
-                                                if ui
-                                                    .add(
-                                                        c::MenuItem::new(&format!(
-                                                            "Quality: {}",
-                                                            q.label()
-                                                        ))
-                                                        .checked(quality == q),
-                                                    )
-                                                    .clicked()
-                                                {
-                                                    quality = q;
-                                                    ui.close();
-                                                }
-                                            }
-                                        });
+                        });
+                    });
+                    form_row(ui, "Quality", |ui| {
+                        ui.add_enabled_ui(is_mp3, |ui| {
+                            c::Select::new(ui.id().with("sound-props-quality"), quality.label())
+                                .width(metrics::field_m())
+                                .show(ui, |ui| {
+                                    for q in SoundExportQuality::ALL {
+                                        if ui
+                                            .add(c::MenuItem::new(q.label()).checked(quality == q))
+                                            .clicked()
+                                        {
+                                            quality = q;
+                                            ui.close();
+                                        }
+                                    }
                                 });
-                            },
-                        );
-                        if bit_rate != old_bit_rate || quality != old_quality {
-                            draft.export.bit_rate_kbps = bit_rate;
-                            draft.export.quality = quality;
-                            draft.export_modified = true;
-                        }
-                        let can_mono = matches!(
-                            draft.export.compression,
-                            SoundCompression::Mp3 | SoundCompression::Wav
-                        );
+                        });
+                    });
+                    if bit_rate != old_bit_rate || quality != old_quality {
+                        draft.export.bit_rate_kbps = bit_rate;
+                        draft.export.quality = quality;
+                        draft.export_modified = true;
+                    }
+                    let can_mono = matches!(
+                        draft.export.compression,
+                        SoundCompression::Mp3 | SoundCompression::Wav
+                    );
+                    form_row(ui, "", |ui| {
                         ui.add_enabled_ui(can_mono, |ui| {
                             if ui
                                 .add(c::Checkbox::new(
@@ -519,50 +505,49 @@ impl Editor {
                                 draft.export_modified = true;
                             }
                         });
-                        let preview = neoflash_export::preview_sound_export_result(
-                            &draft.unit,
-                            &draft.export,
-                            self.workspace.publish.options.audio,
-                        );
-                        if preview.is_reencoded {
-                            ui.label(
-                                rich(&preview.caption, TextStyle::Small).color(p.success_default),
-                            );
-                        } else {
-                            caption(ui, &preview.caption);
-                        }
-
-                        ui.horizontal(|ui| {
-                            if ui
-                                .add_enabled(known_source.is_some(), c::Button::ghost("Update"))
-                                .clicked()
-                            {
-                                do_update = true;
-                            }
-                            if ui.add(c::Button::ghost("Import…")).clicked() {
-                                do_import = true;
-                            }
-                            let test_btn = if playing {
-                                c::Button::ghost("Stop").icon(i16::STOP)
-                            } else {
-                                c::Button::ghost("Test").icon(i16::PLAY)
-                            };
-                            if ui.add(test_btn).clicked() {
-                                do_toggle_test = true;
-                            }
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if ui.add(c::Button::primary("OK")).clicked() {
-                                        close_ok = true;
-                                    }
-                                    if ui.add(c::Button::new("Cancel")).clicked() {
-                                        close_cancel = true;
-                                    }
-                                },
-                            );
-                        });
                     });
+                    let preview = neoflash_export::preview_sound_export_result(
+                        &draft.unit,
+                        &draft.export,
+                        self.workspace.publish.options.audio,
+                    );
+                    form_row(ui, "Result", |ui| {
+                        // The row label names it; the caption keeps only the value.
+                        let result = preview
+                            .caption
+                            .strip_prefix("Result: ")
+                            .unwrap_or(&preview.caption);
+                        ui.add(
+                            egui::Label::new(rich(result, TextStyle::Small).color(
+                                if preview.is_reencoded {
+                                    p.success_default
+                                } else {
+                                    p.text_secondary
+                                },
+                            ))
+                            .truncate(),
+                        );
+                    });
+                });
+                dialog.footer(
+                    ui,
+                    |ui| {
+                        do_update |= ui
+                            .add_enabled(known_source.is_some(), c::Button::ghost("Update"))
+                            .clicked();
+                        do_import |= ui.add(c::Button::ghost("Import…")).clicked();
+                        let test_btn = if playing {
+                            c::Button::ghost("Stop").icon(i16::STOP)
+                        } else {
+                            c::Button::ghost("Test").icon(i16::PLAY)
+                        };
+                        do_toggle_test |= ui.add(test_btn).clicked();
+                    },
+                    |ui| {
+                        close_ok |= ui.add(c::Button::primary("OK")).clicked();
+                        close_cancel |= ui.add(c::Button::new("Cancel")).clicked();
+                    },
+                );
             });
 
         if do_update
@@ -605,7 +590,7 @@ impl Editor {
         }
 
         if !close_cancel && !close_ok {
-            match kb.resolve(ctx, &modal, true) {
+            match kb.resolve_first_field(ctx, &modal, true, in_name) {
                 super::dialog_helpers::DialogKeyboardOutcome::Cancel => close_cancel = true,
                 super::dialog_helpers::DialogKeyboardOutcome::Confirm => close_ok = true,
                 super::dialog_helpers::DialogKeyboardOutcome::None => {}

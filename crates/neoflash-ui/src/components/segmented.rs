@@ -1,8 +1,11 @@
 //! `NF2/Segmented Control` made of `NF2/Segment`s (Selection / Tool, Align to Selection / Stage, RGB / HSB).
 use super::{State, a11y, galley, text_at};
 use crate::theme::{cr, palette};
-use crate::tokens::{TextStyle, radius, space};
+use crate::tokens::{TextStyle, radius};
 use eframe::egui::{self, Response, Sense, Stroke, StrokeKind, Ui};
+
+/// Inset of the segments inside the container.
+const INSET: f32 = 2.0;
 
 pub struct Segmented;
 
@@ -18,48 +21,52 @@ impl Segmented {
         let p = palette(ui.ctx());
         let widths: Vec<f32> = options
             .iter()
-            .map(|(_, l)| galley(ui, l, TextStyle::Body, p.text_primary).size().x + 2.0 * space::S3)
+            .map(|(_, l)| {
+                galley(ui, l, TextStyle::Body, p.text_primary).size().x
+                    + 2.0 * super::button::button_padding()
+            })
             .collect();
         let inner: f32 = widths.iter().sum();
         let total = if full_width {
             ui.available_width()
         } else {
-            inner + 6.0
+            inner + 2.0 * INSET
         };
-        let (outer, _) = ui.allocate_exact_size(
-            egui::vec2(total, crate::metrics::row() + 6.0),
-            Sense::hover(),
-        );
-        ui.painter().rect_filled(outer, cr(radius::LG), p.bg_field);
+        // One control high; segments sit 2 pt inside the container.
+        let height = crate::metrics::control();
+        let (outer, _) = ui.allocate_exact_size(egui::vec2(total, height), Sense::hover());
+        ui.painter()
+            .rect_filled(outer, cr(radius::md()), p.bg_field);
         ui.painter().rect_stroke(
             outer,
-            cr(radius::LG),
-            Stroke::new(1.0_f32, p.border_subtle),
+            cr(radius::md()),
+            Stroke::new(1.0_f32, p.border_default),
             StrokeKind::Inside,
         );
-        let scale = (total - 6.0) / inner;
-        let mut x = outer.left() + 3.0;
+        let scale = (total - 2.0 * INSET) / inner;
+        let mut x = outer.left() + INSET;
         let mut clicked = None;
         for ((v, label), w) in options.iter().zip(widths) {
             let w = w * scale;
             let rect = egui::Rect::from_min_size(
-                egui::pos2(x, outer.top() + 3.0),
-                egui::vec2(w, crate::metrics::row()),
+                egui::pos2(x, outer.top() + INSET),
+                egui::vec2(w, height - 2.0 * INSET),
             );
             let id = ui.id().with(("segment", label));
             let response = ui.interact(rect, id, Sense::click());
             let s = State::of(ui, &response);
             let selected = *v == *value;
             if selected {
-                ui.painter().rect_filled(rect, cr(radius::MD), p.bg_raised);
+                ui.painter()
+                    .rect_filled(rect, cr(radius::sm()), p.bg_raised);
                 ui.painter().rect_stroke(
                     rect,
-                    cr(radius::MD),
+                    cr(radius::sm()),
                     Stroke::new(1.0_f32, p.border_default),
                     StrokeKind::Inside,
                 );
             } else if s.hovered {
-                ui.painter().rect_filled(rect, cr(radius::MD), p.bg_hover);
+                ui.painter().rect_filled(rect, cr(radius::sm()), p.bg_hover);
             }
             let fg = if !s.enabled {
                 p.text_disabled
@@ -70,7 +77,7 @@ impl Segmented {
             };
             let g = galley(ui, label, TextStyle::Body, fg);
             text_at(ui, rect.center().x - g.size().x / 2.0, rect, g, fg);
-            super::focus(ui, s, rect, radius::MD);
+            super::focus(ui, s, rect, radius::sm());
             a11y(
                 &response,
                 egui::WidgetType::RadioButton,

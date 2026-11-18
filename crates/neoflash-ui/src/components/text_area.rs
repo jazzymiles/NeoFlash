@@ -43,7 +43,7 @@ impl Widget for TextArea<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let p = palette(ui.ctx());
         let line = TextStyle::Body.spec().line_height;
-        let height = (self.rows as f32 * line + space::S2 * 2.0).max(crate::metrics::control());
+        let height = (self.rows as f32 * line + space::s2() * 2.0).max(crate::metrics::control());
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(ui.available_width(), height), Sense::hover());
         let edit_id = response.id.with("edit");
@@ -58,10 +58,10 @@ impl Widget for TextArea<'_> {
         } else {
             (p.bg_field, p.border_default, 1.0_f32)
         };
-        ui.painter().rect_filled(rect, cr(radius::MD), bg);
+        ui.painter().rect_filled(rect, cr(radius::md()), bg);
         ui.painter().rect_stroke(
             rect,
-            cr(radius::MD),
+            cr(radius::md()),
             Stroke::new(w, border),
             StrokeKind::Inside,
         );
@@ -70,7 +70,7 @@ impl Widget for TextArea<'_> {
         } else {
             p.text_disabled
         };
-        let inner = rect.shrink2(egui::vec2(space::S3, space::S2));
+        let inner = rect.shrink2(egui::vec2(space::s3(), space::s2()));
         let edit = ui
             .scope_builder(egui::UiBuilder::new().max_rect(inner), |ui| {
                 let v = ui.visuals_mut();

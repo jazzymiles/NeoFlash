@@ -131,9 +131,9 @@ impl<'a> WeightBar<'a> {
         let first = spans.iter().position(|s| s.1 > s.0);
         let last = spans.iter().rposition(|s| s.1 > s.0);
         if first.is_none() {
-            ui.painter().rect_filled(rect, cr(radius::SM), p.bg_hover);
+            ui.painter().rect_filled(rect, cr(radius::sm()), p.bg_hover);
         }
-        let r = radius::SM.min(WEIGHT_BAR / 2.0) as u8;
+        let r = radius::sm().min(WEIGHT_BAR / 2.0) as u8;
         for (i, (seg, (x0, x1))) in self.segments.iter().zip(spans).enumerate() {
             if x1 <= x0 {
                 continue;
@@ -184,7 +184,7 @@ pub fn weight_legend(ui: &mut Ui, segments: &[WeightSegment<'_>], width: f32) ->
             x = 0.0;
         }
         placed.push((x, rows - 1));
-        x += w + space::S4;
+        x += w + space::s4();
     }
     let height = rows as f32 * row_h + (rows - 1) as f32 * 6.0;
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), Sense::hover());
@@ -224,14 +224,14 @@ pub fn weight_totals(ui: &mut Ui, totals: &[(&str, &str)]) -> Response {
         .iter()
         .map(|(k, v)| k.size().x + 6.0 + v.size().x)
         .sum::<f32>()
-        + space::S4 * pairs.len().saturating_sub(1) as f32;
+        + space::s4() * pairs.len().saturating_sub(1) as f32;
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 16.0), Sense::hover());
     let mut x = rect.left();
     for (k, v) in pairs {
         let (kw, vw) = (k.size().x, v.size().x);
         text_at(ui, x, rect, k, p.text_tertiary);
         text_at(ui, x + kw + 6.0, rect, v, p.text_primary);
-        x += kw + 6.0 + vw + space::S4;
+        x += kw + 6.0 + vw + space::s4();
     }
     response
 }

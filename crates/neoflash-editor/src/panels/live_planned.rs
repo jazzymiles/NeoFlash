@@ -426,7 +426,7 @@ fn test_movie_title_bar(ui: &mut Ui, width: f32, editor: &mut Editor) -> (bool, 
         egui::Sense::drag(),
     );
     let mut close = false;
-    let mut x = rect.left() + space::S4;
+    let mut x = rect.left() + space::s4();
     for (i, color) in [nf.danger_default, nf.warning_default, nf.success_default]
         .into_iter()
         .enumerate()
@@ -452,7 +452,7 @@ fn test_movie_title_bar(ui: &mut Ui, width: f32, editor: &mut Editor) -> (bool, 
         .map(|name| format!("{name} — Test Movie"))
         .unwrap_or_else(|| "Test Movie".to_owned());
     ui.painter().text(
-        egui::pos2(x + space::S2, rect.center().y),
+        egui::pos2(x + space::s2(), rect.center().y),
         egui::Align2::LEFT_CENTER,
         title,
         neoflash_ui::typography::font(TextStyle::BodyStrong),
@@ -460,7 +460,7 @@ fn test_movie_title_bar(ui: &mut Ui, width: f32, editor: &mut Editor) -> (bool, 
     );
     ui.scope_builder(
         egui::UiBuilder::new()
-            .max_rect(rect.shrink2(egui::vec2(space::S3, 0.0)))
+            .max_rect(rect.shrink2(egui::vec2(space::s3(), 0.0)))
             .layout(egui::Layout::right_to_left(egui::Align::Center)),
         |ui| editor.live_test_movie_title_actions(ui),
     );
@@ -491,8 +491,8 @@ impl Editor {
         let area = safe_content_area(ctx);
         let pos_id = egui::Id::new(("nf2-test-movie-window-pos", &self.clipboard.session));
         let default_pos = egui::pos2(
-            area.left() + neoflash_ui::metrics::tools_rail() + space::S6,
-            area.top() + neoflash_ui::metrics::top_bar() + space::S6,
+            area.left() + neoflash_ui::metrics::tools_rail() + space::s6(),
+            area.top() + neoflash_ui::metrics::top_bar() + space::s6(),
         );
         let pos = ctx
             .data(|d| d.get_temp::<egui::Pos2>(pos_id))
@@ -510,14 +510,14 @@ impl Editor {
         .show(ctx, |ui| {
             c::Surface::Dialog.frame(ctx).show(ui, |ui| {
                 ui.set_width(width);
-                ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
+                ui.spacing_mut().item_spacing = egui::vec2(space::s2(), space::s2());
                 let (c2, d) = test_movie_title_bar(ui, width, self);
                 close = c2;
                 delta = d;
                 egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S3 as i8))
+                    .inner_margin(egui::Margin::same(space::s3() as i8))
                     .show(ui, |ui| {
-                        ui.set_width(width - 2.0 * space::S3);
+                        ui.set_width(width - 2.0 * space::s3());
                         self.live_test_movie(ui);
                     });
             });
@@ -874,7 +874,7 @@ impl Editor {
                     c::Field::new(&mut sw, "Stroke size")
                         .range(0.0..=200.0)
                         .presets(&[0.25, 0.5, 1.0, 2.0, 4.0, 8.0])
-                        .width(80.0),
+                        .width(neoflash_ui::metrics::field_s()),
                 )
                 .changed()
             {
@@ -985,13 +985,19 @@ impl Editor {
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
-                    .add(c::IconButton::new(i20::COLOR_SWAP, "Swap colours").side(28.0))
+                    .add(
+                        c::IconButton::new(i20::COLOR_SWAP, "Swap colours")
+                            .side(neoflash_ui::metrics::tool_button()),
+                    )
                     .clicked()
                 {
                     self.swap_active_paints();
                 }
                 if ui
-                    .add(c::IconButton::new(i20::COLOR_NONE, "No colour").side(28.0))
+                    .add(
+                        c::IconButton::new(i20::COLOR_NONE, "No colour")
+                            .side(neoflash_ui::metrics::tool_button()),
+                    )
                     .clicked()
                 {
                     self.set_selection_fill_type(
@@ -1000,7 +1006,10 @@ impl Editor {
                     );
                 }
                 if ui
-                    .add(c::IconButton::new(i20::COLOR_DEFAULT, "Black and white").side(28.0))
+                    .add(
+                        c::IconButton::new(i20::COLOR_DEFAULT, "Black and white")
+                            .side(neoflash_ui::metrics::tool_button()),
+                    )
                     .clicked()
                 {
                     self.reset_default_paints();
@@ -1101,7 +1110,7 @@ impl Editor {
                     for (res_id, res_name, data) in row {
                         let (rect, resp) =
                             ui.allocate_exact_size(egui::vec2(58.0, 58.0), egui::Sense::click());
-                        ui.painter().rect_filled(rect, radius::MD, nf.bg_field);
+                        ui.painter().rect_filled(rect, radius::md(), nf.bg_field);
                         if let Some(tex) = cached_bitmap_thumbnail(ui.ctx(), res_id, data) {
                             ui.painter().image(
                                 tex.id(),
@@ -1121,7 +1130,7 @@ impl Editor {
                         };
                         ui.painter().rect_stroke(
                             rect,
-                            egui::CornerRadius::same(radius::MD as u8),
+                            egui::CornerRadius::same(radius::md() as u8),
                             egui::Stroke::new(w, color),
                             egui::StrokeKind::Inside,
                         );
@@ -1214,14 +1223,14 @@ impl Editor {
         };
         caption(ui, &summary);
 
-        ui.add_space(space::S1);
+        ui.add_space(space::s1());
         let r = ui.available_rect_before_wrap();
         ui.painter().hline(
             r.x_range(),
             r.top(),
             egui::Stroke::new(1.0_f32, nf.border_subtle),
         );
-        ui.add_space(space::S2);
+        ui.add_space(space::s2());
         ui.label(rich("Stroke", TextStyle::Overline).color(nf.text_tertiary));
         let stroke_draft = self.init_stroke_style_draft();
         let mut sw = self.selected_element_paint().2;
@@ -1370,9 +1379,9 @@ impl Editor {
                         },
                         |ui, width| {
                             ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S2;
+                                ui.spacing_mut().item_spacing.x = space::s2();
                                 let field_width =
-                                    (width - crate::theme::control_h() - space::S2).max(0.0);
+                                    (width - crate::theme::control_h() - space::s2()).max(0.0);
                                 let response = ui.add(
                                     c::Field::new(y_ref(&mut y), "Y")
                                         .prefix("Y")
@@ -1453,7 +1462,8 @@ impl Editor {
                     let scale_resp = ui
                         .scope(|ui| {
                             ui.disable();
-                            c::Select::new(ui.id().with("oval-scale"), "Scale: Normal")
+                            c::Select::new(ui.id().with("oval-scale"), "Normal")
+                                .prefix("Scale")
                                 .width(width)
                                 .show(ui, |_| {})
                                 .0
@@ -1493,7 +1503,7 @@ impl Editor {
                 ),
             ] {
                 ui.horizontal(|ui| {
-                    form_label(ui, label, 48.0);
+                    form_label(ui, label, neoflash_ui::metrics::label_width());
                     unavailable_group(ui, label, reason, |ui| {
                         c::IconGroup {
                             items: &items,
@@ -1533,7 +1543,7 @@ impl Editor {
             );
             prim_changed |= start_response.changed() || end_response.changed();
             // FORM_GRID_EXCEPTION: Inner is deliberately paired with an action checkbox.
-            let inner_width = (ui.available_width() - space::S2) / 2.0;
+            let inner_width = (ui.available_width() - space::s2()) / 2.0;
             ui.horizontal(|ui| {
                 prim_changed |= ui
                     .add(
@@ -1720,8 +1730,9 @@ impl Editor {
                 },
                 |ui, width| {
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        let field_width = (width - crate::theme::control_h() - space::S2).max(0.0);
+                        ui.spacing_mut().item_spacing.x = space::s2();
+                        let field_width =
+                            (width - crate::theme::control_h() - space::s2()).max(0.0);
                         let field = ui.add(
                             c::Field::new(&mut top_right, "Top-right radius")
                                 .prefix("↗")
@@ -2029,10 +2040,12 @@ impl Editor {
                 ),
             ] {
                 ui.horizontal(|ui| {
-                    form_label(ui, label, 64.0);
-                    let (chip, _) =
-                        ui.allocate_exact_size(egui::vec2(24.0, 24.0), egui::Sense::hover());
-                    neoflash_ui::components::display::paint_swatch(ui, chip, color, radius::SM);
+                    form_label(ui, label, neoflash_ui::metrics::label_width());
+                    let (chip, _) = ui.allocate_exact_size(
+                        egui::Vec2::splat(neoflash_ui::metrics::swatch()),
+                        egui::Sense::hover(),
+                    );
+                    neoflash_ui::components::display::paint_swatch(ui, chip, color, radius::sm());
                     ui.label(rich("Default shape", TextStyle::Body).color(nf.text_secondary));
                     let edit_resp = ui.add_enabled(false, c::Button::ghost("Edit…"));
                     let _ = c::not_available(edit_resp, "Custom Deco symbols");
@@ -2235,10 +2248,14 @@ impl Editor {
                             || symbol.id.eq_ignore_ascii_case(&trimmed))
                 });
             ui.horizontal(|ui| {
+                // The name fills the row; `Edit…` keeps a `field_num()` slot at the end.
+                let name_width =
+                    (ui.available_width() - neoflash_ui::metrics::field_num() - space::s2())
+                        .max(neoflash_ui::metrics::field_s());
                 ui.add(
                     c::TextField::new(&mut draft.symbol_name, "Symbol")
                         .hint("Library symbol name")
-                        .width(200.0),
+                        .width(name_width),
                 );
                 let edit_resp = ui.add_enabled(can_edit_symbol, c::Button::new("Edit…"));
                 if can_edit_symbol {
@@ -2460,9 +2477,13 @@ impl Editor {
                 .get(draft.bone_index)
                 .map(|b| b.id.clone())
                 .unwrap_or_else(|| draft.name.clone());
+            // The name fills the row up to the two bone-navigation icon buttons.
+            let name_width = (ui.available_width()
+                - 2.0 * (neoflash_ui::metrics::control() + space::s2()))
+            .max(neoflash_ui::metrics::field_s());
             let name_resp = ui.add_enabled(
                 false,
-                c::TextField::new(&mut bone_id_label, "Bone name").width(200.0),
+                c::TextField::new(&mut bone_id_label, "Bone name").width(name_width),
             );
             let _ = c::not_available(name_resp, "Bone renaming");
             if ui
@@ -2598,14 +2619,14 @@ impl Editor {
         });
         section(ui, "Armature", true, |ui| {
             let type_lbl = if draft.armature_runtime {
-                "Type: Runtime"
+                "Runtime"
             } else {
-                "Type: Authortime"
+                "Authortime"
             };
             let style_lbl = if draft.armature_wireframe {
-                "Style: Wire"
+                "Wire"
             } else {
-                "Style: Solid"
+                "Solid"
             };
             two_column_row(
                 ui,
@@ -2614,6 +2635,7 @@ impl Editor {
                         .scope(|ui| {
                             ui.disable();
                             c::Select::new(ui.id().with("arm-type"), type_lbl)
+                                .prefix("Type")
                                 .width(width)
                                 .show(ui, |_| {})
                                 .0
@@ -2626,6 +2648,7 @@ impl Editor {
                         .scope(|ui| {
                             ui.disable();
                             c::Select::new(ui.id().with("arm-style"), style_lbl)
+                                .prefix("Style")
                                 .width(width)
                                 .show(ui, |_| {})
                                 .0
@@ -2635,7 +2658,7 @@ impl Editor {
                 },
             );
             // FORM_GRID_EXCEPTION: Speed is deliberately paired with an action switch.
-            let speed_width = (ui.available_width() - space::S2) / 2.0;
+            let speed_width = (ui.available_width() - space::s2()) / 2.0;
             ui.horizontal(|ui| {
                 changed |= ui
                     .add(
@@ -2714,7 +2737,7 @@ impl Editor {
                 subtitle: "No graphic instance selected",
             });
             ui.horizontal(|ui| {
-                let w = ui.available_width() - 72.0 - space::S2;
+                let w = ui.available_width() - 72.0 - space::s2();
                 ui.allocate_ui_with_layout(
                     egui::vec2(w, 0.0),
                     egui::Layout::top_down(egui::Align::Min),
@@ -2752,7 +2775,7 @@ impl Editor {
             subtitle: &format!("Instance of \"{sym_name}\" · {sym_frames} frames"),
         });
         ui.horizontal(|ui| {
-            let w = ui.available_width() - 72.0 - space::S2;
+            let w = ui.available_width() - 72.0 - space::s2();
             ui.allocate_ui_with_layout(
                 egui::vec2(w, 0.0),
                 egui::Layout::top_down(egui::Align::Min),
@@ -2944,7 +2967,7 @@ impl Editor {
                 );
                 ui.painter().rect_filled(
                     strip,
-                    egui::CornerRadius::same(radius::MD as u8),
+                    egui::CornerRadius::same(radius::md() as u8),
                     nf.bg_field,
                 );
                 let entries = self.graphic_frame_picker_entries();
@@ -2961,7 +2984,7 @@ impl Editor {
                     );
                     ui.painter().rect_filled(
                         cell,
-                        egui::CornerRadius::same(radius::SM as u8),
+                        egui::CornerRadius::same(radius::sm() as u8),
                         nf.bg_raised,
                     );
                     if let Some(tex) =
@@ -2982,7 +3005,7 @@ impl Editor {
                     };
                     ui.painter().rect_stroke(
                         cell,
-                        egui::CornerRadius::same(radius::SM as u8),
+                        egui::CornerRadius::same(radius::sm() as u8),
                         egui::Stroke::new(w, color),
                         egui::StrokeKind::Inside,
                     );
@@ -3329,7 +3352,12 @@ mod t297_planned_wiring_tests {
         let render_all = |ed: &mut Editor| {
             ctx.run(raw_1920(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    let _ = ed.debugger_contents(ui);
+                    // The Debugger fills the panel it is docked in (its panes scroll), so it gets
+                    // a region of its own here instead of the rest of the page.
+                    let debugger = egui::vec2(ui.available_width(), 240.0);
+                    ui.allocate_ui(debugger, |ui| {
+                        let _ = ed.debugger_contents(ui);
+                    });
                     ed.live_graphic_properties(ui);
                     ed.live_bone_properties(ui);
                     ed.live_deco_tool(ui);

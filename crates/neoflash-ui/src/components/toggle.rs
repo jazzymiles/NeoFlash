@@ -1,7 +1,9 @@
-//! `NF2/Checkbox`, `NF2/Switch`, `NF2/Radio`, `NF2/Slider`.
+//! `NF3/Checkbox`, `NF3/Switch`, `NF3/Radio`, `NF3/Slider` — every size follows the density.
 use super::{State, a11y, focus, galley, text_at};
 use crate::icons::{self, i16};
-use crate::metrics::TOGGLE_ROW;
+use crate::metrics::{
+    check_box, field_m, field_num, slider_thumb, switch_height, switch_width, toggle_row,
+};
 use crate::theme::{cr, palette};
 use crate::tokens::{TextStyle, radius, space};
 use eframe::egui::{self, Response, Sense, Stroke, StrokeKind, Ui, Widget};
@@ -10,61 +12,78 @@ fn label_width(ui: &Ui, label: &str) -> f32 {
     if label.is_empty() {
         0.0
     } else {
-        space::S2
+        space::s2()
             + galley(ui, label, TextStyle::Body, egui::Color32::WHITE)
                 .size()
                 .x
     }
 }
 
-/// `NF2/Checkbox` — 18 px box, accent fill with check when `Checked`.
+/// Vertical centre of a toggle mark, snapped so the box sits on whole points in its row.
+fn mark_rect(rect: egui::Rect, size: egui::Vec2) -> egui::Rect {
+    let top = rect.top() + ((rect.height() - size.y) / 2.0).round();
+    egui::Rect::from_min_size(egui::pos2(rect.left(), top), size)
+}
+
+/// `NF3/Checkbox` — row `toggle_row()`, box `check_box()` with a 12 px check (or minus when mixed).
 pub struct Checkbox<'a> {
     checked: &'a mut bool,
     label: &'a str,
+    mixed: bool,
 }
 
 impl<'a> Checkbox<'a> {
     pub fn new(checked: &'a mut bool, label: &'a str) -> Self {
-        Self { checked, label }
+        Self {
+            checked,
+            label,
+            mixed: false,
+        }
+    }
+    /// `Value=Mixed`: the selection disagrees; drawn as a filled box with a minus.
+    pub fn mixed(mut self, mixed: bool) -> Self {
+        self.mixed = mixed;
+        self
     }
 }
 
 impl Widget for Checkbox<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let p = palette(ui.ctx());
-        let w = 18.0 + label_width(ui, self.label);
+        let side = check_box();
+        let w = side + label_width(ui, self.label);
         let (rect, mut response) =
-            ui.allocate_exact_size(egui::vec2(w, TOGGLE_ROW.max(20.0)), Sense::click());
+            ui.allocate_exact_size(egui::vec2(w, toggle_row()), Sense::click());
         if response.clicked() {
             *self.checked = !*self.checked;
             response.mark_changed();
         }
         let s = State::of(ui, &response);
-        let bx = egui::Rect::from_center_size(
-            egui::pos2(rect.left() + 9.0, rect.center().y),
-            egui::vec2(18.0, 18.0),
-        );
+        let bx = mark_rect(rect, egui::vec2(side, side));
         let painter = ui.painter();
-        if *self.checked {
-            let c = if s.enabled {
-                p.accent_default
+        if *self.checked || self.mixed {
+            let (bg, fg) = if s.enabled {
+                (p.accent_default, p.text_on_accent)
             } else {
-                p.text_disabled
+                (p.bg_hover, p.text_disabled)
             };
-            painter.rect_filled(bx, cr(radius::SM), c);
-            icons::paint(painter, ui.ctx(), bx, i16::CHECK, p.text_on_accent);
+            painter.rect_filled(bx, cr(radius::sm()), bg);
+            let mark = if self.mixed && !*self.checked {
+                i16::MINUS
+            } else {
+                i16::CHECK
+            };
+            icons::paint_sized(painter, ui.ctx(), bx, mark, 12.0, fg);
         } else {
-            let b = if !s.enabled {
-                p.border_subtle
-            } else if s.hovered {
-                p.border_strong
+            let (bg, b) = if s.enabled {
+                (p.bg_field, p.border_strong)
             } else {
-                p.border_default
+                (p.bg_panel, p.border_subtle)
             };
-            painter.rect_filled(bx, cr(radius::SM), p.bg_field);
+            painter.rect_filled(bx, cr(radius::sm()), bg);
             painter.rect_stroke(
                 bx,
-                cr(radius::SM),
+                cr(radius::sm()),
                 Stroke::new(1.0_f32, b),
                 StrokeKind::Inside,
             );
@@ -77,13 +96,13 @@ impl Widget for Checkbox<'_> {
             };
             text_at(
                 ui,
-                bx.right() + space::S2,
+                bx.right() + space::s2(),
                 rect,
                 galley(ui, self.label, TextStyle::Body, fg),
                 fg,
             );
         }
-        focus(ui, s, bx, radius::SM);
+        focus(ui, s, bx, radius::sm());
         let checked = *self.checked;
         let enabled = response.enabled();
         response.widget_info(|| {
@@ -93,7 +112,8 @@ impl Widget for Checkbox<'_> {
     }
 }
 
-/// `NF2/Switch` — 32 × 18 pill, for settings that apply immediately (Preferences, View settings).
+/// `NF3/Switch` — `switch_width()` × `switch_height()` pill with a knob 2 pt inside the track; for an
+/// application state that applies at once (Autosave, Snapping).
 pub struct Switch<'a> {
     on: &'a mut bool,
     label: &'a str,
@@ -108,18 +128,16 @@ impl<'a> Switch<'a> {
 impl Widget for Switch<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let p = palette(ui.ctx());
-        let w = 32.0 + label_width(ui, self.label);
+        let size = egui::vec2(switch_width(), switch_height());
+        let w = size.x + label_width(ui, self.label);
         let (rect, mut response) =
-            ui.allocate_exact_size(egui::vec2(w, TOGGLE_ROW), Sense::click());
+            ui.allocate_exact_size(egui::vec2(w, toggle_row()), Sense::click());
         if response.clicked() {
             *self.on = !*self.on;
             response.mark_changed();
         }
         let s = State::of(ui, &response);
-        let track = egui::Rect::from_min_size(
-            egui::pos2(rect.left(), rect.center().y - 9.0),
-            egui::vec2(32.0, 18.0),
-        );
+        let track = mark_rect(rect, size);
         let t = ui.ctx().animate_bool_responsive(response.id, *self.on);
         let bg = if !s.enabled {
             p.bg_hover
@@ -128,15 +146,16 @@ impl Widget for Switch<'_> {
         } else {
             p.border_strong
         };
-        ui.painter().rect_filled(track, cr(9.0), bg);
-        let x = egui::lerp(track.left() + 9.0..=track.right() - 9.0, t);
-        let knob = if *self.on {
+        let half = size.y / 2.0;
+        ui.painter().rect_filled(track, cr(half), bg);
+        let x = egui::lerp(track.left() + half..=track.right() - half, t);
+        let knob = if s.enabled {
             p.text_on_accent
         } else {
-            p.bg_panel
+            p.text_disabled
         };
         ui.painter()
-            .circle_filled(egui::pos2(x, track.center().y), 7.0, knob);
+            .circle_filled(egui::pos2(x, track.center().y), half - 2.0, knob);
         if !self.label.is_empty() {
             let fg = if s.enabled {
                 p.text_primary
@@ -145,13 +164,13 @@ impl Widget for Switch<'_> {
             };
             text_at(
                 ui,
-                track.right() + space::S2,
+                track.right() + space::s2(),
                 rect,
                 galley(ui, self.label, TextStyle::Body, fg),
                 fg,
             );
         }
-        focus(ui, s, track, 9.0);
+        focus(ui, s, track, half);
         let on = *self.on;
         let enabled = response.enabled();
         response.widget_info(|| {
@@ -161,7 +180,7 @@ impl Widget for Switch<'_> {
     }
 }
 
-/// `NF2/Radio` — 16 px circle; use for 2–4 mutually exclusive options that need labels.
+/// `NF3/Radio` — `check_box()` ring with a 6 pt dot; for 2–4 mutually exclusive options that need labels.
 pub struct Radio<'a> {
     selected: bool,
     label: &'a str,
@@ -176,29 +195,27 @@ impl<'a> Radio<'a> {
 impl Widget for Radio<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let p = palette(ui.ctx());
-        let w = 16.0 + label_width(ui, self.label);
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(w, TOGGLE_ROW), Sense::click());
+        let side = check_box();
+        let w = side + label_width(ui, self.label);
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(w, toggle_row()), Sense::click());
         let s = State::of(ui, &response);
-        let c = egui::pos2(rect.left() + 8.0, rect.center().y);
+        let ring = mark_rect(rect, egui::vec2(side, side));
+        let c = ring.center();
+        let (bg, stroke) = match (self.selected, s.enabled) {
+            (true, true) => (p.bg_field, Stroke::new(1.5_f32, p.accent_default)),
+            (true, false) => (p.bg_panel, Stroke::new(1.5_f32, p.border_strong)),
+            (false, true) => (p.bg_field, Stroke::new(1.0_f32, p.border_strong)),
+            (false, false) => (p.bg_panel, Stroke::new(1.0_f32, p.border_subtle)),
+        };
+        ui.painter()
+            .circle(c, side / 2.0 - stroke.width / 2.0, bg, stroke);
         if self.selected {
-            ui.painter().circle_filled(
-                c,
-                8.0,
-                if s.enabled {
-                    p.accent_default
-                } else {
-                    p.text_disabled
-                },
-            );
-            ui.painter().circle_filled(c, 3.0, p.text_on_accent);
-        } else {
-            let b = if s.hovered {
-                p.border_strong
+            let dot = if s.enabled {
+                p.accent_default
             } else {
-                p.border_default
+                p.text_disabled
             };
-            ui.painter()
-                .circle(c, 7.5, p.bg_field, Stroke::new(1.0_f32, b));
+            ui.painter().circle_filled(c, 3.0, dot);
         }
         let fg = if s.enabled {
             p.text_primary
@@ -207,17 +224,12 @@ impl Widget for Radio<'_> {
         };
         text_at(
             ui,
-            rect.left() + 16.0 + space::S2,
+            ring.right() + space::s2(),
             rect,
             galley(ui, self.label, TextStyle::Body, fg),
             fg,
         );
-        focus(
-            ui,
-            s,
-            egui::Rect::from_center_size(c, egui::vec2(16.0, 16.0)),
-            8.0,
-        );
+        focus(ui, s, ring, side / 2.0);
         a11y(
             &response,
             egui::WidgetType::RadioButton,
@@ -234,17 +246,28 @@ pub enum SliderValue {
     /// Slider only (a separate label or icon names it).
     #[default]
     None,
-    /// Slider + 10 pt gap + numeric `NF2/Field` (74 pt, unit suffix) bound to the same value — Brush
-    /// Size, Smoothing, Trace bitmap parameters.
+    /// Slider + [`slider_gap`] + numeric `NF3/Field` ([`slider_field`] wide, unit suffix) bound to the
+    /// same value — Brush Size, Smoothing, Trace bitmap parameters.
     Field,
     /// Slider + 8 pt gap + the value as `NF2/Mono Small` `text/secondary` text (read-only).
     Inline,
 }
 
-/// Width of the numeric field in [`SliderValue::Field`].
-pub const SLIDER_FIELD: f32 = 74.0;
+/// Normal-density width of the numeric field in [`SliderValue::Field`]; layout code uses [`slider_field`].
+pub const SLIDER_FIELD: f32 = crate::metrics::FIELD_NUM;
 
-/// `NF2/Slider` — 4 px rail, accent fill to the left, 14 px white knob. Drag, arrows step, ⇧ = ×10.
+/// Width of the numeric field in [`SliderValue::Field`] at the current density (`width/num`).
+pub fn slider_field() -> f32 {
+    field_num()
+}
+
+/// Gap between the rail and the numeric field in [`SliderValue::Field`] (`gap/control`).
+pub fn slider_gap() -> f32 {
+    space::s2()
+}
+
+/// `NF3/Slider` — 2 pt `border/strong` rail, accent filled part, `slider_thumb()` thumb with a 1.5 pt
+/// accent ring on `bg/raised`. Drag, arrows step, ⇧ = ×10.
 pub struct Slider<'a> {
     value: &'a mut f64,
     range: std::ops::RangeInclusive<f64>,
@@ -263,7 +286,7 @@ impl<'a> Slider<'a> {
             value,
             range,
             step: 1.0,
-            width: 140.0,
+            width: field_m(),
             label,
             show: SliderValue::None,
             unit: "",
@@ -310,7 +333,7 @@ impl Widget for Slider<'_> {
                 } = self;
                 let (lo, hi) = (*range.start(), *range.end());
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 10.0;
+                    ui.spacing_mut().item_spacing.x = slider_gap();
                     let rail = Slider {
                         value: &mut *self.value,
                         range: range.clone(),
@@ -326,7 +349,7 @@ impl Widget for Slider<'_> {
                         .range(lo..=hi)
                         .step(step)
                         .decimals(decimals)
-                        .width(SLIDER_FIELD);
+                        .width(slider_field());
                     if !unit.is_empty() {
                         field = field.unit(unit);
                     }
@@ -337,7 +360,7 @@ impl Widget for Slider<'_> {
             SliderValue::Inline => {
                 let text = slider_value_text(*self.value, self.decimals, self.unit);
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = space::S2;
+                    ui.spacing_mut().item_spacing.x = space::s2();
                     let rail = self.rail(ui);
                     let p = palette(ui.ctx());
                     let fg = if ui.is_enabled() {
@@ -347,7 +370,7 @@ impl Widget for Slider<'_> {
                     };
                     let g = galley(ui, &text, TextStyle::MonoSmall, fg);
                     let (rect, _) = ui.allocate_exact_size(
-                        egui::vec2(g.size().x.max(24.0), TOGGLE_ROW),
+                        egui::vec2(g.size().x.max(24.0), toggle_row()),
                         Sense::hover(),
                     );
                     text_at(ui, rect.left(), rect, g, fg);
@@ -371,10 +394,13 @@ pub fn slider_value_text(value: f64, decimals: usize, unit: &str) -> String {
 impl Slider<'_> {
     fn rail(self, ui: &mut Ui) -> Response {
         let p = palette(ui.ctx());
-        let (rect, mut response) =
-            ui.allocate_exact_size(egui::vec2(self.width, TOGGLE_ROW), Sense::click_and_drag());
+        let (rect, mut response) = ui.allocate_exact_size(
+            egui::vec2(self.width, toggle_row()),
+            Sense::click_and_drag(),
+        );
         let (lo, hi) = (*self.range.start(), *self.range.end());
-        let rail = rect.shrink2(egui::vec2(7.0, 0.0));
+        let thumb = slider_thumb();
+        let rail = rect.shrink2(egui::vec2(thumb / 2.0, 0.0));
         if let Some(pos) = response.interact_pointer_pos() {
             let t = ((pos.x - rail.left()) / rail.width()).clamp(0.0, 1.0) as f64;
             let v = lo + (hi - lo) * t;
@@ -411,35 +437,35 @@ impl Slider<'_> {
         } else {
             0.0
         };
-        let y = rect.center().y;
+        let y = rect.top() + (rect.height() / 2.0).round();
         let x = rail.left() + rail.width() * t;
         let track = egui::Rect::from_min_max(
-            egui::pos2(rail.left(), y - 2.0),
-            egui::pos2(rail.right(), y + 2.0),
+            egui::pos2(rail.left(), y - 1.0),
+            egui::pos2(rail.right(), y + 1.0),
         );
         // R-101: the empty part of the rail is `border/strong`; `bg/hover` vanished on panels.
-        ui.painter().rect_filled(track, cr(2.0), p.border_strong);
+        ui.painter().rect_filled(track, cr(1.0), p.border_strong);
         let on = if s.enabled {
             p.accent_default
         } else {
-            p.text_disabled
+            p.border_strong
         };
         ui.painter().rect_filled(
             egui::Rect::from_min_max(track.min, egui::pos2(x, track.bottom())),
-            cr(2.0),
+            cr(1.0),
             on,
         );
         ui.painter().circle(
             egui::pos2(x, y),
-            7.0,
-            p.text_primary,
-            Stroke::new(1.0_f32, p.border_default),
+            thumb / 2.0 - 0.75,
+            p.bg_raised,
+            Stroke::new(1.5_f32, on),
         );
         focus(
             ui,
             s,
-            egui::Rect::from_center_size(egui::pos2(x, y), egui::vec2(14.0, 14.0)),
-            7.0,
+            egui::Rect::from_center_size(egui::pos2(x, y), egui::vec2(thumb, thumb)),
+            thumb / 2.0,
         );
         let value = *self.value;
         let enabled = response.enabled();

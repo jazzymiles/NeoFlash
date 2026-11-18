@@ -7,6 +7,7 @@ use neoflash_ui::components::timeline::{
     self as tl, GridKind, LayerColumns, LayerKind, LayerRow, LayersHeaderColumns, ModeCell,
 };
 use neoflash_ui::icons::{self, Icon, i16};
+use neoflash_ui::metrics::Density;
 use neoflash_ui::tokens::{Palette, TextStyle, radius, space};
 use neoflash_ui::typography::rich;
 use serde::{Deserialize, Serialize};
@@ -279,10 +280,79 @@ pub fn resolve_track_sizes(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 1b. Density bridge: every density-driven size comes from `neoflash_ui::metrics`
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `DENSITY_TABLE` row for `name` as `[Normal, Compact, Classic Flash]`.
+pub fn density_values(name: &str) -> [f32; 3] {
+    neoflash_ui::metrics::DENSITY_TABLE
+        .iter()
+        .find(|(metric, _)| *metric == name)
+        .map(|(_, values)| *values)
+        .unwrap_or_else(|| panic!("unknown density metric `{name}`"))
+}
+
+/// Column of `DENSITY_TABLE` for a density.
+pub const fn density_index(density: Density) -> usize {
+    match density {
+        Density::Comfortable => 0,
+        Density::Compact => 1,
+        Density::ClassicFlash => 2,
+    }
+}
+
+/// The three values of a density metric as shown in the inspector, e.g. `6 · 4 · 4`.
+pub fn format_density_values(values: [f32; 3]) -> String {
+    format!("{:.0} · {:.0} · {:.0}", values[0], values[1], values[2])
+}
+
+/// Whether a stored system size still equals its Normal reference and so follows the density system.
+pub fn follows_density(stored: f32, metric: &str) -> bool {
+    stored == density_values(metric)[0]
+}
+
+/// Effective size of a stored system value: the metric of the current density while the value equals
+/// its Normal reference; any other value is a Studio-local override used in every density.
+pub fn follow_density(stored: f32, metric: &str) -> f32 {
+    let values = density_values(metric);
+    if stored == values[0] {
+        values[density_index(neoflash_ui::metrics::density())]
+    } else {
+        stored
+    }
+}
+
+/// Scope that lays out and paints a preview in `density`; the previous density of the UI thread is
+/// restored on drop, so the host editor keeps its own profile.
+pub struct PreviewDensity {
+    previous: Density,
+}
+
+impl PreviewDensity {
+    pub fn enter(density: Density) -> Self {
+        let previous = neoflash_ui::metrics::density();
+        neoflash_ui::metrics::set_density(density);
+        Self { previous }
+    }
+
+    /// Make egui spacing (interact size, item spacing, paddings) of a preview `Ui` follow the scope.
+    pub fn style(ui: &mut Ui) {
+        neoflash_ui::theme::spacing(ui.style_mut());
+    }
+}
+
+impl Drop for PreviewDensity {
+    fn drop(&mut self) {
+        neoflash_ui::metrics::set_density(self.previous);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 2. Paddings, Gaps, Typography & Visual Styling Tokens
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// NF2 spacing scale token (`S0` = 0 pt, `S1`..`S6` = 4, 8, 12, 16, 24, 32 pt by default).
+/// Step of the density spacing system: `space::s1()…s6()` and `metrics::row_gap()`. `S0` is zero.
+/// Every step has one value per density (`DENSITY_TABLE`); JSON stores the step name.
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
@@ -296,10 +366,13 @@ pub enum SpacingToken {
     S4,
     S5,
     S6,
+    /// `metrics::row_gap()`: vertical gap between form rows.
+    #[serde(rename = "ROW_GAP")]
+    RowGap,
 }
 
 impl SpacingToken {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::S0,
         Self::S1,
         Self::S2,
@@ -307,17 +380,20 @@ impl SpacingToken {
         Self::S4,
         Self::S5,
         Self::S6,
+        Self::RowGap,
     ];
 
+    /// Name of the step in the inspector.
     pub const fn label(self) -> &'static str {
         match self {
-            Self::S0 => "S0 (0)",
-            Self::S1 => "S1",
-            Self::S2 => "S2",
-            Self::S3 => "S3",
-            Self::S4 => "S4",
-            Self::S5 => "S5",
-            Self::S6 => "S6",
+            Self::S0 => "none",
+            Self::S1 => "space 1",
+            Self::S2 => "space 2",
+            Self::S3 => "space 3",
+            Self::S4 => "space 4",
+            Self::S5 => "space 5",
+            Self::S6 => "space 6",
+            Self::RowGap => "row gap",
         }
     }
 
@@ -330,6 +406,40 @@ impl SpacingToken {
             Self::S4 => "S4",
             Self::S5 => "S5",
             Self::S6 => "S6",
+            Self::RowGap => "row gap",
+        }
+    }
+
+    /// `DENSITY_TABLE` name of the step; `S0` has none.
+    pub const fn metric_name(self) -> Option<&'static str> {
+        match self {
+            Self::S0 => None,
+            Self::S1 => Some("space_1"),
+            Self::S2 => Some("space_2"),
+            Self::S3 => Some("space_3"),
+            Self::S4 => Some("space_4"),
+            Self::S5 => Some("space_5"),
+            Self::S6 => Some("space_6"),
+            Self::RowGap => Some("row_gap"),
+        }
+    }
+
+    /// Normal / Compact / Classic Flash values of the step.
+    pub fn density_values(self) -> [f32; 3] {
+        self.metric_name().map_or([0.0; 3], density_values)
+    }
+
+    /// Rust expression of the step in generated code.
+    pub const fn rust_expr(self) -> &'static str {
+        match self {
+            Self::S0 => "0.0",
+            Self::S1 => "space::s1()",
+            Self::S2 => "space::s2()",
+            Self::S3 => "space::s3()",
+            Self::S4 => "space::s4()",
+            Self::S5 => "space::s5()",
+            Self::S6 => "space::s6()",
+            Self::RowGap => "neoflash_ui::metrics::row_gap()",
         }
     }
 }
@@ -360,12 +470,22 @@ impl SpacingValue {
         matches!(self, Self::Px(_))
     }
 
-    pub fn format_short(self, systems: &UiStudioSystems) -> String {
+    /// Rust expression for generated code: a call into the density system for a step, a literal for
+    /// custom pixels or a step whose scale was overridden in the Studio.
+    pub fn rust_expr(self, systems: &UiStudioSystems) -> String {
+        match self {
+            Self::Token(tok) if !systems.spacing.is_override(tok) => tok.rust_expr().to_owned(),
+            Self::Token(tok) => format!("studio_system_tokens::SPACE_{}", tok.short_name()),
+            Self::Px(px) => format!("{:.1}", px.max(0.0)),
+        }
+    }
+
+    pub fn format_short(self, _systems: &UiStudioSystems) -> String {
         match self {
             Self::Token(tok) => format!(
-                "{} ({:.0}px)",
-                tok.short_name(),
-                systems.spacing.resolve(tok)
+                "{} ({})",
+                tok.label(),
+                format_density_values(tok.density_values())
             ),
             Self::Px(px) => format!("{:.0}px*", px),
         }
@@ -779,10 +899,10 @@ impl RadiusToken {
     pub fn resolve_px(self) -> f32 {
         match self {
             Self::None => 0.0,
-            Self::Sm => radius::SM,
-            Self::Md => radius::MD,
-            Self::Lg => radius::LG,
-            Self::Xl => radius::XL,
+            Self::Sm => radius::sm(),
+            Self::Md => radius::md(),
+            Self::Lg => radius::lg(),
+            Self::Xl => radius::xl(),
             Self::Full => radius::FULL,
             Self::CustomPx(v) => v.max(0.0),
         }
@@ -790,12 +910,12 @@ impl RadiusToken {
 
     pub const fn label(self) -> &'static str {
         match self {
-            Self::None => "None (0)",
-            Self::Sm => "SM (4px)",
-            Self::Md => "MD (6px)",
-            Self::Lg => "LG (8px)",
-            Self::Xl => "XL (12px)",
-            Self::Full => "Full (999px)",
+            Self::None => "None",
+            Self::Sm => "Marks (sm)",
+            Self::Md => "Controls (md)",
+            Self::Lg => "Panels (lg)",
+            Self::Xl => "Dialogs (xl)",
+            Self::Full => "Full",
             Self::CustomPx(_) => "Custom px",
         }
     }
@@ -880,7 +1000,8 @@ impl NodeVisualStyle {
 // 3. Edit Systems as Systems (`UiStudioSystems` & Token Scales)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// System-wide NF2 spacing scale (`S0`..`S6` in `pt`).
+/// Spacing scale of the Studio. A stored step equal to its Normal reference follows the density
+/// system (`space::s1()…s6()`); any other stored value is a Studio-local override.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SpacingScaleSystem {
     pub s0: f32,
@@ -896,26 +1017,49 @@ impl Default for SpacingScaleSystem {
     fn default() -> Self {
         Self {
             s0: 0.0,
-            s1: space::S1,
-            s2: space::S2,
-            s3: space::S3,
-            s4: space::S4,
-            s5: space::S5,
-            s6: space::S6,
+            s1: density_values("space_1")[0],
+            s2: density_values("space_2")[0],
+            s3: density_values("space_3")[0],
+            s4: density_values("space_4")[0],
+            s5: density_values("space_5")[0],
+            s6: density_values("space_6")[0],
         }
     }
 }
 
 impl SpacingScaleSystem {
-    pub const fn resolve(&self, token: SpacingToken) -> f32 {
+    /// NF2 scale stored by sessions saved before the density system.
+    const LEGACY: [f32; 6] = [4.0, 8.0, 12.0, 16.0, 24.0, 32.0];
+
+    fn stored(&self, token: SpacingToken) -> Option<f32> {
         match token {
-            SpacingToken::S0 => self.s0,
-            SpacingToken::S1 => self.s1,
-            SpacingToken::S2 => self.s2,
-            SpacingToken::S3 => self.s3,
-            SpacingToken::S4 => self.s4,
-            SpacingToken::S5 => self.s5,
-            SpacingToken::S6 => self.s6,
+            SpacingToken::S0 => Some(self.s0),
+            SpacingToken::S1 => Some(self.s1),
+            SpacingToken::S2 => Some(self.s2),
+            SpacingToken::S3 => Some(self.s3),
+            SpacingToken::S4 => Some(self.s4),
+            SpacingToken::S5 => Some(self.s5),
+            SpacingToken::S6 => Some(self.s6),
+            SpacingToken::RowGap => None,
+        }
+    }
+
+    /// Value of `token` in the current density (`neoflash_ui::metrics::density()`).
+    pub fn resolve(&self, token: SpacingToken) -> f32 {
+        match (token.metric_name(), self.stored(token)) {
+            (Some(metric), Some(stored)) => follow_density(stored, metric),
+            (Some(metric), None) => {
+                density_values(metric)[density_index(neoflash_ui::metrics::density())]
+            }
+            (None, stored) => stored.unwrap_or(0.0),
+        }
+    }
+
+    /// The step was changed in the Studio and no longer follows the density system.
+    pub fn is_override(&self, token: SpacingToken) -> bool {
+        match (token.metric_name(), self.stored(token)) {
+            (Some(metric), Some(stored)) => !follows_density(stored, metric),
+            _ => false,
         }
     }
 
@@ -929,6 +1073,20 @@ impl SpacingScaleSystem {
             SpacingToken::S4 => self.s4 = v,
             SpacingToken::S5 => self.s5 = v,
             SpacingToken::S6 => self.s6 = v,
+            SpacingToken::RowGap => {}
+        }
+    }
+
+    /// Put a step back on the density system.
+    pub fn reset(&mut self, token: SpacingToken) {
+        if let Some(metric) = token.metric_name() {
+            self.set(token, density_values(metric)[0]);
+        }
+    }
+
+    fn migrate_legacy(&mut self) {
+        if [self.s1, self.s2, self.s3, self.s4, self.s5, self.s6] == Self::LEGACY {
+            *self = Self::default();
         }
     }
 }
@@ -1024,7 +1182,7 @@ impl TypographyScaleSystem {
     }
 }
 
-/// Active density profile in the studio (`Comfortable`, `Compact`, `Classic Flash`).
+/// Density the canvas previews are laid out with (`Normal`, `Compact`, `Classic Flash`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StudioDensityProfile {
@@ -1038,16 +1196,29 @@ impl StudioDensityProfile {
     pub const ALL: [Self; 3] = [Self::Comfortable, Self::Compact, Self::ClassicFlash];
 
     pub const fn label(self) -> &'static str {
+        self.ui().label()
+    }
+
+    /// The editor density this profile stands for.
+    pub const fn ui(self) -> Density {
         match self {
-            Self::Comfortable => "Comfortable",
-            Self::Compact => "Compact",
-            Self::ClassicFlash => "Classic Flash",
+            Self::Comfortable => Density::Comfortable,
+            Self::Compact => Density::Compact,
+            Self::ClassicFlash => Density::ClassicFlash,
+        }
+    }
+
+    pub const fn from_ui(density: Density) -> Self {
+        match density {
+            Density::Comfortable => Self::Comfortable,
+            Density::Compact => Self::Compact,
+            Density::ClassicFlash => Self::ClassicFlash,
         }
     }
 }
 
-/// Geometry metrics for one density profile.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+/// Geometry of one density, read from `neoflash_ui::metrics::DENSITY_TABLE` (never stored).
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DensityProfileMetrics {
     pub control_height: f32,
     pub row_height: f32,
@@ -1061,84 +1232,54 @@ pub struct DensityProfileMetrics {
 }
 
 impl DensityProfileMetrics {
-    pub const fn comfortable() -> Self {
+    pub fn for_density(density: Density) -> Self {
+        let i = density_index(density);
+        let pick = |name: &str| density_values(name)[i];
         Self {
-            control_height: 32.0,
-            row_height: 28.0,
-            layer_row_height: 28.0,
-            section_header_height: 32.0,
-            panel_header_height: 40.0,
-            icon_grid_pt: 20.0,
-            inspector_width: 320.0,
-            tools_rail_width: 56.0,
-            tools_two_col_width: 80.0,
+            control_height: pick("control"),
+            row_height: pick("row"),
+            layer_row_height: density.pick(
+                neoflash_ui::metrics::LAYER_ROW,
+                neoflash_ui::metrics::LAYER_ROW_SHORT,
+                neoflash_ui::metrics::LAYER_ROW_COMPACT,
+            ),
+            section_header_height: pick("section_header"),
+            panel_header_height: pick("panel_header"),
+            icon_grid_pt: pick("icon_tool"),
+            inspector_width: pick("inspector"),
+            tools_rail_width: pick("tools_rail"),
+            tools_two_col_width: pick("tools_two_columns"),
         }
     }
 
-    pub const fn compact() -> Self {
-        Self {
-            control_height: 28.0,
-            row_height: 24.0,
-            layer_row_height: 22.0,
-            section_header_height: 28.0,
-            panel_header_height: 32.0,
-            icon_grid_pt: 16.0,
-            inspector_width: 288.0,
-            tools_rail_width: 48.0,
-            tools_two_col_width: 68.0,
-        }
+    /// Metrics of the density set on this UI thread (inside a [`PreviewDensity`] scope: the preview's).
+    pub fn current() -> Self {
+        Self::for_density(neoflash_ui::metrics::density())
     }
 
-    pub const fn classic_flash() -> Self {
-        Self {
-            control_height: 24.0,
-            row_height: 20.0,
-            layer_row_height: 16.0,
-            section_header_height: 24.0,
-            panel_header_height: 28.0,
-            icon_grid_pt: 12.0,
-            inspector_width: 256.0,
-            tools_rail_width: 40.0,
-            tools_two_col_width: 56.0,
-        }
+    pub fn comfortable() -> Self {
+        Self::for_density(Density::Comfortable)
+    }
+
+    pub fn compact() -> Self {
+        Self::for_density(Density::Compact)
+    }
+
+    pub fn classic_flash() -> Self {
+        Self::for_density(Density::ClassicFlash)
     }
 }
 
-/// System-wide density profiles and active selection.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+/// Preview density of the Studio. The sizes themselves live in `neoflash_ui::metrics`, so the Studio
+/// cannot drift from the editor; sessions saved with per-profile numbers load and ignore them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DensitySystem {
     pub active_profile: StudioDensityProfile,
-    pub comfortable: DensityProfileMetrics,
-    pub compact: DensityProfileMetrics,
-    pub classic_flash: DensityProfileMetrics,
-}
-
-impl Default for DensitySystem {
-    fn default() -> Self {
-        Self {
-            active_profile: StudioDensityProfile::Comfortable,
-            comfortable: DensityProfileMetrics::comfortable(),
-            compact: DensityProfileMetrics::compact(),
-            classic_flash: DensityProfileMetrics::classic_flash(),
-        }
-    }
 }
 
 impl DensitySystem {
-    pub const fn active(&self) -> &DensityProfileMetrics {
-        match self.active_profile {
-            StudioDensityProfile::Comfortable => &self.comfortable,
-            StudioDensityProfile::Compact => &self.compact,
-            StudioDensityProfile::ClassicFlash => &self.classic_flash,
-        }
-    }
-
-    pub fn active_mut(&mut self) -> &mut DensityProfileMetrics {
-        match self.active_profile {
-            StudioDensityProfile::Comfortable => &mut self.comfortable,
-            StudioDensityProfile::Compact => &mut self.compact,
-            StudioDensityProfile::ClassicFlash => &mut self.classic_flash,
-        }
+    pub fn active(&self) -> DensityProfileMetrics {
+        DensityProfileMetrics::for_density(self.active_profile.ui())
     }
 }
 
@@ -1158,9 +1299,16 @@ impl Default for TwoColumnFormSystem {
             min_cell_width: 88.0,
             gap: SpacingValue::Token(SpacingToken::S2),
             label_ratio: 0.30,
-            label_width_px: 76.0,
+            label_width_px: neoflash_ui::metrics::LABEL_WIDTH,
             stack_below_width: 196.0,
         }
+    }
+}
+
+impl TwoColumnFormSystem {
+    /// Label column in the current density (`metrics::label_width()` unless overridden).
+    pub fn resolved_label_width(&self) -> f32 {
+        follow_density(self.label_width_px, "label_width")
     }
 }
 
@@ -1177,12 +1325,19 @@ pub struct SectionHeaderSystem {
 impl Default for SectionHeaderSystem {
     fn default() -> Self {
         Self {
-            height: 32.0,
+            height: neoflash_ui::metrics::SECTION_HEADER,
             padding_x: SpacingValue::Token(SpacingToken::S2),
-            body_gap: SpacingValue::Token(SpacingToken::S2),
+            body_gap: SpacingValue::Token(SpacingToken::RowGap),
             text_style: StudioTextStyle::Overline,
             collapsible: true,
         }
+    }
+}
+
+impl SectionHeaderSystem {
+    /// Header height in the current density (`metrics::section_header()` unless overridden).
+    pub fn resolved_height(&self) -> f32 {
+        follow_density(self.height, "section_header")
     }
 }
 
@@ -1200,13 +1355,24 @@ pub struct PanelHeaderSystem {
 impl Default for PanelHeaderSystem {
     fn default() -> Self {
         Self {
-            height: 40.0,
-            tab_height: 36.0,
+            height: neoflash_ui::metrics::PANEL_HEADER,
+            tab_height: neoflash_ui::metrics::PANEL_TAB,
             padding_x: SpacingValue::Token(SpacingToken::S3),
             body_padding: SpacingValue::Token(SpacingToken::S4),
             text_style: StudioTextStyle::SmallStrong,
             show_menu_button: true,
         }
+    }
+}
+
+impl PanelHeaderSystem {
+    /// Header height in the current density (`metrics::panel_header()` unless overridden).
+    pub fn resolved_height(&self) -> f32 {
+        follow_density(self.height, "panel_header")
+    }
+
+    pub fn resolved_tab_height(&self) -> f32 {
+        follow_density(self.tab_height, "panel_tab")
     }
 }
 
@@ -1223,10 +1389,17 @@ impl Default for ToolRailSystem {
     fn default() -> Self {
         Self {
             columns: 2,
-            button_side: 32.0,
+            button_side: neoflash_ui::metrics::TOOL_BUTTON,
             gap: 2.0,
             padding: 7.0,
         }
+    }
+}
+
+impl ToolRailSystem {
+    /// Tool button side in the current density (`metrics::tool_button()` unless overridden).
+    pub fn resolved_button_side(&self) -> f32 {
+        follow_density(self.button_side, "tool_button")
     }
 }
 
@@ -1317,8 +1490,8 @@ impl Default for TimelineGeometrySystem {
             broken_tween_dash_px: 4.0,
             broken_tween_gap_px: 3.0,
             frame_cell_width_px: 10.0,
-            layer_row_height_px: 24.0,
-            ruler_height_px: 22.0,
+            layer_row_height_px: neoflash_ui::metrics::LAYER_ROW,
+            ruler_height_px: neoflash_ui::metrics::TIMELINE_RULER,
             keyframe_dot_radius_px: 3.0,
             keyframe_dot_y_pct: 62.0,
             motion_diamond_radius_px: 3.5,
@@ -1336,20 +1509,34 @@ impl Default for TimelineGeometrySystem {
             onion_end_frame: 19,
             onion_bracket_width_px: 5.0,
             onion_handle_radius_px: 3.5,
-            layer_list_width: UiSizeUnit::Px(220.0),
-            layer_indent_px: 14.0,
+            layer_list_width: UiSizeUnit::Px(neoflash_ui::metrics::LAYER_COLUMN),
+            layer_indent_px: neoflash_ui::metrics::LAYER_INDENT,
             layer_icon_gap_px: 6.0,
         }
     }
 }
 
 impl TimelineGeometrySystem {
+    /// Layer row height in the current density (the density's default row unless overridden).
+    pub fn resolved_layer_row_height(&self) -> f32 {
+        if self.layer_row_height_px == neoflash_ui::metrics::LAYER_ROW {
+            neoflash_ui::metrics::default_layer_row()
+        } else {
+            self.layer_row_height_px
+        }
+    }
+
+    /// Frame ruler height in the current density (`metrics::timeline_ruler()` unless overridden).
+    pub fn resolved_ruler_height(&self) -> f32 {
+        follow_density(self.ruler_height_px, "timeline_ruler")
+    }
+
     /// Resolve the left layer-tree column width in pixels for a given total timeline width.
     pub fn resolve_layer_list_width(&self, total_timeline_width: f32) -> f32 {
         let raw = match self.layer_list_width {
-            UiSizeUnit::Px(px) => px,
+            UiSizeUnit::Px(px) => follow_density(px, "layer_column"),
             UiSizeUnit::Percent(pct) => total_timeline_width * (pct / 100.0),
-            UiSizeUnit::Auto => 220.0,
+            UiSizeUnit::Auto => neoflash_ui::metrics::layer_column(),
             UiSizeUnit::Fill(_) => total_timeline_width * 0.25,
         };
         raw.clamp(120.0, (total_timeline_width - 140.0).max(120.0))
@@ -1406,10 +1593,10 @@ pub struct WorkspaceShellSystem {
 impl Default for WorkspaceShellSystem {
     fn default() -> Self {
         Self {
-            top_menubar_height_px: 26.0,
-            doc_tabs_height_px: 28.0,
-            edit_bar_height_px: 24.0,
-            shell_left_tools_width: UiSizeUnit::Px(46.0),
+            top_menubar_height_px: neoflash_ui::metrics::TOP_BAR,
+            doc_tabs_height_px: neoflash_ui::metrics::DOCK_TAB,
+            edit_bar_height_px: neoflash_ui::metrics::BREADCRUMB,
+            shell_left_tools_width: UiSizeUnit::Px(neoflash_ui::metrics::TOOLS_RAIL),
             shell_right_inspector_width: UiSizeUnit::Percent(25.0),
             shell_bottom_timeline_height: UiSizeUnit::Percent(34.0),
             dock_splitter_gap_px: 3.0,
@@ -1421,9 +1608,9 @@ impl WorkspaceShellSystem {
     /// Resolve all dock and bar rectangles inside `viewport` using live `%` or `px` settings.
     pub fn resolve_shell_rects(&self, viewport: Rect) -> WorkspaceShellRects {
         let gap = self.dock_splitter_gap_px.clamp(0.0, 16.0);
-        let menu_h = self.top_menubar_height_px.clamp(18.0, 44.0);
-        let tabs_h = self.doc_tabs_height_px.clamp(20.0, 44.0);
-        let edit_h = self.edit_bar_height_px.clamp(18.0, 40.0);
+        let menu_h = follow_density(self.top_menubar_height_px, "top_bar").clamp(18.0, 48.0);
+        let tabs_h = follow_density(self.doc_tabs_height_px, "dock_tab").clamp(20.0, 44.0);
+        let edit_h = follow_density(self.edit_bar_height_px, "breadcrumb").clamp(18.0, 40.0);
 
         let menubar = Rect::from_min_size(viewport.min, egui::vec2(viewport.width(), menu_h));
         let doc_tabs = Rect::from_min_size(
@@ -1449,17 +1636,16 @@ impl WorkspaceShellSystem {
 
         let total_w = viewport.width().max(320.0);
         let raw_left_w = match self.shell_left_tools_width {
-            UiSizeUnit::Px(px) => px,
+            UiSizeUnit::Px(px) => follow_density(px, "tools_rail"),
             UiSizeUnit::Percent(pct) => total_w * (pct / 100.0),
-            UiSizeUnit::Auto => 46.0,
-            UiSizeUnit::Fill(_) => 46.0,
+            UiSizeUnit::Auto | UiSizeUnit::Fill(_) => neoflash_ui::metrics::tools_rail(),
         };
         let left_w = raw_left_w.clamp(32.0, (total_w * 0.25).max(36.0));
 
         let raw_right_w = match self.shell_right_inspector_width {
             UiSizeUnit::Px(px) => px,
             UiSizeUnit::Percent(pct) => total_w * (pct / 100.0),
-            UiSizeUnit::Auto => 240.0,
+            UiSizeUnit::Auto => neoflash_ui::metrics::inspector(),
             UiSizeUnit::Fill(_) => total_w * 0.25,
         };
         let right_w = raw_right_w.clamp(140.0, (total_w - left_w - 140.0).max(140.0));
@@ -1509,7 +1695,7 @@ pub struct StageOverlaySystem {
 impl Default for StageOverlaySystem {
     fn default() -> Self {
         Self {
-            stage_ruler_thickness_px: 18.0,
+            stage_ruler_thickness_px: neoflash_ui::metrics::STAGE_RULER,
             guide_stroke_width_px: 1.0,
             selection_handle_size_px: 6.0,
             stage_aspect_w: 550.0,
@@ -1593,9 +1779,51 @@ pub struct UiStudioSystems {
     pub palette_overrides: PaletteTokenOverrides,
 }
 
+impl StageOverlaySystem {
+    /// Stage ruler thickness in the current density (`metrics::stage_ruler()` unless overridden).
+    pub fn resolved_ruler_thickness(&self) -> f32 {
+        follow_density(self.stage_ruler_thickness_px, "stage_ruler")
+    }
+}
+
 impl UiStudioSystems {
-    /// Reset every system scale and shared layout system back to NF2 reference defaults.
+    /// Reset every system scale and shared layout system back to the reference defaults.
     pub fn reset_all_to_defaults(&mut self) {
         *self = Self::default();
+    }
+
+    /// Sessions saved before the density system stored the NF2 reference sizes as plain numbers.
+    /// A value still equal to its old reference moves to the current one, so it follows density.
+    pub fn migrate_legacy_defaults(&mut self) {
+        fn moved(value: &mut f32, legacy: f32, reference: f32) {
+            if *value == legacy {
+                *value = reference;
+            }
+        }
+        fn moved_px(value: &mut UiSizeUnit, legacy: f32, reference: f32) {
+            if *value == UiSizeUnit::Px(legacy) {
+                *value = UiSizeUnit::Px(reference);
+            }
+        }
+        use neoflash_ui::metrics as m;
+        self.spacing.migrate_legacy();
+        moved(
+            &mut self.two_column_form.label_width_px,
+            76.0,
+            m::LABEL_WIDTH,
+        );
+        moved(&mut self.section_header.height, 32.0, m::SECTION_HEADER);
+        moved(&mut self.panel_header.height, 40.0, m::PANEL_HEADER);
+        moved(&mut self.panel_header.tab_height, 36.0, m::PANEL_TAB);
+        moved(&mut self.tool_rail.button_side, 32.0, m::TOOL_BUTTON);
+        let tg = &mut self.timeline_geometry;
+        moved(&mut tg.layer_row_height_px, 24.0, m::LAYER_ROW);
+        moved(&mut tg.ruler_height_px, 22.0, m::TIMELINE_RULER);
+        moved_px(&mut tg.layer_list_width, 220.0, m::LAYER_COLUMN);
+        let ws = &mut self.workspace_shell;
+        moved(&mut ws.top_menubar_height_px, 26.0, m::TOP_BAR);
+        moved(&mut ws.doc_tabs_height_px, 28.0, m::DOCK_TAB);
+        moved(&mut ws.edit_bar_height_px, 24.0, m::BREADCRUMB);
+        moved_px(&mut ws.shell_left_tools_width, 46.0, m::TOOLS_RAIL);
     }
 }

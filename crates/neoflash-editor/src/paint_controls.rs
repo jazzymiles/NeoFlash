@@ -1,6 +1,6 @@
 //! Bounded property rows and non-destructive RGBA editing shared by panels,
 //! composed from NF2 fields (`neoflash_ui::components`).
-use crate::{app::Editor, theme::LABEL_WIDTH};
+use crate::app::Editor;
 use eframe::egui::{self, Response};
 use neoflash_core::{Color, GradientKind, GradientPaint};
 use neoflash_ui::{
@@ -43,9 +43,9 @@ pub(crate) fn property_row<R>(
     label: &str,
     content: impl FnOnce(&mut egui::Ui) -> R,
 ) -> R {
-    let label_width = LABEL_WIDTH;
+    let label_width = crate::theme::label_width();
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = space::S2;
+        ui.spacing_mut().item_spacing.x = space::s2();
         ui.set_min_height(crate::theme::property_row_h() - ui.spacing().item_spacing.y);
         // ComboBox::height controls its menu; its button uses interact_size.
         ui.spacing_mut().interact_size.y = crate::theme::control_h();
@@ -158,23 +158,45 @@ pub(crate) fn number_field(
     )
 }
 
-/// Narrowest shared form-grid cell that still shows a prefix and four digits.
+/// Narrowest shared form-grid cell that still shows a prefix and four digits (`width/num`).
 /// All paired editor forms use this one threshold so docked and detached panels
 /// switch to the same left-before-right stack instead of drifting independently.
-pub(crate) const FORM_CELL_MIN: f32 = 80.;
+pub(crate) fn form_cell_min() -> f32 {
+    neoflash_ui::metrics::field_num()
+}
+
+/// Width a form row may use: what is left of the row inside the visible panel. `available_width`
+/// alone follows `max_rect`, which an overflowing sibling has already widened; the clip rect is
+/// the panel (or scroll viewport) edge and never moves. Invisible and sizing passes have no clip
+/// rect to measure against and keep the plain available width.
+pub(crate) fn visible_row_width(ui: &egui::Ui) -> f32 {
+    let available = ui.available_width();
+    let clip = ui.clip_rect();
+    if !ui.is_visible() || !clip.is_positive() || !clip.right().is_finite() {
+        return available;
+    }
+    let visible = clip.right() - ui.cursor().left();
+    if visible > 0.0 {
+        available.min(visible)
+    } else {
+        available
+    }
+}
 
 /// Lay out two inspector cells on one shared grid. Every caller receives the
 /// exact cell width, so prefixes, icons and nested selectors cannot change the
-/// X position of the second column from row to row. At genuinely narrow widths
-/// the cells stack instead of clipping or shrinking below their usable size.
+/// X position of the second column from row to row. The row is budgeted from
+/// the visible width (two equal cells and one `gap/control`), so it never
+/// extends past the panel's right edge. At genuinely narrow widths the cells
+/// stack instead of clipping or shrinking below their usable size.
 pub(crate) fn two_column_row<L, R>(
     ui: &mut egui::Ui,
     left: impl FnOnce(&mut egui::Ui, f32) -> L,
     right: impl FnOnce(&mut egui::Ui, f32) -> R,
 ) -> (L, R) {
-    let gap = space::S2;
-    let available = ui.available_width();
-    if available < FORM_CELL_MIN * 2.0 + gap {
+    let gap = space::s2();
+    let available = visible_row_width(ui);
+    if available < form_cell_min() * 2.0 + gap {
         return ui
             .vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = gap;
@@ -186,9 +208,9 @@ pub(crate) fn two_column_row<L, R>(
             .inner;
     }
 
+    let width = ((available - gap) / 2.0).floor();
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = gap;
-        let width = (ui.available_width() - gap) / 2.0;
         let left = ui
             .allocate_ui_with_layout(
                 egui::vec2(width, crate::theme::control_h()),
@@ -256,49 +278,6 @@ pub(crate) fn numeric_pair_with_suffix(
     [first, second]
 }
 
-/// A paired numeric row whose trailing action belongs to the second cell.
-/// The two cell guides are established before the action width is reserved,
-/// so a Link/lock button can narrow only the right field and never move the
-/// shared second-column axis.
-pub(crate) fn numeric_pair_with_trailing<T>(
-    ui: &mut egui::Ui,
-    labels: [&str; 2],
-    values: [&mut f64; 2],
-    range: RangeInclusive<f64>,
-    speed: f64,
-    suffix: &str,
-    trailing: (f32, impl FnOnce(&mut egui::Ui) -> T),
-) -> ([Response; 2], T) {
-    let (trailing_width, trailing) = trailing;
-    let [a, b] = values;
-    let ids = labels.map(|label| ui.id().with(("numeric-property", label)));
-    let first_range = range.clone();
-    let (first, (second, trailing)) = two_column_row(
-        ui,
-        |ui, width| {
-            ui.scope_builder(egui::UiBuilder::new().id(ids[0]), |ui| {
-                number_field(ui, labels[0], a, first_range, speed, suffix, Some(width))
-            })
-            .inner
-        },
-        |ui, width| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = space::S2;
-                let field_width = (width - trailing_width - space::S2).max(0.0);
-                let second = ui
-                    .scope_builder(egui::UiBuilder::new().id(ids[1]), |ui| {
-                        number_field(ui, labels[1], b, range, speed, suffix, Some(field_width))
-                    })
-                    .inner;
-                let trailing = trailing(ui);
-                (second, trailing)
-            })
-            .inner
-        },
-    );
-    ([first, second], trailing)
-}
-
 pub(crate) fn percent_row(ui: &mut egui::Ui, label: &str, value: &mut f64) -> Response {
     let mut percent = *value * 100.;
     let response = number_field(ui, label, &mut percent, 0. ..=100., 0.5, " %", None);
@@ -311,6 +290,12 @@ pub(crate) fn percent_row(ui: &mut egui::Ui, label: &str, value: &mut f64) -> Re
         *value = percent / 100.;
     }
     response
+}
+
+/// Content width of the colour popovers (mixer, swatches): the inspector plus one panel padding
+/// (276 / 248 / 230), so everything laid out for the inspector fits with room to spare.
+pub(crate) fn paint_popover_width() -> f32 {
+    neoflash_ui::metrics::inspector() + space::s4()
 }
 
 /// Only write picker output on a real edit. Keeping RGB and alpha separate
@@ -437,50 +422,6 @@ pub(crate) fn paint_gradient_swatch(
     );
 }
 
-/// Overpaints the `front` (fill) and `back` (stroke) chips of `NF2/FillStrokeChip`
-/// using the shared `paint_gradient_swatch` renderer whenever the active fill or stroke
-/// uses a gradient.
-pub(crate) fn paint_fill_stroke_chip_gradients(
-    ui: &egui::Ui,
-    chip_rect: egui::Rect,
-    fill_solid: Option<egui::Color32>,
-    fill_gradient: Option<&GradientPaint>,
-    stroke_gradient: Option<&GradientPaint>,
-) {
-    if fill_gradient.is_none() && stroke_gradient.is_none() {
-        return;
-    }
-    let p = nf_palette(ui.ctx());
-    let r = neoflash_ui::tokens::radius::SM;
-    let back = egui::Rect::from_min_size(
-        chip_rect.min + egui::vec2(14.0, 14.0),
-        egui::vec2(20.0, 20.0),
-    );
-    let front =
-        egui::Rect::from_min_size(chip_rect.min + egui::vec2(2.0, 2.0), egui::vec2(20.0, 20.0));
-    if let Some(stroke_grad) = stroke_gradient {
-        paint_gradient_swatch(ui.painter(), back, stroke_grad, r);
-        let hole = back.shrink(4.0);
-        ui.painter()
-            .rect_filled(hole, egui::CornerRadius::same(1), p.bg_field);
-    }
-    if let Some(fill_grad) = fill_gradient {
-        paint_gradient_swatch(ui.painter(), front, fill_grad, r);
-    } else if stroke_gradient.is_some() {
-        // Re-paint front over the overlapped top-left corner of `back`.
-        match fill_solid {
-            Some(c) => neoflash_ui::components::display::paint_swatch(ui, front, c, r),
-            None => neoflash_ui::components::color::paint_none(ui, front),
-        }
-    }
-    ui.painter().rect_stroke(
-        front,
-        egui::CornerRadius::same(r as u8),
-        egui::Stroke::new(1.5_f32, p.bg_panel),
-        egui::StrokeKind::Outside,
-    );
-}
-
 /// `NF2/Color Field` layout for an unmultiplied RGBA value: swatch (opens the
 /// NF2 Color & Fill Type popover), hex with optional inline prefix, and an `α` percentage field.
 pub(crate) fn color_row(
@@ -502,9 +443,9 @@ pub(crate) fn color_row(
             ui,
             |ui, width| {
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = space::S2;
+                    ui.spacing_mut().item_spacing.x = space::s2();
                     let swatch = color_swatch(ui, id, label, value);
-                    let hex_width = (width - crate::theme::control_h() - space::S2).max(0.0);
+                    let hex_width = (width - neoflash_ui::metrics::swatch() - space::s2()).max(0.0);
                     let hex = hex_field(ui, prefix, label, value, hex_width);
                     (swatch, hex)
                 })
@@ -542,37 +483,38 @@ pub(crate) fn color_row(
     .inner
 }
 
-/// 32 px hit area with a 22 px `NF2/Swatch`; click opens the NF2 Color & Fill Type popover.
+/// `Swatch` chip (`size/swatch`) in a control-height hit area; click opens the Color & Fill Type
+/// popover. The allocated width is the chip's, so `color_row` budgets its cell exactly.
 pub(crate) fn color_swatch(
     ui: &mut egui::Ui,
     id: &str,
     label: &str,
     value: &mut Color,
 ) -> Response {
-    // Figma `NF2/Swatch` 22 × 22 at the row's left edge; the hit area keeps the 32 pt row height.
+    let side = neoflash_ui::metrics::swatch();
     let (rect, mut response) = ui.allocate_exact_size(
-        egui::vec2(22., crate::theme::control_h()),
+        egui::vec2(side, crate::theme::control_h()),
         egui::Sense::click(),
     );
-    let chip = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(22.));
+    let chip = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(side));
     let grad_key = egui::Id::new(("paint-row-grad-paint", id));
     if let Some(grad) = ui.data(|d| d.get_temp::<GradientPaint>(grad_key)) {
-        paint_gradient_swatch(ui.painter(), chip, &grad, space::S1);
+        paint_gradient_swatch(ui.painter(), chip, &grad, space::s1());
     } else {
         let shown = egui::Color32::from_rgba_unmultiplied(value[0], value[1], value[2], value[3]);
-        neoflash_ui::components::display::paint_swatch(ui, chip, shown, space::S1);
+        neoflash_ui::components::display::paint_swatch(ui, chip, shown, space::s1());
     }
     let p = nf_palette(ui.ctx());
     if response.hovered() && ui.is_enabled() {
         ui.painter().rect_stroke(
             chip.expand(1.),
-            egui::CornerRadius::same(space::S1 as u8),
+            egui::CornerRadius::same(space::s1() as u8),
             egui::Stroke::new(1.0_f32, p.border_strong),
             egui::StrokeKind::Outside,
         );
     }
     if neoflash_ui::theme::keyboard_focus(ui, &response) {
-        neoflash_ui::theme::focus_ring(ui, chip, space::S1);
+        neoflash_ui::theme::focus_ring(ui, chip, space::s1());
     }
     let popover_target = match id {
         "shape-fill" => Some(("shape-fill", false, true)),
@@ -733,9 +675,10 @@ pub(crate) fn rgba_color_popover(
         color_picker::{Hsb, hsv},
     };
 
-    ui.set_min_width(276.0);
-    ui.set_max_width(276.0);
-    ui.spacing_mut().item_spacing.y = space::S2;
+    let width = paint_popover_width();
+    ui.set_min_width(width);
+    ui.set_max_width(width);
+    ui.spacing_mut().item_spacing.y = space::s2();
 
     let mode_id = state_id.with("mode");
     let model_id = state_id.with("model-hsb");

@@ -4,26 +4,36 @@
 //! draw and report clicks.
 use super::{Button, a11y, fill, galley, galley_truncated, text_at};
 use crate::icons::{self, i16};
-use crate::metrics::KBD;
 use crate::theme::{cr, palette};
 use crate::tokens::{TextStyle, radius, space};
 use eframe::egui::{self, Rect, Response, Sense, Stroke, Ui};
 
-/// Row height of the shortcut list.
-pub const SHORTCUT_ROW: f32 = 32.0;
-/// Left inset of command titles (under the group's Section Header chevron).
-pub const SHORTCUT_INDENT: f32 = 28.0;
-/// Width of the right-aligned shortcut cell.
-pub const SHORTCUT_CELL: f32 = 140.0;
-/// Width of the recorder field.
-pub const SHORTCUT_RECORDER: f32 = 150.0;
+/// Normal-density reference sizes; layout uses [`shortcut_row`], [`shortcut_indent`] and
+/// [`shortcut_cell`].
+pub const SHORTCUT_ROW: f32 = crate::metrics::CONTROL;
+pub const SHORTCUT_INDENT: f32 = 16.0;
+pub const SHORTCUT_CELL: f32 = crate::metrics::FIELD_M;
+pub const SHORTCUT_RECORDER: f32 = crate::metrics::FIELD_M;
+
+/// Row height of the shortcut list: one control (one row per record).
+pub fn shortcut_row() -> f32 {
+    crate::metrics::control()
+}
+/// Left inset of command titles: under the title of the group's Section Header.
+pub fn shortcut_indent() -> f32 {
+    super::headers::section_title_inset()
+}
+/// Width of the right-aligned shortcut cell and of the recorder field (`width/field-m`).
+pub fn shortcut_cell() -> f32 {
+    crate::metrics::field_m()
+}
 
 const CHIP_GAP: f32 = 4.0;
 
 fn chip_width(ui: &Ui, key: &str) -> f32 {
     let p = palette(ui.ctx());
     let key = &*super::display::platform_shortcut(key);
-    (galley(ui, key, TextStyle::Small, p.text_secondary).size().x + 2.0 * 6.0).max(20.0)
+    super::display::kbd_width(galley(ui, key, TextStyle::Small, p.text_secondary).size().x)
 }
 
 /// Width of the chips of `chords`, joined by “or”.
@@ -62,17 +72,12 @@ fn paint_chords(ui: &Ui, rect: Rect, right: f32, chords: &[&[&str]]) {
                 x += CHIP_GAP;
             }
             let w = chip_width(ui, key);
+            let kbd_h = crate::metrics::kbd();
             let chip = Rect::from_min_size(
-                egui::pos2(x, rect.center().y - KBD / 2.0),
-                egui::vec2(w, KBD),
+                egui::pos2(x, rect.center().y - kbd_h / 2.0),
+                egui::vec2(w, kbd_h),
             );
-            fill(
-                ui,
-                chip,
-                radius::SM,
-                egui::Color32::TRANSPARENT,
-                Some(p.border_default),
-            );
+            fill(ui, chip, 3.0, p.bg_raised, Some(p.border_default));
             let g = galley(
                 ui,
                 &super::display::platform_shortcut(key),
@@ -128,11 +133,11 @@ impl<'a> ShortcutRow<'a> {
     }
 
     pub fn show(self, ui: &mut Ui, width: f32) -> ShortcutRowResponse {
-        let (rect, row) = ui.allocate_exact_size(egui::vec2(width, SHORTCUT_ROW), Sense::click());
+        let (rect, row) = ui.allocate_exact_size(egui::vec2(width, shortcut_row()), Sense::click());
         let p = palette(ui.ctx());
         let cell_rect = Rect::from_min_max(
-            egui::pos2(rect.right() - space::S3 - SHORTCUT_CELL, rect.top()),
-            egui::pos2(rect.right() - space::S3, rect.bottom()),
+            egui::pos2(rect.right() - space::s3() - shortcut_cell(), rect.top()),
+            egui::pos2(rect.right() - space::s3(), rect.bottom()),
         );
         let cell = ui.interact(cell_rect, row.id.with("cell"), Sense::click());
         if self.selected {
@@ -165,13 +170,13 @@ impl<'a> ShortcutRow<'a> {
         } else {
             0.0
         };
-        let mut title_right = cell_rect.right() - used.max(SHORTCUT_CELL) - space::S2;
+        let mut title_right = cell_rect.right() - used.max(shortcut_cell()) - space::s2();
         if let Some(note) = self.conflict {
             let g = galley(ui, note, TextStyle::Small, p.warning_default);
-            let right = cell_rect.right() - used - space::S3;
+            let right = cell_rect.right() - used - space::s3();
             let x = right - g.size().x;
             let icon = Rect::from_center_size(
-                egui::pos2(x - space::S1 - 8.0, rect.center().y),
+                egui::pos2(x - space::s1() - 8.0, rect.center().y),
                 egui::vec2(16.0, 16.0),
             );
             icons::paint(
@@ -182,7 +187,7 @@ impl<'a> ShortcutRow<'a> {
                 p.warning_default,
             );
             text_at(ui, x, rect, g, p.warning_default);
-            title_right = title_right.min(icon.left() - space::S2);
+            title_right = title_right.min(icon.left() - space::s2());
         }
         // Title.
         let fg = if assigned {
@@ -190,7 +195,7 @@ impl<'a> ShortcutRow<'a> {
         } else {
             p.text_secondary
         };
-        let x = rect.left() + SHORTCUT_INDENT;
+        let x = rect.left() + shortcut_indent();
         let g = galley_truncated(ui, self.title, TextStyle::Body, fg, title_right - x);
         text_at(ui, x, rect, g, fg);
         a11y(
@@ -247,17 +252,19 @@ impl<'a> ShortcutRecorder<'a> {
     pub fn show(self, ui: &mut Ui, width: f32) -> ShortcutRecorderResponse {
         let p = palette(ui.ctx());
         let mut out = ShortcutRecorderResponse::default();
-        let (rect, row) =
-            ui.allocate_exact_size(egui::vec2(width, SHORTCUT_ROW + space::S2), Sense::hover());
-        fill(ui, rect, radius::MD, p.bg_selected, None);
+        let (rect, row) = ui.allocate_exact_size(
+            egui::vec2(width, shortcut_row() + space::s2()),
+            Sense::hover(),
+        );
+        fill(ui, rect, radius::md(), p.bg_selected, None);
         // Buttons, right to left.
         let mut child = ui.new_child(
             egui::UiBuilder::new()
                 .id_salt(row.id.with("recorder-buttons"))
-                .max_rect(rect.shrink2(egui::vec2(space::S2, 0.0)))
+                .max_rect(rect.shrink2(egui::vec2(space::s2(), 0.0)))
                 .layout(egui::Layout::right_to_left(egui::Align::Center)),
         );
-        child.spacing_mut().item_spacing.x = space::S2;
+        child.spacing_mut().item_spacing.x = space::s2();
         if self.captured.is_some() {
             out.accept = child.add(Button::primary("Accept")).clicked();
             out.cancel = child.add(Button::new("Cancel")).clicked();
@@ -266,29 +273,30 @@ impl<'a> ShortcutRecorder<'a> {
         }
         let buttons_left = child.min_rect().left();
         // Recorder field.
+        let field_h = crate::metrics::control();
         let field = Rect::from_min_size(
             egui::pos2(
-                buttons_left - space::S2 - SHORTCUT_RECORDER,
-                rect.center().y - 14.0,
+                buttons_left - space::s2() - shortcut_cell(),
+                rect.center().y - field_h / 2.0,
             ),
-            egui::vec2(SHORTCUT_RECORDER, 28.0),
+            egui::vec2(shortcut_cell(), field_h),
         );
-        fill(ui, field, radius::MD, p.bg_field, Some(p.border_focus));
+        fill(ui, field, radius::md(), p.bg_field, Some(p.border_focus));
         match self.captured {
-            Some(chord) => paint_chords(ui, field, field.right() - space::S2, &[chord]),
+            Some(chord) => paint_chords(ui, field, field.right() - space::s2(), &[chord]),
             None => {
                 let g = galley(ui, "Press keys…", TextStyle::Small, p.text_tertiary);
-                let x = field.right() - space::S2 - g.size().x;
+                let x = field.right() - space::s2() - g.size().x;
                 text_at(ui, x, field, g, p.text_tertiary);
             }
         }
-        let x = rect.left() + SHORTCUT_INDENT;
+        let x = rect.left() + shortcut_indent();
         let g = galley_truncated(
             ui,
             self.title,
             TextStyle::Body,
             p.text_primary,
-            field.left() - space::S2 - x,
+            field.left() - space::s2() - x,
         );
         text_at(ui, x, rect, g, p.text_primary);
         a11y(
@@ -298,7 +306,7 @@ impl<'a> ShortcutRecorder<'a> {
             None,
         );
         if let (Some(chord), Some(other)) = (self.captured, self.conflict_with) {
-            ui.add_space(space::S1);
+            ui.add_space(space::s1());
             let text = format!(
                 "{} is already used by {other}. Accept keeps both — only the first in menu order runs.",
                 chord.concat()
@@ -317,14 +325,14 @@ pub fn conflict_strip(ui: &mut Ui, width: f32, text: &str, path: &str) -> bool {
     let button_w = galley(ui, &go_label, TextStyle::BodyStrong, p.text_primary)
         .size()
         .x
-        + 2.0 * space::S3;
-    let text_w = width - SHORTCUT_INDENT - 16.0 - space::S2 - button_w - 2.0 * space::S2;
+        + 2.0 * super::button::button_padding();
+    let text_w = width - shortcut_indent() - 16.0 - space::s2() - button_w - 2.0 * space::s2();
     let g = super::galley_wrapped(ui, text, TextStyle::Small, p.warning_default, text_w);
-    let height = (g.size().y + 2.0 * 6.0).max(SHORTCUT_ROW);
+    let height = (g.size().y + 2.0 * space::s2()).max(shortcut_row());
     let (rect, strip) = ui.allocate_exact_size(egui::vec2(width, height), Sense::hover());
-    fill(ui, rect, radius::MD, p.warning_subtle, None);
+    fill(ui, rect, radius::md(), p.warning_subtle, None);
     let icon = Rect::from_min_size(
-        egui::pos2(rect.left() + SHORTCUT_INDENT, rect.center().y - 8.0),
+        egui::pos2(rect.left() + shortcut_indent(), rect.center().y - 8.0),
         egui::vec2(16.0, 16.0),
     );
     icons::paint(
@@ -334,7 +342,7 @@ pub fn conflict_strip(ui: &mut Ui, width: f32, text: &str, path: &str) -> bool {
         i16::WARNING,
         p.warning_default,
     );
-    let tx = icon.right() + space::S2;
+    let tx = icon.right() + space::s2();
     ui.painter().galley(
         egui::pos2(tx, rect.center().y - g.size().y / 2.0),
         g,
@@ -343,7 +351,7 @@ pub fn conflict_strip(ui: &mut Ui, width: f32, text: &str, path: &str) -> bool {
     let mut child = ui.new_child(
         egui::UiBuilder::new()
             .id_salt(strip.id.with("go-to"))
-            .max_rect(rect.shrink2(egui::vec2(space::S2, 0.0)))
+            .max_rect(rect.shrink2(egui::vec2(space::s2(), 0.0)))
             .layout(egui::Layout::right_to_left(egui::Align::Center)),
     );
     child.add(Button::ghost(&go_label)).clicked()

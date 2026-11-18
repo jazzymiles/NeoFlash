@@ -734,7 +734,7 @@ impl Editor {
         );
         let show_dbg = self.actions_debugger_inspector_visible(&tab_key);
         let dbg_h = if show_dbg {
-            240.0_f32.min(full.height() * 0.50)
+            (10. * neoflash_ui::metrics::row()).min(full.height() * 0.50)
         } else {
             0.0
         };
@@ -744,10 +744,13 @@ impl Editor {
             egui::pos2(full.left(), bar.top() - dbg_h),
             egui::pos2(full.right(), bar.top()),
         );
-        let gap = if dbg_h > 0. { space::S2 } else { 0. };
+        let gap = if dbg_h > 0. { space::s2() } else { 0. };
         let code = egui::Rect::from_min_max(
             full.min,
-            egui::pos2(full.right(), (dbg_rect.top() - gap).max(full.top() + 60.)),
+            egui::pos2(
+                full.right(),
+                (dbg_rect.top() - gap).max(full.top() + CODE_MIN_HEIGHT),
+            ),
         );
         let hint_context = || self.hint_context(language);
         let paint_diagnostics = if *source == before_command {
@@ -812,7 +815,8 @@ impl Editor {
                 egui::Stroke::new(1.0_f32, p.border_subtle),
             );
             ui.scope_builder(
-                egui::UiBuilder::new().max_rect(dbg_rect.shrink2(egui::vec2(space::S2, 2.0))),
+                egui::UiBuilder::new()
+                    .max_rect(dbg_rect.shrink2(egui::vec2(space::s2(), space::s1() / 2.))),
                 |ui| {
                     self.actions_debugger_inspector_ui(ui, &tab_key);
                 },
@@ -823,11 +827,11 @@ impl Editor {
             bar.top() + 0.5,
             egui::Stroke::new(1.0_f32, p.border_subtle),
         );
-        let min_tabs_w = 112.0_f32.min(bar.width() * 0.42);
-        let status_left = (bar.left() + min_tabs_w + space::S2).min(bar.right() - space::S2);
+        let min_tabs_w = neoflash_ui::metrics::field_s().min(bar.width() * 0.42);
+        let status_left = (bar.left() + min_tabs_w + space::s2()).min(bar.right() - space::s2());
         let status_zone = egui::Rect::from_min_max(
             egui::pos2(status_left, bar.top()),
-            egui::pos2((bar.right() - space::S2).max(status_left), bar.bottom()),
+            egui::pos2((bar.right() - space::s2()).max(status_left), bar.bottom()),
         );
         let (status_rect, status_clicked) = ui
             .scope_builder(
@@ -866,7 +870,8 @@ impl Editor {
         {
             self.jump_to_next_bar_diagnostic(ui.ctx(), source, caret, diagnostics);
         }
-        let tabs_right = (status_rect.left() - space::S2).max(bar.left() + 48.0);
+        let tabs_right = (status_rect.left() - space::s2())
+            .max(bar.left() + 2. * neoflash_ui::metrics::control());
         let tabs_rect = egui::Rect::from_min_max(bar.min, egui::pos2(tabs_right, bar.bottom()));
         self.render_actions_script_tabs_bar(ui, tabs_rect, tab);
         ui.advance_cursor_after_rect(full);
@@ -1279,14 +1284,19 @@ impl Editor {
         let original = index.map(|index| self.project.sources[index].clone());
         let unit = original.clone();
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 2.;
+            ui.spacing_mut().item_spacing.x = space::s2();
             let file_label = unit
                 .as_ref()
                 .map_or("No source files", |u| u.path.as_str())
                 .to_owned();
-            let select_w =
-                (ui.available_width() - 160. - 3. * neoflash_ui::metrics::control() - 16.)
-                    .clamp(120., 320.);
+            // The row keeps room for the language badge, the divider and three icon buttons.
+            let reserved = neoflash_ui::metrics::field_m()
+                + 3. * (neoflash_ui::metrics::control() + space::s2())
+                + 2. * space::s3();
+            let select_w = (ui.available_width() - reserved).clamp(
+                neoflash_ui::metrics::field_s(),
+                neoflash_ui::metrics::field_l() + neoflash_ui::metrics::field_s(),
+            );
             nf::Select::new("project_source_file", &file_label)
                 .icon(neoflash_ui::icons::i16::FILE_CODE)
                 .width(select_w)
@@ -1314,10 +1324,10 @@ impl Editor {
                     self.project.also_compile_compatible_scripts,
                     unit.language,
                 ) == neoflash_core::ScriptDisposition::SkippedForeign;
-                ui.add_space(space::S1);
+                ui.add_space(space::s1());
                 Self::script_language_badge(ui, unit.language, skipped);
             }
-            ui.add_space(space::S1);
+            ui.add_space(space::s1());
             nf::divider(ui, true);
             let new_enabled = matches!(
                 proj_lang,
@@ -1335,7 +1345,7 @@ impl Editor {
             );
             crate::ui_icons::hover_tooltip(new.clone(), "", None, new_disabled_reason.as_deref());
             if new_enabled {
-                nf::popup_below(&new, 200., |ui| {
+                nf::popup_below(&new, neoflash_ui::metrics::menu_width(), |ui| {
                     let (label, language) = if proj_lang == ScriptLanguage::ActionScript2 {
                         ("New AS2 class", ScriptLanguage::ActionScript2)
                     } else {
@@ -1375,7 +1385,7 @@ impl Editor {
                 self.prune_stale_pinned_script_tabs();
             }
         });
-        ui.add_space(space::S1);
+        ui.add_space(space::s1());
         let mut document_class = self.project.document_class.clone().unwrap_or_default();
         let mut symbol_class = self.symbol().class_name.clone().unwrap_or_default();
         let mut linkage_id = self.symbol().linkage_id.clone().unwrap_or_default();
@@ -1836,7 +1846,13 @@ impl Editor {
     }
 }
 
-const MARKER_GUTTER: f32 = space::S1 + 16.0 + space::S1;
+/// The code area keeps at least three default code lines above the debugger inspector.
+const CODE_MIN_HEIGHT: f32 = 60.;
+
+/// Gutter without line numbers: a 16 px marker with a tiny gap on both sides.
+fn marker_gutter() -> f32 {
+    space::s1() + 16.0 + space::s1()
+}
 
 /// Resolved `egui::FontId` for `CodeEditorPrefs`: empty or `"Roboto Mono"` uses the bundled NF2
 /// monospace font; installed custom families fall back to monospace if unavailable in `ctx`.
@@ -1913,7 +1929,7 @@ fn paint_marker_gutter(
                 .max_by_key(|s| *s as u8);
             let has_bp = breakpoints.contains(&line);
             let icon = egui::Rect::from_center_size(
-                egui::pos2(rect.left() + space::S1 + 8.0, r.center().y),
+                egui::pos2(rect.left() + space::s1() + 8.0, r.center().y),
                 egui::vec2(16.0, 16.0),
             );
             match (marker, has_bp) {
@@ -2015,10 +2031,13 @@ fn hint_popover(
         .show(ctx, |ui| {
             nf::popover_frame(ctx).show(ui, |ui| {
                 nf::menu::menu_style(ui.style_mut());
-                ui.set_width(220.);
+                ui.set_width(neoflash_ui::metrics::menu_width());
+                // Up to eight rows; the list never shrinks below its rows while it is open.
+                let rows = items.len().clamp(1, 8) as f32;
                 egui::ScrollArea::vertical()
                     .id_salt(id.with("code-hints-scroll"))
-                    .max_height(8. * neoflash_ui::metrics::row())
+                    .max_height(rows * neoflash_ui::metrics::row())
+                    .auto_shrink([false, false])
                     .themed()
                     .show(ui, |ui| {
                         for (index, item) in items.iter().enumerate() {
@@ -2345,7 +2364,7 @@ fn code_editor(
     let gutter = if prefs.line_numbers {
         nf::code::gutter_width(ui, lines)
     } else {
-        MARKER_GUTTER
+        marker_gutter()
     };
     let font_id = code_font_id(&ctx, prefs);
     let mut caret = (1, 1);
@@ -2355,7 +2374,7 @@ fn code_editor(
     let response = egui::Frame::new()
         .fill(p.bg_field)
         .stroke(egui::Stroke::new(1.0_f32, p.border_subtle))
-        .corner_radius(radius::MD)
+        .corner_radius(radius::md())
         .inner_margin(egui::Margin::same(1))
         .show(ui, |ui| {
             let viewport_size = ui.available_size();
@@ -2397,10 +2416,10 @@ fn code_editor(
                                 .layouter(&mut layouter)
                                 .frame(false)
                                 .margin(egui::Margin {
-                                    left: (gutter + space::S3).min(120.0) as i8,
-                                    right: space::S2 as i8,
-                                    top: space::S1 as i8,
-                                    bottom: space::S1 as i8,
+                                    left: (gutter + space::s3()).min(120.0) as i8,
+                                    right: space::s2() as i8,
+                                    top: space::s1() as i8,
+                                    bottom: space::s1() as i8,
                                 })
                                 .desired_width(f32::INFINITY)
                                 .min_size(egui::vec2(viewport_w, viewport_h))
@@ -2480,7 +2499,7 @@ fn code_editor(
                     let marker_strip = egui::Rect::from_min_max(
                         gutter_rect.min,
                         egui::pos2(
-                            (gutter_rect.left() + MARKER_GUTTER).min(gutter_rect.right()),
+                            (gutter_rect.left() + marker_gutter()).min(gutter_rect.right()),
                             gutter_rect.bottom(),
                         ),
                     );
@@ -4896,7 +4915,7 @@ impl Editor {
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
-                    .add(nf::IconButton::new(i16::X, "Close debugger inspector").side(24.0))
+                    .add(nf::IconButton::new(i16::X, "Close debugger inspector"))
                     .clicked()
                 {
                     close_drawer = true;
@@ -4913,7 +4932,7 @@ impl Editor {
             .auto_shrink([false, false])
             .themed()
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = space::S1;
+                ui.spacing_mut().item_spacing.y = space::s1();
 
                 // 1. Conditional & hit-count breakpoints for the current script tab
                 let breakpoints = self.breakpoints_for(tab_key);
@@ -4926,8 +4945,33 @@ impl Editor {
                             let mut hit_target = bp.hit_count_target.unwrap_or(0) as f64;
                             let mut remove_clicked = false;
                             ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S2;
+                                ui.spacing_mut().item_spacing.x = space::s2();
                                 let label = format!("Line {}", bp.line);
+                                let hits_badge = format!("Hits: {}", bp.hit_count);
+                                // One row per breakpoint: the condition takes what the fixed
+                                // controls leave, down to a numeric field.
+                                let text_width = |text: &str, style| {
+                                    ui.painter()
+                                        .layout_no_wrap(
+                                            text.to_owned(),
+                                            neoflash_ui::typography::font(style),
+                                            egui::Color32::PLACEHOLDER,
+                                        )
+                                        .size()
+                                        .x
+                                };
+                                let fixed = neoflash_ui::metrics::check_box()
+                                    + space::s2()
+                                    + text_width(&label, neoflash_ui::TextStyle::Body)
+                                    + neoflash_ui::metrics::field_s()
+                                    + text_width(&hits_badge, neoflash_ui::TextStyle::Small)
+                                    + 12.
+                                    + neoflash_ui::metrics::control()
+                                    + 4. * space::s2();
+                                let condition_width = (ui.available_width() - fixed).clamp(
+                                    neoflash_ui::metrics::field_num(),
+                                    neoflash_ui::metrics::field_m(),
+                                );
                                 if ui.add(nf::Checkbox::new(&mut enabled, &label)).changed() {
                                     self.set_breakpoint_enabled(tab_key, bp.line, enabled);
                                 }
@@ -4937,7 +4981,7 @@ impl Editor {
                                             .prefix("if")
                                             .hint("Condition")
                                             .mono()
-                                            .width(170.0),
+                                            .width(condition_width),
                                     )
                                     .changed()
                                 {
@@ -4952,7 +4996,7 @@ impl Editor {
                                             .range(0.0..=10_000.0)
                                             .step(1.0)
                                             .decimals(0)
-                                            .width(96.0),
+                                            .width(neoflash_ui::metrics::field_s()),
                                     )
                                     .changed()
                                 {
@@ -4963,7 +5007,6 @@ impl Editor {
                                         (target_u32 > 0).then_some(target_u32),
                                     );
                                 }
-                                let hits_badge = format!("Hits: {}", bp.hit_count);
                                 ui.add(nf::Badge::new(&hits_badge, nf::BadgeType::Neutral));
                                 if ui
                                     .add(nf::IconButton::new(i16::TRASH, "Remove breakpoint"))
@@ -4987,13 +5030,13 @@ impl Editor {
                         let mut add_watch_now = false;
                         let mut refresh_now = false;
                         ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = space::S2;
+                            ui.spacing_mut().item_spacing.x = space::s2();
                             let tf = ui.add(
                                 nf::TextField::new(&mut watch_draft, "Watch expression")
                                     .prefix("Expr")
                                     .hint("Expression")
                                     .mono()
-                                    .width(180.0),
+                                    .width(neoflash_ui::metrics::field_m()),
                             );
                             if tf.changed() {
                                 self.with_authoring_state_mut(|state| {
@@ -5030,7 +5073,7 @@ impl Editor {
                         let cols = &[0.0, 0.45];
                         for (idx, watch) in watches.iter().enumerate() {
                             ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S2;
+                                ui.spacing_mut().item_spacing.x = space::s2();
                                 ui.add(nf::TableRow {
                                     cells: &[&watch.expression, &watch.last_value],
                                     kind: nf::TableRowKind::Row,
@@ -5065,14 +5108,33 @@ impl Editor {
                         .show(ui, |ui| {
                             let mut apply_var_edit = false;
                             ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S2;
+                                ui.spacing_mut().item_spacing.x = space::s2();
+                                // The path takes what the value field and the button leave.
+                                let set_value_width = ui
+                                    .painter()
+                                    .layout_no_wrap(
+                                        "Set value".to_owned(),
+                                        neoflash_ui::typography::font(neoflash_ui::TextStyle::Body),
+                                        egui::Color32::PLACEHOLDER,
+                                    )
+                                    .size()
+                                    .x
+                                    + 2. * nf::button::button_padding();
+                                let path_width = (ui.available_width()
+                                    - neoflash_ui::metrics::field_s()
+                                    - set_value_width
+                                    - 2. * space::s2())
+                                .clamp(
+                                    neoflash_ui::metrics::field_num(),
+                                    neoflash_ui::metrics::field_m(),
+                                );
                                 if ui
                                     .add(
                                         nf::TextField::new(&mut var_path_draft, "Variable path")
                                             .prefix("Path")
                                             .hint("player.stats.hp")
                                             .mono()
-                                            .width(160.0),
+                                            .width(path_width),
                                     )
                                     .changed()
                                 {
@@ -5086,7 +5148,7 @@ impl Editor {
                                             .prefix("=")
                                             .hint("Value")
                                             .mono()
-                                            .width(120.0),
+                                            .width(neoflash_ui::metrics::field_s()),
                                     )
                                     .changed()
                                 {

@@ -1040,13 +1040,13 @@ impl Editor {
             .and_then(|id| styles.iter().find(|s| s.id == id))
             .map(|s| s.name.clone())
             .unwrap_or_else(|| "None".to_string());
-        let style_label = format!("Style: {active_style_name}");
 
         nf::SectionHeader::new("Graphic style")
             .id_salt("appearance_graphic_style_sec")
             .show(ui, |ui| {
                 let mut chosen_action: Option<Option<String>> = None;
-                nf::Select::new("appearance_graphic_style_select", &style_label)
+                nf::Select::new("appearance_graphic_style_select", &active_style_name)
+                    .prefix("Style")
                     .width(ui.available_width())
                     .show(ui, |ui| {
                         if ui
@@ -1080,7 +1080,7 @@ impl Editor {
                 }
                 let has_style = appearance.style_id.is_some();
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = space::S2;
+                    ui.spacing_mut().item_spacing.x = space::s2();
                     if ui.add(nf::Button::new("Save style…")).clicked() {
                         let next_name = next_graphic_style_name(&styles);
                         let _ = self.appearance_save_graphic_style(&next_name);
@@ -1119,7 +1119,7 @@ impl Editor {
                 }
 
                 ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
+                    ui.spacing_mut().item_spacing = egui::vec2(space::s2(), space::s2());
                     if ui.add(nf::Button::new("Add fill")).clicked() {
                         let _ = self.appearance_add_fill(self.fill, [0.0, 0.0], 1.0);
                     }
@@ -1397,7 +1397,7 @@ impl Editor {
                 let mut use_y = axis_y.is_some();
                 let mut toggle_ch = false;
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = space::S4;
+                    ui.spacing_mut().item_spacing.x = space::s4();
                     toggle_ch |= ui.add(nf::Checkbox::new(&mut use_x, "Mirror X")).changed();
                     toggle_ch |= ui.add(nf::Checkbox::new(&mut use_y, "Mirror Y")).changed();
                 });
@@ -1625,7 +1625,7 @@ impl<'a> NumericSpec<'a> {
 fn appearance_item_box(ui: &mut egui::Ui, id: (&str, usize), body: impl FnOnce(&mut egui::Ui)) {
     ui.push_id(id, |ui| {
         ui.scope(|ui| {
-            ui.spacing_mut().item_spacing.y = space::S2;
+            ui.spacing_mut().item_spacing.y = space::s2();
             body(ui);
         });
     });
@@ -1669,7 +1669,7 @@ fn item_title_header(ui: &mut egui::Ui, title: &str, idx: usize, len: usize) -> 
     let text_primary = palette(ui.ctx()).text_primary;
     let mut action = None;
     appearance_header_row(ui, |ui| {
-        ui.spacing_mut().item_spacing.x = space::S2;
+        ui.spacing_mut().item_spacing.x = space::s2();
         ui.label(rich(title, TextStyle::BodyStrong).color(text_primary));
         action = item_header_actions(ui, idx, len);
     });
@@ -2307,10 +2307,12 @@ mod appearance_tests {
                     .frame(egui::Frame::NONE)
                     .show(ctx, |ui| {
                         panel_rect = ui.available_rect_before_wrap();
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            ui.spacing_mut().item_spacing.y = neoflash_ui::tokens::space::S3;
-                            editor.appearance_panel_ui(ui);
-                        });
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                ui.spacing_mut().item_spacing.y = neoflash_ui::tokens::space::s3();
+                                editor.appearance_panel_ui(ui);
+                            });
                     });
             },
         );
@@ -2362,7 +2364,7 @@ mod appearance_tests {
         collect_shape_texts(&top_shapes, &mut texts);
         for expected in [
             "Graphic style",
-            "Style: None",
+            "Style",
             "Save style…",
             "Unlink",
             "Delete",
@@ -2413,7 +2415,7 @@ mod appearance_tests {
         let (out, texts, panel_rect) = run_appearance_panel(&mut editor, &ctx, 0.2, vec![]);
 
         for label in [
-            "Style: None",
+            "Style, None",
             "Save style…",
             "Unlink",
             "Delete",
@@ -2623,7 +2625,7 @@ mod appearance_tests {
         let save_pt = collect_accesskit_bounds(&out, "Save style…")[0].0.center();
         let (out, _, _) = click_appearance(&mut editor, &ctx, &mut time, save_pt);
         assert_eq!(editor.project.vector_styles().len(), 1);
-        assert!(collect_accesskit_bounds(&out, "Style: Style 1").len() == 1);
+        assert!(collect_accesskit_bounds(&out, "Style, Style 1").len() == 1);
         assert!(
             collect_accesskit_bounds(&out, "Unlink")[0].1
                 && collect_accesskit_bounds(&out, "Delete")[0].1
@@ -2638,10 +2640,10 @@ mod appearance_tests {
                 .style_id
                 .is_none()
         );
-        assert!(collect_accesskit_bounds(&out, "Style: None").len() == 1);
+        assert!(collect_accesskit_bounds(&out, "Style, None").len() == 1);
 
         // Re-link via Style: None Select dropdown then Delete style.
-        let style_sel_pt = collect_accesskit_bounds(&out, "Style: None")[0].0.center();
+        let style_sel_pt = collect_accesskit_bounds(&out, "Style, None")[0].0.center();
         let (out, _, _) = click_appearance(&mut editor, &ctx, &mut time, style_sel_pt);
         let style1_pt = collect_accesskit_bounds(&out, "Style 1")[0].0.center();
         let (out, _, _) = click_appearance(&mut editor, &ctx, &mut time, style1_pt);

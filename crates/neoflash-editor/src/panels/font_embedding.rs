@@ -2,12 +2,13 @@
 //! `W3.8`; reference `publish-misc-dialogs.png`), opened from `Library menu ▸ Font embedding…`
 //! and `Window ▸ Panels ▸ Planned panels ▸ Font embedding`.
 
-use super::dialog_helpers::group;
+use super::dialog_helpers::{DialogShell, fixed_dialog_size, form_row, group_caption, nav_row};
 use crate::app::Editor;
 use eframe::egui::{self, Ui};
 use neoflash_core::{ResourceUnit, new_id};
 use neoflash_ui::components as c;
 use neoflash_ui::icons::i16;
+use neoflash_ui::metrics;
 use neoflash_ui::tokens::{TextStyle, space};
 use neoflash_ui::typography::rich;
 use serde::{Deserialize, Serialize};
@@ -86,6 +87,11 @@ struct PendingTextEmbedding {
 
 fn draft_id() -> egui::Id {
     egui::Id::new("nf2-font-embedding-draft")
+}
+
+/// Font embedding: `dialog_l` × `dialog_l_height`, whatever the font list and the selected face.
+pub(crate) fn font_embedding_size(ctx: &egui::Context) -> egui::Vec2 {
+    fixed_dialog_size(ctx, metrics::dialog_l(), metrics::dialog_l_height())
 }
 
 fn inline_draft_id() -> egui::Id {
@@ -455,204 +461,183 @@ impl Editor {
         Ok(count)
     }
 
-    pub(crate) fn font_embedding_body(
-        &mut self,
-        ui: &mut Ui,
-        draft: &mut FontEmbeddingDraft,
-    ) -> (bool, bool) {
-        let mut close_cancel = false;
-        let mut do_apply = false;
-        let nf = neoflash_ui::palette(ui.ctx());
+    /// `+`: a new face of the first available family with the four basic ranges.
+    fn add_font_embedding_face(&self, draft: &mut FontEmbeddingDraft) {
+        let idx = draft.entries.len() + 1;
+        let default_family = self
+            .fonts
+            .families
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "Inter".to_owned());
+        draft.entries.push(EmbeddedFontEntry {
+            id: new_id("res"),
+            name: format!("Embedded Font {idx}"),
+            family: default_family,
+            style: "Regular".to_owned(),
+            ranges: [true, true, true, true, false, false, false, false],
+            extra_chars: String::new(),
+            export_for_actionscript: false,
+            class_name: String::new(),
+        });
+        draft.selected = draft.entries.len() - 1;
+    }
 
-        if !draft.entries.is_empty() {
-            draft.selected = draft.selected.min(draft.entries.len() - 1);
-        } else {
-            draft.selected = 0;
+    /// Screenshot aid (`NEOFLASH_SCREENSHOT_DIALOG=font_embedding_face`): the dialog with one face.
+    pub(crate) fn open_font_embedding_with_face(&mut self, ctx: &egui::Context) {
+        self.open_font_embedding(ctx);
+        if let Some(mut draft) = ctx.data(|d| d.get_temp::<FontEmbeddingDraft>(draft_id())) {
+            self.add_font_embedding_face(&mut draft);
+            ctx.data_mut(|d| d.insert_temp(draft_id(), draft));
         }
+    }
 
-        ui.horizontal_top(|ui| {
-            ui.spacing_mut().item_spacing.x = space::S5;
-            ui.allocate_ui_with_layout(
-                egui::vec2(220.0, 0.0),
-                egui::Layout::top_down(egui::Align::Min),
-                |ui| {
-                    ui.set_width(220.0);
-                    ui.spacing_mut().item_spacing.y = 2.0;
-                    if draft.entries.is_empty() {
+    /// Sidebar: one row per embedded font, then Add / Remove.
+    fn font_embedding_sidebar(&mut self, ui: &mut Ui, draft: &mut FontEmbeddingDraft) {
+        use crate::theme::ScrollTheme as _;
+        let nf = neoflash_ui::palette(ui.ctx());
+        let list_height = (ui.available_height() - metrics::control() - space::s2()).max(0.0);
+        egui::ScrollArea::vertical()
+            .id_salt("font-embedding-fonts")
+            .max_height(list_height)
+            .auto_shrink([false, false])
+            .themed()
+            .show(ui, |ui| {
+                if draft.entries.is_empty() {
+                    ui.add_space(space::s1());
+                    ui.horizontal(|ui| {
+                        ui.add_space(space::s3());
                         ui.label(
                             rich("No embedded fonts", TextStyle::Small).color(nf.text_secondary),
                         );
-                    } else {
-                        for i in 0..draft.entries.len() {
-                            let font_name = draft.entries[i].name.clone();
-                            let out =
-                                c::TreeItem::new(&font_name, c::TreeItemType::Symbol(i16::FONT))
-                                    .selected(i == draft.selected)
-                                    .show(ui);
-                            if out.row.clicked() {
-                                draft.selected = i;
-                            }
+                    });
+                }
+                for i in 0..draft.entries.len() {
+                    let font_name = draft.entries[i].name.clone();
+                    if nav_row(ui, i16::FONT, &font_name, i == draft.selected, None).clicked() {
+                        draft.selected = i;
+                    }
+                }
+            });
+        ui.add_space(space::s2());
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = space::s1();
+            if ui.add(c::IconButton::new(i16::PLUS, "Add font")).clicked() {
+                self.add_font_embedding_face(draft);
+            }
+            if ui
+                .add_enabled(
+                    !draft.entries.is_empty(),
+                    c::IconButton::new(i16::MINUS, "Remove font"),
+                )
+                .clicked()
+                && !draft.entries.is_empty()
+            {
+                draft.entries.remove(draft.selected);
+                draft.selected = draft.selected.min(draft.entries.len().saturating_sub(1));
+            }
+        });
+    }
+
+    /// Page of the selected font on the form grid; the character ranges are two columns.
+    fn font_embedding_page(&mut self, ui: &mut Ui, draft: &mut FontEmbeddingDraft) {
+        let nf = neoflash_ui::palette(ui.ctx());
+        let Some(entry) = draft.entries.get_mut(draft.selected) else {
+            ui.label(
+                rich(
+                    "No embedded fonts configured in this document.",
+                    TextStyle::BodyStrong,
+                )
+                .color(nf.text_primary),
+            );
+            ui.label(
+                rich(
+                    "Click + to add a font face and choose character ranges to embed.",
+                    TextStyle::Small,
+                )
+                .color(nf.text_secondary),
+            );
+            return;
+        };
+        form_row(ui, "Name", |ui| {
+            let width = ui.available_width();
+            ui.add(c::TextField::new(&mut entry.name, "Name").width(width));
+        });
+        form_row(ui, "Family", |ui| {
+            let shown = entry.family.clone();
+            c::Select::new(ui.id().with("font-embed-family"), &shown)
+                .width(metrics::field_l())
+                .show(ui, |ui| {
+                    let mut families: Vec<&str> =
+                        self.fonts.families.iter().map(String::as_str).collect();
+                    families.extend(FONT_FAMILIES);
+                    families.sort_unstable_by_key(|family| family.to_ascii_lowercase());
+                    families.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+                    for fam in families {
+                        if ui
+                            .add(c::MenuItem::new(fam).checked(entry.family == fam))
+                            .clicked()
+                        {
+                            entry.family = fam.to_owned();
+                            ui.close();
                         }
                     }
-                    ui.horizontal(|ui| {
-                        if ui.add(c::IconButton::new(i16::PLUS, "Add font")).clicked() {
-                            let idx = draft.entries.len() + 1;
-                            let default_family = self
-                                .fonts
-                                .families
-                                .first()
-                                .cloned()
-                                .unwrap_or_else(|| "Inter".to_owned());
-                            draft.entries.push(EmbeddedFontEntry {
-                                id: new_id("res"),
-                                name: format!("Embedded Font {idx}"),
-                                family: default_family,
-                                style: "Regular".to_owned(),
-                                ranges: [true, true, true, true, false, false, false, false],
-                                extra_chars: String::new(),
-                                export_for_actionscript: false,
-                                class_name: String::new(),
-                            });
-                            draft.selected = draft.entries.len() - 1;
-                        }
-                        if ui
-                            .add_enabled(
-                                !draft.entries.is_empty(),
-                                c::IconButton::new(i16::MINUS, "Remove font"),
-                            )
-                            .clicked()
-                            && !draft.entries.is_empty()
-                        {
-                            draft.entries.remove(draft.selected);
-                            draft.selected =
-                                draft.selected.min(draft.entries.len().saturating_sub(1));
-                        }
-                    });
-                },
-            );
-
-            if let Some(entry) = draft.entries.get_mut(draft.selected) {
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = space::S3;
-                    ui.horizontal(|ui| {
-                        ui.add(
-                            c::TextField::new(&mut entry.name, "Name")
-                                .prefix("Name")
-                                .width(220.0),
-                        );
-                        let fam_lbl = format!("Family: {}", entry.family);
-                        c::Select::new(ui.id().with("font-embed-family"), &fam_lbl)
-                            .width(200.0)
-                            .show(ui, |ui| {
-                                let mut families: Vec<&str> =
-                                    self.fonts.families.iter().map(String::as_str).collect();
-                                families.extend(FONT_FAMILIES);
-                                families.sort_unstable_by_key(|family| family.to_ascii_lowercase());
-                                families.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
-                                for fam in families {
-                                    if ui
-                                        .add(
-                                            c::MenuItem::new(&format!("Family: {fam}"))
-                                                .checked(entry.family == fam),
-                                        )
-                                        .clicked()
-                                    {
-                                        entry.family = fam.to_owned();
-                                        ui.close();
-                                    }
-                                }
-                            });
-                    });
-                    let style_lbl = format!("Style: {}", entry.style);
-                    c::Select::new(ui.id().with("font-embed-style"), &style_lbl)
-                        .width(220.0)
-                        .show(ui, |ui| {
-                            for st in FONT_STYLES {
-                                if ui
-                                    .add(
-                                        c::MenuItem::new(&format!("Style: {st}"))
-                                            .checked(entry.style == st),
-                                    )
-                                    .clicked()
-                                {
-                                    entry.style = st.to_owned();
-                                    ui.close();
-                                }
-                            }
-                        });
-                    group(ui, "Character ranges");
-                    ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing = egui::vec2(space::S4, space::S2);
-                        for (idx, (label, _)) in RANGE_SPECS.iter().enumerate() {
-                            ui.add(c::Checkbox::new(&mut entry.ranges[idx], label));
-                        }
-                    });
-                    ui.add(
-                        c::TextField::new(&mut entry.extra_chars, "Also include")
-                            .prefix("Also include")
-                            .width(ui.available_width()),
-                    );
-                    ui.horizontal(|ui| {
-                        let as_resp = ui.add_enabled(
-                            false,
-                            c::Checkbox::new(
-                                &mut entry.export_for_actionscript,
-                                "Export for ActionScript",
-                            ),
-                        );
-                        let _ = c::not_available(as_resp, "ActionScript font class export");
-                        let cls_resp = ui.add_enabled(
-                            false,
-                            c::TextField::new(&mut entry.class_name, "Class")
-                                .prefix("Class")
-                                .width(200.0),
-                        );
-                        let _ = c::not_available(cls_resp, "ActionScript font class name");
-                    });
                 });
-            } else {
+        });
+        form_row(ui, "Style", |ui| {
+            let shown = entry.style.clone();
+            c::Select::new(ui.id().with("font-embed-style"), &shown)
+                .width(metrics::field_l())
+                .show(ui, |ui| {
+                    for st in FONT_STYLES {
+                        if ui
+                            .add(c::MenuItem::new(st).checked(entry.style == st))
+                            .clicked()
+                        {
+                            entry.style = st.to_owned();
+                            ui.close();
+                        }
+                    }
+                });
+        });
+        group_caption(ui, "Character ranges");
+        let half = RANGE_SPECS.len().div_ceil(2);
+        let column = ((ui.available_width() - space::s4()) / 2.0).floor();
+        let row_gap = metrics::row_gap();
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = space::s4();
+            for range in [0..half, half..RANGE_SPECS.len()] {
                 ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = space::S2;
-                    ui.label(
-                        rich(
-                            "No embedded fonts configured in this document.",
-                            TextStyle::BodyStrong,
-                        )
-                        .color(nf.text_primary),
-                    );
-                    ui.label(
-                        rich(
-                            "Click + to add a font face and choose character ranges to embed.",
-                            TextStyle::Small,
-                        )
-                        .color(nf.text_secondary),
-                    );
+                    ui.set_width(column);
+                    ui.spacing_mut().item_spacing.y = row_gap;
+                    for idx in range {
+                        ui.add(c::Checkbox::new(&mut entry.ranges[idx], RANGE_SPECS[idx].0));
+                    }
                 });
             }
         });
-
-        let badge_text = if let Some(entry) = draft.entries.get(draft.selected) {
-            format!(
-                "{} glyphs · subset estimate ~ {} kB",
-                entry.glyph_count(),
-                entry.approx_kb()
-            )
-        } else {
-            "0 embedded fonts".to_owned()
-        };
-        ui.add_space(space::S2);
-        ui.horizontal(|ui| {
-            ui.add(c::Badge::new(&badge_text, c::BadgeType::Accent));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.add(c::Button::primary("OK")).clicked() {
-                    do_apply = true;
-                }
-                if ui.add(c::Button::new("Cancel")).clicked() {
-                    close_cancel = true;
-                }
-            });
+        form_row(ui, "Also include", |ui| {
+            let width = ui.available_width();
+            ui.add(c::TextField::new(&mut entry.extra_chars, "Also include").width(width));
         });
-        (close_cancel, do_apply)
+        group_caption(ui, "ActionScript");
+        form_row(ui, "", |ui| {
+            let as_resp = ui.add_enabled(
+                false,
+                c::Checkbox::new(
+                    &mut entry.export_for_actionscript,
+                    "Export for ActionScript",
+                ),
+            );
+            let _ = c::not_available(as_resp, "ActionScript font class export");
+        });
+        form_row(ui, "Class", |ui| {
+            let cls_resp = ui.add_enabled(
+                false,
+                c::TextField::new(&mut entry.class_name, "Class").width(metrics::field_l()),
+            );
+            let _ = c::not_available(cls_resp, "ActionScript font class name");
+        });
     }
 
     pub(crate) fn font_embedding_dialog(&mut self, ctx: &egui::Context) {
@@ -664,29 +649,42 @@ impl Editor {
         let mut close_cancel = false;
         let mut do_apply = false;
 
+        if !draft.entries.is_empty() {
+            draft.selected = draft.selected.min(draft.entries.len() - 1);
+        } else {
+            draft.selected = 0;
+        }
+        // Same shell as Preferences: one size whatever the font list and the selected face.
+        let size = font_embedding_size(ctx);
         let modal = egui::Modal::new(egui::Id::new("font-embedding"))
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
-                ui.set_width(760.0);
-                let header_top = ui.cursor().min;
-                close_cancel |= c::DialogHeader {
-                    title: "Font embedding",
-                }
-                .show(ui);
-                ui.painter().hline(
-                    header_top.x..=header_top.x + 760.0,
-                    header_top.y + neoflash_ui::metrics::dialog_header() - 0.5,
-                    egui::Stroke::new(1.0_f32, p.border_subtle),
+                let shell = DialogShell::show(ui, "Font Embedding", size, metrics::sidebar_wide());
+                close_cancel |= shell.close;
+                shell.sidebar(ui, |ui| self.font_embedding_sidebar(ui, &mut draft));
+                shell.page(ui, "font-embedding-page", |ui, _| {
+                    self.font_embedding_page(ui, &mut draft);
+                });
+                let badge_text = if let Some(entry) = draft.entries.get(draft.selected) {
+                    format!(
+                        "{} glyphs · subset estimate ~ {} kB",
+                        entry.glyph_count(),
+                        entry.approx_kb()
+                    )
+                } else {
+                    "0 embedded fonts".to_owned()
+                };
+                shell.footer(
+                    ui,
+                    |ui| {
+                        ui.add(c::Badge::new(&badge_text, c::BadgeType::Accent));
+                    },
+                    |ui| {
+                        do_apply |= ui.add(c::Button::primary("OK")).clicked();
+                        close_cancel |= ui.add(c::Button::new("Cancel")).clicked();
+                    },
                 );
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(space::S5 as i8))
-                    .show(ui, |ui| {
-                        ui.set_width(760.0 - 2.0 * space::S5);
-                        let (c, ok) = self.font_embedding_body(ui, &mut draft);
-                        close_cancel |= c;
-                        do_apply |= ok;
-                    });
             });
 
         if !close_cancel && !do_apply {

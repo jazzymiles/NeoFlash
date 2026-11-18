@@ -4,7 +4,9 @@
 //!   `color/timeline/classic-tween` → `timeline_classic_tween`, `color/text/on-accent` → `text_on_accent`.
 //! * [`DARK`] is the default theme; [`LIGHT`], [`MID_NEUTRAL_GRAY`] and [`DARK_GRAPHITE`] swap
 //!   semantic values only. Components never branch on theme.
-//! * `space::S1..S6` = 4 · 8 · 12 · 16 · 24 · 32, `radius::{SM, MD, LG, XL, FULL}` = 4 · 6 · 8 · 12 · 999.
+//! * `space::s1()…s6()` and `radius::sm()…xl()` follow the density (`metrics::DENSITY_TABLE`:
+//!   4 · 6 · 8 · 12 · 20 · 28 and 3 · 5 · 8 · 10 in Normal); the `S1…S6` / `SM…XL` constants are the
+//!   NF2 reference values and `radius::FULL` = 999.
 use eframe::egui::Color32;
 
 mod generated {

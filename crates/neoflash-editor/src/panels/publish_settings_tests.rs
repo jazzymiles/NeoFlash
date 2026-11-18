@@ -209,7 +209,7 @@ fn publish_modal_draft_validation_cancel_and_save_in_both_themes() {
                 label
             );
         }
-        d.click("Shared runtime");
+        d.click("Shared");
         for label in ["Publish", "OK"] {
             assert!(
                 d.node(label).is_disabled(),
@@ -222,7 +222,7 @@ fn publish_modal_draft_validation_cancel_and_save_in_both_themes() {
             assert!(!d.node(label).is_disabled(), "valid URL enables {label}");
         }
         d.click("Full");
-        d.click("Shared runtime");
+        d.click("Shared");
         assert_eq!(
             d.editor
                 .publish_settings
@@ -315,7 +315,7 @@ fn custom_reset_is_drafted_and_same_root_document_switch_closes_publish() {
     assert_eq!(d.editor.workspace.publish.options.size, SizeLevel::Compact);
 
     d.open();
-    d.click("Shared runtime");
+    d.click("Shared");
     let original_root = d.editor.project.root.clone();
     let mut cloned = d.editor.project.clone();
     cloned.name = "Independent same-root document".into();
@@ -467,9 +467,7 @@ fn publish_settings_and_preferences_audio_policy_update_custom_badge_and_persist
     }
     d.settle();
     assert!(
-        painted_text(&d.output)
-            .iter()
-            .any(|t| t == "Audio: MP3 160 kbps"),
+        painted_text(&d.output).iter().any(|t| t == "MP3 160 kbps"),
         "Publish settings shows selected audio policy"
     );
     d.click("OK");
@@ -716,12 +714,22 @@ fn publish_button_in_publish_settings_persists_all_edited_settings_without_reset
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
+/// Area rect of the Publish settings modal as laid out in the last frame.
+fn publish_dialog_rect(ctx: &egui::Context) -> Rect {
+    ctx.memory(|m| m.area_rect(egui::Id::new("publish-settings")))
+        .expect("Publish settings modal area")
+}
+
 #[test]
-fn publish_settings_r089_layout_height_cap_collapsed_simulator_and_hints() {
+fn publish_settings_v3_layout_fixed_size_collapsed_simulator_and_hints() {
+    use neoflash_ui::metrics;
+    use neoflash_ui::tokens::space;
+
     let mut d = Driver::new(ThemeMode::Dark);
     d.open();
 
-    // Render at 1024x720 (`R-089` #4: dialog never taller than window - 80 pt = 640 pt).
+    // A 1024x720 window still fits the density size; the dialog keeps a margin and never follows
+    // its content.
     let mut out = egui::FullOutput::default();
     for _ in 0..2 {
         out = d.ctx.run(
@@ -734,6 +742,19 @@ fn publish_settings_r089_layout_height_cap_collapsed_simulator_and_hints() {
             },
         );
     }
+    let dialog = publish_dialog_rect(&d.ctx);
+    let margin = 2.0 * space::s5();
+    let expected = Vec2::new(
+        metrics::dialog_xl().min(1024.0 - margin),
+        metrics::dialog_l_height().min(720.0 - margin),
+    );
+    // The modal frame adds its 1 pt border on every side.
+    assert!(
+        (dialog.width() - expected.x).abs() <= 2.0 && (dialog.height() - expected.y).abs() <= 2.0,
+        "Publish settings must be {expected:?} at 1024x720, got {:?}",
+        dialog.size()
+    );
+    assert!(dialog.top() >= 0.0 && dialog.bottom() <= 720.0);
 
     fn collect_rects(shape: &egui::Shape, out_rects: &mut Vec<(egui::Color32, Rect)>) {
         match shape {
@@ -746,20 +767,6 @@ fn publish_settings_r089_layout_height_cap_collapsed_simulator_and_hints() {
     for s in &out.shapes {
         collect_rects(&s.shape, &mut all_rects);
     }
-    let mut max_dialog_y = f32::NEG_INFINITY;
-    let mut min_dialog_y = f32::INFINITY;
-    let bg_raised = neoflash_ui::palette(&d.ctx).bg_raised;
-    for (fill, rect) in &all_rects {
-        if *fill == bg_raised && rect.width() > 800.0 && rect.height() > 200.0 {
-            min_dialog_y = min_dialog_y.min(rect.top());
-            max_dialog_y = max_dialog_y.max(rect.bottom());
-        }
-    }
-    let dialog_h = max_dialog_y - min_dialog_y;
-    assert!(
-        (580.0..=641.0).contains(&dialog_h),
-        "at 1024x720 Publish settings must fit within window - 80 pt (<= 640 pt), got {dialog_h}"
-    );
 
     let texts = painted_text(&out);
     // R-089 #3: Network startup simulator starts collapsed by default.
@@ -776,18 +783,21 @@ fn publish_settings_r089_layout_height_cap_collapsed_simulator_and_hints() {
         texts.iter().any(|t| t == "Choose a file"),
         "empty output field must show 'Choose a file' hint: {texts:?}"
     );
+    // Every target has the same Output row and footer: one "Browse…" and the three actions.
+    assert_eq!(texts.iter().filter(|t| t.as_str() == "Browse…").count(), 1);
 
-    // R-089 #5: active target row has bg/selected fill.
+    // R-089 #5: the active target row has the bg/selected fill across the sidebar.
     let bg_selected = neoflash_ui::palette(&d.ctx).bg_selected;
+    let row_width = metrics::sidebar_wide() - 2.0 * space::s1() - 1.0;
     assert!(
-        all_rects
-            .iter()
-            .any(|(fill, rect)| *fill == bg_selected && (rect.width() - 260.0).abs() <= 20.0),
+        all_rects.iter().any(|(fill, rect)| *fill == bg_selected
+            && (rect.width() - row_width).abs() <= 1.0
+            && (rect.height() - metrics::row()).abs() <= 0.5),
         "expected bg/selected fill on active target row"
     );
 
-    // R-089 #1/#2: Loop..Source maps checkboxes sit above Scale/Align, and Sequences sits below
-    // Sprite sheets / Embed fonts checkboxes at >= 280 pt.
+    // Form grid: the Playback checkboxes share one row above the Stage selects, and Sequences is
+    // its own row under the Bitmaps checkboxes.
     fn find_text_in_shape(shape: &egui::Shape, needle: &str) -> Option<Rect> {
         match shape {
             egui::Shape::Text(t) if t.galley.text().contains(needle) => {
@@ -803,19 +813,102 @@ fn publish_settings_r089_layout_height_cap_collapsed_simulator_and_hints() {
             .find_map(|s| find_text_in_shape(&s.shape, needle))
     };
     let loop_r = find_text_rect("Loop").expect("Loop checkbox");
-    let maps_r = find_text_rect("Source maps").expect("Source maps checkbox");
-    let scale_r = find_text_rect("Scale:").expect("Scale select");
-    let align_r = find_text_rect("Align:").expect("Align select");
-    assert!((loop_r.center().y - maps_r.center().y).abs() <= 6.0);
-    assert!(maps_r.bottom() <= scale_r.top() + 4.0);
+    let fullscreen_r = find_text_rect("Fullscreen").expect("Fullscreen checkbox");
+    let scale_r = find_text_rect("Scale").expect("Scale select");
+    let align_r = find_text_rect("Align").expect("Align select");
+    assert!((loop_r.center().y - fullscreen_r.center().y).abs() <= 6.0);
+    assert!(fullscreen_r.bottom() <= scale_r.top() + 4.0);
     assert!((scale_r.center().y - align_r.center().y).abs() <= 6.0);
 
     let sprite_r = find_text_rect("Sprite sheets").expect("Sprite sheets checkbox");
-    let seq_r = find_text_rect("Sequences:").expect("Sequences select");
+    let seq_r = find_text_rect("Sequences").expect("Sequences row");
     assert!(
         sprite_r.bottom() <= seq_r.top() + 4.0,
         "Sequences select must be on its own row under asset checkboxes"
     );
+    // One grid: row labels share the left edge of the page, controls share the control axis.
+    let label_x = find_text_rect("JPEG quality")
+        .expect("JPEG quality label")
+        .left();
+    assert!((seq_r.left() - label_x).abs() <= 0.5);
+    assert!((loop_r.left() - sprite_r.left()).abs() <= 0.5);
+    assert!(
+        (loop_r.left()
+            - label_x
+            - metrics::dialog_label()
+            - space::s2()
+            - metrics::check_box()
+            - space::s2())
+        .abs()
+            <= 1.0,
+        "controls start one label column after the labels"
+    );
+}
+
+/// v3 "nothing jumps": the dialog rect and the footer are the same for every target and option,
+/// in every density.
+#[test]
+fn publish_settings_dialog_rect_is_identical_for_every_target_in_each_density() {
+    use crate::workspace::{DensityPref, PublishTarget};
+    use neoflash_ui::metrics;
+
+    for density in DensityPref::ALL {
+        let mut d = Driver::new(ThemeMode::Light);
+        d.editor.workspace.density = density;
+        d.editor.apply_density(&d.ctx);
+        d.open();
+        let expected = Vec2::new(metrics::dialog_xl(), metrics::dialog_l_height());
+        let mut reference: Option<(Rect, egui::accesskit::Rect)> = None;
+        let mut check = |d: &Driver, what: &str| {
+            let rect = publish_dialog_rect(&d.ctx);
+            assert!(
+                (rect.width() - expected.x).abs() <= 2.0
+                    && (rect.height() - expected.y).abs() <= 2.0,
+                "{density:?} · {what}: dialog is {:?}, expected {expected:?}",
+                rect.size()
+            );
+            let publish = d.node("Publish").bounds().unwrap();
+            match &reference {
+                None => reference = Some((rect, publish)),
+                Some((first, first_publish)) => {
+                    assert_eq!(rect, *first, "{density:?} · {what}: dialog rect changed");
+                    assert_eq!(
+                        publish, *first_publish,
+                        "{density:?} · {what}: footer moved"
+                    );
+                }
+            }
+        };
+        for target in [
+            PublishTarget::Html5,
+            PublishTarget::DesktopApp,
+            PublishTarget::VideoMp4,
+            PublishTarget::ImageSequence,
+            PublishTarget::SvgAnimation,
+        ] {
+            d.editor.publish_settings.as_mut().unwrap().selected_target = target;
+            d.settle();
+            check(&d, &format!("{target:?}"));
+        }
+        // Options that add or remove rows keep the size as well.
+        {
+            let draft = d.editor.publish_settings.as_mut().unwrap();
+            draft.selected_target = PublishTarget::Html5;
+            draft.settings.options.size = SizeLevel::Shared("../runtime".into());
+            draft.settings.options.fonts = FontExportPolicy::Outlines;
+        }
+        d.settle();
+        check(&d, "HTML5, shared runtime, custom");
+        {
+            let draft = d.editor.publish_settings.as_mut().unwrap();
+            draft.selected_target = PublishTarget::ImageSequence;
+            draft.settings.image_sequence_sprite_sheet = true;
+        }
+        d.settle();
+        check(&d, "sprite sheet");
+        d.editor.publish_settings = None;
+    }
+    neoflash_ui::metrics::set_density(Default::default());
 }
 
 #[test]
@@ -837,7 +930,6 @@ fn publish_profiles_and_all_five_targets_desktop_image_sequence_svg_and_html5() 
     // Verify all profile presets apply their expected configurations
     for preset in PublishProfilePreset::ALL {
         assert!(!preset.label().is_empty());
-        assert!(preset.select_label().starts_with("Profile: "));
         d.editor.workspace.publish.apply_profile(preset);
         assert!(d.editor.workspace.publish.has_any_enabled_target());
     }
@@ -930,7 +1022,7 @@ fn preferences_publish_preview_vs_clean_hud_checkboxes_and_test_movie_distinctio
     }
     let texts = painted_text(&out);
     for expected in [
-        "Preview & publish",
+        "PREVIEW & PUBLISH",
         "Preview mode",
         "Technical bar",
         "Clean stage",
@@ -1145,8 +1237,8 @@ fn web_app_dom_profile_persists_across_nflash_save_reopen_and_drives_publish_and
 
     // 2. Open File ▸ Publish Settings…, select Profile: Web App · DOM in the NF2 Profile dropdown, and apply OK.
     d.open();
-    d.click("Profile: Default");
-    d.click("Profile: Web App · DOM");
+    d.click("Profile, Default");
+    d.click("Web App · DOM");
     assert_eq!(
         d.editor.publish_settings.as_ref().unwrap().settings.profile,
         PublishProfilePreset::WebAppDom
@@ -1203,7 +1295,7 @@ fn web_app_dom_profile_persists_across_nflash_save_reopen_and_drives_publish_and
             .as_ref()
             .unwrap()
             .active_profile_label(),
-        "Profile: Web App · DOM"
+        "Web App · DOM"
     );
     reopened.publish_settings = None;
 
@@ -1242,8 +1334,8 @@ fn web_app_dom_profile_persists_across_nflash_save_reopen_and_drives_publish_and
 
     // 5. Switching back to Profile: Default restores byte-identical Canvas output.
     d.open();
-    d.click("Profile: Web App · DOM");
-    d.click("Profile: Default");
+    d.click("Profile, Web App · DOM");
+    d.click("Default");
     d.click("OK");
     assert_eq!(d.editor.project.html_render_mode(), HtmlRenderMode::Canvas);
     assert_eq!(
@@ -1283,8 +1375,8 @@ fn t311_publish_settings_single_undo_unchanged_clean_and_session_tab_profile_syn
 
     // 2. Switching profile to Web App · DOM commits ONE "Publish settings" Undo step.
     d.open();
-    d.click("Profile: Default");
-    d.click("Profile: Web App · DOM");
+    d.click("Profile, Default");
+    d.click("Web App · DOM");
     d.click("OK");
     assert!(d.editor.dirty());
     assert_eq!(
@@ -1344,7 +1436,7 @@ fn t320_export_modals_two_step_escape_extension_sync_and_zero_frame_safety() {
     //    second Escape closes the modal!
     let mut d = Driver::new(ThemeMode::Dark);
     d.open();
-    d.click("Profile: Default");
+    d.click("Profile, Default");
     assert!(
         egui::Popup::is_any_open(&d.ctx),
         "clicking Profile Select must open popup"

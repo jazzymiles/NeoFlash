@@ -74,8 +74,8 @@ impl PanelId {
             | Self::Actions
             | Self::Properties
             | Self::Accessibility => 0.,
-            Self::Library => space::S2,
-            _ => space::S3,
+            Self::Library => space::s2(),
+            _ => space::s3(),
         }
     }
     /// Smallest height when stacked in a side column: the panel header plus its first control row
@@ -86,10 +86,10 @@ impl PanelId {
                 use neoflash_ui::{metrics as nf, tokens::space};
                 nf::panel_header()
                     + nf::control()
-                    + 2.0 * space::S2
+                    + 2.0 * space::s2()
                     + nf::control()
                     + 3.0 * nf::row()
-                    + space::S2
+                    + space::s2()
                     + 1.0
                     + nf::control()
             }
@@ -1009,7 +1009,7 @@ impl Default for DockLayout {
                 groups: vec![group(3, vec![PanelId::Tools])],
             },
             right: DockArea {
-                // 320 pt panel + the 6 pt resize strip, so rows keep the Figma 288 pt width.
+                // `width/inspector` panel + the 6 pt resize strip.
                 size: neoflash_ui::metrics::inspector() + 6.,
                 groups: vec![
                     DockGroup {
@@ -1480,34 +1480,55 @@ impl ScreenRect {
     }
 }
 
-/// Minimum logical width of a standalone `Tools` panel window: one tool button
-/// plus existing NF2 padding and border (~40–42 pt across density profiles) so
-/// the 1-column `tool_rail` layout is genuinely reachable when resizing narrow.
+/// Minimum logical width of a standalone `Tools` panel window: the one-column rail
+/// (`width/tools-1`), so the 1-column layout is reachable when resizing narrow.
 pub fn minimum_tools_window_width() -> f32 {
-    (neoflash_ui::metrics::tool_button() + neoflash_ui::tokens::space::S2 + 2.0).max(40.0)
+    neoflash_ui::metrics::tools_rail()
 }
 
+/// Value of the density metric `name` (a `neoflash_ui::metrics` function) in `density`, whatever
+/// profile the UI thread currently uses.
+fn density_metric(name: &str, density: neoflash_ui::metrics::Density) -> f32 {
+    let column = neoflash_ui::metrics::Density::ALL
+        .iter()
+        .position(|candidate| *candidate == density)
+        .unwrap_or(0);
+    neoflash_ui::metrics::DENSITY_TABLE
+        .iter()
+        .find(|(metric, _)| *metric == name)
+        .map_or(0., |(_, values)| values[column])
+}
+
+/// A width tuned for the former 320 pt inspector, carried to the current density
+/// (`old × inspector() / 320`, on the 4 pt grid).
+fn inspector_scaled(old: f32) -> f32 {
+    (old * neoflash_ui::metrics::inspector() / 320. / 4.).round() * 4.
+}
+
+/// Smallest useful window (and dock) size of a panel. Every inspector-family panel shares the
+/// `inspector()` minimum width, so a side dock has one minimum whichever of them is active; only
+/// panels that need more room (timeline, debugger, compiler errors, ease, motion editor) differ.
 pub fn minimum_window_size(panel: PanelId) -> [f32; 2] {
+    let inspector = neoflash_ui::metrics::inspector();
     match panel {
         PanelId::Tools => [minimum_tools_window_width(), 160.],
-        PanelId::Timeline => [320., 180.],
-        PanelId::Library => [248., 300.],
-        PanelId::Properties => [320., 220.],
+        PanelId::Timeline => [inspector_scaled(320.), 180.],
+        PanelId::Library => [inspector, 300.],
         PanelId::Align
         | PanelId::Transform
         | PanelId::Color
         | PanelId::Scene
         | PanelId::History
-        | PanelId::Info => [248., 190.],
-        PanelId::Swatches => [300., 360.],
-        PanelId::Project => [248., 280.],
-        PanelId::Filters => [268., 260.],
-        PanelId::CodeSnippets | PanelId::MovieExplorer => [280., 280.],
-        PanelId::Debugger => [620., 220.],
-        PanelId::CompilerErrors => [360., 180.],
-        PanelId::Ease => [320., 420.],
-        PanelId::MotionEditor => [640., 260.],
-        _ => [320., 220.],
+        | PanelId::Info => [inspector, 190.],
+        PanelId::Swatches => [inspector, 360.],
+        PanelId::Project | PanelId::CodeSnippets | PanelId::MovieExplorer => [inspector, 280.],
+        PanelId::Filters => [inspector, 260.],
+        PanelId::Debugger => [inspector_scaled(620.), 220.],
+        PanelId::CompilerErrors => [inspector_scaled(360.), 180.],
+        PanelId::Ease => [inspector_scaled(320.), 420.],
+        PanelId::MotionEditor => [inspector_scaled(640.), 260.],
+        // Properties, Actions, Accessibility, Output, Brushes.
+        _ => [inspector, 220.],
     }
 }
 pub fn maximum_window_size(panel: PanelId) -> [f32; 2] {
@@ -1521,25 +1542,29 @@ pub fn maximum_window_size(panel: PanelId) -> [f32; 2] {
         _ => [4096., 2160.],
     }
 }
+/// Size of a freshly detached panel window. Side panels open at the `inspector()` width, Tools
+/// at its two-column width; wide bottom-dock panels keep their working width.
 pub fn default_window_size(panel: PanelId) -> [f32; 2] {
+    let inspector = neoflash_ui::metrics::inspector();
     match panel {
-        PanelId::Tools => [96., 600.],
-        PanelId::Brushes => [320., 650.],
+        PanelId::Tools => [neoflash_ui::metrics::tools_two_columns(), 600.],
+        PanelId::Brushes => [inspector, 650.],
         PanelId::Timeline => [900., 280.],
-        PanelId::Library => [300., 600.],
-        PanelId::Properties => [340., 560.],
-        PanelId::Align | PanelId::Transform | PanelId::Color => [320., 440.],
-        PanelId::Swatches => [324., 490.],
-        PanelId::Filters => [324., 460.],
-        PanelId::Info => [300., 220.],
-        PanelId::History => [260., 320.],
-        PanelId::Project => [300., 484.],
-        PanelId::CodeSnippets | PanelId::MovieExplorer => [340., 480.],
+        PanelId::Library => [inspector, 600.],
+        PanelId::Properties => [inspector, 560.],
+        PanelId::Align | PanelId::Transform | PanelId::Color => [inspector, 440.],
+        PanelId::Swatches => [inspector, 490.],
+        PanelId::Filters => [inspector, 460.],
+        PanelId::Info => [inspector, 220.],
+        PanelId::History => [inspector, 320.],
+        PanelId::Project => [inspector, 484.],
+        PanelId::CodeSnippets | PanelId::MovieExplorer => [inspector, 480.],
         PanelId::Debugger => [960., 320.],
-        PanelId::CompilerErrors => [560., 260.],
-        PanelId::Scene => [260., 360.],
-        PanelId::Ease => [376., 640.],
+        PanelId::CompilerErrors => [inspector_scaled(560.), 260.],
+        PanelId::Scene => [inspector, 360.],
+        PanelId::Ease => [inspector_scaled(376.), 640.],
         PanelId::MotionEditor => [960., 520.],
+        // Actions, Accessibility, Output.
         _ => [680., 440.],
     }
 }
@@ -2413,7 +2438,6 @@ impl PublishProfilePreset {
         Self::DebugPreview,
     ];
 
-    #[allow(dead_code)]
     pub const fn label(self) -> &'static str {
         match self {
             Self::Default => "Default",
@@ -2423,18 +2447,6 @@ impl PublishProfilePreset {
             Self::WebBannerNative => "Web Banner · Native",
             Self::HighQuality => "High Quality",
             Self::DebugPreview => "Preview / Debug",
-        }
-    }
-
-    pub const fn select_label(self) -> &'static str {
-        match self {
-            Self::Default => "Profile: Default",
-            Self::WebCompact => "Profile: Web Compact",
-            Self::WebBalanced => "Profile: Web Balanced",
-            Self::WebAppDom => "Profile: Web App · DOM",
-            Self::WebBannerNative => "Profile: Web Banner · Native",
-            Self::HighQuality => "Profile: High Quality",
-            Self::DebugPreview => "Profile: Preview / Debug",
         }
     }
 }
@@ -3518,7 +3530,7 @@ impl WorkspaceTemplate {
                 let dock = DockLayout {
                     top: area(crate::theme::timeline_h(), vec![]),
                     bottom: area(
-                        300.,
+                        neoflash_ui::metrics::BOTTOM_DOCK,
                         vec![group(
                             2,
                             vec![
@@ -3665,7 +3677,7 @@ impl WorkspaceTemplate {
                 let dock = DockLayout {
                     top: area(crate::theme::timeline_h(), vec![]),
                     bottom: area(
-                        300.,
+                        neoflash_ui::metrics::BOTTOM_DOCK,
                         vec![group(
                             2,
                             vec![
@@ -3682,7 +3694,7 @@ impl WorkspaceTemplate {
                     ),
                     left: tools(neoflash_ui::metrics::tools_rail()),
                     right: area(
-                        280.,
+                        inspector,
                         vec![group(
                             5,
                             vec![
@@ -3805,7 +3817,7 @@ impl WorkspacePrefs {
                 active: PanelId::Properties,
                 weight: 1.,
             }];
-            self.dock.bottom.size = 300.;
+            self.dock.bottom.size = neoflash_ui::metrics::BOTTOM_DOCK;
         }
     }
     /// Only this small JSON key is written. Eframe owns flushing the storage;
@@ -3880,6 +3892,15 @@ impl WorkspacePrefs {
     }
 
     fn sanitize_layout(&mut self) {
+        // Window size limits follow density: check saved geometry against the saved profile, not
+        // against whatever profile the calling thread happens to use (Normal while loading).
+        let caller = neoflash_ui::metrics::density();
+        neoflash_ui::metrics::set_density(self.density.ui());
+        self.sanitize_layout_in_saved_density();
+        neoflash_ui::metrics::set_density(caller);
+    }
+
+    fn sanitize_layout_in_saved_density(&mut self) {
         self.sizes.sanitize();
         self.detached.sanitize();
         self.dock.sanitize(self.detached);
@@ -4016,6 +4037,19 @@ impl WorkspacePrefs {
     /// Switch the density profile. Its layer-row preset (Normal / Short / Compact), default
     /// layer-column width and Stage toolbar state become current; the user can change them afterwards.
     pub fn set_density(&mut self, density: DensityPref) {
+        // A side dock that still sits at the previous profile's default width (inspector, tools
+        // rail or two tool columns, plus the 6 pt resize strip) follows the new profile; a width
+        // the user chose is kept and only clamped to the new minimum when drawn.
+        let defaults = |density: DensityPref| {
+            ["inspector", "tools_two_columns", "tools_rail"]
+                .map(|name| density_metric(name, density.ui()) + 6.)
+        };
+        let (old, new) = (defaults(self.density), defaults(density));
+        for area in [&mut self.dock.left, &mut self.dock.right] {
+            if let Some(index) = old.iter().position(|size| (area.size - size).abs() < 0.5) {
+                area.size = new[index];
+            }
+        }
         self.density = density;
         self.stage_toolbar = StageToolbarMode::for_density(density);
         let d = density.ui();
@@ -4023,8 +4057,8 @@ impl WorkspacePrefs {
         self.timeline.compact_rows = d == neoflash_ui::metrics::Density::ClassicFlash;
         self.sizes.layer_column_width = d.pick(
             neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO,
-            neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO - 40.,
-            neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO - 80.,
+            neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO - 24.,
+            neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO - 44.,
         );
     }
 
@@ -5301,5 +5335,113 @@ mod tests {
         assert!(!dirty.shortcuts.sets.contains_key(""));
         assert!(!dirty.shortcuts.sets.contains_key("NeoFlash default"));
         assert!(dirty.shortcuts.sets.contains_key("Custom 🚀"));
+    }
+
+    /// T-389: panel size tables come from density metrics. Inspector-family panels share the
+    /// `inspector()` minimum, wider panels scale with it, and every default fits its limits.
+    #[test]
+    fn window_size_tables_follow_density_metrics() {
+        use neoflash_ui::metrics::{self, Density};
+        let saved = metrics::density();
+        for density in Density::ALL {
+            metrics::set_density(density);
+            let inspector = metrics::inspector();
+            assert_eq!(
+                minimum_window_size(PanelId::Tools)[0],
+                metrics::tools_rail()
+            );
+            assert_eq!(
+                default_window_size(PanelId::Tools)[0],
+                metrics::tools_two_columns()
+            );
+            for panel in PanelId::DETACHABLE {
+                let (min, max, default) = (
+                    minimum_window_size(panel),
+                    maximum_window_size(panel),
+                    default_window_size(panel),
+                );
+                for axis in 0..2 {
+                    assert!(min[axis] <= default[axis], "{panel:?} in {density:?}");
+                    assert!(default[axis] <= max[axis], "{panel:?} in {density:?}");
+                }
+                if panel != PanelId::Tools {
+                    assert!(min[0] >= inspector, "{panel:?} in {density:?}");
+                    assert_eq!(min[0] % 4., 0., "{panel:?} in {density:?}");
+                }
+            }
+            for panel in [PanelId::Properties, PanelId::Transform, PanelId::Library] {
+                assert_eq!(minimum_window_size(panel)[0], inspector);
+                assert_eq!(default_window_size(panel)[0], inspector);
+            }
+            for (panel, old) in [
+                (PanelId::Timeline, 320.),
+                (PanelId::Ease, 320.),
+                (PanelId::CompilerErrors, 360.),
+                (PanelId::Debugger, 620.),
+                (PanelId::MotionEditor, 640.),
+            ] {
+                let scaled = old * inspector / 320.;
+                assert!(
+                    (minimum_window_size(panel)[0] - scaled).abs() <= 2.,
+                    "{panel:?} in {density:?}"
+                );
+            }
+        }
+        metrics::set_density(saved);
+    }
+
+    /// T-389: saved workspaces keep loading. A dock width remembered by an older build is kept,
+    /// and saved window geometry is checked against the saved density profile, not against the
+    /// profile of the thread that loads it.
+    #[test]
+    fn saved_sizes_survive_the_density_based_size_tables() {
+        use neoflash_ui::metrics::{self, Density};
+        let saved = metrics::density();
+        metrics::set_density(Density::Comfortable);
+
+        // The former 320 pt inspector (+ 6 pt strip) and a hand-sized dock both stay as saved.
+        for width in [326., 412.] {
+            let mut prefs = WorkspacePrefs::default();
+            prefs.dock.right.size = width;
+            let json = serde_json::to_string(&prefs).unwrap();
+            assert_eq!(WorkspacePrefs::from_json(&json).dock.right.size, width);
+        }
+
+        // A Classic Flash window at that profile's minimum is not widened by a Normal-density loader.
+        let classic = density_metric("inspector", Density::ClassicFlash);
+        assert!(classic < metrics::inspector());
+        let mut prefs = WorkspacePrefs::default();
+        prefs.set_density(DensityPref::ClassicFlash);
+        assert!(prefs.set_placement(PanelId::Transform, PanelPlacement::Detached));
+        metrics::set_density(Density::ClassicFlash);
+        prefs.remember_geometry(PanelId::Transform, window([200., 120.], [classic, 300.]));
+        metrics::set_density(Density::Comfortable);
+        let json = serde_json::to_string(&prefs).unwrap();
+        let loaded = WorkspacePrefs::from_json(&json);
+        assert_eq!(metrics::density(), Density::Comfortable);
+        assert_eq!(
+            loaded
+                .detached_geometry(PanelId::Transform)
+                .unwrap()
+                .inner_size,
+            [classic, 300.]
+        );
+
+        // Switching profile moves default-width docks to the new default and keeps chosen widths.
+        let mut prefs = WorkspacePrefs::default();
+        assert_eq!(prefs.dock.right.size, metrics::inspector() + 6.);
+        prefs.set_density(DensityPref::Compact);
+        assert_eq!(
+            prefs.dock.right.size,
+            density_metric("inspector", Density::Compact) + 6.
+        );
+        assert_eq!(
+            prefs.dock.left.size,
+            density_metric("tools_two_columns", Density::Compact) + 6.
+        );
+        prefs.dock.right.size = 412.;
+        prefs.set_density(DensityPref::ClassicFlash);
+        assert_eq!(prefs.dock.right.size, 412.);
+        metrics::set_density(saved);
     }
 }

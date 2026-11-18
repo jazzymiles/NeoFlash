@@ -1,5 +1,6 @@
-//! `NF2/Color Picker` — colour mixer, 248 × 150: saturation / brightness area (204 × 150), hue strip and
-//! alpha strip (14 pt each, 10 / 6 pt gaps; geometry from `panel-color-*.png`).
+//! `NF3/Color Picker` — colour mixer: saturation / brightness area, hue strip and alpha strip (14 pt
+//! each, 10 / 6 pt gaps; geometry from `panel-color-*.png`). 248 × 150 at most; it follows the
+//! available width down to the inspector content width of the density and keeps its proportions.
 //!
 //! The mixer shows the colour being edited; its gradients are document colour data computed from HSV,
 //! not UI tokens. Chrome (borders, thumbs) uses palette tokens only.
@@ -47,9 +48,8 @@ fn byte_a(a: f32) -> u8 {
     (a.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
-/// Outer size of `NF2/Color Picker`.
+/// Largest (reference) outer size of the picker.
 pub const COLOR_PICKER: egui::Vec2 = egui::vec2(248.0, 150.0);
-const AREA_W: f32 = 204.0;
 const STRIP_W: f32 = 14.0;
 const AREA_GAP: f32 = 10.0;
 const STRIP_GAP: f32 = 6.0;
@@ -60,9 +60,23 @@ pub struct ColorPicker<'a> {
 }
 
 impl ColorPicker<'_> {
+    /// Narrowest picker of the current density: the inspector content width
+    /// (`inspector()` − 2 × `space::s4()`: 240 / 224 / 212).
+    pub fn min_width() -> f32 {
+        (crate::metrics::inspector() - 2.0 * crate::tokens::space::s4()).min(COLOR_PICKER.x)
+    }
+
+    /// Outer size for `available` width: between [`Self::min_width`] and [`COLOR_PICKER`], with the
+    /// reference proportions.
+    pub fn size_for(available: f32) -> egui::Vec2 {
+        let width = available.clamp(Self::min_width(), COLOR_PICKER.x).floor();
+        egui::vec2(width, (width * COLOR_PICKER.y / COLOR_PICKER.x).round())
+    }
+
     /// Rects of the area, hue strip and alpha strip inside `rect`.
     pub fn layout(rect: Rect) -> (Rect, Rect, Rect) {
-        let area = Rect::from_min_size(rect.min, egui::vec2(AREA_W, rect.height()));
+        let area_w = (rect.width() - 2.0 * STRIP_W - AREA_GAP - STRIP_GAP).max(STRIP_W);
+        let area = Rect::from_min_size(rect.min, egui::vec2(area_w, rect.height()));
         let hue = Rect::from_min_size(
             egui::pos2(area.right() + AREA_GAP, rect.top()),
             egui::vec2(STRIP_W, rect.height()),
@@ -77,7 +91,8 @@ impl ColorPicker<'_> {
 
 impl Widget for ColorPicker<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
-        let (rect, mut response) = ui.allocate_exact_size(COLOR_PICKER, Sense::hover());
+        let (rect, mut response) =
+            ui.allocate_exact_size(Self::size_for(ui.available_width()), Sense::hover());
         let (area, hue, alpha) = Self::layout(rect);
         let id = response.id;
         let area_r = ui.interact(area, id.with("sv"), Sense::click_and_drag());
@@ -123,7 +138,7 @@ fn paint(ui: &Ui, rect: Rect, color: Hsb, parts: [&Response; 3]) {
 
     // Saturation (x) / brightness (y) area: a vertex-coloured grid, corners chamfered to the radius.
     let (cols, rows) = (24usize, 12usize);
-    let r = radius::MD;
+    let r = radius::md();
     let mut mesh = egui::Mesh::default();
     for j in 0..=rows {
         for i in 0..=cols {

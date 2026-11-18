@@ -1,8 +1,20 @@
 //! Approved R-036 workspace menu and draft-only naming/confirmation dialogs.
 use crate::app::Editor;
+use crate::panels::dialog_helpers::{
+    FormDialog, confirm_message, fixed_dialog_size, form_dialog_height, form_row,
+};
 use crate::workspace::{WorkspacePrefs, WorkspacePresetError, WorkspaceTemplate};
 use eframe::egui;
-use neoflash_ui::{components as nf, tokens::space};
+use neoflash_ui::{components as nf, metrics};
+
+/// Save / Rename / Delete workspace: `dialog_s` wide, one height with or without a message.
+pub(crate) fn workspace_dialog_size(ctx: &egui::Context) -> egui::Vec2 {
+    fixed_dialog_size(
+        ctx,
+        metrics::dialog_s(),
+        form_dialog_height(1, 0, metrics::row_gap() + 2.0 * metrics::toggle_row()),
+    )
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum WorkspaceDialog {
@@ -25,7 +37,7 @@ impl WorkspaceDialog {
         match self {
             Self::Save { .. } => "Save workspace".into(),
             Self::Rename { original, .. } => format!("Rename “{original}”"),
-            Self::Delete { name } => format!("Delete “{name}”?"),
+            Self::Delete { name } => format!("Delete “{name}”"),
         }
     }
 
@@ -181,46 +193,49 @@ impl Editor {
         let title = draft.title();
         let mut name_edit_id = None;
         let kb = crate::panels::dialog_helpers::DialogKeyboardState::capture(ctx);
+        // One size for every validation state: the name row and room for a two-line message.
+        let size = workspace_dialog_size(ctx);
         let modal = egui::Modal::new(egui::Id::new("workspace-management"))
             .frame(nf::Surface::Dialog.frame(ctx))
             .backdrop_color(neoflash_ui::palette(ctx).overlay)
             .show(ctx, |ui| {
-                ui.set_width(440.);
-                close |= nf::DialogHeader { title: &title }.show(ui);
-                egui::Frame::new()
-                    .inner_margin(egui::Margin {
-                        left: space::S5 as i8,
-                        right: space::S5 as i8,
-                        top: 0,
-                        bottom: 0,
-                    })
-                    .show(ui, |ui| {
-                        if let WorkspaceDialog::Save { name, focus }
-                        | WorkspaceDialog::Rename { name, focus, .. } = &mut draft
-                        {
+                let dialog = FormDialog::show(ui, &title, size.x, Some(size.y));
+                close |= dialog.close;
+                let validation = draft.validation(&self.workspace);
+                dialog.page(ui, "workspace-dialog-page", |ui, _| {
+                    if let WorkspaceDialog::Save { name, focus }
+                    | WorkspaceDialog::Rename { name, focus, .. } = &mut draft
+                    {
+                        form_row(ui, "Name", |ui| {
+                            let width = ui.available_width();
                             let field =
-                                ui.add(nf::TextField::new(name, "Workspace name").prefix("Name"));
+                                ui.add(nf::TextField::new(name, "Workspace name").width(width));
                             let edit_id = nf::TextField::edit_id(field.id);
                             name_edit_id = Some(edit_id);
                             if *focus {
                                 ui.memory_mut(|m| m.request_focus(edit_id));
                                 *focus = false;
                             }
+                        });
+                    } else {
+                        confirm_message(ui, "The saved layout of this workspace will be removed.");
+                    }
+                    let width = ui.available_width();
+                    match validation {
+                        Err(error) => {
+                            ui.add(nf::InlineMessage::error(error_label(error)).width(width));
                         }
-                        match draft.validation(&self.workspace) {
-                            Err(error) => {
-                                ui.add_space(space::S2);
-                                ui.add(nf::InlineMessage::error(error_label(error)));
-                            }
-                            Ok(true) if matches!(draft, WorkspaceDialog::Save { .. }) => {
-                                ui.add_space(space::S2);
-                                ui.add(nf::InlineMessage::warning(
+                        Ok(true) if matches!(draft, WorkspaceDialog::Save { .. }) => {
+                            ui.add(
+                                nf::InlineMessage::warning(
                                     "A workspace with this name exists. Replace its saved layout?",
-                                ));
-                            }
-                            _ => {}
+                                )
+                                .width(width),
+                            );
                         }
-                    });
+                        _ => {}
+                    }
+                });
                 let validation = draft.validation(&self.workspace);
                 let primary = match &draft {
                     WorkspaceDialog::Save { .. } if validation == Ok(true) => "Replace",
@@ -228,7 +243,7 @@ impl Editor {
                     WorkspaceDialog::Rename { .. } => "Rename",
                     WorkspaceDialog::Delete { .. } => "Delete",
                 };
-                nf::surface::dialog_footer(
+                dialog.footer(
                     ui,
                     |_| {},
                     |ui| {

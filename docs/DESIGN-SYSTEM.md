@@ -1,17 +1,17 @@
-# NeoFlash UI design system (NF2)
+# NeoFlash UI design system (NF v3)
 
-NF2 is the design system of the NeoFlash authoring UI. It replaces the earlier `docs/design-system/tokens.json`
-standard. **v2.25** is the current live reference; the detached v2.2 Figma pages are the frozen pre-migration
-checkpoint. The design system remains **locked** outside an explicit owner-authorized design delivery:
-implementation agents use it and never improvise changes (AGENTS.md › "Design system (NF2) — locked"; requests go
-to [NF2-REQUESTS.md](NF2-REQUESTS.md)).
+This is the design system of the NeoFlash authoring UI. **v3** (2026-11-18, owner-requested) is the current
+reference: an evolution of NF2 that keeps its four palettes, Inter / Roboto Mono type scale and icon masters and
+replaces the metrics, the atoms and the composition rules. NF2 names (`NF2 · Tokens`, `NF2/*` text styles,
+`NF2 Icon/*`) stay as the token namespace. The v2.25 Figma pages and exports are the frozen previous reference.
+The design system is **locked** outside an explicit owner-authorized design delivery: implementation agents use it
+and never improvise changes (AGENTS.md › "Design system (NF2) — locked"; requests go to
+[NF2-REQUESTS.md](NF2-REQUESTS.md)).
 
-> **Current state (reconciled 2026-11-14, `0.1.0-beta.1`).** The tokens, components, metrics and the screens listed
-> in the v2.25 tables below are the approved reference. Several product surfaces were added after v2.25 and are built
-> from NF2 components **without** a Figma board or outline yet; they are listed in
-> [Provisional surfaces after v2.25](#provisional-surfaces-after-v225) and must not be copied as a pattern until the
-> design track approves them. Known gaps in the reference itself (contrast, minimum window, Library height) are in
-> [Design findings to resolve in Figma](#design-findings-to-resolve-in-figma).
+> **Reading order.** [v3](#v3--density-aware-atoms-and-stable-layouts) below overrides every size, spacing and
+> composition statement in the v2.25 sections that follow; colours, typography, icons, contrast, accessibility and
+> behaviour contracts of v2.25 still apply. The exported outlines and PNG references under
+> `interface/design-system/exports` are v2.25 (Comfortable sizes) until the owner re-exports the v3 pages.
 
 | What | Where |
 | --- | --- |
@@ -28,6 +28,97 @@ an implementation reference. Code never copies a hex value or a size from a scre
 from `neoflash-ui`, which `build.rs` generates from the exported files. Exact gaps and sizes come from
 `interface/design-system/docs/data/outline/*.txt`. If the design lacks a value, it is listed below
 ([Values NF2 does not define](#values-nf2-does-not-define)) instead of being invented.
+
+## v3 — density-aware atoms and stable layouts
+
+### Principles
+
+1. **Density is a property of every atom.** Heights, inner paddings, gaps, radii, toggle sizes, label columns and
+   default panel and dialog widths come from one table with three paradigms: **Normal** (the `Comfortable` value in
+   saved preferences), **Compact** and **Classic Flash**. Type scale and colours never depend on density. A layout is
+   written once and is correct in all three.
+2. **Normal is already compact.** Controls are 26 pt (were 32), the inspector 264 pt (was 320). Nothing is wide
+   "for comfort": numeric fields, selects and sliders have natural widths.
+3. **Nothing jumps.** A dialog has one size per density — never per page, target or tab. A dock keeps its width when
+   the active tab changes (minimum and maximum are taken over all its tabs). Scroll areas never shrink to their
+   content. A control keeps its label and position in every context (`Browse…` is always `Browse…`). A row never
+   overflows its panel: secondary actions become icon buttons with tooltips or ⋯ menu items.
+4. **One form grid.** Inspector rows are two equal columns on one axis with the label inside the field; full-width
+   rows only for text and selects. Dialogs use a label column (`dialog_label()`) and controls at their natural
+   width (`field_num()`, `field_s()`, `field_m()`, `field_l()`); only path fields fill the row.
+5. **One row per record.** A colour, a shortcut, a publish target, a layer, an API member: one row of `control()`
+   or `row()` height with its actions at the end.
+6. **Accent discipline.** One Primary button per surface. Accent marks selection, the active tool or tab, a toggle
+   that is on, and keyboard focus — nothing else. Form options are checkboxes; a switch is only for an application
+   state that applies at once (Autosave, Snapping).
+7. **Features are never removed** by a layout change; they move to an icon button or a ⋯ menu.
+
+### Density table
+
+Source of truth: `neoflash_ui::metrics` (`DENSITY_TABLE`) and, on the Figma side, the variable collection
+`NF3 · Density` (built from `interface/figma-plugin/v3/src/05-density.js`; `crates/neoflash-ui/tests/density_parity.rs`
+keeps the two equal). Values are logical points, Normal / Compact / Classic Flash.
+
+| Metric (function · Figma variable) | Normal | Compact | Classic Flash | v2.25 (C / Co / CF) |
+| --- | --- | --- | --- | --- |
+| `control()` · `size/control` — fields, selects, buttons, icon buttons | 26 | 22 | 20 | 32 / 28 / 24 |
+| `row()` · `size/row` — tree rows, menu items, table rows | 24 | 20 | 18 | 28 / 24 / 20 |
+| `panel_tab()`, `panel_header()`, `dock_tab()`, `icon_button_md()` · `size/tab` | 30 | 26 | 22 | 36–40 / 30–32 / 26–28 |
+| `section_header()` · `size/section` | 24 | 22 | 20 | 32 / 28 / 24 |
+| `top_bar()` · `size/top-bar` | 36 | 32 | 28 | 48 / 40 / 32 |
+| `status_bar()`, `menu_section()` · `size/status` | 22 | 20 | 18 | 24 / 22 / 20 |
+| `dialog_header()` · `size/dialog-header` | 44 | 38 | 32 | 60 / 52 / 44 |
+| `tool_button()` · `size/tool`, tool glyph `icon_tool()` | 28, 20 | 24, 16 | 22, 16 | 32, 20 / 28, 20 / 24, 16 |
+| `tools_rail()`, `tools_two_columns()` · `width/tools-1`, `width/tools-2` | 40, 72 | 36, 64 | 32, 57 | 56, 80 / 48, 68 / 40, 56 |
+| `inspector()` · `width/inspector` — default and minimum right dock | 264 | 240 | 224 | 320 / 288 / 256 |
+| `timeline_controls()` · `size/timeline-controls` | 34 | 30 | 26 | 44 / 40 / 32 |
+| `timeline_ruler()`, `layers_header()` · `size/timeline-ruler` | 24 | 22 | 20 | 32 / 26 / 22 |
+| default layer row (presets Normal / Short / Compact) · `size/layer-row` | 22 | 18 | 16 | 28 / 22 / 16 |
+| `layer_column()` (+ Mode 64 + Solo 20 + 8 = `layer_column_mode_solo()`) | 208 (300) | 184 (276) | 164 (256) | 280 (372) / 240 (332) / 200 (292) |
+| `breadcrumb()`, `zoom_control()` · `size/stage-bar` | 28, 32 | 24, 28 | 22, 24 | 34, 42 / 30, 36 / 26, 30 |
+| `stage_ruler()` · `size/stage-ruler` | 18 | 16 | 16 | 20 / 18 / 16 |
+| `toggle_row()`, `check_box()` · `size/toggle`, `size/check` | 18, 14 | 16, 14 | 16, 12 | 20, 18 (fixed) |
+| `switch_width()` × `switch_height()`, `slider_thumb()` | 26 × 14, 12 | 24 × 12, 10 | 22 × 12, 10 | 32 × 18, 14 (fixed) |
+| `badge()`, `kbd()`, `swatch()`, `menu_separator()` | 18, 18, 18, 9 | 16, 16, 16, 7 | 16, 16, 14, 5 | 22, 20, 18, 9 (fixed) |
+| `space::s1()` … `s6()` · `gap/*`, `pad/*` | 4 · 6 · 8 · 12 · 20 · 28 | 3 · 4 · 6 · 8 · 16 · 22 | 2 · 4 · 5 · 6 · 12 · 16 | 4 · 8 · 12 · 16 · 24 · 32 (fixed) |
+| `row_gap()` · `gap/row` — between form rows | 6 | 4 | 3 | 8 (fixed) |
+| `radius::sm()` … `xl()` · `radius/*` | 3 · 5 · 8 · 10 | 3 · 4 · 6 · 8 | 2 · 3 · 4 · 6 | 4 · 6 · 8 · 12 (fixed) |
+| `label_width()`, `dialog_label()` · `width/label`, `width/dialog-label` | 72, 112 | 64, 100 | 60, 92 | 76, 120 (fixed) |
+| `field_num()`, `field_s()`, `field_m()`, `field_l()` · `width/num`, `width/field-*` | 64, 96, 160, 224 | 56, 88, 148, 204 | 52, 80, 136, 188 | 64–160 clamp, 200 |
+| `sidebar()`, `sidebar_wide()`, `tree_width()`, `menu_width()` | 160, 208, 240, 208 | 148, 192, 220, 188 | 136, 176, 204, 172 | 160, —, 224, 220 |
+| `dialog_s()`, `dialog_m()`, `dialog_l()`, `dialog_xl()` · `width/dialog-*` | 360, 480, 720, 880 | 328, 440, 660, 820 | 304, 408, 620, 760 | per-dialog literals |
+| `dialog_l_height()`, `dialog_xl_height()`, `reference_width()` | 576, 640, 960 | 500, 600, 900 | 440, 560, 860 | content-driven |
+
+The spacing scale has a meaning per step: `s1` tiny gap inside a control, `s2` gap between controls, `s3` inner
+padding of fields and buttons, `s4` panel padding, `s5` dialog padding, `s6` gap between blocks. The uppercase
+constants `space::S1…S6` and `radius::SM…XL` keep the v2.25 values for the few constant contexts that still need
+them; layout code calls the functions. The `pub const` metrics are the Normal values.
+
+### Surfaces redesigned in v3
+
+| Surface | v3 composition | Code |
+| --- | --- | --- |
+| Properties — any selection | One-line type header (icon · kind · name). Rows on the two-column grid; `Name │ Swap…`, then `Behaviour │ Edit symbol (icon) │ Duplicate symbol (icon)`. The constrain toggle sits in the section header so X / Y and W / H share one axis. | `panels/properties*.rs` |
+| Used colours (R-106) | Header row carries `Only on stage` and a ⋯ menu (Import palette…). One row per colour: swatch · `#HEX` with alpha · usage · select on stage. Replace is one bar: `Replace ▢ › ▢ … Replace all`. | `panels/swatches.rs` |
+| Tools | No title in a narrow header (grip + ⋯ only); the grid has no holes; the options block has a fixed height, so the palette never resizes when another tool is selected. | `panels/tools.rs`, `components/headers.rs` |
+| Stage toolbar | One height (`zoom_control()`), fixed 44 pt percent cell, collapsed state expands away from a fixed anchor. | `components/surface.rs`, `shell.rs` |
+| Publish settings | `dialog_xl()` × `dialog_l_height()` for every target. Sidebar: Profile select + ⋯ (Duplicate, Import JSON…, Export JSON…), target rows with checkboxes. Page: label-column grid; one shared Output row (`path │ Browse…`). Footer: summary · Cancel · OK · Publish. | `panels/publish_settings.rs` |
+| Preferences | `dialog_l()` × `dialog_l_height()` for every category. Category list, label-column grid, checkboxes for options (switch only for Autosave). | `panels/preferences.rs` |
+| Scripting Reference | `reference_width()` × `dialog_xl_height()`. Always exactly one language (defaults to the project language). `API` tab: packages and classes · members with support status · member detail (signature, parameters, status in NeoFlash, example, Insert at cursor). `Guides` tab: plain articles with an outline. No tags, no "all languages". | `panels/help_as_reference.rs`, `panels/help_manual.rs` |
+| UI Layout Studio (owner tool) | One toolbar row in groups, fixed columns, the selected panel previewed in all three densities, spacing picked from the density system. | `panels/ui_studio/` |
+
+### Figma
+
+- Pages: `v3 · Concept` (principles and the three paradigms side by side), `v3 · Atoms` (component sets `NF3/<Atom>`
+  and the icon shelves), one reference page per combination `v3 · <Density> · <Theme>` (12 pages; the master is
+  `v3 · Normal · Light`, the others are copies with two explicit variable modes), and `v3 · Builder source`.
+- Variables: colours stay in `NF2 · Tokens` (Dark, Light, Mid · Neutral Gray, Dark · Graphite); sizes live in
+  `NF3 · Density` (Normal, Compact, Classic Flash). Every atom binds its sizes and colours to them, so any board
+  shows any of the twelve combinations by switching two modes.
+- The v3 pages are generated: [`interface/figma-plugin/v3`](../interface/figma-plugin/v3/README.md) holds the builder
+  (core, atoms, kit, surfaces) and an offline mock harness. Change a surface by editing its builder and re-running
+  it; do not hand-edit generated boards.
+- The board `Dialog / Help — Flash 8 study (not implemented)` is a design study only.
 
 ## Rules
 
@@ -152,7 +243,7 @@ shelves/components remain the implementation contract together with the exported
 | Panel minimums v2.25 | Tools 88×160; Timeline 320×180; Library 248×300; Properties 320×220; Align/Transform/Color/Scene/History/Info 248×190; Swatches 300×360; Project 248×280; Filters 268×260; Code Snippets/Movie Explorer 280×280; Compiler Errors 360×180; Ease 320×420; Motion Editor 640×260; remaining panels 320×220. |
 | Side-dock priority and splitter (changed, owner decision 2026-11-07) | Stacked side-dock groups have Inspector priority (Properties 68 %, Library 32 %; the new default, was 83 / 17) or Library priority (the reverse); minimums stay Library 100 pt, others 120 pt. Switch with Window ▸ Inspector / Library priority (⌥⌘F3 / ⌥⌘L) or a double-click on the splitter. `NF2/Splitter` always shows its 24 × 3 grip in `border/strong`, accent while hovered or dragged (R-054). |
 | Stage toolbar states (new, owner decision 2026-11-07) | `NF2/Zoom Control` has three states: Floating (bottom centre), Collapsed (a pill with ‹ and the zoom percentage at the bottom-right corner that expands in place on hover and collapses 1 s after the pointer leaves) and Edit bar (a `control + 8` pt strip above the Stage, `bg/panel` with a `border/subtle` bottom line: breadcrumb left; stage size, hand, zoom, fit, rulers / guides / grid / snap and ⚙ right; the canvas shrinks, nothing covers artwork). Floating states hide while a drag that started on the canvas is in progress. Switch: View ▸ Stage toolbar or right-click the toolbar; Comfortable and Compact default to Collapsed, Classic Flash to Edit bar (R-053). |
-| Density profiles (new, owner decision 2026-11-07; v2.25 width clarification) | Comfortable / Compact / Classic Flash change chrome sizes only: top bar 48/40/32, dock tabs and panel headers 40/32/28, section headers 32/28/24, fields and buttons 32/28/24, rows 28/24/20, tool buttons 32/28/24 (tool icons 20/20/16), Tools button grid 56/48/40 inside an 88 pt minimum panel shell, Timeline controls 44/40/32, frame ruler and layers header 32/26/22, default layer rows 28/22/16, layer column 372/332/292 (with Mode and Solo), status bar 24/22/20, minimum target 32/28/24. Density never reduces Properties below its v2.25 320 pt content minimum or the Tools shell below 88 pt. `neoflash_ui::metrics` keeps the Comfortable constants and exposes density functions (`control()`, `row()` …). Switch: Preferences ▸ General ▸ Density (live preview) and Window ▸ Density; stored in workspace preferences, default Comfortable (R-051). |
+| Density profiles (v2.25 values; superseded) | Runtime Comfortable / Compact / Classic Flash profiles were introduced here with heights only (controls 32 / 28 / 24, inspector 320 / 288 / 256). v3 renames Comfortable to Normal and makes paddings, gaps, radii, toggles and widths part of the profile: see [v3 › Density table](#density-table). Switch: Preferences ▸ General ▸ Density (live preview) and Window ▸ Density; stored in workspace preferences, default Normal (R-051). |
 | Main menu composition (changed, owner decision 2026-11-08; v2.25 search behavior) | Order: File · Edit · View · Insert · Modify · Control · **Document** · Window · Help. Document contains Document settings… (`⌘J`, including Background), the open-document list, Next / Previous and Close / Close other documents / Close all. Every authoring-panel visibility row is under Window ▸ Panels; Workspaces, Hide panels, Inspector / Library priority, detach/dock, Appearance and Density stay at Window top level. The first Help row is Search functions… (`F1`), opening the existing catalogue with its input already focused (R-059, R-064). |
 | Type scale B (changed, owner decision 2026-11-07) | Professional-tool scale, one table in `tokens.json` / `typography.css`: Heading 14/20, Dialog Title 14/20, Title 12/16 (600; panel titles such as Properties, Color, Library), Dialog Body 12/16, Body 11/14, Body Strong 11/14, Small 10/13, Small Strong 10/13, new Caption 10/12, Overline 10/12, Mono 11/14, Mono Small 10/12 (was 20/18/16/14/13/13/12/12/–/11/12/11). Row, control and panel heights are unchanged; density profiles are R-051. Authored stage text and the user-set code editor font are not UI type. |
 | `NF2/Icon Button` Type=Primary (changed) | Square like every icon button (radius md), `accent/default` fill; the round shape is retired. The Timeline Play is Primary **SM 32 pt** inside the 2 pt transport group (R-052, 2026-11-07). |
@@ -321,10 +412,8 @@ or Space on a Tab-focused button may also trigger a global command.
 
 ### Density profiles
 
-`Density profiles — Comfortable, Compact, Classic Flash` (Figma, four themes; `density-profiles` in the export
-manifest) shows one sample panel per profile and the metric table of `neoflash_ui::metrics`. Type sizes, icons,
-colours and spacing tokens do not change with density; only the listed heights and widths do. Every other board is
-drawn at Comfortable size.
+Superseded by [v3 › Density table](#density-table). The v2.25 board `Density profiles — Comfortable, Compact,
+Classic Flash` stays in the archive pages; in v3 every board exists in all three densities.
 
 ## Provisional surfaces after v2.25
 

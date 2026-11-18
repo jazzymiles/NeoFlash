@@ -20,10 +20,10 @@ pub fn dock_target(
         super::surface::dock_zone(painter, ctx, rect, label);
         return;
     }
-    painter.rect_filled(rect, cr(radius::LG), Palette::tint(p.accent_subtle, 0.5));
+    painter.rect_filled(rect, cr(radius::lg()), Palette::tint(p.accent_subtle, 0.5));
     painter.rect_stroke(
         rect,
-        cr(radius::LG),
+        cr(radius::lg()),
         Stroke::new(1.0_f32, Palette::tint(p.accent_default, 0.6)),
         StrokeKind::Inside,
     );
@@ -45,29 +45,31 @@ pub fn drag_ghost_at(painter: &egui::Painter, ctx: &egui::Context, pos: egui::Po
         p.text_primary,
     );
     let size = egui::vec2(
-        space::S3 + 16.0 + space::S2 + g.size().x + space::S3,
+        space::s3() + 16.0 + space::s2() + g.size().x + space::s3(),
         crate::metrics::row(),
     );
     let rect = Rect::from_min_size(pos, size);
     painter.add(
-        crate::metrics::SHADOW_POPOVER
-            .egui()
-            .as_shape(rect, cr(radius::MD)),
+        super::surface::fitted_shadow(crate::metrics::SHADOW_POPOVER, rect.height())
+            .as_shape(rect, cr(radius::md())),
     );
-    painter.rect_filled(rect, cr(radius::MD), p.bg_raised);
+    painter.rect_filled(rect, cr(radius::md()), p.bg_raised);
     painter.rect_stroke(
         rect,
-        cr(radius::MD),
+        cr(radius::md()),
         Stroke::new(1.0_f32, p.accent_default),
         StrokeKind::Inside,
     );
     let icon = Rect::from_center_size(
-        egui::pos2(rect.left() + space::S3 + 8.0, rect.center().y),
+        egui::pos2(rect.left() + space::s3() + 8.0, rect.center().y),
         egui::vec2(16.0, 16.0),
     );
     icons::paint(painter, ctx, icon, i16::GRIP, p.text_tertiary);
     painter.galley(
-        egui::pos2(icon.right() + space::S2, rect.center().y - g.size().y / 2.0),
+        egui::pos2(
+            icon.right() + space::s2(),
+            rect.center().y - g.size().y / 2.0,
+        ),
         g,
         p.text_primary,
     );

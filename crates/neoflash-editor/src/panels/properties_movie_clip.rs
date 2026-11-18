@@ -573,9 +573,11 @@ impl Editor {
             .id_salt("mc-3d-position-view")
             .default_open(true)
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = space::S2;
-                let w = ((ui.available_width() - space::S2 * 2.0) / 3.0).max(52.0);
+                ui.spacing_mut().item_spacing.y = neoflash_ui::metrics::row_gap();
+                // X / Y / Z: three equal cells of the row.
+                let w = ((ui.available_width() - space::s2() * 2.0) / 3.0).max(0.0);
                 ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = space::s2();
                     ui.add(
                         nf::Field::new(&mut state.translate_3d[0], "3D X")
                             .prefix("X")
@@ -596,6 +598,7 @@ impl Editor {
                     );
                 });
                 ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = space::s2();
                     ui.add(
                         nf::Field::new(&mut state.rotate_3d[0], "Rotate X")
                             .prefix("RX")
@@ -615,8 +618,9 @@ impl Editor {
                             .width(w),
                     );
                 });
-                let pair_w = ((ui.available_width() - space::S2) * 0.5).max(72.0);
+                let pair_w = ((ui.available_width() - space::s2()) * 0.5).max(0.0);
                 ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = space::s2();
                     ui.add(
                         nf::Field::new(&mut state.perspective_angle, "Perspective Angle")
                             .prefix("FOV")
@@ -636,6 +640,7 @@ impl Editor {
                 });
                 ui.label(rich("Vanishing Point", TextStyle::Small).color(p.text_secondary));
                 ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = space::s2();
                     ui.add(
                         nf::Field::new(&mut state.vanishing_point[0], "Vanishing Point X")
                             .prefix("VX")

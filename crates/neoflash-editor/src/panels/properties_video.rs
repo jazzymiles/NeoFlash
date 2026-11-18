@@ -238,7 +238,7 @@ impl Editor {
         c::SectionHeader::new("Video")
             .id_salt("properties-video")
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = space::S2;
+                ui.spacing_mut().item_spacing.y = space::s2();
                 ui.add_enabled_ui(editable, |ui| {
                     c::Select::new("frame-video-resource", &res_name)
                         .width(w)
@@ -262,10 +262,16 @@ impl Editor {
                         });
 
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        let sync_lbl = format!("Sync: {}", sync_label(next_span.sync));
-                        c::Select::new("frame-video-sync", &sync_lbl)
-                            .width(150.0)
+                        ui.spacing_mut().item_spacing.x = space::s2();
+                        let sync_lbl = sync_label(next_span.sync);
+                        // The select takes what the two checkboxes leave.
+                        let toggles_w = crate::panels::properties::checkbox_width(ui, "Loop")
+                            + crate::panels::properties::checkbox_width(ui, "Mute")
+                            + 2.0 * space::s2();
+                        let sync_w = (ui.available_width() - toggles_w).max(0.0);
+                        c::Select::new("frame-video-sync", sync_lbl)
+                            .prefix("Sync")
+                            .width(sync_w)
                             .show(ui, |ui| {
                                 for mode in [
                                     VideoSyncMode::Stream,
@@ -334,7 +340,7 @@ impl Editor {
                     }
 
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
+                        ui.spacing_mut().item_spacing.x = space::s2();
                         if ui
                             .add_enabled(
                                 self.frame > key_frame,
@@ -381,9 +387,9 @@ impl Editor {
                                 let mut t_ms = f64::from(cue.time_ms);
                                 ui.push_id(("video-cue-edit-row", idx), |ui| {
                                     ui.horizontal(|ui| {
-                                        ui.spacing_mut().item_spacing.x = space::S1;
-                                        let name_w = (w * columns[1] - space::S1).max(60.0);
-                                        let time_w = (w - name_w - space::S1).max(60.0);
+                                        ui.spacing_mut().item_spacing.x = space::s1();
+                                        let name_w = (w * columns[1] - space::s1()).max(0.0);
+                                        let time_w = (w - name_w - space::s1()).max(0.0);
                                         let mut name_resp = ui.add(
                                             c::TextField::new(&mut cue.name, "Cue name")
                                                 .width(name_w),
@@ -444,7 +450,7 @@ impl Editor {
                         }
                     });
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S1;
+                        ui.spacing_mut().item_spacing.x = space::s1();
                         if ui
                             .add(c::IconButton::new(i16::PLUS, "Add cue point"))
                             .clicked()
@@ -778,7 +784,8 @@ mod frame_video_ui_tests {
 
         for expected in [
             "VIDEO",
-            "Sync: Stream",
+            "Sync",
+            "Stream",
             "Loop",
             "Mute",
             "TRIM",

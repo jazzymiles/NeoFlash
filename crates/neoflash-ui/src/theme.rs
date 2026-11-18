@@ -127,32 +127,40 @@ pub fn apply_visuals(ctx: &egui::Context, theme: Theme) {
     ctx.request_repaint();
 }
 
-/// NF2 spacing for egui's built-in widgets (§3.2).
+/// NF3 spacing for egui's built-in widgets at the current density, plus the density-dependent corner
+/// radii of the style's visuals. Call again (on every style slot) after `metrics::set_density`
+/// changes the profile; colours are untouched.
 pub fn spacing(style: &mut egui::Style) {
+    density_radii(&mut style.visuals);
     let s = &mut style.spacing;
-    s.item_spacing = egui::vec2(space::S2, space::S2);
-    s.button_padding = egui::vec2(space::S3, space::S1 + 2.0);
-    s.interact_size = egui::vec2(crate::metrics::control(), crate::metrics::control());
+    s.item_spacing = egui::vec2(space::s2(), metrics::row_gap());
+    s.button_padding = egui::vec2(space::s3() + 2.0, space::s1());
+    s.interact_size = egui::vec2(metrics::control(), metrics::control());
     s.icon_width = metrics::ICON_UI;
     s.icon_width_inner = 8.0;
-    s.icon_spacing = space::S2;
+    s.icon_spacing = space::s2();
     s.indent = metrics::LAYER_INDENT;
-    s.menu_margin = Margin::same(space::S1 as i8);
-    s.window_margin = Margin::same(space::S3 as i8);
-    s.combo_width = 160.0;
-    s.text_edit_width = 160.0;
-    s.slider_width = 140.0;
-    s.slider_rail_height = 4.0;
+    s.menu_margin = Margin::same(space::s1() as i8);
+    s.window_margin = Margin::same(space::s3() as i8);
+    s.combo_width = metrics::field_m();
+    s.text_edit_width = metrics::field_m();
+    s.slider_width = metrics::field_m();
+    s.slider_rail_height = 2.0;
     s.tooltip_width = 320.0;
     // NF2/Scrollbar (Technical shelf): a thin 4 px thumb floating over content at rest, growing to an
     // 8 px thumb on a track while hovered or dragged. No reserved gutter, as in the Figma panels.
     s.scroll.floating = true;
-    // Keep the whole bar inside a 12–16 pt panel gutter so it never overlaps fields.
-    s.scroll.bar_width = 6.0;
-    s.scroll.floating_width = 4.0;
+    // Keep the whole bar inside the narrowest panel gutter (`space::s3()`: 8 / 6 / 5 pt) so it
+    // never overlaps the right border of a field: the 4 pt thumb is centred in it, and the
+    // hovered thumb grows only as far as the gutter allows.
+    let gutter = space::s3();
+    let floating = 4.0;
+    let outer = ((gutter - floating) / 2.0).max(0.0);
+    s.scroll.bar_width = (gutter - outer).clamp(floating, 6.0);
+    s.scroll.floating_width = floating;
     s.scroll.floating_allocated_width = 0.0;
     s.scroll.bar_inner_margin = 0.0;
-    s.scroll.bar_outer_margin = 3.0;
+    s.scroll.bar_outer_margin = outer;
     s.scroll.handle_min_length = 24.0;
     s.scroll.foreground_color = false;
     s.scroll.dormant_background_opacity = 0.0;
@@ -162,6 +170,22 @@ pub fn spacing(style: &mut egui::Style) {
     s.scroll.active_handle_opacity = 1.0;
     s.scroll.interact_handle_opacity = 1.0;
     style.interaction.tooltip_delay = 0.4;
+}
+
+/// Corner radii of egui's own windows, menus and widgets for the current density.
+fn density_radii(v: &mut egui::Visuals) {
+    v.window_corner_radius = cr(radius::xl());
+    v.menu_corner_radius = cr(radius::lg());
+    let w = &mut v.widgets;
+    for s in [
+        &mut w.noninteractive,
+        &mut w.inactive,
+        &mut w.hovered,
+        &mut w.active,
+        &mut w.open,
+    ] {
+        s.corner_radius = cr(radius::md());
+    }
 }
 
 pub fn visuals(theme: Theme) -> egui::Visuals {
@@ -176,8 +200,6 @@ pub fn visuals(theme: Theme) -> egui::Visuals {
     v.panel_fill = p.bg_panel;
     v.window_fill = p.bg_raised;
     v.window_stroke = Stroke::new(1.0_f32, p.border_subtle);
-    v.window_corner_radius = cr(radius::XL);
-    v.menu_corner_radius = cr(radius::LG);
     v.window_shadow = SHADOW_DIALOG.egui();
     v.popup_shadow = SHADOW_POPOVER.egui();
     v.extreme_bg_color = p.bg_field;
@@ -204,7 +226,6 @@ pub fn visuals(theme: Theme) -> egui::Visuals {
     w.noninteractive.weak_bg_fill = p.bg_panel;
     w.noninteractive.bg_stroke = Stroke::new(1.0_f32, p.border_subtle);
     w.noninteractive.fg_stroke = Stroke::new(1.0_f32, p.text_secondary);
-    w.noninteractive.corner_radius = cr(radius::MD);
     w.inactive.bg_fill = p.bg_field;
     w.inactive.weak_bg_fill = p.bg_raised;
     w.inactive.bg_stroke = Stroke::new(1.0_f32, p.border_default);
@@ -222,9 +243,9 @@ pub fn visuals(theme: Theme) -> egui::Visuals {
     w.open.bg_stroke = Stroke::new(1.0_f32, p.border_default);
     w.open.fg_stroke = Stroke::new(1.0_f32, p.text_primary);
     for s in [&mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
-        s.corner_radius = cr(radius::MD);
         s.expansion = 0.0;
     }
+    density_radii(&mut v);
     v
 }
 
@@ -283,6 +304,38 @@ mod tests {
             assert_ne!(p.syntax_identifier, p.syntax_function);
             assert_ne!(p.syntax_identifier, p.syntax_keyword);
         }
+    }
+
+    #[test]
+    fn respacing_after_a_density_change_updates_sizes_and_radii_in_both_slots() {
+        let ctx = egui::Context::default();
+        install(&ctx, Theme::Light);
+        for density in metrics::Density::ALL {
+            metrics::set_density(density);
+            ctx.all_styles_mut(spacing);
+            for slot in [egui::Theme::Light, egui::Theme::Dark] {
+                let style = ctx.style_of(slot);
+                assert_eq!(style.spacing.interact_size.y, metrics::control());
+                assert_eq!(
+                    style.spacing.item_spacing,
+                    egui::vec2(space::s2(), metrics::row_gap())
+                );
+                assert_eq!(style.spacing.combo_width, metrics::field_m());
+                assert_eq!(style.spacing.indent, metrics::LAYER_INDENT);
+                assert_eq!(style.visuals.window_corner_radius, cr(radius::xl()));
+                assert_eq!(style.visuals.menu_corner_radius, cr(radius::lg()));
+                assert_eq!(
+                    style.visuals.widgets.inactive.corner_radius,
+                    cr(radius::md())
+                );
+            }
+            // A theme switch keeps the density radii.
+            apply_visuals(&ctx, Theme::Dark);
+            assert_eq!(ctx.style().visuals.window_corner_radius, cr(radius::xl()));
+            assert_eq!(ctx.style().visuals.panel_fill, DARK.bg_panel);
+            apply_visuals(&ctx, Theme::Light);
+        }
+        metrics::set_density(metrics::Density::Comfortable);
     }
 
     #[test]

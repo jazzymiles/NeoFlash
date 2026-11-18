@@ -68,6 +68,19 @@ impl StudioPanelPreset {
         }
     }
 
+    /// Width the real surface has in `density`: dock panels are one inspector wide and Tools two
+    /// tool columns; the workspace and the timeline are window-sized artwork.
+    pub fn natural_width(self, density: neoflash_ui::metrics::Density) -> f32 {
+        let pick = |metric: &str| density_values(metric)[density_index(density)];
+        match self {
+            Self::FullWorkspaceShell => 1180.0,
+            Self::TimelineStudio => 1310.0,
+            Self::TimelineHeader => 620.0,
+            Self::ToolsPanel => pick("tools_two_columns"),
+            _ => pick("inspector"),
+        }
+    }
+
     pub const fn is_full_shell(self) -> bool {
         matches!(self, Self::FullWorkspaceShell)
     }
@@ -128,7 +141,7 @@ impl StudioPanelPreset {
                         "Left Tools Dock Rail (1-Col / 2-Col)",
                         UiNodeKind::Column,
                     )
-                    .with_width(UiSizeUnit::Px(46.0))
+                    .with_width(UiSizeUnit::Px(neoflash_ui::metrics::TOOLS_RAIL))
                     .with_system_binding(SharedSystemKind::ToolRail),
                     UiStudioNode::new(
                         center_stage_id,
@@ -162,7 +175,7 @@ impl StudioPanelPreset {
                             "Layer Tree Column (Folder / Mask / Masked / Guide / Audio)",
                             UiNodeKind::Column,
                         )
-                        .with_width(UiSizeUnit::Px(220.0)),
+                        .with_width(UiSizeUnit::Px(neoflash_ui::metrics::LAYER_COLUMN)),
                         UiStudioNode::new(
                             tl_ruler_playhead_id,
                             "Frame Ruler, Red Playhead & Onion Skin Brackets",
@@ -258,7 +271,7 @@ impl StudioPanelPreset {
                                     md_size: false,
                                 },
                             )
-                            .with_width(UiSizeUnit::Px(28.0)),
+                            .with_width(UiSizeUnit::Auto),
                             UiStudioNode::new(
                                 folder_btn,
                                 "New Folder",
@@ -268,7 +281,7 @@ impl StudioPanelPreset {
                                     md_size: false,
                                 },
                             )
-                            .with_width(UiSizeUnit::Px(28.0)),
+                            .with_width(UiSizeUnit::Auto),
                             UiStudioNode::new(
                                 trash_btn,
                                 "Delete Layer",
@@ -278,7 +291,7 @@ impl StudioPanelPreset {
                                     md_size: false,
                                 },
                             )
-                            .with_width(UiSizeUnit::Px(28.0)),
+                            .with_width(UiSizeUnit::Auto),
                             UiStudioNode::new(
                                 play_btn,
                                 "Play",
@@ -288,7 +301,7 @@ impl StudioPanelPreset {
                                     md_size: false,
                                 },
                             )
-                            .with_width(UiSizeUnit::Px(28.0)),
+                            .with_width(UiSizeUnit::Auto),
                             UiStudioNode::new(
                                 loop_btn,
                                 "Loop",
@@ -298,9 +311,9 @@ impl StudioPanelPreset {
                                     md_size: false,
                                 },
                             )
-                            .with_width(UiSizeUnit::Px(28.0)),
+                            .with_width(UiSizeUnit::Auto),
                             UiStudioNode::new(onion_sw, "Onion", UiNodeKind::Switch { on: true })
-                                .with_width(UiSizeUnit::Px(82.0)),
+                                .with_width(UiSizeUnit::Auto),
                             UiStudioNode::new(
                                 frame_fld,
                                 "Current Frame",
@@ -312,7 +325,7 @@ impl StudioPanelPreset {
                                     stepper: false,
                                 },
                             )
-                            .with_width(UiSizeUnit::Px(72.0)),
+                            .with_width(UiSizeUnit::Auto),
                             UiStudioNode::new(
                                 fps_fld,
                                 "Frame Rate",
@@ -324,14 +337,14 @@ impl StudioPanelPreset {
                                     stepper: false,
                                 },
                             )
-                            .with_width(UiSizeUnit::Px(88.0)),
+                            .with_width(UiSizeUnit::Auto),
                         ]),
                     UiStudioNode::new(
                         layers_col_id,
                         "Layer Tree Column (6 Layers: Folder, Mask, Masked, Guide, Normal, Audio)",
                         UiNodeKind::Column,
                     )
-                    .with_width(UiSizeUnit::Px(220.0)),
+                    .with_width(UiSizeUnit::Px(neoflash_ui::metrics::LAYER_COLUMN)),
                     UiStudioNode::new(
                         ruler_playhead_id,
                         "Frame Ruler (1..35), Red Playhead & Onion Skin Brackets",
@@ -406,7 +419,7 @@ impl StudioPanelPreset {
                         active_tab: 0,
                     },
                 )
-                .with_width(UiSizeUnit::Px(320.0))
+                .with_width(UiSizeUnit::Percent(100.0))
                 .with_system_binding(SharedSystemKind::PanelHeader)
                 .with_children(vec![
                     UiStudioNode::new(
@@ -599,7 +612,7 @@ impl StudioPanelPreset {
                         active_tab: 0,
                     },
                 )
-                .with_width(UiSizeUnit::Px(320.0))
+                .with_width(UiSizeUnit::Percent(100.0))
                 .with_system_binding(SharedSystemKind::PanelHeader)
                 .with_children(vec![
                     UiStudioNode::new(top_row, "Stroke / Fill Wells & Paint Mode", UiNodeKind::Row)
@@ -612,7 +625,7 @@ impl StudioPanelPreset {
                                     is_stroke: true,
                                 },
                             )
-                            .with_width(UiSizeUnit::Px(74.0)),
+                            .with_width(UiSizeUnit::Auto),
                             UiStudioNode::new(
                                 fill_well,
                                 "Fill Well",
@@ -621,7 +634,7 @@ impl StudioPanelPreset {
                                     is_stroke: false,
                                 },
                             )
-                            .with_width(UiSizeUnit::Px(74.0)),
+                            .with_width(UiSizeUnit::Auto),
                             UiStudioNode::new(
                                 mode_sel,
                                 "Gradient Mode",
@@ -739,7 +752,7 @@ impl StudioPanelPreset {
                     ]),
                     UiStudioNode::new(
                         swatches_sec,
-                        "SWATCH PALETTE (4-COL GRID)",
+                        "SWATCH PALETTE",
                         UiNodeKind::Section {
                             collapsible: true,
                             expanded: true,
@@ -748,13 +761,13 @@ impl StudioPanelPreset {
                     .with_children(vec![
                         UiStudioNode::new(
                             sw_grid,
-                            "Swatches 4-Col Row",
+                            "Swatches 3-Col Grid",
                             UiNodeKind::Grid {
+                                // Three colour wells fit one inspector width in every density.
                                 columns: vec![
-                                    UiSizeUnit::Percent(25.0),
-                                    UiSizeUnit::Percent(25.0),
-                                    UiSizeUnit::Percent(25.0),
-                                    UiSizeUnit::Percent(25.0),
+                                    UiSizeUnit::Percent(33.3333),
+                                    UiSizeUnit::Percent(33.3333),
+                                    UiSizeUnit::Percent(33.3334),
                                 ],
                             },
                         )
@@ -828,7 +841,7 @@ impl StudioPanelPreset {
                         active_tab: 0,
                     },
                 )
-                .with_width(UiSizeUnit::Px(268.0))
+                .with_width(UiSizeUnit::Percent(100.0))
                 .with_system_binding(SharedSystemKind::PanelHeader)
                 .with_children(vec![
                     UiStudioNode::new(stage_sw, "Align to Stage", UiNodeKind::Switch { on: true }),
@@ -969,7 +982,7 @@ impl StudioPanelPreset {
                         active_tab: 0,
                     },
                 )
-                .with_width(UiSizeUnit::Px(320.0))
+                .with_width(UiSizeUnit::Percent(100.0))
                 .with_system_binding(SharedSystemKind::PanelHeader)
                 .with_children(vec![
                     UiStudioNode::new(
@@ -1143,7 +1156,7 @@ impl StudioPanelPreset {
                         active_tab: 0,
                     },
                 )
-                .with_width(UiSizeUnit::Px(320.0))
+                .with_width(UiSizeUnit::Percent(100.0))
                 .with_system_binding(SharedSystemKind::PanelHeader)
                 .with_children(vec![
                     UiStudioNode::new(
@@ -1305,7 +1318,7 @@ impl StudioPanelPreset {
                         active_tab: 0,
                     },
                 )
-                .with_width(UiSizeUnit::Px(288.0))
+                .with_width(UiSizeUnit::Percent(100.0))
                 .with_system_binding(SharedSystemKind::PanelHeader)
                 .with_children(vec![
                     UiStudioNode::new(top_row, "Wells & Mode Row", UiNodeKind::Row).with_children(
@@ -1318,7 +1331,7 @@ impl StudioPanelPreset {
                                     is_stroke: true,
                                 },
                             )
-                            .with_width(UiSizeUnit::Px(74.0)),
+                            .with_width(UiSizeUnit::Auto),
                             UiStudioNode::new(
                                 fill_well,
                                 "Fill Well",
@@ -1327,7 +1340,7 @@ impl StudioPanelPreset {
                                     is_stroke: false,
                                 },
                             )
-                            .with_width(UiSizeUnit::Px(74.0)),
+                            .with_width(UiSizeUnit::Auto),
                             UiStudioNode::new(
                                 mode_sel,
                                 "Paint Type",
@@ -1453,18 +1466,21 @@ impl StudioPanelPreset {
                         active_tab: 0,
                     },
                 )
-                .with_width(UiSizeUnit::Px(80.0))
-                .with_padding(Padding::all_px(7.0))
+                .with_width(UiSizeUnit::Percent(100.0))
+                .with_padding(Padding::all_token(SpacingToken::S1))
                 .with_children(vec![
                     UiStudioNode::new(
                         grid_id,
                         "Tools 2-Column Rail",
                         UiNodeKind::Grid {
-                            columns: vec![UiSizeUnit::Px(32.0), UiSizeUnit::Px(32.0)],
+                            columns: vec![
+                                UiSizeUnit::Px(neoflash_ui::metrics::TOOL_BUTTON),
+                                UiSizeUnit::Px(neoflash_ui::metrics::TOOL_BUTTON),
+                            ],
                         },
                     )
                     .with_system_binding(SharedSystemKind::ToolRail)
-                    .with_gap(GapPair::both_px(2.0))
+                    .with_gap(GapPair::both_token(SpacingToken::S1))
                     .with_children(tool_nodes),
                 ])
             }
@@ -1488,7 +1504,7 @@ impl StudioPanelPreset {
                         active_tab: 1,
                     },
                 )
-                .with_width(UiSizeUnit::Px(320.0))
+                .with_width(UiSizeUnit::Percent(100.0))
                 .with_system_binding(SharedSystemKind::PanelHeader)
                 .with_children(vec![
                     UiStudioNode::new(
@@ -1609,7 +1625,7 @@ impl StudioPanelPreset {
                         active_tab: 0,
                     },
                 )
-                .with_width(UiSizeUnit::Px(560.0))
+                .with_width(UiSizeUnit::Percent(100.0))
                 .with_system_binding(SharedSystemKind::PanelHeader)
                 .with_children(vec![
                     UiStudioNode::new(bar_row, "Timeline Controls Row", UiNodeKind::Row)
@@ -1623,7 +1639,7 @@ impl StudioPanelPreset {
                                     md_size: false,
                                 },
                             )
-                            .with_width(UiSizeUnit::Px(32.0)),
+                            .with_width(UiSizeUnit::Auto),
                             UiStudioNode::new(
                                 folder_btn,
                                 "New Folder",
@@ -1633,7 +1649,7 @@ impl StudioPanelPreset {
                                     md_size: false,
                                 },
                             )
-                            .with_width(UiSizeUnit::Px(32.0)),
+                            .with_width(UiSizeUnit::Auto),
                             UiStudioNode::new(
                                 trash_btn,
                                 "Delete Layer",
@@ -1643,7 +1659,7 @@ impl StudioPanelPreset {
                                     md_size: false,
                                 },
                             )
-                            .with_width(UiSizeUnit::Px(32.0)),
+                            .with_width(UiSizeUnit::Auto),
                             UiStudioNode::new(
                                 sep1,
                                 "Divider",
@@ -1659,7 +1675,7 @@ impl StudioPanelPreset {
                                     md_size: false,
                                 },
                             )
-                            .with_width(UiSizeUnit::Px(32.0)),
+                            .with_width(UiSizeUnit::Auto),
                             UiStudioNode::new(
                                 loop_btn,
                                 "Loop Playback",
@@ -1669,9 +1685,9 @@ impl StudioPanelPreset {
                                     md_size: false,
                                 },
                             )
-                            .with_width(UiSizeUnit::Px(32.0)),
+                            .with_width(UiSizeUnit::Auto),
                             UiStudioNode::new(onion_sw, "Onion", UiNodeKind::Switch { on: true })
-                                .with_width(UiSizeUnit::Px(86.0)),
+                                .with_width(UiSizeUnit::Auto),
                             UiStudioNode::new(
                                 frame_fld,
                                 "Current Frame",
@@ -1683,7 +1699,7 @@ impl StudioPanelPreset {
                                     stepper: false,
                                 },
                             )
-                            .with_width(UiSizeUnit::Px(76.0)),
+                            .with_width(UiSizeUnit::Auto),
                             UiStudioNode::new(
                                 fps_fld,
                                 "Frame Rate",
