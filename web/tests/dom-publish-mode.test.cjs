@@ -694,6 +694,7 @@ function buildInteractiveAs2Project() {
 }
 
 function startStaticServer(rootDir) {
+  const crypto = require('node:crypto');
   const mimeByExt = {
     '.html': 'text/html; charset=utf-8',
     '.js': 'text/javascript; charset=utf-8',
@@ -702,6 +703,7 @@ function startStaticServer(rootDir) {
     '.png': 'image/png',
     '.txt': 'text/plain; charset=utf-8',
   };
+  const sockets = new Set();
   const server = http.createServer((req, res) => {
     const rawPath = decodeURIComponent((req.url || '/').split('?')[0]);
     const rel = rawPath.replace(/^\/+/, '');
@@ -712,11 +714,30 @@ function startStaticServer(rootDir) {
       return;
     }
     const ext = path.extname(candidate).toLowerCase();
-    res.writeHead(200, { 'Content-Type': mimeByExt[ext] || 'application/octet-stream' });
+    res.writeHead(200, {
+      'Content-Type': mimeByExt[ext] || 'application/octet-stream',
+      'Cache-Control': 'no-store',
+    });
     fs.createReadStream(candidate).pipe(res);
   });
+  server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+  });
+  server.on('upgrade', (req, socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+    const key = req.headers['sec-websocket-key'] || '';
+    const accept = crypto
+      .createHash('sha1')
+      .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+      .digest('base64');
+    socket.write(
+      `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`
+    );
+  });
   return new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port, sockets }));
   });
 }
 
@@ -1275,10 +1296,10 @@ test('DOM publish mode (T-307): Full/Compact/Shared across HTTP & file://, forms
     assert.equal(afterRestart.inputCount, 1);
     assert.equal(afterRestart.inputValue, 'Initial');
 
-    // Unload / pagehide lifecycle: opt out of BFCache via an active Web Lock so Chrome executes
-    // a real document unload (persisted === false + unload) and verify <neoflash-stage> disposes
-    // once with zero leftover children!
-    await cdp.evalJson(`new Promise((resolve) => {
+    // Pagehide lifecycle: opt out of BFCache via an active WebSocket (plus Cache-Control: no-store)
+    // so Chrome 158+ executes a real non-BFCache document teardown (pagehide persisted === false)
+    // and verify <neoflash-stage> disposes once with zero leftover children!
+    await cdp.evalJson(`new Promise((resolve, reject) => {
       const recordState = () => {
         const s = document.getElementById('stage-dom-root');
         sessionStorage.setItem('nf_unload_lifecycle', JSON.stringify({
@@ -1289,15 +1310,10 @@ test('DOM publish mode (T-307): Full/Compact/Shared across HTTP & file://, forms
         }));
       };
       window.addEventListener('pagehide', recordState);
-      window.addEventListener('unload', recordState);
-      if (navigator.locks?.request) {
-        navigator.locks.request('nf_force_real_unload', () => {
-          resolve(true);
-          return new Promise(() => {});
-        });
-      } else {
-        resolve(true);
-      }
+      const bfcacheOptOutWs = new WebSocket('ws://127.0.0.1:${serverInfo.port}/bfcache-optout');
+      window.__nfBfcacheOptOutWs = bfcacheOptOutWs;
+      bfcacheOptOutWs.addEventListener('open', () => resolve(true), { once: true });
+      bfcacheOptOutWs.addEventListener('error', () => reject(new Error('WebSocket BFCache opt-out failed')), { once: true });
     })`);
     // Navigate within same HTTP origin so we can read back sessionStorage proof of pagehide disposal!
     await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/dom-compact/index.html`);
@@ -1458,6 +1474,13 @@ test('DOM publish mode (T-307): Full/Compact/Shared across HTTP & file://, forms
         cdp.chromeProc.kill('SIGKILL');
         setTimeout(resolve, 1500);
       });
+    }
+    if (serverInfo?.sockets) {
+      for (const sock of serverInfo.sockets) {
+        try {
+          sock.destroy();
+        } catch {}
+      }
     }
     if (serverInfo?.server) {
       await new Promise((resolve) => serverInfo.server.close(resolve));

@@ -1476,16 +1476,12 @@
     function onWindowPageHide(ev) {
       if (!ev?.persisted) dispose();
     }
-    function onWindowUnload() {
-      dispose();
-    }
     sceneElement.addEventListener('pointerdown', onScenePointerDown);
     sceneElement.addEventListener('pointermove', onScenePointerMove);
     sceneElement.addEventListener('pointerup', onScenePointerUp);
     sceneElement.addEventListener('click', onSceneBackgroundClick);
     stageElement.addEventListener?.('pointerleave', onStagePointerLeave);
     hostWin?.addEventListener?.('pagehide', onWindowPageHide);
-    hostWin?.addEventListener?.('unload', onWindowUnload);
     cleanups.push(() => {
       sceneElement.removeEventListener('pointerdown', onScenePointerDown);
       sceneElement.removeEventListener('pointermove', onScenePointerMove);
@@ -1493,7 +1489,6 @@
       sceneElement.removeEventListener('click', onSceneBackgroundClick);
       stageElement.removeEventListener?.('pointerleave', onStagePointerLeave);
       hostWin?.removeEventListener?.('pagehide', onWindowPageHide);
-      hostWin?.removeEventListener?.('unload', onWindowUnload);
     });
 
     function bitmapDataUrlFor(kind) {
