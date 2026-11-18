@@ -170,12 +170,16 @@ impl Editor {
         let mut union = Rect::NOTHING;
         let mut editable = false;
         for (target, element) in self.sampled_targets() {
-            let rect = by_id.get(&element.id).copied().unwrap_or_else(|| {
-                Rect::from_min_size(
-                    Pos2::new(element.transform.x as f32, element.transform.y as f32),
-                    Vec2::ZERO,
-                )
-            });
+            let rect = match by_id.get(&element.id).copied() {
+                Some(r) => r,
+                None if element.transform.x.is_finite() && element.transform.y.is_finite() => {
+                    Rect::from_min_size(
+                        Pos2::new(element.transform.x as f32, element.transform.y as f32),
+                        Vec2::ZERO,
+                    )
+                }
+                None => continue,
+            };
             union = union.union(rect);
             editable |= self.target_editable(&target);
         }
@@ -246,6 +250,9 @@ impl Editor {
         let dy = new_y - anchor_y;
         let w_changed = (new_w - old_w).abs() > 1e-3 && old_w > 1e-3;
         let h_changed = (new_h - old_h).abs() > 1e-3 && old_h > 1e-3;
+        if !w_changed && !h_changed && dx.abs() <= 1e-9 && dy.abs() <= 1e-9 {
+            return;
+        }
         let sx = if w_changed {
             (new_w.max(0.1)) / old_w
         } else {
@@ -359,6 +366,8 @@ impl Editor {
             });
             ui.vertical(|ui| {
                 ui.add_enabled_ui_semantic(editable, |ui| {
+                    let w_min = if !editable || old_w <= 1e-6 { 0.0 } else { 0.1 };
+                    let h_min = if !editable || old_h <= 1e-6 { 0.0 } else { 0.1 };
                     let (rw, rh) = two_column_row(
                         ui,
                         |ui, width| {
@@ -366,7 +375,7 @@ impl Editor {
                                 c::Field::new(&mut w, "Width")
                                     .prefix("W")
                                     .decimals(1)
-                                    .range(0.1..=100_000.0)
+                                    .range(w_min..=100_000.0)
                                     .width(width),
                             )
                         },
@@ -375,15 +384,15 @@ impl Editor {
                                 c::Field::new(&mut h, "Height")
                                     .prefix("H")
                                     .decimals(1)
-                                    .range(0.1..=100_000.0)
+                                    .range(h_min..=100_000.0)
                                     .width(width),
                             )
                         },
                     );
-                    if rw.changed() {
+                    if rw.changed() && old_w > 1e-3 {
                         edited_control = Some((rw.id, "Resize"));
                     }
-                    if rh.changed() {
+                    if rh.changed() && old_h > 1e-3 {
                         edited_control = Some((rh.id, "Resize"));
                     }
                     let (rx, ry) = two_column_row(

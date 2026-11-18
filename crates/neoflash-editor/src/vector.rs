@@ -2332,12 +2332,6 @@ impl Editor {
                         {
                             continue;
                         }
-                        // Pen anchors snap to guides and grid (ST-04); pencil strokes are freehand.
-                        let position = if self.tool == Tool::Pen {
-                            local(self.snap_screen(mapping, origin, pos))
-                        } else {
-                            local(pos)
-                        };
                         let closes = self.tool == Tool::Pen
                             && self.vector.draft.as_ref().is_some_and(|draft| {
                                 draft.anchors.len() >= 2
@@ -2348,9 +2342,16 @@ impl Editor {
                         if closes {
                             // Commit on press: a lost native release or viewport transition must
                             // not turn an explicit close click into another open anchor.
+                            self.stage_view.snap_ring = None;
                             self.finish_path(true);
                             continue;
                         }
+                        // Pen anchors snap to guides and grid (ST-04); pencil strokes are freehand.
+                        let position = if self.tool == Tool::Pen {
+                            local(self.snap_screen(mapping, origin, pos))
+                        } else {
+                            local(pos)
+                        };
                         if self.tool == Tool::Pen
                             && (modifiers.command || modifiers.ctrl)
                             && self

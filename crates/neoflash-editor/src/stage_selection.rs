@@ -289,6 +289,21 @@ pub(crate) fn edit_ungrouped_merge_shapes<R>(
 }
 
 impl Editor {
+    pub(crate) fn is_snapping_object_gesture(&self) -> bool {
+        self.object_gesture.as_ref().is_some_and(|g| {
+            g.moved
+                && matches!(
+                    g.kind,
+                    GestureKind::Move
+                        | GestureKind::Reshape { .. }
+                        | GestureKind::Pivot { .. }
+                        | GestureKind::Resize { .. }
+                        | GestureKind::BoxScale { .. }
+                        | GestureKind::Scale { .. }
+                )
+        })
+    }
+
     pub(crate) fn selection_bounds(
         &self,
         scene: &[DrawItem],
@@ -585,6 +600,9 @@ impl Editor {
             let rect = crate::stage::local_bounds(item, p);
             let item_world = crate::stage::world_bounds(item, p);
             let item_context = mapped_world_bounds(item, p, mapping);
+            if !item_world.is_finite() || !item_context.is_finite() {
+                continue;
+            }
             world = world.union(item_world);
             context_world = context_world.union(item_context);
             if let Some(&idx) = per_target_idx.get(id) {
@@ -748,7 +766,7 @@ impl Editor {
         point: Pos2,
         mapping: StageMapping,
     ) -> Option<SelectionTarget> {
-        const EMPTY_INSTANCE_HIT_RADIUS_PT: f32 = 9.0;
+        const EMPTY_INSTANCE_HIT_RADIUS_PT: f32 = 10.0;
         let editable = self.editable_targets();
         let eligible: HashSet<&str> = editable.iter().map(|t| t.element.as_str()).collect();
         let mut items_by_root: HashMap<&str, Vec<&DrawItem>> = HashMap::new();
@@ -1050,6 +1068,9 @@ impl Editor {
                     gesture.scope.origin,
                     gesture.scope.zoom,
                 );
+                if !rect.is_finite() {
+                    continue;
+                }
                 if let Some(&index) = indices.get(id) {
                     candidates[index].1 = candidates[index].1.union(rect);
                 } else {
@@ -1081,6 +1102,13 @@ impl Editor {
                     .filter(|(_, rect)| rect.is_finite() && marquee.contains_rect(*rect))
                     .map(|(target, _)| target),
             );
+            if !targets.is_empty()
+                && self
+                    .selected_frame_range()
+                    .is_some_and(|(start, end, _)| start == end)
+            {
+                self.clear_timeline_frame_selection();
+            }
             self.set_selection(targets);
             self.object_gesture = Some(gesture);
             return;
@@ -2140,16 +2168,21 @@ impl Editor {
                         }
                     } else {
                         // `NF2/Transform Box` (Scale / RotateAndSkew / FreeTransform) on the selection's stage bounds.
+                        let degenerate_point_box =
+                            !g.resizable && frame.width() <= 1e-3 && frame.height() <= 1e-3;
                         let rects =
                             cv::paint_transform_box(p, p.ctx(), frame, cv::TransformMode::Scale);
                         let pivot_world = g.world_pivot;
                         let pivot_screen = screen(position(pivot_world));
-                        transform_pivot_screen = Some(pivot_screen);
-                        if pivot_screen.distance(frame.center()) > 0.5 {
+                        let pivot_displaced = pivot_screen.distance(frame.center()) > 0.5;
+                        if !degenerate_point_box || pivot_displaced {
+                            transform_pivot_screen = Some(pivot_screen);
+                        }
+                        if pivot_displaced {
                             cv::transformation_point(p, p.ctx(), pivot_screen);
                         }
-                        let pivot_first = (frame.width() > 18.0 && frame.height() > 18.0)
-                            || pivot_screen.distance(frame.center()) > 0.5;
+                        let pivot_first =
+                            (frame.width() > 18.0 && frame.height() > 18.0) || pivot_displaced;
                         if pivot_first {
                             zones.push((
                                 Zone::Pivot(pivot_screen),
@@ -2290,7 +2323,7 @@ impl Editor {
                                 }
                             }
                         }
-                        if !pivot_first {
+                        if !pivot_first && !degenerate_point_box {
                             zones.push((
                                 Zone::Pivot(pivot_screen),
                                 GestureKind::Pivot {
@@ -2329,16 +2362,46 @@ impl Editor {
                                 let cursor = if horizontal { nf::SKEW_H } else { nf::SKEW_V };
                                 zones.push((Zone::Edge(from + gap, to - gap), kind, cursor));
                             }
+                            let rotate_frame = if degenerate_point_box {
+                                frame.expand(7.0)
+                            } else {
+                                frame
+                            };
                             for corner in [nw, ne, se, sw] {
                                 let kind = GestureKind::Rotate {
                                     single,
                                     pivot: pivot_world,
                                     local_bounds: g.local,
                                 };
-                                zones.push((Zone::Rotate { corner, frame }, kind, nf::ROTATE));
+                                zones.push((
+                                    Zone::Rotate {
+                                        corner,
+                                        frame: rotate_frame,
+                                    },
+                                    kind,
+                                    nf::ROTATE,
+                                ));
                             }
                         }
                     }
+                } else if matches!(
+                    self.active_free_transform_mode(),
+                    crate::authoring_tools::FreeTransformMode::FreeTransform
+                        | crate::authoring_tools::FreeTransformMode::RotateAndSkew
+                ) {
+                    let single = g.local.is_some() && g.initial.is_some();
+                    zones.push((
+                        Zone::Rotate {
+                            corner: frame.center(),
+                            frame: frame.expand(9.0),
+                        },
+                        GestureKind::Rotate {
+                            single,
+                            pivot: g.world_pivot,
+                            local_bounds: g.local,
+                        },
+                        nf::ROTATE,
+                    ));
                 }
             } else {
                 // `NF2/Selection Box` around Object-mode placements; hatch mesh over Merge shapes.
@@ -2546,6 +2609,12 @@ impl Editor {
                         reshape_entries = entries;
                         GestureKind::Reshape { edit_anchor }
                     } else if let Some(target) = &hit {
+                        if self
+                            .selected_frame_range()
+                            .is_some_and(|(start, end, _)| start == end)
+                        {
+                            self.clear_timeline_frame_selection();
+                        }
                         if !self.selection.targets.contains(target) {
                             let mut targets = if additive {
                                 self.selection.targets.clone()
@@ -2693,6 +2762,13 @@ impl Editor {
                                 targets.push(hit);
                             }
                         }
+                        if !targets.is_empty()
+                            && self
+                                .selected_frame_range()
+                                .is_some_and(|(start, end, _)| start == end)
+                        {
+                            self.clear_timeline_frame_selection();
+                        }
                         self.set_selection(targets);
                     }
                     if let Some(gesture) = self
@@ -2752,11 +2828,11 @@ impl Editor {
             && double_click_hits_selection
         {
             if self
-                .selected_element()
+                .selected_sampled()
                 .is_some_and(|element| matches!(element.kind, ElementKind::Instance { .. }))
             {
                 self.enter_selected_symbol_in_place();
-            } else if self.selected_element().is_some_and(|e| {
+            } else if self.selected_sampled().is_some_and(|e| {
                 matches!(
                     e.kind,
                     ElementKind::Text { .. } | ElementKind::TextBox { .. }
@@ -2928,6 +3004,7 @@ impl Editor {
                 } => {
                     if let Some(draft) = self.shape_draft.take() {
                         let pos = self.snap_screen(mapping, origin, pos);
+                        self.stage_view.snap_ring = None;
                         let bounds = shape_draft_bounds(&draft, pos, modifiers);
                         let screen_edges = mapped_local_edge_screen_lengths(
                             bounds,

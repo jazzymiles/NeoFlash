@@ -334,20 +334,29 @@ impl Editor {
         self.sampled_targets()
             .into_iter()
             .filter(|(target, _)| self.target_editable(target))
-            .map(|(target, element)| {
-                let fallback = Pos2::new(element.transform.x as f32, element.transform.y as f32);
-                let (bounds, context_bounds) = bounds.remove(&element.id).unwrap_or_else(|| {
-                    (
-                        Rect::from_min_size(fallback, Vec2::ZERO),
-                        Rect::from_min_size(mapping.edit_to_stage_pos(fallback), Vec2::ZERO),
-                    )
-                });
-                Placement {
+            .filter_map(|(target, element)| {
+                let (bounds, context_bounds) = match bounds.remove(&element.id) {
+                    Some(pair) => pair,
+                    None if element.transform.x.is_finite() && element.transform.y.is_finite() => {
+                        let fallback =
+                            Pos2::new(element.transform.x as f32, element.transform.y as f32);
+                        let stage_pos = mapping.edit_to_stage_pos(fallback);
+                        if !stage_pos.x.is_finite() || !stage_pos.y.is_finite() {
+                            return None;
+                        }
+                        (
+                            Rect::from_min_size(fallback, Vec2::ZERO),
+                            Rect::from_min_size(stage_pos, Vec2::ZERO),
+                        )
+                    }
+                    None => return None,
+                };
+                Some(Placement {
                     target,
                     element,
                     bounds,
                     context_bounds,
-                }
+                })
             })
             .collect()
     }
@@ -578,10 +587,11 @@ impl Editor {
 
     pub(crate) fn distribute_selection(&mut self, ctx: &egui::Context, axis: usize, edge: usize) {
         let mut units = self.modify_layout_units(ctx);
-        if units.len() < 3 {
+        let to_stage = self.authoring_modify.to_stage;
+        let min_units = if to_stage { 2 } else { 3 };
+        if units.len() < min_units {
             return;
         }
-        let to_stage = self.authoring_modify.to_stage;
         units.sort_by(|a, b| {
             let a = if to_stage { a.context_bounds } else { a.bounds };
             let b = if to_stage { b.context_bounds } else { b.bounds };
@@ -691,6 +701,9 @@ impl Editor {
 
     pub(crate) fn match_selection_size(&mut self, ctx: &egui::Context, axis: usize) {
         let units = self.modify_layout_units(ctx);
+        if units.is_empty() {
+            return;
+        }
         let to_stage = self.authoring_modify.to_stage;
         let size = if to_stage {
             extent(self.modify_reference(&units), axis)
@@ -700,7 +713,7 @@ impl Editor {
                 .map(|p| extent(p.bounds, axis))
                 .fold(0., f64::max)
         };
-        if size <= 0. {
+        if !size.is_finite() || size <= 1e-9 {
             return;
         }
         let mapping = if to_stage {
@@ -721,11 +734,15 @@ impl Editor {
                 },
                 axis,
             );
-            if old <= 1e-9 {
+            if !old.is_finite() || old <= 1e-9 {
+                continue;
+            }
+            let ratio = size / old;
+            if !ratio.is_finite() || (ratio - 1.0).abs() <= 1e-9 {
                 continue;
             }
             let mut scale = [1., 1.];
-            scale[axis] = size / old;
+            scale[axis] = ratio;
             let matrix = if let Some(mapping) = mapping {
                 let context = around(
                     unit.context_bounds.min,
@@ -3102,11 +3119,14 @@ impl Editor {
             );
             overline(ui, "Distribute");
             let dist_resp = ui
-                .add_enabled_ui_semantic(count >= 3, |ui| {
-                    alignment_groups(ui, "Distribute", DISTRIBUTE_ICONS, |ui, axis, edge| {
-                        self.distribute_selection(ui.ctx(), axis, edge)
-                    })
-                })
+                .add_enabled_ui_semantic(
+                    count >= 3 || (count >= 2 && self.authoring_modify.to_stage),
+                    |ui| {
+                        alignment_groups(ui, "Distribute", DISTRIBUTE_ICONS, |ui, axis, edge| {
+                            self.distribute_selection(ui.ctx(), axis, edge)
+                        })
+                    },
+                )
                 .response;
             crate::ui_icons::hover_tooltip(
                 dist_resp,
@@ -3177,19 +3197,22 @@ impl Editor {
             );
             overline(ui, "Match size");
             let match_resp = ui
-                .add_enabled_ui_semantic(count >= 2, |ui| {
-                    let clicked = IconGroup {
-                        items: &[
-                            (i16::MATCH_W, "Match width"),
-                            (i16::MATCH_H, "Match height"),
-                        ],
-                        selected: None,
-                    }
-                    .show(ui);
-                    if let Some(axis) = clicked {
-                        self.match_selection_size(ui.ctx(), axis);
-                    }
-                })
+                .add_enabled_ui_semantic(
+                    count >= 2 || (count > 0 && self.authoring_modify.to_stage),
+                    |ui| {
+                        let clicked = IconGroup {
+                            items: &[
+                                (i16::MATCH_W, "Match width"),
+                                (i16::MATCH_H, "Match height"),
+                            ],
+                            selected: None,
+                        }
+                        .show(ui);
+                        if let Some(axis) = clicked {
+                            self.match_selection_size(ui.ctx(), axis);
+                        }
+                    },
+                )
                 .response;
             crate::ui_icons::hover_tooltip(
                 match_resp,
@@ -3231,11 +3254,16 @@ impl Editor {
             let [ref mut x, ref mut y, ref mut width, ref mut height] = fields;
             let [rx, ry] = field_pair(ui, ["X", "Y"], [x, y], -1_000_000. ..=1_000_000., "", None);
             let linked = &mut self.authoring_modify.linked_scale;
+            let size_min = if original[2] <= 1e-6 || original[3] <= 1e-6 {
+                0.0
+            } else {
+                0.01
+            };
             let [rw, rh] = field_pair(
                 ui,
                 ["W", "H"],
                 [width, height],
-                0.01..=1_000_000.,
+                size_min..=1_000_000.,
                 "",
                 Some(linked),
             );
@@ -3243,9 +3271,16 @@ impl Editor {
                 if response.changed() {
                     let mut matrix = [1., 0., 0., 1., 0., 0.];
                     if index < 2 {
-                        matrix[4 + index] = fields[index] - original[index];
-                    } else if original[index] > 1e-9 {
+                        let delta = fields[index] - original[index];
+                        if delta.abs() <= 1e-9 {
+                            continue;
+                        }
+                        matrix[4 + index] = delta;
+                    } else if original[index] > 1e-9 && fields[index] > 1e-9 {
                         let scale = fields[index] / original[index];
+                        if !scale.is_finite() || (scale - 1.0).abs() <= 1e-9 {
+                            continue;
+                        }
                         let axis = index - 2;
                         matrix[if axis == 0 { 0 } else { 3 }] = scale;
                         if self.authoring_modify.linked_scale {
@@ -3253,6 +3288,8 @@ impl Editor {
                             matrix[3] = scale;
                         }
                         matrix = around(bounds.min, matrix);
+                    } else {
+                        continue;
                     }
                     if let Some(changes) = transformed(&placements, matrix) {
                         self.apply_modified(changes, Some(response.id));

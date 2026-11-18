@@ -194,6 +194,11 @@ impl AuthoringToolsState {
     pub fn is_drawing(&self) -> bool {
         self.gesture.is_some() || !self.lasso_polygon.is_empty()
     }
+    pub(crate) fn is_snapping_gesture(&self) -> bool {
+        self.gesture
+            .as_ref()
+            .is_some_and(|g| matches!(g.tool, Tool::Line | Tool::PolyStar) && !g.shift)
+    }
 }
 struct PressureContact {
     device: egui::TouchDeviceId,
@@ -1857,6 +1862,7 @@ impl Editor {
             point = g.local(self.snap_screen(g.mapping, g.origin, pos));
         }
         if matches!(g.tool, Tool::Line | Tool::PolyStar | Tool::Bucket) && g.shift {
+            self.stage_view.snap_ring = None;
             let vector = point - g.points[0];
             let angle = (vector.angle() / std::f32::consts::FRAC_PI_4).round()
                 * std::f32::consts::FRAC_PI_4;
@@ -2210,10 +2216,12 @@ impl Editor {
                 && eligible.contains_key(id)
             {
                 let bounds = crate::stage::world_bounds(item, p);
-                boxes
-                    .entry(id.clone())
-                    .and_modify(|r| *r = r.union(bounds))
-                    .or_insert(bounds);
+                if bounds.is_finite() {
+                    boxes
+                        .entry(id.clone())
+                        .and_modify(|r| *r = r.union(bounds))
+                        .or_insert(bounds);
+                }
             }
         }
         for (empty_target, empty_el) in self.empty_editable_instances(scene) {
@@ -2237,6 +2245,13 @@ impl Editor {
                 lasso_rect(points, *bounds, self.authoring_tools.lasso_contact)
             })
         }));
+        if !targets.is_empty()
+            && self
+                .selected_frame_range()
+                .is_some_and(|(start, end, _)| start == end)
+        {
+            self.clear_timeline_frame_selection();
+        }
         self.set_selection(targets);
     }
 

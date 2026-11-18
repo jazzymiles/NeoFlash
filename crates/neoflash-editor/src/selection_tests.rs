@@ -4733,3 +4733,524 @@ fn no_fill_differs_from_zero_alpha_fill_and_multi_selection_color_only_changes_f
         "Empty stroke-only object must remain unfilled until filled with the Paint Bucket"
     );
 }
+
+fn make_empty_mc_symbol(editor: &mut Editor, id: &str, name: &str) {
+    let mut sym = editor.symbol().clone();
+    sym.id = id.to_owned();
+    sym.name = name.to_owned();
+    sym.kind = SymbolKind::MovieClip;
+    sym.class_name = None;
+    sym.linkage_id = None;
+    sym.timeline.scripts.clear();
+    sym.timeline.guides.clear();
+    sym.timeline.layers.truncate(1);
+    sym.timeline.layers[0].id = format!("{id}-layer");
+    sym.timeline.layers[0].properties = Default::default();
+    sym.timeline.layers[0].keyframes = vec![Keyframe::default()];
+    editor.project.symbols.push(sym);
+}
+
+#[test]
+fn t380_empty_movie_clip_align_distribute_space_and_match_size_workflows() {
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    project.width = 400;
+    project.height = 600;
+    let mut editor = Editor::from_project(&ctx, project);
+    make_empty_mc_symbol(&mut editor, "container_sym", "Container");
+
+    // 1. Single empty MovieClip at (0, 600) (Screenshot 4!) with Align to Stage:
+    //    test ALL 6 Align edges (Left, Horizontal Center, Right, Top, Vertical Center, Bottom).
+    editor.add_element_transformed(
+        ElementKind::Instance {
+            symbol_id: "container_sym".into(),
+            playback: InstancePlayback::Independent,
+        },
+        Transform {
+            x: 0.0,
+            y: 600.0,
+            ..Default::default()
+        },
+    );
+    let mc_a = editor.selection.single().unwrap().clone();
+    editor.authoring_modify.to_stage = true;
+
+    for (axis, edge, expected) in [
+        (0, 1, (200.0, 600.0)), // Horizontal Center
+        (0, 2, (400.0, 600.0)), // Right
+        (0, 0, (0.0, 600.0)),   // Left
+        (1, 1, (0.0, 300.0)),   // Vertical Center
+        (1, 0, (0.0, 0.0)),     // Top
+        (1, 2, (0.0, 600.0)),   // Bottom
+    ] {
+        editor.align_selection(&ctx, axis, edge);
+        let t = editor.selected_sampled().unwrap().transform;
+        assert!(
+            (t.x - expected.0).abs() < 1e-6 && (t.y - expected.1).abs() < 1e-6,
+            "axis={axis} edge={edge}: got ({}, {}), expected {expected:?}",
+            t.x,
+            t.y
+        );
+    }
+    editor.undo();
+    assert_eq!(editor.selected_sampled().unwrap().transform.y, 0.0);
+
+    // 2. Match Width / Match Height on a single 0x0 empty MovieClip with Align to Stage:
+    //    must NEVER produce NaN/Inf or corrupt scale_x / scale_y!
+    let undo_before = editor.project.clone();
+    editor.match_selection_size(&ctx, 0);
+    editor.match_selection_size(&ctx, 1);
+    let t_after_stage_match = editor.selected_sampled().unwrap().transform;
+    assert_eq!(t_after_stage_match.scale_x, 1.0);
+    assert_eq!(t_after_stage_match.scale_y, 1.0);
+    assert!(t_after_stage_match.x.is_finite() && t_after_stage_match.y.is_finite());
+    assert_eq!(editor.project, undo_before);
+
+    // 3. Multi-selection of 3 empty MovieClips: Align to Selection, Distribute (all 6 modes),
+    //    Distribute to Stage (2+ items), Space Evenly H/V, and Match Size on pure empty selection.
+    editor.add_element_transformed(
+        ElementKind::Instance {
+            symbol_id: "container_sym".into(),
+            playback: InstancePlayback::Independent,
+        },
+        Transform {
+            x: 50.0,
+            y: 40.0,
+            ..Default::default()
+        },
+    );
+    let mc_b = editor.selection.single().unwrap().clone();
+    editor.add_element_transformed(
+        ElementKind::Instance {
+            symbol_id: "container_sym".into(),
+            playback: InstancePlayback::Independent,
+        },
+        Transform {
+            x: 300.0,
+            y: 440.0,
+            ..Default::default()
+        },
+    );
+    let mc_c = editor.selection.single().unwrap().clone();
+
+    // Match Size on pure 0x0 empty MovieClip selection (to_stage = false): safe no-op!
+    editor.authoring_modify.to_stage = false;
+    editor.set_selection(vec![mc_a.clone(), mc_b.clone(), mc_c.clone()]);
+    let before_pure_match = editor.project.clone();
+    editor.match_selection_size(&ctx, 0);
+    editor.match_selection_size(&ctx, 1);
+    assert_eq!(editor.project, before_pure_match);
+
+    // Distribute all 3 empty MovieClips across Selection (Left/Center/Right & Top/Middle/Bottom).
+    for edge in 0..3 {
+        editor.set_selection(vec![mc_a.clone(), mc_b.clone(), mc_c.clone()]);
+        editor.distribute_selection(&ctx, 0, edge);
+        let xs: Vec<f64> = editor
+            .sampled_targets()
+            .into_iter()
+            .map(|(_, el)| el.transform.x)
+            .collect();
+        assert_eq!(xs, vec![0.0, 150.0, 300.0], "distribute H edge={edge}");
+        editor.undo();
+
+        editor.set_selection(vec![mc_a.clone(), mc_b.clone(), mc_c.clone()]);
+        editor.distribute_selection(&ctx, 1, edge);
+        let ys: Vec<f64> = editor
+            .sampled_targets()
+            .into_iter()
+            .map(|(_, el)| el.transform.y)
+            .collect();
+        assert_eq!(ys, vec![0.0, 220.0, 440.0], "distribute V edge={edge}");
+        editor.undo();
+    }
+
+    // Space Evenly Horizontally & Vertically on 3 empty MovieClips (0x0 extent each).
+    editor.set_selection(vec![mc_a.clone(), mc_b.clone(), mc_c.clone()]);
+    editor.space_selection(&ctx, 0, None);
+    editor.space_selection(&ctx, 1, None);
+    let coords: Vec<(f64, f64)> = editor
+        .sampled_targets()
+        .into_iter()
+        .map(|(_, el)| (el.transform.x, el.transform.y))
+        .collect();
+    assert_eq!(coords, vec![(0.0, 0.0), (150.0, 220.0), (300.0, 440.0)]);
+
+    // Distribute 2 empty MovieClips with Align to Stage enabled: places them at Stage [0, 400] and [0, 600].
+    editor.authoring_modify.to_stage = true;
+    editor.set_selection(vec![mc_a.clone(), mc_b.clone()]);
+    editor.distribute_selection(&ctx, 0, 0);
+    editor.distribute_selection(&ctx, 1, 0);
+    let stage_dist: Vec<(f64, f64)> = editor
+        .sampled_targets()
+        .into_iter()
+        .map(|(_, el)| (el.transform.x, el.transform.y))
+        .collect();
+    assert_eq!(stage_dist, vec![(0.0, 0.0), (400.0, 600.0)]);
+
+    // 4. Mixed selection (empty 0x0 MovieClip + 40x30 rect + 120x90 rect):
+    //    Align to Selection aligns empty MovieClip registration point with shape bounds,
+    //    and Match Width / Match Height resizes the 40x30 rect to 120x90 while leaving the
+    //    empty MovieClip's scale_x=1.0, scale_y=1.0 intact!
+    editor.authoring_modify.to_stage = false;
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 40.0,
+            height: 30.0,
+            fill: [40, 120, 200, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        80.0,
+        100.0,
+    );
+    let small_rect = editor.selection.single().unwrap().clone();
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 120.0,
+            height: 90.0,
+            fill: [200, 80, 40, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        220.0,
+        250.0,
+    );
+    let big_rect = editor.selection.single().unwrap().clone();
+
+    // Place an empty MovieClip at (200, 200) so the selection's outer bounds are [80..340] x [100..340].
+    editor.add_element_transformed(
+        ElementKind::Instance {
+            symbol_id: "container_sym".into(),
+            playback: InstancePlayback::Independent,
+        },
+        Transform {
+            x: 200.0,
+            y: 200.0,
+            ..Default::default()
+        },
+    );
+    let mc_mid = editor.selection.single().unwrap().clone();
+
+    editor.set_selection(vec![mc_mid.clone(), small_rect.clone(), big_rect.clone()]);
+    editor.align_selection(&ctx, 0, 1); // Horizontal Center of [80..340] = 210
+    editor.align_selection(&ctx, 1, 2); // Bottom of [100..340] = 340
+    let sampled_mc_mid = editor
+        .sampled_targets()
+        .into_iter()
+        .find(|(t, _)| *t == mc_mid)
+        .unwrap()
+        .1;
+    assert!((sampled_mc_mid.transform.x - 210.0).abs() < 1e-5);
+    assert!((sampled_mc_mid.transform.y - 340.0).abs() < 1e-5);
+
+    editor.match_selection_size(&ctx, 0);
+    editor.match_selection_size(&ctx, 1);
+    let after = editor.sampled_targets();
+    let mc_after = &after.iter().find(|(t, _)| *t == mc_mid).unwrap().1;
+    assert_eq!(mc_after.transform.scale_x, 1.0);
+    assert_eq!(mc_after.transform.scale_y, 1.0);
+    let small_after = &after.iter().find(|(t, _)| *t == small_rect).unwrap().1;
+    assert!((small_after.transform.scale_x - 3.0).abs() < 1e-5);
+    assert!((small_after.transform.scale_y - 3.0).abs() < 1e-5);
+    editor.project.validate().unwrap();
+}
+
+#[test]
+fn t380_empty_movie_clip_stage_edges_inspectors_nudge_duplicate_clipboard_and_arrange() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut project = Project::blank();
+    project.width = 400;
+    project.height = 600;
+    let mut editor = Editor::from_project(&ctx, project);
+    make_empty_mc_symbol(&mut editor, "container_sym", "ContainerSymbol");
+
+    // Place two empty MovieClips at exact Stage corners: (0, 600) (Screenshot 4) and (0, 0) near rulers.
+    editor.add_element_transformed(
+        ElementKind::Instance {
+            symbol_id: "container_sym".into(),
+            playback: InstancePlayback::Independent,
+        },
+        Transform {
+            x: 0.0,
+            y: 600.0,
+            ..Default::default()
+        },
+    );
+    let bottom_left = editor.selection.single().unwrap().clone();
+    editor.add_element_transformed(
+        ElementKind::Instance {
+            symbol_id: "container_sym".into(),
+            playback: InstancePlayback::Independent,
+        },
+        Transform {
+            x: 0.0,
+            y: 0.0,
+            ..Default::default()
+        },
+    );
+    let top_left = editor.selection.single().unwrap().clone();
+    editor.clear_selection();
+
+    // Simulate Screenshot 4's initial state: layer row / Frame 1 selected in Timeline (`Frames 1–1 · 1 layer`).
+    let layer_id = editor.symbol().timeline.layers[0].id.clone();
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id.clone()],
+        start: 0,
+        end: 0,
+    });
+    editor.timeline_edit.focused = true;
+    assert_eq!(editor.selected_frame_range(), Some((0, 0, 1)));
+
+    // Prime Stage layout with rulers visible.
+    editor.set_tool(Tool::Select);
+    let _ = stage_input_frame(&mut editor, &ctx, 0.05, vec![]);
+    let origin = editor.stage_view.origin;
+    let zoom = editor.zoom;
+
+    // 1. Clicking ○+ at (0, 600) selects `bottom_left`, clears the stale single-frame Timeline range,
+    //    and unfocuses `timeline_edit`!
+    let bottom_left_screen = origin + egui::vec2(0.0, 600.0 * zoom) + egui::vec2(4.0, -3.0);
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.10,
+        vec![
+            Event::PointerMoved(bottom_left_screen),
+            primary_button(bottom_left_screen, true),
+        ],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.14,
+        vec![primary_button(bottom_left_screen, false)],
+    );
+    assert_eq!(editor.selection.targets, vec![bottom_left.clone()]);
+    assert!(!editor.timeline_edit.focused);
+    assert_eq!(editor.selected_frame_range(), None);
+
+    // 2. Render Properties, Transform, and Info panels on the selected 0x0 empty MovieClip:
+    //    - Properties shows "Movie clip" (NOT "Frame"!)
+    //    - Transform and Info show W: 0, H: 0 without clamping to 0.01/0.1 or dirtying Undo history!
+    let snapshot_before_panels = editor.project.clone();
+    let panel_ctx = egui::Context::default();
+    let _ = Editor::from_project(&panel_ctx, Project::blank());
+    panel_ctx.enable_accesskit();
+    let out = panel_ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1280.0, 900.0))),
+            time: Some(0.20),
+            ..Default::default()
+        },
+        |pctx| {
+            egui::SidePanel::left("test-props").show(pctx, |ui| editor.properties(ui, pctx));
+            egui::SidePanel::right("test-transform").show(pctx, |ui| editor.transform_panel_ui(ui));
+            egui::CentralPanel::default().show(pctx, |ui| editor.info_panel_ui(ui));
+        },
+    );
+    assert_eq!(
+        editor.project, snapshot_before_panels,
+        "rendering Properties + Transform + Info on an empty 0x0 MovieClip must never mutate the project"
+    );
+    let labels: Vec<String> = out
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .map(|u| {
+            u.nodes
+                .iter()
+                .filter_map(|(_, n)| n.value().or_else(|| n.label()).map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        labels.iter().any(|s| s.contains("Movie clip")),
+        "Properties must display Movie clip inspector header, got labels: {labels:?}"
+    );
+    assert!(
+        !labels.iter().any(|s| s.contains("Frames 1–1")),
+        "Properties must not stay stuck on Frame inspector"
+    );
+    let (info_bounds, info_editable) = editor.selection_info_bounds(&ctx).unwrap();
+    assert!(info_editable);
+    assert_eq!(info_bounds.size(), egui::Vec2::ZERO);
+
+    // 3. Edit X/Y via Info bounds edit, edit <Instance Name> independently of Library symbol name,
+    //    and switch instance Behavior (MovieClip -> Graphic -> Button -> MovieClip) without mutating Symbol.kind.
+    editor.apply_info_bounds_edit(info_bounds, 24.0, 580.0, 0.0, 0.0);
+    assert_eq!(
+        (
+            editor.selected_sampled().unwrap().transform.x,
+            editor.selected_sampled().unwrap().transform.y,
+            editor.selected_sampled().unwrap().transform.scale_x,
+            editor.selected_sampled().unwrap().transform.scale_y,
+        ),
+        (24.0, 580.0, 1.0, 1.0)
+    );
+    editor.selected_element_mut().unwrap().name = "boardContainer".into();
+    assert_eq!(
+        editor.project.symbol("container_sym").unwrap().name,
+        "ContainerSymbol",
+        "instance name must remain independent of Library symbol name"
+    );
+    for next_behavior in [
+        SymbolKind::Graphic,
+        SymbolKind::Button,
+        SymbolKind::MovieClip,
+    ] {
+        assert!(editor.set_selected_instance_behavior(next_behavior));
+        let inst = editor.selected_sampled().unwrap();
+        assert_eq!(
+            inst.effective_symbol_kind(&editor.project),
+            Some(next_behavior)
+        );
+        assert_eq!(
+            editor.project.symbol("container_sym").unwrap().kind,
+            SymbolKind::MovieClip,
+            "switching per-instance Behavior must never mutate Library Symbol.kind"
+        );
+    }
+
+    // 4. Clicking and marquee-selecting ○+ at (0, 0) near rulers in both Selection (V) and Free Transform (Q).
+    let mut t_step = 1.0_f64;
+    for tool in [Tool::Select, Tool::Transform] {
+        editor.clear_selection();
+        editor.set_tool(tool);
+        let _ = stage_input_frame(&mut editor, &ctx, t_step, vec![]);
+        let top_left_screen = editor.stage_view.origin + egui::vec2(5.0, 5.0);
+        let _ = stage_input_frame(
+            &mut editor,
+            &ctx,
+            t_step + 0.10,
+            vec![
+                Event::PointerMoved(top_left_screen),
+                primary_button(top_left_screen, true),
+            ],
+        );
+        let _ = stage_input_frame(
+            &mut editor,
+            &ctx,
+            t_step + 0.15,
+            vec![primary_button(top_left_screen, false)],
+        );
+        assert_eq!(
+            editor.selection.targets,
+            vec![top_left.clone()],
+            "{tool:?} click near (0, 0) selects empty MovieClip"
+        );
+
+        editor.clear_selection();
+        let m0 = editor.stage_view.origin + egui::vec2(18.0, 18.0);
+        let m1 = editor.stage_view.origin + egui::vec2(-6.0, -4.0);
+        let _ = stage_input_frame(
+            &mut editor,
+            &ctx,
+            t_step + 0.60,
+            vec![Event::PointerMoved(m0), primary_button(m0, true)],
+        );
+        let _ = stage_input_frame(
+            &mut editor,
+            &ctx,
+            t_step + 0.65,
+            vec![Event::PointerMoved(m1)],
+        );
+        let _ = stage_input_frame(
+            &mut editor,
+            &ctx,
+            t_step + 0.70,
+            vec![primary_button(m1, false)],
+        );
+        assert_eq!(
+            editor.selection.targets,
+            vec![top_left.clone()],
+            "{tool:?} marquee across (0, 0) selects empty MovieClip"
+        );
+        t_step += 1.5;
+    }
+
+    // 5. Free Transform (Q) outside-halo rotation on the 0x0 empty MovieClip!
+    let center_0 = editor.stage_view.origin;
+    let rot_start = center_0 + egui::vec2(14.0, 0.0);
+    let rot_end = center_0 + egui::vec2(0.0, 14.0);
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        5.00,
+        vec![
+            Event::PointerMoved(rot_start),
+            primary_button(rot_start, true),
+        ],
+    );
+    let _ = stage_input_frame(&mut editor, &ctx, 5.03, vec![Event::PointerMoved(rot_end)]);
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        5.06,
+        vec![primary_button(rot_end, false)],
+    );
+    assert!(
+        (editor.selected_sampled().unwrap().transform.rotation - 90.0).abs() < 5.0,
+        "Free Transform outside halo rotates empty MovieClip"
+    );
+    editor.undo();
+
+    // 6. Nudge (1 px / 10 px), Duplicate (⌘D), Copy + Paste in Place + Paste in Center, and Arrange.
+    assert!(editor.nudge_selection(1.0, 0.0));
+    assert!(editor.nudge_selection(0.0, 10.0));
+    assert_eq!(
+        (
+            editor.selected_sampled().unwrap().transform.x,
+            editor.selected_sampled().unwrap().transform.y
+        ),
+        (1.0, 10.0)
+    );
+
+    editor.duplicate();
+    let dup_target = editor.selection.single().unwrap().clone();
+    assert_ne!(dup_target, top_left);
+    let dup_pos = (
+        editor.selected_sampled().unwrap().transform.x,
+        editor.selected_sampled().unwrap().transform.y,
+    );
+    assert_eq!(dup_pos, (17.0, 26.0));
+
+    let copied_text = ctx
+        .run(egui::RawInput::default(), |ctx| {
+            editor.copy_selection(ctx, false);
+        })
+        .platform_output
+        .commands
+        .into_iter()
+        .find_map(|cmd| match cmd {
+            egui::OutputCommand::CopyText(t) => Some(t),
+            _ => None,
+        })
+        .expect("copy_selection emits CopyText for an empty MovieClip");
+    editor.paste_objects(&ctx, &copied_text, true);
+    let pip = editor.selected_sampled().unwrap();
+    assert_eq!((pip.transform.x, pip.transform.y), dup_pos);
+    editor.remember_paste_view([200.0, 300.0]);
+    editor.paste_objects(&ctx, &copied_text, false);
+    let centered = editor.selected_sampled().unwrap();
+    assert!((centered.transform.x - 200.0).abs() < 1e-4);
+    assert!((centered.transform.y - 300.0).abs() < 1e-4);
+
+    // Arrange: Send to Back then Bring to Front on `top_left`.
+    editor.set_selection(vec![top_left.clone()]);
+    editor.arrange_selection(crate::authoring_modify::Arrange::Back);
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0].elements[0].id,
+        top_left.element
+    );
+    editor.arrange_selection(crate::authoring_modify::Arrange::Front);
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .last()
+            .unwrap()
+            .id,
+        top_left.element
+    );
+    editor.project.validate().unwrap();
+}

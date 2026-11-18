@@ -342,6 +342,7 @@ impl Editor {
             self.select_frame_range(range);
         }
         self.timeline_edit.focused = view.timeline_focused;
+        self.sync_active_actions_context();
     }
 
     fn sync_editing_mirror(&mut self) {

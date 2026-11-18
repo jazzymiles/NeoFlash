@@ -239,31 +239,54 @@ impl Editor {
         let mut candidate = self.project.clone();
         let sym_id = self.symbol_id().to_owned();
         let frame = self.frame;
-        let Some(sym) = candidate.symbol_mut(&sym_id) else {
+        let auto_keyframe = self.workspace.timeline_prefs.auto_keyframe;
+        let target_layer_id = {
+            let Some(sym) = candidate.symbol(&sym_id) else {
+                return false;
+            };
+            let blocked_layers: std::collections::HashSet<Id> = sym
+                .timeline
+                .layers
+                .iter()
+                .filter(|layer| {
+                    layer_effectively_locked(&sym.timeline, layer)
+                        || !layer_effectively_visible(&sym.timeline, layer)
+                })
+                .map(|layer| layer.id.clone())
+                .collect();
+            sym.timeline.layers.iter().find_map(|layer| {
+                if blocked_layers.contains(&layer.id) {
+                    return None;
+                }
+                sample_layer_in_at_fps(&sym.timeline, layer, frame, f64::from(candidate.fps))
+                    .iter()
+                    .any(|e| e.id == element_id)
+                    .then(|| layer.id.clone())
+            })
+        };
+        let Some(target_layer_id) = target_layer_id else {
             return false;
         };
+        Self::ensure_key_for_project(
+            &mut candidate,
+            &sym_id,
+            &target_layer_id,
+            frame,
+            false,
+            auto_keyframe,
+        );
         let mut updated = false;
-        let blocked_layers: std::collections::HashSet<Id> = sym
-            .timeline
-            .layers
-            .iter()
-            .filter(|layer| {
-                layer_effectively_locked(&sym.timeline, layer)
-                    || !layer_effectively_visible(&sym.timeline, layer)
-            })
-            .map(|layer| layer.id.clone())
-            .collect();
-        for layer in &mut sym.timeline.layers {
-            if blocked_layers.contains(&layer.id) {
-                continue;
-            }
-            if let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == frame)
-                && let Some(slot) = key.elements.iter_mut().find(|e| e.id == element_id)
-            {
-                *slot = projected.clone();
-                updated = true;
-                break;
-            }
+        if let Some(sym) = candidate.symbol_mut(&sym_id)
+            && let Some(layer) = sym
+                .timeline
+                .layers
+                .iter_mut()
+                .find(|l| l.id == target_layer_id)
+            && let Some(key) = layer.key_at_mut(frame)
+            && let Some(slot) = key.elements.iter_mut().find(|e| e.id == element_id)
+        {
+            *slot = projected.clone();
+            updated = true;
         }
         if !updated {
             return false;
@@ -506,7 +529,7 @@ impl Editor {
                     .layers
                     .iter_mut()
                     .find(|l| l.id == drag.target.layer)
-                && let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == frame)
+                && let Some(key) = layer.key_at_mut(frame)
                 && let Some(slot) = key.elements.iter_mut().find(|e| e.id == drag.element_id)
             {
                 *slot = projected;

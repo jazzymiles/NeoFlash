@@ -72,14 +72,17 @@ pub enum SnapAccuracy {
     CanBeDistant,
 }
 
+const GRID_SNAP_MAX_CELL_FRACTION: f64 = 0.28;
+const SNAP_RING_APPROACH_FACTOR: f64 = 1.6;
+
 impl SnapAccuracy {
     pub const ALL: [Self; 3] = [Self::MustBeClose, Self::Normal, Self::CanBeDistant];
     /// Tolerance in screen points (zoom-independent).
     pub fn screen_tolerance(self) -> f32 {
         match self {
-            Self::MustBeClose => 3.,
-            Self::Normal => 8.,
-            Self::CanBeDistant => 16.,
+            Self::MustBeClose => 2.,
+            Self::Normal => 4.5,
+            Self::CanBeDistant => 8.,
         }
     }
     fn label(self) -> &'static str {
@@ -459,9 +462,8 @@ impl Editor {
             ]
         };
         let normal_tol = tolerance(SnapAccuracy::Normal.screen_tolerance() as f64);
-        let object_tol = tolerance(f64::from(
-            self.workspace.drawing.snap_tolerance.clamp(1.0, 32.0),
-        ));
+        let object_tol =
+            tolerance(0.5 * f64::from(self.workspace.drawing.snap_tolerance.clamp(2.0, 32.0)));
         let mut snapper = Snapper {
             guide_tolerance: tolerance(v.guide_accuracy.screen_tolerance() as f64),
             object_tolerance: object_tol,
@@ -479,9 +481,13 @@ impl Editor {
             self.collect_object_snap_lines(&mut snapper.objects_x, &mut snapper.objects_y);
         }
         if axis_mapping(mapping).is_some() && v.grid_snap {
+            let raw_grid_tol = tolerance(v.grid_accuracy.screen_tolerance() as f64);
             snapper.grid = Some((
                 v.grid_spacing,
-                tolerance(v.grid_accuracy.screen_tolerance() as f64),
+                [
+                    raw_grid_tol[0].min(v.grid_spacing[0].abs() * GRID_SNAP_MAX_CELL_FRACTION),
+                    raw_grid_tol[1].min(v.grid_spacing[1].abs() * GRID_SNAP_MAX_CELL_FRACTION),
+                ],
             ));
         }
         if v.pixels_snap {
@@ -502,7 +508,8 @@ impl Editor {
             return;
         }
         let mut boxes: Vec<(Id, [f64; 4])> = Vec::new();
-        for item in neoflash_core::evaluate(&self.project, self.symbol_id(), self.frame) {
+        let scene = neoflash_core::evaluate(&self.project, self.symbol_id(), self.frame);
+        for item in &scene {
             let Some(top_id) = item.instance_path.first() else {
                 continue;
             };
@@ -573,9 +580,36 @@ impl Editor {
                 boxes.push((top_id.clone(), [min_x, min_y, max_x, max_y]));
             }
         }
+        if !self.playing {
+            for (target, empty_el) in self.empty_editable_instances(&scene) {
+                if eligible.contains(&target.element)
+                    && empty_el.transform.x.is_finite()
+                    && empty_el.transform.y.is_finite()
+                    && !boxes.iter().any(|(id, _)| *id == target.element)
+                {
+                    boxes.push((
+                        target.element,
+                        [
+                            empty_el.transform.x,
+                            empty_el.transform.y,
+                            empty_el.transform.x,
+                            empty_el.transform.y,
+                        ],
+                    ));
+                }
+            }
+        }
         for (_, [min_x, min_y, max_x, max_y]) in boxes {
-            out_x.extend([min_x, (min_x + max_x) * 0.5, max_x]);
-            out_y.extend([min_y, (min_y + max_y) * 0.5, max_y]);
+            if (max_x - min_x).abs() <= 1e-9 {
+                out_x.push(min_x);
+            } else {
+                out_x.extend([min_x, (min_x + max_x) * 0.5, max_x]);
+            }
+            if (max_y - min_y).abs() <= 1e-9 {
+                out_y.push(min_y);
+            } else {
+                out_y.extend([min_y, (min_y + max_y) * 0.5, max_y]);
+            }
         }
     }
 
@@ -603,8 +637,12 @@ impl Editor {
         let adjusted = pos
             + (mapping.edit_to_screen(origin, zoom, target)
                 - mapping.edit_to_screen(origin, zoom, moving));
+        let snapped_any = snapped.any();
+        let show_ring = snapped_any
+            || snapper.near_discrete_axis(&[moving.x as f64], 0, SNAP_RING_APPROACH_FACTOR)
+            || snapper.near_discrete_axis(&[moving.y as f64], 1, SNAP_RING_APPROACH_FACTOR);
         self.stage_view.snap_ring =
-            Some((mapping.edit_to_screen(origin, zoom, target), snapped.any()));
+            show_ring.then(|| (mapping.edit_to_screen(origin, zoom, target), snapped_any));
         adjusted
     }
 
@@ -644,19 +682,21 @@ impl Editor {
             snapped[0].map_or(grabbed.x, |i| (xs[i] + offset[0]) as f32),
             snapped[1].map_or(grabbed.y, |i| (ys[i] + offset[1]) as f32),
         );
-        self.stage_view.snap_ring = Some((
-            mapping.edit_to_screen(origin, self.zoom, ring),
-            snapped.iter().any(Option::is_some),
-        ));
+        let snapped_any = snapped.iter().any(Option::is_some);
+        let show_ring = snapped_any
+            || (!lock[0] && snapper.near_discrete_axis(&xs, 0, SNAP_RING_APPROACH_FACTOR))
+            || (!lock[1] && snapper.near_discrete_axis(&ys, 1, SNAP_RING_APPROACH_FACTOR));
+        self.stage_view.snap_ring =
+            show_ring.then(|| (mapping.edit_to_screen(origin, self.zoom, ring), snapped_any));
         result
     }
 
     /// Whether a stage gesture that snaps is in progress (the snap ring is only shown then).
     fn snapping_gesture(&self) -> bool {
-        self.object_gesture.is_some()
+        self.is_snapping_object_gesture()
             || self.shape_draft.is_some()
-            || self.authoring_tools.is_drawing()
-            || self.vector.point_drag.is_some()
+            || self.authoring_tools.is_snapping_gesture()
+            || self.vector.point_drag.as_ref().is_some_and(|d| d.began)
             || self
                 .vector
                 .draft
@@ -757,16 +797,18 @@ impl Editor {
         let raw = guide_position(axis, pointer, mapping, origin, self.zoom);
         let v = &self.stage_view.prefs;
         if v.grid_snap {
+            let raw_x = v.grid_accuracy.screen_tolerance() as f64
+                / (self.zoom.max(1e-3) as f64
+                    * mapping.matrix()[0].hypot(mapping.matrix()[1]).max(1e-12));
+            let raw_y = v.grid_accuracy.screen_tolerance() as f64
+                / (self.zoom.max(1e-3) as f64
+                    * mapping.matrix()[2].hypot(mapping.matrix()[3]).max(1e-12));
             let grid = Snapper {
                 grid: Some((
                     v.grid_spacing,
                     [
-                        v.grid_accuracy.screen_tolerance() as f64
-                            / (self.zoom.max(1e-3) as f64
-                                * mapping.matrix()[0].hypot(mapping.matrix()[1]).max(1e-12)),
-                        v.grid_accuracy.screen_tolerance() as f64
-                            / (self.zoom.max(1e-3) as f64
-                                * mapping.matrix()[2].hypot(mapping.matrix()[3]).max(1e-12)),
+                        raw_x.min(v.grid_spacing[0].abs() * GRID_SNAP_MAX_CELL_FRACTION),
+                        raw_y.min(v.grid_spacing[1].abs() * GRID_SNAP_MAX_CELL_FRACTION),
                     ],
                 )),
                 ..Default::default()

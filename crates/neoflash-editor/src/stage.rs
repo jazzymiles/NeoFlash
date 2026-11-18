@@ -773,7 +773,11 @@ impl Editor {
                         _ => None,
                     })
                 });
-                if stage_press.is_some_and(|pos| ui.ctx().layer_id_at(pos) == Some(ui.layer_id())) {
+                if stage_press.is_some_and(|pos| {
+                    ui.ctx()
+                        .layer_id_at(pos)
+                        .is_none_or(|layer| layer == ui.layer_id())
+                }) {
                     self.timeline_edit.focused = false;
                 }
                 let size = Vec2::new(self.project.width as f32, self.project.height as f32);
@@ -871,8 +875,22 @@ impl Editor {
                 self.motion_curve_input(ui, rect, origin, mapping);
                 self.motion_path_input(ui, rect, origin, mapping);
                 self.stage_ab_split_input(ui, rect, page);
+                let had_library_drag = self.library_panel.drag.is_some();
+                let prev_selection = self.selection.targets.clone();
                 self.stage_file_drop(ui, rect, origin, mapping);
                 self.stage_library_drop(ui, rect, origin, mapping);
+                if !self.selection.is_empty()
+                    && (self.selection.targets != prev_selection
+                        || (had_library_drag && self.library_panel.drag.is_none()))
+                {
+                    self.timeline_edit.focused = false;
+                    if self
+                        .selected_frame_range()
+                        .is_some_and(|(start, end, _)| start == end)
+                    {
+                        self.clear_timeline_frame_selection();
+                    }
+                }
                 let visible_page = page.intersect(rect);
                 let center = if visible_page.is_positive() {
                     visible_page.center()
@@ -1172,9 +1190,16 @@ impl Editor {
                             if let Some(target) =
                                 self.pick_placement(&scene, &p, to_local(pos), mapping)
                             {
+                                if self
+                                    .selected_frame_range()
+                                    .is_some_and(|(start, end, _)| start == end)
+                                {
+                                    self.clear_timeline_frame_selection();
+                                }
                                 self.set_selection(vec![target]);
                             } else {
                                 self.clear_selection();
+                                self.clear_timeline_frame_selection();
                             }
                         }
                         self.selection_stage(ui, &p, mapping, origin, &scene, &response);
@@ -1582,6 +1607,13 @@ impl Editor {
     ) -> Option<Id> {
         let target = self.pick_placement(scene, p, stage_point, mapping)?;
         self.finish_edits();
+        self.timeline_edit.focused = false;
+        if self
+            .selected_frame_range()
+            .is_some_and(|(start, end, _)| start == end)
+        {
+            self.clear_timeline_frame_selection();
+        }
         if !self.selection.targets.contains(&target) {
             self.set_selection(vec![target.clone()]);
         }

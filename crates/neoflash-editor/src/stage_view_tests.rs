@@ -895,28 +895,166 @@ fn drawing_snap_tolerance_scales_object_snapping_with_zoom() {
     editor.stage_view.prefs.objects_snap = true;
     editor.zoom = 1.0;
 
-    // Reference edge at x = 200; probe 14 px away misses default 8 px tolerance.
+    // Reference edge at x = 200; default 8 px snap band (±4 pt radius) misses 7 px away
+    // while capturing 3.5 px away.
     assert_eq!(
-        editor.snapper().unwrap().point([186.0, 130.0]).point[0],
-        186.0
+        editor.snapper().unwrap().point([193.0, 130.0]).point[0],
+        193.0
     );
-
-    // Raising Preferences ▸ Drawing ▸ Snap tolerance to 16 px captures 14 px at 100% zoom,
-    // and halves in stage coordinates to 8 stage px at 200% zoom.
-    editor.workspace.drawing.snap_tolerance = 16.0;
     assert_eq!(
-        editor.snapper().unwrap().point([186.0, 130.0]).point[0],
+        editor.snapper().unwrap().point([196.5, 130.0]).point[0],
         200.0
     );
-    editor.zoom = 2.0;
-    assert_eq!(
-        editor.snapper().unwrap().point([186.0, 130.0]).point[0],
-        186.0
-    );
+
+    // Raising Preferences ▸ Drawing ▸ Snap tolerance to 16 px (±8 pt radius) captures 7 px at
+    // 100% zoom, and halves in stage coordinates to ±4 stage px at 200% zoom.
+    editor.workspace.drawing.snap_tolerance = 16.0;
     assert_eq!(
         editor.snapper().unwrap().point([193.0, 130.0]).point[0],
         200.0
     );
+    editor.zoom = 2.0;
+    assert_eq!(
+        editor.snapper().unwrap().point([193.0, 130.0]).point[0],
+        193.0
+    );
+    assert_eq!(
+        editor.snapper().unwrap().point([196.5, 130.0]).point[0],
+        200.0
+    );
+}
+
+#[test]
+fn t381_tightened_snap_accuracies_grid_cell_cap_empty_mc_snap_and_non_intrusive_snap_ring() {
+    assert_eq!(SnapAccuracy::MustBeClose.screen_tolerance(), 2.0);
+    assert_eq!(SnapAccuracy::Normal.screen_tolerance(), 4.5);
+    assert_eq!(SnapAccuracy::CanBeDistant.screen_tolerance(), 8.0);
+
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.tool = Tool::Select;
+    stage_input_frame(&mut editor, &ctx, 0.01, vec![]);
+
+    // 1. Fine or zoomed-out grids cap per-axis tolerance so cells never become 100% magnetic.
+    editor.stage_view.prefs.guides_snap = false;
+    editor.stage_view.prefs.objects_snap = false;
+    editor.stage_view.prefs.pixels_snap = false;
+    editor.stage_view.prefs.grid_snap = true;
+    editor.stage_view.prefs.grid_accuracy = SnapAccuracy::Normal;
+    editor.stage_view.prefs.grid_spacing = [6.0, 6.0];
+    editor.zoom = 1.0;
+    let fine_snapper = editor.snapper().unwrap();
+    assert_eq!(
+        fine_snapper.point([3.0, 3.0]).point,
+        [3.0, 3.0],
+        "midpoint of a 6 px grid cell must move freely instead of snapping everywhere"
+    );
+    assert_eq!(fine_snapper.point([1.5, 4.5]).point, [0.0, 6.0]);
+
+    editor.stage_view.prefs.grid_spacing = [20.0, 20.0];
+    editor.zoom = 0.25;
+    let zoomed_out_snapper = editor.snapper().unwrap();
+    assert_eq!(
+        zoomed_out_snapper.point([10.0, 10.0]).point,
+        [10.0, 10.0],
+        "zoomed-out 20 px grid must keep a deadband around cell centres"
+    );
+
+    // 2. Moving a rectangle on a 20 px grid at 100% zoom does NOT snap prematurely 6 px away,
+    //    and snap_ring stays None when unsnapped inside a grid cell.
+    editor.zoom = 1.0;
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 80.0,
+            height: 80.0,
+            fill: [40, 120, 200, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        100.0,
+        60.0,
+    );
+    editor.clear_selection();
+    stage_input_frame(&mut editor, &ctx, 0.05, vec![]);
+    let grab = page.min + Vec2::new(140.0, 100.0);
+    let mid_cell = grab + Vec2::new(6.0, 7.0);
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.10,
+        vec![Event::PointerMoved(grab), primary_button(grab, true)],
+    );
+    stage_input_frame(&mut editor, &ctx, 0.12, vec![Event::PointerMoved(mid_cell)]);
+    assert_eq!(
+        editor.stage_view.snap_ring, None,
+        "unsnapped move inside a periodic grid cell must not show a hovering snap ring"
+    );
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.14,
+        vec![primary_button(mid_cell, false)],
+    );
+    let rect_el = &editor.symbol().timeline.layers[0].keyframes[0].elements[0];
+    assert_eq!(
+        (rect_el.transform.x, rect_el.transform.y),
+        (106.0, 67.0),
+        "6..7 px from a 20 px grid line must move freely without premature snap pull"
+    );
+
+    // 3. Approaching a discrete guide shows the unsnapped approach ring nearby, snaps within 4.5 pt,
+    //    and hides the ring far from the guide.
+    editor.stage_view.prefs.grid_snap = false;
+    editor.stage_view.prefs.guides_show = true;
+    editor.stage_view.prefs.guides_snap = true;
+    editor.add_guide(GuideAxis::Vertical, 300.0);
+    let mapping = crate::stage_mapping::StageMapping::identity();
+    let origin = editor.stage_view.origin;
+    let far_pos = origin + Vec2::new(120.0, 100.0);
+    let _ = editor.snap_screen(mapping, origin, far_pos);
+    assert_eq!(
+        editor.stage_view.snap_ring, None,
+        "far from discrete targets, snap_ring must stay hidden"
+    );
+    let approach_pos = origin + Vec2::new(293.5, 100.0);
+    let _ = editor.snap_screen(mapping, origin, approach_pos);
+    assert_eq!(
+        editor.stage_view.snap_ring.map(|(_, snapped)| snapped),
+        Some(false),
+        "just outside snap tolerance of a guide, approach ring previews proximity"
+    );
+    let snapped_pos = origin + Vec2::new(296.0, 100.0);
+    let _ = editor.snap_screen(mapping, origin, snapped_pos);
+    assert_eq!(
+        editor.stage_view.snap_ring.map(|(_, snapped)| snapped),
+        Some(true),
+        "within 4.5 pt of the guide, snap_ring switches to snapped"
+    );
+
+    // 4. Unselected editable empty MovieClips expose their registration point (x, y) to objects_snap.
+    let mut empty_sym = editor.symbol().clone();
+    empty_sym.id = "empty-snap-mc".into();
+    empty_sym.name = "EmptySnapMc".into();
+    empty_sym.timeline.guides.clear();
+    empty_sym.timeline.layers[0].id = "empty-snap-layer".into();
+    empty_sym.timeline.layers[0].keyframes[0].elements.clear();
+    editor.project.symbols.push(empty_sym);
+    editor.add_element_transformed(
+        ElementKind::Instance {
+            symbol_id: "empty-snap-mc".into(),
+            playback: InstancePlayback::Independent,
+        },
+        Transform {
+            x: 333.0,
+            y: 222.0,
+            ..Default::default()
+        },
+    );
+    editor.clear_selection();
+    editor.stage_view.prefs.guides_snap = false;
+    editor.stage_view.prefs.objects_snap = true;
+    let snapped_to_empty = editor.snapper().unwrap().point([335.5, 219.0]);
+    assert_eq!(snapped_to_empty.point, [333.0, 222.0]);
+    editor.project.validate().unwrap();
 }
 
 #[test]

@@ -57,7 +57,14 @@ impl Snapper {
 
     /// Offset that moves `value` onto the best line of one axis, if any is within tolerance.
     /// Priority: **1. Guides > 2. Objects > 3. Grid > 4. Pixels**.
-    fn axis(&self, value: f64, guides: &[f64], objects: &[f64], axis: usize) -> Option<(u8, f64)> {
+    fn axis(
+        &self,
+        value: f64,
+        guides: &[f64],
+        objects: &[f64],
+        axis: usize,
+        multi_anchor: bool,
+    ) -> Option<(u8, f64)> {
         if !value.is_finite() {
             return None;
         }
@@ -77,8 +84,13 @@ impl Snapper {
         if let Some((spacing, tolerance)) = self.grid {
             let s = spacing[axis];
             if s.is_finite() && s > 0.0 {
+                let grid_tol = if multi_anchor {
+                    (tolerance[axis] * 0.65).min(s * 0.16)
+                } else {
+                    tolerance[axis]
+                };
                 let d = (value / s).round() * s - value;
-                if d.is_finite() && d.abs() <= tolerance[axis] {
+                if d.is_finite() && d.abs() <= grid_tol {
                     return Some((2, d));
                 }
             }
@@ -96,13 +108,33 @@ impl Snapper {
     }
 
     pub fn snap_x(&self, x: f64) -> Option<f64> {
-        self.axis(x, &self.guides_x, &self.objects_x, 0)
+        self.axis(x, &self.guides_x, &self.objects_x, 0, false)
             .map(|(_, d)| x + d)
     }
 
     pub fn snap_y(&self, y: f64) -> Option<f64> {
-        self.axis(y, &self.guides_y, &self.objects_y, 1)
+        self.axis(y, &self.guides_y, &self.objects_y, 1, false)
             .map(|(_, d)| y + d)
+    }
+
+    /// True when any candidate coordinate on `axis` is within `factor * tolerance` of a discrete
+    /// guide or object snap target (used to show the unsnapped approach ring near real targets
+    /// without hovering across empty space or inside every periodic grid/pixel cell).
+    pub fn near_discrete_axis(&self, values: &[f64], axis: usize, factor: f64) -> bool {
+        if !factor.is_finite() || factor <= 0.0 {
+            return false;
+        }
+        let (guides, objects) = if axis == 0 {
+            (&self.guides_x, &self.objects_x)
+        } else {
+            (&self.guides_y, &self.objects_y)
+        };
+        let guide_limit = self.guide_tolerance[axis] * factor;
+        let object_limit = self.object_tolerance[axis] * factor;
+        values.iter().copied().filter(|v| v.is_finite()).any(|v| {
+            (guide_limit > 0.0 && guides.iter().any(|g| (g - v).abs() <= guide_limit))
+                || (object_limit > 0.0 && objects.iter().any(|o| (o - v).abs() <= object_limit))
+        })
     }
 
     /// Snap one point (pen anchor, shape corner, path handle).
@@ -122,11 +154,15 @@ impl Snapper {
     /// Returns the offset and the candidate indices that snapped.
     pub fn offset(&self, xs: &[f64], ys: &[f64]) -> ([f64; 2], [Option<usize>; 2]) {
         let best = |values: &[f64], guides: &[f64], objects: &[f64], axis: usize| {
+            let multi_anchor = values
+                .first()
+                .zip(values.last())
+                .is_some_and(|(a, b)| values.len() > 1 && (*b - *a).abs() > 1e-6);
             values
                 .iter()
                 .enumerate()
                 .filter_map(|(i, v)| {
-                    self.axis(*v, guides, objects, axis)
+                    self.axis(*v, guides, objects, axis, multi_anchor)
                         .map(|(priority, d)| (i, priority, d))
                 })
                 .min_by(|a, b| a.1.cmp(&b.1).then_with(|| a.2.abs().total_cmp(&b.2.abs())))
@@ -249,5 +285,51 @@ mod tests {
             ..Default::default()
         };
         assert!(!s.point([3.0, 3.0]).any());
+    }
+
+    #[test]
+    fn multi_anchor_grid_drag_preserves_free_movement_while_point_bounds_keep_full_tolerance() {
+        let s = Snapper {
+            grid: Some(([20.0, 20.0], [4.5; 2])),
+            ..Default::default()
+        };
+        // A 53 px wide box has left, centre, right spaced by 26.5 px across a 20 px grid.
+        // At least part of every 20 px cell must remain unsnapped so dragging is never 100% sticky.
+        let mut free_positions = 0;
+        for step in 0..40 {
+            let left = step as f64 * 0.5;
+            let xs = [left, left + 26.5, left + 53.0];
+            if s.offset(&xs, &[10.0, 10.0, 10.0]).1[0].is_none() {
+                free_positions += 1;
+            }
+        }
+        assert!(
+            free_positions >= 6,
+            "3-anchor box drag must leave smooth free-movement deadbands (got {free_positions}/40)"
+        );
+
+        // Degenerate 0x0 bounds (empty MovieClip registration point) have identical [x, x, x]
+        // and therefore keep single-point grid tolerance (`4.0 <= 4.5`).
+        let (offset, which) = s.offset(&[104.0, 104.0, 104.0], &[56.0, 56.0, 56.0]);
+        assert_eq!(offset, [-4.0, 4.0]);
+        assert_eq!(which, [Some(0), Some(0)]);
+    }
+
+    #[test]
+    fn near_discrete_axis_ignores_grid_and_pixels_and_detects_guides_and_objects() {
+        let s = Snapper {
+            guides_x: vec![100.0],
+            guide_tolerance: [4.5; 2],
+            objects_y: vec![200.0],
+            object_tolerance: [4.0; 2],
+            grid: Some(([20.0, 20.0], [4.5; 2])),
+            pixel_tolerance: Some([0.5; 2]),
+            ..Default::default()
+        };
+        assert!(!s.near_discrete_axis(&[40.0], 0, 1.6));
+        assert!(s.near_discrete_axis(&[93.0], 0, 1.6));
+        assert!(!s.near_discrete_axis(&[90.0], 0, 1.6));
+        assert!(s.near_discrete_axis(&[206.0], 1, 1.6));
+        assert!(!s.near_discrete_axis(&[210.0], 1, 1.6));
     }
 }

@@ -1322,3 +1322,126 @@ fn empty_movieclip_free_transform_drag_double_click_and_subselect() {
     assert_eq!(editor.symbol_id(), mc_sym_id);
     editor.project.validate().unwrap();
 }
+
+#[test]
+fn t380_empty_movie_clip_library_drop_and_edit_in_place_populate_clear_roundtrip() {
+    use crate::app::Tool;
+    use crate::tests::{primary_button, stage_input_frame};
+
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    project.width = 400;
+    project.height = 600;
+    let mut editor = Editor::from_project(&ctx, project);
+    add_empty_symbol(&mut editor, "empty_container");
+
+    // Simulate Timeline focus on Frame 1 before dragging `empty_container` from Library onto Stage at (0, 600).
+    let root_layer = editor.symbol().timeline.layers[0].id.clone();
+    editor.select_frame_range(FrameRange {
+        layers: vec![root_layer],
+        start: 0,
+        end: 0,
+    });
+    editor.timeline_edit.focused = true;
+    editor.set_tool(Tool::Select);
+    let _ = stage_input_frame(&mut editor, &ctx, 0.05, vec![]);
+
+    let drop_screen = editor.stage_view.origin + egui::vec2(0.0, 600.0 * editor.zoom);
+    editor.library_panel.drag = Some(crate::library::LibraryDrag::Symbol(
+        "empty_container".into(),
+    ));
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.10,
+        vec![egui::Event::PointerMoved(drop_screen)],
+    );
+    assert!(
+        !editor.selection.is_empty(),
+        "dropping an empty MovieClip from Library onto Stage selects the new placement"
+    );
+    assert!(
+        !editor.timeline_edit.focused,
+        "dropping onto Stage transfers focus from Timeline to Stage"
+    );
+    assert_eq!(
+        editor.selected_frame_range(),
+        None,
+        "dropping onto Stage clears the stale single-frame Timeline selection"
+    );
+    let placed_target = editor.selection.single().unwrap().clone();
+    let placed_t = editor.selected_sampled().unwrap().transform;
+    assert!((placed_t.x - 0.0).abs() < 1.0 && (placed_t.y - 600.0).abs() < 1.0);
+
+    // Double-click ○+ at (0, 600) on Stage via real pointer events to enter Edit in Place,
+    // draw graphics offset from (0, 0), and exit: registration crosshair stays at symbol (0, 0)
+    // and Stage (x, y) stays preserved!
+    let marker_click = drop_screen + egui::vec2(3.0, -3.0);
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.20,
+        vec![
+            egui::Event::PointerMoved(marker_click),
+            primary_button(marker_click, true),
+        ],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.24,
+        vec![primary_button(marker_click, false)],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.30,
+        vec![primary_button(marker_click, true)],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.34,
+        vec![primary_button(marker_click, false)],
+    );
+    assert_eq!(editor.edit_depth(), 2);
+    assert_eq!(editor.symbol_id(), "empty_container");
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 80.0,
+            height: 50.0,
+            fill: [40, 140, 220, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        25.0,
+        -15.0,
+    );
+    assert!(editor.leave_symbol_to_level(0));
+    assert_eq!(editor.edit_depth(), 1);
+    assert_eq!(editor.selection.targets, vec![placed_target.clone()]);
+    let after_draw_t = editor.selected_sampled().unwrap().transform;
+    assert!((after_draw_t.x - placed_t.x).abs() < 1e-6);
+    assert!((after_draw_t.y - placed_t.y).abs() < 1e-6);
+    let populated_bounds = editor.selection_info_bounds(&ctx).unwrap().0;
+    assert!((populated_bounds.width() - 80.0).abs() < 1e-3);
+    assert!((populated_bounds.height() - 50.0).abs() < 1e-3);
+
+    // Re-enter Edit in Place, delete all graphics inside, and exit:
+    // empty ○+ remains selectable, alignable to Stage center (200, 300), and valid!
+    assert!(editor.enter_selected_symbol_in_place());
+    editor.select_all();
+    editor.delete_selected();
+    assert!(editor.leave_symbol_to_level(0));
+    assert_eq!(editor.selection.targets, vec![placed_target.clone()]);
+    let emptied_bounds = editor.selection_info_bounds(&ctx).unwrap().0;
+    assert_eq!(emptied_bounds.size(), egui::Vec2::ZERO);
+
+    editor.authoring_modify.to_stage = true;
+    editor.align_selection(&ctx, 0, 1);
+    editor.align_selection(&ctx, 1, 1);
+    let centered_t = editor.selected_sampled().unwrap().transform;
+    assert!((centered_t.x - 200.0).abs() < 1e-5);
+    assert!((centered_t.y - 300.0).abs() < 1e-5);
+    editor.project.validate().unwrap();
+}
