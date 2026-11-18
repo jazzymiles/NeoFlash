@@ -317,9 +317,6 @@ impl Editor {
         clipboard_target: &crate::clipboard::ClipboardTarget,
         edit_open: &mut bool,
     ) {
-        if false {
-            self.modify_menu_ui(ui);
-        }
         if title == "Edit" {
             *edit_open = true;
             if !self.clipboard.menu_open || self.clipboard.menu_viewport != Some(ctx.viewport_id())

@@ -83,6 +83,7 @@ pub(crate) mod scene;
 pub(crate) mod sound_properties;
 pub(crate) mod stroke_style;
 mod swatches;
+pub(crate) use swatches::UsedColorEdit;
 pub(crate) mod symbols_popover;
 pub(crate) mod timeline;
 mod timeline_controls;

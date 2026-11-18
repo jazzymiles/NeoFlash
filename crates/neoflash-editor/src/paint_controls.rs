@@ -16,6 +16,13 @@ pub(crate) struct PropertyEdit {
     scope: egui::Id,
     control: egui::Id,
     context: egui::Id,
+    pub(crate) used_color: Option<crate::panels::UsedColorEdit>,
+}
+
+impl PropertyEdit {
+    pub(crate) fn has_scope(&self, scope: egui::Id) -> bool {
+        self.scope == scope
+    }
 }
 
 #[derive(Default)]
@@ -1090,6 +1097,7 @@ impl Editor {
             scope,
             control,
             context,
+            used_color: None,
         });
     }
     pub(crate) fn property_edit_scope(&mut self, _scope: egui::Id) {

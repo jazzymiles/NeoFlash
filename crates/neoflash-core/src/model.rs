@@ -4699,6 +4699,8 @@ impl Layer {
                 if !in_classic {
                     key.classic_rotate_turns = 0;
                     key.classic_rotate_dir = ClassicRotateDirection::Auto;
+                }
+                if !in_classic && !in_motion {
                     key.tween_scale = true;
                 }
             } else {

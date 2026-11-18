@@ -650,10 +650,10 @@ const FMT_TYPE_KEYWORDS: &[&str] = &[
 ];
 
 const MULTI_PUNCTS: &[&str] = &[
-    ">>>=", "===", "!==", ">>>", "<<=", ">>=", "&&=", "||=", "??=", "...", "==", "!=", "<>", "<=",
-    ">=", "&&", "||", "??", "<<", ">>", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "++", "--",
-    "=>", "?.", "::", "=", "+", "-", "*", "/", "%", "<", ">", "&", "|", "^", "!", "~", "?", ":",
-    ",", ";", ".", "(", ")", "[", "]", "{", "}",
+    ">>>=", "===", "!==", ">>>", "<<=", ">>=", "&&=", "||=", "??=", "**=", "...", "==", "!=", "<>",
+    "<=", ">=", "&&", "||", "??", "<<", ">>", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "**",
+    "++", "--", "=>", "?.", "::", "=", "+", "-", "*", "/", "%", "<", ">", "&", "|", "^", "!", "~",
+    "?", ":", ",", ";", ".", "(", ")", "[", "]", "{", "}",
 ];
 
 fn can_precede_regex_or_unary(prev: Option<(&FmtKind, &str)>) -> bool {
@@ -922,12 +922,15 @@ fn lex_fmt_tokens(src: &str) -> Vec<FmtTok> {
             let quote = c;
             i += 1;
             while i < n && b[i] != quote {
-                if b[i] == b'\\' {
-                    i += 1;
+                if b[i] == b'\\' && b.get(i + 1..i + 3) == Some(b"\r\n") {
+                    i += 3;
+                } else if b[i] == b'\\' {
+                    i = (i + 2).min(n);
                 } else if b[i] == b'\n' && quote != b'`' {
                     break;
+                } else {
+                    i += 1;
                 }
-                i += 1;
             }
             if i < n && b[i] == quote {
                 i += 1;
@@ -1671,11 +1674,13 @@ fn annotate_fmt_roles(toks: &mut [FmtTok], src: &str) {
                         | "+="
                         | "-="
                         | "*="
+                        | "**="
                         | "/="
                         | "%="
                         | "&="
                         | "|="
                         | "^="
+                        | "**"
                         | "/"
                         | "%"
                         | ">"
@@ -1926,26 +1931,6 @@ pub(crate) fn auto_format_with_tab_size(text: &str, tab_size: u8) -> Option<Stri
     let mut line_starts = vec![0usize];
     line_starts.extend(text.match_indices('\n').map(|(i, _)| i + 1));
 
-    // Multi-line verbatim spans (`/* ... */`, multi-line strings/templates, multi-line E4X XML).
-    let inside_multiline_verbatim = |line_start: usize| -> bool {
-        toks.iter().any(|tok| {
-            matches!(
-                tok.kind,
-                FmtKind::BlockComment | FmtKind::String | FmtKind::Xml
-            ) && tok.range.start < line_start
-                && line_start < tok.range.end
-        })
-    };
-    let ends_inside_multiline_xml_or_str = |line_end: usize| -> bool {
-        toks.iter().any(|tok| {
-            matches!(
-                tok.kind,
-                FmtKind::BlockComment | FmtKind::String | FmtKind::Xml
-            ) && tok.range.start < line_end
-                && line_end < tok.range.end
-        })
-    };
-
     let mut tok_cursor = 0usize;
     let mut out_lines: Vec<String> = Vec::with_capacity(line_starts.len());
     let mut depth: i32 = 0;
@@ -1964,29 +1949,21 @@ pub(crate) fn auto_format_with_tab_size(text: &str, tab_size: u8) -> Option<Stri
             tok_cursor += 1;
         }
 
-        // Collect indices of tokens that start on `[start..end)` (or overlap `end` if multiline).
-        let mut line_toks: Vec<usize> = Vec::new();
-        let mut scan = tok_cursor;
-        while scan < toks.len() {
-            if toks[scan].kind == FmtKind::Newline && toks[scan].range.start >= end {
-                break;
-            }
-            if toks[scan].range.start >= end && end > start {
-                break;
-            }
-            if toks[scan].range.start >= start && toks[scan].range.start < end {
-                line_toks.push(scan);
-            }
-            scan += 1;
-        }
-
-        let starts_verbatim = inside_multiline_verbatim(start);
+        // A token crossing the line start can only be a multiline comment, string or XML.
+        let spanning_token = toks.get(tok_cursor).filter(|tok| tok.range.start < start);
+        let first_token = tok_cursor + usize::from(spanning_token.is_some());
+        let line_end = first_token
+            + toks[first_token..]
+                .iter()
+                .take_while(|tok| tok.range.start < end)
+                .count();
+        let line_toks = &toks[first_token..line_end];
         // Compute structural depth delta contributed by `{ } ( ) [ ]` on this line.
         let mut line_delta = 0i32;
         let mut leading_close = 0i32;
         let mut seen_non_close = false;
-        for &ti in &line_toks {
-            if let FmtKind::Punct(p) = toks[ti].kind {
+        for tok in line_toks {
+            if let FmtKind::Punct(p) = tok.kind {
                 let d = match p {
                     "{" | "(" | "[" => 1,
                     "}" | ")" | "]" => -1,
@@ -2000,15 +1977,19 @@ pub(crate) fn auto_format_with_tab_size(text: &str, tab_size: u8) -> Option<Stri
                     }
                 }
                 line_delta += d;
-            } else if toks[ti].is_code() {
+            } else if tok.is_code() {
                 seen_non_close = true;
             }
         }
 
-        if starts_verbatim {
-            // If this line closes a multi-line XML tag followed by `;` (e.g. `</a>;`), keep raw line
-            // trimmed on the right so multi-line comment/string/XML interiors are never altered.
-            out_lines.push(raw_line.trim_end_matches([' ', '\t']).to_owned());
+        if let Some(tok) = spanning_token {
+            let line = if line_toks.last().unwrap_or(tok).range.end >= end {
+                // Preserve spaces and carriage returns inside the token.
+                &text[start..end]
+            } else {
+                raw_line.trim_end_matches([' ', '\t'])
+            };
+            out_lines.push(line.to_owned());
             depth = (depth + line_delta).max(0);
             continue;
         }
@@ -2019,20 +2000,15 @@ pub(crate) fn auto_format_with_tab_size(text: &str, tab_size: u8) -> Option<Stri
         }
 
         // Format the tokens on this line into `formatted_body`.
-        let spans_into_next = ends_inside_multiline_xml_or_str(end);
         let mut formatted_body = String::with_capacity(raw_line.len() + 8);
-        for (pos, &ti) in line_toks.iter().enumerate() {
-            let tok = &toks[ti];
+        for (pos, tok) in line_toks.iter().enumerate() {
             if pos > 0 {
-                let prev_tok = &toks[line_toks[pos - 1]];
+                let prev_tok = &line_toks[pos - 1];
                 let had_space = prev_tok.range.end < tok.range.start;
                 // Optional parameter/property `ident?: Type`: no space before `?` when followed immediately by `TypeColon`/`ObjectColon`.
                 let is_optional_qmark = tok.kind == FmtKind::Punct("?")
-                    && line_toks.get(pos + 1).is_some_and(|&nti| {
-                        matches!(
-                            toks[nti].role,
-                            PunctRole::TypeColon | PunctRole::ObjectColon
-                        )
+                    && line_toks.get(pos + 1).is_some_and(|next| {
+                        matches!(next.role, PunctRole::TypeColon | PunctRole::ObjectColon)
                     });
                 let want_space = if is_optional_qmark {
                     false
@@ -2043,25 +2019,19 @@ pub(crate) fn auto_format_with_tab_size(text: &str, tab_size: u8) -> Option<Stri
                     formatted_body.push(' ');
                 }
             }
-            if spans_into_next && pos + 1 == line_toks.len() && tok.range.end > end {
+            if tok.range.end > end {
                 // Multi-line token (`/* ...`, `` `... ``, `<a>...`) starts on this line and continues onto next line(s):
                 // emit only the first-line slice up to `end`!
-                let slice = text[tok.range.start..end]
-                    .strip_suffix('\r')
-                    .unwrap_or(&text[tok.range.start..end]);
-                formatted_body.push_str(slice.trim_end_matches([' ', '\t']));
+                formatted_body.push_str(&text[tok.range.start..end]);
             } else {
                 formatted_body.push_str(tok.text(text));
             }
         }
 
-        let first_code_tok = line_toks.iter().copied().find(|&ti| toks[ti].is_code());
-        let case_header_line = first_code_tok.is_some_and(|ti| {
-            toks[ti].kind == FmtKind::Ident
-                && matches!(&text[toks[ti].range.clone()], "case" | "default")
-        }) && line_toks
-            .iter()
-            .any(|&ti| toks[ti].role == PunctRole::CaseColon);
+        let first_code_tok = line_toks.iter().find(|tok| tok.is_code());
+        let case_header_line = first_code_tok.is_some_and(|tok| {
+            tok.kind == FmtKind::Ident && matches!(tok.text(text), "case" | "default")
+        }) && line_toks.iter().any(|tok| tok.role == PunctRole::CaseColon);
         while case_depths
             .last()
             .is_some_and(|&d| d > depth - leading_close || (d == depth && case_header_line))
@@ -3920,6 +3890,38 @@ mod tests {
         assert!(formatted.contains("      this */"));
         assert!(formatted.contains("\n      <b/>\n"));
         assert!(formatted.ends_with("if (x) {\n    stop();\n}"));
+    }
+
+    #[test]
+    fn auto_format_preserves_multiline_token_payloads_and_exponent_operators() {
+        let source = concat!(
+            "/* keep \t\r\n    \r\nline \t\n*/\n",
+            "var x:XML=<a>  \r\n    \r\nvalue  \n</a>;\n",
+            "const template=`keep \t\r\n    \r\nline \t\nend`;\n",
+            "/* first\n*/ const second = `keep  \r\nend`;\n",
+            "const continued='a\\\r\n b';\n",
+            "let power=2**3;\npower**=2;",
+        );
+        let expected = concat!(
+            "/* keep \t\r\n    \r\nline \t\n*/\n",
+            "var x:XML = <a>  \r\n    \r\nvalue  \n</a>;\n",
+            "const template = `keep \t\r\n    \r\nline \t\nend`;\n",
+            "/* first\n*/ const second = `keep  \r\nend`;\n",
+            "const continued = 'a\\\r\n b';\n",
+            "let power = 2 ** 3;\npower **= 2;",
+        );
+        assert_eq!(auto_format(source).as_deref(), Some(expected));
+        assert_eq!(auto_format(expected), None);
+    }
+
+    #[test]
+    fn auto_format_preserves_incomplete_quotes_with_a_trailing_escape() {
+        for quote in ['"', '\'', '`'] {
+            let source = format!("var text={quote}unfinished\\");
+            let expected = format!("var text = {quote}unfinished\\");
+            assert_eq!(auto_format(&source).as_deref(), Some(expected.as_str()));
+            assert_eq!(auto_format(&expected), None);
+        }
     }
 
     #[test]

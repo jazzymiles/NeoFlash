@@ -1811,8 +1811,12 @@ pub(crate) fn current_shared_preview_run_id() -> Option<String> {
 /// Permanently drop any queued-but-not-yet-drained items from the shared preview server when the
 /// user clicks `Clear output` (`🗑`), while keeping the active `run_id` and per-session sequence
 /// cursor intact so cleared logs can never replay (`T-379`).
-pub(crate) fn purge_shared_preview_output_on_clear() {
-    if let Ok(guard) = SHARED_PREVIEW_SERVER.lock()
+pub(crate) fn purge_shared_preview_output_on_clear(document_session: &str) {
+    if let Ok(owner) = SHARED_PREVIEW_DOC_SESSION.lock()
+        && owner
+            .as_deref()
+            .is_none_or(|owner| owner == document_session)
+        && let Ok(guard) = SHARED_PREVIEW_SERVER.lock()
         && let Some(srv) = guard.as_ref()
     {
         srv.purge_output_on_clear();
@@ -2611,12 +2615,16 @@ impl Editor {
         if let Some(target_doc) = target_document_session
             && !target_doc.is_empty()
             && self.clipboard.session != target_doc
-            && let Some(slot) = self
+        {
+            let Some(slot) = self
                 .sessions
                 .iter_mut()
                 .flatten()
                 .find(|s| s.clipboard.session == target_doc)
-        {
+            else {
+                // A browser tab can outlive its source document.
+                return;
+            };
             let doc_id = slot.clipboard.session.clone();
             slot.output.set_document_id(doc_id.clone());
             for item in items {

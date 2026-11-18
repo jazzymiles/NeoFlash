@@ -2007,6 +2007,53 @@ fn t379_clear_output_permanently_purges_logs_and_run_id_isolates_stale_browser_t
         vec!["─── Test Movie · Run 2 ───", "[trace] run2-fresh-tick"]
     );
 
+    let owner_tab = editor.active_session;
+    let other_tab = editor.new_document_session(&ctx);
+    assert_ne!(owner_tab, other_tab);
+    let owner_record = |seq, message: &str| {
+        serde_json::json!({
+            "session": "safari-tab-2",
+            "runId": run_id_2,
+            "events": [{ "seq": seq, "kind": "trace", "message": message }]
+        })
+        .to_string()
+    };
+    let (queued_hdr, _) = raw_post_output(
+        addr,
+        &post_target,
+        &owner_record(2, "owner-queued-before-other-tab-clear"),
+    );
+    assert!(queued_hdr.starts_with("HTTP/1.1 204 No Content"));
+    editor.push_output("other-tab-message");
+    editor.clear_output(Some(&ctx));
+    editor.poll_preview_output(&ctx);
+    assert!(
+        editor.output.is_empty(),
+        "the other tab clears only its own Output"
+    );
+    assert!(editor.switch_session_tab(&ctx, owner_tab));
+    assert!(
+        editor
+            .output
+            .contains("[trace] owner-queued-before-other-tab-clear"),
+        "clearing another tab must preserve queued browser output for the owning tab"
+    );
+
+    assert!(editor.close_session_tab(&ctx, owner_tab));
+    assert_eq!(
+        editor.session_count(),
+        1,
+        "the preview's document must actually close"
+    );
+    let (after_close_hdr, _) =
+        raw_post_output(addr, &post_target, &owner_record(3, "after-owner-closed"));
+    assert!(after_close_hdr.starts_with("HTTP/1.1 204 No Content"));
+    editor.poll_preview_output(&ctx);
+    assert!(
+        editor.output.is_empty(),
+        "a closed tab's preview must not log in another document"
+    );
+
     crate::preview::shutdown_shared_preview_server();
 }
 

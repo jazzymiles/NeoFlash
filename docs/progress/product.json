@@ -253,12 +253,12 @@
         },
         {
           "id": "live-test-movie-output-relay",
-          "title": "Stream structured live trace() (multidimensional arrays, Vector, Dictionary, objects and classes), JS/TS console.* and mapped runtime errors into Output across Test Movie, Test Scene, Debugger and 1-frame Play",
+          "title": "Stream structured trace(), JS/TS console.* and mapped runtime errors into each document's Output across Test Movie, Test Scene, Debugger and 1-frame Play",
           "status": "working"
         },
         {
           "id": "classic-frame-properties-and-timeline-utils",
-          "title": "Classic Flash Frame Properties across keyframes and spans (Frame Label, Label type, Include frame scripts, Tween/Scale/Ease/Rotate/Orient/Sync/Snap), silent Timeline grid hover and compact Utils frame menu",
+          "title": "Classic Flash Frame Properties across keyframes and spans, including undoable Scale edits, and a compact Timeline Utils frame menu",
           "status": "working"
         }
       ],
@@ -1065,7 +1065,7 @@
         },
         {
           "id": "swatches-panel",
-          "title": "Swatches panel with recent, document, palette, gradient and contextual Used colours (Only on stage toggle and stage/library usage counts)",
+          "title": "Swatches panel with recent, document, palette and gradient swatches, plus contextual Used colours with undoable replacement",
           "status": "working"
         },
         {

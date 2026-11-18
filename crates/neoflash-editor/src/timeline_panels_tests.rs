@@ -1947,12 +1947,22 @@ fn t383_motion_and_classic_frame_properties_bind_scale_rotate_and_held_span_edit
 
     let mut editor = motion_editor();
     let span = editor.motion_tween_span().expect("motion span");
+    editor.set_motion_value(&span, TweenProperty::ScaleX, 5, 150.0, None);
     editor.set_motion_value(&span, TweenProperty::ScaleX, 6, 200.0, None);
     editor.set_motion_rotation(&span, 2, true, None);
     editor.finish_edits();
+    editor.transact_named("Label property frame", |editor| {
+        let key = editor.symbol_mut().timeline.layers[0]
+            .keyframes
+            .iter_mut()
+            .find(|key| key.frame == 6)
+            .unwrap();
+        key.label = "impact".into();
+        key.label_type = FrameLabelType::Comment;
+    });
     assert_eq!(
         editor.motion_key_frames(&span, TweenProperty::ScaleX),
-        vec![0, 6]
+        vec![0, 5, 6]
     );
     assert_eq!(editor.motion_rotation(&span), (2, true));
 
@@ -2002,6 +2012,28 @@ fn t383_motion_and_classic_frame_properties_bind_scale_rotate_and_held_span_edit
             .find(|(_, n)| n.label() == Some(label))
             .map(|(_, n)| n)
     }
+    fn click_scale(
+        render: &mut impl FnMut(&mut Editor, Vec<egui::Event>) -> egui::FullOutput,
+        editor: &mut Editor,
+        output: &egui::FullOutput,
+    ) -> egui::FullOutput {
+        let bounds = find_node(output, "Scale").unwrap().bounds().unwrap();
+        let center = egui::pos2(
+            ((bounds.x0 + bounds.x1) * 0.5) as f32,
+            ((bounds.y0 + bounds.y1) * 0.5) as f32,
+        );
+        let _ = render(
+            editor,
+            vec![
+                egui::Event::PointerMoved(center),
+                primary_button(center, true),
+            ],
+        );
+        let _ = render(editor, vec![primary_button(center, false)]);
+        let output = render(editor, vec![]);
+        editor.finish_edits();
+        output
+    }
     assert!(
         find_node(&out, "Rotate: CW").is_some_and(|n| !n.is_disabled()),
         "Motion tween with 2 CW turns displays enabled 'Rotate: CW' on held frame 3"
@@ -2011,27 +2043,37 @@ fn t383_motion_and_classic_frame_properties_bind_scale_rotate_and_held_span_edit
         "'times' is enabled when Rotate is CW on Motion tween"
     );
 
-    // Uncheck [x] Scale on held frame 3 of Motion tween -> strips interior ScaleX ◆ key in 1 Undo step!
+    // Turning Scale off clears the scale track but keeps other tracks and authored frame data.
     let before_scale = editor.project.clone();
-    let scale_bounds = find_node(&out, "Scale").unwrap().bounds().unwrap();
-    let scale_center = egui::pos2(
-        ((scale_bounds.x0 + scale_bounds.x1) * 0.5) as f32,
-        ((scale_bounds.y0 + scale_bounds.y1) * 0.5) as f32,
-    );
-    let _ = render(
-        &mut editor,
-        vec![
-            egui::Event::PointerMoved(scale_center),
-            primary_button(scale_center, true),
-        ],
-    );
-    let _ = render(&mut editor, vec![primary_button(scale_center, false)]);
-    let out_after_scale = render(&mut editor, vec![]);
-    editor.finish_edits();
+    let out_after_scale = click_scale(&mut render, &mut editor, &out);
     assert_eq!(
         find_node(&out_after_scale, "Scale").unwrap().toggled(),
         Some(egui::accesskit::Toggled::False),
         "Scale checkbox reflects unchecked state on Motion tween"
+    );
+    assert!(!start_key(&editor).tween_scale);
+    let layer = &editor.symbol().timeline.layers[0];
+    assert!(!layer.keyframes.iter().any(|key| key.frame == 5));
+    let labeled = layer.keyframes.iter().find(|key| key.frame == 6).unwrap();
+    assert_eq!(labeled.label, "impact");
+    assert_eq!(labeled.label_type, FrameLabelType::Comment);
+    assert_eq!(labeled.keyed_properties, Some(vec![]));
+    assert_eq!(editor.motion_rotation(&span), (2, true));
+    let without_scale = editor.project.clone();
+    let out_reenabled = click_scale(&mut render, &mut editor, &out_after_scale);
+    assert_eq!(
+        find_node(&out_reenabled, "Scale").unwrap().toggled(),
+        Some(egui::accesskit::Toggled::True)
+    );
+    editor.undo();
+    assert_eq!(editor.project, without_scale);
+    let _ = render(&mut editor, vec![]);
+    assert_eq!(
+        find_node(&render(&mut editor, vec![]), "Scale")
+            .unwrap()
+            .toggled(),
+        Some(egui::accesskit::Toggled::False),
+        "undo immediately restores the panel state even with no scale keys"
     );
     editor.select_single_id("clip".into());
     let span_after = editor.motion_tween_span().expect("motion span");
@@ -2056,24 +2098,7 @@ fn t383_motion_and_classic_frame_properties_bind_scale_rotate_and_held_span_edit
     let before_classic_scale = editor.project.clone();
     let _ = render(&mut editor, vec![]);
     let out_classic = render(&mut editor, vec![]);
-    let classic_scale_bounds = find_node(&out_classic, "Scale").unwrap().bounds().unwrap();
-    let classic_scale_center = egui::pos2(
-        ((classic_scale_bounds.x0 + classic_scale_bounds.x1) * 0.5) as f32,
-        ((classic_scale_bounds.y0 + classic_scale_bounds.y1) * 0.5) as f32,
-    );
-    let _ = render(
-        &mut editor,
-        vec![
-            egui::Event::PointerMoved(classic_scale_center),
-            primary_button(classic_scale_center, true),
-        ],
-    );
-    let _ = render(
-        &mut editor,
-        vec![primary_button(classic_scale_center, false)],
-    );
-    let _ = render(&mut editor, vec![]);
-    editor.finish_edits();
+    let _ = click_scale(&mut render, &mut editor, &out_classic);
     assert!(!start_key(&editor).tween_scale);
     editor.project.validate().unwrap();
     editor.undo();

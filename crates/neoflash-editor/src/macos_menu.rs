@@ -1322,9 +1322,7 @@ impl NativeMenuSpec {
         let has_doc = editor.has_document();
         let can_combine = has_doc && editor.can_combine_objects();
         let can_stepped = has_doc && editor.can_convert_to_keyframes_stepped();
-        let can_align = has_doc
-            && (editor.selection.len() >= 2
-                || (!editor.selection.is_empty() && editor.authoring_modify.to_stage));
+        let can_align = editor.can_align_selection();
 
         let bitmap_items = vec![cmd_item(editor, ctx, CommandId::ModifyTraceBitmap)];
         let shape_items = vec![
@@ -2608,7 +2606,7 @@ impl Editor {
                 }
             }
             NativeMenuAction::AlignSelection { axis, edge } => {
-                if self.has_document() {
+                if self.can_align_selection() {
                     self.align_selection(ctx, axis, edge);
                 }
             }

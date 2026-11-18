@@ -1283,7 +1283,7 @@ impl Editor {
     /// loopback `PreviewHttpServer` items or live-preview traces, and clear runtime error overlays.
     pub fn clear_output(&mut self, ctx: Option<&egui::Context>) {
         self.output.clear();
-        crate::preview::purge_shared_preview_output_on_clear();
+        crate::preview::purge_shared_preview_output_on_clear(&self.clipboard.session);
         if let Some(preview) = &mut self.authored_preview {
             let _ = preview.playback.drain_traces();
             let _ = preview.playback.drain_diagnostics();

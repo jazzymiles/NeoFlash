@@ -375,25 +375,54 @@ impl Editor {
         ))
     }
 
+    fn layout_group(&self, target: &SelectionTarget) -> Option<(&str, &AuthoringGroup)> {
+        let layer = &self.symbol().timeline.layers[self.target_layer_index(target)?];
+        let group = layer
+            .properties
+            .groups
+            .iter()
+            .find(|group| group.members.contains(&target.element))?;
+        Some((&layer.id, group))
+    }
+
+    /// Menu enablement only needs to know whether there are enough editable units. Avoid sampling
+    /// the entire scene and measuring text for each refresh of the native menu.
+    pub(crate) fn can_align_selection(&self) -> bool {
+        let to_stage = self.authoring_modify.to_stage;
+        let required_units = if to_stage { 1 } else { 2 };
+        if !self.has_document()
+            || self.selection.symbol != self.symbol_id()
+            || self.selection.len() < required_units
+            || self.modify_stage_mapping().is_none()
+        {
+            return false;
+        }
+        let mut targets = self.selection.targets.iter();
+        let Some(first) = targets.find(|target| self.target_editable(target)) else {
+            return false;
+        };
+        if to_stage {
+            return true;
+        }
+        if let Some((layer, group)) = self.layout_group(first) {
+            let members: HashSet<_> = group.members.iter().map(String::as_str).collect();
+            targets.any(|target| {
+                (target.layer != layer || !members.contains(target.element.as_str()))
+                    && self.target_editable(target)
+            })
+        } else {
+            targets.any(|target| self.target_editable(target))
+        }
+    }
+
     fn modify_layout_units(&self, ctx: &egui::Context) -> Vec<LayoutUnit> {
         let mut units: Vec<LayoutUnit> = Vec::new();
-        let mut groups = HashMap::<(String, String), usize>::new();
+        let mut groups = HashMap::<(&str, &str), usize>::new();
         for placement in self.modify_placements(ctx) {
             let group = self
-                .symbol()
-                .timeline
-                .layers
-                .iter()
-                .find(|layer| layer.id == placement.target.layer)
-                .and_then(|layer| {
-                    layer
-                        .properties
-                        .groups
-                        .iter()
-                        .find(|group| group.members.contains(&placement.target.element))
-                })
-                .map(|group| (placement.target.layer.clone(), group.id.clone()));
-            if let Some(index) = group.as_ref().and_then(|group| groups.get(group)).copied() {
+                .layout_group(&placement.target)
+                .map(|(layer, group)| (layer, group.id.as_str()));
+            if let Some(index) = group.and_then(|group| groups.get(&group)).copied() {
                 units[index].bounds = units[index].bounds.union(placement.bounds);
                 units[index].context_bounds =
                     units[index].context_bounds.union(placement.context_bounds);
@@ -2466,394 +2495,6 @@ impl Editor {
         true
     }
 
-    /// Modify (§8).
-    pub(crate) fn modify_menu_ui(&mut self, ui: &mut egui::Ui) {
-        use crate::commands::CommandId as C;
-        use crate::ui_icons::{menu_item_enabled, menu_popup};
-        menu_popup(ui, "Modify", "Convert to symbol…", "F8", |ui| {
-            if crate::ui_icons::menu_item(ui, "Document…", &self.sc(C::ModifyDocument)).clicked()
-            {
-                self.open_document_settings();
-                ui.close();
-            }
-            neoflash_ui::components::menu_separator(ui);
-            if menu_item_enabled(
-                ui,
-                self.can_convert_selection(),
-                "Convert to symbol…",
-                &self.sc(C::ModifyConvertToSymbol),
-            )
-            .clicked()
-            {
-                self.convert_to_symbol();
-                ui.close();
-            }
-            let _ = menu_item_enabled(ui, false, "Convert to Bitmap", "");
-            if menu_item_enabled(
-                ui,
-                self.can_break_apart_selection(),
-                "Break apart",
-                &self.sc(C::ModifyBreakApart),
-            )
-            .clicked()
-            {
-                self.break_apart_selection();
-                ui.close();
-            }
-            neoflash_ui::components::menu_separator(ui);
-            let trace_sc = self.sc(C::ModifyTraceBitmap);
-            menu_popup(ui, "Bitmap", "Trace bitmap…", &trace_sc, |ui| {
-                if menu_item_enabled(ui, self.can_trace_bitmap(), "Trace bitmap…", &trace_sc)
-                    .clicked()
-                {
-                    self.open_trace_bitmap(ui.ctx());
-                    ui.close();
-                }
-            });
-            Self::unavailable_submenu(ui, "Symbol");
-            let add_hint_sc = self.sc(C::ModifyAddShapeHint);
-            let remove_hints_sc = self.sc(C::ModifyRemoveAllShapeHints);
-            menu_popup(ui, "Shape", "Add shape hint", &add_hint_sc, |ui| {
-                if menu_item_enabled(
-                    ui,
-                    self.can_add_shape_hint(),
-                    "Add shape hint",
-                    &add_hint_sc,
-                )
-                .clicked()
-                {
-                    self.add_shape_hint();
-                    ui.close();
-                }
-                if menu_item_enabled(
-                    ui,
-                    self.can_remove_shape_hints(),
-                    "Remove all hints",
-                    &remove_hints_sc,
-                )
-                .clicked()
-                {
-                    self.remove_all_shape_hints();
-                    ui.close();
-                }
-            });
-            let can_combine = self.can_combine_objects();
-            let can_del_envelope = self.can_delete_envelope_selection();
-            let del_env_sc = self.sc(C::ModifyDeleteEnvelope);
-            menu_popup(
-                ui,
-                "Combine objects",
-                "Delete Envelope",
-                &del_env_sc,
-                |ui| {
-                    if menu_item_enabled(ui, can_del_envelope, "Delete Envelope", &del_env_sc)
-                        .clicked()
-                    {
-                        self.delete_envelope_selection();
-                        ui.close();
-                    }
-                    neoflash_ui::components::menu_separator(ui);
-                    if menu_item_enabled(ui, can_combine, "Union", "").clicked() {
-                        self.combine_objects_selection(BooleanOp::Union, false);
-                        ui.close();
-                    }
-                    if menu_item_enabled(ui, can_combine, "Intersect", "").clicked() {
-                        self.combine_objects_selection(BooleanOp::Intersection, false);
-                        ui.close();
-                    }
-                    if menu_item_enabled(ui, can_combine, "Punch", "").clicked() {
-                        self.combine_objects_selection(BooleanOp::Difference, false);
-                        ui.close();
-                    }
-                    if menu_item_enabled(ui, can_combine, "Crop", "").clicked() {
-                        self.combine_objects_selection(BooleanOp::Intersection, true);
-                        ui.close();
-                    }
-                },
-            );
-            neoflash_ui::components::menu_separator(ui);
-            menu_popup(
-                ui,
-                "Timeline",
-                "Convert to keyframes (Stepped 2s)",
-                "⇧⌘D",
-                |ui| {
-                    if menu_item_enabled(
-                        ui,
-                        self.can_distribute_to_layers(),
-                        "Distribute to layers",
-                        &self.sc(C::ModifyDistributeToLayers),
-                    )
-                    .clicked()
-                    {
-                        self.distribute_to_layers();
-                        ui.close();
-                    }
-                    if menu_item_enabled(
-                        ui,
-                        self.can_distribute_to_keyframes(),
-                        "Distribute to keyframes",
-                        "",
-                    )
-                    .clicked()
-                    {
-                        self.distribute_selection_to_keyframes();
-                        ui.close();
-                    }
-                    if crate::ui_icons::menu_item(
-                        ui,
-                        "Layer properties…",
-                        &self.sc(C::ModifyTimelineLayerProperties),
-                    )
-                    .clicked()
-                    {
-                        self.open_layer_properties(ui.ctx(), self.layer);
-                        ui.close();
-                    }
-                    let editable = self.layer_editable();
-                    if menu_item_enabled(
-                        ui,
-                        self.can_reverse_frames(),
-                        "Reverse frames",
-                        &self.sc(C::EditTimelineReverseFrames),
-                    )
-                    .clicked()
-                    {
-                        self.reverse_frames();
-                        ui.close();
-                    }
-                    if menu_item_enabled(
-                        ui,
-                        self.can_sync_symbols(),
-                        "Synchronise symbols",
-                        &self.sc(C::EditTimelineSyncSymbols),
-                    )
-                    .clicked()
-                    {
-                        self.sync_symbols();
-                        ui.close();
-                    }
-                    if menu_item_enabled(
-                        ui,
-                        editable && self.frame > 0,
-                        "Split clip at playhead",
-                        &self.sc(C::ModifyTimelineSplitClip),
-                    )
-                    .clicked()
-                    {
-                        self.split_clip_at_playhead();
-                        ui.close();
-                    }
-                    if menu_item_enabled(
-                        ui,
-                        self.can_link_av_layers(),
-                        "Link video & audio",
-                        &self.sc(C::ModifyTimelineLinkTracks),
-                    )
-                    .clicked()
-                    {
-                        self.link_selected_or_adjacent_av_layers();
-                        ui.close();
-                    }
-                    if menu_item_enabled(
-                        ui,
-                        self.can_unlink_av_layers(),
-                        "Unlink video & audio",
-                        &self.sc(C::ModifyTimelineUnlinkTracks),
-                    )
-                    .clicked()
-                    {
-                        self.unlink_active_layers();
-                        ui.close();
-                    }
-                    neoflash_ui::components::menu_separator(ui);
-                    if menu_item_enabled(
-                        ui,
-                        editable,
-                        "Convert to keyframes",
-                        &self.sc(C::ModifyTimelineConvertToKeyframes),
-                    )
-                    .clicked()
-                    {
-                        self.convert_to_keyframes(false);
-                        ui.close();
-                    }
-                    if menu_item_enabled(
-                        ui,
-                        self.can_convert_to_keyframes_stepped(),
-                        "Tween2Keys (On 2s)",
-                        "",
-                    )
-                    .clicked()
-                    {
-                        self.tween_to_keys_on_twos();
-                        ui.close();
-                    }
-                    if menu_item_enabled(
-                        ui,
-                        self.can_convert_to_keyframes_stepped(),
-                        "Tween2Keys (On 3s)",
-                        "",
-                    )
-                    .clicked()
-                    {
-                        self.tween_to_keys_on_threes();
-                        ui.close();
-                    }
-                    if menu_item_enabled(
-                        ui,
-                        self.can_convert_to_keyframes_stepped(),
-                        "Convert to keyframes (Stepped 2s)",
-                        "",
-                    )
-                    .clicked()
-                    {
-                        self.convert_to_keyframes_stepped(2, false);
-                        ui.close();
-                    }
-                    if menu_item_enabled(
-                        ui,
-                        editable,
-                        "Clear keyframe",
-                        &self.sc(C::ModifyTimelineClearKeyframe),
-                    )
-                    .clicked()
-                    {
-                        self.clear_keyframe();
-                        ui.close();
-                    }
-                    if menu_item_enabled(
-                        ui,
-                        editable,
-                        "Convert to blank keyframes",
-                        &self.sc(C::ModifyTimelineConvertToBlankKeyframes),
-                    )
-                    .clicked()
-                    {
-                        self.convert_to_keyframes(true);
-                        ui.close();
-                    }
-                    neoflash_ui::components::menu_separator(ui);
-                    if menu_item_enabled(ui, self.can_copy_active_keyframe_ease(), "Copy ease", "")
-                        .clicked()
-                    {
-                        self.copy_active_keyframe_ease();
-                        ui.close();
-                    }
-                    if menu_item_enabled(
-                        ui,
-                        self.has_copied_keyframe_ease(),
-                        "Apply copied ease",
-                        "",
-                    )
-                    .clicked()
-                    {
-                        self.apply_copied_ease_to_selection();
-                        ui.close();
-                    }
-                    neoflash_ui::components::menu_separator(ui);
-                    if crate::ui_icons::menu_item(ui, "Delete empty layers", "").clicked() {
-                        self.delete_empty_layers();
-                        ui.close();
-                    }
-                    if crate::ui_icons::menu_item(ui, "Rename layers from content", "").clicked() {
-                        self.rename_layers_from_content();
-                        ui.close();
-                    }
-                    if crate::ui_icons::menu_item(ui, "Add actions & stop() layer", "").clicked() {
-                        self.add_actions_and_stop_layer();
-                        ui.close();
-                    }
-                },
-            );
-            menu_popup(
-                ui,
-                "Commands & JSFL",
-                "Batch bitmap compression & smoothing…",
-                "",
-                |ui| {
-                    let ctx = ui.ctx().clone();
-                    if crate::ui_icons::menu_item(ui, "Run JSFL script (.jsfl)…", "").clicked() {
-                        self.run_jsfl_script_dialog(None);
-                        ui.close();
-                    }
-                    neoflash_ui::components::menu_separator(ui);
-                    if crate::ui_icons::menu_item(ui, "Batch rename library items…", "").clicked()
-                    {
-                        self.open_batch_rename_library_modal(&ctx);
-                        ui.close();
-                    }
-                    if crate::ui_icons::menu_item(
-                        ui,
-                        "Batch linkage (Export for ActionScript)…",
-                        "",
-                    )
-                    .clicked()
-                    {
-                        self.open_batch_linkage_modal(&ctx);
-                        ui.close();
-                    }
-                    if crate::ui_icons::menu_item(ui, "Batch bitmap compression & smoothing…", "")
-                        .clicked()
-                    {
-                        self.open_batch_bitmap_compression_modal(&ctx);
-                        ui.close();
-                    }
-                    if crate::ui_icons::menu_item(ui, "Delete unused library items", "").clicked() {
-                        self.find_and_delete_unused_library_items();
-                        ui.close();
-                    }
-                    neoflash_ui::components::menu_separator(ui);
-                    if crate::ui_icons::menu_item(ui, "Auto Instance Namer…", "").clicked() {
-                        self.open_auto_instance_namer_modal(&ctx);
-                        ui.close();
-                    }
-                    if crate::ui_icons::menu_item(ui, "Randomize Selection…", "").clicked() {
-                        self.open_randomize_selection_modal(&ctx);
-                        ui.close();
-                    }
-                    if menu_item_enabled(
-                        ui,
-                        !self.editable_targets().is_empty(),
-                        "Pixel snap (round to whole pixels)",
-                        "",
-                    )
-                    .clicked()
-                    {
-                        self.pixel_snap_selection();
-                        ui.close();
-                    }
-                },
-            );
-            self.transform_menu(ui);
-            self.arrange_menu(ui);
-            self.align_menu(ui);
-            neoflash_ui::components::menu_separator(ui);
-            if menu_item_enabled(
-                ui,
-                self.can_group_selection(),
-                "Group",
-                &self.sc(C::ModifyGroup),
-            )
-            .clicked()
-            {
-                self.group_selection();
-                ui.close();
-            }
-            if menu_item_enabled(
-                ui,
-                self.can_ungroup_selection(),
-                "Ungroup",
-                &self.sc(C::ModifyUngroup),
-            )
-            .clicked()
-            {
-                self.ungroup_selection();
-                ui.close();
-            }
-        });
-    }
-
     /// Transform ▸ (Modify and the stage object menu).
     pub(crate) fn transform_menu(&mut self, ui: &mut egui::Ui) {
         use crate::authoring_tools::FreeTransformMode;
@@ -3010,8 +2651,7 @@ impl Editor {
         use crate::commands::CommandId as C;
         crate::ui_icons::menu_popup(ui, "Align", "Vertical middle", "", |ui| {
             let ctx = ui.ctx().clone();
-            let count = self.modify_layout_units(&ctx).len();
-            let enabled = count >= 2 || (count > 0 && self.authoring_modify.to_stage);
+            let enabled = self.can_align_selection();
             for (axis, labels) in [
                 ["Left", "Horizontal centre", "Right"],
                 ["Top", "Vertical middle", "Bottom"],
@@ -6219,8 +5859,28 @@ mod arrange_tests {
     #[test]
     fn grouped_selection_shows_single_combined_bounding_box_and_ungroup_restores_individual_boxes()
     {
+        use crate::macos_menu::{NativeMenuAction, NativeMenuItemSpec, NativeMenuSpec};
+
         let ctx = egui::Context::default();
         let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.authoring_modify.to_stage = false;
+        let align_left_enabled = |editor: &Editor| {
+            let modify = NativeMenuSpec::build_top_menu(editor, Some(&ctx), "Modify").unwrap();
+            let align = modify.items.iter().find_map(|item| match item {
+                NativeMenuItemSpec::Submenu { label, items, .. } if label == "Align" => Some(items),
+                _ => None,
+            });
+            align.unwrap().iter().any(|item| {
+                matches!(
+                    item,
+                    NativeMenuItemSpec::Action {
+                        action: NativeMenuAction::AlignSelection { axis: 0, edge: 0 },
+                        enabled: true,
+                        ..
+                    }
+                )
+            })
+        };
         let layer_id = editor.symbol().timeline.layers[0].id.clone();
         let mut a = make_rect("a", 10.0);
         a.merge = true;
@@ -6252,6 +5912,7 @@ mod arrange_tests {
         let before_boxes = editor.selection_boxes(&scene, &painter, mapping);
         assert_eq!(before_boxes.len(), 2);
         assert!(before_boxes.iter().all(|(_, _, _, _, is_merge)| *is_merge));
+        assert!(align_left_enabled(&editor));
 
         // Group via ⌘G (`group_selection`): must coalesce into 1 single combined Group bounding box.
         editor.group_selection();
@@ -6266,6 +5927,10 @@ mod arrange_tests {
         assert!(!*is_merge);
         assert!(world_rect.min.x <= 10.5 && world_rect.max.x >= 99.5);
         assert!(context_rect.min.x <= 10.5 && context_rect.max.x >= 99.5);
+        assert!(!align_left_enabled(&editor), "one group is one layout unit");
+        editor.authoring_modify.to_stage = true;
+        assert!(align_left_enabled(&editor), "Stage can align one group");
+        editor.authoring_modify.to_stage = false;
 
         // Ungroup via ⇧⌘G (`ungroup_selection`): restores individual bounding boxes for each object.
         editor.ungroup_selection();
@@ -6276,6 +5941,7 @@ mod arrange_tests {
             "After Ungroup, each object must display its own individual bounding box"
         );
         assert!(after_boxes.iter().all(|(_, _, _, _, is_merge)| *is_merge));
+        assert!(align_left_enabled(&editor));
         editor.project.validate().unwrap();
     }
 

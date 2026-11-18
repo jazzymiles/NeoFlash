@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed **Used colours** edits so a new colour change preserves intervening document edits and Undo restores the
+  correct version. **Auto format** in Actions handles unfinished strings and preserves multiline literal content
+  and JavaScript / TypeScript exponent operators. **Output** keeps pending browser messages with their owning
+  document, including when another tab clears its log. **Modify ▸ Align** treats a selected group as one object.
+  Motion **Scale** reflects Undo and preserves labels, sounds and other frame data when removing scale keys.
+
 - Kept all Classic Flash Frame **Properties** (`<Frame Label>`, `Label type`, `Frame script…`, `Include frame scripts`,
   `Tween` + `Scale`, `Ease` `-100..=100` `(in)`/`(out)` + `Edit…`, `Rotate: Auto | None | CW | CCW` + `times`, and
   `Orient to path` · `Sync` · `Snap`) visible across keyframe `0`, held/in-between exposure frames, `Motion` spans

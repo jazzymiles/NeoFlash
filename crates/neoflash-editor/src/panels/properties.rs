@@ -1070,6 +1070,7 @@ impl Editor {
                 let has_range_ease_targets = self.has_selected_tween_ease_targets();
                 let can_edit_selected_tween =
                     (active_layer_editable && span_key_frame.is_some()) || has_range_ease_targets;
+                let mut clear_motion_scale = false;
                 if !frame_context {
                 inspector_section(ui, "Stage", |ui| {
                 changes.note(text_row(ui, "Name", &mut document.name));
@@ -1359,12 +1360,6 @@ impl Editor {
                                     }
                                 });
                             });
-                            let motion_scale_key = egui::Id::new((
-                                "frame-motion-scale",
-                                &symbol_id,
-                                &layer_id,
-                                span_key_frame,
-                            ));
                             let motion_has_scale_keys = cur_tween_choice == FrameTweenChoice::Motion
                                 && span_key_frame.is_some_and(|kf| {
                                     let next_ord = timeline.layers[layer]
@@ -1392,19 +1387,11 @@ impl Editor {
                                     })
                                 {
                                     if cur_tween_choice == FrameTweenChoice::Motion {
-                                        let old_scale = if motion_has_scale_keys {
-                                            true
-                                        } else {
-                                            ui.data(|d| d.get_temp::<bool>(motion_scale_key))
-                                                .unwrap_or(key.tween_scale)
-                                        };
-                                        let mut scale_val = old_scale;
+                                        let mut scale_val = motion_has_scale_keys || key.tween_scale;
                                         let r_scale =
                                             ui.add(nf::Checkbox::new(&mut scale_val, "Scale"));
-                                        if r_scale.changed() && scale_val != old_scale {
-                                            ui.data_mut(|d| {
-                                                d.insert_temp(motion_scale_key, scale_val);
-                                            });
+                                        if r_scale.changed() {
+                                            clear_motion_scale = !scale_val;
                                             key.tween_scale = scale_val;
                                             changes.note(r_scale);
                                         }
@@ -2015,7 +2002,7 @@ impl Editor {
                     }
                     handled_range_easing = true;
                 }
-                if !handled_range_easing && document != self.project && let Some(control) = changes.control {
+                if !handled_range_easing && (document != self.project || clear_motion_scale) && let Some(control) = changes.control {
                     self.begin_property_edit(scope, control);
                     // Copy only changed authoring fields, never the cloned document.
                     self.project.name=document.name.clone(); self.project.width=document.width; self.project.height=document.height;
@@ -2037,7 +2024,6 @@ impl Editor {
                                     .cloned()
                             {
                                 let mut sync_turned_on = false;
-                                let mut scale_turned_off_in_motion = false;
                                 if let Some(key) =
                                     target.keyframes.iter_mut().find(|k| k.frame == kf)
                                 {
@@ -2046,10 +2032,6 @@ impl Editor {
                                         key.orient_to_path != changed.orient_to_path;
                                     let sync_changed = key.sync_symbols != changed.sync_symbols;
                                     let snap_changed = key.snap_to_guide != changed.snap_to_guide;
-                                    scale_turned_off_in_motion = key.tween.is_some()
-                                        && key.tween_kind == TweenKind::Motion
-                                        && key.tween_scale
-                                        && !changed.tween_scale;
                                     key.label = changed.label.clone();
                                     key.label_type = changed.label_type;
                                     key.tween = changed.tween;
@@ -2077,35 +2059,11 @@ impl Editor {
                                     .filter(|k| k.frame > kf && k.keyed_properties.is_none())
                                     .map(|k| k.frame)
                                     .min();
-                                if scale_turned_off_in_motion {
-                                    for ikey in &mut target.keyframes {
-                                        if ikey.frame > kf
-                                            && next_ord_frame.is_none_or(|end| ikey.frame < end)
-                                            && ikey.keyed_properties.is_some()
-                                        {
-                                            ikey.materialize_motion_keys();
-                                            if let Some(mkeys) = &mut ikey.motion_keys {
-                                                for mk in mkeys.iter_mut() {
-                                                    mk.properties.retain(|p| {
-                                                        !matches!(
-                                                            p,
-                                                            TweenProperty::ScaleX
-                                                                | TweenProperty::ScaleY
-                                                        )
-                                                    });
-                                                }
-                                                mkeys.retain(|mk| !mk.properties.is_empty());
-                                            }
-                                            ikey.sync_motion_key_union();
-                                        }
-                                    }
-                                    target.keyframes.retain(|ikey| {
-                                        !(ikey.frame > kf
-                                            && next_ord_frame.is_none_or(|end| ikey.frame < end)
-                                            && ikey
-                                                .keyed_properties
-                                                .as_ref()
-                                                .is_some_and(Vec::is_empty))
+                                if clear_motion_scale {
+                                    target.keyframes.retain_mut(|key| {
+                                        key.frame <= kf
+                                            || next_ord_frame.is_some_and(|end| key.frame >= end)
+                                            || clear_motion_scale_at_key(key)
                                     });
                                 }
                                 target.normalize_motion_keys();
@@ -2701,6 +2659,40 @@ impl Editor {
 
 fn m_span_is_single_frame(span: &Option<super::ease::TweenSpan>) -> bool {
     span.as_ref().is_none_or(|s| s.end <= s.start + 1)
+}
+
+/// Remove scale keys while retaining any other keyed property or authored data on the frame.
+fn clear_motion_scale_at_key(key: &mut Keyframe) -> bool {
+    if !key.keyed_properties.as_ref().is_some_and(|props| {
+        props.contains(&TweenProperty::ScaleX) || props.contains(&TweenProperty::ScaleY)
+    }) {
+        return true;
+    }
+    key.materialize_motion_keys();
+    if let Some(keys) = &mut key.motion_keys {
+        for object in keys.iter_mut() {
+            object.properties.retain(|property| {
+                !matches!(property, TweenProperty::ScaleX | TweenProperty::ScaleY)
+            });
+        }
+        keys.retain(|object| !object.properties.is_empty());
+    }
+    key.sync_motion_key_union();
+
+    // The pose and inherited tween tag are incidental on a property key. A metadata-only
+    // ◆ is valid and keeps labels, sounds, filters and other per-frame data in the same span.
+    let elements = std::mem::take(&mut key.elements);
+    let has_authored_data = *key
+        != (Keyframe {
+            frame: key.frame,
+            tween: key.tween,
+            tween_kind: key.tween_kind,
+            keyed_properties: Some(Vec::new()),
+            motion_keys: Some(Vec::new()),
+            ..Default::default()
+        });
+    key.elements = elements;
+    has_authored_data
 }
 
 fn active_span_key_frame(timeline: &Timeline, layer_idx: usize, frame: u32) -> Option<u32> {

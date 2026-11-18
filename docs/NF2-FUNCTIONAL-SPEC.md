@@ -709,6 +709,8 @@ their own layout.
   `-100..=100` (`(in)` / `(out)`) + `Edit…` (opening `PanelId::Ease`), `Rotate: Auto | None | CW | CCW` + `times`, and
   `Orient to path` / `Sync` / `Snap` (`[x] Sync` respects per-instance `Element.instance_behavior` when synchronizing `Graphic`
   placements) (`T-362`, `T-366`, `T-383`).
+- Motion `Scale` follows the saved span and Undo. Turning it off clears the span's interior scale keys while
+  keeping other keyed properties and frame data such as labels and sounds.
 - Done: Y1/Y2 accept −100…100 (X stays 0–1); "Flash ease" option with an Acceleration field −100…100; a chosen easing applies
   to every existing editable tween span intersecting the selected multi-layer frame range as one Undo step while locked, hidden
   and hold spans remain unchanged.
@@ -896,7 +898,9 @@ refused.
   (`Editor::used_colors_section_ui`, `T-197`, `T-386`) with a persisted `[x] Only on stage` toggle (default `true`), strictly
   contextual Stage scoping (active scene + transitively placed instances at root; only the edited symbol + its nested instances inside
   a symbol), and unplaced Library symbol colours with `"X on stage · Y in library"` usage counts, roles (`fill, stroke, gradient, text, swatch`),
-  stage-frame selection (`Select elements with this colour`) and scope-matched batch replacement when `Only on stage` is unchecked. Multi-selection in `Properties`
+  stage-frame selection (`Select elements with this colour`) and scoped live colour replacement. Each colour edit
+  has its own Undo transaction and keeps targeting its original paints even when the new colour matches another row.
+  The explicitly project-wide JSFL command applies across the entire project. Multi-selection in `Properties`
   also exposes `Selection colours` (`selection_only = true`) and `Used colours`. Persistent file-stored swatches remain W1.9.
 - Controls: hex + alpha, eyedropper, no colour, wheel → Color panel; Recent; Document (+ add); Palette (switchable);
   Gradients.

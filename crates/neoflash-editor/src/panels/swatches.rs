@@ -9,12 +9,23 @@ use crate::workspace::PanelId;
 use eframe::egui::{self, Color32, Ui};
 use neoflash_core::*;
 use neoflash_ui::components as c;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct UsedColorEntry {
     pub entry: ProjectColorEntry,
     pub stage_uses: usize,
     pub library_uses: usize,
+}
+
+/// Owned by the in-progress property transaction. Freeze row identities during a drag so
+/// merging into an existing colour, or making a colour transparent, cannot retarget the control.
+pub(crate) struct UsedColorEdit {
+    row: usize,
+    current: Color,
+    base: Project,
+    entries: Arc<[UsedColorEntry]>,
+    options: ChangeColorOptions,
 }
 
 fn to_color32(color: Color) -> Color32 {
@@ -842,31 +853,20 @@ impl Editor {
         (stage_symbols, library_symbols)
     }
 
-    /// Collect `(symbol_id, layer_id, keyframe_frame, element_id)` placements for the active `Used colours`
-    /// scope (`only_on_stage == true` -> `stage_symbols`; `false` -> `stage_symbols ∪ library_symbols`).
-    pub(crate) fn used_color_placements(&self, only_on_stage: bool) -> Vec<(Id, Id, u32, Id)> {
-        let (stage_symbols, library_symbols) = self.stage_and_library_symbol_scopes();
-        let mut placements = Vec::new();
-        for sym in &self.project.symbols {
-            let included = stage_symbols.contains(&sym.id)
-                || (!only_on_stage && library_symbols.contains(&sym.id));
-            if !included {
-                continue;
-            }
-            for layer in &sym.timeline.layers {
-                for key in &layer.keyframes {
-                    for el in &key.elements {
-                        placements.push((
-                            sym.id.clone(),
-                            layer.id.clone(),
-                            key.frame,
-                            el.id.clone(),
-                        ));
-                    }
-                }
-            }
+    fn used_color_options(
+        &self,
+        from: Color,
+        to: Color,
+        only_on_stage: bool,
+    ) -> ChangeColorOptions {
+        let (mut stage, library) = self.stage_and_library_symbol_scopes();
+        if !only_on_stage {
+            stage.extend(library);
         }
-        placements
+        let mut options = ChangeColorOptions::new(from, to);
+        options.target_symbol_ids = Some(stage.into_iter().collect());
+        options.include_custom_swatches = false;
+        options
     }
 
     /// Context-aware `Used colours` entries with exact `(stage_uses, library_uses)` partition (`T-386`).
@@ -927,13 +927,7 @@ impl Editor {
         if from == to {
             return 0;
         }
-        let placements = self.used_color_placements(only_on_stage);
-        if placements.is_empty() {
-            return 0;
-        }
-        let mut opts = ChangeColorOptions::new(from, to);
-        opts.target_elements = Some(placements);
-        opts.include_custom_swatches = false;
+        let opts = self.used_color_options(from, to, only_on_stage);
         let mut replaced_total = 0usize;
         let label = if only_on_stage {
             "Change Stage Colour"
@@ -1013,6 +1007,7 @@ impl Editor {
         from: Color,
         to: Color,
     ) -> Result<usize, String> {
+        self.finish_edits();
         let state = JsflAuthoringState::for_project(&self.project);
         let res =
             run_change_color_jsfl(&self.project, &state, from, to).map_err(|d| d.to_string())?;
@@ -1076,10 +1071,9 @@ impl Editor {
         }
         let count = matched.len();
         if count > 0 {
-            self.selection = crate::selection::Selection {
-                symbol: active_sym,
-                targets: matched,
-            };
+            self.finish_edits();
+            self.clear_timeline_frame_selection();
+            self.set_selection(matched);
         }
         count
     }
@@ -1127,6 +1121,58 @@ impl Editor {
         }
     }
 
+    fn active_used_color_edit(&self, scope: egui::Id) -> Option<&UsedColorEdit> {
+        self.property_edit
+            .as_ref()
+            .filter(|edit| edit.has_scope(scope))?
+            .used_color
+            .as_ref()
+    }
+
+    fn preview_used_color_edit(
+        &mut self,
+        scope: egui::Id,
+        control: egui::Id,
+        rows: (usize, &Arc<[UsedColorEntry]>),
+        color: Color,
+        selection_only: bool,
+        only_on_stage: bool,
+    ) {
+        let (row, entries) = rows;
+        self.begin_property_edit(scope, control);
+        if self.active_used_color_edit(scope).is_none() {
+            let from = entries[row].entry.color;
+            let options = if selection_only {
+                let mut options = ChangeColorOptions::new(from, color);
+                options.target_elements = Some(self.selected_element_placements());
+                options.include_custom_swatches = false;
+                options
+            } else {
+                self.used_color_options(from, color, only_on_stage)
+            };
+            self.property_edit.as_mut().unwrap().used_color = Some(UsedColorEdit {
+                row,
+                current: from,
+                base: self.project.clone(),
+                entries: Arc::clone(entries),
+                options,
+            });
+        }
+        let edit = self
+            .property_edit
+            .as_mut()
+            .unwrap()
+            .used_color
+            .as_mut()
+            .unwrap();
+        let mut candidate = edit.base.clone();
+        edit.options.to = color;
+        if change_project_color(&mut candidate, &edit.options).is_ok() {
+            self.project = candidate;
+            edit.current = color;
+        }
+    }
+
     /// Figma-style interactive list of used colours on Stage / in Library (or current selection) with live
     /// RGBA popover replacement, usage counts/roles, stage selection, and JSFL Change Colour (`T-197`, `T-386`).
     pub(crate) fn project_colors_section_ui(&mut self, ui: &mut Ui, selection_only: bool) {
@@ -1149,14 +1195,19 @@ impl Editor {
         };
         let scope = egui::Id::new((
             scope_tag,
+            ctx.viewport_id(),
+            ui.id(),
             &self.clipboard.session,
             self.symbol_id(),
             self.frame,
             !selection_only && only_on_stage,
+            selection_only.then_some(&self.selection.targets),
         ));
         self.property_edit_scope(scope);
 
-        let used_entries: Vec<UsedColorEntry> = if selection_only {
+        let used_entries = if let Some(edit) = self.active_used_color_edit(scope) {
+            Arc::clone(&edit.entries)
+        } else if selection_only {
             self.selection_colors()
                 .into_iter()
                 .map(|entry| {
@@ -1170,9 +1221,9 @@ impl Editor {
                         library_uses: 0,
                     }
                 })
-                .collect()
+                .collect::<Arc<[_]>>()
         } else {
-            self.used_colors(only_on_stage)
+            self.used_colors(only_on_stage).into()
         };
 
         if used_entries.is_empty() {
@@ -1196,13 +1247,6 @@ impl Editor {
             return;
         }
 
-        let live_state_id = egui::Id::new(("project-color-live-drag", scope));
-        let placements_snapshot = if selection_only {
-            self.selected_element_placements()
-        } else {
-            self.used_color_placements(only_on_stage)
-        };
-
         let p = neoflash_ui::palette(&ctx);
         let mut select_color_requested: Option<Color> = None;
 
@@ -1214,48 +1258,29 @@ impl Editor {
                     ui.spacing_mut().item_spacing.y = neoflash_ui::tokens::space::S1;
                     let row_id = format!("{scope_tag}-row-{row_idx}");
                     let label = format!("Colour {}", row_idx + 1);
-                    let mut edited = entry.color;
+                    let current = self
+                        .active_used_color_edit(scope)
+                        .filter(|edit| edit.row == row_idx)
+                        .map_or(entry.color, |edit| edit.current);
+                    let mut edited = current;
 
-                    // Keep the active drag's current target colour displayed even if the user drags across
-                    // another existing colour in the project.
-                    if let Some((active_row, _origin, current_target, _base_proj)) =
-                        ctx.data(|d| d.get_temp::<(usize, Color, Color, Project)>(live_state_id))
-                        && active_row == row_idx
-                    {
-                        edited = current_target;
-                    }
-
-                    let resp =
-                        crate::paint_controls::color_row(ui, &row_id, "#", &label, &mut edited);
+                    let resp = ui
+                        .push_id(scope, |ui| {
+                            crate::paint_controls::color_row(ui, &row_id, "#", &label, &mut edited)
+                        })
+                        .inner;
                     if !resp.changed() {
                         super::dialog_helpers::track_rgba_popup(ui.ctx(), resp.id);
                     }
-                    if resp.changed() && edited != entry.color {
-                        let existing_drag = ctx
-                            .data(|d| d.get_temp::<(usize, Color, Color, Project)>(live_state_id));
-                        let (origin_color, base_proj) = match existing_drag {
-                            Some((active_row, orig, _, base)) if active_row == row_idx => {
-                                (orig, base)
-                            }
-                            _ => {
-                                let base = self.project.clone();
-                                self.begin_property_edit(scope, resp.id);
-                                (entry.color, base)
-                            }
-                        };
-                        let mut candidate = base_proj.clone();
-                        let mut opts = ChangeColorOptions::new(origin_color, edited);
-                        opts.target_elements = Some(placements_snapshot.clone());
-                        opts.include_custom_swatches = false;
-                        if change_project_color(&mut candidate, &opts).is_ok() {
-                            self.project = candidate;
-                            ctx.data_mut(|d| {
-                                d.insert_temp(
-                                    live_state_id,
-                                    (row_idx, origin_color, edited, base_proj),
-                                );
-                            });
-                        }
+                    if resp.changed() && edited != current {
+                        self.preview_used_color_edit(
+                            scope,
+                            resp.id,
+                            (row_idx, &used_entries),
+                            edited,
+                            selection_only,
+                            only_on_stage,
+                        );
                     }
 
                     let summary =
@@ -1373,9 +1398,6 @@ impl Editor {
         }
 
         self.end_property_interaction(&ctx);
-        if self.property_edit.is_none() {
-            ctx.data_mut(|d| d.remove::<(usize, Color, Color, Project)>(live_state_id));
-        }
     }
 }
 
@@ -1383,6 +1405,75 @@ impl Editor {
 mod tests {
     use super::*;
     use crate::selection::{Selection, SelectionTarget};
+
+    #[test]
+    fn used_color_drag_keeps_its_slots_and_cannot_restore_an_old_document() {
+        let ctx = egui::Context::default();
+        let original = [230, 57, 70, 255];
+        let other = [42, 157, 143, 255];
+        let transparent = [230, 57, 70, 0];
+        let final_color = [233, 196, 106, 255];
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.symbol_mut().timeline.layers[0].keyframes[0].elements = [original, other]
+            .into_iter()
+            .enumerate()
+            .map(|(i, fill)| Element {
+                id: format!("colour-{i}"),
+                kind: ElementKind::Rectangle {
+                    width: 80.0,
+                    height: 60.0,
+                    fill,
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                },
+                ..Default::default()
+            })
+            .collect();
+
+        let scope = egui::Id::new("swatches");
+        let control = scope.with("colour-row");
+        let fills = |ed: &Editor| {
+            ed.symbol().timeline.layers[0].keyframes[0]
+                .elements
+                .iter()
+                .map(|el| match el.kind {
+                    ElementKind::Rectangle { fill, .. } => fill,
+                    _ => unreachable!(),
+                })
+                .collect::<Vec<_>>()
+        };
+        let rows: Arc<[_]> = editor.used_colors(true).into();
+        let row = rows
+            .iter()
+            .position(|entry| entry.entry.color == original)
+            .unwrap();
+        editor.preview_used_color_edit(scope, control, (row, &rows), other, false, true);
+        assert_eq!(fills(&editor), [other, other]);
+        assert_eq!(editor.used_colors(true).len(), 1);
+        editor.preview_used_color_edit(scope, control, (row, &rows), transparent, false, true);
+        assert_eq!(fills(&editor), [transparent, other]);
+        editor.preview_used_color_edit(scope, control, (row, &rows), original, false, true);
+        assert_eq!(fills(&editor), [original, other]);
+        editor.finish_property_edit();
+        assert!(editor.history.undo_label().is_none());
+
+        editor.preview_used_color_edit(scope, control, (row, &rows), other, false, true);
+        editor.transact_named("Rename", |ed| ed.project.name = "New title".into());
+        assert!(editor.active_used_color_edit(scope).is_none());
+        let before = editor.project.clone();
+        let new_rows = editor.used_colors(true).into();
+        editor.preview_used_color_edit(scope, control, (0, &new_rows), final_color, false, true);
+        editor.finish_property_edit();
+        assert_eq!(editor.project.name, "New title");
+        assert_eq!(fills(&editor), [final_color, final_color]);
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before);
+        editor.undo();
+        assert_eq!(fills(&editor), [other, other]);
+        editor.undo();
+        assert_eq!(fills(&editor), [original, other]);
+    }
 
     #[test]
     fn project_and_selection_colors_replace_and_jsfl_change_color_undo() {
