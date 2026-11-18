@@ -696,7 +696,8 @@ fn floating_minima_scale_once_and_dock_edges_have_a_larger_invisible_halo() {
     );
 
     let root = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000., 800.));
-    let pointer = egui::pos2(500., 70.);
+    let halo_pointer = egui::pos2(500., 30.);
+    let premature_stage_pointer = egui::pos2(500., 70.);
     let visible = crate::dock_grid::edge_targets(root, 1.0)
         .into_iter()
         .find(|(edge, _)| *edge == DockEdge::Top)
@@ -708,12 +709,16 @@ fn floating_minima_scale_once_and_dock_edges_have_a_larger_invisible_halo() {
         .unwrap()
         .1;
     assert!(
-        !visible.contains(pointer),
-        "the approved overlay stays unchanged"
+        !visible.contains(halo_pointer),
+        "the visible edge target stays compact (~28..34 pt)"
     );
     assert!(
-        acceptance.contains(pointer),
-        "the invisible return-to-dock halo is deliberately easier to hit"
+        acceptance.contains(halo_pointer),
+        "the invisible return-to-dock halo remains slightly easier to hit (~32..44 pt)"
+    );
+    assert!(
+        !acceptance.contains(premature_stage_pointer),
+        "tightened acceptance halo must not capture pointers far inside the Stage"
     );
 }
 
@@ -2415,4 +2420,791 @@ fn t374_collapsed_floating_windows_persist_across_restarts_preserve_expanded_hei
     );
     restored_editor.apply_workspace_template(&ctx2, WorkspaceTemplate::Developer);
     assert!(restored_editor.workspace.collapsed_floating.is_empty());
+}
+
+#[test]
+fn t384_universal_floating_snap_covers_all_draggable_panels_edges_stage_and_monitors() {
+    use crate::detached::{
+        FloatingSnapTargets, PANEL_SNAP_DISTANCE, TOOLS_ANCHOR_DISTANCE, TOOLS_ANCHOR_MARGIN,
+        snap_floating_window_geometry, snap_tools_stage_anchor,
+    };
+    use crate::workspace::ScreenRect;
+
+    assert_eq!(PANEL_SNAP_DISTANCE, 8.0);
+    assert_eq!(TOOLS_ANCHOR_DISTANCE, 28.0);
+
+    // 1) Pure math across UI zoom factors: flush abutment, co-aligned palettes, Stage inset,
+    //    root_inner content edges, and single/dual monitor work-areas.
+    for zoom in [1.0_f32, 1.25, 1.5, 2.0] {
+        let props_rect =
+            egui::Rect::from_min_size(egui::pos2(400., 200.) * zoom, egui::vec2(320., 420.) * zoom);
+        let stage_rect =
+            egui::Rect::from_min_size(egui::pos2(60., 90.) * zoom, egui::vec2(1400., 760.) * zoom);
+        let root_content =
+            egui::Rect::from_min_size(egui::pos2(0., 40.) * zoom, egui::vec2(1920., 1016.) * zoom);
+        let root_inner =
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920., 1080.) * zoom);
+        let monitors = [
+            ScreenRect {
+                origin: [0.0, 24.0 * zoom],
+                size: [1920.0 * zoom, 1056.0 * zoom],
+            },
+            ScreenRect {
+                origin: [1920.0 * zoom, 0.0],
+                size: [1920.0 * zoom, 1080.0 * zoom],
+            },
+        ];
+        let targets = FloatingSnapTargets {
+            other_windows: &[props_rect],
+            stage_rect: Some(stage_rect),
+            root_content: Some(root_content),
+            root_inner: Some(root_inner),
+            monitors: &monitors,
+        };
+
+        // Flush right abutment (`my.left == other.right`) + co-aligned top (`my.top == other.top`)
+        let near_side_by_side = WindowGeometry {
+            outer_position: [725.0 * zoom, 206.0 * zoom],
+            inner_size: [260.0 * zoom, 240.0 * zoom],
+        };
+        let snapped = snap_floating_window_geometry(near_side_by_side, zoom, false, &targets);
+        assert!(
+            (snapped.outer_position[0] - 720.0 * zoom).abs() < 0.01
+                && (snapped.outer_position[1] - 200.0 * zoom).abs() < 0.01,
+            "zoom={zoom}: expected side-by-side flush+top snap [720, 200]*zoom, got {:?}",
+            snapped.outer_position
+        );
+
+        // Outside 8 pt snap threshold (`9.5 * zoom` away): must NOT snap prematurely!
+        let outside_threshold = WindowGeometry {
+            outer_position: [729.5 * zoom, 209.5 * zoom],
+            inner_size: [260.0 * zoom, 240.0 * zoom],
+        };
+        assert_eq!(
+            snap_floating_window_geometry(outside_threshold, zoom, false, &targets),
+            outside_threshold,
+            "zoom={zoom}: 9.5 pt must stay completely free of 8 pt snap zone"
+        );
+
+        // Suppress flag (`⌘` / `Alt` held) bypasses snap even within 2 pt.
+        let suppressed = snap_floating_window_geometry(near_side_by_side, zoom, true, &targets);
+        assert_eq!(suppressed, near_side_by_side);
+
+        // Stacked below (`my.top == other.bottom`) + co-aligned right (`my.right == other.right`),
+        // plus co-aligned left with a 200 pt vertical gap (<= 360 * zoom).
+        let near_below = WindowGeometry {
+            outer_position: [455.0 * zoom, 626.0 * zoom],
+            inner_size: [260.0 * zoom, 200.0 * zoom],
+        };
+        let snapped_below = snap_floating_window_geometry(near_below, zoom, false, &targets);
+        assert!(
+            (snapped_below.outer_position[0] - 460.0 * zoom).abs() < 0.01
+                && (snapped_below.outer_position[1] - 620.0 * zoom).abs() < 0.01,
+            "zoom={zoom}: stacked right-coaligned + top-flush snap failed: {:?}",
+            snapped_below.outer_position
+        );
+
+        let distant_coaligned = WindowGeometry {
+            outer_position: [404.0 * zoom, 820.0 * zoom], // 200*zoom vertical gap <= 360*zoom
+            inner_size: [260.0 * zoom, 180.0 * zoom],
+        };
+        let snapped_coaligned =
+            snap_floating_window_geometry(distant_coaligned, zoom, false, &targets);
+        assert!((snapped_coaligned.outer_position[0] - 400.0 * zoom).abs() < 0.01);
+
+        let too_far_perpendicular = WindowGeometry {
+            outer_position: [404.0 * zoom, 1020.0 * zoom], // 400*zoom vertical gap > 360*zoom
+            inner_size: [260.0 * zoom, 180.0 * zoom],
+        };
+        assert!(
+            (snap_floating_window_geometry(too_far_perpendicular, zoom, false, &targets)
+                .outer_position[0]
+                - 404.0 * zoom)
+                .abs()
+                < 0.01,
+            "zoom={zoom}: perpendicular gap > 360*zoom must not snag co-alignment"
+        );
+
+        // Stage inset (`stage_rect` shrunk by `TOOLS_ANCHOR_MARGIN * zoom` = 16 * zoom -> [76, 106])
+        let near_stage_inset = WindowGeometry {
+            outer_position: [81.0 * zoom, 101.0 * zoom],
+            inner_size: [300.0 * zoom, 220.0 * zoom],
+        };
+        let snapped_stage = snap_floating_window_geometry(near_stage_inset, zoom, false, &targets);
+        assert!(
+            (snapped_stage.outer_position[0] - (60.0 + TOOLS_ANCHOR_MARGIN) * zoom).abs() < 0.01
+                && (snapped_stage.outer_position[1] - (90.0 + TOOLS_ANCHOR_MARGIN) * zoom).abs()
+                    < 0.01
+        );
+
+        // Second monitor far right edge (`3840 * zoom`) and top edge (`0.0`)
+        let near_monitor2_edge = WindowGeometry {
+            outer_position: [(3840.0 - 320.0 - 6.0) * zoom, 5.0 * zoom],
+            inner_size: [320.0 * zoom, 440.0 * zoom],
+        };
+        let snapped_mon2 = snap_floating_window_geometry(near_monitor2_edge, zoom, false, &targets);
+        assert!(
+            (snapped_mon2.outer_position[0] - (3840.0 - 320.0) * zoom).abs() < 0.01
+                && snapped_mon2.outer_position[1].abs() < 0.01
+        );
+
+        // Tools Stage anchor tightened to 28 pt: snaps at 20 pt, stays free at 40 pt!
+        let tools_w = crate::detached::floating_tools_width() * zoom;
+        let middle_left_y = stage_rect.center().y - 120.0 * zoom;
+        let tools_at_20 = WindowGeometry {
+            outer_position: [
+                stage_rect.left() + (TOOLS_ANCHOR_MARGIN + 20.0) * zoom,
+                middle_left_y,
+            ],
+            inner_size: [tools_w, 240.0 * zoom],
+        };
+        assert!(snap_tools_stage_anchor(stage_rect, tools_at_20, zoom).is_some());
+        let tools_at_40 = WindowGeometry {
+            outer_position: [
+                stage_rect.left() + (TOOLS_ANCHOR_MARGIN + 40.0) * zoom,
+                middle_left_y,
+            ],
+            inner_size: [tools_w, 240.0 * zoom],
+        };
+        assert!(
+            snap_tools_stage_anchor(stage_rect, tools_at_40, zoom).is_none(),
+            "tightened 28 pt Tools Stage anchor must not grab Tools from 40 pt away"
+        );
+    }
+
+    // 2) Verify Editor::snap_floating_geometry_for_window across ALL 19+ user-named panels,
+    //    plus hidden-window exclusion and collapsed-window header height preservation.
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.set_panel_visible(PanelId::Properties, true);
+    editor.set_panel_placement(&ctx, PanelId::Properties, PanelPlacement::Detached);
+    editor.workspace.remember_floating_geometry(
+        PanelId::Properties,
+        WindowGeometry {
+            outer_position: [500.0, 180.0],
+            inner_size: [320.0, 440.0],
+        },
+    );
+    // Hidden detached Library must NOT act as a ghost snap target.
+    editor.set_panel_placement(&ctx, PanelId::Library, PanelPlacement::Detached);
+    editor.workspace.remember_floating_geometry(
+        PanelId::Library,
+        WindowGeometry {
+            outer_position: [150.0, 180.0],
+            inner_size: [300.0, 500.0],
+        },
+    );
+    editor.set_panel_visible(PanelId::Library, false);
+
+    let all_draggable = [
+        PanelId::Actions,
+        PanelId::Library,
+        PanelId::Tools,
+        PanelId::Color,
+        PanelId::Swatches,
+        PanelId::Align,
+        PanelId::Transform,
+        PanelId::Info,
+        PanelId::Brushes,
+        PanelId::Output,
+        PanelId::CompilerErrors,
+        PanelId::Debugger,
+        PanelId::Timeline,
+        PanelId::Scene,
+        PanelId::Ease,
+        PanelId::MotionEditor,
+        PanelId::History,
+        PanelId::MovieExplorer,
+    ];
+    for panel in all_draggable {
+        editor.set_panel_visible(panel, panel != PanelId::Library);
+        editor.set_panel_placement(&ctx, panel, PanelPlacement::Detached);
+        let candidate = WindowGeometry {
+            outer_position: [826.0, 184.0], // 6 pt from Properties.right (820), 4 pt from top (180)
+            inner_size: [280.0, 260.0],
+        };
+        let snapped =
+            editor.snap_floating_geometry_for_window(Some(panel), false, candidate, 1.0, false);
+        assert_eq!(
+            snapped.outer_position,
+            [820.0, 180.0],
+            "{panel:?} must snap flush to Properties.right and co-align with Properties.top"
+        );
+        // Near hidden Library's right edge (450.0) must NOT snap while Library is hidden.
+        let near_hidden = WindowGeometry {
+            outer_position: [454.0, 184.0],
+            inner_size: [280.0, 260.0],
+        };
+        let unsnapped_x =
+            editor.snap_floating_geometry_for_window(Some(panel), false, near_hidden, 1.0, false);
+        assert_eq!(
+            unsnapped_x.outer_position[0], 454.0,
+            "{panel:?} must ignore hidden floating Library"
+        );
+        if panel != PanelId::Properties {
+            editor.set_panel_visible(panel, false);
+        }
+    }
+
+    // Collapsed Properties (`inner_size[1] = 440`, visible header = `panel_tab() = 36`):
+    // Snapping Swatches below collapsed Properties snaps to `180 + panel_tab()`, NOT `180 + 440`!
+    editor
+        .workspace
+        .set_floating_window_collapsed(PanelId::Properties, true);
+    editor.set_panel_visible(PanelId::Swatches, true);
+    editor.set_panel_placement(&ctx, PanelId::Swatches, PanelPlacement::Detached);
+    let tab_h = neoflash_ui::metrics::panel_tab();
+    let below_collapsed = WindowGeometry {
+        outer_position: [504.0, 180.0 + tab_h + 5.0],
+        inner_size: [300.0, 360.0],
+    };
+    let snapped_below_collapsed = editor.snap_floating_geometry_for_window(
+        Some(PanelId::Swatches),
+        false,
+        below_collapsed,
+        1.0,
+        false,
+    );
+    assert_eq!(
+        snapped_below_collapsed.outer_position,
+        [500.0, 180.0 + tab_h]
+    );
+}
+
+#[test]
+fn t384_live_drag_and_drop_parity_and_modifier_suppression_across_floating_and_torn_off_panels() {
+    let ctx = egui::Context::default();
+    ctx.set_embed_viewports(false);
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+
+    // Set up anchored stationary floating Properties at [400, 200] size [320, 420] (right = 720).
+    editor.set_panel_visible(PanelId::Properties, true);
+    editor.set_panel_placement(&ctx, PanelId::Properties, PanelPlacement::Detached);
+    editor.workspace.remember_floating_geometry(
+        PanelId::Properties,
+        WindowGeometry {
+            outer_position: [400.0, 200.0],
+            inner_size: [320.0, 420.0],
+        },
+    );
+
+    // Test live drag + release parity and ⌘/Alt bypass for Actions, Swatches, Align, and Tools.
+    for (panel, size) in [
+        (PanelId::Actions, egui::vec2(680.0, 440.0)),
+        (PanelId::Swatches, egui::vec2(324.0, 490.0)),
+        (PanelId::Align, egui::vec2(320.0, 440.0)),
+        (PanelId::Tools, egui::vec2(88.0, 360.0)),
+    ] {
+        editor.set_panel_visible(panel, true);
+        editor.set_panel_placement(&ctx, panel, PanelPlacement::Detached);
+        let start_origin = egui::pos2(900.0, 240.0);
+        editor.workspace.remember_floating_geometry(
+            panel,
+            WindowGeometry {
+                outer_position: [start_origin.x, start_origin.y],
+                inner_size: [size.x, size.y],
+            },
+        );
+        let vp_id = egui::ViewportId::from_hash_of(panel.viewport_key().unwrap());
+
+        let run_panel_frame = |ed: &mut Editor,
+                               origin: egui::Pos2,
+                               modifiers: egui::Modifiers,
+                               events: Vec<egui::Event>|
+         -> Vec<egui::ViewportCommand> {
+            let mut input = egui::RawInput {
+                viewport_id: vp_id,
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                modifiers,
+                events,
+                ..Default::default()
+            };
+            let info = egui::ViewportInfo {
+                parent: Some(egui::ViewportId::ROOT),
+                outer_rect: Some(egui::Rect::from_min_size(origin, size)),
+                inner_rect: Some(egui::Rect::from_min_size(origin, size)),
+                ..Default::default()
+            };
+            input.viewports.insert(vp_id, info);
+            let out = ctx.run(input, |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0.))
+                    .show(ctx, |ui| {
+                        let _ = ed.native_floating_panel(ui, panel, &[panel], [40.0, 120.0], 1.0);
+                    });
+                ed.finalize_panel_drag(ctx);
+            });
+            out.viewport_output
+                .get(&vp_id)
+                .map(|vo| vo.commands.clone())
+                .unwrap_or_default()
+        };
+
+        // Initial layout frame
+        let _ = run_panel_frame(&mut editor, start_origin, egui::Modifiers::NONE, vec![]);
+        let grab_local = egui::pos2(10.0, 14.0);
+        // Frame 1: Press header grip at local (10, 14) -> global (910, 254).
+        let _ = run_panel_frame(
+            &mut editor,
+            start_origin,
+            egui::Modifiers::NONE,
+            vec![
+                egui::Event::PointerMoved(grab_local),
+                crate::tests::primary_button(grab_local, true),
+            ],
+        );
+
+        // Frame 2: Live drag (still held!) so raw outer_position is [725, 204]
+        // (`5 pt` from Properties.right=720, `4 pt` from Properties.top=200).
+        // Local pos relative to start_origin (900, 240) is (725 + 10 - 900, 204 + 14 - 240) = (-165, -22).
+        let live_local = egui::pos2(-165.0, -22.0);
+        let cmds_snapped = run_panel_frame(
+            &mut editor,
+            start_origin,
+            egui::Modifiers::NONE,
+            vec![egui::Event::PointerMoved(live_local)],
+        );
+        assert!(
+            cmds_snapped.contains(&egui::ViewportCommand::OuterPosition(egui::pos2(
+                720.0, 200.0
+            ))),
+            "{panel:?}: live drag must emit OuterPosition(720, 200), got {cmds_snapped:?}"
+        );
+        let live_rect = editor
+            .live_dragged_floating_window_rect(panel, 1.0)
+            .expect("live dragged rect");
+        assert_eq!(live_rect.min, egui::pos2(720.0, 200.0));
+
+        // Frame 3: Hold `Alt` while still at the same pointer — live drag must unsnap to [725, 204]!
+        let alt_mods = egui::Modifiers {
+            alt: true,
+            ..Default::default()
+        };
+        let cmds_alt = run_panel_frame(
+            &mut editor,
+            start_origin,
+            alt_mods,
+            vec![egui::Event::PointerMoved(live_local)],
+        );
+        assert!(
+            cmds_alt.contains(&egui::ViewportCommand::OuterPosition(egui::pos2(
+                725.0, 204.0
+            ))),
+            "{panel:?}: holding Alt during live drag must suspend snapping to (725, 204)"
+        );
+
+        // Frame 4: Release `Alt` and release mouse button at `live_local` — drop must match live snap [720, 200]!
+        let _ = run_panel_frame(
+            &mut editor,
+            start_origin,
+            egui::Modifiers::NONE,
+            vec![crate::tests::primary_button(live_local, false)],
+        );
+        let dropped = editor
+            .workspace
+            .detached_geometry(panel)
+            .expect("dropped geometry");
+        assert_eq!(
+            dropped.outer_position,
+            [720.0, 200.0],
+            "{panel:?}: drop position must match live snapped position [720, 200] 1:1"
+        );
+
+        editor.set_panel_visible(panel, false);
+    }
+
+    // Verify `⌘` (`command: true`) suppresses BOTH docking and snapping even directly over a Main window dock edge!
+    editor.set_panel_visible(PanelId::Align, true);
+    editor.set_panel_placement(&ctx, PanelId::Align, PanelPlacement::Detached);
+    editor.workspace.remember_floating_geometry(
+        PanelId::Align,
+        WindowGeometry {
+            outer_position: [500.0, 300.0],
+            inner_size: [260.0, 240.0],
+        },
+    );
+    let align_vp = egui::ViewportId::from_hash_of(PanelId::Align.viewport_key().unwrap());
+    let root_size = egui::vec2(1440.0, 900.0);
+    // Register Main dock viewport first
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, root_size)),
+            ..Default::default()
+        },
+        |ctx| {
+            editor.dock_grid(ctx);
+            editor.stage(ctx);
+        },
+    );
+    assert!(
+        editor.dock_hit(egui::pos2(24.0, 400.0), 1.0).is_some(),
+        "without ⌘, x=24 is inside Left dock acceptance zone"
+    );
+
+    // Start dragging floating Align from its grip (10, 14)
+    let mut child_in = egui::RawInput {
+        viewport_id: align_vp,
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(260.0, 240.0),
+        )),
+        events: vec![
+            egui::Event::PointerMoved(egui::pos2(10.0, 14.0)),
+            crate::tests::primary_button(egui::pos2(10.0, 14.0), true),
+            egui::Event::PointerGone,
+        ],
+        ..Default::default()
+    };
+    child_in.viewports.insert(
+        align_vp,
+        egui::ViewportInfo {
+            parent: Some(egui::ViewportId::ROOT),
+            outer_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(500.0, 300.0),
+                egui::vec2(260.0, 240.0),
+            )),
+            inner_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(500.0, 300.0),
+                egui::vec2(260.0, 240.0),
+            )),
+            ..Default::default()
+        },
+    );
+    let _ = ctx.run(child_in, |ctx| {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0.))
+            .show(ctx, |ui| {
+                let _ = editor.native_floating_panel(
+                    ui,
+                    PanelId::Align,
+                    &[PanelId::Align],
+                    [248.0, 190.0],
+                    1.0,
+                );
+            });
+    });
+
+    // Drop at x=24, y=400 right on the Left dock edge WHILE holding `⌘` (`command: true`):
+    // Must NOT dock into Left rail AND must NOT snap to x=0 (`24 - 10 = 14`, or even at `x=15` -> `outer_x=5` within 8 pt of 0)!
+    let cmd_mods = egui::Modifiers {
+        command: true,
+        mac_cmd: true,
+        ..Default::default()
+    };
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, root_size)),
+            modifiers: cmd_mods,
+            events: vec![
+                egui::Event::PointerMoved(egui::pos2(15.0, 400.0)),
+                crate::tests::primary_button(egui::pos2(15.0, 400.0), false),
+            ],
+            ..Default::default()
+        },
+        |ctx| {
+            editor.dock_grid(ctx);
+            assert!(
+                editor.dock_hit(egui::pos2(15.0, 400.0), 1.0).is_none(),
+                "holding ⌘ must suppress dock_hit even right on a dock header/edge"
+            );
+            editor.finalize_panel_drag(ctx);
+        },
+    );
+    assert!(
+        !editor.workspace.is_panel_docked(PanelId::Align),
+        "holding ⌘ on release must keep Align floating instead of docking"
+    );
+    assert_eq!(
+        editor
+            .workspace
+            .detached_geometry(PanelId::Align)
+            .unwrap()
+            .outer_position,
+        [5.0, 386.0],
+        "holding ⌘ must also bypass the 8 pt snap to x=0"
+    );
+
+    // Also verify `⌘` suppresses `dock_hit` right over a docked panel's tab header (`Library`)
+    // AND verify multi-tab floating dock (`[Color, Swatches, Info]`) snaps cleanly on live drag + drop!
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, root_size)),
+            modifiers: egui::Modifiers::NONE,
+            ..Default::default()
+        },
+        |ctx| {
+            editor.menu(ctx);
+            editor.dock_grid(ctx);
+        },
+    );
+    let library_header_center = editor
+        .detached
+        .dock_groups
+        .iter()
+        .find(|g| g.tabs.iter().any(|(p, _)| *p == PanelId::Library))
+        .expect("docked Library group")
+        .header
+        .center();
+    assert!(
+        editor.dock_hit(library_header_center, 1.0).is_some(),
+        "without ⌘, hovering docked Library header hits 'Place tab'"
+    );
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, root_size)),
+            modifiers: cmd_mods,
+            ..Default::default()
+        },
+        |ctx| {
+            editor.menu(ctx);
+            editor.dock_grid(ctx);
+        },
+    );
+    assert!(
+        editor.dock_hit(library_header_center, 1.0).is_none(),
+        "holding ⌘ over docked Library header must suppress docking"
+    );
+    // Reset command modifier for subsequent frames
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, root_size)),
+            modifiers: egui::Modifiers::NONE,
+            ..Default::default()
+        },
+        |ctx| {
+            editor.menu(ctx);
+            editor.dock_grid(ctx);
+        },
+    );
+
+    editor.set_panel_visible(PanelId::Align, false);
+    let group_panels = [PanelId::Color, PanelId::Swatches, PanelId::Info];
+    for p in group_panels {
+        editor.show_panel(p);
+    }
+    let group_win = editor.workspace.float_group(
+        &group_panels,
+        PanelId::Color,
+        WindowGeometry {
+            outer_position: [900.0, 240.0],
+            inner_size: [340.0, 380.0],
+        },
+    );
+    let group_vp = egui::ViewportId::from_hash_of(group_win.viewport_key().unwrap());
+    let run_group_frame = |ed: &mut Editor,
+                           events: Vec<egui::Event>|
+     -> Vec<egui::ViewportCommand> {
+        let size = egui::vec2(340.0, 380.0);
+        let origin = egui::pos2(900.0, 240.0);
+        let mut input = egui::RawInput {
+            viewport_id: group_vp,
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+            events,
+            ..Default::default()
+        };
+        input.viewports.insert(
+            group_vp,
+            egui::ViewportInfo {
+                parent: Some(egui::ViewportId::ROOT),
+                outer_rect: Some(egui::Rect::from_min_size(origin, size)),
+                inner_rect: Some(egui::Rect::from_min_size(origin, size)),
+                ..Default::default()
+            },
+        );
+        let out = ctx.run(input, |ctx| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0.))
+                .show(ctx, |ui| {
+                    let _ =
+                        ed.native_floating_panel(ui, group_win, &group_panels, [248.0, 190.0], 1.0);
+                });
+            ed.finalize_panel_drag(ctx);
+        });
+        out.viewport_output
+            .get(&group_vp)
+            .map(|vo| vo.commands.clone())
+            .unwrap_or_default()
+    };
+    let _ = run_group_frame(&mut editor, vec![]);
+    let _ = run_group_frame(
+        &mut editor,
+        vec![
+            egui::Event::PointerMoved(egui::pos2(10.0, 14.0)),
+            crate::tests::primary_button(egui::pos2(10.0, 14.0), true),
+        ],
+    );
+    // Raw outer_position [726, 205] -> snaps flush to Properties.right (720) & top (200)
+    let group_live_local = egui::pos2(-164.0, -21.0);
+    let group_cmds = run_group_frame(
+        &mut editor,
+        vec![egui::Event::PointerMoved(group_live_local)],
+    );
+    assert!(
+        group_cmds.contains(&egui::ViewportCommand::OuterPosition(egui::pos2(
+            720.0, 200.0
+        )))
+    );
+    let _ = run_group_frame(
+        &mut editor,
+        vec![crate::tests::primary_button(group_live_local, false)],
+    );
+    assert_eq!(
+        editor
+            .workspace
+            .detached_geometry(group_win)
+            .unwrap()
+            .outer_position,
+        [720.0, 200.0]
+    );
+}
+
+#[test]
+fn t384_tightened_dock_zones_and_clean_stage_overlay_when_moving_floating_windows() {
+    let ctx = egui::Context::default();
+    ctx.set_embed_viewports(false);
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+
+    // 1) Verify edge_targets & edge_acceptance_targets stay strictly in 28..=44 * zoom across window sizes.
+    for zoom in [1.0_f32, 1.5, 2.0] {
+        let win = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0) * zoom);
+        for (edge, rect) in crate::dock_grid::edge_targets(win, zoom) {
+            let band = if edge.vertical() {
+                rect.width()
+            } else {
+                rect.height()
+            };
+            assert!(
+                (28.0 * zoom - 0.1..=44.0 * zoom + 0.1).contains(&band),
+                "visible {edge:?} band {band} must be within 28..44 * {zoom}"
+            );
+        }
+        for (edge, rect) in crate::dock_grid::edge_acceptance_targets(win, zoom) {
+            let band = if edge.vertical() {
+                rect.width()
+            } else {
+                rect.height()
+            };
+            assert!(
+                (28.0 * zoom - 0.1..=44.0 * zoom + 0.1).contains(&band),
+                "acceptance {edge:?} band {band} must be within 28..44 * {zoom}"
+            );
+        }
+    }
+
+    // 2) Screenshot 4 regression: dragging floating `Properties` over the middle of the Stage
+    //    must paint ZERO unhovered "Top"/"Bottom"/"Left"/"Right" edge overlays!
+    editor.set_panel_visible(PanelId::Properties, true);
+    editor.set_panel_placement(&ctx, PanelId::Properties, PanelPlacement::Detached);
+    editor.workspace.remember_floating_geometry(
+        PanelId::Properties,
+        WindowGeometry {
+            outer_position: [760.0, 340.0],
+            inner_size: [320.0, 320.0],
+        },
+    );
+    let props_vp = egui::ViewportId::from_hash_of(PanelId::Properties.viewport_key().unwrap());
+    let pending_props_events: Rc<RefCell<Vec<egui::Event>>> = Rc::new(RefCell::new(Vec::new()));
+    let events_cb = pending_props_events.clone();
+    egui::Context::set_immediate_viewport_renderer(move |ctx, mut viewport| {
+        let id = viewport.ids.this;
+        let events = if id == props_vp {
+            std::mem::take(&mut *events_cb.borrow_mut())
+        } else {
+            Vec::new()
+        };
+        let mut input = egui::RawInput {
+            viewport_id: id,
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(320.0, 320.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        input.viewports.insert(
+            id,
+            egui::ViewportInfo {
+                parent: Some(egui::ViewportId::ROOT),
+                outer_rect: Some(egui::Rect::from_min_size(
+                    egui::pos2(760.0, 340.0),
+                    egui::vec2(320.0, 320.0),
+                )),
+                inner_rect: Some(egui::Rect::from_min_size(
+                    egui::pos2(760.0, 340.0),
+                    egui::vec2(320.0, 320.0),
+                )),
+                ..Default::default()
+            },
+        );
+        let _ = ctx.run(input, |ctx| (viewport.viewport_ui_cb)(ctx));
+    });
+
+    let render_root = |ed: &mut Editor, root_events: Vec<egui::Event>| -> egui::FullOutput {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1920.0, 1080.0),
+                )),
+                events: root_events,
+                ..Default::default()
+            },
+            |ctx| {
+                ed.dock_grid(ctx);
+                ed.stage(ctx);
+                ed.detached_panels(ctx);
+            },
+        )
+    };
+    let has_text = |out: &egui::FullOutput, needle: &str| -> bool {
+        out.shapes.iter().any(|s| match &s.shape {
+            egui::Shape::Text(t) => t.galley.job.text == needle,
+            _ => false,
+        })
+    };
+
+    let _ = render_root(&mut editor, vec![]);
+    // Press floating Properties grip at local (10, 14) -> global (770, 354), move to (820, 380) in middle of Stage!
+    *pending_props_events.borrow_mut() = vec![
+        egui::Event::PointerMoved(egui::pos2(10.0, 14.0)),
+        crate::tests::primary_button(egui::pos2(10.0, 14.0), true),
+        egui::Event::PointerMoved(egui::pos2(60.0, 40.0)),
+    ];
+    let stage_out = render_root(&mut editor, vec![]);
+    assert!(editor.panel_drag_moved());
+    assert_eq!(
+        editor.dragged_whole_floating_window(),
+        Some(PanelId::Properties)
+    );
+    for premature in ["Top", "Bottom", "Left", "Right"] {
+        assert!(
+            !has_text(&stage_out, premature),
+            "dragging floating Properties over the Stage must NOT light up '{premature}' dock zone"
+        );
+    }
+
+    // Move within 60 pt of Top edge (`y = 95`, `content.top() = 40` -> distance = `55 <= 72`, `> 42` acceptance):
+    // ONLY `"Top"` hint appears; `"Bottom"`, `"Left"`, `"Right"` stay hidden and `dock_hit` is still None!
+    let near_top_out = render_root(
+        &mut editor,
+        vec![egui::Event::PointerMoved(egui::pos2(960.0, 95.0))],
+    );
+    assert!(editor.dock_hit(egui::pos2(960.0, 95.0), 1.0).is_none());
+    assert!(
+        has_text(&near_top_out, "Top"),
+        "moving within 72 pt of Top edge shows subtle Top edge hint"
+    );
+    for other in ["Bottom", "Left", "Right"] {
+        assert!(
+            !has_text(&near_top_out, other),
+            "distant '{other}' edge hint must remain hidden"
+        );
+    }
+
+    // Move into Top acceptance band (`y = 55`, distance `15 <= 42`): `"Dock Top"` active target lights up!
+    let hit_top_out = render_root(
+        &mut editor,
+        vec![egui::Event::PointerMoved(egui::pos2(960.0, 55.0))],
+    );
+    assert!(has_text(&hit_top_out, "Dock Top"));
 }

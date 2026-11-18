@@ -205,15 +205,15 @@ pub(crate) fn surface_viewport(surface: DockSurface) -> egui::ViewportId {
     }
 }
 
-/// Large edge targets remain available even when an area is empty. Existing
+/// Crisp edge targets remain available even when an area is empty. Existing
 /// tab headers take precedence, allowing reordering along a window edge.
 pub(crate) fn edge_targets(root: egui::Rect, zoom: f32) -> [(DockEdge, egui::Rect); 4] {
-    let x = (root.width() * 0.055)
-        .clamp(44. * zoom, 80. * zoom)
-        .min(root.width() * 0.22);
-    let y = (root.height() * 0.055)
-        .clamp(36. * zoom, 66. * zoom)
-        .min(root.height() * 0.22);
+    let x = (root.width() * 0.024)
+        .clamp(28. * zoom, 36. * zoom)
+        .min(root.width() * 0.15);
+    let y = (root.height() * 0.028)
+        .clamp(28. * zoom, 34. * zoom)
+        .min(root.height() * 0.15);
     let top = root.top();
     [
         (
@@ -244,15 +244,15 @@ pub(crate) fn edge_targets(root: egui::Rect, zoom: f32) -> [(DockEdge, egui::Rec
     ]
 }
 
-/// Pointer-only hit testing needs a more forgiving inward halo than the visible
-/// NF2 target. The returned rectangles are never painted.
+/// Pointer-only hit testing uses a slightly wider inward halo than the visible
+/// NF2 target while staying within a crisp 28..44 pt band. Never painted.
 pub(crate) fn edge_acceptance_targets(root: egui::Rect, zoom: f32) -> [(DockEdge, egui::Rect); 4] {
-    let x = (root.width() * 0.095)
-        .clamp(72. * zoom, 132. * zoom)
-        .min(root.width() * 0.30);
-    let y = (root.height() * 0.095)
-        .clamp(60. * zoom, 112. * zoom)
-        .min(root.height() * 0.30);
+    let x = (root.width() * 0.03)
+        .clamp(32. * zoom, 44. * zoom)
+        .min(root.width() * 0.15);
+    let y = (root.height() * 0.04)
+        .clamp(32. * zoom, 42. * zoom)
+        .min(root.height() * 0.15);
     [
         (
             DockEdge::Top,
@@ -1290,6 +1290,7 @@ impl Editor {
         if surface == DockSurface::Main {
             self.detached.root_inner = Some(inner * zoom);
         }
+        self.sync_command_modifier_from_viewport(ctx, surface);
         let previous = self
             .detached
             .dock_viewports
@@ -1749,6 +1750,9 @@ impl Editor {
     }
 
     pub(crate) fn dock_hit(&self, pointer: egui::Pos2, zoom: f32) -> Option<DockHit> {
+        if self.panel_drag_suppresses_dock() {
+            return None;
+        }
         let view = self.dock_surface_at(pointer).or_else(|| {
             // Standalone header harnesses and an initial frame may precede a
             // complete grid paint. Native viewports otherwise own their targets.
@@ -1768,12 +1772,18 @@ impl Editor {
                 order: 0,
             })
         })?;
-        let pointer = if view.content.contains(pointer) {
+        let pointer = if view.content.contains(pointer)
+            || self
+                .detached
+                .dock_groups
+                .iter()
+                .any(|g| g.surface == view.surface && g.header.contains(pointer))
+        {
             pointer
         } else if view.surface == DockSurface::Main && view.inner.contains(pointer) {
-            let side_band = (view.content.width() * 0.095)
-                .clamp(72. * view.zoom, 132. * view.zoom)
-                .min(view.content.width() * 0.30);
+            let side_band = (view.content.width() * 0.03)
+                .clamp(32. * view.zoom, 44. * view.zoom)
+                .min(view.content.width() * 0.15);
             if pointer.y < view.content.top()
                 && (pointer.x <= view.content.left() + side_band
                     || pointer.x >= view.content.right() - side_band)

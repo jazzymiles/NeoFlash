@@ -19,9 +19,11 @@ use std::{
 pub(crate) struct DetachedState {
     active: HashSet<PanelId>,
     applied_levels: HashMap<PanelId, egui::WindowLevel>,
+    pending_outer_positions: HashMap<PanelId, (egui::Pos2, u8)>,
     was_modal_open: bool,
     pub focus: Option<PanelId>,
     pub focus_docked_actions: bool,
+    pub(crate) command_held: bool,
     monitors: Vec<ScreenRect>,
     checked_monitors: Option<Instant>,
     drag: Option<PanelDrag>,
@@ -60,6 +62,8 @@ struct PanelDrag {
     pointer: egui::Pos2,
     grab_offset: egui::Vec2,
     window_grab_offset: egui::Vec2,
+    modifiers: egui::Modifiers,
+    last_sent_outer_pos: Option<egui::Pos2>,
     moved: bool,
     released: bool,
     began: Instant,
@@ -83,9 +87,31 @@ fn title(panel: PanelId) -> &'static str {
     panel.title()
 }
 
-const TOOLS_ANCHOR_MARGIN: f32 = 16.;
-const TOOLS_ANCHOR_DISTANCE: f32 = 112.;
+pub(crate) const TOOLS_ANCHOR_MARGIN: f32 = 16.;
+pub(crate) const TOOLS_ANCHOR_DISTANCE: f32 = 28.;
+pub(crate) const PANEL_SNAP_DISTANCE: f32 = 8.;
+const PANEL_SNAP_ABUT_GAP: f32 = 48.;
+const PANEL_SNAP_ALIGN_GAP: f32 = 360.;
+const FLOATING_DOCK_EDGE_HINT_DISTANCE: f32 = 72.;
 pub(crate) const TOOLS_GRIP: f32 = neoflash_ui::metrics::PANEL_TAB;
+
+pub(crate) fn effective_modifiers(i: &egui::InputState) -> egui::Modifiers {
+    let mut mods = i.modifiers;
+    for event in &i.events {
+        if let egui::Event::PointerButton { modifiers, .. } = event {
+            mods |= *modifiers;
+        }
+    }
+    mods
+}
+
+pub(crate) fn modifiers_suppress_snap(modifiers: egui::Modifiers) -> bool {
+    modifiers.command || modifiers.mac_cmd || modifiers.alt
+}
+
+pub(crate) fn modifiers_suppress_dock(modifiers: egui::Modifiers) -> bool {
+    modifiers.command || modifiers.mac_cmd
+}
 
 /// Width required by the locked floating-header grip, menu, collapse and close controls.
 /// Expressed only in approved NF2 metrics.
@@ -226,6 +252,169 @@ pub(crate) fn snap_tools_stage_anchor(
     Some((anchor.0, geometry))
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct FloatingSnapTargets<'a> {
+    pub other_windows: &'a [egui::Rect],
+    pub stage_rect: Option<egui::Rect>,
+    pub root_content: Option<egui::Rect>,
+    pub root_inner: Option<egui::Rect>,
+    pub monitors: &'a [ScreenRect],
+}
+
+fn interval_gap(a_min: f32, a_max: f32, b_min: f32, b_max: f32) -> f32 {
+    (b_min - a_max).max(a_min - b_max).max(0.0)
+}
+
+/// Magnetic edge and alignment snapping for every draggable floating window.
+/// Snaps X (`left`/`right`) and Y (`top`/`bottom`) independently within
+/// `PANEL_SNAP_DISTANCE * zoom` unless `suppress_snap` (`⌘` or `Alt`) is active.
+pub(crate) fn snap_floating_window_geometry(
+    mut geometry: WindowGeometry,
+    zoom: f32,
+    suppress_snap: bool,
+    targets: &FloatingSnapTargets<'_>,
+) -> WindowGeometry {
+    if suppress_snap
+        || !zoom.is_finite()
+        || zoom <= 0.0
+        || !geometry.outer_position.into_iter().all(f32::is_finite)
+        || !geometry
+            .inner_size
+            .into_iter()
+            .all(|v| v.is_finite() && v > 0.0)
+    {
+        return geometry;
+    }
+    let max_dist = PANEL_SNAP_DISTANCE * zoom;
+    let abut_gap = PANEL_SNAP_ABUT_GAP * zoom;
+    let align_gap = PANEL_SNAP_ALIGN_GAP * zoom;
+    let my = egui::Rect::from_min_size(geometry.outer_position.into(), geometry.inner_size.into());
+
+    let mut best_x: Option<(f32, u8, f32)> = None;
+    let mut best_y: Option<(f32, u8, f32)> = None;
+
+    let mut propose_x = |delta: f32, tier: u8| {
+        let dist = delta.abs();
+        if dist <= max_dist
+            && best_x.is_none_or(|(best_d, best_t, _)| {
+                dist < best_d - 1e-4 || ((dist - best_d).abs() <= 1e-4 && tier < best_t)
+            })
+        {
+            best_x = Some((dist, tier, delta));
+        }
+    };
+    let mut propose_y = |delta: f32, tier: u8| {
+        let dist = delta.abs();
+        if dist <= max_dist
+            && best_y.is_none_or(|(best_d, best_t, _)| {
+                dist < best_d - 1e-4 || ((dist - best_d).abs() <= 1e-4 && tier < best_t)
+            })
+        {
+            best_y = Some((dist, tier, delta));
+        }
+    };
+
+    // 1) Other active visible floating panel windows: flush abutment & co-aligned edges.
+    for other in targets.other_windows {
+        if !other.is_finite() || !other.is_positive() {
+            continue;
+        }
+        let y_gap = interval_gap(my.top(), my.bottom(), other.top(), other.bottom());
+        let x_gap = interval_gap(my.left(), my.right(), other.left(), other.right());
+
+        if y_gap <= abut_gap {
+            propose_x(other.right() - my.left(), 0);
+            propose_x(other.left() - my.right(), 0);
+        }
+        if x_gap <= abut_gap {
+            propose_y(other.bottom() - my.top(), 0);
+            propose_y(other.top() - my.bottom(), 0);
+        }
+        if y_gap <= align_gap {
+            propose_x(other.left() - my.left(), 1);
+            propose_x(other.right() - my.right(), 1);
+        }
+        if x_gap <= align_gap {
+            propose_y(other.top() - my.top(), 1);
+            propose_y(other.bottom() - my.bottom(), 1);
+        }
+    }
+
+    // 2) Main window inner Stage / dock-area borders (Stage inset + root_inner content edges).
+    if let Some(stage) = targets
+        .stage_rect
+        .filter(|r| r.is_finite() && r.is_positive())
+    {
+        let inset = stage.shrink(TOOLS_ANCHOR_MARGIN * zoom);
+        if inset.is_positive() {
+            let y_gap = interval_gap(my.top(), my.bottom(), stage.top(), stage.bottom());
+            let x_gap = interval_gap(my.left(), my.right(), stage.left(), stage.right());
+            if y_gap <= abut_gap {
+                propose_x(inset.left() - my.left(), 2);
+                propose_x(inset.right() - my.right(), 2);
+            }
+            if x_gap <= abut_gap {
+                propose_y(inset.top() - my.top(), 2);
+                propose_y(inset.bottom() - my.bottom(), 2);
+            }
+        }
+    }
+    let content_or_root = targets
+        .root_content
+        .filter(|r| r.is_finite() && r.is_positive())
+        .or_else(|| {
+            targets
+                .root_inner
+                .filter(|r| r.is_finite() && r.is_positive())
+        });
+    if let Some(content) = content_or_root {
+        let outer_root = targets
+            .root_inner
+            .filter(|r| r.is_finite() && r.is_positive())
+            .unwrap_or(content);
+        let y_gap = interval_gap(my.top(), my.bottom(), outer_root.top(), outer_root.bottom());
+        let x_gap = interval_gap(my.left(), my.right(), outer_root.left(), outer_root.right());
+        if y_gap <= abut_gap {
+            propose_x(content.left() - my.left(), 2);
+            propose_x(content.right() - my.right(), 2);
+            propose_x(outer_root.left() - my.right(), 2);
+            propose_x(outer_root.right() - my.left(), 2);
+        }
+        if x_gap <= abut_gap {
+            propose_y(content.top() - my.top(), 2);
+            propose_y(content.bottom() - my.bottom(), 2);
+            propose_y(outer_root.top() - my.bottom(), 2);
+            propose_y(outer_root.bottom() - my.top(), 2);
+        }
+    }
+
+    // 3) Monitor work-area edges.
+    for screen in targets.monitors {
+        if !screen.is_valid() {
+            continue;
+        }
+        let work = egui::Rect::from_min_size(screen.origin.into(), screen.size.into());
+        let y_gap = interval_gap(my.top(), my.bottom(), work.top(), work.bottom());
+        let x_gap = interval_gap(my.left(), my.right(), work.left(), work.right());
+        if y_gap <= abut_gap {
+            propose_x(work.left() - my.left(), 3);
+            propose_x(work.right() - my.right(), 3);
+        }
+        if x_gap <= abut_gap {
+            propose_y(work.top() - my.top(), 3);
+            propose_y(work.bottom() - my.bottom(), 3);
+        }
+    }
+
+    if let Some((_, _, dx)) = best_x {
+        geometry.outer_position[0] += dx;
+    }
+    if let Some((_, _, dy)) = best_y {
+        geometry.outer_position[1] += dy;
+    }
+    geometry
+}
+
 impl Editor {
     pub(crate) fn should_order_floating_windows_below_root(&self, ctx: &egui::Context) -> bool {
         self.has_modal_dialog_in(ctx)
@@ -343,33 +532,207 @@ impl Editor {
         self.detached.drag.is_some_and(|drag| drag.moved)
     }
 
+    pub(crate) fn panel_drag_suppresses_dock(&self) -> bool {
+        self.detached.command_held
+            || self
+                .detached
+                .drag
+                .is_some_and(|drag| modifiers_suppress_dock(drag.modifiers))
+    }
+
+    pub(crate) fn sync_command_modifier_from_viewport(
+        &mut self,
+        ctx: &egui::Context,
+        surface: DockSurface,
+    ) {
+        let frame_command = ctx.input(|i| modifiers_suppress_dock(effective_modifiers(i)));
+        if (self.detached.drag.is_none()
+            && (surface == DockSurface::Main
+                || !self
+                    .detached
+                    .dock_viewports
+                    .iter()
+                    .any(|v| v.surface == DockSurface::Main)))
+            || ctx.input(|i| !i.events.is_empty())
+        {
+            self.detached.command_held = frame_command;
+        } else if frame_command {
+            self.detached.command_held = true;
+        }
+    }
+
+    pub(crate) fn other_visible_floating_window_rects(
+        &self,
+        excluded_window: Option<PanelId>,
+        zoom: f32,
+    ) -> Vec<egui::Rect> {
+        if self.panels_hidden {
+            return Vec::new();
+        }
+        self.workspace
+            .floating
+            .iter()
+            .filter(|window| {
+                Some(window.id) != excluded_window
+                    && window
+                        .panels()
+                        .iter()
+                        .any(|panel| self.workspace.is_panel_visible(*panel))
+            })
+            .filter_map(|window| {
+                let collapsed = self.workspace.is_floating_window_collapsed(window.id);
+                if let Some(geom) = window.geometry {
+                    let height = if collapsed {
+                        neoflash_ui::metrics::panel_tab() * zoom
+                    } else {
+                        geom.inner_size[1]
+                    };
+                    let rect = egui::Rect::from_min_size(
+                        geom.outer_position.into(),
+                        egui::vec2(geom.inner_size[0], height),
+                    );
+                    if rect.is_finite() && rect.is_positive() {
+                        return Some(rect);
+                    }
+                }
+                if !collapsed
+                    && let Some(view) = self
+                        .detached
+                        .dock_viewports
+                        .iter()
+                        .find(|v| v.surface == DockSurface::Floating(window.id))
+                    && view.inner.is_finite()
+                    && view.inner.is_positive()
+                {
+                    return Some(view.inner);
+                }
+                None
+            })
+            .collect()
+    }
+
+    pub(crate) fn snap_floating_geometry_for_window(
+        &self,
+        excluded_window: Option<PanelId>,
+        collapsed: bool,
+        mut geometry: WindowGeometry,
+        zoom: f32,
+        suppress_snap: bool,
+    ) -> WindowGeometry {
+        if suppress_snap {
+            return geometry;
+        }
+        let other_windows = self.other_visible_floating_window_rects(excluded_window, zoom);
+        let stage_rect = self.tools_anchor_stage_rect(zoom);
+        let root_content = self
+            .detached
+            .dock_viewports
+            .iter()
+            .find(|v| v.surface == DockSurface::Main)
+            .map(|v| v.content);
+        let targets = FloatingSnapTargets {
+            other_windows: &other_windows,
+            stage_rect,
+            root_content,
+            root_inner: self.detached.root_inner,
+            monitors: &self.detached.monitors,
+        };
+        let effective = WindowGeometry {
+            outer_position: geometry.outer_position,
+            inner_size: [
+                geometry.inner_size[0],
+                if collapsed {
+                    neoflash_ui::metrics::panel_tab() * zoom
+                } else {
+                    geometry.inner_size[1]
+                },
+            ],
+        };
+        let snapped = snap_floating_window_geometry(effective, zoom, false, &targets);
+        geometry.outer_position = snapped.outer_position;
+        geometry
+    }
+
+    pub(crate) fn live_dragged_floating_window_geometry(
+        &self,
+        window_id: PanelId,
+        zoom: f32,
+        extra_modifiers: egui::Modifiers,
+    ) -> Option<WindowGeometry> {
+        let drag = self.detached.drag?;
+        if self.dragged_whole_floating_window() != Some(window_id) {
+            return None;
+        }
+        let collapsed = self.workspace.is_floating_window_collapsed(window_id);
+        let stored_size = self
+            .workspace
+            .detached_geometry(window_id)
+            .map(|g| g.inner_size)
+            .or_else(|| {
+                self.detached
+                    .dock_viewports
+                    .iter()
+                    .find(|target| target.surface == DockSurface::Floating(window_id))
+                    .map(|target| [target.inner.width(), target.inner.height()])
+            })
+            .unwrap_or_else(|| scaled_size(crate::workspace::default_window_size(window_id), zoom));
+        let visible_size = [
+            stored_size[0],
+            if collapsed {
+                neoflash_ui::metrics::panel_tab() * zoom
+            } else {
+                stored_size[1]
+            },
+        ];
+        let raw_pos = drag.pointer - drag.window_grab_offset;
+        let mut geometry = WindowGeometry {
+            outer_position: [raw_pos.x, raw_pos.y],
+            inner_size: visible_size,
+        };
+        let suppress_snap = modifiers_suppress_snap(drag.modifiers | extra_modifiers);
+        if !suppress_snap {
+            let panels = self
+                .workspace
+                .floating
+                .iter()
+                .find(|w| w.id == window_id)
+                .map(|w| w.panels())
+                .unwrap_or_else(|| vec![window_id]);
+            if !collapsed
+                && panels == [PanelId::Tools]
+                && let Some(stage) = self.tools_anchor_stage_rect(zoom)
+                && let Some((anchor, _)) = snap_tools_stage_anchor(stage, geometry, zoom)
+            {
+                let pos = anchor_position(
+                    anchor,
+                    stage,
+                    geometry.inner_size,
+                    TOOLS_ANCHOR_MARGIN * zoom,
+                );
+                geometry.outer_position = [pos.x, pos.y];
+            } else {
+                geometry = self.snap_floating_geometry_for_window(
+                    Some(window_id),
+                    false,
+                    geometry,
+                    zoom,
+                    false,
+                );
+            }
+        }
+        Some(geometry)
+    }
+
     pub(crate) fn live_dragged_floating_window_rect(
         &self,
         window_id: PanelId,
         zoom: f32,
     ) -> Option<egui::Rect> {
-        let drag = self.detached.drag?;
-        if self.dragged_whole_floating_window() != Some(window_id) {
-            return None;
-        }
-        let size = self
-            .detached
-            .dock_viewports
-            .iter()
-            .find(|target| target.surface == DockSurface::Floating(window_id))
-            .map(|target| target.inner.size())
-            .or_else(|| {
-                self.workspace
-                    .detached_geometry(window_id)
-                    .map(|g| egui::vec2(g.inner_size[0], g.inner_size[1]))
-            })
-            .unwrap_or_else(|| {
-                let s = scaled_size(crate::workspace::default_window_size(window_id), zoom);
-                egui::vec2(s[0], s[1])
-            });
+        let geometry =
+            self.live_dragged_floating_window_geometry(window_id, zoom, egui::Modifiers::NONE)?;
         Some(egui::Rect::from_min_size(
-            drag.pointer - drag.window_grab_offset,
-            size,
+            geometry.outer_position.into(),
+            geometry.inner_size.into(),
         ))
     }
 
@@ -446,6 +809,8 @@ impl Editor {
         {
             let global = (inner.min + pos.to_vec2()) * zoom;
             let origin = anchor_min.unwrap_or(response.rect.min);
+            let modifiers = ctx.input(effective_modifiers);
+            self.detached.command_held = modifiers_suppress_dock(modifiers);
             self.detached.drag = Some(PanelDrag {
                 panel,
                 group,
@@ -455,6 +820,8 @@ impl Editor {
                 pointer: global,
                 grab_offset: (pos - origin) * zoom,
                 window_grab_offset: pos.to_vec2() * zoom,
+                modifiers,
+                last_sent_outer_pos: None,
                 moved: false,
                 released: false,
                 began: Instant::now(),
@@ -609,6 +976,14 @@ impl Editor {
                 released,
             )
         });
+        let frame_mods = ctx.input(effective_modifiers);
+        if ctx.input(|i| !i.events.is_empty()) || ctx.viewport_id() == drag.source {
+            drag.modifiers = frame_mods;
+            self.detached.command_held = modifiers_suppress_dock(frame_mods);
+        } else if modifiers_suppress_dock(frame_mods) || modifiers_suppress_snap(frame_mods) {
+            drag.modifiers |= frame_mods;
+            self.detached.command_held |= modifiers_suppress_dock(frame_mods);
+        }
         if let Some(pointer) = pointer {
             drag.pointer = pointer;
         }
@@ -635,14 +1010,20 @@ impl Editor {
         self.detached.drag = Some(drag);
         if drag.moved
             && !drag.released
-            && native_pointer.is_some()
             && let Some(window_id) = self.dragged_whole_floating_window()
+            && let Some(snapped) =
+                self.live_dragged_floating_window_geometry(window_id, zoom, frame_mods)
         {
-            let position = drag.pointer - drag.window_grab_offset;
-            ctx.send_viewport_cmd_to(
-                viewport(window_id),
-                egui::ViewportCommand::OuterPosition(position / zoom),
-            );
+            let logical_pos =
+                egui::pos2(snapped.outer_position[0], snapped.outer_position[1]) / zoom;
+            if drag.last_sent_outer_pos != Some(logical_pos) {
+                drag.last_sent_outer_pos = Some(logical_pos);
+                self.detached.drag = Some(drag);
+                ctx.send_viewport_cmd_to(
+                    viewport(window_id),
+                    egui::ViewportCommand::OuterPosition(logical_pos),
+                );
+            }
         }
         ctx.request_repaint_of(egui::ViewportId::ROOT);
         for view in &self.detached.dock_viewports {
@@ -661,8 +1042,10 @@ impl Editor {
         };
         let whole_window = self.dragged_whole_floating_window();
         let whole_floating = whole_window.is_some();
-        let hit = drag
-            .moved
+        let effective_mods = drag.modifiers | ctx.input(effective_modifiers);
+        let suppress_dock = modifiers_suppress_dock(effective_mods) || self.detached.command_held;
+        let suppress_snap = modifiers_suppress_snap(effective_mods);
+        let hit = (drag.moved && !suppress_dock)
             .then(|| self.dock_hit(drag.pointer, ctx.zoom_factor()))
             .flatten();
         self.detached.drag = None;
@@ -696,19 +1079,45 @@ impl Editor {
             }
         } else {
             let zoom = ctx.zoom_factor();
-            let grouped = self
-                .workspace
-                .floating_window(drag.panel)
-                .is_some_and(|window| window.panels().len() > panels.len());
-            let mut geometry = if grouped {
-                None
+            let collapsed_whole = whole_window
+                .is_some_and(|window_id| self.workspace.is_floating_window_collapsed(window_id));
+            let mut geometry = if let Some(window_id) = whole_window {
+                let size = self
+                    .workspace
+                    .detached_geometry(window_id)
+                    .map(|g| g.inner_size)
+                    .or_else(|| {
+                        self.detached
+                            .dock_viewports
+                            .iter()
+                            .find(|target| target.surface == DockSurface::Floating(window_id))
+                            .map(|target| [target.inner.width(), target.inner.height()])
+                    })
+                    .unwrap_or_else(|| {
+                        scaled_size(crate::workspace::default_window_size(window_id), zoom)
+                    });
+                WindowGeometry {
+                    outer_position: [0., 0.],
+                    inner_size: size,
+                }
             } else {
-                self.workspace.detached_geometry(drag.panel)
-            }
-            .unwrap_or(WindowGeometry {
-                outer_position: [0., 0.],
-                inner_size: scaled_size(crate::workspace::default_window_size(drag.panel), zoom),
-            });
+                let grouped = self
+                    .workspace
+                    .floating_window(drag.panel)
+                    .is_some_and(|window| window.panels().len() > panels.len());
+                if grouped {
+                    None
+                } else {
+                    self.workspace.detached_geometry(drag.panel)
+                }
+                .unwrap_or(WindowGeometry {
+                    outer_position: [0., 0.],
+                    inner_size: scaled_size(
+                        crate::workspace::default_window_size(drag.panel),
+                        zoom,
+                    ),
+                })
+            };
             let grab_offset = if whole_floating {
                 drag.window_grab_offset
             } else if let Some(preview) = preview {
@@ -720,13 +1129,24 @@ impl Editor {
             let position = drag.pointer - grab_offset;
             geometry.outer_position = [position.x, position.y];
             let mut anchor = None;
-            if panels == [PanelId::Tools]
-                && let Some(stage) = self.tools_anchor_stage_rect(zoom)
-                && let Some((snapped, snapped_geometry)) =
-                    snap_tools_stage_anchor(stage, geometry, zoom)
-            {
-                anchor = Some(snapped);
-                geometry = snapped_geometry;
+            if !suppress_snap {
+                if !collapsed_whole
+                    && panels == [PanelId::Tools]
+                    && let Some(stage) = self.tools_anchor_stage_rect(zoom)
+                    && let Some((snapped, snapped_geometry)) =
+                        snap_tools_stage_anchor(stage, geometry, zoom)
+                {
+                    anchor = Some(snapped);
+                    geometry = snapped_geometry;
+                } else {
+                    geometry = self.snap_floating_geometry_for_window(
+                        whole_window,
+                        collapsed_whole,
+                        geometry,
+                        zoom,
+                        false,
+                    );
+                }
             }
             let window = if let Some(window) = whole_window {
                 window
@@ -740,6 +1160,10 @@ impl Editor {
             self.persist_workspace_requested = true;
             self.bottom = self.workspace.active_bottom;
             self.detached.focus = Some(drag.panel);
+            let snapped_outer = egui::pos2(geometry.outer_position[0], geometry.outer_position[1]);
+            self.detached
+                .pending_outer_positions
+                .insert(window, (snapped_outer, 2));
             let live_height = if self.workspace.is_floating_window_collapsed(window) {
                 neoflash_ui::metrics::panel_tab()
             } else {
@@ -747,9 +1171,7 @@ impl Editor {
             };
             ctx.send_viewport_cmd_to(
                 viewport(window),
-                egui::ViewportCommand::OuterPosition(
-                    egui::pos2(geometry.outer_position[0], geometry.outer_position[1]) / zoom,
-                ),
+                egui::ViewportCommand::OuterPosition(snapped_outer / zoom),
             );
             ctx.send_viewport_cmd_to(
                 viewport(window),
@@ -902,9 +1324,14 @@ impl Editor {
             egui::Order::Foreground,
             egui::Id::new(("panel-dock-target", surface)),
         ));
-        if matches!(surface, DockSurface::Floating(id) if self.dragged_whole_floating_window() == Some(id))
-        {
-            if crate::native_screens::pointer_state().is_some()
+        let effective_mods = drag.modifiers | ctx.input(effective_modifiers);
+        let suppress_dock = modifiers_suppress_dock(effective_mods) || self.detached.command_held;
+        let suppress_snap = modifiers_suppress_snap(effective_mods);
+        let whole_window = self.dragged_whole_floating_window();
+        let whole_floating = whole_window.is_some();
+        if matches!(surface, DockSurface::Floating(id) if whole_window == Some(id)) {
+            if !suppress_dock
+                && crate::native_screens::pointer_state().is_some()
                 && let Some(hit) = self.dock_hit(drag.pointer, view.zoom)
             {
                 let pointer = (drag.window_grab_offset / view.zoom).to_pos2();
@@ -918,11 +1345,44 @@ impl Editor {
             return;
         }
         let local = |rect: egui::Rect| rect.translate(-view.inner.min.to_vec2()) / view.zoom;
-        let hit = self
-            .dock_hit(drag.pointer, view.zoom)
+        let hit = (!suppress_dock)
+            .then(|| self.dock_hit(drag.pointer, view.zoom))
+            .flatten()
             .filter(|hit| hit.surface == surface);
-        for (edge, global) in edge_targets(view.content, view.zoom) {
-            neoflash_ui::components::dock_target(&painter, ctx, local(global), edge.title(), false);
+        if !suppress_dock {
+            let hint_dist = FLOATING_DOCK_EDGE_HINT_DISTANCE * view.zoom;
+            for (edge, global) in edge_targets(view.content, view.zoom) {
+                if hit.as_ref().is_some_and(|active| active.rect == global) {
+                    continue;
+                }
+                if whole_floating {
+                    let near_edge = view.inner.contains(drag.pointer)
+                        && match edge {
+                            DockEdge::Top => {
+                                (drag.pointer.y - view.content.top()).abs() <= hint_dist
+                            }
+                            DockEdge::Bottom => {
+                                (view.content.bottom() - drag.pointer.y).abs() <= hint_dist
+                            }
+                            DockEdge::Left => {
+                                (drag.pointer.x - view.content.left()).abs() <= hint_dist
+                            }
+                            DockEdge::Right => {
+                                (view.content.right() - drag.pointer.x).abs() <= hint_dist
+                            }
+                        };
+                    if !near_edge {
+                        continue;
+                    }
+                }
+                neoflash_ui::components::dock_target(
+                    &painter,
+                    ctx,
+                    local(global),
+                    edge.title(),
+                    false,
+                );
+            }
         }
         if let Some(hit) = &hit {
             neoflash_ui::components::dock_target(
@@ -940,14 +1400,57 @@ impl Editor {
             .is_some_and(|under_pointer| under_pointer.surface == surface)
         {
             let pointer = (drag.pointer - view.inner.min).to_pos2() / view.zoom;
-            if (self.dragged_whole_floating_window().is_none()
-                || crate::native_screens::pointer_state().is_none())
+            if (!whole_floating || crate::native_screens::pointer_state().is_none())
                 && let Some(preview) = &self.detached.drag_preview
                 && preview.panel == drag.panel
                 && preview.source == drag.source
             {
+                let mut preview_pos = drag.pointer - preview.grab_offset;
+                if hit.is_none() && !suppress_snap {
+                    if let Some(window_id) = whole_window {
+                        if let Some(snapped) = self.live_dragged_floating_window_geometry(
+                            window_id,
+                            view.zoom,
+                            effective_mods,
+                        ) {
+                            preview_pos = snapped.outer_position.into();
+                        }
+                    } else {
+                        let dragged_panels = drag
+                            .group
+                            .and_then(|(s, e, g)| self.current_dock_group(s, e, g))
+                            .map(|g| g.tabs.clone())
+                            .unwrap_or_else(|| vec![drag.panel]);
+                        let mut preview_geom = WindowGeometry {
+                            outer_position: preview_pos.into(),
+                            inner_size: preview.size.into(),
+                        };
+                        if dragged_panels == [PanelId::Tools]
+                            && let Some(stage) = self.tools_anchor_stage_rect(view.zoom)
+                            && let Some((anchor, _)) =
+                                snap_tools_stage_anchor(stage, preview_geom, view.zoom)
+                        {
+                            let pos = anchor_position(
+                                anchor,
+                                stage,
+                                preview_geom.inner_size,
+                                TOOLS_ANCHOR_MARGIN * view.zoom,
+                            );
+                            preview_geom.outer_position = [pos.x, pos.y];
+                        } else {
+                            preview_geom = self.snap_floating_geometry_for_window(
+                                None,
+                                false,
+                                preview_geom,
+                                view.zoom,
+                                false,
+                            );
+                        }
+                        preview_pos = preview_geom.outer_position.into();
+                    }
+                }
                 let transform = egui::emath::TSTransform {
-                    translation: (drag.pointer - preview.grab_offset - view.inner.min) / view.zoom,
+                    translation: (preview_pos - view.inner.min) / view.zoom,
                     scaling: preview.zoom / view.zoom,
                 };
                 for shape in &preview.shapes {
@@ -1091,6 +1594,9 @@ impl Editor {
         self.detached.active.retain(|id| visible.contains(id));
         self.detached
             .applied_levels
+            .retain(|id, _| visible.contains(id));
+        self.detached
+            .pending_outer_positions
             .retain(|id, _| visible.contains(id));
         self.detached.dock_viewports.retain(|v| match v.surface {
             DockSurface::Main => true,
@@ -1329,9 +1835,31 @@ impl Editor {
                     self.finish_floating_context_menu(ctx);
                     return;
                 }
+                let awaiting_outer_sync = if ctx.input(|i| i.viewport().close_requested()) {
+                    self.detached.pending_outer_positions.remove(&window_id);
+                    false
+                } else if let Some((expected_outer, remaining)) =
+                    self.detached.pending_outer_positions.get_mut(&window_id)
+                {
+                    let caught_up = ctx.input(|i| {
+                        i.viewport().outer_rect.is_some_and(|outer| {
+                            (outer.min * zoom).distance(*expected_outer) <= 1.0
+                        })
+                    });
+                    if caught_up || *remaining == 0 {
+                        self.detached.pending_outer_positions.remove(&window_id);
+                        false
+                    } else {
+                        *remaining -= 1;
+                        true
+                    }
+                } else {
+                    false
+                };
                 if !initial
                     && collapsed
                     && !recovering
+                    && !awaiting_outer_sync
                     && self.detached.drag.is_none()
                     && self.detached.resize.is_none()
                     && let Some(outer) = ctx.input(|i| {
@@ -1386,6 +1914,16 @@ impl Editor {
                         ))
                     })
                 {
+                    if awaiting_outer_sync
+                        && let Some(prev) = self
+                            .workspace
+                            .floating
+                            .iter()
+                            .find(|w| w.id == window_id)
+                            .and_then(|w| w.geometry)
+                    {
+                        geometry.outer_position = prev.outer_position;
+                    }
                     if panels == [PanelId::Tools]
                         && self
                             .workspace
@@ -1575,6 +2113,7 @@ impl Editor {
         let id = viewport(window_id);
         self.detached.active.remove(&window_id);
         self.detached.applied_levels.remove(&window_id);
+        self.detached.pending_outer_positions.remove(&window_id);
         if self.detached.drag.is_some_and(|drag| drag.source == id) {
             self.detached.drag = None;
             self.detached.drag_preview = None;
