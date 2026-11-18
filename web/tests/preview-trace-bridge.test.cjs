@@ -1212,12 +1212,33 @@ test('T-382: Safari/WebKit, Chrome/V8, Firefox stack & ErrorEvent SourceMap reso
     assert.equal(eventResolved.source, 'Rotator.as');
     assert.equal(eventResolved.line, 3);
 
-    // 5. Humanization cleans internal `__nf...` identifiers and explains `.length()` misuse:
+    // 5. Humanization cleans internal `__nf...`, Safari `Reflect.apply`, and V8 `Function.prototype.apply` leaks:
     const humanized = previewApi.humanizeRuntimeErrorMessage(
       "TypeError: figure.length is not a function. (In 'figure.length()', '__nfContainerMethod' is undefined)",
     );
     assert.ok(!humanized.includes('__nf'), `internal __nf must be stripped: ${humanized}`);
     assert.match(humanized, /without '\(\)'/);
+
+    const safariReflectLength = previewApi.humanizeRuntimeErrorMessage(
+      'Scene 1 / frame 1: TypeError: Reflect.apply requires the first argument be a function',
+      'var k = "abc".length();',
+    );
+    assert.ok(!safariReflectLength.includes('Reflect.apply'), safariReflectLength);
+    assert.ok(safariReflectLength.includes("'length' is a property — use '.length' without '()'"), safariReflectLength);
+
+    const v8ApplyLength = previewApi.humanizeRuntimeErrorMessage(
+      'TypeError: Function.prototype.apply was called on 3, which is a number and not a function',
+      'var k = ({ length: 3 }).length();',
+    );
+    assert.ok(!v8ApplyLength.includes('Function.prototype.apply'), v8ApplyLength);
+    assert.ok(v8ApplyLength.includes("'length' is a property — use '.length' without '()'"), v8ApplyLength);
+
+    const safariReflectNonFn = previewApi.humanizeRuntimeErrorMessage(
+      'TypeError: Reflect.apply requires the first argument be a function',
+      'mc.foo();',
+    );
+    assert.ok(!safariReflectNonFn.includes('Reflect.apply'), safariReflectNonFn);
+    assert.equal(safariReflectNonFn, "TypeError: 'foo' is not a function (attempted to call a non-function value)");
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -1326,7 +1347,84 @@ test('T-379 & T-382: Test Movie relays figure.length() line + sourceLine, catche
       resources: [],
     };
 
-    for (const [slug, proj] of [['tetris', tetrisProj], ['loop', loopProj]]) {
+    // 3) JS strict-mode check (`"use strict";` preserved in DOM `<script>` compilation so undeclared `tFigure = [[1]]` throws on Line 4):
+    const strictJsProj = {
+      format_version: 6,
+      name: 'StrictModeDomCheck',
+      width: 320,
+      height: 200,
+      fps: 24,
+      background: [20, 24, 30, 255],
+      script_language: 'java_script',
+      root: 'root',
+      symbols: [
+        {
+          id: 'root',
+          name: 'Scene 1',
+          kind: 'movie_clip',
+          timeline: {
+            frame_count: 1,
+            layers: [{ id: 'layer-1', name: 'Main', visible: true, locked: false, keyframes: [{ frame: 0, label: '', tween: null, elements: [] }] }],
+            scripts: [
+              {
+                frame: 0,
+                script: {
+                  language: 'java_script',
+                  source: [
+                    'stop();',
+                    'let TFigure = [[0, 1, 0]];',
+                    'trace("STRICT_BOOT");',
+                    'tFigure = [[1]];',
+                  ].join('\n'),
+                },
+              },
+            ],
+          },
+        },
+      ],
+      sources: [],
+      resources: [],
+    };
+
+    // 4) AS2 non-Array `.length()` (`"abc".length()` invoking `__nfStringApply` / `Reflect.apply`) humanization check:
+    const strLenProj = {
+      format_version: 6,
+      name: 'StringLengthCallBug',
+      width: 320,
+      height: 200,
+      fps: 24,
+      background: [20, 24, 30, 255],
+      script_language: 'action_script2',
+      root: 'root',
+      symbols: [
+        {
+          id: 'root',
+          name: 'Scene 1',
+          kind: 'movie_clip',
+          timeline: {
+            frame_count: 1,
+            layers: [{ id: 'layer-1', name: 'Main', visible: true, locked: false, keyframes: [{ frame: 0, label: '', tween: null, elements: [] }] }],
+            scripts: [
+              {
+                frame: 0,
+                script: {
+                  language: 'action_script2',
+                  source: [
+                    'stop();',
+                    'var label = "abc";',
+                    'var count = label.length();',
+                  ].join('\n'),
+                },
+              },
+            ],
+          },
+        },
+      ],
+      sources: [],
+      resources: [],
+    };
+
+    for (const [slug, proj] of [['tetris', tetrisProj], ['loop', loopProj], ['strict-js', strictJsProj], ['str-len', strLenProj]]) {
       const pPath = path.join(tempRoot, `${slug}.nflash`);
       fs.writeFileSync(pPath, JSON.stringify(proj, null, 2));
       execFileSync(bin, ['--runtime', runtimeDir, pPath, '--output', path.join(tempRoot, `preview-${slug}`), '--preview'], {
@@ -1358,6 +1456,49 @@ test('T-379 & T-382: Test Movie relays figure.length() line + sourceLine, catche
     assert.equal(tetrisErr.sourceLine, 'var n = figure.length();');
     assert.match(tetrisErr.message, /without '\(\)'/);
     assert.ok(!tetrisErr.message.includes('__nf'), `must not leak __nf helper names: ${tetrisErr.message}`);
+    const leakedGlobals = await cdp.evalJson(
+      `({ hasSlot: Object.prototype.hasOwnProperty.call(window, '__nfCompiledSlot'), hasSuppress: Object.prototype.hasOwnProperty.call(window, '__neoflashSuppressWindowError') })`,
+    );
+    assert.equal(leakedGlobals.hasSlot, false, '__nfCompiledSlot must be deleted after DOM script compilation');
+    assert.equal(leakedGlobals.hasSuppress, false, '__neoflashSuppressWindowError must be deleted after DOM script compilation');
+
+    // A2. Launch `preview-strict-js` -> `"use strict"` catches misspelled undeclared `tFigure = [[1]];` on exact Line 4!
+    serverInfo.state.clear();
+    serverInfo.state.activeRunId = 'nf-run-102';
+    cdp.consoleErrors.length = 0;
+    cdp.uncaughtExceptions.length = 0;
+
+    await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-strict-js/index.html?nf_run=nf-run-102`);
+    await waitForCondition(
+      () => serverInfo.state.events.some(e => e.kind === 'error'),
+      'strict-mode ReferenceError on tFigure = [[1]] relayed',
+    );
+    const strictErr = serverInfo.state.events.find(e => e.kind === 'error');
+    assert.equal(strictErr.sourcePath, 'Scene 1 / frame 1');
+    assert.equal(strictErr.line, 4, 'must map strict-mode undeclared assignment to exact Line 4');
+    assert.equal(strictErr.sourceLine, 'tFigure = [[1]];');
+    assert.match(strictErr.message, /tFigure is not defined/);
+    const pollutedTFigure = await cdp.evalJson(`Object.prototype.hasOwnProperty.call(window, 'tFigure')`);
+    assert.equal(pollutedTFigure, false, 'strict mode must prevent window.tFigure pollution');
+
+    // A3. Launch `preview-str-len` -> `"abc".length()` (`__nfStringApply` / `Reflect.apply`) relays humanized `.length` message on Line 3!
+    serverInfo.state.clear();
+    serverInfo.state.activeRunId = 'nf-run-103';
+    cdp.consoleErrors.length = 0;
+    cdp.uncaughtExceptions.length = 0;
+
+    await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-str-len/index.html?nf_run=nf-run-103`);
+    await waitForCondition(
+      () => serverInfo.state.events.some(e => e.kind === 'error'),
+      'non-Array "abc".length() runtime error relayed',
+    );
+    const strLenErr = serverInfo.state.events.find(e => e.kind === 'error');
+    assert.equal(strLenErr.sourcePath, 'Scene 1 / frame 1');
+    assert.equal(strLenErr.line, 3);
+    assert.equal(strLenErr.sourceLine, 'var count = label.length();');
+    assert.ok(!strLenErr.message.includes('Reflect.apply'), strLenErr.message);
+    assert.ok(!strLenErr.message.includes('Function.prototype.apply'), strLenErr.message);
+    assert.ok(strLenErr.message.includes("'length' is a property — use '.length' without '()'"), strLenErr.message);
 
     // B. Launch `preview-loop` with `?nf_run=nf-run-201`:
     //    1) Relays `unhandledrejection` mapped to Line 3 (`Promise.reject(new Error("ASYNC_REJECT_LINE_3"));`);

@@ -2480,7 +2480,8 @@ fn format_preview_output_event(
 ) {
     use crate::output_pipeline::{
         OutputEvent, OutputSeverity, OutputSource, format_structured_script_diagnostic_message,
-        humanize_script_error_reason, resolve_runtime_output_location_with_snippet,
+        humanize_script_error_reason_with_snippet, resolve_runtime_output_location_with_snippet,
+        source_line_snippet_for_output_location,
     };
 
     match item.kind {
@@ -2547,7 +2548,18 @@ fn format_preview_output_event(
                 .as_deref()
                 .and_then(|src| item.message.strip_prefix(&format!("{src}: ")))
                 .unwrap_or(&item.message);
-            let reason = humanize_script_error_reason(clean_msg);
+            let resolved_snippet = item
+                .source_line
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .or_else(|| {
+                    loc.as_ref()
+                        .and_then(|l| source_line_snippet_for_output_location(project, l))
+                });
+            let reason =
+                humanize_script_error_reason_with_snippet(clean_msg, resolved_snippet.as_deref());
             let text = format_structured_script_diagnostic_message(
                 project,
                 OutputSeverity::Error,

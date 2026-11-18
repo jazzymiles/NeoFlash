@@ -273,11 +273,36 @@
     }
     return null;
   }
-  function humanizeRuntimeErrorMessage(rawMessage){
+  function extractCalledMemberFromSnippet(snippet){
+    const text=String(snippet||'');
+    const matches=[...text.matchAll(/\.([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g)];
+    return matches.length>0?matches[matches.length-1][1]:null;
+  }
+  function humanizeRuntimeErrorMessage(rawMessage,sourceLine=null){
     let msg=String(rawMessage??'').trim();
     if(!msg)return 'Runtime error';
     msg=msg.replace(/\s*\((?:In|near)\s+'[^']*__nf[A-Za-z0-9_$]*[^']*'(?:,\s*[^)]*)?\)/g,'');
-    msg=msg.replace(/\b__nf(?:ContainerMethod|ContainerRef|As2Method|As2Value|ArrayMethod|StringMethod|DateMethod|FunctionMethod|Apply|SourceFunction)\b/g,'call');
+    msg=msg.replace(/\b__nf[A-Za-z0-9_$]+\b/g,'call');
+    const snippet=typeof sourceLine==='string'?sourceLine:'';
+    const hasLengthCall=/\.length\s*\(/.test(snippet)||/\.length\s*\(/.test(msg);
+    const applyRe=/(?:TypeError:\s*)?(?:Reflect\.apply requires the first argument be a function\.?|Reflect\.apply:\s*target is not callable\.?|Function\.prototype\.apply was called on ([^,]+),\s*which is (?:a|an) ([^\s.]+)\s+and not a function\.?)/i;
+    const applyMatch=msg.match(applyRe);
+    if(applyMatch){
+      let replacement;
+      if(hasLengthCall){
+        replacement="TypeError: 'length' is a property — use '.length' without '()'";
+      }else{
+        const member=extractCalledMemberFromSnippet(snippet);
+        if(member){
+          replacement=`TypeError: '${member}' is not a function (attempted to call a non-function value)`;
+        }else{
+          replacement='TypeError: Attempted to call a non-function value';
+        }
+      }
+      const idx=applyMatch.index??0;
+      const head=msg.slice(0,idx).trim();
+      return head?`${head} ${replacement}`:replacement;
+    }
     const arrLenMatch=msg.match(/Array\/custom member '([^']+)' is not callable\.?/);
     if(arrLenMatch){
       const member=arrLenMatch[1];
@@ -415,26 +440,26 @@
     }
     return null;
   }
-  function extractErrorReason(errorOrEvent){
+  function extractErrorReason(errorOrEvent,sourceLine=null){
     if(errorOrEvent&&typeof errorOrEvent==='object'&&!(errorOrEvent instanceof Error)){
       if('reason' in errorOrEvent){
-        return extractErrorReason(errorOrEvent.reason);
+        return extractErrorReason(errorOrEvent.reason,sourceLine);
       }
       if(errorOrEvent.error!==undefined&&errorOrEvent.error!==null){
-        const inner=extractErrorReason(errorOrEvent.error);
+        const inner=extractErrorReason(errorOrEvent.error,sourceLine);
         if(inner)return inner;
       }
-      if(typeof errorOrEvent.message==='string'&&errorOrEvent.message)return humanizeRuntimeErrorMessage(errorOrEvent.message);
+      if(typeof errorOrEvent.message==='string'&&errorOrEvent.message)return humanizeRuntimeErrorMessage(errorOrEvent.message,sourceLine);
     }
     if(errorOrEvent!==null&&errorOrEvent!==undefined&&(typeof errorOrEvent==='object'||typeof errorOrEvent==='function')){
       const name=readOwnErrorProp(errorOrEvent,'name')||errorOrEvent.constructor?.name||'';
       const msg=readOwnErrorProp(errorOrEvent,'message');
       if(typeof msg==='string'&&msg){
         const combined=name&&name!=='Error'&&!msg.startsWith(name+':')?`${name}: ${msg}`:msg;
-        return humanizeRuntimeErrorMessage(combined);
+        return humanizeRuntimeErrorMessage(combined,sourceLine);
       }
     }
-    try{return humanizeRuntimeErrorMessage(String(errorOrEvent));}catch(_){return 'Uncaught runtime error';}
+    try{return humanizeRuntimeErrorMessage(String(errorOrEvent),sourceLine);}catch(_){return 'Uncaught runtime error';}
   }
   function installOutputRelay(hostGlobal=global){
     if(!hostGlobal||typeof hostGlobal!=='object')return null;
@@ -596,7 +621,7 @@
       }else{
         flushSuppressedNotice();
       }
-      const cleanMessage=kind==='error'?humanizeRuntimeErrorMessage(message):String(message??'');
+      const cleanMessage=kind==='error'?humanizeRuntimeErrorMessage(message,location?.sourceLine):String(message??'');
       queue.push({
         seq:++seq,
         kind,
@@ -624,7 +649,7 @@
       if(errObj&&wasErrorReported(errObj))return;
       if(errObj)markReportedError(errObj);
       const loc=resolveErrorLocation(event,{hostGlobal});
-      const reason=extractErrorReason(event);
+      const reason=extractErrorReason(event,loc?.sourceLine);
       record('error',reason,loc);
     });
     hostGlobal.addEventListener?.('unhandledrejection',event=>{
@@ -633,7 +658,7 @@
       if(reasonObj&&wasErrorReported(reasonObj))return;
       if(reasonObj)markReportedError(reasonObj);
       const loc=resolveErrorLocation(event,{hostGlobal});
-      const reason=extractErrorReason(event);
+      const reason=extractErrorReason(event,loc?.sourceLine);
       record('error',`Unhandled promise rejection: ${reason}`,loc);
     });
     if(hostGlobal.console&&typeof hostGlobal.console==='object'&&!hostGlobal.console.__neoflashConsoleRelayInstalled){

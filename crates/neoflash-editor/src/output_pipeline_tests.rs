@@ -2224,4 +2224,43 @@ fn t382_multilayer_tetris_safari_error_and_preflight_compile_error_highlight_exa
         compile_lines.contains(&19),
         "Actions must highlight Line 19 on pre-flight compile failure, got: {compile_lines:?}"
     );
+
+    // 3. Verify Safari `Reflect.apply` and V8 `Function.prototype.apply` internal errors on non-Array
+    //    `.length()` (`"abc".length()`, `{ length: 3 }.length()`) and non-function member calls (`mc.foo()`)
+    //    are humanized cleanly without leaking `Reflect.apply` or `Function.prototype.apply`.
+    let safari_str_len = crate::output_pipeline::humanize_script_error_reason_with_snippet(
+        "TypeError: Reflect.apply requires the first argument be a function",
+        Some("var k = \"abc\".length();"),
+    );
+    assert!(
+        !safari_str_len.contains("Reflect.apply"),
+        "{safari_str_len}"
+    );
+    assert!(
+        safari_str_len.contains("'length' is a property — use '.length' without '()'"),
+        "{safari_str_len}"
+    );
+
+    let v8_obj_len = crate::output_pipeline::humanize_script_error_reason_with_snippet(
+        "TypeError: Function.prototype.apply was called on 3, which is a number and not a function",
+        Some("var k = ({ length: 3 }).length();"),
+    );
+    assert!(
+        !v8_obj_len.contains("Function.prototype.apply"),
+        "{v8_obj_len}"
+    );
+    assert!(
+        v8_obj_len.contains("'length' is a property — use '.length' without '()'"),
+        "{v8_obj_len}"
+    );
+
+    let safari_mc_foo = crate::output_pipeline::humanize_script_error_reason_with_snippet(
+        "TypeError: Reflect.apply requires the first argument be a function",
+        Some("mc.foo();"),
+    );
+    assert!(!safari_mc_foo.contains("Reflect.apply"), "{safari_mc_foo}");
+    assert_eq!(
+        safari_mc_foo,
+        "TypeError: 'foo' is not a function (attempted to call a non-function value)"
+    );
 }

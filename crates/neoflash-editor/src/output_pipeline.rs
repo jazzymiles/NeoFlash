@@ -2179,9 +2179,96 @@ pub(crate) fn source_line_snippet_for_output_location(
     Some(clamp_utf8_bytes(raw_line.to_owned(), 160))
 }
 
+fn snippet_has_length_call(s: &str) -> bool {
+    let mut rest = s;
+    while let Some(idx) = rest.find(".length") {
+        let after = &rest[idx + ".length".len()..];
+        if after.trim_start().starts_with('(') {
+            return true;
+        }
+        rest = after;
+    }
+    false
+}
+
+fn extract_called_member_from_snippet(snippet: &str) -> Option<&str> {
+    let bytes = snippet.as_bytes();
+    let mut last_member: Option<&str> = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'.' {
+            let start = i + 1;
+            let mut end = start;
+            while end < bytes.len()
+                && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_' || bytes[end] == b'$')
+            {
+                end += 1;
+            }
+            if end > start {
+                let first = bytes[start];
+                if !first.is_ascii_digit() {
+                    let mut p = end;
+                    while p < bytes.len() && bytes[p].is_ascii_whitespace() {
+                        p += 1;
+                    }
+                    if p < bytes.len() && bytes[p] == b'(' {
+                        last_member = snippet.get(start..end);
+                    }
+                }
+            }
+            i = end.max(i + 1);
+        } else {
+            i += 1;
+        }
+    }
+    last_member
+}
+
+fn replace_remaining_internal_nf_identifiers(input: &str) -> String {
+    if !input.contains("__nf") {
+        return input.to_owned();
+    }
+    let bytes = input.as_bytes();
+    let mut out = String::with_capacity(input.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i..].starts_with(b"__nf")
+            && (i == 0
+                || !(bytes[i - 1].is_ascii_alphanumeric()
+                    || bytes[i - 1] == b'_'
+                    || bytes[i - 1] == b'$'))
+        {
+            let mut end = i + 4;
+            while end < bytes.len()
+                && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_' || bytes[end] == b'$')
+            {
+                end += 1;
+            }
+            if end > i + 4 {
+                out.push_str("call");
+                i = end;
+                continue;
+            }
+        }
+        let ch = input[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
 /// Clean internal `__nf...` compiler identifiers and expand cryptic runtime errors (such as calling
-/// numeric `.length` as `.length()`) into clear, actionable explanations.
+/// numeric `.length` as `.length()` or Safari/V8 `Reflect.apply` / `Function.prototype.apply` leaks)
+/// into clear, actionable explanations.
+#[allow(dead_code)]
 pub(crate) fn humanize_script_error_reason(raw: &str) -> String {
+    humanize_script_error_reason_with_snippet(raw, None)
+}
+
+pub(crate) fn humanize_script_error_reason_with_snippet(
+    raw: &str,
+    snippet: Option<&str>,
+) -> String {
     let mut text = raw.trim().to_owned();
     if text.is_empty() {
         return "Script error".to_owned();
@@ -2223,12 +2310,35 @@ pub(crate) fn humanize_script_error_reason(raw: &str) -> String {
         ("__nfStringMethod", "String member"),
         ("__nfDateMethod", "Date member"),
         ("__nfFunctionMethod", "Function member"),
+        ("__nfStringApply", "function call"),
+        ("__nfArrayApply", "function call"),
+        ("__nfVectorApply", "function call"),
         ("__nfApply", "function call"),
         ("__nfSourceFunction", "function"),
     ] {
         if text.contains(internal) {
             text = text.replace(internal, clean);
         }
+    }
+    text = replace_remaining_internal_nf_identifiers(&text);
+
+    let snippet_str = snippet.unwrap_or("");
+    let has_length_call = snippet_has_length_call(snippet_str) || snippet_has_length_call(&text);
+    let is_apply_non_function = text
+        .contains("Reflect.apply requires the first argument be a function")
+        || text.contains("Reflect.apply: target is not callable")
+        || (text.contains("Function.prototype.apply was called on ")
+            && text.contains("and not a function"));
+    if is_apply_non_function {
+        if has_length_call {
+            return "TypeError: 'length' is a property — use '.length' without '()'".to_owned();
+        }
+        if let Some(member) = extract_called_member_from_snippet(snippet_str) {
+            return format!(
+                "TypeError: '{member}' is not a function (attempted to call a non-function value)"
+            );
+        }
+        return "TypeError: Attempted to call a non-function value".to_owned();
     }
 
     if let Some(idx) = text.find("Array/custom member '") {
@@ -2328,22 +2438,22 @@ pub(crate) fn format_structured_script_diagnostic_message(
         OutputSeverity::Info => "[Info]",
         OutputSeverity::Trace => "[trace]",
     };
+    let snippet = explicit_snippet
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| clamp_utf8_bytes(s.to_owned(), 160))
+        .or_else(|| loc.and_then(|l| source_line_snippet_for_output_location(project, l)));
     let stripped = strip_redundant_diagnostic_prefixes(raw_message, fallback_source);
-    let reason = humanize_script_error_reason(stripped);
+    let reason = humanize_script_error_reason_with_snippet(stripped, snippet.as_deref());
     let header = format_authored_output_location(project, loc, fallback_source, fallback_line);
     let first_line = match header {
         Some(hdr) => format!("{badge} {hdr}: {reason}"),
         None => format!("{badge} {reason}"),
     };
-    if severity == OutputSeverity::Error {
-        let snippet = explicit_snippet
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(|s| clamp_utf8_bytes(s.to_owned(), 160))
-            .or_else(|| loc.and_then(|l| source_line_snippet_for_output_location(project, l)));
-        if let Some(code_line) = snippet {
-            return format!("{first_line}\n  > {code_line}");
-        }
+    if severity == OutputSeverity::Error
+        && let Some(code_line) = snippet
+    {
+        return format!("{first_line}\n  > {code_line}");
     }
     first_line
 }

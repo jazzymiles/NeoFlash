@@ -116,8 +116,11 @@
     const bodyStartLine = lineBase + headerLines.length;
     const codeLineCount = Math.max(1, String(bodyCode || '').split('\n').length);
     const bodyEndLine = bodyStartLine + codeLineCount - 1;
-    const scriptText = `${padding}globalThis.__nfCompiledSlot = function(${paramList.join(', ')}) {${headerLines.length > 1 ? '\n' + headerLines.slice(1).join('\n') : ''}\n${bodyCode}\n${footerCode}\n//# sourceURL=${url}`;
+    const scriptText = `${padding}globalThis.__nfCompiledSlot = function(${paramList.join(', ')}) {${headerLines[0] ? ' ' + headerLines[0] : ''}${headerLines.length > 1 ? '\n' + headerLines.slice(1).join('\n') : ''}\n${bodyCode}\n${footerCode}\n//# sourceURL=${url}`;
+    const hadPrevSuppress = Object.prototype.hasOwnProperty.call(global, '__neoflashSuppressWindowError');
     const prevSuppress = global.__neoflashSuppressWindowError;
+    const hadPrevSlot = Object.prototype.hasOwnProperty.call(global, '__nfCompiledSlot');
+    const prevSlot = global.__nfCompiledSlot;
     global.__neoflashSuppressWindowError = true;
     global.__nfCompiledSlot = null;
     try {
@@ -127,7 +130,6 @@
       if (typeof el.remove === 'function') el.remove();
       else if (el.parentNode && typeof el.parentNode.removeChild === 'function') el.parentNode.removeChild(el);
       const compiledFn = global.__nfCompiledSlot;
-      global.__nfCompiledSlot = null;
       if (typeof compiledFn === 'function') {
         nextDomScriptLineBase = bodyEndLine + 8;
         if (unit && typeof unit === 'object') {
@@ -141,9 +143,12 @@
         return compiledFn;
       }
     } catch (_) {
-      global.__nfCompiledSlot = null;
+      // Syntax errors fall back to `new Function` so standard diagnostics fire cleanly.
     } finally {
-      global.__neoflashSuppressWindowError = prevSuppress;
+      if (hadPrevSlot) global.__nfCompiledSlot = prevSlot;
+      else delete global.__nfCompiledSlot;
+      if (hadPrevSuppress) global.__neoflashSuppressWindowError = prevSuppress;
+      else delete global.__neoflashSuppressWindowError;
     }
     return null;
   }
