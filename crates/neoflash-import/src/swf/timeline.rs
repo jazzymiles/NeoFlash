@@ -399,6 +399,27 @@ pub(crate) fn build_project_from_swf(
         location,
         builder.report,
     );
+    if publication_bitmap_budget.is_some_and(|n| n > MAX_BITMAP_BYTES) {
+        // Registering a SWF bitmap creates a helper symbol for direct PlaceObject placements.
+        // A brush-only dictionary image already lives in resources. Its unused helper must
+        // not turn that image into an additional authored bitmap surface for validation.
+        let mut placed = HashSet::new();
+        for symbol in &project.symbols {
+            for frame in symbol.timeline.layers.iter().flat_map(|l| &l.keyframes) {
+                for element in &frame.elements {
+                    if let ElementKind::Instance { symbol_id, .. } = &element.kind {
+                        placed.insert(symbol_id.clone());
+                    }
+                }
+            }
+        }
+        project.symbols.retain(|symbol| {
+            symbol.folder != "Bitmaps"
+                || symbol.linkage_id.is_some()
+                || symbol.class_name.is_some()
+                || placed.contains(&symbol.id)
+        });
+    }
     inline_single_use_dictionary_shapes(&mut project, builder.report, location);
     project.script_language = Some(
         if inspection.as3_flag || !project.sources.is_empty() || project.document_class.is_some() {
