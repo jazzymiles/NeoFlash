@@ -47,10 +47,10 @@ D1.shortcutsPage = () => {
   markGrow(list, true, true);
   return [
     row({ name: 'Shortcut set', w: 'fill', gap: 'gap/control' }, [K.select('NeoFlash default', { w: 'width/field-m' }), K.btn('Duplicate', { kind: 'Ghost' }),
-      K.btn('Rename', { kind: 'Ghost', state: 'Disabled' }), K.btn('Delete', { kind: 'Ghost' }), spacer(), K.btn('Export as HTML…')]),
+      K.btn('Rename', { kind: 'Ghost', state: 'Disabled' }), K.btn('Delete', { kind: 'Ghost' })]),
     row({ name: 'Filter', w: 'fill', gap: 'gap/control' }, [K.search('keyframe', { clear: true }), K.select('All commands', { w: 'width/field-m' }), K.check('Only assigned', false), K.badge('1 conflict', 'Warning')]),
     list,
-    row({ name: 'List actions', w: 'fill', gap: 'gap/control' }, [K.btn('Reset command', { kind: 'Ghost' })])];
+    row({ name: 'List actions', w: 'fill', gap: 'gap/control' }, [K.btn('Reset command', { kind: 'Ghost' }), K.btn('Export as HTML…', { kind: 'Ghost' })])];
 };
 // ---- AI: one row per connection
 D1.aiRow = (name, sub, badge, tone, sel) => row({ name: 'Connection / ' + name, w: 'fill', h: 'size/row', pad: [0, 'pad/field'], gap: 'gap/control', fill: sel ? 'bg/selected' : null, stroke: 'border/subtle', sides: [0, 0, 1, 0] },
@@ -109,7 +109,8 @@ D1.prefPages = {
     K.formRow('Compiler', [K.check('Strict mode', true), K.check('Treat warnings as errors', false), K.check('Publish on save', false)]),
     S.group('Compression'),
     K.formRow('Images', [K.slider({ w: 'width/field-m' }), K.small('JPEG 80')]),
-    K.formRow('Audio', [K.select('MP3 128 kbps', { w: 'width/field-m' }), K.select('GPU (WebGL)', { label: 'Acceleration', w: 'width/field-l' })]),
+    K.formRow('Audio', [K.select('MP3 128 kbps', { w: 'width/field-m' })]),
+    K.formRow('Acceleration', [K.select('GPU (WebGL)', { w: 'width/field-m' })]),
     K.formRow('Sequences', [K.select('Keep individual frames', { w: 'width/field-l' })]),
     K.formRow('Sequence import', [K.select('Keyframes on layer', { w: 'width/field-l' }), K.num('Step', '1', null, { w: 'width/field-s' })])],
   AI: () => [S.group('Connections'),
@@ -149,7 +150,7 @@ async function nf3BuildDialogsA() {
     two('Code editor', 'Timeline'), { noteW: 1100 }));
   out.push(nfBoard(page, 'Dialog / Preferences — Drawing, Clipboard', 'Every option has a row label in the label column; the five Recognition selects share one width. Nothing removed against v2.25.',
     two('Drawing', 'Clipboard'), { noteW: 1100 }));
-  out.push(nfBoard(page, 'Dialog / Preferences — Shortcuts, Publish', 'Shortcuts: set select with Duplicate / Rename / Delete and Export as HTML… in the page header row, search and filters in the second row, one size/row per command (name · conflict badge · key caps) in a list that fills the page, Reset command under the list. Publish: Acceleration sits beside Audio with its label inside the field.',
+  out.push(nfBoard(page, 'Dialog / Preferences — Shortcuts, Publish', 'Shortcuts: set select with Duplicate / Rename / Delete in the page header row, search and filters in the second row, one size/row per command (name · conflict badge · key caps) in a list that fills the page, Reset command and Export as HTML… under the list. Publish: Audio and Acceleration are two rows of the form grid, each with its label in the label column.',
     two('Shortcuts', 'Publish'), { noteW: 1100 }));
   out.push(nfBoard(page, 'Dialog / Preferences — AI, Updates', 'AI: one row per connection (name · provider and model · status badge), actions under the list. Updates: beta wording of the application — version line, Check now, channel, and the telemetry and extension options that are not available yet shown disabled.',
     two('AI', 'Updates'), { noteW: 1100 }));

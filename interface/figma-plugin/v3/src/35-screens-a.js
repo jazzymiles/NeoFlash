@@ -121,8 +121,9 @@ SC.rows = hand => [
   ['hand', { sel: true, icon: 'masked' }, hand],
   ['body', { mode: 'Multiply' }, [[18, 'classic'], [20, 'broken'], [82, 'static', { end: true }]]],
   ['music.mp3', { icon: 'sound', mode: false }, [[120, 'sound']]]];
-// Timeline at the minimum window width: the zoom slider leaves the controls row (it is in the "more" menu there).
-SC.narrowTimeline = () => { const tl = S.timeline(), c = tl.children[1].children; c[c.length - 2].remove(); return tl; };
+// Timeline at the minimum window width: the zoom slider and Centre playhead leave the controls row (they are in the
+// "more" menu there, the first two steps of the hide-by-priority order).
+SC.narrowTimeline = () => { const tl = S.timeline(), c = tl.children[1].children, slider = c[c.length - 2], centre = c[c.length - 3]; slider.remove(); centre.remove(); return tl; };
 // The Actions panel as a bottom-dock tab, scrolled to lines 13–20 so the code hint and the error peek are in view.
 SC.actionsDock = h => {
   const p = SC.retab(P2.actions('full'), [['Timeline', 'film'], ['Actions', 'code'], 'Output', 'Compiler errors'], 1);
@@ -215,7 +216,7 @@ SC.symbolPicker = () => P2.popover('Symbols and scenes', {}, [
 
 async function nf3BuildScreensA() {
   const page = await nfMaster(), out = [];
-  SC.board(page, out, 'Screen / Editor — minimum window 1024 × 720', 'Smallest supported window (R-078), 1024 × 720 as literals. Dock height cap: the bottom dock keeps height/bottom-dock, which leaves a Stage row of 384 pt in Normal (422 Compact, 456 Classic Flash), above the 360 pt minimum; a taller dock is capped at window height − bars − 360. Tools overflow: the one-column rail starts under the ruler beside the scene pill, keeps the first four tools and puts the rest behind ⋯, while Hand / Zoom, the colour chips and Snap stay pinned. Stage fit: the document is shown at Fit (56 %) in the area right of the rail. The Timeline zoom slider moves into the ⋯ menu of the controls row at this width.',
+  SC.board(page, out, 'Screen / Editor — minimum window 1024 × 720', 'Smallest supported window (R-078), 1024 × 720 as literals. Dock height cap: the bottom dock keeps height/bottom-dock, which leaves a Stage row of 384 pt in Normal (422 Compact, 456 Classic Flash), above the 360 pt minimum; a taller dock is capped at window height − bars − 360. Tools overflow: the one-column rail starts under the ruler beside the scene pill, keeps the first four tools and puts the rest behind ⋯, while Hand / Zoom, the colour chips and Snap stay pinned. Stage fit: the document is shown at Fit (56 %) in the area right of the rail. The Timeline zoom slider and Centre playhead move into the ⋯ menu of the controls row at this width.',
     SC.shell({ w: 1024, h: 720, bottom: SC.narrowTimeline(), stageArt: SC.art(0.75), zoom: '56%' }));
   SC.board(page, out, 'Screen / Editor — Actions', 'The Actions panel is a tab of the bottom dock (380 pt here) and reuses Panel / Actions unchanged: one toolbar row, toolbox and script navigator in the sidebar, the code scrolled to the caret with the code hint and the error peek, pinned script tabs with the caret position in the footer. The Stage keeps the document at 60 %.',
     SC.shell({ bottom: SC.actionsDock(380), bottomH: 380, stageArt: SC.art(0.8), zoom: '60%' }));

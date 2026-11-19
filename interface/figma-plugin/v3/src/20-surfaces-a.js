@@ -66,7 +66,7 @@ S.densityTriple = build => row({ name: 'Three paradigms', gap: 40, align: 'MIN' 
   const c = col({ name: d, gap: 12 }, [txt(d, 'Title', 'text/primary')].concat(build())); nfMode(c, null, d); return c; }));
 S.PRINCIPLES = [
   ['Density is a property of every atom', 'Heights, inner paddings, gaps, toggle sizes, radii, label columns and default panel widths come from one “NF3 · Density” collection. Type scale and colours stay the same in Normal, Compact and Classic Flash.'],
-  ['Normal is already compact', 'Controls 26 pt (were 32), rows 24, inspector 264 pt (was 320). Compact 22 / 240, Classic Flash 20 / 224.'],
+  ['Density removes waste, not breathing room', 'A denser paradigm lowers heights and default widths: controls 28 / 24 / 22 pt (were 32), inspector 288 / 264 / 248 pt (was 320). The gap between controls (8 / 6 / 6), field padding (10 / 8 / 8) and panel padding (14 / 12 / 10) have floors; tools, the top bar and tabs stay larger than form controls.'],
   ['Nothing jumps', 'One size per dialog and density; a dock keeps its width across tabs; scroll areas never shrink to content; a control keeps its label and place in every context; a row never overflows its panel.'],
   ['One form grid', 'Inspector rows are two equal columns with the label inside the field. Dialogs use a label column and controls at their natural width; a select is never stretched to the dialog.'],
   ['One row per record', 'A colour, a shortcut, a layer, a publish target: one row of size/control with its actions at the end.'],

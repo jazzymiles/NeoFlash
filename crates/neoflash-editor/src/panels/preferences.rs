@@ -2158,8 +2158,8 @@ fn prefs_publish(ui: &mut Ui, draft: &mut PreferencesDraft) {
                 }
             }
         });
-        // Second control of the row: its caption stands in for the label column.
-        caption(ui, "Acceleration");
+    });
+    row(ui, "Acceleration", |ui| {
         c::Select::new(
             ui.id().with("prefs-publish-acceleration"),
             draft.publish.acceleration.label(),

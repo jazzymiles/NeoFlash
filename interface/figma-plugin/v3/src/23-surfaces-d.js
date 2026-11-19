@@ -73,7 +73,7 @@ S.studio = () => {
     K.select('Light', { w: 'width/field-s' }), K.seg(['Normal', 'Compact', 'Classic', 'All'], 3), divider(true),
     K.ibtn('undo'), K.ibtn('redo', { state: 'Disabled' }),
     spacer(), K.select('File', { w: 'width/field-s' }), K.btn('Export code', { kind: 'Primary', icon: 'code' })]);
-  const H = [['Properties — Movie clip', 0, true, 'sidebar', '264 × auto'], ['Type header', 1, null, 'text', null], ['Name', 1, null, 'text', '100 % × auto', true], ['Position and size', 1, true, 'folderopen', null], ['X · Y', 2, null, 'text', '50 · 50 %'],
+  const H = [['Properties — Movie clip', 0, true, 'sidebar', '288 × auto'], ['Type header', 1, null, 'text', null], ['Name', 1, null, 'text', '100 % × auto', true], ['Position and size', 1, true, 'folderopen', null], ['X · Y', 2, null, 'text', '50 · 50 %'],
     ['W · H', 2, null, 'text', '50 · 50 %'], ['Scale X · Scale Y', 2, null, 'text', '50 · 50 %'], ['Rotation · Skew', 2, null, 'text', '50 · 50 %'], ['Display', 1, true, 'folderopen', null], ['Visible · Cache as bitmap', 2, null, 'check', 'hug'], ['Blend · Render', 2, null, 'text', '50 · 50 %']];
   const left = col({ name: 'Hierarchy', w: 'width/tree', fill: 'bg/app', stroke: 'border/subtle', sides: [0, 1, 0, 0] }, [
     row({ name: 'Tabs', w: 'fill', h: 'size/tab', pad: [0, 4, 0, 0], stroke: 'border/subtle', sides: [0, 0, 1, 0] }, [K.tab('Hierarchy', true), K.tab('Add', false), spacer(), K.ibtn('folderplus'), K.ibtn('trash')]),
@@ -89,7 +89,7 @@ S.studio = () => {
     K.section('Node'), K.body([K.field('Label', 'Name'), K.line([K.check('Visible', true), K.check('Enabled', true)])]),
     K.section('Box sizing'), K.body([K.pair(K.select('Percent', { label: 'W' }), K.num('', '100', '%')), K.pair(K.select('Auto', { label: 'H' }), K.field('', 'Hug content', { state: 'Disabled' })),
       K.seg(['25', '33', '50', '100', 'Auto'], 3, { w: 'fill' }), K.pair(K.num('Min W', '0', 'px'), K.num('Max W', '0', 'px'))]),
-    K.section('Spacing from the density system'), K.body([K.pair(K.select('gap/control', { label: 'Gap' }), K.field('', '6 · 4 · 4', { state: 'Disabled' })), K.pair(K.select('pad/panel', { label: 'Pad' }), K.field('', '12 · 8 · 6', { state: 'Disabled' }))]),
+    K.section('Spacing from the density system'), K.body([K.pair(K.select('gap/control', { label: 'Gap' }), K.field('', '8 · 6 · 6', { state: 'Disabled' })), K.pair(K.select('pad/panel', { label: 'Pad' }), K.field('', '14 · 12 · 10', { state: 'Disabled' }))]),
     K.section('Typography'), K.body([K.select('Body 11 / 14', { label: 'Style' })])]);
   markGrow(right, false, true);
   const foot = row({ name: 'Studio status', w: 'fill', h: 'size/status', pad: [0, 'pad/dialog'], gap: 'gap/section', fill: 'bg/app', stroke: 'border/subtle', sides: [1, 0, 0, 0] }, [K.small('Properties — Movie clip · 38 nodes'), spacer(), K.small('Saved to target/ui-studio/layout.json')]);

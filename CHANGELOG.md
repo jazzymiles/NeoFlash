@@ -14,11 +14,12 @@
   symbol** and **Duplicate symbol** as icon buttons), and **Used colours** shows one row per colour (swatch, hex with
   alpha, usage, **Select on stage**) with `Only on stage` and **Import palette…** in the section header and a
   one-line **Replace** bar. **Publish settings** lists targets in a sidebar with one `Browse…` output row for every
-  target and profile actions in a ⋯ menu. **Scripting Reference** is now an API browser for exactly one language at
+  target and profile actions in a ⋯ menu; in **Preferences ▸ Publish**, **Acceleration** has its own row under
+  **Audio**. **Scripting Reference** is now an API browser for exactly one language at
   a time (ActionScript 2, ActionScript 3 or JavaScript / TypeScript, defaulting to the project language): packages
   and classes, members with their support status in NeoFlash, signatures, parameters, examples and **Insert at
   cursor**, plus plain **Guides**; Help has its own window with a chapter tree and page outline. The **Tools**
-  palette has no clipped title or empty cells and uses size-matched 16 px tool icons in Compact and Classic Flash
+  palette has no clipped title or empty cells and uses size-matched 16 px tool icons in Classic Flash
   (14 new icon masters; PolyStar, Fit and Zoom redrawn to the same optical size). The top bar collapses its menus
   into one button on narrow windows instead of pushing **Test Movie** and **Publish** off-screen. **UI Layout
   Studio** has a one-row toolbar and previews a panel in all three densities at once. Saved workspaces and the

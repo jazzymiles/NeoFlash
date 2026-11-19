@@ -68,7 +68,7 @@ P2.motionEditor = () => {
   const graph = col({ name: 'Graph', w: 'fill', h: 'fill', clip: true }, [P2.meRow('size/timeline-ruler', false, ruler, { pad: 0, gap: 0, fill: 'bg/panel' })]
     .concat(P2.ME.map(m => m.length === 1 ? P2.meRow('size/section', false, [], { pad: 0 }) : P2.meRow(m[5] ? 88 : H, m[5], [P2.meCurve(m, m[5] ? 80 : 20)], { pad: 0 }))));
   P2.playhead(graph, 295);
-  return K.panel('Motion editor', { tabs: ['Motion editor', 'Timeline'], w: 1120, h: 480 }, [
+  return K.panel('Motion editor', { tabs: ['Motion editor', 'Timeline'], w: 1120, h: 540 }, [
     P2.dockBar([txt('Wiggler', 'Body Strong', 'text/primary'), K.num('Freq', '3.0', 'Hz', { w: 'width/field-s' }), K.num('Mag', '12.0', 'px', { w: 'width/field-s' }), K.btn('Apply wiggler'), divider(true),
       txt('Motion sketch', 'Body Strong', 'text/primary'), K.num('Smooth', '0.0', null, { w: 'width/field-s' }), K.btn('Capture sketch')]),
     P2.main([left, graph]),
