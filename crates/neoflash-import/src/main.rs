@@ -3,7 +3,7 @@ use neoflash_import::{
     Diagnostic, FigmaImportOptions, ImportError, ImportFormat, ImportReport, PsdImportOptions,
     Severity, Statistics, VectorImportOptions, import_act_palette, import_ase_palette,
     import_clr_palette, import_figma_path, import_fxg_str, import_numbered_image_sequence_paths,
-    import_pdf_ai_with_options, import_psd_path,
+    import_pdf_ai_with_options, import_psd_path, import_svg_with_options,
 };
 use std::{
     env,
@@ -139,7 +139,15 @@ fn import_or_inspect_paths(
                 let (project, report) = import_psd_path(path, &PsdImportOptions::default())?;
                 return Ok((Some(project), report));
             }
-            "pdf" | "ai" => {
+            "svg" => {
+                let (project, report) = import_svg_with_options(
+                    &fs::read_to_string(path)?,
+                    &stem_string(path),
+                    &VectorImportOptions::default(),
+                )?;
+                return Ok((Some(project), report));
+            }
+            "pdf" | "ai" | "eps" => {
                 let bytes = fs::read(path)?;
                 let source_name = stem_string(path);
                 let (project, mut report) = import_pdf_ai_with_options(

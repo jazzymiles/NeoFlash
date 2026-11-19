@@ -380,11 +380,25 @@ fn aep_export_preserves_vectors_gradients_precomps_footage_and_compiles_scripts_
     fs::create_dir_all(&dir).unwrap();
     let aep_out = dir.join("aurora_interchange.aep");
 
-    let report = export_project_aep(&project, &aep_out, &AepOptions::default())
-        .expect("export_project_aep succeeds");
+    let report = export_project_aep(
+        &project,
+        &aep_out,
+        &AepOptions {
+            use_native_writer: false,
+            ..AepOptions::default()
+        },
+    )
+    .expect("export_project_aep succeeds");
 
-    assert!(report.aep_path.exists());
-    assert!(report.aepx_path.as_ref().unwrap().exists());
+    assert!(report.aep_path.is_none() && report.aepx_path.is_none());
+    assert!(!aep_out.exists() && !aep_out.with_extension("aepx").exists());
+    assert_eq!(report.output_path, aep_out.with_extension("jsx"));
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "AE_NATIVE_WRITER_UNAVAILABLE")
+    );
     assert!(report.jsx_path.as_ref().unwrap().exists());
     assert_eq!(report.composition_count, 2);
     assert!(report.vector_shape_layer_count >= 3);
@@ -404,28 +418,19 @@ fn aep_export_preserves_vectors_gradients_precomps_footage_and_compiles_scripts_
         Some("webp")
     );
 
-    // Verify RIFX / Egg! binary container magic & chunks
-    let aep_bytes = fs::read(&report.aep_path).unwrap();
-    assert_eq!(&aep_bytes[0..4], b"RIFX");
-    assert_eq!(&aep_bytes[8..12], b"Egg!");
-    assert!(aep_bytes.windows(4).any(|w| w == b"Cdta"));
-    assert!(aep_bytes.windows(4).any(|w| w == b"shap"));
-    assert!(aep_bytes.windows(4).any(|w| w == b"expr"));
-
-    // Verify `.aepx` XML contains VectorGroup Bezier paths & translated Expressions
-    let xml = fs::read_to_string(report.aepx_path.as_ref().unwrap()).unwrap();
-    assert!(xml.contains("<AfterEffectsProject"));
-    assert!(xml.contains("<BezierPath"));
-    assert!(xml.contains("<Expression property=\"Rotation\">"));
-    assert!(xml.contains("<Expression property=\"TimeRemap\">"));
-    assert!(xml.contains("<Expression property=\"SourceText\">"));
-
     // Verify `.jsx` ExtendScript parses AND executes cleanly against an AE ExtendScript DOM mock,
     // and verify every generated AE JavaScript Expression evaluates to exact runtime values!
     let jsx_path = report.jsx_path.as_ref().unwrap();
     let jsx_text = fs::read_to_string(jsx_path).unwrap();
     assert!(jsx_text.contains("ADBE Vector Shape - Group"));
     assert!(jsx_text.contains("ADBE Vector Graphic - G-Fill"));
+    assert!(jsx_text.contains("0.00% #14DCB4FF, 100.00% #2850FFFF"));
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .any(|note| note.code == "AE_GRADIENT_STOPS_MANUAL")
+    );
     assert!(jsx_text.contains("ADBE Time Remapping"));
 
     let harness_path = dir.join("verify_ae_dom_and_expressions.cjs");
@@ -713,7 +718,7 @@ fn t259_export_hardening_smoothing_false_banner_clicktag_and_aep_edge_cases() {
             source: "var my_currentframe = 10;\n// pipe | comment\n".into(),
         },
     });
-    let report = export_project_aep(&proj, dir.join("hardened.aep"), &AepOptions::default())
+    let report = export_project_aep(&proj, dir.join("hardened.jsx"), &AepOptions::default())
         .expect("export hardened AEP");
     assert!(
         report

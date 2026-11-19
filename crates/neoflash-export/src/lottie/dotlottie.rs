@@ -271,9 +271,16 @@ fn validate_lottie_asset_references(
         if let Some(p) = asset["p"].as_str() {
             let embedded = asset["e"].as_i64().unwrap_or(0) == 1;
             if embedded {
-                if !p.starts_with("data:image/") {
+                let audio = asset["t"].as_u64() == Some(2);
+                let valid = if audio {
+                    p.starts_with("data:audio/wav;base64,")
+                        || p.starts_with("data:audio/mpeg;base64,")
+                } else {
+                    p.starts_with("data:image/")
+                };
+                if !valid {
                     return Err(ExportError::Options(format!(
-                        "Embedded Lottie image asset '{id}' does not use a valid data:image/* URI."
+                        "Embedded Lottie asset '{id}' has a data URI inconsistent with its media type."
                     )));
                 }
             } else {

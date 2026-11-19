@@ -6938,10 +6938,30 @@ fn t253_t217_video_edit_workspace_razor_linked_montage_trim_extract_audio_and_sy
     assert_eq!(imported_span.end_offset_ms, Some(500));
     assert!(!imported_span.muted);
 
+    let mut preview = Editor::from_project(&ctx, editor.project.clone());
+    preview.set_playing(true);
+    preview.pump_timeline_video();
+    preview.pump_timeline_audio();
+    assert!(preview.timeline_audio.history.iter().any(|cmd| matches!(
+        cmd, neoflash_core::SoundCommand::StreamStart { resource, in_point: Some(start), out_point: Some(end), .. }
+        if resource == &vid_res_id && *start == 0.1 && *end == 0.5
+    )));
+    let opts = neoflash_export::AudioExportOptions {
+        normalize: false,
+        ..Default::default()
+    };
+    let embedded_mix = neoflash_export::render_project_audio_mix(&editor.project, &opts).unwrap();
+    assert!(embedded_mix.frames.iter().any(|p| p[0].abs() > 0.3));
     // 3. Extract embedded audio into a linked audio layer in one Undo step.
     let audio_res_id = editor
         .extract_active_video_audio_track()
         .expect("extract AVI audio into linked track");
+    let linked_mix = neoflash_export::render_project_audio_mix(&editor.project, &opts).unwrap();
+    assert_eq!(
+        embedded_mix.frames, linked_mix.frames,
+        "linked audio must replace the embedded channel without changing its trim, level or timing"
+    );
+
     assert_eq!(editor.history.undo_label(), Some("Extract video audio"));
     editor
         .project
@@ -7618,11 +7638,11 @@ fn t222_t223_complete_readme_non_script_journey_and_single_level_empty_stage_exi
     assert_eq!(svg.frame_count, 1);
     let aep = neoflash_export::aep::export_project_aep(
         &reopened,
-        dir.join("journey.aep"),
+        dir.join("journey.jsx"),
         &neoflash_export::aep::AepOptions::default(),
     )
     .expect("After Effects export");
-    assert!(aep.aep_path.exists());
+    assert!(aep.output_path.exists());
 
     let _ = std::fs::remove_dir_all(&dir);
 }

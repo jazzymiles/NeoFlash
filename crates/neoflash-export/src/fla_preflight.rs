@@ -4,11 +4,11 @@
 use crate::ExportError;
 use crate::fonts::{FontExportPolicy, apply_font_policy, convert_project_text_to_outlines};
 use neoflash_core::{
-    BlendMode, Color, Easing, Element, ElementKind, FilterSpec, FrameSound, GradientKind,
-    GradientPaint, GradientSpread, Id, InstancePlayback, Keyframe, Layer, LayerRole, MaskMode,
-    ObjectEvent, ObjectScript, PathCommand, Project, ResourceUnit, ScriptLanguage, SoundEffect,
-    SoundSync, Symbol, SymbolKind, TextAlign, Timeline, Transform, TweenKind, sample_layer_in,
-    transform_matrix,
+    AuthoredBitmapFill, BlendMode, Color, Easing, Element, ElementKind, FilterSpec, FrameSound,
+    GradientKind, GradientPaint, GradientSpread, Id, InstancePlayback, Keyframe, Layer, LayerRole,
+    MaskMode, ObjectEvent, ObjectScript, PathCommand, Project, ResourceUnit, ScriptLanguage,
+    SoundEffect, SoundSync, Symbol, SymbolKind, TextAlign, Timeline, Transform, TweenKind,
+    sample_layer_in, transform_matrix,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -586,6 +586,47 @@ impl Default for FlaExportOptions {
     }
 }
 
+fn bitmap_smoothing_usage(project: &Project) -> BTreeMap<&str, (bool, bool)> {
+    let mut usage = BTreeMap::new();
+    for key in project
+        .symbols
+        .iter()
+        .flat_map(|s| &s.timeline.layers)
+        .flat_map(|l| &l.keyframes)
+    {
+        let placements = key.elements.iter().filter_map(|el| match &el.kind {
+            ElementKind::Bitmap {
+                resource_id,
+                smoothing,
+                ..
+            } => Some((resource_id, *smoothing)),
+            _ => None,
+        });
+        let fills = key
+            .bitmap_fills
+            .iter()
+            .map(|f| (&f.resource_id, f.smoothing));
+        for (id, smoothing) in placements.chain(fills) {
+            let flags = usage.entry(id.as_str()).or_insert((false, false));
+            flags.0 |= smoothing;
+            flags.1 |= !smoothing;
+        }
+    }
+    usage
+}
+
+const FLASH8_STAGE_LIMIT: u32 = 2880;
+
+fn flash8_stage_fit(width: u32, height: u32) -> Option<(u32, u32, f64)> {
+    let longest = width.max(height);
+    if longest <= FLASH8_STAGE_LIMIT {
+        return None;
+    }
+    let scale = f64::from(FLASH8_STAGE_LIMIT) / f64::from(longest);
+    let fit = |v| (f64::from(v) * scale).round().max(1.) as u32;
+    Some((fit(width), fit(height), scale))
+}
+
 /// Run compatibility preflight for `project` against `profile` using default `FlaExportOptions`.
 pub fn preflight_fla_export(
     project: &Project,
@@ -604,11 +645,19 @@ pub fn preflight_fla_export_with_options(
 
     // 1. Document settings & scenes
     let max_dim = if matches!(profile, FlaTargetProfile::LegacyFlash8) {
-        2880
+        FLASH8_STAGE_LIMIT
     } else {
         8192
     };
     if project.width > max_dim || project.height > max_dim {
+        let fit = (profile == FlaTargetProfile::LegacyFlash8 && options.allow_approximations)
+            .then(|| flash8_stage_fit(project.width, project.height))
+            .flatten();
+        let detail = fit.map_or_else(String::new, |(width, height, _)| {
+            format!(
+                " The stage and its contents will be scaled proportionally to {width}x{height} px."
+            )
+        });
         report.push(
             "stage_dimensions_clamped",
             FlaFeatureCategory::DocumentSettings,
@@ -619,7 +668,7 @@ pub fn preflight_fla_export_with_options(
             },
             "Project",
             format!(
-                "Stage size {}x{} exceeds {} maximum {}x{} px.",
+                "Stage size {}x{} exceeds {} maximum {}x{} px.{detail}",
                 project.width,
                 project.height,
                 profile.label(),
@@ -863,31 +912,9 @@ pub fn preflight_fla_export_with_options(
         );
     }
 
-    let mut bitmap_smoothing_flags: BTreeMap<&str, (bool, bool)> = BTreeMap::new();
-    for sym in &project.symbols {
-        for layer in &sym.timeline.layers {
-            for kf in &layer.keyframes {
-                for el in &kf.elements {
-                    if let ElementKind::Bitmap {
-                        resource_id,
-                        smoothing,
-                        ..
-                    } = &el.kind
-                    {
-                        let entry = bitmap_smoothing_flags
-                            .entry(resource_id.as_str())
-                            .or_insert((false, false));
-                        if *smoothing {
-                            entry.0 = true;
-                        } else {
-                            entry.1 = true;
-                        }
-                    }
-                }
-            }
-        }
-    }
+    let bitmap_smoothing_flags = bitmap_smoothing_usage(project);
 
+    let baked_videos = crate::video_frames::used_resources(project);
     let mut legacy_media_count = 0usize;
     let mut seen_res_names_lower: BTreeSet<String> = BTreeSet::new();
     let mut sound_ids: BTreeSet<Id> = BTreeSet::new();
@@ -1000,6 +1027,14 @@ pub fn preflight_fla_export_with_options(
                     }
                 },
             }
+        } else if options.allow_approximations && baked_videos.contains(res.id.as_str()) {
+            report.push(
+                "video_bitmap_frames",
+                FlaFeatureCategory::MediaAndSound,
+                FlaFeatureDisposition::Baked,
+                loc,
+                "Embedded video is converted to timed bitmap frames and a separate soundtrack.",
+            );
         } else if crate::fonts::is_font_resource(res) {
             if let Err(err) = res.decoded_bytes() {
                 report.push(
@@ -1487,6 +1522,7 @@ fn preflight_layer(
         .max(1);
     let mut sorted_kfs: Vec<&Keyframe> = layer.keyframes.iter().collect();
     sorted_kfs.sort_by_key(|k| k.frame);
+    let bake_video = options.allow_approximations && crate::video_frames::bakeable(project, layer);
     for (idx, kf) in sorted_kfs.iter().enumerate() {
         let kf_loc = format!("{}:frame[{}]", layer_loc, kf.frame);
         if profile.is_legacy_binary() && kf.frame < effective_end {
@@ -1524,6 +1560,7 @@ fn preflight_layer(
             }
         }
         preflight_keyframe(
+            bake_video,
             project,
             kf,
             &kf_loc,
@@ -1541,6 +1578,7 @@ fn preflight_layer(
 
 #[allow(clippy::too_many_arguments)]
 fn preflight_keyframe(
+    bake_video: bool,
     project: &Project,
     kf: &Keyframe,
     kf_loc: &str,
@@ -1729,7 +1767,7 @@ fn preflight_keyframe(
         }
     }
 
-    if kf.video.is_some() {
+    if !bake_video && kf.video.is_some() {
         report.push(
             "timeline_video_not_serialized",
             FlaFeatureCategory::MediaAndSound,
@@ -1746,6 +1784,9 @@ fn preflight_keyframe(
 
     // Elements
     for el in &kf.elements {
+        if bake_video && matches!(el.kind, ElementKind::Video { .. }) {
+            continue;
+        }
         let el_loc = format!("{}/Element({})", kf_loc, el.id);
         preflight_element(
             project,
@@ -2087,17 +2128,27 @@ pub fn prepare_project_for_fla_profile(
     profile: FlaTargetProfile,
     options: &FlaExportOptions,
 ) -> (Project, FlaCompatibilityReport) {
-    let report = preflight_fla_export_with_options(project, profile, options);
+    let mut report = preflight_fla_export_with_options(project, profile, options);
     let mut derived = crate::strip_skipped_foreign_scripts(project).into_owned();
 
-    // 1. Clamp stage dimensions if needed
-    let max_dim = if matches!(profile, FlaTargetProfile::LegacyFlash8) {
-        2880
-    } else {
-        8192
-    };
-    derived.width = derived.width.clamp(1, max_dim);
-    derived.height = derived.height.clamp(1, max_dim);
+    if report.can_export()
+        && options.allow_approximations
+        && let Err(e) = crate::video_frames::prepare(&mut derived, Some(&mut report))
+    {
+        report.push(
+            "video_frame_decode_failed",
+            FlaFeatureCategory::MediaAndSound,
+            FlaFeatureDisposition::Blocking,
+            "Video",
+            e.to_string(),
+        );
+    }
+
+    // Flash 8's smaller stage is fitted after baking so the sampled timeline keeps its proportions.
+    if profile != FlaTargetProfile::LegacyFlash8 {
+        derived.width = derived.width.clamp(1, 8192);
+        derived.height = derived.height.clamp(1, 8192);
+    }
     derived.fps = derived.fps.clamp(1, 120);
 
     // 2. Strip unsupported scripts & resolve mixed-VM conflicts when requested
@@ -2193,6 +2244,42 @@ pub fn prepare_project_for_fla_profile(
 
     // 5. Propagate layer filters/blends & expand parametric/variable-width strokes
     normalize_derived_elements(&mut derived, profile);
+
+    if profile == FlaTargetProfile::LegacyFlash8
+        && options.allow_approximations
+        && let Some((width, height, scale)) = flash8_stage_fit(derived.width, derived.height)
+    {
+        derived.width = width;
+        derived.height = height;
+        for scene in &mut derived.symbols {
+            if scene.id != derived.root && !derived.scenes.contains(&scene.id) {
+                continue;
+            }
+            for guide in &mut scene.timeline.guides {
+                guide.position *= scale;
+            }
+            for element in scene
+                .timeline
+                .layers
+                .iter_mut()
+                .flat_map(|layer| &mut layer.keyframes)
+                .flat_map(|key| &mut key.elements)
+            {
+                element.transform.x *= scale;
+                element.transform.y *= scale;
+                element.transform.scale_x *= scale;
+                element.transform.scale_y *= scale;
+                // CFB flattens a scene's vector transforms into the edges and writes stroke widths in stage twips.
+                match &mut element.kind {
+                    ElementKind::Rectangle { stroke_width, .. }
+                    | ElementKind::Ellipse { stroke_width, .. }
+                    | ElementKind::Path { stroke_width, .. }
+                    | ElementKind::PaintedPath { stroke_width, .. } => *stroke_width *= scale,
+                    _ => {}
+                }
+            }
+        }
+    }
 
     (derived, report)
 }
@@ -2295,8 +2382,21 @@ fn bake_derived_timelines(project: &mut Project, profile: FlaTargetProfile) {
             for f in 0..max_frame {
                 let sampled_elements = sample_layer_in(&timeline_snapshot, orig_layer, f);
                 let orig_kf = orig_layer.keyframes.iter().find(|k| k.frame == f);
+                let bitmap_fills = orig_layer
+                    .key_at(f)
+                    .map(|k| {
+                        k.bitmap_fills
+                            .iter()
+                            .filter(|fill| {
+                                sampled_elements.iter().any(|el| el.id == fill.element_id)
+                            })
+                            .cloned()
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 let mut kf = Keyframe {
                     frame: f,
+                    bitmap_fills,
                     elements: sampled_elements,
                     tween: None,
                     tween_kind: TweenKind::Classic,
@@ -2864,7 +2964,7 @@ fn build_xfl_package(
     }
 
     // Also inspect smoothed bitmaps, custom sound envelopes, and video viewport items
-    let mut bitmap_smoothing_refs: BTreeMap<Id, (bool, bool)> = BTreeMap::new();
+    let bitmap_smoothing_refs = bitmap_smoothing_usage(project);
     let mut sound_custom_env: BTreeSet<Id> = BTreeSet::new();
     let mut video_names: BTreeMap<VideoKey, String> = BTreeMap::new();
     for sym in &project.symbols {
@@ -2877,28 +2977,11 @@ fn build_xfl_package(
                     sound_custom_env.insert(snd.resource.clone());
                 }
                 for el in &kf.elements {
-                    match &el.kind {
-                        ElementKind::Bitmap {
-                            resource_id,
-                            smoothing,
-                            ..
-                        } => {
-                            let entry = bitmap_smoothing_refs
-                                .entry(resource_id.clone())
-                                .or_insert((false, false));
-                            if *smoothing {
-                                entry.0 = true;
-                            } else {
-                                entry.1 = true;
-                            }
-                        }
-                        ElementKind::Video { width, height } => {
-                            let key = VideoKey::from_dims(*width, *height);
-                            video_names
-                                .entry(key.clone())
-                                .or_insert_with(|| format!("Video_{}x{}", key.0, key.1));
-                        }
-                        _ => {}
+                    if let ElementKind::Video { width, height } = &el.kind {
+                        let key = VideoKey::from_dims(*width, *height);
+                        video_names
+                            .entry(key.clone())
+                            .or_insert_with(|| format!("Video_{}x{}", key.0, key.1));
                     }
                 }
             }
@@ -2936,6 +3019,7 @@ fn build_xfl_package(
     }
 
     // Media resources (bitmaps & sounds) & bundled .as include resources
+    let mut video_preview_marker = "";
     let mut bitmap_names: BTreeMap<Id, String> = BTreeMap::new();
     let mut sound_names: BTreeMap<Id, String> = BTreeMap::new();
     let mut sound_durations: BTreeMap<Id, u64> = BTreeMap::new();
@@ -2992,24 +3076,32 @@ fn build_xfl_package(
             ))
         })?;
         if mime.starts_with("image/") {
-            let (norm_bytes, ext, _, _) = normalize_fla_bitmap_bytes(&bytes).ok_or_else(|| {
-                ExportError::InvalidProject(format!(
-                    "Image resource {:?} ({}) cannot be decoded as a supported bitmap.",
-                    res.path, res.media_type
-                ))
-            })?;
+            let (norm_bytes, ext, width, height) =
+                normalize_fla_bitmap_bytes(&bytes).ok_or_else(|| {
+                    ExportError::InvalidProject(format!(
+                        "Image resource {:?} ({}) cannot be decoded as a supported bitmap.",
+                        res.path, res.media_type
+                    ))
+                })?;
             let item_name = format!("bitmap_{}.{ext}", idx + 1);
-            let allow_smoothing = match bitmap_smoothing_refs.get(&res.id).copied() {
+            let allow_smoothing = match bitmap_smoothing_refs.get(res.id.as_str()).copied() {
                 Some((true, _)) | None => true,
                 Some((false, true)) => false,
                 Some((false, false)) => true,
             };
             bitmap_names.insert(res.id.clone(), item_name.clone());
-            binary_files.insert(format!("LIBRARY/{item_name}"), norm_bytes);
+            let href = match crate::video_frames::xfl_editor_preview(res) {
+                Some((w, h)) if w <= width && h <= height && (w, h) != (width, height) => {
+                    video_preview_marker = "<?neoflash-video-frame-previews v1?>\n";
+                    format!("media/neoflash-video-frames/{w}x{h}/{item_name}")
+                }
+                _ => item_name.clone(),
+            };
+            binary_files.insert(format!("LIBRARY/{href}"), norm_bytes);
             media_xml.push_str(&format!(
                 "    <DOMBitmapItem name=\"{}\" href=\"{}\" allowSmoothing=\"{allow_smoothing}\"/>\n",
                 xml_escape(&item_name),
-                xml_escape(&item_name)
+                xml_escape(&href)
             ));
         } else if mime.starts_with("audio/") {
             let (ext, duration_44) = inspect_audio_codec(&bytes).ok_or_else(|| {
@@ -3175,7 +3267,7 @@ fn build_xfl_package(
         .map(|dc| format!(" documentClass=\"{}\"", xml_escape(dc)))
         .unwrap_or_default();
     let dom_document_xml = format!(
-        r#"<DOMDocument xmlns="http://ns.adobe.com/xfl/2008/" width="{}" height="{}" frameRate="{}" backgroundColor="{}" xflVersion="{}" creatorInfo="{}"{}>
+        r#"{video_preview_marker}<DOMDocument xmlns="http://ns.adobe.com/xfl/2008/" width="{}" height="{}" frameRate="{}" backgroundColor="{}" xflVersion="{}" creatorInfo="{}"{}>
 {}{}{}{}</DOMDocument>
 "#,
         project.width.max(1),
@@ -3441,15 +3533,16 @@ fn write_dom_layer_xml(
     if let Some(scripts_map) = frame_scripts {
         for &script_frame in scripts_map.keys() {
             if script_frame < effective_end && !keyframes.iter().any(|k| k.frame == script_frame) {
-                let held_elements = keyframes
+                let held = keyframes
                     .iter()
                     .rev()
                     .find(|k| k.frame < script_frame)
-                    .map(|k| k.elements.clone())
+                    .map(|k| (k.elements.clone(), k.bitmap_fills.clone()))
                     .unwrap_or_default();
                 keyframes.push(Keyframe {
                     frame: script_frame,
-                    elements: held_elements,
+                    elements: held.0,
+                    bitmap_fills: held.1,
                     ..Default::default()
                 });
                 keyframes.sort_by_key(|k| k.frame);
@@ -3625,6 +3718,11 @@ fn write_dom_layer_xml(
             for el in &kf.elements {
                 out.push_str(&write_dom_element_xml(
                     el,
+                    kf.bitmap_fill(&el.id).and_then(|fill| {
+                        bitmap_names
+                            .get(&fill.resource_id)
+                            .map(|name| (fill, name.as_str()))
+                    }),
                     project,
                     symbol_lib_names,
                     bitmap_names,
@@ -3644,6 +3742,7 @@ fn write_dom_layer_xml(
 
 fn write_dom_element_xml(
     el: &Element,
+    bitmap_paint: Option<(&AuthoredBitmapFill, &str)>,
     project: &Project,
     symbol_lib_names: &BTreeMap<Id, String>,
     bitmap_names: &BTreeMap<Id, String>,
@@ -3653,6 +3752,35 @@ fn write_dom_element_xml(
     let matrix_xml = write_matrix_xml(&el.transform, &format!("{indent}  "));
     let color_xml = write_color_transform_xml(&el.transform, &format!("{indent}  "));
     let filters_xml = write_filters_xml(&el.filters, &format!("{indent}  "));
+
+    // XFL primitive objects cannot carry a bitmap brush on reimport. Use their exact contour.
+    if bitmap_paint.is_some()
+        && let ElementKind::Rectangle {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        }
+        | ElementKind::Ellipse {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        } = &el.kind
+        && let Some((commands, _)) = el.to_path_commands()
+    {
+        return write_dom_shape_xml(
+            el,
+            &commands,
+            *fill,
+            None,
+            bitmap_paint,
+            *stroke,
+            None,
+            *stroke_width,
+            indent,
+        );
+    }
 
     match &el.kind {
         ElementKind::Rectangle {
@@ -3773,6 +3901,7 @@ fn write_dom_element_xml(
             commands,
             *fill,
             None,
+            bitmap_paint,
             *stroke,
             None,
             *stroke_width,
@@ -3791,6 +3920,7 @@ fn write_dom_element_xml(
             commands,
             *fill,
             fill_gradient.as_ref(),
+            bitmap_paint,
             *stroke,
             stroke_gradient.as_ref(),
             *stroke_width,
@@ -3984,12 +4114,13 @@ fn write_dom_shape_xml(
     commands: &[PathCommand],
     fill: Color,
     fill_gradient: Option<&GradientPaint>,
+    bitmap_paint: Option<(&AuthoredBitmapFill, &str)>,
     stroke: Color,
     stroke_gradient: Option<&GradientPaint>,
     stroke_width: f64,
     indent: &str,
 ) -> String {
-    let has_fill = fill_gradient.is_some() || fill[3] > 0;
+    let has_fill = bitmap_paint.is_some() || fill_gradient.is_some() || fill[3] > 0;
     let has_stroke = stroke_width > 0.0 && (stroke_gradient.is_some() || stroke[3] > 0);
     let edge_str = path_commands_to_xfl_edges(commands, has_fill);
     if edge_str.is_empty() || (!has_fill && !has_stroke) {
@@ -4003,7 +4134,23 @@ fn write_dom_shape_xml(
     let matrix_xml = write_matrix_xml(&el.transform, &format!("{indent}  "));
 
     let fills_xml = if has_fill {
-        let paint_xml = write_paint_xml(fill, fill_gradient, &format!("{indent}      "));
+        let paint_indent = format!("{indent}      ");
+        let paint_xml = if let Some((bitmap, name)) = bitmap_paint {
+            let [a, b, c, d, tx, ty] = bitmap.matrix;
+            format!(
+                "{paint_indent}<BitmapFill bitmapPath=\"{}\" bitmapIsClipped=\"{}\">\n{paint_indent}  <matrix>\n{paint_indent}    <Matrix a=\"{}\" b=\"{}\" c=\"{}\" d=\"{}\" tx=\"{}\" ty=\"{}\"/>\n{paint_indent}  </matrix>\n{paint_indent}</BitmapFill>\n",
+                xml_escape(name),
+                !bitmap.repeat,
+                fmt_num(a * 20.),
+                fmt_num(b * 20.),
+                fmt_num(c * 20.),
+                fmt_num(d * 20.),
+                fmt_num(tx),
+                fmt_num(ty)
+            )
+        } else {
+            write_paint_xml(fill, fill_gradient, &paint_indent)
+        };
         format!(
             "{indent}  <fills>\n{indent}    <FillStyle index=\"1\">\n{paint_xml}{indent}    </FillStyle>\n{indent}  </fills>\n"
         )

@@ -65,6 +65,18 @@ pub(super) fn build_lottie_html_preview(
       const animationData = {safe_json};
       window.__lottieAnimationData = animationData;
 
+      const waitingAudio = new Set();
+      const soundButton = document.createElement('button');
+      soundButton.textContent = 'Enable sound';
+      soundButton.hidden = true;
+      soundButton.addEventListener('click', () => {{
+        soundButton.hidden = true;
+        for (const media of waitingAudio) {{
+          media.play().then(() => waitingAudio.delete(media), () => {{ soundButton.hidden = false; }});
+        }}
+      }});
+      container.after(soundButton);
+
       function mountPlayer() {{
         if (window.lottie && !container.dataset.mounted) {{
           container.dataset.mounted = 'lottie-web';
@@ -74,6 +86,24 @@ pub(super) fn build_lottie_html_preview(
             renderer: 'svg',
             loop: true,
             autoplay: true,
+            audioFactory(path) {{
+              const media = new Audio(path);
+              const start = () => media.play().catch(error => {{
+                if (requested && error.name === 'NotAllowedError') {{
+                  waitingAudio.add(media);
+                  soundButton.hidden = false;
+                }}
+              }});
+              let requested = false;
+              return {{
+                play() {{ requested = true; start(); }},
+                pause() {{ requested = false; waitingAudio.delete(media); media.pause(); }},
+                playing() {{ return requested && !media.ended; }},
+                seek(value) {{ if (value !== undefined) media.currentTime = value; return media.currentTime; }},
+                rate(value) {{ media.playbackRate = value; }},
+                volume(value) {{ media.volume = Math.max(0, Math.min(1, value)); }}
+              }};
+            }},
             animationData: animationData
           }});
           return true;
@@ -108,7 +138,7 @@ pub(super) fn build_lottie_html_preview(
       for (const asset of assets) {{
         if (asset && typeof asset.id === 'string') {{
           assetMap.set(asset.id, asset);
-          if (typeof asset.p === 'string' && asset.p.length > 0) {{
+          if (asset.t !== 2 && typeof asset.p === 'string' && asset.p.length > 0) {{
             imageAssets.push(asset);
           }}
         }}

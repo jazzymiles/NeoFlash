@@ -1,6 +1,6 @@
 //! Portable font policies, @font-face embedding, deterministic subsetting, and glyph outline conversion.
 
-use ab_glyph::{Font, FontRef, OutlineCurve, PxScale, ScaleFont};
+use ab_glyph::{Font, FontRef, OutlineCurve, PxScale};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use neoflash_core::{
@@ -327,6 +327,60 @@ pub fn resolve_project_font_bytes(
     neoflash_core::resolve_project_font_bytes(project, family, bold, italic)
 }
 
+pub(super) fn fallback_font(family: &str, bold: bool) -> &'static [u8] {
+    let lower = family.to_ascii_lowercase();
+    if lower.contains("mono") || lower.contains("courier") || lower.contains("code") {
+        include_bytes!("../../neoflash-ui/assets/fonts/RobotoMono-Regular.ttf")
+    } else if bold {
+        include_bytes!("../../neoflash-ui/assets/fonts/Inter-SemiBold.ttf")
+    } else {
+        include_bytes!("../../neoflash-ui/assets/fonts/Inter-Regular.ttf")
+    }
+}
+
+pub(super) fn positioned_text_runs(
+    field: &TextFieldState,
+    bytes: &[u8],
+) -> Result<Vec<neoflash_core::TextRun>, String> {
+    let sfnt = neoflash_core::sfnt_view_bytes(bytes);
+    let font =
+        FontRef::try_from_slice(sfnt.as_deref().unwrap_or(bytes)).map_err(|e| e.to_string())?;
+    let layout = neoflash_core::layout_text(field, |strings, fmt| {
+        let units = font.units_per_em().unwrap_or(1000.0);
+        Ok(strings
+            .iter()
+            .map(|s| {
+                let mut prev = None;
+                let mut advance = 0.0;
+                for ch in s.chars() {
+                    let id = font.glyph_id(ch);
+                    if let Some(prev) = prev {
+                        advance += font.kern_unscaled(prev, id);
+                    }
+                    advance += font.h_advance_unscaled(id);
+                    prev = Some(id);
+                }
+                f64::from(advance / units) * fmt.size
+            })
+            .collect())
+    })
+    .map_err(|e| e.to_string())?;
+    if !layout.runs.is_empty() {
+        return Ok(layout.runs);
+    }
+    Ok(layout
+        .lines
+        .into_iter()
+        .map(|line| neoflash_core::TextRun {
+            text: line.text,
+            x: line.x,
+            y: line.y,
+            format: None,
+            rotation: 0.,
+        })
+        .collect())
+}
+
 /// Converts a single glyph's `ab_glyph::Outline` curves (`OutlineCurve::{Line, Quad, Cubic}`)
 /// from font design units (Y-up) into stage `PathCommand`s (Y-down) at `(origin_x, baseline_y)`.
 pub fn outline_glyph(
@@ -352,7 +406,7 @@ pub fn outline_glyph(
     }
     let upm = f64::from(font.units_per_em().unwrap_or(1000.0)).max(1.0);
     let scale = font_size.max(1.0) / upm;
-    let ascent = f64::from(font.as_scaled(PxScale::from(upm as f32)).ascent()).max(upm * 0.8);
+    let ascent = f64::from(font.ascent_unscaled());
     let baseline = top_y + ascent * scale;
 
     let mut commands = Vec::with_capacity(outline.curves.len() + 4);
@@ -444,14 +498,7 @@ pub fn extract_text_outline_commands_with_diagnostics(
     font_size: f64,
     font_bytes: Option<&[u8]>,
 ) -> Result<Vec<PathCommand>, Vec<String>> {
-    let Some(bytes) = font_bytes else {
-        return Ok(TextFieldState::static_text_to_outline_commands(
-            text,
-            font_family,
-            font_size,
-            None,
-        ));
-    };
+    let bytes = font_bytes.unwrap_or_else(|| fallback_font(font_family, false));
 
     let sfnt_bytes = neoflash_core::sfnt_view_bytes(bytes);
     let outline_slice = sfnt_bytes.as_deref().unwrap_or(bytes);
@@ -463,7 +510,6 @@ pub fn extract_text_outline_commands_with_diagnostics(
 
     if let Ok(font) = FontRef::try_from_slice(outline_slice) {
         let upm = f64::from(font.units_per_em().unwrap_or(1000.0)).max(1.0);
-        let scaled = font.as_scaled(PxScale::from(upm as f32));
         let scale = font_size.max(1.0) / upm;
         let line_h = font_size.max(1.0) * 1.2;
 
@@ -477,7 +523,7 @@ pub fn extract_text_outline_commands_with_diagnostics(
                     continue;
                 }
                 let gid = font.glyph_id(ch);
-                let adv = f64::from(scaled.h_advance(gid)) * scale;
+                let adv = f64::from(font.h_advance_unscaled(gid)) * scale;
                 if ch.is_whitespace() {
                     cursor_x += adv.max(font_size * 0.25);
                     continue;
@@ -524,9 +570,7 @@ pub fn extract_text_field_outline_commands_with_diagnostics(
     field: &TextFieldState,
     font_bytes: Option<&[u8]>,
 ) -> Result<Vec<PathCommand>, Vec<String>> {
-    let Some(bytes) = font_bytes else {
-        return Ok(field.to_outline_commands(None));
-    };
+    let bytes = font_bytes.unwrap_or_else(|| fallback_font(&field.format.font, field.format.bold));
     let sfnt_bytes = neoflash_core::sfnt_view_bytes(bytes);
     let outline_slice = sfnt_bytes.as_deref().unwrap_or(bytes);
     let table_diags = TextFormat::validate_text_outlines_for_font(
@@ -537,6 +581,34 @@ pub fn extract_text_field_outline_commands_with_diagnostics(
     );
     if !table_diags.is_empty() {
         return Err(table_diags);
+    }
+    if let Ok(font) = FontRef::try_from_slice(outline_slice) {
+        let layout = positioned_text_runs(field, outline_slice)
+            .map_err(|e| vec![format!("{location}: {e}")])?;
+        let units = font.units_per_em().unwrap_or(1000.0);
+        let mut commands = Vec::new();
+        for run in layout {
+            let fmt = run.format.as_ref().unwrap_or(&field.format);
+            let mut x = run.x;
+            let mut prev = None;
+            for ch in run.text.chars() {
+                let gid = font.glyph_id(ch);
+                if let Some(prev) = prev {
+                    x += f64::from(font.kern_unscaled(prev, gid) / units) * fmt.size;
+                }
+                let glyph = outline_glyph(&font, ch, x, run.y, fmt.size).ok_or_else(|| {
+                    vec![format!(
+                        "{location}: font '{}' is missing outline glyph coverage for U+{:04X}",
+                        fmt.font, ch as u32
+                    )]
+                })?;
+                commands.extend(glyph);
+                x +=
+                    f64::from(font.h_advance_unscaled(gid) / units) * fmt.size + fmt.letter_spacing;
+                prev = Some(gid);
+            }
+        }
+        return Ok(commands);
     }
     extract_text_outline_commands_with_diagnostics(
         location,

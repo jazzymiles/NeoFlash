@@ -922,6 +922,7 @@ fn parse_json_node(
         effects,
         component_id,
         symbol_overrides: Vec::new(),
+        instance_text_layouts: Vec::new(),
         background_color,
         children,
     })

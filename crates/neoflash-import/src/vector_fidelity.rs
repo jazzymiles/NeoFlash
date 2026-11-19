@@ -8,6 +8,11 @@
 //!
 //! Produces a location-aware [`crate::ImportReport`] and never silently drops unsupported content.
 
+mod eps;
+mod pdf;
+mod stylesheet;
+use stylesheet::SvgStyles;
+
 use crate::{Diagnostic, ImportError, ImportFormat, ImportReport, Severity, Statistics};
 use neoflash_core::{
     Color, Element, ElementKind, FillRule, FilterSpec, GradientKind, GradientPaint, GradientStop,
@@ -290,19 +295,6 @@ fn extract_url_id(val: &str) -> Option<String> {
     let inner = trimmed.strip_prefix("url(")?.strip_suffix(')')?.trim();
     let unquoted = inner.trim_matches(['"', '\'']);
     unquoted.strip_prefix('#').map(str::to_owned)
-}
-
-fn node_style_or_attr<'a>(node: Node<'a, 'a>, name: &str) -> Option<String> {
-    if let Some(style) = node.attribute("style") {
-        for decl in style.split(';') {
-            if let Some((k, v)) = decl.split_once(':')
-                && k.trim().eq_ignore_ascii_case(name)
-            {
-                return Some(v.trim().to_owned());
-            }
-        }
-    }
-    node.attribute(name).map(str::to_owned)
 }
 
 fn tokenize_svg_path(d: &str) -> Vec<String> {
@@ -758,14 +750,55 @@ fn text_to_outline_commands(text: &str, x: f64, y: f64, font_size: f64) -> Vec<P
     cmds
 }
 
+fn axial_gradient_matrix(x1: f64, y1: f64, x2: f64, y2: f64) -> [f64; 6] {
+    let dx = (x2 - x1) / 1638.4;
+    let dy = (y2 - y1) / 1638.4;
+    [dx, dy, -dy, dx, (x1 + x2) * 0.5, (y1 + y2) * 0.5]
+}
+
+#[derive(Clone)]
+struct SvgGradient {
+    paint: GradientPaint,
+    object_bounds: bool,
+}
+
+impl SvgGradient {
+    fn resolve(
+        &self,
+        path: &[PathCommand],
+        outer: [f64; 6],
+        opacity: f64,
+    ) -> Option<GradientPaint> {
+        let mut paint = self.paint.clone();
+        let bounds = if self.object_bounds {
+            let b = neoflash_core::path_bounds(path).ok()??;
+            [
+                b.x_max - b.x_min,
+                0.,
+                0.,
+                b.y_max - b.y_min,
+                b.x_min,
+                b.y_min,
+            ]
+        } else {
+            identity_matrix()
+        };
+        paint.matrix = affine_multiply(affine_multiply(outer, bounds), paint.matrix);
+        for stop in &mut paint.stops {
+            stop.color[3] = (f64::from(stop.color[3]) * opacity.clamp(0., 1.)).round() as u8;
+        }
+        Some(paint)
+    }
+}
+
 type SvgDefinitions = (
-    BTreeMap<String, GradientPaint>,
+    BTreeMap<String, SvgGradient>,
     BTreeMap<String, Vec<PathCommand>>,
     BTreeMap<String, Vec<PathCommand>>,
     BTreeMap<String, String>,
 );
 
-fn parse_svg_defs(root: Node<'_, '_>) -> SvgDefinitions {
+fn parse_svg_defs<'a>(root: Node<'a, 'a>, styles: &SvgStyles<'a>) -> SvgDefinitions {
     let mut gradients = BTreeMap::new();
     let mut clip_paths = BTreeMap::new();
     let mut masks = BTreeMap::new();
@@ -790,28 +823,60 @@ fn parse_svg_defs(root: Node<'_, '_>) -> SvgDefinitions {
                         offset_raw.parse::<f64>().unwrap_or(0.0)
                     }
                     .clamp(0.0, 1.0);
-                    let stop_opacity = node_style_or_attr(stop, "stop-opacity")
+                    let stop_opacity = styles
+                        .value(stop, "stop-opacity")
                         .and_then(|v| v.parse::<f64>().ok())
                         .unwrap_or(1.0);
-                    let color = node_style_or_attr(stop, "stop-color")
+                    let color = styles
+                        .value(stop, "stop-color")
                         .and_then(|c| parse_svg_color(&c, stop_opacity))
                         .unwrap_or([0, 0, 0, 255]);
                     let ratio = (offset * 255.0).round().clamp(0.0, 255.0) as u8;
                     stops.push(GradientStop { ratio, color });
                 }
                 if stops.len() >= 2 {
+                    let coordinate = |name, default| {
+                        node.attribute(name)
+                            .and_then(|s| {
+                                if let Some(percent) = s.strip_suffix('%') {
+                                    percent.parse::<f64>().ok().map(|n| n / 100.)
+                                } else {
+                                    s.parse().ok()
+                                }
+                            })
+                            .unwrap_or(default)
+                    };
+                    let matrix = if tag == "linearGradient" {
+                        axial_gradient_matrix(
+                            coordinate("x1", 0.),
+                            coordinate("y1", 0.),
+                            coordinate("x2", 1.),
+                            coordinate("y2", 0.),
+                        )
+                    } else {
+                        let r = coordinate("r", 0.5) / 819.2;
+                        [r, 0., 0., r, coordinate("cx", 0.5), coordinate("cy", 0.5)]
+                    };
+                    let gradient_transform = node
+                        .attribute("gradientTransform")
+                        .map(parse_svg_transform)
+                        .unwrap_or_else(identity_matrix);
                     gradients.insert(
                         id.to_owned(),
-                        GradientPaint {
-                            kind: if tag == "radialGradient" {
-                                GradientKind::Radial
-                            } else {
-                                GradientKind::Linear
+                        SvgGradient {
+                            object_bounds: node.attribute("gradientUnits")
+                                != Some("userSpaceOnUse"),
+                            paint: GradientPaint {
+                                kind: if tag == "radialGradient" {
+                                    GradientKind::Radial
+                                } else {
+                                    GradientKind::Linear
+                                },
+                                stops,
+                                matrix: affine_multiply(gradient_transform, matrix),
+                                focal_point_ratio: 0.0,
+                                ..Default::default()
                             },
-                            stops,
-                            matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-                            focal_point_ratio: 0.0,
-                            ..Default::default()
                         },
                     );
                 }
@@ -945,8 +1010,8 @@ fn assemble_vector_buckets(
         }
         VectorLayerMapping::PreserveGroupsAsLayers | VectorLayerMapping::ConvertGroupsToSymbols => {
             let mut layers = Vec::new();
-            // SVG/PDF order is back-to-front (painter's order); NeoFlash layers are top-to-bottom.
-            for b in buckets.into_iter().rev() {
+            // Layer zero is backmost in the authored evaluator, just as in the source painter order.
+            for b in buckets {
                 let mut mask_layer_id = None;
                 if !b.mask_elements.is_empty()
                     && options.mask_handling == VectorMaskHandling::MaskLayers
@@ -1054,6 +1119,19 @@ fn assemble_vector_buckets(
     {
         project.format_version = project.format_version.max(4);
     }
+    if !project.resources.is_empty() {
+        project.format_version = project.format_version.max(3);
+    }
+    if project
+        .symbols
+        .iter()
+        .flat_map(|s| &s.timeline.layers)
+        .flat_map(|l| &l.keyframes)
+        .flat_map(|k| &k.elements)
+        .any(|e| matches!(e.kind, ElementKind::PaintedPath { .. }) || e.transform.skew != 0.0)
+    {
+        project.format_version = project.format_version.max(5);
+    }
     project.upgrade_format_for_features();
 }
 
@@ -1115,23 +1193,27 @@ pub fn import_svg_into_project(
         }
     }
 
-    let (gradients, clip_paths, masks, filters) = parse_svg_defs(root);
+    let styles = SvgStyles::new(root);
+    let (gradients, clip_paths, masks, filters) = parse_svg_defs(root, &styles);
 
     let mut buckets: Vec<VectorGroupBucket> = Vec::new();
-    let mut loose_bucket = VectorGroupBucket {
+    let new_loose_bucket = || VectorGroupBucket {
         name: format!("{source_name} Artwork"),
         elements: Vec::new(),
         mask_elements: Vec::new(),
         mask_mode: MaskMode::Geometry,
     };
 
+    let mut loose_bucket = new_loose_bucket();
+
     #[allow(clippy::too_many_arguments)]
-    fn collect_svg_subtree(
-        node: Node<'_, '_>,
+    fn collect_svg_subtree<'a>(
+        node: Node<'a, 'a>,
+        styles: &SvgStyles<'a>,
         parent_matrix: [f64; 6],
         bucket: &mut VectorGroupBucket,
         options: &VectorImportOptions,
-        gradients: &BTreeMap<String, GradientPaint>,
+        gradients: &BTreeMap<String, SvgGradient>,
         clip_paths: &BTreeMap<String, Vec<PathCommand>>,
         masks: &BTreeMap<String, Vec<PathCommand>>,
         filters: &BTreeMap<String, String>,
@@ -1167,7 +1249,7 @@ pub fn import_svg_into_project(
         let cumulative_matrix = affine_multiply(parent_matrix, local_matrix);
 
         // Check filter reference
-        if let Some(filter_attr) = node_style_or_attr(node, "filter")
+        if let Some(filter_attr) = styles.value(node, "filter")
             && let Some(fid) = extract_url_id(&filter_attr)
         {
             let desc = filters.get(&fid).map_or("SVG filter", String::as_str);
@@ -1183,7 +1265,7 @@ pub fn import_svg_into_project(
             ("clip-path", clip_paths, MaskMode::Geometry),
             ("mask", masks, MaskMode::Luminance),
         ] {
-            if let Some(attr_val) = node_style_or_attr(node, attr_name)
+            if let Some(attr_val) = styles.value(node, attr_name)
                 && let Some(cid) = extract_url_id(&attr_val)
                 && let Some(clip_cmds) = def_map.get(&cid)
             {
@@ -1230,6 +1312,7 @@ pub fn import_svg_into_project(
             for child in node.children().filter(|c| c.is_element()) {
                 collect_svg_subtree(
                     child,
+                    styles,
                     cumulative_matrix,
                     bucket,
                     options,
@@ -1263,16 +1346,20 @@ pub fn import_svg_into_project(
                 .attribute("y")
                 .and_then(|v| v.parse::<f64>().ok())
                 .unwrap_or(20.0);
-            let font_size = node_style_or_attr(node, "font-size")
+            let font_size = styles
+                .value(node, "font-size")
                 .and_then(|v| v.trim_end_matches("px").parse::<f64>().ok())
                 .unwrap_or(20.0)
                 .max(1.0);
-            let font_family =
-                node_style_or_attr(node, "font-family").unwrap_or_else(|| "sans-serif".to_owned());
-            let opacity = node_style_or_attr(node, "opacity")
+            let font_family = styles
+                .value(node, "font-family")
+                .unwrap_or_else(|| "sans-serif".to_owned());
+            let opacity = styles
+                .value(node, "opacity")
                 .and_then(|v| v.parse::<f64>().ok())
                 .unwrap_or(1.0);
-            let fill_color = node_style_or_attr(node, "fill")
+            let fill_color = styles
+                .value(node, "fill")
                 .and_then(|c| parse_svg_color(&c, opacity))
                 .unwrap_or([0, 0, 0, 255]);
 
@@ -1336,23 +1423,39 @@ pub fn import_svg_into_project(
         }
 
         if let Some(raw_cmds) = shape_node_to_commands(node) {
-            let opacity = node_style_or_attr(node, "opacity")
+            let opacity = styles
+                .value(node, "opacity")
                 .and_then(|v| v.parse::<f64>().ok())
                 .unwrap_or(1.0);
-            let fill_opacity = node_style_or_attr(node, "fill-opacity")
+            let fill_opacity = styles
+                .value(node, "fill-opacity")
                 .and_then(|v| v.parse::<f64>().ok())
                 .unwrap_or(1.0)
                 * opacity;
-            let stroke_opacity = node_style_or_attr(node, "stroke-opacity")
+            let stroke_opacity = styles
+                .value(node, "stroke-opacity")
                 .and_then(|v| v.parse::<f64>().ok())
                 .unwrap_or(1.0)
                 * opacity;
 
-            let fill_raw = node_style_or_attr(node, "fill");
+            let fill_raw = styles.value(node, "fill");
             let fill_grad = fill_raw
                 .as_deref()
                 .and_then(extract_url_id)
-                .and_then(|id| gradients.get(&id).cloned());
+                .and_then(|id| gradients.get(&id))
+                .and_then(|gradient| {
+                    gradient.resolve(
+                        &raw_cmds,
+                        if options.transform_handling
+                            == VectorTransformHandling::BakeTransformsIntoPaths
+                        {
+                            cumulative_matrix
+                        } else {
+                            identity_matrix()
+                        },
+                        fill_opacity,
+                    )
+                });
             let fill_color = match &fill_raw {
                 Some(f) if fill_grad.is_none() => {
                     parse_svg_color(f, fill_opacity).unwrap_or([0, 0, 0, 255])
@@ -1366,15 +1469,16 @@ pub fn import_svg_into_project(
                 _ => [0, 0, 0, 255],
             };
 
-            let stroke_raw = node_style_or_attr(node, "stroke");
+            let stroke_raw = styles.value(node, "stroke");
             let stroke_color = stroke_raw
                 .as_deref()
                 .and_then(|s| parse_svg_color(s, stroke_opacity))
                 .unwrap_or([0, 0, 0, 0]);
-            let stroke_width = node_style_or_attr(node, "stroke-width")
+            let stroke_width = styles
+                .value(node, "stroke-width")
                 .and_then(|v| v.trim_end_matches("px").parse::<f64>().ok())
                 .unwrap_or(if stroke_color[3] > 0 { 1.0 } else { 0.0 });
-            let fill_rule = match node_style_or_attr(node, "fill-rule").as_deref() {
+            let fill_rule = match styles.value(node, "fill-rule").as_deref() {
                 Some("evenodd") => FillRule::EvenOdd,
                 _ => FillRule::NonZero,
             };
@@ -1411,7 +1515,7 @@ pub fn import_svg_into_project(
                     }
                 };
                 let mut filters_vec = Vec::new();
-                if let Some(filter_attr) = node_style_or_attr(node, "filter")
+                if let Some(filter_attr) = styles.value(node, "filter")
                     && extract_url_id(&filter_attr).is_some()
                 {
                     filters_vec.push(FilterSpec::Blur {
@@ -1464,6 +1568,9 @@ pub fn import_svg_into_project(
             continue;
         }
         if tag == "g" {
+            if !loose_bucket.elements.is_empty() || !loose_bucket.mask_elements.is_empty() {
+                buckets.push(std::mem::replace(&mut loose_bucket, new_loose_bucket()));
+            }
             let group_name = child
                 .attribute("id")
                 .or_else(|| {
@@ -1479,6 +1586,7 @@ pub fn import_svg_into_project(
             };
             collect_svg_subtree(
                 child,
+                &styles,
                 root_matrix,
                 &mut group_bucket,
                 options,
@@ -1495,6 +1603,7 @@ pub fn import_svg_into_project(
         } else {
             collect_svg_subtree(
                 child,
+                &styles,
                 root_matrix,
                 &mut loose_bucket,
                 options,
@@ -1509,7 +1618,7 @@ pub fn import_svg_into_project(
     }
 
     if !loose_bucket.elements.is_empty() || !loose_bucket.mask_elements.is_empty() {
-        buckets.insert(0, loose_bucket);
+        buckets.push(loose_bucket);
     }
 
     assemble_vector_buckets(project, buckets, source_name, options, &mut report);
@@ -1552,23 +1661,8 @@ fn extract_pdf_streams(bytes: &[u8]) -> Vec<String> {
             break;
         };
         let raw_stream = &bytes[data_start..data_start + end_rel];
-        // Check if compressed via FlateDecode
-        let header_lookback_start = (pos + rel).saturating_sub(256);
-        let header_slice = &bytes[header_lookback_start..pos + rel];
-        let is_flate = header_slice
-            .windows(11)
-            .any(|w| w.eq_ignore_ascii_case(b"FlateDecode"));
-        if is_flate {
-            let mut decoder = flate2::read::ZlibDecoder::new(raw_stream);
-            let mut decoded = Vec::new();
-            if decoder.read_to_end(&mut decoded).is_ok() {
-                streams.push(String::from_utf8_lossy(&decoded).into_owned());
-            } else {
-                streams.push(String::from_utf8_lossy(raw_stream).into_owned());
-            }
-        } else {
-            streams.push(String::from_utf8_lossy(raw_stream).into_owned());
-        }
+        // Called only for the bounded uncompressed legacy snippet form.
+        streams.push(String::from_utf8_lossy(raw_stream).into_owned());
         pos = data_start + end_rel + 9;
     }
     if streams.is_empty() {
@@ -1601,10 +1695,15 @@ fn parse_pdf_media_box(text: &str) -> Option<(u32, u32)> {
     None
 }
 
-fn tokenize_pdf_content(stream: &str) -> Vec<String> {
+fn tokenize_pdf_content(stream: &str) -> Result<Vec<String>, ImportError> {
     let mut tokens = Vec::new();
     let mut chars = stream.chars().peekable();
     while let Some(&ch) = chars.peek() {
+        if tokens.len() >= 1_000_000 {
+            return Err(ImportError::Container(
+                "PDF page exceeds one million operands and operators.".into(),
+            ));
+        }
         if ch.is_ascii_whitespace() {
             chars.next();
             continue;
@@ -1642,7 +1741,7 @@ fn tokenize_pdf_content(stream: &str) -> Vec<String> {
             tokens.push(s);
             continue;
         }
-        if ch == '[' || ch == ']' {
+        if matches!(ch, '[' | ']' | ')') {
             tokens.push(chars.next().unwrap().to_string());
             continue;
         }
@@ -1657,7 +1756,7 @@ fn tokenize_pdf_content(stream: &str) -> Vec<String> {
             tokens.push(word);
         }
     }
-    tokens
+    Ok(tokens)
 }
 
 /// Import a PDF or Adobe Illustrator (`.ai` / `.pdf`) vector document into an existing [`Project`].
@@ -1671,19 +1770,52 @@ pub fn import_pdf_ai_into_project(
     source_name: &str,
     options: &VectorImportOptions,
 ) -> Result<ImportReport, ImportError> {
+    if bytes.len() > 128 * 1024 * 1024 {
+        return Err(ImportError::Container(
+            "Vector input exceeds 128 MiB.".into(),
+        ));
+    }
+    if bytes.starts_with(eps::MAGIC) {
+        return eps::import(project, bytes, source_name, options);
+    }
     let header_str = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]);
+    if header_str.starts_with("%!PS-Adobe")
+        && header_str
+            .lines()
+            .next()
+            .is_some_and(|line| line.contains("EPSF"))
+    {
+        return Err(ImportError::Container(format!(
+            "{source_name}: EPS has no binary TIFF preview. Export the artwork as PDF or SVG."
+        )));
+    }
     if !header_str.contains("%PDF-") && !header_str.contains("%!PS-Adobe") {
         return Err(ImportError::Container(
             "Source is not a recognized PDF or Adobe Illustrator document (missing %PDF- or %!PS-Adobe header).".into(),
         ));
     }
 
-    let full_text = String::from_utf8_lossy(bytes);
-    if options.resize_stage_to_viewbox
-        && let Some((w, h)) = parse_pdf_media_box(&full_text)
-    {
-        project.width = w;
-        project.height = h;
+    let pages = match pdf::pages(bytes) {
+        Ok(pages) => pages,
+        // Older NeoFlash exchange snippets have no xref or page tree, just textual operators.
+        Err(_)
+            if bytes.len() <= 1024 * 1024
+                && !bytes.windows(9).any(|w| w == b"startxref")
+                && !bytes.windows(7).any(|w| w == b"/Filter") =>
+        {
+            let text = String::from_utf8_lossy(bytes);
+            let (w, h) = parse_pdf_media_box(&text).unwrap_or((project.width, project.height));
+            vec![pdf::Page {
+                content: extract_pdf_streams(bytes).join("\n"),
+                bounds: [0., 0., f64::from(w), f64::from(h)],
+                rotation: 0,
+                shadings: BTreeMap::new(),
+            }]
+        }
+        Err(e) => return Err(e),
+    };
+    if options.resize_stage_to_viewbox {
+        (project.width, project.height) = pages[0].size_and_transform().0;
     }
 
     let mut report = ImportReport {
@@ -1698,7 +1830,6 @@ pub fn import_pdf_ai_into_project(
         swc: None,
     };
 
-    let streams = extract_pdf_streams(bytes);
     let mut buckets: Vec<VectorGroupBucket> = Vec::new();
     let mut current_bucket = VectorGroupBucket {
         name: format!("{source_name} Layer 1"),
@@ -1715,6 +1846,7 @@ pub fn import_pdf_ai_into_project(
         line_width: f64,
         font_size: f64,
         text_pos: (f64, f64),
+        clip: Option<std::sync::Arc<Element>>,
     }
 
     impl Default for PdfGState {
@@ -1726,20 +1858,24 @@ pub fn import_pdf_ai_into_project(
                 line_width: 1.0,
                 font_size: 16.0,
                 text_pos: (0.0, 20.0),
+                clip: None,
             }
         }
     }
 
     let mut total_ops = 0usize;
 
-    for (stream_idx, stream) in streams.iter().enumerate() {
-        let tokens = tokenize_pdf_content(stream);
+    for (stream_idx, page) in pages.iter().enumerate() {
+        let tokens = tokenize_pdf_content(&page.content)?;
         let mut operand_stack: Vec<String> = Vec::new();
-        let mut gstate = PdfGState::default();
+        let mut gstate = PdfGState {
+            ctm: page.size_and_transform().1,
+            ..PdfGState::default()
+        };
         let mut gstate_stack: Vec<PdfGState> = Vec::new();
         let mut current_path: Vec<PathCommand> = Vec::new();
         let mut cur_pt = (0.0, 0.0);
-        let mut pending_clip = false;
+        let mut pending_clip = None;
 
         let pop_f64 = |stack: &mut Vec<String>| -> Option<f64> { stack.pop()?.parse::<f64>().ok() };
 
@@ -1753,6 +1889,23 @@ pub fn import_pdf_ai_into_project(
             total_ops += 1;
             let loc = format!("{source_name}::stream[{stream_idx}]::{tok}");
 
+            let clip = gstate.clip.as_deref();
+            if matches!(
+                tok.as_str(),
+                "S" | "s" | "f" | "F" | "f*" | "B" | "B*" | "b" | "b*" | "Tj" | "TJ" | "sh"
+            ) && current_bucket.mask_elements.first().map(|e| &e.id) != clip.map(|e| &e.id)
+            {
+                if !current_bucket.elements.is_empty() {
+                    let next = VectorGroupBucket {
+                        name: current_bucket.name.clone(),
+                        elements: vec![],
+                        mask_elements: vec![],
+                        mask_mode: MaskMode::Geometry,
+                    };
+                    buckets.push(std::mem::replace(&mut current_bucket, next));
+                }
+                current_bucket.mask_elements = clip.cloned().into_iter().collect();
+            }
             match tok.as_str() {
                 "q" => {
                     gstate_stack.push(gstate.clone());
@@ -1912,30 +2065,36 @@ pub fn import_pdf_ai_into_project(
                     operand_stack.clear();
                 }
                 "W" | "W*" => {
-                    pending_clip = true;
+                    pending_clip = Some(if tok == "W*" {
+                        FillRule::EvenOdd
+                    } else {
+                        FillRule::NonZero
+                    });
                     operand_stack.clear();
                 }
                 "S" | "s" | "f" | "F" | "f*" | "B" | "B*" | "b" | "b*" | "n" => {
                     if matches!(tok.as_str(), "s" | "b" | "b*") {
                         current_path.push(PathCommand::Close);
                     }
-                    if pending_clip && !current_path.is_empty() {
+                    if let Some(clip_rule) = pending_clip.take()
+                        && !current_path.is_empty()
+                    {
                         let baked = bake_matrix_into_commands(&current_path, gstate.ctm);
                         match options.mask_handling {
                             VectorMaskHandling::MaskLayers => {
-                                current_bucket.mask_elements.push(Element {
+                                gstate.clip = Some(std::sync::Arc::new(Element {
                                     id: new_id("element"),
                                     name: "PDF Clip Path".to_owned(),
                                     transform: Transform::default(),
                                     kind: ElementKind::Path {
                                         commands: baked,
-                                        fill_rule: FillRule::NonZero,
+                                        fill_rule: clip_rule,
                                         fill: [255, 255, 255, 255],
                                         stroke: [0, 0, 0, 0],
                                         stroke_width: 0.0,
                                     },
                                     ..Element::default()
-                                });
+                                }));
                                 report.diagnostics.push(Diagnostic {
                                     severity: Severity::Info,
                                     code: "pdf-clipping-path-mapped".to_owned(),
@@ -1953,7 +2112,6 @@ pub fn import_pdf_ai_into_project(
                                 );
                             }
                         }
-                        pending_clip = false;
                     }
                     if tok != "n" && !current_path.is_empty() {
                         let do_fill =
@@ -2135,6 +2293,65 @@ pub fn import_pdf_ai_into_project(
                     }
                     operand_stack.clear();
                 }
+                "sh" if operand_stack
+                    .last()
+                    .and_then(|name| page.shadings.get(name.trim_start_matches('/')))
+                    .is_some() =>
+                {
+                    let mut paint = page.shadings
+                        [operand_stack.last().unwrap().trim_start_matches('/')]
+                    .clone();
+                    paint.matrix = affine_multiply(gstate.ctm, paint.matrix);
+                    let (commands, rule) = if let Some(Element {
+                        kind:
+                            ElementKind::Path {
+                                commands,
+                                fill_rule,
+                                ..
+                            },
+                        ..
+                    }) = gstate.clip.as_deref()
+                    {
+                        (commands.clone(), *fill_rule)
+                    } else {
+                        let ((w, h), _) = page.size_and_transform();
+                        (
+                            vec![
+                                PathCommand::MoveTo { x: 0., y: 0. },
+                                PathCommand::LineTo {
+                                    x: f64::from(w),
+                                    y: 0.,
+                                },
+                                PathCommand::LineTo {
+                                    x: f64::from(w),
+                                    y: f64::from(h),
+                                },
+                                PathCommand::LineTo {
+                                    x: 0.,
+                                    y: f64::from(h),
+                                },
+                                PathCommand::Close,
+                            ],
+                            FillRule::NonZero,
+                        )
+                    };
+                    current_bucket.elements.push(Element {
+                        id: new_id("element"),
+                        name: "PDF axial shading".into(),
+                        kind: ElementKind::PaintedPath {
+                            commands,
+                            fill_rule: rule,
+                            fill: [0; 4],
+                            stroke: [0; 4],
+                            stroke_width: 0.,
+                            fill_gradient: Some(paint),
+                            stroke_gradient: None,
+                        },
+                        ..Default::default()
+                    });
+                    report.statistics.elements += 1;
+                    operand_stack.clear();
+                }
                 "sh" | "Do" => {
                     report.warning(
                         "pdf-unsupported-operator",
@@ -2161,9 +2378,9 @@ pub fn import_pdf_ai_into_project(
         code: "pdf-content-stream-parsed".to_owned(),
         location: source_name.to_owned(),
         message: format!(
-            "Parsed {} PDF/AI vector operator(s) across {} content stream(s).",
+            "Parsed {} PDF/AI vector operator(s) across {} page(s).",
             total_ops,
-            streams.len()
+            pages.len()
         ),
     });
 
@@ -2193,7 +2410,7 @@ pub fn import_vector_bytes_with_options(
     options: &VectorImportOptions,
 ) -> Result<(Project, ImportReport), ImportError> {
     let prefix = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]);
-    if prefix.contains("%PDF-") || prefix.contains("%!PS-Adobe") {
+    if bytes.starts_with(eps::MAGIC) || prefix.contains("%PDF-") || prefix.contains("%!PS-Adobe") {
         import_pdf_ai_with_options(bytes, source_name, options)
     } else {
         let text = std::str::from_utf8(bytes)
@@ -2201,3 +2418,6 @@ pub fn import_vector_bytes_with_options(
         import_svg_with_options(text, source_name, options)
     }
 }
+
+#[cfg(test)]
+mod tests;

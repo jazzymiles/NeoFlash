@@ -49,6 +49,20 @@ fn decode(resource: &ResourceUnit) -> Result<DecodedSound, String> {
     let bytes = resource
         .decoded_bytes()
         .map_err(|error| error.to_string())?;
+    let bytes = if resource.is_video() {
+        match neoflash_export::video_audio::embedded_soundtrack(&bytes)? {
+            Some((audio, _)) => audio,
+            None => {
+                return Ok(DecodedSound {
+                    samples: Arc::from([]),
+                    channels: 2,
+                    rate: 44_100,
+                });
+            }
+        }
+    } else {
+        bytes
+    };
     let decoder = rodio::Decoder::new(std::io::Cursor::new(bytes))
         .map_err(|error| format!("{}: {error}", resource.path))?;
     let (channels, rate) = (decoder.channels(), decoder.sample_rate());
@@ -343,6 +357,7 @@ pub(crate) struct TimelineAudio {
     waveforms: WaveformCache,
     waveform_worker: Option<WaveformWorker>,
     voices: Vec<Voice>,
+    video: neoflash_export::video_audio::VideoSoundChannels,
     preview: Option<u64>,
     auditioning_headless: bool,
     /// Local import paths of audio resources for Sound properties ▸ Update (session-only).
@@ -363,6 +378,7 @@ impl Default for TimelineAudio {
             waveforms: HashMap::new(),
             waveform_worker: None,
             voices: vec![],
+            video: Default::default(),
             preview: None,
             auditioning_headless: false,
             source_paths: HashMap::new(),
@@ -685,6 +701,7 @@ impl TimelineAudio {
             self.voices
                 .retain(|voice| voice.channel.as_deref() == Some(AUDITION));
             self.preview = epoch;
+            self.video = Default::default();
         }
     }
 
@@ -966,8 +983,19 @@ impl Editor {
     /// Feed editor playback's sound commands to the native audio preview (once per UI frame).
     pub(crate) fn pump_timeline_audio(&mut self) {
         let epoch = self.preview_epoch();
-        let commands = self.drain_preview_sounds();
+        let mut commands = self.drain_preview_sounds();
         self.timeline_audio.follow_preview(epoch);
+        let placements: Vec<_> = self
+            .timeline_video
+            .channels
+            .values()
+            .map(|v| v.to_resolved_placement())
+            .collect();
+        commands.extend(
+            self.timeline_audio
+                .video
+                .sync(placements.iter(), f64::from(self.project.fps.max(1))),
+        );
         self.timeline_audio.apply(&self.project, commands);
         if let Some(failure) = self.timeline_audio.failure.take() {
             self.message(format!("Timeline sound preview: {failure}"));

@@ -78,26 +78,13 @@ impl Editor {
             );
         }
 
-        let (audio_bytes, audio_mime, ext) = if neoflash_core::is_avi_bytes(&raw_bytes) {
-            let decoded = neoflash_core::decode_avi_bytes(&raw_bytes)
-                .map_err(|e| format!("Could not decode AVI container: {e}"))?;
-            match (decoded.audio_bytes, decoded.audio_mime) {
-                (Some(bytes), Some(mime)) if !bytes.is_empty() => {
-                    let ext = if mime.contains("mpeg") || mime.contains("mp3") {
-                        "mp3"
-                    } else {
-                        "wav"
-                    };
-                    (bytes, mime.to_owned(), ext)
-                }
-                _ => {
-                    return Err(
-                        "This AVI video clip does not contain an audio stream to extract.".into(),
-                    );
-                }
-            }
+        let (audio_bytes, audio_mime) =
+            neoflash_export::video_audio::embedded_soundtrack(&raw_bytes)?
+                .ok_or("This video clip does not contain an audio stream to extract.")?;
+        let ext = if audio_mime == "audio/mpeg" {
+            "mp3"
         } else {
-            extract_wav_with_ffmpeg(&raw_bytes)?
+            "wav"
         };
 
         let symbol_id = self.symbol_id().to_owned();
@@ -129,7 +116,7 @@ impl Editor {
         let audio_res = ResourceUnit::from_bytes(
             audio_res_id.clone(),
             audio_path.clone(),
-            &audio_mime,
+            audio_mime,
             &audio_bytes,
         )
         .map_err(|e| e.to_string())?;
@@ -525,67 +512,9 @@ impl Editor {
     }
 }
 
-fn extract_wav_with_ffmpeg(video_bytes: &[u8]) -> Result<(Vec<u8>, String, &'static str), String> {
-    let ffmpeg = neoflash_export::detect_ffmpeg().ok_or_else(|| {
-        "Audio extraction for MP4/WebM requires the bundled media tools, NEOFLASH_FFMPEG, or ffmpeg on PATH (AVI PCM/MP3 extracts natively).".to_owned()
-    })?;
-    extract_wav_with_resolved_ffmpeg(video_bytes, &ffmpeg)
-}
-
-fn extract_wav_with_resolved_ffmpeg(
-    video_bytes: &[u8],
-    ffmpeg: &std::path::Path,
-) -> Result<(Vec<u8>, String, &'static str), String> {
-    struct TempDirGuard(std::path::PathBuf);
-    impl Drop for TempDirGuard {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-    let dir = std::env::temp_dir().join(format!("neoflash-vid-audio-{}", new_id("tmp")));
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Temporary folder failed: {e}"))?;
-    let _guard = TempDirGuard(dir.clone());
-    let in_path = dir.join("input_video.bin");
-    let out_path = dir.join("extracted.wav");
-    std::fs::write(&in_path, video_bytes)
-        .map_err(|err| format!("Temporary video write failed: {err}"))?;
-    let mut command = std::process::Command::new(ffmpeg);
-    neoflash_export::configure_media_subprocess_command(&mut command, ffmpeg);
-    let status = command
-        .args(["-y", "-hide_banner", "-loglevel", "error", "-i"])
-        .arg(&in_path)
-        .args(["-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2"])
-        .arg(&out_path)
-        .output();
-    match status {
-        Ok(out) if out.status.success() => {
-            let wav = std::fs::read(&out_path)
-                .map_err(|e| format!("Could not read extracted WAV audio: {e}"))?;
-            if wav.is_empty() {
-                Err("The video clip does not contain an extractable audio stream.".into())
-            } else {
-                Ok((wav, "audio/wav".to_owned(), "wav"))
-            }
-        }
-        Ok(out) => {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            let detail = stderr.trim();
-            if detail.is_empty() {
-                Err("The video clip does not contain an extractable audio stream.".into())
-            } else {
-                Err(format!("Audio extraction failed: {detail}"))
-            }
-        }
-        Err(error) => Err(format!(
-            "Could not start the resolved ffmpeg helper '{}': {error}",
-            ffmpeg.display()
-        )),
-    }
-}
-
 #[cfg(all(test, unix))]
 mod portable_media_tests {
-    use super::extract_wav_with_resolved_ffmpeg;
+    use neoflash_export::video_audio::extract_wav_with_resolved_ffmpeg;
     use std::os::unix::fs::PermissionsExt;
 
     static FIXTURE_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -633,12 +562,11 @@ printf '%s\n%s\n' "$input" "$output" > "${0%/*}/capture.txt"
         .unwrap();
         std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let (wav, media_type, extension) =
-            extract_wav_with_resolved_ffmpeg(b"\x1aE\xdf\xa3fake-webm", &helper).unwrap();
+        let wav = extract_wav_with_resolved_ffmpeg(b"\x1aE\xdf\xa3fake-webm", &helper)
+            .unwrap()
+            .unwrap();
 
         assert_eq!(wav, b"RIFF\x0c\0\0\0WAVE");
-        assert_eq!(media_type, "audio/wav");
-        assert_eq!(extension, "wav");
         let capture = std::fs::read_to_string(helper.with_file_name("capture.txt")).unwrap();
         let mut paths = capture.lines().map(std::path::Path::new);
         let input = paths.next().unwrap();

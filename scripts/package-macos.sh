@@ -172,6 +172,7 @@ $icon_plist_keys
 <key>NeoFlashBuildProfile</key><string>$profile</string>
 <key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>NSHighResolutionCapable</key><true/>
+<key>NSAppleEventsUsageDescription</key><string>NeoFlash uses Adobe After Effects to save editable compositions when you export an After Effects project.</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>UTExportedTypeDeclarations</key>
 <array>

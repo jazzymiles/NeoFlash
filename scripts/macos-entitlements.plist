@@ -3,6 +3,8 @@
 <plist version="1.0">
 <dict>
     <!-- Hardened Runtime entitlements for NeoFlash macOS Beta 1 (Developer ID Application) -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
     <key>com.apple.security.cs.allow-jit</key>
     <false/>
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>

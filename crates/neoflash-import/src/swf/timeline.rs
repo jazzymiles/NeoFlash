@@ -128,6 +128,7 @@ struct SwfBuilder<'a> {
     jpeg_tables: Option<Vec<u8>>,
     bitmaps: HashMap<u16, SwfBitmapRef>,
     bitmap_rgba_bytes: usize,
+    compact_jpeg_size: Option<[u32; 2]>,
     sounds: HashMap<u16, SwfSoundAsset>,
     fonts: HashMap<u16, SwfFontDef>,
     characters: HashMap<u16, SwfCharacter>,
@@ -206,6 +207,16 @@ pub(crate) fn build_project_from_swf(
         .unwrap_or("Imported SWF")
         .to_owned();
 
+    let compact_jpeg_size =
+        if inspection.tags.bitmaps <= MAX_AUTHORED_BITMAPS && inspection.tags.show_frame > 1 {
+            super::media::compact_jpeg_dimensions(
+                body.get(tags_offset..)?,
+                inspection.tags.bitmaps,
+                MAX_BITMAP_BYTES / 4,
+            )
+        } else {
+            None
+        };
     let mut builder = SwfBuilder {
         swf_version: container.swf_version,
         location,
@@ -213,6 +224,7 @@ pub(crate) fn build_project_from_swf(
         jpeg_tables: None,
         bitmaps: HashMap::new(),
         bitmap_rgba_bytes: 0,
+        compact_jpeg_size,
         sounds: HashMap::new(),
         fonts: HashMap::new(),
         characters: HashMap::new(),
@@ -514,7 +526,7 @@ impl SwfBuilder<'_> {
                     ) {
                         let is_pure_vector = decoded.elements.iter().all(element_is_pure_vector);
                         let timeline =
-                            single_frame_timeline(&format!("swf-sym-{shape_id}"), decoded.elements);
+                            single_shape_timeline(&format!("swf-sym-{shape_id}"), decoded);
                         let sym_id = self.register_character_symbol(
                             shape_id,
                             format!("Shape {shape_id}"),
@@ -541,9 +553,16 @@ impl SwfBuilder<'_> {
                         self.location,
                         self.report,
                     ) {
-                        let is_pure_vector =
-                            decoded.start_elements.iter().all(element_is_pure_vector)
-                                && decoded.end_elements.iter().all(element_is_pure_vector);
+                        let is_pure_vector = decoded
+                            .start_elements
+                            .elements
+                            .iter()
+                            .all(element_is_pure_vector)
+                            && decoded
+                                .end_elements
+                                .elements
+                                .iter()
+                                .all(element_is_pure_vector);
                         let sym_id_preview = format!("swf-sym-{morph_id}");
                         let timeline = morph_shape_timeline(
                             &sym_id_preview,
@@ -580,13 +599,14 @@ impl SwfBuilder<'_> {
                             tag_code,
                             payload,
                             self.jpeg_tables.as_deref(),
+                            self.compact_jpeg_size,
                             &mut self.resources,
                             &mut self.resource_bytes_total,
                             self.location,
                             self.report,
                         ) {
-                            let px_bytes = (bref.width as usize)
-                                .saturating_mul(bref.height as usize)
+                            let px_bytes = (bref.stored_size[0] as usize)
+                                .saturating_mul(bref.stored_size[1] as usize)
                                 .saturating_mul(4);
                             if self.bitmap_rgba_bytes + px_bytes <= MAX_BITMAP_BYTES {
                                 self.bitmap_rgba_bytes += px_bytes;
@@ -615,8 +635,8 @@ impl SwfBuilder<'_> {
                             self.location,
                             self.report,
                         ) {
-                            let px_bytes = (bref.width as usize)
-                                .saturating_mul(bref.height as usize)
+                            let px_bytes = (bref.stored_size[0] as usize)
+                                .saturating_mul(bref.stored_size[1] as usize)
                                 .saturating_mul(4);
                             if self.bitmap_rgba_bytes + px_bytes <= MAX_BITMAP_BYTES {
                                 self.bitmap_rgba_bytes += px_bytes;
@@ -1093,11 +1113,12 @@ impl SwfBuilder<'_> {
         let el = Element {
             id: format!("swf-bmpchar-{bitmap_id}-el"),
             name: String::new(),
-            transform: Transform::default(),
+            transform: Transform::from_matrix(bref.stored_matrix([1., 0., 0., 1., 0., 0.]))
+                .unwrap_or_default(),
             kind: ElementKind::Bitmap {
                 resource_id: bref.resource_id.clone(),
-                width: bref.width,
-                height: bref.height,
+                width: bref.stored_size[0],
+                height: bref.stored_size[1],
                 smoothing: true,
             },
             ..Element::default()
@@ -2278,10 +2299,36 @@ impl SwfBuilder<'_> {
     }
 }
 
-fn single_frame_timeline(sym_uid: &str, mut elements: Vec<Element>) -> Timeline {
-    for (idx, el) in elements.iter_mut().enumerate() {
-        el.id = format!("{sym_uid}-el-{idx}");
+fn shape_keyframe(mut shape: super::shape::DecodedSwfShape, prefix: &str) -> Keyframe {
+    for (index, element) in shape.elements.iter_mut().enumerate() {
+        element.id = format!("{prefix}-{index}");
     }
+    let bitmap_fills = shape
+        .bitmap_fills
+        .into_iter()
+        .map(|(index, mut brush)| {
+            brush.element_id.clone_from(&shape.elements[index].id);
+            brush
+        })
+        .collect();
+    Keyframe {
+        elements: shape.elements,
+        bitmap_fills,
+        ..Default::default()
+    }
+}
+
+fn single_frame_timeline(sym_uid: &str, elements: Vec<Element>) -> Timeline {
+    single_shape_timeline(
+        sym_uid,
+        super::shape::DecodedSwfShape {
+            elements,
+            ..Default::default()
+        },
+    )
+}
+
+fn single_shape_timeline(sym_uid: &str, shape: super::shape::DecodedSwfShape) -> Timeline {
     Timeline {
         frame_count: 1,
         layers: vec![Layer {
@@ -2289,11 +2336,7 @@ fn single_frame_timeline(sym_uid: &str, mut elements: Vec<Element>) -> Timeline 
             name: "Layer 1".into(),
             visible: true,
             locked: false,
-            keyframes: vec![Keyframe {
-                frame: 0,
-                elements,
-                ..Default::default()
-            }],
+            keyframes: vec![shape_keyframe(shape, &format!("{sym_uid}-el"))],
             properties: LayerProperties::default(),
         }],
         scripts: Vec::new(),
@@ -2303,15 +2346,9 @@ fn single_frame_timeline(sym_uid: &str, mut elements: Vec<Element>) -> Timeline 
 
 fn morph_shape_timeline(
     sym_uid: &str,
-    mut start_elements: Vec<Element>,
-    mut end_elements: Vec<Element>,
+    start: super::shape::DecodedSwfShape,
+    end: super::shape::DecodedSwfShape,
 ) -> Timeline {
-    for (idx, el) in start_elements.iter_mut().enumerate() {
-        el.id = format!("{sym_uid}-morph-{idx}");
-    }
-    for (idx, el) in end_elements.iter_mut().enumerate() {
-        el.id = format!("{sym_uid}-morph-end-{idx}");
-    }
     Timeline {
         frame_count: 101,
         layers: vec![Layer {
@@ -2322,15 +2359,13 @@ fn morph_shape_timeline(
             keyframes: vec![
                 Keyframe {
                     frame: 0,
-                    elements: start_elements,
                     tween: Some(Easing::Linear),
                     tween_kind: TweenKind::Shape,
-                    ..Default::default()
+                    ..shape_keyframe(start, &format!("{sym_uid}-morph"))
                 },
                 Keyframe {
                     frame: 100,
-                    elements: end_elements,
-                    ..Default::default()
+                    ..shape_keyframe(end, &format!("{sym_uid}-morph-end"))
                 },
             ],
             properties: LayerProperties::default(),

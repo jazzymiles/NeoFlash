@@ -2259,6 +2259,27 @@ pub(crate) fn layout(p: &egui::Painter, kind: &ElementKind) -> Result<Arc<TextLa
     Ok(result)
 }
 
+/// The shared layout adds tracking to the measured (untracked) advances. Apply the
+/// same tracking when tessellating the run so right-aligned glyphs fit its measured box.
+fn tracked_galley(
+    p: &egui::Painter,
+    text: &str,
+    format: &TextFormat,
+    family: FontFamily,
+    color: Color32,
+) -> Arc<egui::Galley> {
+    let job = egui::text::LayoutJob::single_section(
+        text.to_owned(),
+        egui::TextFormat {
+            font_id: FontId::new(format.size as f32, family),
+            extra_letter_spacing: format.letter_spacing as f32,
+            color,
+            ..Default::default()
+        },
+    );
+    p.layout_job(job)
+}
+
 pub(crate) fn paint(
     p: &egui::Painter,
     kind: &ElementKind,
@@ -2360,11 +2381,7 @@ pub(crate) fn paint(
             } else {
                 color
             };
-            let galley = p.layout_no_wrap(
-                run.text.clone(),
-                FontId::new(run_fmt.size as f32, run_family),
-                run_color,
-            );
+            let galley = tracked_galley(p, &run.text, run_fmt, run_family, run_color);
             let galley_size = galley.size();
             let shape = Shape::Text(egui::epaint::TextShape::new(
                 Pos2::new(run.x as f32, run.y as f32),
@@ -2411,11 +2428,7 @@ pub(crate) fn paint(
             if line.y >= clip.max.y as f64 || line.y + line.height <= 0. {
                 continue;
             }
-            let galley = p.layout_no_wrap(
-                line.text.clone(),
-                FontId::new(format.size as f32, default_family.clone()),
-                color,
-            );
+            let galley = tracked_galley(p, &line.text, format, default_family.clone(), color);
             let shape = Shape::Text(egui::epaint::TextShape::new(
                 Pos2::new(line.x as f32, line.y as f32),
                 galley,

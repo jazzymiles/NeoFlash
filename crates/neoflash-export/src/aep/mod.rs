@@ -48,6 +48,9 @@ pub struct AepOptions {
     /// Optional symbol ID to export; `None` exports the full project (all scenes and used symbols).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub symbol: Option<String>,
+    /// Use a separate locally installed Adobe After Effects process for native project serialization.
+    #[serde(default = "bool_true")]
+    pub use_native_writer: bool,
     /// Write companion `.aepx` After Effects XML project alongside `.aep`.
     #[serde(default = "bool_true")]
     pub include_aepx: bool,
@@ -82,6 +85,7 @@ impl Default for AepOptions {
     fn default() -> Self {
         Self {
             symbol: None,
+            use_native_writer: true,
             include_aepx: true,
             include_extendscript: true,
             translate_scripts: true,
@@ -124,7 +128,8 @@ pub struct AepDiagnostic {
 /// Summary of a completed After Effects export.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct AepExportReport {
-    pub aep_path: PathBuf,
+    pub output_path: PathBuf,
+    pub aep_path: Option<PathBuf>,
     pub aepx_path: Option<PathBuf>,
     pub jsx_path: Option<PathBuf>,
     pub footage_dir: PathBuf,
@@ -420,17 +425,15 @@ pub(super) enum AeEffect {
 
 // ============================================================================
 
-mod aepx;
+mod adobe;
 mod comp_builder;
 mod expressions;
 mod footage;
 mod jsx;
-mod rifx;
 mod shapes;
 #[cfg(test)]
 mod tests;
 
-use aepx::render_aepx_xml;
 use comp_builder::{build_ae_comp, color_rgb01};
 pub use expressions::compile_property_expression_to_ae_js;
 use expressions::{
@@ -438,7 +441,6 @@ use expressions::{
 };
 use footage::extract_aep_footage;
 use jsx::render_extendscript_jsx;
-use rifx::encode_rifx_aep_container;
 pub use shapes::path_commands_to_ae_contours;
 use shapes::{
     apply_element_appearance_to_group, build_ae_fill, build_static_shape_group_for_element,
@@ -450,21 +452,21 @@ use shapes::{
 // ============================================================================
 
 /// Exports a NeoFlash [`Project`] to an Adobe After Effects interchange package:
-/// - `<stem>.aep` (`RIFX` / `Egg!` binary project container with `Cdta`, `Layr`, `shap` & `expr` chunks)
-/// - `<stem>.aepx` (After Effects XML project, when `options.include_aepx` is `true`)
-/// - `<stem>.jsx` (Self-building After Effects ExtendScript constructor, when `options.include_extendscript` is `true`)
-/// - `<stem>_Footage/` (Extracted bitmaps, audio and video assets honoring per-bitmap publish settings)
+/// Native .aep and optional .aepx files are saved by an isolated Adobe host on macOS.
+/// The portable JSX builder reconstructs the same compositions and footage in After Effects.
 pub fn export_project_aep(
     project: &Project,
     path: impl AsRef<Path>,
     options: &AepOptions,
 ) -> Result<AepExportReport, ExportError> {
     let out_path = path.as_ref();
-    let aep_path = if out_path.extension().is_some() {
-        out_path.to_path_buf()
-    } else {
-        out_path.with_extension("aep")
-    };
+    let builder_requested = out_path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("jsx"));
+    let xml_requested = out_path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("aepx"));
+    let aep_path = out_path.with_extension("aep");
     let parent_dir = aep_path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -482,6 +484,7 @@ pub fn export_project_aep(
     // Apply personal Library bitmap export settings (`T-251`) on a derived copy so authored data stays untouched.
     let mut working = project.clone();
     let (_, bitmap_diags) = apply_bitmap_export_settings(&mut working, options.jpeg_quality);
+    crate::image_fill_layers::prepare_image_fill_layers(&mut working)?;
 
     let scene_ids: Vec<String> = if let Some(sym_id) = &options.symbol {
         if working.symbol(sym_id).is_none() {
@@ -757,31 +760,51 @@ pub fn export_project_aep(
         }
     }
 
-    // 3. Serialize RIFX/Egg! `.aep`, `.aepx` XML, and self-building ExtendScript `.jsx`
-    let jsx_source = render_extendscript_jsx(&model, &aep_path);
-    let aep_bytes = encode_rifx_aep_container(&model, &jsx_source)?;
-    atomic_write(&aep_path, &aep_bytes)?;
-
-    let aepx_path = if options.include_aepx {
-        let p = aep_path.with_extension("aepx");
-        let xml = render_aepx_xml(&model, &aep_bytes);
-        atomic_write(&p, xml.as_bytes())?;
-        Some(p)
+    // Adobe owns the native project format. The portable builder uses its supported scripting API.
+    let jsx_source = render_extendscript_jsx(&model, &aep_path, &mut diagnostics);
+    let xml_path = (options.include_aepx || xml_requested).then(|| aep_path.with_extension("aepx"));
+    let native = if options.use_native_writer && !builder_requested {
+        adobe::save(&jsx_source, &aep_path, xml_path.as_deref())
+    } else {
+        Err("Native project creation was disabled.".to_owned())
+    };
+    let fallback = native.is_err();
+    if let Err(reason) = native
+        && !builder_requested
+    {
+        if !options.include_extendscript {
+            return Err(ExportError::Options(format!(
+                "{reason} Export a .jsx builder to create the editable project in After Effects."
+            )));
+        }
+        let message = format!(
+            "{reason} Open File > Scripts > Run Script File in Adobe After Effects and select the exported JSX to create the editable .aep."
+        );
+        diagnostics.push(AepDiagnostic {
+            code: "AE_NATIVE_WRITER_UNAVAILABLE",
+            kind: AepDiagnosticKind::Approximated,
+            location: aep_path.display().to_string(),
+            message,
+        });
+    }
+    let jsx_path = if options.include_extendscript || builder_requested {
+        let path = aep_path.with_extension("jsx");
+        atomic_write(&path, jsx_source.as_bytes())?;
+        Some(path)
     } else {
         None
     };
-
-    let jsx_path = if options.include_extendscript {
-        let p = aep_path.with_extension("jsx");
-        atomic_write(&p, jsx_source.as_bytes())?;
-        Some(p)
+    let output_path = if fallback {
+        aep_path.with_extension("jsx")
+    } else if xml_requested {
+        aep_path.with_extension("aepx")
     } else {
-        None
+        aep_path.clone()
     };
-
     Ok(AepExportReport {
-        aep_path,
-        aepx_path,
+        output_path,
+        aep_path: (!fallback).then_some(aep_path),
+        aepx_path: xml_path.filter(|_| !fallback),
         jsx_path,
         footage_dir,
         footage_files,

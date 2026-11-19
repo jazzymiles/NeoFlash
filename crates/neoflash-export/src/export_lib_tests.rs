@@ -2758,17 +2758,17 @@ fn t320_atomic_publish_and_secondary_exporters_edge_case_hardening() {
         !dir.join("missing_comp_Footage").exists(),
         "failed AEP symbol lookup must not create an orphan _Footage folder"
     );
-    let ok_aep_path = dir.join("torture_comp.aep");
+    let ok_aep_path = dir.join("torture_comp.jsx");
     crate::export_project_aep(
         &valid_edge_project,
         &ok_aep_path,
         &crate::AepOptions::default(),
     )
     .expect("AEP export succeeds on valid edge project");
-    let aep_bytes = fs::read(&ok_aep_path).unwrap();
     assert!(
-        aep_bytes.starts_with(b"RIFX"),
-        "AEP export must write valid RIFX binary container"
+        fs::read_to_string(ok_aep_path)
+            .unwrap()
+            .contains("app.project.save")
     );
 
     fs::remove_dir_all(dir).unwrap();

@@ -1239,7 +1239,7 @@ impl Editor {
             .is_some_and(|ext| {
                 matches!(
                     ext.to_ascii_lowercase().as_str(),
-                    "svg" | "psd" | "psb" | "pdf" | "ai" | "fxg"
+                    "svg" | "psd" | "psb" | "pdf" | "ai" | "eps" | "fxg"
                 )
             })
         {
@@ -1301,7 +1301,7 @@ impl Editor {
             project.validate().map_err(|e| e.to_string())?;
             return Ok((project, "Photoshop document", map_report(&report)));
         }
-        if matches!(ext.as_str(), "pdf" | "ai") || is_pdf_magic {
+        if matches!(ext.as_str(), "pdf" | "ai" | "eps") || is_pdf_magic {
             let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
             let name = path
                 .file_stem()

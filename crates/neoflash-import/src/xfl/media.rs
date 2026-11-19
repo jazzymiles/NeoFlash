@@ -1,5 +1,66 @@
 //! Shared bounded media sniffing used by XFL import and export.
 
+/// Only explicitly marked NeoFlash video-frame packages use these editor previews.
+pub(super) fn video_preview_size(href: &str) -> Option<(u32, u32)> {
+    let (size, filename) = href
+        .strip_prefix("media/neoflash-video-frames/")?
+        .split_once('/')?;
+    if filename.is_empty() || filename.contains('/') {
+        return None;
+    }
+    let (width, height) = size.split_once('x')?;
+    let dimension = |text: &str| {
+        text.parse::<u32>()
+            .ok()
+            .filter(|v| (1..=neoflash_core::MAX_BITMAP_DIMENSION).contains(v))
+    };
+    Some((dimension(width)?, dimension(height)?))
+}
+
+/// Decode one full frame at a time without caching it in the project's resident image arena.
+pub(super) fn decode_video_preview(
+    raw: &[u8],
+    ext: &str,
+    size: (u32, u32),
+) -> image::ImageResult<Option<(Vec<u8>, [f64; 2])>> {
+    use std::io::Cursor;
+    let format = match ext {
+        "jpg" | "jpeg" => image::ImageFormat::Jpeg,
+        "png" => image::ImageFormat::Png,
+        _ => return Ok(None),
+    };
+    let mut reader = image::ImageReader::with_format(Cursor::new(raw), format);
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(neoflash_core::MAX_BITMAP_DIMENSION);
+    limits.max_image_height = Some(neoflash_core::MAX_BITMAP_DIMENSION);
+    limits.max_alloc = Some(neoflash_core::MAX_BITMAP_BYTES as u64);
+    reader.limits(limits);
+    let full = reader.decode()?;
+    let (w, h) = (full.width(), full.height());
+    let (pw, ph) = size;
+    // A renamed or externally replaced source must never be enlarged or distorted by a stale hint.
+    if pw > w
+        || ph > h
+        || (pw, ph) == (w, h)
+        || (i64::from(w) * i64::from(ph) - i64::from(h) * i64::from(pw)).abs()
+            > i64::from(w) + i64::from(h)
+    {
+        return Ok(None);
+    }
+    let preview = full.thumbnail_exact(pw, ph);
+    let mut encoded = Vec::new();
+    if format == image::ImageFormat::Jpeg {
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut encoded, 92)
+            .encode_image(&preview)?;
+    } else {
+        preview.write_to(&mut Cursor::new(&mut encoded), format)?;
+    }
+    Ok(Some((
+        encoded,
+        [f64::from(w) / f64::from(pw), f64::from(h) / f64::from(ph)],
+    )))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct AudioInspection {
     pub extension: &'static str,

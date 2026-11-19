@@ -28,6 +28,7 @@ pub(crate) const MAX_PSD_FILE_BYTES: usize = 512 * 1024 * 1024;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PsdDecodePlan {
     All,
+    Automatic,
     CompositeOnly,
     LayersWithCompositeFallback,
 }
@@ -36,14 +37,17 @@ enum PsdDecodePlan {
 struct PsdDecodeReport {
     budget_skipped_layers: BTreeSet<usize>,
     composite_budget_skipped: bool,
+    used_merged_appearance: bool,
 }
 
 /// How PSD layers are mapped into the NeoFlash document structure.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PsdLayerMapping {
-    /// Each PSD layer or folder group becomes a NeoFlash `Layer` on the target timeline.
+    /// Keep editable layers where possible, or use the saved composition for unsupported visible artwork.
     #[default]
+    Automatic,
+    /// Each PSD layer or folder group becomes a NeoFlash `Layer` on the target timeline.
     TimelineLayers,
     /// Each PSD visual layer is wrapped in its own `SymbolKind::MovieClip` symbol and placed on its layer.
     MovieClipSymbols,
@@ -86,7 +90,7 @@ pub struct PsdImportOptions {
 impl Default for PsdImportOptions {
     fn default() -> Self {
         Self {
-            layer_mapping: PsdLayerMapping::TimelineLayers,
+            layer_mapping: PsdLayerMapping::Automatic,
             text_handling: PsdTextHandling::EditableText,
             import_hidden_layers: true,
             preserve_blend_modes: true,
@@ -546,42 +550,147 @@ fn combine_channels_to_rgba(
     rgba
 }
 
-fn combine_contiguous_planes_to_rgba(
-    width: usize,
-    height: usize,
-    color_mode: u16,
-    channel_count: usize,
-    planes: &[u8],
-) -> Vec<u8> {
-    let pixel_count = portable_pixel_count(width, height).unwrap_or(0);
-    let mut rgba = vec![0u8; pixel_count.saturating_mul(4)];
-    let sample = |channel: usize, pixel: usize| {
-        channel
-            .checked_mul(pixel_count)
-            .and_then(|offset| offset.checked_add(pixel))
-            .and_then(|offset| planes.get(offset))
-            .copied()
-            .unwrap_or(0)
-    };
-    for pixel in 0..pixel_count {
-        let red = sample(0, pixel);
-        let (green, blue) = if color_mode == 1 {
-            (red, red)
-        } else {
-            (sample(1, pixel), sample(2, pixel))
-        };
-        let alpha = if channel_count >= 4 {
-            sample(3, pixel)
-        } else {
-            255
-        };
-        let offset = pixel * 4;
-        rgba[offset] = red;
-        rgba[offset + 1] = green;
-        rgba[offset + 2] = blue;
-        rgba[offset + 3] = alpha;
+/// Decode whole PackBits rows, respecting their declared lengths and pixel count.
+fn unpack_composite_row(encoded: &[u8], row: &mut Vec<u8>, width: usize) -> Option<()> {
+    row.clear();
+    let mut src = encoded;
+    while let Some((&code, rest)) = src.split_first() {
+        src = rest;
+        match code {
+            0..=127 => {
+                let len = usize::from(code) + 1;
+                if row.len() + len > width {
+                    return None;
+                }
+                let (literal, rest) = src.split_at_checked(len)?;
+                row.extend_from_slice(literal);
+                src = rest;
+            }
+            129..=255 => {
+                let len = 257 - usize::from(code);
+                if row.len() + len > width {
+                    return None;
+                }
+                let (&value, rest) = src.split_first()?;
+                row.resize(row.len() + len, value);
+                src = rest;
+            }
+            128 => {}
+        }
     }
-    rgba
+    (row.len() == width).then_some(())
+}
+
+/// Photoshop's Version Info resource (1057) signals whether the saved preview is real.
+fn has_saved_composite(mut resources: &[u8]) -> bool {
+    while resources.starts_with(b"8BIM") && resources.len() >= 12 {
+        let id = u16::from_be_bytes([resources[4], resources[5]]);
+        let name_len = (usize::from(resources[6]) + 1).next_multiple_of(2);
+        let start = 6 + name_len;
+        let Some(len) = resources.get(start..start + 4) else {
+            break;
+        };
+        let len = u32::from_be_bytes(len.try_into().unwrap()) as usize;
+        let Some(data) = resources.get(start + 4..start + 4 + len) else {
+            break;
+        };
+        if id == 1057 && data.len() >= 5 {
+            return data[4] != 0;
+        }
+        let Some(tail) = resources.get(start + 4 + len.next_multiple_of(2)..) else {
+            break;
+        };
+        resources = tail;
+    }
+    true
+}
+
+fn decode_merged(
+    header: &PsdHeader,
+    data: &[u8],
+    transparency: bool,
+    white_matte: bool,
+    retained: usize,
+    report: &mut PsdDecodeReport,
+) -> Option<Vec<u8>> {
+    let (width, height) = (header.width as usize, header.height as usize);
+    let pixels = portable_pixel_count(width, height)?;
+    let color_channels = match (header.depth, header.color_mode) {
+        (8, 1) => 1,
+        (8, 3) => 3,
+        _ => return None,
+    };
+    let channels = usize::from(header.channels);
+    if channels < color_channels {
+        return None;
+    }
+    let compression = u16::from_be_bytes(data.get(..2)?.try_into().ok()?);
+    let payload = &data[2..];
+    let needed = color_channels + usize::from(transparency && channels > color_channels);
+    let mut rows = &[][..];
+    let count_size = if header.version == 2 { 4 } else { 2 };
+    let mut src = payload;
+    match compression {
+        0 if pixels.checked_mul(channels)? <= src.len() => {}
+        1 => {
+            let table_len = height.checked_mul(channels)?.checked_mul(count_size)?;
+            (rows, src) = src.split_at_checked(table_len)?;
+        }
+        _ => return None,
+    }
+    let bytes = pixels.checked_mul(4)?;
+    if retained.checked_add(bytes)?.checked_add(width)? > MAX_PSD_DECODE_BYTES {
+        report.composite_budget_skipped = true;
+        return None;
+    }
+    let mut rgba = vec![255; bytes];
+    let mut scratch = Vec::with_capacity(width);
+    for channel in 0..needed {
+        for (y, dest) in rgba.chunks_exact_mut(width * 4).enumerate() {
+            let row = if compression == 0 {
+                let (row, rest) = src.split_at(width);
+                src = rest;
+                row
+            } else {
+                let start = (channel * height + y) * count_size;
+                let count = &rows[start..start + count_size];
+                let len = if count_size == 4 {
+                    u32::from_be_bytes(count.try_into().ok()?) as usize
+                } else {
+                    usize::from(u16::from_be_bytes(count.try_into().ok()?))
+                };
+                let (encoded, rest) = src.split_at_checked(len)?;
+                src = rest;
+                unpack_composite_row(encoded, &mut scratch, width)?;
+                &scratch
+            };
+            for (pixel, value) in dest.as_chunks_mut::<4>().0.iter_mut().zip(row) {
+                if color_channels == 1 && channel == 0 {
+                    pixel[..3].fill(*value);
+                } else {
+                    pixel[if channel == color_channels {
+                        3
+                    } else {
+                        channel
+                    }] = *value;
+                }
+            }
+        }
+    }
+    if white_matte && needed > color_channels {
+        // In Photoshop's merged transparency channel the RGB is composited over
+        // white. Remove that matte before storing straight-alpha PNG samples.
+        for pixel in rgba.as_chunks_mut::<4>().0 {
+            let alpha = u32::from(pixel[3]);
+            if (1..255).contains(&alpha) {
+                for channel in &mut pixel[..3] {
+                    let premul = u32::from(*channel).saturating_sub(255 - alpha);
+                    *channel = ((255 * premul + alpha / 2) / alpha).min(255) as u8;
+                }
+            }
+        }
+    }
+    Some(rgba)
 }
 
 fn encode_rgba_png(width: u32, height: u32, rgba_bytes: Vec<u8>) -> Result<Vec<u8>, ImportError> {
@@ -594,6 +703,62 @@ fn encode_rgba_png(width: u32, height: u32, rgba_bytes: Vec<u8>) -> Result<Vec<u
     )
     .map_err(|e| ImportError::Container(format!("Failed to encode layer PNG: {e}")))?;
     Ok(png_bytes)
+}
+
+/// PNG stripes collectively retain full resolution when an encoded composite exceeds the
+/// single-resource limit. Pixel and encoded document budgets are still enforced.
+fn append_composite(
+    project: &mut Project,
+    elements: &mut Vec<Element>,
+    name: &str,
+    width: u32,
+    top: u32,
+    rgba: &[u8],
+) -> Result<(), ImportError> {
+    use image::{
+        ImageEncoder,
+        codecs::png::{CompressionType, FilterType, PngEncoder},
+    };
+    let stride = width as usize * 4;
+    let height = (rgba.len() / stride) as u32;
+    let mut encoded = Vec::new();
+    PngEncoder::new_with_quality(&mut encoded, CompressionType::Default, FilterType::Adaptive)
+        .write_image(rgba, width, height, image::ExtendedColorType::Rgba8)
+        .map_err(|error| {
+            ImportError::Container(format!("Failed to encode composite PNG: {error}"))
+        })?;
+    if encoded.len() > neoflash_core::MAX_RESOURCE_BYTES && height > 1 {
+        let half = height / 2;
+        let (upper, lower) = rgba.split_at(half as usize * stride);
+        drop(encoded);
+        append_composite(project, elements, name, width, top, upper)?;
+        return append_composite(project, elements, name, width, top + half, lower);
+    }
+    let id = new_id("resource");
+    let resource = ResourceUnit::from_bytes(
+        id.clone(),
+        format!("psd/{id}_composite.png"),
+        "image/png",
+        &encoded,
+    )
+    .map_err(|error| ImportError::Container(error.to_string()))?;
+    project.resources.push(resource);
+    elements.push(Element {
+        id: new_id("element"),
+        name: format!("{name} Composite"),
+        transform: Transform {
+            y: f64::from(top),
+            ..Default::default()
+        },
+        kind: ElementKind::Bitmap {
+            resource_id: id,
+            width,
+            height,
+            smoothing: true,
+        },
+        ..Default::default()
+    });
+    Ok(())
 }
 
 /// Parse a binary `.psd` / `.psb` file into its header, layer records, and optional merged composite RGBA8 buffer.
@@ -646,7 +811,9 @@ fn parse_psd_document_with_plan(
 
     // 2. Image Resources
     let resources_len = read_u32_be(bytes, &mut pos)? as usize;
-    pos = checked_section_end(pos, resources_len, bytes.len(), "Image Resources")?;
+    let resources_end = checked_section_end(pos, resources_len, bytes.len(), "Image Resources")?;
+    let has_composite = has_saved_composite(&bytes[pos..resources_end]);
+    pos = resources_end;
 
     // 3. Layer and Mask Information
     let layer_mask_len = if version == 2 {
@@ -657,6 +824,8 @@ fn parse_psd_document_with_plan(
     let layer_mask_end = checked_section_end(pos, layer_mask_len, bytes.len(), "Layer and Mask")?;
 
     let mut layers = Vec::new();
+    let mut merged_transparency = false;
+    let mut has_visible_effects = false;
     let mut decode_report = PsdDecodeReport::default();
     let mut retained_decoded_bytes = 0usize;
     if layer_mask_len > 0 {
@@ -676,6 +845,7 @@ fn parse_psd_document_with_plan(
             checked_section_end(pos, layer_info_len, layer_mask_end, "Layer Information")?;
         if layer_info_len > 0 && pos.saturating_add(2) <= layer_info_end {
             let raw_layer_count = read_i16_be(bytes, &mut pos)?;
+            merged_transparency = raw_layer_count < 0;
             let layer_count = raw_layer_count.unsigned_abs() as usize;
 
             for layer_idx in 0..layer_count {
@@ -825,6 +995,7 @@ fn parse_psd_document_with_plan(
                                 })
                             });
                         }
+                        b"lrFX" | b"lfx2" | b"lmfx" => has_visible_effects |= visible,
                         b"vmsk" | b"vsms" => {
                             has_vector_mask = true;
                         }
@@ -874,6 +1045,43 @@ fn parse_psd_document_with_plan(
             // temporary channel planes for the current layer must fit the
             // aggregate decode budget; metadata and stream position are kept
             // even when pixels are represented by an explicit placeholder.
+            if decode_plan == PsdDecodePlan::Automatic && has_composite {
+                let mut retained = 0usize;
+                let loses_visible_artwork = layers
+                    .iter()
+                    .filter(|layer| layer.section_divider == PsdSectionDivider::Normal)
+                    .any(|layer| {
+                        let pixels =
+                            portable_pixel_count(layer.width() as usize, layer.height() as usize);
+                        let over_budget = pixels.is_some_and(|n| {
+                            retained.saturating_add(n.saturating_mul(8)) > MAX_PSD_DECODE_BYTES
+                        });
+                        if !over_budget && let Some(n) = pixels {
+                            retained = retained.saturating_add(n.saturating_mul(4));
+                        }
+                        layer.visible
+                            && (layer.is_adjustment_layer.is_some()
+                                || layer.has_vector_mask
+                                || layer.has_layer_mask
+                                || layer.clipping
+                                || !map_psd_blend_mode(&layer.blend_key).1
+                                || over_budget
+                                || (pixels.is_none() && layer.width() > 0 && layer.height() > 0))
+                    });
+                if (has_visible_effects || loses_visible_artwork)
+                    && let Some(merged) = decode_merged(
+                        &header,
+                        &bytes[layer_mask_end..],
+                        merged_transparency,
+                        merged_transparency,
+                        0,
+                        &mut decode_report,
+                    )
+                {
+                    decode_report.used_merged_appearance = true;
+                    return Ok((header, layers, Some(merged), decode_report));
+                }
+            }
             let decode_layer_pixels = decode_plan != PsdDecodePlan::CompositeOnly;
             for (layer_index, layer) in layers.iter_mut().enumerate() {
                 let lw = layer.width() as usize;
@@ -929,71 +1137,25 @@ fn parse_psd_document_with_plan(
         }
     }
 
-    pos = layer_mask_end;
-
-    // 4. Merged Composite Image Data (optional or fallback)
-    let mut composite_rgba = None;
-    if pos + 2 <= bytes.len() {
-        let comp = read_u16_be(bytes, &mut pos)?;
-        let w = width as usize;
-        let h = height as usize;
-        let Some(plane_pixels) = portable_pixel_count(w, h) else {
-            return Ok((header, layers, None, decode_report));
-        };
-        let ch_count = (channels as usize).clamp(1, 4);
-        let payload = &bytes[pos..];
-        let decode_composite_pixels = match decode_plan {
-            PsdDecodePlan::All | PsdDecodePlan::CompositeOnly => true,
-            PsdDecodePlan::LayersWithCompositeFallback => layers.is_empty(),
-        };
-        if decode_composite_pixels {
-            let source_bytes = plane_pixels.checked_mul(ch_count);
-            let output_bytes = plane_pixels.checked_mul(4);
-            let transient_bytes = match comp {
-                0 => output_bytes,
-                1 => source_bytes
-                    .and_then(|source| output_bytes.and_then(|output| source.checked_add(output))),
-                _ => None,
-            };
-            let within_budget = transient_bytes
-                .and_then(|bytes| retained_decoded_bytes.checked_add(bytes))
-                .is_some_and(|total| total <= MAX_PSD_DECODE_BYTES);
-            if !within_budget && matches!(comp, 0 | 1) {
-                decode_report.composite_budget_skipped = true;
-            } else {
-                match comp {
-                    0 if payload.len() >= plane_pixels => {
-                        let rgba =
-                            combine_contiguous_planes_to_rgba(w, h, color_mode, ch_count, payload);
-                        composite_rgba = Some(rgba);
-                    }
-                    1 => {
-                        let row_count_size = if version == 2 { 4 } else { 2 };
-                        let table_bytes = h
-                            .checked_mul(ch_count)
-                            .and_then(|rows| rows.checked_mul(row_count_size));
-                        let decoded_len = plane_pixels.checked_mul(ch_count);
-                        if let (Some(table_bytes), Some(decoded_len)) = (table_bytes, decoded_len)
-                            && payload.len() >= table_bytes
-                        {
-                            let decoded_all =
-                                decode_packbits_rle(&payload[table_bytes..], decoded_len);
-                            let rgba = combine_contiguous_planes_to_rgba(
-                                w,
-                                h,
-                                color_mode,
-                                ch_count,
-                                &decoded_all,
-                            );
-                            composite_rgba = Some(rgba);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-
+    let composite_rgba = if has_composite
+        && (matches!(
+            decode_plan,
+            PsdDecodePlan::All | PsdDecodePlan::CompositeOnly
+        ) || layers.is_empty())
+    {
+        // Layerless RGBA exports use the first extra plane for transparency. Layered
+        // PSDs explicitly signal merged transparency with a negative layer count.
+        decode_merged(
+            &header,
+            &bytes[layer_mask_end..],
+            merged_transparency || layers.is_empty(),
+            merged_transparency,
+            retained_decoded_bytes,
+            &mut decode_report,
+        )
+    } else {
+        None
+    };
     Ok((header, layers, composite_rgba, decode_report))
 }
 
@@ -1076,10 +1238,10 @@ fn import_psd_into_project_inner(
     source_name: &str,
     options: &PsdImportOptions,
 ) -> Result<ImportReport, ImportError> {
-    let decode_plan = if options.layer_mapping == PsdLayerMapping::FlattenComposite {
-        PsdDecodePlan::CompositeOnly
-    } else {
-        PsdDecodePlan::LayersWithCompositeFallback
+    let decode_plan = match options.layer_mapping {
+        PsdLayerMapping::FlattenComposite => PsdDecodePlan::CompositeOnly,
+        PsdLayerMapping::Automatic => PsdDecodePlan::Automatic,
+        _ => PsdDecodePlan::LayersWithCompositeFallback,
     };
     let (header, mut psd_layers, composite_rgba, decode_report) =
         parse_psd_document_with_plan(bytes, decode_plan)?;
@@ -1104,87 +1266,72 @@ fn import_psd_into_project_inner(
         project.height = header.height.clamp(1, 65535);
     }
 
-    // Handle FlattenComposite or 0-layer PSDs
-    if options.layer_mapping == PsdLayerMapping::FlattenComposite || psd_layers.is_empty() {
-        let element = if portable_pixel_count(header.width as usize, header.height as usize)
-            .is_some()
-        {
-            if let Some(rgba) = composite_rgba {
-                let png = encode_rgba_png(header.width, header.height, rgba)?;
-                let res_id = new_id("resource");
-                let res_path = format!("psd/{}_composite.png", res_id);
-                let unit = ResourceUnit::from_bytes(res_id.clone(), res_path, "image/png", &png)
-                    .map_err(|e| ImportError::Container(e.to_string()))?;
-                project.resources.push(unit);
-                Element {
-                    id: new_id("element"),
-                    name: format!("{source_name} Composite"),
-                    transform: Transform::default(),
-                    kind: ElementKind::Bitmap {
-                        resource_id: res_id,
-                        width: header.width,
-                        height: header.height,
-                        smoothing: true,
-                    },
-                    ..Element::default()
-                }
-            } else {
-                if decode_report.composite_budget_skipped {
-                    report.warning(
-                        "psd-composite-decode-budget-exceeded",
-                        source_name,
-                        format!(
-                            "PSD composite pixels exceeded the {} MiB aggregate decode budget; inserted an explicit vector placeholder.",
-                            MAX_PSD_DECODE_BYTES / (1024 * 1024)
-                        ),
-                    );
-                } else {
-                    report.warning(
-                        "psd-composite-pixels-unavailable",
-                        source_name,
-                        "PSD composite pixels were missing or unreadable; inserted an explicit vector placeholder.",
-                    );
-                }
-                Element {
-                    id: new_id("element"),
-                    name: format!("{source_name} Composite placeholder"),
-                    transform: Transform::default(),
-                    kind: ElementKind::Rectangle {
-                        width: f64::from(header.width),
-                        height: f64::from(header.height),
-                        fill: [180, 180, 180, 255],
-                        stroke: [255, 255, 255, 255],
-                        stroke_width: 1.0,
-                    },
-                    ..Element::default()
-                }
-            }
+    let mapping = if options.layer_mapping == PsdLayerMapping::Automatic {
+        if decode_report.used_merged_appearance {
+            report.warning("psd-merged-appearance", source_name, format!(
+                "Used the saved Photoshop composite for the {} layer records because masks, effects, adjustments, blend modes or layer pixel limits prevent a faithful editable reconstruction.", psd_layers.len()
+            ));
+            PsdLayerMapping::FlattenComposite
         } else {
+            PsdLayerMapping::TimelineLayers
+        }
+    } else {
+        options.layer_mapping
+    };
+    // Handle FlattenComposite or 0-layer PSDs
+    if mapping == PsdLayerMapping::FlattenComposite || psd_layers.is_empty() {
+        let mut elements = Vec::new();
+        if let Some(rgba) = composite_rgba {
+            if options.resize_stage_to_canvas
+                && rgba.as_chunks::<4>().0.iter().any(|pixel| pixel[3] < 255)
+            {
+                project.background[3] = 0;
+            }
+            append_composite(project, &mut elements, source_name, header.width, 0, &rgba)?;
+        } else {
+            let (code, reason) = if portable_pixel_count(
+                header.width as usize,
+                header.height as usize,
+            )
+            .is_none()
+            {
+                (
+                    "psd-composite-bitmap-too-large",
+                    format!(
+                        "PSD composite {}x{} exceeds the portable {}x{} bitmap limit.",
+                        header.width, header.height, MAX_BITMAP_DIMENSION, MAX_BITMAP_DIMENSION
+                    ),
+                )
+            } else if decode_report.composite_budget_skipped {
+                (
+                    "psd-composite-decode-budget-exceeded",
+                    format!(
+                        "PSD composite exceeded the {} MiB decode budget.",
+                        MAX_PSD_DECODE_BYTES / (1024 * 1024)
+                    ),
+                )
+            } else {
+                ("psd-composite-pixels-unavailable", "The saved composite is missing, unreadable or outside the supported 8-bit RGB/grayscale raw or RLE formats.".to_owned())
+            };
             report.warning(
-                "psd-composite-bitmap-too-large",
+                code,
                 source_name,
-                format!(
-                    "PSD composite {}x{} exceeds the portable {}x{} bitmap limit; inserted an explicit placeholder instead of allocating an unsafe image.",
-                    header.width,
-                    header.height,
-                    MAX_BITMAP_DIMENSION,
-                    MAX_BITMAP_DIMENSION
-                ),
+                format!("{reason} Inserted an explicit vector placeholder."),
             );
-            Element {
+            elements.push(Element {
                 id: new_id("element"),
                 name: format!("{source_name} Composite placeholder"),
-                transform: Transform::default(),
                 kind: ElementKind::Rectangle {
-                    width: header.width as f64,
-                    height: header.height as f64,
+                    width: f64::from(header.width),
+                    height: f64::from(header.height),
                     fill: [180, 180, 180, 255],
-                    stroke: [255, 255, 255, 255],
+                    stroke: [255; 4],
                     stroke_width: 1.0,
                 },
-                ..Element::default()
-            }
-        };
+                ..Default::default()
+            });
+        }
+        report.statistics.elements = elements.len();
         let layer = Layer {
             id: new_id("layer"),
             name: "PSD Composite".to_owned(),
@@ -1192,7 +1339,7 @@ fn import_psd_into_project_inner(
             locked: false,
             keyframes: vec![Keyframe {
                 frame: 0,
-                elements: vec![element],
+                elements,
                 ..Keyframe::default()
             }],
             properties: LayerProperties::default(),
@@ -1203,32 +1350,21 @@ fn import_psd_into_project_inner(
         }
         report.statistics.layers = 1;
         report.statistics.keyframes = 1;
-        report.statistics.elements = 1;
         project.format_version = project.format_version.max(3);
         project.upgrade_format_for_features();
         report.can_import = true;
         return Ok(report);
     }
 
-    // PSD stores layers bottom-to-top; NeoFlash stores layers top-to-bottom.
-    // First process in PSD order (bottom-to-top) so clipping base layers (below clipped layers in PSD)
-    // and section dividers can be resolved accurately, then reverse to top-to-bottom for NeoFlash.
-    // Wait: in PSD, a folder group starts at the TOP of the group with an OpenFolder/ClosedFolder
-    // record and ends at the BOTTOM with a BoundingSectionEnd (`</Layer group>`) record.
-    // So walking top-to-bottom (`psd_layers.iter().rev()`) encounters OpenFolder/ClosedFolder first
-    // and `BoundingSectionEnd` at the end of the folder!
-    // And for clipping masks in PSD: the base layer (`clipping == false`) is below the clipped
-    // layers (`clipping == true`), so in bottom-to-top order (`0..psd_layers.len()`), if layer `i`
-    // has `clipping == false` and layer `i + 1` has `clipping == true`, then `i` is the clipping base
-    // for `i + 1` (and any contiguous `clipping == true` layers above `i`).
-
+    // PSD and NeoFlash both store bottom-to-top. Walk upwards to identify clipping bases,
+    // then walk downwards to attach children to folders before restoring the paint order.
     let layer_ids: Vec<String> = (0..psd_layers.len()).map(|_| new_id("layer")).collect();
     let mut clipping_base_for: BTreeMap<usize, usize> = BTreeMap::new();
     let mut is_clipping_base: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
     if options.preserve_clipping_masks
         && matches!(
-            options.layer_mapping,
+            mapping,
             PsdLayerMapping::TimelineLayers | PsdLayerMapping::MovieClipSymbols
         )
     {
@@ -1274,7 +1410,7 @@ fn import_psd_into_project_inner(
             let folder_id = layer_ids[i].clone();
             let parent_id = folder_stack.last().cloned();
             if matches!(
-                options.layer_mapping,
+                mapping,
                 PsdLayerMapping::TimelineLayers | PsdLayerMapping::MovieClipSymbols
             ) {
                 built_layers.push(Layer {
@@ -1496,69 +1632,68 @@ fn import_psd_into_project_inner(
 
         report.statistics.elements += 1;
 
-        match options.layer_mapping {
+        match mapping {
             PsdLayerMapping::Keyframes => {
                 keyframe_mode_frames.push((rec.name.clone(), element));
             }
             PsdLayerMapping::MovieClipSymbols | PsdLayerMapping::TimelineLayers => {
                 let is_mask_base = is_clipping_base.contains(&i);
-                let placed_element = if options.layer_mapping == PsdLayerMapping::MovieClipSymbols
-                    && !is_mask_base
-                {
-                    let sym_id = new_id("symbol");
-                    let sym_pos = [element.transform.x, element.transform.y];
-                    let mut local_elem = element;
-                    local_elem.transform.x = 0.0;
-                    local_elem.transform.y = 0.0;
-                    let sym = Symbol {
-                        id: sym_id.clone(),
-                        name: rec.name.clone(),
-                        folder: String::new(),
-                        kind: SymbolKind::MovieClip,
-                        timeline: Timeline {
-                            frame_count: 1,
-                            layers: vec![Layer {
-                                id: new_id("layer"),
-                                name: rec.name.clone(),
-                                visible: true,
-                                locked: false,
-                                keyframes: vec![Keyframe {
-                                    frame: 0,
-                                    elements: vec![local_elem],
-                                    ..Keyframe::default()
+                let placed_element =
+                    if mapping == PsdLayerMapping::MovieClipSymbols && !is_mask_base {
+                        let sym_id = new_id("symbol");
+                        let sym_pos = [element.transform.x, element.transform.y];
+                        let mut local_elem = element;
+                        local_elem.transform.x = 0.0;
+                        local_elem.transform.y = 0.0;
+                        let sym = Symbol {
+                            id: sym_id.clone(),
+                            name: rec.name.clone(),
+                            folder: String::new(),
+                            kind: SymbolKind::MovieClip,
+                            timeline: Timeline {
+                                frame_count: 1,
+                                layers: vec![Layer {
+                                    id: new_id("layer"),
+                                    name: rec.name.clone(),
+                                    visible: true,
+                                    locked: false,
+                                    keyframes: vec![Keyframe {
+                                        frame: 0,
+                                        elements: vec![local_elem],
+                                        ..Keyframe::default()
+                                    }],
+                                    properties: LayerProperties::default(),
                                 }],
-                                properties: LayerProperties::default(),
-                            }],
-                            scripts: Vec::new(),
-                            guides: Vec::new(),
-                        },
-                        class_name: None,
-                        linkage_id: None,
-                    };
-                    project.symbols.push(sym);
-                    report.statistics.symbols += 1;
-                    report.statistics.layers += 1;
-                    report.statistics.keyframes += 1;
-                    report.statistics.elements += 1;
+                                scripts: Vec::new(),
+                                guides: Vec::new(),
+                            },
+                            class_name: None,
+                            linkage_id: None,
+                        };
+                        project.symbols.push(sym);
+                        report.statistics.symbols += 1;
+                        report.statistics.layers += 1;
+                        report.statistics.keyframes += 1;
+                        report.statistics.elements += 1;
 
-                    Element {
-                        id: new_id("element"),
-                        name: rec.name.clone(),
-                        transform: Transform {
-                            x: sym_pos[0],
-                            y: sym_pos[1],
-                            ..Transform::default()
-                        },
-                        blend_mode: mapped_blend,
-                        kind: ElementKind::Instance {
-                            symbol_id: sym_id,
-                            playback: InstancePlayback::Independent,
-                        },
-                        ..Element::default()
-                    }
-                } else {
-                    element
-                };
+                        Element {
+                            id: new_id("element"),
+                            name: rec.name.clone(),
+                            transform: Transform {
+                                x: sym_pos[0],
+                                y: sym_pos[1],
+                                ..Transform::default()
+                            },
+                            blend_mode: mapped_blend,
+                            kind: ElementKind::Instance {
+                                symbol_id: sym_id,
+                                playback: InstancePlayback::Independent,
+                            },
+                            ..Element::default()
+                        }
+                    } else {
+                        element
+                    };
 
                 let mut props = LayerProperties {
                     parent: folder_stack.last().cloned(),
@@ -1588,12 +1723,12 @@ fn import_psd_into_project_inner(
                 report.statistics.layers += 1;
                 report.statistics.keyframes += 1;
             }
-            PsdLayerMapping::FlattenComposite => unreachable!(),
+            PsdLayerMapping::FlattenComposite | PsdLayerMapping::Automatic => unreachable!(),
         }
     }
 
     let root_id = project.root.clone();
-    if options.layer_mapping == PsdLayerMapping::Keyframes {
+    if mapping == PsdLayerMapping::Keyframes {
         // Keyframes are ordered bottom-to-top in PSD (so Layer 1 is frame 0, Layer 2 is frame 1...)
         keyframe_mode_frames.reverse();
         let mut keyframes = Vec::with_capacity(keyframe_mode_frames.len());
@@ -1623,6 +1758,8 @@ fn import_psd_into_project_inner(
     } else if let Some(root) = project.symbol_mut(&root_id)
         && !built_layers.is_empty()
     {
+        // The player paints index zero first. Restore the PSD's bottom-to-top stacking order.
+        built_layers.reverse();
         root.timeline.layers = built_layers;
     }
 

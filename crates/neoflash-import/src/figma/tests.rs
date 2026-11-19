@@ -104,7 +104,7 @@ fn figma_json_decomposes_artboard_into_layers_components_masks_vectors_and_text(
                             "absoluteBoundingBox": {{"x": 600, "y": 180, "width": 520, "height": 80}},
                             "characters": "Motion Meets Design",
                             "fills": [{{"type": "SOLID", "color": {{"r": 1, "g": 1, "b": 1, "a": 1}}}}],
-                            "style": {{"fontFamily": "Inter", "fontSize": 48, "fontWeight": 700, "textAlignHorizontal": "LEFT"}}
+                            "style": {{"fontFamily": "Inter", "fontSize": 48, "lineHeightPx": 48, "fontWeight": 700, "textAlignHorizontal": "LEFT"}}
                           }},
                           {{
                             "id": "2:6",
@@ -143,6 +143,27 @@ fn figma_json_decomposes_artboard_into_layers_components_masks_vectors_and_text(
     assert_eq!(
         root.timeline.layers[2].properties.mask.as_deref(),
         Some(root.timeline.layers[1].id.as_str())
+    );
+    let headline = root
+        .timeline
+        .layers
+        .iter()
+        .flat_map(|l| &l.keyframes[0].elements)
+        .find(|e| e.name == "Headline")
+        .unwrap();
+    let ElementKind::TextBox { format, .. } = &headline.kind else {
+        panic!("editable headline expected")
+    };
+    assert!((1.2 * format.size + format.leading - 48.0).abs() < 1e-6);
+    let field = format.field_options().unwrap();
+    assert_eq!(
+        (
+            field.padding_left,
+            field.padding_right,
+            field.padding_top,
+            field.padding_bottom
+        ),
+        (0., 0., 0., 0.)
     );
     let master = project
         .symbols
@@ -1052,7 +1073,7 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
     write_var_uint(&mut schema, 2);
     write_cstr(&mut schema, "NodeChange");
     schema.push(2);
-    write_var_uint(&mut schema, 23);
+    write_var_uint(&mut schema, 26);
     for (tag, n, tid, arr) in [
         (1u64, "guid", 0i64, 0u8),
         (2, "guidPath", 0, 1),
@@ -1077,6 +1098,9 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
         (21, "strokeGeometry", 7, 1),
         (22, "componentPropAssignments", 16, 1),
         (23, "parameterConsumptionMap", 16, 0),
+        (24, "derivedSymbolData", 13, 1),
+        (25, "derivedTextData", -6, 0),
+        (26, "textAutoResize", -6, 0),
     ] {
         write_cstr(&mut schema, n);
         write_var_int(&mut schema, tid);
@@ -1408,6 +1432,18 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
     write_var_uint(&mut msg, 0);
     write_var_uint(&mut msg, 0);
     write_var_uint(&mut msg, 0); // end symbolData
+    write_var_uint(&mut msg, 24); // derivedSymbolData, one text box in resized instance space
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 2);
+    write_var_uint(&mut msg, 1);
+    write_guid(&mut msg, 10, 3);
+    write_var_uint(&mut msg, 7);
+    write_var_float(&mut msg, 126.0);
+    write_var_float(&mut msg, 32.0);
+    write_matrix(&mut msg, 18.0, 7.0);
+    write_var_uint(&mut msg, 25);
+    write_cstr(&mut msg, "opaque glyph payload");
+    write_var_uint(&mut msg, 0);
     msg.extend_from_slice(&[22, 1]); // componentPropAssignments
     write_label_assignment(&mut msg, "Superseded by direct override");
     write_var_uint(&mut msg, 0); // end INSTANCE
@@ -1732,9 +1768,12 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
             && s.timeline.layers.iter().any(|l| {
                 l.keyframes.iter().any(|k| {
                     k.elements.iter().any(|el| match &el.kind {
-                        ElementKind::Text { text, .. } | ElementKind::TextBox { text, .. } => {
-                            text == "Submit Now"
-                        }
+                        ElementKind::TextBox {
+                            text,
+                            width,
+                            height,
+                            ..
+                        } => text == "Submit Now" && *width == 126.0 && *height == 32.0,
                         _ => false,
                     })
                 })

@@ -1482,7 +1482,7 @@ impl Editor {
                         "NeoFlash, Flash, Figma or Vector/PSD document",
                         &[
                             "nflash", "json", "fla", "xfl", "xml", "swf", "swc", "fig", "figma",
-                            "svg", "psd", "psb", "pdf", "ai", "fxg",
+                            "svg", "psd", "psb", "pdf", "ai", "eps", "fxg",
                         ],
                     )
                     .add_filter("NeoFlash project", &["nflash", "json"])
@@ -1493,7 +1493,7 @@ impl Editor {
                     .add_filter("Figma design", &["fig", "figma", "json"])
                     .add_filter(
                         "Vector & Photoshop documents",
-                        &["svg", "psd", "psb", "pdf", "ai", "fxg"],
+                        &["svg", "psd", "psb", "pdf", "ai", "eps", "fxg"],
                     )
                     .pick_file()
                 {
@@ -2923,7 +2923,7 @@ impl Editor {
         match neoflash_export::export_project_aep(&self.project, &aep_path, &opts) {
             Ok(report) => {
                 let aep_loc =
-                    crate::output_pipeline::OutputLocation::for_file(report.aep_path.clone());
+                    crate::output_pipeline::OutputLocation::for_file(report.output_path.clone());
                 let mut seen_diags = std::collections::HashSet::new();
                 for diag in &report.diagnostics {
                     let line = format!("[aep:{}] {}: {}", diag.code, diag.location, diag.message);
@@ -2943,7 +2943,7 @@ impl Editor {
                     crate::output_pipeline::OutputSource::Publish,
                     format!(
                         "After Effects exported: {} ({} comp(s), {} vector layer(s), {} expression(s), {} footage)",
-                        report.aep_path.display(),
+                        report.output_path.display(),
                         report.composition_count,
                         report.vector_shape_layer_count,
                         report.expression_count,
@@ -4614,8 +4614,8 @@ impl eframe::App for Editor {
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(8));
         }
-        self.pump_timeline_audio();
         self.pump_timeline_video();
+        self.pump_timeline_audio();
         if !self.playing && self.timeline_video.has_playing_events() {
             ctx.request_repaint_after(std::time::Duration::from_millis(8));
         }

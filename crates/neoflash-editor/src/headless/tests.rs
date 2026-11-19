@@ -979,7 +979,7 @@ fn batch_rolls_back_save_multi_output_export_and_flfile_after_late_failure() {
     let ops = json!([
         { "op": "set_project", "name": "Effect candidate" },
         { "op": "save", "path": explicit_save },
-        { "op": "export", "target": "aep", "out": aep_path },
+        { "op": "export", "target": "aep", "out": jsx_path },
         {
             "op": "jsfl",
             "flfile_root": tmp.path,

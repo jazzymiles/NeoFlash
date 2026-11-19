@@ -123,8 +123,8 @@ impl From<PreparedGraphic> for PreparedImportGraphic {
 
 const IMPORT_GRAPHICS_EXTENSIONS: &[&str] = &[
     "svg", "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "psd", "psb", "fig", "figma",
-    "json", "swf", "swc", "pdf", "ai", "fxg", "act", "clr", "ase", "mp3", "wav", "ogg", "flac",
-    "aac", "m4a", "ttf", "otf", "ttc", "otc", "woff", "woff2",
+    "json", "swf", "swc", "pdf", "ai", "eps", "fxg", "act", "clr", "ase", "mp3", "wav", "ogg",
+    "flac", "aac", "m4a", "ttf", "otf", "ttc", "otc", "woff", "woff2",
 ];
 
 fn is_figma_graphic_path(path: &std::path::Path, ext: &str) -> bool {
@@ -639,7 +639,7 @@ impl Editor {
                         match ext.as_str() {
                             "psd" | "psb" => prepare_psd_graphic(path, &mut remaining)?,
                             "swf" => prepare_swf_graphic(path, &mut remaining)?,
-                            "pdf" | "ai" => prepare_pdf_ai_graphic(path)?,
+                            "pdf" | "ai" | "eps" => prepare_pdf_ai_graphic(path, &mut remaining)?,
                             "fxg" => prepare_fxg_graphic(path)?,
                             _ => {
                                 let unit = crate::resources::read_resource(path, remaining)?;
@@ -2069,17 +2069,15 @@ fn prepare_psd_graphic(
     remaining: &mut usize,
 ) -> Result<PreparedImportGraphic, String> {
     let display = path.display().to_string();
-    let meta = std::fs::metadata(path).map_err(|e| format!("{display}: {e}"))?;
-    let len = usize::try_from(meta.len()).unwrap_or(usize::MAX);
-    if len > *remaining {
-        return Err(format!(
-            "{display}: file size exceeds remaining import budget."
-        ));
-    }
-    *remaining = remaining.saturating_sub(len);
     let (mut imported, report) =
         neoflash_import::import_psd_path(path, &neoflash_import::PsdImportOptions::default())
             .map_err(|e| format!("{display} [psd-import]: {e}"))?;
+    // The PSD parser bounds source bytes itself. Only its portable pixels consume
+    // the destination resource budget; large Photoshop containers often have small composites.
+    let resource_bytes = imported.resources.iter().map(ResourceUnit::byte_len).sum();
+    *remaining = remaining.checked_sub(resource_bytes).ok_or_else(|| {
+        format!("{display}: imported PSD pixels exceed the remaining resource budget.")
+    })?;
     let root_id = imported.root.clone();
     let root_symbol = imported
         .symbols
@@ -2114,7 +2112,10 @@ fn prepare_psd_graphic(
     })
 }
 
-fn prepare_pdf_ai_graphic(path: &std::path::Path) -> Result<PreparedImportGraphic, String> {
+fn prepare_pdf_ai_graphic(
+    path: &std::path::Path,
+    remaining: &mut usize,
+) -> Result<PreparedImportGraphic, String> {
     let display = path.display().to_string();
     let bytes = std::fs::read(path).map_err(|e| format!("{display}: {e}"))?;
     let name = path
@@ -2134,6 +2135,10 @@ fn prepare_pdf_ai_graphic(path: &std::path::Path) -> Result<PreparedImportGraphi
             "{display} [pdf-no-vector-content]: PDF/AI file contains no importable vector or text operators."
         ));
     }
+    let resource_bytes = imported.resources.iter().map(ResourceUnit::byte_len).sum();
+    *remaining = remaining.checked_sub(resource_bytes).ok_or_else(|| {
+        format!("{display}: imported vector document resources exceed the remaining import budget.")
+    })?;
     let root_id = imported.root.clone();
     let root_symbol = imported
         .symbols
@@ -2516,7 +2521,18 @@ mod tests {
         out.extend_from_slice(&8u16.to_be_bytes());
         out.extend_from_slice(&3u16.to_be_bytes());
         out.extend_from_slice(&0u32.to_be_bytes());
-        out.extend_from_slice(&0u32.to_be_bytes());
+        // This fixture exercises editable layers. Its dummy merged pixels are not a saved Photoshop composite.
+        let mut version_info = Vec::from(*b"8BIM");
+        version_info.extend_from_slice(&1057u16.to_be_bytes());
+        version_info.extend_from_slice(&[0, 0]);
+        version_info.extend_from_slice(&17u32.to_be_bytes());
+        version_info.extend_from_slice(&1u32.to_be_bytes());
+        version_info.push(0); // hasRealMergedData
+        version_info.extend_from_slice(&[0; 8]); // empty writer and reader Unicode strings
+        version_info.extend_from_slice(&1u32.to_be_bytes());
+        version_info.push(0); // even resource length
+        out.extend_from_slice(&(version_info.len() as u32).to_be_bytes());
+        out.extend_from_slice(&version_info);
 
         struct LRec<'a> {
             name: &'a str,

@@ -35,11 +35,76 @@ pub(crate) struct SwfStreamSoundCollector {
     pub payload: Vec<u8>,
 }
 
+/// Preserve every exposure of large, equal-sized JPEG dictionaries within the existing
+/// decoded-pixel ceiling. Read dimensions from the tag headers before decoding any frames.
+pub(crate) fn compact_jpeg_dimensions(
+    tags: &[u8],
+    count: usize,
+    pixel_budget: usize,
+) -> Option<[u32; 2]> {
+    if count < 2 {
+        return None;
+    }
+    let mut reader = SwfSlice::new(tags);
+    let mut dimensions = None;
+    let mut found = 0usize;
+    while reader.remaining() >= 2 {
+        let header = reader.u16()?;
+        let code = header >> 6;
+        let len = (header & 63) as usize;
+        let len = if len == 63 {
+            reader.u32()? as usize
+        } else {
+            len
+        };
+        let payload = reader.take(len)?;
+        match code {
+            0 => break,
+            21 => {
+                let jpeg = payload.get(2..)?;
+                if !jpeg.starts_with(&[0xff, 0xd8, 0xff]) {
+                    return None;
+                }
+                let size = image::ImageReader::with_format(
+                    std::io::Cursor::new(jpeg),
+                    image::ImageFormat::Jpeg,
+                )
+                .into_dimensions()
+                .ok()?;
+                if size.0 == 0
+                    || size.1 == 0
+                    || size.0 > MAX_SWF_BITMAP_DIM
+                    || size.1 > MAX_SWF_BITMAP_DIM
+                    || dimensions.is_some_and(|d| d != size)
+                {
+                    return None;
+                }
+                dimensions = Some(size);
+                found += 1;
+            }
+            6 | 20 | 35 | 36 | 90 => return None,
+            _ => {}
+        }
+    }
+    let (w, h) = dimensions?;
+    let pixels = (w as usize).checked_mul(h as usize)?.checked_mul(found)?;
+    if found != count || pixels <= pixel_budget {
+        return None;
+    }
+    let scale = (pixel_budget as f64 / pixels as f64).sqrt();
+    Some([
+        (f64::from(w) * scale).floor().max(1.0) as u32,
+        (f64::from(h) * scale).floor().max(1.0) as u32,
+    ])
+}
+
 /// Decode `DefineBits` (6), `DefineBitsJPEG2` (21), `DefineBitsJPEG3` (35), or `DefineBitsJPEG4` (90).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn decode_jpeg_bitmap_tag(
     tag_code: u16,
     payload: &[u8],
     jpeg_tables: Option<&[u8]>,
+    compact_size: Option<[u32; 2]>,
     resources: &mut Vec<ResourceUnit>,
     resource_bytes_total: &mut usize,
     location: &str,
@@ -87,6 +152,41 @@ pub(crate) fn decode_jpeg_bitmap_tag(
         return None;
     }
 
+    if let Some([rw, rh]) = compact_size {
+        let reduced = decoded
+            .resize_exact(rw, rh, image::imageops::FilterType::Triangle)
+            .into_rgb8();
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 92)
+            .encode_image(&reduced)
+            .ok()?;
+        let id = register_media_resource(
+            format!("swf-bitmap-{bitmap_id}"),
+            format!("bitmaps/bitmap-{bitmap_id}.jpg"),
+            "image/jpeg",
+            &jpeg,
+            resources,
+            resource_bytes_total,
+            location,
+            report,
+        )?;
+        let avg_color = compute_average_color(
+            &image::DynamicImage::ImageRgb8(reduced)
+                .into_rgba8()
+                .into_raw(),
+        );
+        report.warning("swf_bitmap_sequence_downscaled",format!("{location}#bitmap:{bitmap_id}"),format!("Reduced the stored image from {w}×{h} to {rw}×{rh} to retain the complete JPEG sequence within the 128 MiB decoded-pixel budget. Stage placement and timing are preserved."));
+        return Some((
+            bitmap_id,
+            SwfBitmapRef {
+                resource_id: id,
+                width: w,
+                height: h,
+                stored_size: [rw, rh],
+                avg_color,
+            },
+        ));
+    }
     let mut rgba = decoded.into_rgba8().into_raw();
     if let Some(alpha_compressed) = alpha_zlib
         && !alpha_compressed.is_empty()
@@ -129,17 +229,15 @@ pub(crate) fn decode_jpeg_bitmap_tag(
 
     // Preserve clean self-contained JPEG/PNG directly when there is no separate alpha plane,
     // otherwise encode composited straight-alpha RGBA to PNG.
-    let (media_type, ext, final_bytes) = if alpha_zlib.is_none()
-        && normalized.starts_with(&[0xFF, 0xD8, 0xFF])
-        && image::load_from_memory_with_format(&normalized, image::ImageFormat::Jpeg).is_ok()
-    {
-        ("image/jpeg", "jpg", normalized)
-    } else if alpha_zlib.is_none() && normalized.starts_with(b"\x89PNG\r\n\x1a\n") {
-        ("image/png", "png", normalized)
-    } else {
-        let png = encode_rgba_png(&rgba, w, h)?;
-        ("image/png", "png", png)
-    };
+    let (media_type, ext, final_bytes) =
+        if alpha_zlib.is_none() && normalized.starts_with(&[0xFF, 0xD8, 0xFF]) {
+            ("image/jpeg", "jpg", normalized)
+        } else if alpha_zlib.is_none() && normalized.starts_with(b"\x89PNG\r\n\x1a\n") {
+            ("image/png", "png", normalized)
+        } else {
+            let png = encode_rgba_png(&rgba, w, h)?;
+            ("image/png", "png", png)
+        };
 
     let resource_id = register_media_resource(
         format!("swf-bitmap-{bitmap_id}"),
@@ -158,6 +256,7 @@ pub(crate) fn decode_jpeg_bitmap_tag(
             resource_id,
             width: w,
             height: h,
+            stored_size: [w, h],
             avg_color,
         },
     ))
@@ -307,6 +406,7 @@ pub(crate) fn decode_lossless_bitmap_tag(
             resource_id,
             width,
             height,
+            stored_size: [width, height],
             avg_color,
         },
     ))
@@ -828,5 +928,37 @@ fn encode_rgba_png(rgba: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
     image::codecs::png::PngEncoder::new(&mut png)
         .write_image(rgba, width, height, ExtendedColorType::Rgba8)
         .ok()?;
+    if png.len() > MAX_RESOURCE_BYTES {
+        // Retry with a denser lossless encoding before applying the portable resource limit.
+        use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+        png.clear();
+        PngEncoder::new_with_quality(&mut png, CompressionType::Default, FilterType::Adaptive)
+            .write_image(rgba, width, height, ExtendedColorType::Rgba8)
+            .ok()?;
+    }
     Some(png)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compact_jpeg_sequence_preserves_all_frames_at_the_decoded_pixel_limit() {
+        let image = image::RgbImage::from_pixel(16, 32, image::Rgb([23, 107, 211]));
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut jpeg)
+            .encode_image(&image)
+            .unwrap();
+        let mut tags = Vec::new();
+        for id in 1u16..=3 {
+            tags.extend_from_slice(&((21u16 << 6) | 63).to_le_bytes());
+            tags.extend_from_slice(&((jpeg.len() + 2) as u32).to_le_bytes());
+            tags.extend_from_slice(&id.to_le_bytes());
+            tags.extend_from_slice(&jpeg);
+        }
+        assert_eq!(compact_jpeg_dimensions(&tags, 3, 3 * 16 * 32), None);
+        assert_eq!(compact_jpeg_dimensions(&tags, 3, 3 * 8 * 16), Some([8, 16]));
+        assert_eq!(compact_jpeg_dimensions(&tags, 4, 3 * 8 * 16), None);
+    }
 }

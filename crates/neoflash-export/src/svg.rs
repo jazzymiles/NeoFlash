@@ -5,13 +5,14 @@
 //! affine transforms, embedded bitmaps, and text/outline rendering.
 
 use crate::{ExportError, atomic_write};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use neoflash_core::{
     AuthoredDraw, AuthoredScene, Color, ColorTransform, ElementKind, FillRule, FilterSpec,
     GradientKind, GradientPaint, PathCommand, Project, evaluate_scene, flatten_scenes_with_ranges,
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     fmt::Write as _,
     fs,
     path::{Path, PathBuf},
@@ -437,6 +438,27 @@ pub fn render_scene_svg(
     let mut filter_counter = 0usize;
     let mut element_count = 0usize;
 
+    let mut bitmap_paints = crate::svg_bitmap::SvgBitmapPaints::default();
+    let video_placements = if scene
+        .draws
+        .iter()
+        .any(|d| matches!(d.item.kind, ElementKind::Video { .. }))
+    {
+        let items = scene
+            .draws
+            .iter()
+            .map(|draw| draw.item.clone())
+            .collect::<Vec<_>>();
+        neoflash_core::resolve_scene_video_placements(
+            eval_project,
+            options.symbol_id.as_deref().unwrap_or(&eval_project.root),
+            options.frame,
+            &HashMap::new(),
+            &items,
+        )
+    } else {
+        HashMap::new()
+    };
     for draw in &scene.draws {
         element_count += 1;
         render_draw_svg(
@@ -451,7 +473,9 @@ pub fn render_scene_svg(
             &mut defs_count,
             &mut defs,
             &mut body,
-        );
+            &mut bitmap_paints,
+            video_placements.get(&draw.item.instance_path),
+        )?;
     }
 
     let mut svg = String::with_capacity(defs.len() + body.len() + 256);
@@ -464,7 +488,7 @@ pub fn render_scene_svg(
     }
     svg.push_str(&body);
     svg.push_str("</svg>\n");
-    Ok((svg, element_count, defs_count))
+    Ok((svg, element_count, defs_count + bitmap_paints.definitions()))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -480,7 +504,9 @@ fn render_draw_svg(
     defs_count: &mut usize,
     defs: &mut String,
     body: &mut String,
-) {
+    bitmap_paints: &mut crate::svg_bitmap::SvgBitmapPaints,
+    video: Option<&neoflash_core::ResolvedVideoPlacement>,
+) -> Result<(), ExportError> {
     let item = &draw.item;
     let xf = svg_matrix_attr(item.transform, prec);
     let mut wrapper_opens = Vec::new();
@@ -508,11 +534,18 @@ fn render_draw_svg(
     let indent = if wrapper_opens.is_empty() {
         "  "
     } else {
-        let _ = writeln!(body, "  <g {}>", wrapper_opens.join(" "));
+        for attr in &wrapper_opens {
+            let _ = writeln!(body, "  <g {attr}>");
+        }
         "    "
     };
 
     let ct = item.color_transform;
+    let bitmap = item
+        .bitmap_fill
+        .as_ref()
+        .map(|fill| bitmap_paints.paint(project, &item.kind, fill, ct, defs))
+        .transpose()?;
     let paint_attrs = |fill: Color,
                        stroke: Color,
                        stroke_width: f64,
@@ -523,7 +556,9 @@ fn render_draw_svg(
                        defs_count: &mut usize|
      -> String {
         let mut attrs = String::new();
-        if let Some(fg) = fill_grad {
+        if let Some(paint) = &bitmap {
+            let _ = write!(attrs, " fill=\"{paint}\"");
+        } else if let Some(fg) = fill_grad {
             let gid = format!("nf-grad-{}", *grad_counter);
             *grad_counter += 1;
             *defs_count += 1;
@@ -835,61 +870,79 @@ fn render_draw_svg(
                 }
             }
             if !emitted_outline {
-                if let Some(state) = state
-                    && state.format_runs.len() > 1
-                {
-                    let base_attrs = fmt_attrs(format);
-                    let mut inner = String::new();
-                    let mut cursor_u16 = 0u32;
-                    let mut char_iter = state.text.chars().peekable();
-                    for run in &state.format_runs {
-                        while cursor_u16 < run.start {
-                            let Some(ch) = char_iter.next() else {
-                                break;
-                            };
-                            cursor_u16 += ch.len_utf16() as u32;
-                        }
-                        let mut slice = String::new();
-                        while cursor_u16 < run.end {
-                            let Some(ch) = char_iter.next() else {
-                                break;
-                            };
-                            slice.push(ch);
-                            cursor_u16 += ch.len_utf16() as u32;
-                        }
-                        let run_attrs = fmt_attrs(&run.format);
-                        let _ = write!(inner, "<tspan {run_attrs}>{}</tspan>", xml_escape(&slice));
+                let font_bytes = crate::fonts::resolve_project_font_bytes(
+                    project,
+                    &format.font,
+                    format.bold,
+                    format.italic,
+                );
+                let bytes = font_bytes
+                    .as_deref()
+                    .unwrap_or_else(|| crate::fonts::fallback_font(&format.font, format.bold));
+                let layout = state
+                    .as_ref()
+                    .and_then(|field| crate::fonts::positioned_text_runs(field, bytes).ok());
+                if let Some(layout) = layout {
+                    let _ = write!(body, "{indent}<text xml:space=\"preserve\"{xf}>");
+                    for run in layout {
+                        let fmt = run.format.as_ref().unwrap_or(format);
+                        let _ = write!(
+                            body,
+                            "<tspan x=\"{}\" y=\"{}\" {}>{}</tspan>",
+                            fmt_num(run.x, prec),
+                            fmt_num(run.y + fmt.size, prec),
+                            fmt_attrs(fmt),
+                            xml_escape(&run.text)
+                        );
                     }
-                    let _ = writeln!(
-                        body,
-                        "{indent}<text x=\"0\" y=\"{}\" {base_attrs}{xf}>{inner}</text>",
-                        fmt_num(format.size, prec),
-                    );
+                    let _ = writeln!(body, "</text>");
                 } else {
-                    let attrs = fmt_attrs(format);
                     let _ = writeln!(
                         body,
-                        "{indent}<text x=\"0\" y=\"{}\" {attrs}{xf}>{}</text>",
+                        "{indent}<text x=\"0\" y=\"{}\" {}{xf}>{}</text>",
                         fmt_num(format.size, prec),
+                        fmt_attrs(format),
                         xml_escape(text)
                     );
                 }
             }
         }
         ElementKind::Video { width, height } => {
-            let _ = writeln!(
-                body,
-                "{indent}<rect width=\"{}\" height=\"{}\" fill=\"#000000\" fill-opacity=\"0.25\"{xf}/>",
-                fmt_num(*width, prec),
-                fmt_num(*height, prec)
-            );
+            if let Some(placement) = video {
+                let stream = crate::video::resolve_and_decode_project_video(
+                    project,
+                    &placement.resource,
+                    placement.source.as_ref(),
+                    None,
+                )
+                .map_err(ExportError::Options)?;
+                if let Some((_, frame)) = stream.frame_at_placement(placement) {
+                    let mut rgba = frame.image.rgba.clone();
+                    if !ct.is_identity() {
+                        for px in std::sync::Arc::make_mut(&mut rgba).as_chunks_mut::<4>().0 {
+                            *px = ct.apply(*px);
+                        }
+                    }
+                    let png = crate::bitmap_encode::encode_rgba_png(
+                        &rgba,
+                        frame.image.width,
+                        frame.image.height,
+                    )?;
+                    let href = STANDARD.encode(png);
+                    let _ = writeln!(
+                        body,
+                        "{indent}<image width=\"{width}\" height=\"{height}\" preserveAspectRatio=\"none\" href=\"data:image/png;base64,{href}\"{xf}/>"
+                    );
+                }
+            }
         }
         ElementKind::Instance { .. } => {}
     }
 
-    if !wrapper_opens.is_empty() {
+    for _ in &wrapper_opens {
         let _ = writeln!(body, "  </g>");
     }
+    Ok(())
 }
 
 /// Export a frame or frame range of `project` to standalone `.svg` file(s) on disk.

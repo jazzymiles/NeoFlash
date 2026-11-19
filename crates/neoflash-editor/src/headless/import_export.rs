@@ -287,21 +287,27 @@ pub(crate) fn plan_export_effects(
             }
         }
         ExportTarget::Aep => {
-            let aep = if spec.out.extension().is_some() {
-                spec.out.clone()
-            } else {
-                spec.out.with_extension("aep")
-            };
+            let aep = spec.out.with_extension("aep");
+            let builder_requested = spec
+                .out
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("jsx"));
+            let xml_requested = spec
+                .out
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("aepx"));
             let stem = aep
                 .file_stem()
                 .and_then(|value| value.to_str())
                 .filter(|value| !value.is_empty())
                 .unwrap_or("project");
-            effects.plan_path(&aep)?;
-            if spec.include_aepx.unwrap_or(true) {
-                effects.plan_path(aep.with_extension("aepx"))?;
+            if !builder_requested {
+                effects.plan_path(&aep)?;
+                if spec.include_aepx.unwrap_or(true) || xml_requested {
+                    effects.plan_path(aep.with_extension("aepx"))?;
+                }
             }
-            if spec.include_extendscript.unwrap_or(true) {
+            if spec.include_extendscript.unwrap_or(true) || builder_requested {
                 effects.plan_path(aep.with_extension("jsx"))?;
             }
             effects.plan_tree(parent().join(format!("{stem}_Footage")))?;
@@ -1393,13 +1399,34 @@ fn import_audio_into_project(
     }
     let res_id = unit.id.clone();
     let media_type = unit.media_type.clone();
+    if standalone_name && let Some(sym_id) = &target_sym_id {
+        use rodio::Source;
+        let bytes = unit
+            .decoded_bytes()
+            .map_err(|e| CliError::runtime("import_failed", e.to_string()))?;
+        let audio = rodio::Decoder::new(std::io::Cursor::new(bytes))
+            .map_err(|e| CliError::runtime("import_failed", e.to_string()))?;
+        let samples_per_second = u64::from(audio.sample_rate()) * u64::from(audio.channels());
+        // Count decoded samples without retaining PCM or truncating to the preview budget.
+        let frames =
+            (audio.count() as u64 * u64::from(project.fps)).div_ceil(samples_per_second.max(1));
+        if let Some(sym) = project.symbol_mut(sym_id) {
+            sym.timeline.frame_count = opts
+                .frame
+                .saturating_add(frames.clamp(1, u32::MAX.into()) as u32);
+        }
+    }
     project.resources.push(unit);
 
     if let Some(sym_id) = target_sym_id {
         let (layer_idx, kf) = ensure_editable_keyframe_in_symbol(project, &sym_id, opts)?;
         kf.sound = Some(FrameSound {
             resource: res_id,
-            sync: SoundSync::Event,
+            sync: if standalone_name {
+                SoundSync::Stream
+            } else {
+                SoundSync::Event
+            },
             loops: 1,
             loop_forever: false,
             effect: SoundEffect::None,
@@ -1554,8 +1581,9 @@ fn import_video_into_project(
         return Err(CliError::runtime("import_failed", errors.join(" ")));
     }
 
-    let probed =
-        neoflash_export::decode_video_stream_bytes(&file_name, media_type, &raw_bytes).ok();
+    let probe = neoflash_export::decode_video_stream_bytes(&file_name, media_type, &raw_bytes);
+    let probe_error = probe.as_ref().err().cloned();
+    let probed = probe.ok();
     let (vid_w, vid_h) = probed
         .as_ref()
         .filter(|s| s.width > 0 && s.height > 0)
@@ -1643,7 +1671,7 @@ fn import_video_into_project(
     }
     finalize_project_format_version(project);
 
-    let report_diags: Vec<ImportDiagnostic> = v_diags
+    let mut report_diags: Vec<ImportDiagnostic> = v_diags
         .into_iter()
         .map(|d| ImportDiagnostic {
             severity: if d.is_error {
@@ -1656,6 +1684,14 @@ fn import_video_into_project(
             message: d.message,
         })
         .collect();
+    if let Some(detail) = probe_error {
+        report_diags.push(ImportDiagnostic {
+            severity: ImportSeverity::Warning,
+            code: "video_metadata_unavailable".into(),
+            location: path.display().to_string(),
+            message: format!("Stored the source video. Size and duration use 320×240 and four seconds because decoding failed: {detail}"),
+        });
+    }
 
     Ok(ImportReport {
         source: path.display().to_string(),
@@ -1946,7 +1982,7 @@ fn import_document_format_standalone(
                 }
                 return Ok((project, report));
             }
-            "pdf" | "ai" => {
+            "pdf" | "ai" | "eps" => {
                 let bytes = fs::read(path).map_err(|e| {
                     CliError::runtime(
                         "io_error",
@@ -3612,6 +3648,7 @@ pub(crate) fn export_project_with_spec(
         ExportTarget::Aep => {
             let opts = AepOptions {
                 symbol: symbol_id,
+                use_native_writer: true,
                 include_aepx: spec.include_aepx.unwrap_or(true),
                 include_extendscript: spec.include_extendscript.unwrap_or(true),
                 translate_scripts: spec.translate_scripts.unwrap_or(true),
@@ -3623,8 +3660,8 @@ pub(crate) fn export_project_with_spec(
                 .map_err(|e| CliError::runtime("export_failed", e.to_string()))?;
             Ok(json!({
                 "target": target.as_str(),
-                "output_path": report.aep_path.display().to_string(),
-                "aep_path": report.aep_path.display().to_string(),
+                "output_path": report.output_path,
+                "aep_path": report.aep_path,
                 "aepx_path": report.aepx_path.map(|p| p.display().to_string()),
                 "jsx_path": report.jsx_path.map(|p| p.display().to_string()),
                 "footage_dir": report.footage_dir.display().to_string(),
@@ -3760,6 +3797,10 @@ pub(crate) fn export_project_with_spec(
                     symbol_id,
                     format: atlas_format,
                     extrude: spec.atlas_extrude,
+                    start_frame: spec.frame.unwrap_or(0),
+                    end_frame: spec.end_frame.or(spec.frame),
+                    frame_width: spec.width,
+                    frame_height: spec.height,
                     ..AtlasOptions::default()
                 },
             )
@@ -3784,6 +3825,8 @@ pub(crate) fn export_project_with_spec(
                     format: fmt,
                     codec: fmt.default_codec(),
                     symbol: symbol_id,
+                    from_frame: spec.frame.unwrap_or(0).saturating_add(1),
+                    to_frame: spec.end_frame.or(spec.frame).map(|f| f.saturating_add(1)),
                     width: spec.width.unwrap_or(0),
                     height: spec.height.unwrap_or(0),
                     ..VideoOptions::default()
@@ -3823,6 +3866,7 @@ pub(crate) fn export_project_with_spec(
                 "output_path": spec.out.display().to_string(),
                 "bytes": report.bytes,
                 "duration_seconds": report.duration_seconds,
+                "source_summary": report.source_summary,
                 "sample_rate": report.sample_rate,
                 "channels": report.channels,
                 "format": report.format.label(),

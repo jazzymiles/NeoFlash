@@ -280,6 +280,7 @@ pub struct AtlasExportReport {
     pub page_paths: Vec<PathBuf>,
 }
 
+#[derive(Clone)]
 struct TrimmedFrame {
     name: String,
     source_w: u32,
@@ -289,7 +290,7 @@ struct TrimmedFrame {
     trim_w: u32,
     trim_h: u32,
     trimmed: bool,
-    pixels: Vec<u8>,
+    pixels: std::sync::Arc<[u8]>,
 }
 
 fn trim_rgba(
@@ -821,6 +822,7 @@ pub fn render_project_atlas(
         p
     });
 
+    let mut previous_draws = None;
     for f in start_f..=clamped_end_f {
         if f > start_f
             && let Some(p) = &mut playback
@@ -832,6 +834,23 @@ pub fn render_project_atlas(
         } else {
             evaluate_scene(&eval_project, target_symbol_id, f, false, true)
         };
+        // A held still can cover hundreds of frames. Keep one raster while preserving every frame name.
+        let cacheable = scene.clips.is_empty()
+            && scene.mask_groups.is_empty()
+            && !scene
+                .draws
+                .iter()
+                .any(|d| matches!(d.item.kind, neoflash_core::ElementKind::Video { .. }));
+        let name = format!("{prefix}_{:04}", f + 1);
+        if cacheable
+            && previous_draws.as_ref() == Some(&scene.draws)
+            && let Some(previous) = trimmed_frames.last()
+        {
+            let mut held: TrimmedFrame = TrimmedFrame::clone(previous);
+            held.name = name;
+            trimmed_frames.push(held);
+            continue;
+        }
         let rgba = render_authored_scene_rgba(
             &eval_project,
             target_symbol_id,
@@ -842,9 +861,10 @@ pub fn render_project_atlas(
             options.transparent_background,
             &mut bitmap_cache,
         )?;
+        previous_draws = cacheable.then_some(scene.draws);
         let (tx, ty, tw, th, trimmed, pixels) = trim_rgba(&rgba, fw, fh, options.trim);
         trimmed_frames.push(TrimmedFrame {
-            name: format!("{prefix}_{:04}", f + 1),
+            name,
             source_w: fw,
             source_h: fh,
             trim_x: tx,
@@ -852,7 +872,7 @@ pub fn render_project_atlas(
             trim_w: tw,
             trim_h: th,
             trimmed,
-            pixels,
+            pixels: pixels.into(),
         });
     }
     let timeline_frame_count = trimmed_frames.len();
@@ -874,7 +894,7 @@ pub fn render_project_atlas(
                     trim_w: tw,
                     trim_h: th,
                     trimmed,
-                    pixels,
+                    pixels: pixels.into(),
                 });
             }
         }
@@ -887,7 +907,10 @@ pub fn render_project_atlas(
         if options.deduplicate
             && let Some(pos) = unique_indices.iter().copied().find(|&u| {
                 let other = &trimmed_frames[u];
-                other.trim_w == tf.trim_w && other.trim_h == tf.trim_h && other.pixels == tf.pixels
+                other.trim_w == tf.trim_w
+                    && other.trim_h == tf.trim_h
+                    && (std::sync::Arc::ptr_eq(&other.pixels, &tf.pixels)
+                        || other.pixels == tf.pixels)
             })
         {
             frame_to_unique.push(pos);
@@ -1114,15 +1137,30 @@ pub fn export_project_atlas(
     metadata_output_path: impl AsRef<Path>,
     options: &AtlasOptions,
 ) -> Result<AtlasExportReport, ExportError> {
-    let metadata_path = metadata_output_path.as_ref().to_path_buf();
-    let parent = metadata_path
+    let requested = metadata_output_path.as_ref();
+    let parent = requested
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)?;
 
     let img_ext = options.image_format.extension();
-    let image_path = metadata_path.with_extension(img_ext);
+    let requested_image = requested
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| {
+            ext.eq_ignore_ascii_case(img_ext)
+                || (options.image_format == AtlasImageFormat::Jpeg
+                    && ext.eq_ignore_ascii_case("jpeg"))
+        });
+    let (image_path, metadata_path) = if requested_image {
+        (
+            requested.to_owned(),
+            requested.with_extension(options.format.extension()),
+        )
+    } else {
+        (requested.with_extension(img_ext), requested.to_owned())
+    };
     let default_name = format!("spritesheet.{img_ext}");
     let image_filename = image_path
         .file_name()

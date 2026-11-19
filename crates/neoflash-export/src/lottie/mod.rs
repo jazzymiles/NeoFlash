@@ -5,9 +5,9 @@
 //! instance `First frame` offsets, layer/element blend modes (`T-036`), masks, gradients, bitmaps,
 //! and text into a self-contained Lottie JSON document.
 //!
-//! Features that Lottie players cannot execute (such as ActionScript / JavaScript code, timeline
-//! audio, video viewports, or Flash-only filter/blend modes) produce actionable diagnostics in
-//! [`LottieExportReport::warnings`] instead of failing or silently dropping artwork.
+//! Dedicated embedded video spans become timed images. The lottie-web profile can include
+//! simple synchronized WAV or MP3 layers. Scripts, unsupported sound modes, video controls
+//! and Flash-only filters produce diagnostics in [`LottieExportReport::warnings`].
 
 mod assets;
 mod dotlottie;
@@ -309,7 +309,9 @@ struct LottieBuilder<'a> {
     assets: Vec<Value>,
     external_images: Vec<ExternalImageFile>,
     precomp_id_by_symbol: BTreeMap<String, Option<String>>,
+    precomp_bounds: BTreeMap<String, ([f64; 2], [u32; 2])>,
     image_id_by_resource: BTreeMap<String, Option<String>>,
+    audio_ids: BTreeMap<String, String>,
     matte_precomps: BTreeMap<String, Option<String>>,
     used_asset_ids: BTreeSet<String>,
     fonts: BTreeMap<String, Value>,
@@ -594,6 +596,9 @@ where
         };
 
     check_cancel_flag(cancel)?;
+    let video_layer_count = crate::video_frames::prepare(&mut working_project, None)?;
+    let image_fill_count =
+        crate::image_fill_layers::prepare_image_fill_layers(&mut working_project)?;
     let mut text_outlined_count = 0usize;
     if options.text_mode == LottieTextMode::Shapes {
         text_outlined_count = crate::fonts::convert_project_text_to_outlines(&mut working_project);
@@ -637,7 +642,25 @@ where
         assets: Vec::new(),
         external_images: Vec::new(),
         precomp_id_by_symbol: BTreeMap::new(),
+        precomp_bounds: working_project
+            .symbols
+            .iter()
+            .map(|symbol| {
+                let (min_origin, size) =
+                    crate::aep::compute_symbol_precomp_bounds(&working_project, symbol);
+                let origin = [
+                    min_origin[0].max(f64::from(working_project.width)),
+                    min_origin[1].max(f64::from(working_project.height)),
+                ];
+                let width =
+                    (size[0] + (origin[0] - min_origin[0]) as u32).max(working_project.width * 2);
+                let height =
+                    (size[1] + (origin[1] - min_origin[1]) as u32).max(working_project.height * 2);
+                (symbol.id.clone(), (origin, [width, height]))
+            })
+            .collect(),
         image_id_by_resource: BTreeMap::new(),
+        audio_ids: BTreeMap::new(),
         matte_precomps: BTreeMap::new(),
         used_asset_ids: BTreeSet::new(),
         fonts: BTreeMap::new(),
@@ -648,6 +671,22 @@ where
         warning_set: BTreeSet::new(),
     };
 
+    if video_layer_count > 0 {
+        builder.add_note_coded(
+            LottieNoteKind::Approximated,
+            Some("LOTTIE_VIDEO_FRAMES"),
+            "Video",
+            format!(
+                "Converted {video_layer_count} embedded video layer(s) into timed bitmap frames."
+            ),
+            None,
+            None,
+            None,
+        );
+    }
+    if image_fill_count > 0 {
+        builder.add_note_coded(LottieNoteKind::Approximated, Some("LOTTIE_BITMAP_FILL"), "Image fills", format!("Converted {image_fill_count} bitmap brush placements to masked image layers. Tiled and edge-extended regions use raster footage."), None,None,None);
+    }
     if text_outlined_count > 0 {
         builder.add_note_coded(
             LottieNoteKind::Approximated,
@@ -694,6 +733,10 @@ where
         &mut stack,
     )?;
 
+    if !builder.audio_ids.is_empty() {
+        builder.add_note_coded(LottieNoteKind::Approximated, Some("LOTTIE_WEB_AUDIO"), "Sound",
+            "Sound is embedded as a Lottie audio layer. Use lottie-web with an audio factory or Howler for playback.",None,None,None);
+    }
     if builder.emitted_text_layer {
         builder.add_note_coded(
             LottieNoteKind::Approximated,

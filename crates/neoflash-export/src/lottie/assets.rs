@@ -125,6 +125,54 @@ impl<'a> LottieBuilder<'a> {
         f_name
     }
 
+    pub(super) fn stream_audio_layer(
+        &mut self,
+        layer: &Layer,
+        key: &Keyframe,
+        frame_count: u32,
+        index: u32,
+    ) -> Option<serde_json::Value> {
+        let sound = key.sound.as_ref()?;
+        if self.options.player != super::LottieTargetPlayer::LottieWeb
+            || sound.sync != neoflash_core::SoundSync::Stream
+            || sound.effect != neoflash_core::SoundEffect::None
+            || sound.loop_forever
+            || sound.loops > 1
+            || sound.envelope.as_ref().is_some_and(|p| !p.is_empty())
+        {
+            return None;
+        }
+        let unit = self.project.resource(&sound.resource)?;
+        if !matches!(unit.media_type.as_str(), "audio/wav" | "audio/mpeg")
+            || unit.data_base64.is_empty()
+        {
+            return None;
+        }
+        let id = if let Some(id) = self.audio_ids.get(&unit.id) {
+            id.clone()
+        } else {
+            let id = self.alloc_unique_asset_id("audio_", &unit.id);
+            self.assets.push(json!({"id":id,"t":2,"e":1,"u":"","p":format!("data:{};base64,{}",unit.media_type,unit.data_base64)}));
+            self.audio_ids.insert(unit.id.clone(), id.clone());
+            id
+        };
+        let from = sound.in_point.unwrap_or(0.);
+        let end = f64::from(neoflash_core::sound_span_end(layer, key, frame_count));
+        let op = sound.out_point.map_or(end, |to| {
+            end.min(f64::from(key.frame) + (to - from) * self.fps)
+        });
+        // An explicit media clock also keeps lottie-web rendering audio-only compositions.
+        let to = from + (op - f64::from(key.frame)) / self.fps;
+        Some(json!({
+            "ty":6, "ind":index, "refId":id, "nm":layer.name, "ip":key.frame, "op":op, "st":key.frame,
+            "sr":1, "au":{"lv":{"a":0,"k":[100]}},
+            "tm":{"a":1,"k":[
+                {"t":key.frame,"s":[from],"e":[to],"o":{"x":[0.0],"y":[0.0]},"i":{"x":[1.0],"y":[1.0]}},
+                {"t":op,"s":[to]}
+            ]}
+        }))
+    }
+
     pub(super) fn ensure_image_asset(
         &mut self,
         resource_id: &str,
@@ -386,9 +434,7 @@ impl<'a> LottieBuilder<'a> {
             .insert(symbol_id.to_owned(), Some(asset_id.clone()));
         stack.push(symbol_id.to_owned());
 
-        let precomp_w = self.comp_w.max(1) * 2;
-        let precomp_h = self.comp_h.max(1) * 2;
-        let origin = [self.comp_w as f64, self.comp_h as f64];
+        let (origin, [precomp_w, precomp_h]) = self.precomp_bounds[symbol_id];
 
         let layers = if symbol.kind == SymbolKind::Button {
             self.add_note_coded(

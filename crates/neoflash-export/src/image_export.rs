@@ -953,7 +953,8 @@ fn ellipse_path(width: f64, height: f64) -> [PathCommand; 6] {
 fn ps_draw_supported(draw: &AuthoredDraw, options: &ImageExportOptions) -> bool {
     let transform = draw.item.color_transform;
     let opaque = |color: Color| matches!(transform.apply(color)[3], 0 | 255);
-    if !draw.clip_ids.is_empty()
+    if draw.item.bitmap_fill.is_some()
+        || !draw.clip_ids.is_empty()
         || !draw.blend_mode.is_normal()
         || (draw.item.alpha - 1.0).abs() > 1e-9
     {
@@ -1715,7 +1716,9 @@ where
                     let prefix = safe_svg_id_prefix(&options.svg_id_prefix);
                     if prefix != "nf-" {
                         markup = markup.replace("id=\"nf-", &format!("id=\"{prefix}"));
-                        markup = markup.replace("url(#nf-", &format!("url(#{prefix}"));
+                        markup = markup
+                            .replace("url(#nf-", &format!("url(#{prefix}"))
+                            .replace("href=\"#nf-", &format!("href=\"#{prefix}"));
                     }
                     if options.svg_minify {
                         markup = markup

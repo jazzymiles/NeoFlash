@@ -1024,7 +1024,7 @@ fn avm1_function_values_run_on_call_and_unsupported_closures_block() {
 }
 
 #[test]
-fn authored_bitmap_fills_block_swf_publish_including_scriptless_mode() {
+fn authored_bitmap_fills_roundtrip_changed_and_held_keys_including_scriptless_mode() {
     let mut project = Project::blank();
     let mut png = std::io::Cursor::new(Vec::new());
     image::RgbaImage::from_pixel(1, 1, image::Rgba([40, 90, 150, 255]))
@@ -1040,8 +1040,8 @@ fn authored_bitmap_fills_block_swf_publish_including_scriptless_mode() {
             width: 20.0,
             height: 20.0,
             fill: [255, 0, 0, 255],
-            stroke: [0; 4],
-            stroke_width: 0.0,
+            stroke: [7, 17, 73, 255],
+            stroke_width: 2.0,
         },
         ..Element::default()
     });
@@ -1052,6 +1052,15 @@ fn authored_bitmap_fills_block_swf_publish_including_scriptless_mode() {
         repeat: true,
         smoothing: false,
     });
+    let mut changed = key.clone();
+    changed.frame = 2;
+    changed.bitmap_fills[0].matrix = [0.5, 0.25, -0.25, 1., 2., 4.];
+    changed.bitmap_fills[0].repeat = false;
+    changed.bitmap_fills[0].smoothing = true;
+    project.symbols[0].timeline.layers[0]
+        .keyframes
+        .push(changed);
+    project.symbols[0].timeline.frame_count = 4;
     project.upgrade_format_for_features();
     project.validate().unwrap();
     for scriptless_mode in [false, true] {
@@ -1060,13 +1069,83 @@ fn authored_bitmap_fills_block_swf_publish_including_scriptless_mode() {
             ..SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer8Avm1)
         };
         let report = preflight_swf_publish(&project, &options);
-        let item = report
-            .items
-            .iter()
-            .find(|item| item.code == "swf_bitmap_fill_unsupported")
-            .expect("bitmap fill must not silently become its solid fallback");
-        assert_eq!(item.disposition, FlaFeatureDisposition::Blocking);
-        assert!(item.location.ends_with("frame[0]:element:painted-shape"));
-        assert!(publish_swf_bytes(&project, &options).is_err());
+        assert!(report.can_proceed(), "{:?}", report.items);
+        let (bytes, _) = publish_swf_bytes(&project, &options).unwrap();
+        let imported = import_swf_bytes(&bytes).unwrap();
+        assert!(imported.resources.iter().any(|r| r.is_image()));
+        for frame in 0..4 {
+            let scene =
+                neoflash_core::evaluate_scene(&imported, &imported.root, frame, false, true);
+            let brush = scene
+                .draws
+                .iter()
+                .find_map(|d| d.item.bitmap_fill.as_ref())
+                .expect("bitmap paint on re-imported path");
+            let expected = &project.symbols[0].timeline.layers[0].keyframes
+                [usize::from(frame >= 2)]
+            .bitmap_fills[0];
+            assert_eq!(brush.matrix, expected.matrix);
+            assert_eq!(
+                (brush.repeat, brush.smoothing),
+                (expected.repeat, expected.smoothing)
+            );
+            assert!(
+                scene.draws.iter().any(|d| matches!(
+                    d.item.kind,
+                    ElementKind::Path {
+                        stroke: [7, 17, 73, 255],
+                        ..
+                    } | ElementKind::PaintedPath {
+                        stroke: [7, 17, 73, 255],
+                        ..
+                    }
+                )),
+                "authored stroke survives"
+            );
+        }
     }
+}
+
+#[test]
+fn full_stage_bitmap_larger_than_a_swf_edge_record_remains_visible() {
+    let mut project = Project::blank();
+    project.width = 2160;
+    project.height = 3840;
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(72, 128, image::Rgba([40, 90, 150, 255]))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    project.resources.push(
+        ResourceUnit::from_bytes("poster", "poster.png", "image/png", png.get_ref()).unwrap(),
+    );
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "poster".to_owned(),
+            kind: ElementKind::Bitmap {
+                resource_id: "poster".to_owned(),
+                width: 2160,
+                height: 3840,
+                smoothing: true,
+            },
+            ..Element::default()
+        });
+    let (bytes, _) = publish_swf_bytes(&project, &SwfPublishOptions::default()).unwrap();
+    let imported = import_swf_bytes(&bytes).unwrap();
+    let scene = neoflash_core::evaluate_scene(&imported, &imported.root, 0, false, true);
+    let poster = scene
+        .draws
+        .iter()
+        .find(|d| {
+            matches!(
+                d.item.kind,
+                ElementKind::Bitmap {
+                    width: 72,
+                    height: 128,
+                    ..
+                }
+            )
+        })
+        .expect("one fitted bitmap with a closed, subdivided rectangle");
+    assert_eq!(poster.item.transform, [30., 0., 0., 30., 0., 0.]);
 }

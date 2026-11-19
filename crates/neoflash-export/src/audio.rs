@@ -5,7 +5,7 @@
 //! repeat/loop counts, and stereo volume envelopes) or individual sound layers/resources, applies
 //! resampling, channel conversion, silence trimming, peak normalization (−1 dB) and fade-out, and
 //! encodes to WAV (8/16/24-bit PCM or 32-bit IEEE float), MP3 (CBR 64–320 kbps), OGG (Vorbis), or
-//! AAC (M4A/ADTS).
+//! AAC (M4A/ADTS) or FLAC.
 
 use crate::ExportError;
 use neoflash_core::{
@@ -39,10 +39,11 @@ pub enum AudioFormat {
     Mp3,
     Ogg,
     Aac,
+    Flac,
 }
 
 impl AudioFormat {
-    pub const ALL: [Self; 4] = [Self::Wav, Self::Mp3, Self::Ogg, Self::Aac];
+    pub const ALL: [Self; 5] = [Self::Wav, Self::Mp3, Self::Ogg, Self::Aac, Self::Flac];
 
     pub const fn label(self) -> &'static str {
         match self {
@@ -50,6 +51,7 @@ impl AudioFormat {
             Self::Mp3 => "MP3",
             Self::Ogg => "OGG",
             Self::Aac => "AAC",
+            Self::Flac => "FLAC",
         }
     }
 
@@ -59,6 +61,7 @@ impl AudioFormat {
             Self::Mp3 => "mp3",
             Self::Ogg => "ogg",
             Self::Aac => "m4a",
+            Self::Flac => "flac",
         }
     }
 
@@ -68,15 +71,16 @@ impl AudioFormat {
             Self::Mp3 => "audio/mpeg",
             Self::Ogg => "audio/ogg",
             Self::Aac => "audio/mp4",
+            Self::Flac => "audio/flac",
         }
     }
 
     pub const fn uses_bit_depth(self) -> bool {
-        matches!(self, Self::Wav)
+        matches!(self, Self::Wav | Self::Flac)
     }
 
     pub const fn uses_bit_rate(self) -> bool {
-        !matches!(self, Self::Wav)
+        !matches!(self, Self::Wav | Self::Flac)
     }
 
     pub const fn index(self) -> usize {
@@ -85,6 +89,7 @@ impl AudioFormat {
             Self::Mp3 => 1,
             Self::Ogg => 2,
             Self::Aac => 3,
+            Self::Flac => 4,
         }
     }
 
@@ -93,6 +98,7 @@ impl AudioFormat {
             0 => Self::Wav,
             1 => Self::Mp3,
             2 => Self::Ogg,
+            4 => Self::Flac,
             _ => Self::Aac,
         }
     }
@@ -102,9 +108,10 @@ impl AudioFormat {
             "wav" | "wave" => Ok(Self::Wav),
             "mp3" => Ok(Self::Mp3),
             "ogg" | "vorbis" => Ok(Self::Ogg),
+            "flac" => Ok(Self::Flac),
             "aac" | "m4a" => Ok(Self::Aac),
             other => Err(format!(
-                "Unknown audio format '{other}'. Use wav, mp3, ogg or aac."
+                "Unknown audio format '{other}'. Use wav, mp3, ogg, flac or aac."
             )),
         }
     }
@@ -621,7 +628,10 @@ fn decode_with_symphonia(bytes: &[u8]) -> Result<DecodedAudio, String> {
         .format(
             &Hint::new(),
             mss,
-            &FormatOptions::default(),
+            &FormatOptions {
+                enable_gapless: true,
+                ..FormatOptions::default()
+            },
             &MetadataOptions::default(),
         )
         .map_err(|e| format!("Unsupported audio container: {e}"))?;
@@ -782,12 +792,14 @@ pub fn render_project_audio_mix(
     let mut decoded_cache: HashMap<Id, Vec<[f32; 2]>> = HashMap::new();
     let mut resource_names: HashMap<Id, String> = HashMap::new();
     for unit in &project.resources {
-        if unit.is_audio() {
+        if unit.is_audio() || unit.is_video() {
             resource_names.insert(unit.id.clone(), short_resource_name(&unit.path));
-            if let Ok(decoded) = decode_audio_resource(unit) {
-                let resampled = resample_frames(&decoded.frames, decoded.sample_rate, out_rate);
-                decoded_cache.insert(unit.id.clone(), resampled);
-            }
+        }
+        if unit.is_audio()
+            && let Ok(decoded) = decode_audio_resource(unit)
+        {
+            let resampled = resample_frames(&decoded.frames, decoded.sample_rate, out_rate);
+            decoded_cache.insert(unit.id.clone(), resampled);
         }
     }
 
@@ -804,9 +816,13 @@ pub fn render_project_audio_mix(
                 .unwrap_or_else(|| resource_id.clone());
             (frames, name)
         }
-        AudioExportSource::TimelineMix | AudioExportSource::Layer(_) => {
-            render_timeline_voices(project, options, out_rate, &decoded_cache, &resource_names)?
-        }
+        AudioExportSource::TimelineMix | AudioExportSource::Layer(_) => render_timeline_voices(
+            project,
+            options,
+            out_rate,
+            &mut decoded_cache,
+            &resource_names,
+        )?,
     };
 
     if options.channels == AudioChannels::Mono {
@@ -846,7 +862,7 @@ fn render_timeline_voices(
     project: &Project,
     options: &AudioExportOptions,
     out_rate: u32,
-    decoded_cache: &HashMap<Id, Vec<[f32; 2]>>,
+    decoded_cache: &mut HashMap<Id, Vec<[f32; 2]>>,
     resource_names: &HashMap<Id, String>,
 ) -> Result<(Vec<[f32; 2]>, String), ExportError> {
     let mut working = match &options.range {
@@ -904,6 +920,7 @@ fn render_timeline_voices(
                 if !matches {
                     for key in &mut layer.keyframes {
                         key.sound = None;
+                        key.video = None;
                     }
                 }
             }
@@ -931,7 +948,7 @@ fn render_timeline_voices(
         .flat_map(|s| &s.timeline.layers)
         .filter(|l| !matches!(l.properties.role, LayerRole::Guide | LayerRole::Folder))
         .flat_map(|l| &l.keyframes)
-        .any(|k| k.sound.is_some());
+        .any(|k| k.sound.is_some() || k.video.as_ref().is_some_and(|v| !v.muted));
 
     // If the project has audio resources in the Library but none placed on keyframes yet,
     // fall back to rendering the first decodable audio resource when exporting TimelineMix.
@@ -943,19 +960,78 @@ fn render_timeline_voices(
         return Ok((frames.clone(), short_resource_name(&first_audio.path)));
     }
 
-    let fps = working.fps.max(1);
-    let samples_per_frame = (f64::from(out_rate) / f64::from(fps)).round().max(1.0) as usize;
-    let mut voices: Vec<ActiveVoice> = Vec::new();
-    let mut used_resources: Vec<Id> = Vec::new();
-
+    let fps = f64::from(working.fps.max(1));
+    let mut tracker = neoflash_core::TimelineVideoTracker::new();
+    let mut video_audio = crate::video_audio::VideoSoundChannels::default();
     let mut player = Player::new(&working);
-    for frame_idx in 0..=range_end_frame {
-        if frame_idx > 0 {
+    let events = (0..=range_end_frame).map(|frame| {
+        if frame > 0 {
             player.tick(&working);
         }
-        let frame_start_sample = (frame_idx as usize) * samples_per_frame;
-        let commands = player.drain_sound_commands();
+        let mut commands = player.drain_sound_commands();
+        tracker.step_with_commands(player.drain_video_commands(), (1000.0 / fps).round() as u32);
+        commands.extend(video_audio.sync(tracker.channels.values(), fps));
+        (frame, commands)
+    });
+    let (mix, used) = mix_sound_commands(
+        project,
+        events,
+        out_rate,
+        fps,
+        range_start_frame..=range_end_frame,
+        true,
+        decoded_cache,
+    )?;
+    let mut summary = format_source_summary(&used, resource_names);
+    if let Some(warning) = video_audio.external_audio_warning() {
+        if used.is_empty() {
+            return Err(ExportError::Options(warning.to_owned()));
+        }
+        summary.push(' ');
+        summary.push_str(warning);
+    }
+    Ok((mix, summary))
+}
+
+/// Mix the actual commands of the chosen playback (including runtime-captured movie exports).
+pub(crate) fn mix_sound_commands(
+    project: &Project,
+    events: impl IntoIterator<Item = (u32, Vec<SoundCommand>)>,
+    out_rate: u32,
+    fps: f64,
+    range: std::ops::RangeInclusive<u32>,
+    include_event_tails: bool,
+    decoded_cache: &mut HashMap<Id, Vec<[f32; 2]>>,
+) -> Result<(Vec<[f32; 2]>, Vec<Id>), ExportError> {
+    let sample_at_frame = |f: u32| (f64::from(f) * f64::from(out_rate) / fps).round() as usize;
+    let mut voices: Vec<ActiveVoice> = Vec::new();
+    let mut used_resources = Vec::new();
+    for (frame, commands) in events {
+        let frame_start_sample = sample_at_frame(frame);
         for cmd in commands {
+            if let SoundCommand::Play { resource, .. } | SoundCommand::StreamStart { resource, .. } =
+                &cmd
+                && !decoded_cache.contains_key(resource)
+                && let Some(unit) = project.resource(resource)
+            {
+                let audio = if unit.is_video() {
+                    let bytes = unit
+                        .decoded_bytes()
+                        .map_err(|e| ExportError::Options(e.to_string()))?;
+                    crate::video_audio::embedded_soundtrack(&bytes).and_then(|track| {
+                        track
+                            .map(|(bytes, _)| decode_audio_bytes(&bytes))
+                            .transpose()
+                    })
+                } else {
+                    decode_audio_resource(unit).map(Some)
+                }
+                .map_err(|e| ExportError::Options(format!("{}: {e}", unit.path)))?;
+                let frames = audio.map_or_else(Vec::new, |a| {
+                    resample_frames(&a.frames, a.sample_rate, out_rate)
+                });
+                decoded_cache.insert(resource.clone(), frames);
+            }
             match cmd {
                 SoundCommand::Play {
                     resource,
@@ -966,7 +1042,10 @@ fn render_timeline_voices(
                     in_point,
                     out_point,
                 } => {
-                    let Some(clip) = decoded_cache.get(&resource) else {
+                    let Some(clip) = decoded_cache
+                        .get(&resource)
+                        .filter(|frames| !frames.is_empty())
+                    else {
                         continue;
                     };
                     if sync == SoundSync::Start
@@ -998,7 +1077,10 @@ fn render_timeline_voices(
                 }
                 SoundCommand::Stop { resource } => {
                     for v in &mut voices {
-                        if v.resource == resource && v.end_sample.is_none() {
+                        if v.resource == resource
+                            && v.stream_channel.is_none()
+                            && v.end_sample.is_none()
+                        {
                             v.end_sample = Some(frame_start_sample);
                         }
                     }
@@ -1013,7 +1095,10 @@ fn render_timeline_voices(
                     in_point,
                     out_point,
                 } => {
-                    let Some(clip) = decoded_cache.get(&resource) else {
+                    let Some(clip) = decoded_cache
+                        .get(&resource)
+                        .filter(|frames| !frames.is_empty())
+                    else {
                         continue;
                     };
                     for v in &mut voices {
@@ -1067,8 +1152,8 @@ fn render_timeline_voices(
         }
     }
 
-    let range_start_sample = (range_start_frame as usize) * samples_per_frame;
-    let timeline_end_sample = ((range_end_frame as usize) + 1) * samples_per_frame;
+    let range_start_sample = sample_at_frame(*range.start());
+    let timeline_end_sample = sample_at_frame(range.end().saturating_add(1));
     // Stop stream voices at the end of the timeline range; let finite Event/Start voices
     // started within the range finish naturally (bounded to 10 minutes).
     for v in &mut voices {
@@ -1088,9 +1173,17 @@ fn render_timeline_voices(
         })
         .max()
         .unwrap_or(timeline_end_sample);
-    let max_allowed = range_start_sample + (out_rate as usize) * 600;
+    let max_allowed = if include_event_tails {
+        range_start_sample + (out_rate as usize) * 600
+    } else {
+        timeline_end_sample
+    };
     let end_sample = timeline_end_sample
-        .max(max_event_end)
+        .max(if include_event_tails {
+            max_event_end
+        } else {
+            0
+        })
         .min(max_allowed)
         .max(range_start_sample + 1);
 
@@ -1114,8 +1207,7 @@ fn render_timeline_voices(
         }
     }
 
-    let summary = format_source_summary(&used_resources, resource_names);
-    Ok((mix, summary))
+    Ok((mix, used_resources))
 }
 
 fn resolve_clip_bounds(
@@ -1243,7 +1335,7 @@ pub fn estimate_audio_export_bytes(duration_seconds: f64, options: &AudioExportO
         0.05
     };
     match options.format {
-        AudioFormat::Wav => {
+        AudioFormat::Wav | AudioFormat::Flac => {
             let bytes_per_sec = (options.sample_rate.hz() as usize)
                 * (options.channels.count() as usize)
                 * options.bit_depth.bytes_per_sample();
@@ -1268,6 +1360,7 @@ pub fn encode_rendered_audio(
             options.channels,
             options.bit_depth,
         )),
+        AudioFormat::Flac => encode_flac(mix, options.bit_depth),
         AudioFormat::Mp3 => encode_mp3(
             &mix.frames,
             mix.sample_rate,
@@ -1418,6 +1511,44 @@ fn temp_audio_pair(ext: &str) -> (std::path::PathBuf, std::path::PathBuf) {
         dir.join(format!("neoflash-audio-{pid}-{id}.wav")),
         dir.join(format!("neoflash-audio-{pid}-{id}.{ext}")),
     )
+}
+
+fn encode_flac(mix: &RenderedAudioMix, depth: AudioBitDepth) -> Result<Vec<u8>, ExportError> {
+    if depth == AudioBitDepth::Float32 {
+        return Err(ExportError::Options(
+            "FLAC requires integer PCM. Choose a 16-bit or 24-bit depth.".into(),
+        ));
+    }
+    let ffmpeg = find_ffmpeg().ok_or_else(|| {
+        ExportError::Options(
+            "FLAC encoding requires the bundled FFmpeg helper, NEOFLASH_FFMPEG or ffmpeg on PATH."
+                .into(),
+        )
+    })?;
+    let dir = tempfile::Builder::new()
+        .prefix("neoflash-flac-")
+        .tempdir()?;
+    let wav = dir.path().join("mix.wav");
+    let flac = dir.path().join("mix.flac");
+    fs::write(
+        &wav,
+        encode_wav(&mix.frames, mix.sample_rate, mix.channels, depth),
+    )?;
+    let mut cmd = Command::new(&ffmpeg);
+    crate::configure_media_subprocess_command(&mut cmd, &ffmpeg);
+    let output = cmd
+        .args(["-nostdin", "-v", "error", "-i"])
+        .arg(wav)
+        .args(["-c:a", "flac"])
+        .arg(&flac)
+        .output()?;
+    if !output.status.success() {
+        return Err(ExportError::Options(format!(
+            "FFmpeg could not encode FLAC: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(fs::read(flac)?)
 }
 
 /// Encode stereo frames to standard CBR MPEG-1/2/2.5 Layer III (`audio/mpeg`).
@@ -2183,6 +2314,9 @@ mod tests {
         project.validate().unwrap();
 
         for format in AudioFormat::ALL {
+            if format == AudioFormat::Flac && find_ffmpeg().is_none() {
+                continue;
+            }
             let options = AudioExportOptions {
                 format,
                 sample_rate: AudioSampleRate::Hz44100,
@@ -2209,6 +2343,7 @@ mod tests {
                     let dec = decode_audio_bytes(&bytes).unwrap();
                     assert_eq!(dec.sample_rate, 44100);
                 }
+                AudioFormat::Flac => assert!(bytes.starts_with(b"fLaC")),
                 AudioFormat::Ogg => {
                     assert!(bytes.starts_with(b"OggS"));
                 }

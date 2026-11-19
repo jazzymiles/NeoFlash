@@ -563,7 +563,35 @@ fn t188_all_seven_profiles_round_trip_and_never_mutate_live_project() {
         } else {
             ScriptLanguage::ActionScript2
         };
-        let project = build_rich_authoring_project(script_lang);
+        let mut project = build_rich_authoring_project(script_lang);
+        let matrix = [6.25, -0.5, 0.75, 9., 12.5, -3.25];
+        if !profile.is_legacy_binary() {
+            let key = &mut project.symbols[1].timeline.layers[0].keyframes[0];
+            key.bitmap_fills.push(neoflash_core::AuthoredBitmapFill {
+                element_id: key.elements[0].id.clone(),
+                resource_id: "res_bmp_1".into(),
+                matrix,
+                repeat: false,
+                smoothing: true,
+            });
+        }
+        let check_bitmap = |reopened: &Project| {
+            let brush = reopened
+                .symbols
+                .iter()
+                .flat_map(|s| &s.timeline.layers)
+                .flat_map(|l| &l.keyframes)
+                .flat_map(|k| &k.bitmap_fills)
+                .find(|f| f.matrix == matrix)
+                .expect("reopened image fill with all six affine coefficients");
+            assert!(!brush.repeat && brush.smoothing);
+            let pixels = reopened
+                .resource(&brush.resource_id)
+                .unwrap()
+                .decode_image()
+                .unwrap();
+            assert_eq!(&pixels.rgba[..4], &[220, 40, 90, 255]);
+        };
         let original_snapshot = project.clone();
 
         let preflight = preflight_fla_export(&project, profile);
@@ -588,6 +616,10 @@ fn t188_all_seven_profiles_round_trip_and_never_mutate_live_project() {
             let dom_xml = std::fs::read_to_string(xfl_dir.join("DOMDocument.xml")).unwrap();
             assert!(dom_xml.contains(&format!("xflVersion=\"{}\"", profile.xfl_version())));
             assert!(dom_xml.contains(&format!("creatorInfo=\"{}\"", profile.creator_info())));
+            assert!(
+                dom_xml
+                    .contains("<BitmapFill bitmapPath=\"bitmap_1.png\" bitmapIsClipped=\"true\"")
+            );
 
             let reimported =
                 neoflash_import::import_project(&xfl_dir).expect("reimport XFL directory");
@@ -596,6 +628,7 @@ fn t188_all_seven_profiles_round_trip_and_never_mutate_live_project() {
             assert_eq!(reimported.fps, 30);
             assert_eq!(reimported.background, [24, 32, 48, 255]);
             assert_eq!(reimported.scenes.len(), 2);
+            check_bitmap(&reimported);
         } else {
             let file_name = format!("export_{:?}.fla", profile);
             let out_path = temp_root.join(file_name);
@@ -617,6 +650,9 @@ fn t188_all_seven_profiles_round_trip_and_never_mutate_live_project() {
             assert_eq!(reimported.scenes.len(), 2);
             assert!(reimported.symbols.iter().any(|s| s.name == "BadgeClip"));
             assert!(reimported.symbols.iter().any(|s| s.name == "ActionBtn"));
+            if !profile.is_legacy_binary() {
+                check_bitmap(&reimported);
+            }
         }
 
         // Verify live project was never mutated
@@ -3277,4 +3313,94 @@ fn t306_binary_fla_mixed_utf16_runs_and_bitmap_fill_full_roundtrip() {
     assert_fidelity(&cs4_reimported, true);
 
     let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn flash8_fits_the_entire_oversized_stage_including_nested_and_animated_placements() {
+    let mut project = Project::blank();
+    project.width = 2160;
+    project.height = 3840;
+    let mut graphic = project.symbols[0].clone();
+    graphic.id = "corner".into();
+    graphic.name = "Corner".into();
+    graphic.kind = SymbolKind::Graphic;
+    graphic.timeline.frame_count = 1;
+    graphic.timeline.layers[0].id = "corner-layer".into();
+    graphic.timeline.layers[0].keyframes[0].elements = vec![Element {
+        id: "corner-art".into(),
+        kind: ElementKind::Rectangle {
+            width: 160.,
+            height: 240.,
+            fill: [220, 50, 33, 255],
+            stroke: [0; 4],
+            stroke_width: 0.,
+        },
+        ..Default::default()
+    }];
+    project.symbols.push(graphic);
+    let scene = &mut project.symbols[0].timeline;
+    scene.frame_count = 2;
+    let keys = &mut scene.layers[0].keyframes;
+    keys[0].elements = vec![Element {
+        id: "mark".into(),
+        kind: ElementKind::Instance {
+            symbol_id: "corner".into(),
+            playback: InstancePlayback::Independent,
+        },
+        transform: Transform {
+            x: 2000.,
+            y: 3600.,
+            ..Default::default()
+        },
+        ..Default::default()
+    }];
+    let mut next = keys[0].clone();
+    next.frame = 1;
+    next.elements[0].transform.y = 3200.;
+    keys.push(next);
+    project.validate().unwrap();
+
+    let (bytes, report) =
+        export_legacy_binary_fla_bytes(&project, FlaTargetProfile::LegacyFlash8).unwrap();
+    assert!(
+        report
+            .items
+            .iter()
+            .any(|item| item.code == "stage_dimensions_clamped"
+                && item.message.contains("1620x2880"))
+    );
+    let imported = import_fla_bytes(&bytes).unwrap();
+    assert_eq!((imported.width, imported.height), (1620, 2880));
+    for (frame, y) in [(0, 2700.), (1, 2400.)] {
+        let scene = neoflash_core::evaluate_scene(&imported, &imported.root, frame, false, true);
+        let art = &scene.draws[0].item;
+        assert_eq!(art.transform, [0.75, 0., 0., 0.75, 1500., y]);
+    }
+    let strict = FlaExportOptions {
+        allow_approximations: false,
+        ..Default::default()
+    };
+    assert!(
+        export_fla_bytes_with_profile(&project, FlaTargetProfile::LegacyFlash8, &strict).is_err()
+    );
+    let (cs4, report) = prepare_project_for_fla_profile(
+        &project,
+        FlaTargetProfile::LegacyFlashCS4,
+        &FlaExportOptions::default(),
+    );
+    assert!(report.can_export());
+    assert_eq!((cs4.width, cs4.height), (2160, 3840));
+    assert_eq!(
+        cs4.symbols[0].timeline.layers[0].keyframes[0].elements[0].transform,
+        project.symbols[0].timeline.layers[0].keyframes[0].elements[0].transform
+    );
+    project.width = 1080;
+    project.height = 1920;
+    let (within, _) =
+        prepare_project_for_fla_profile(&project, FlaTargetProfile::LegacyFlash8, &strict);
+    assert_eq!((within.width, within.height), (1080, 1920));
+    assert_eq!(
+        within.symbols[0].timeline.layers[0].keyframes[0].elements[0].transform,
+        project.symbols[0].timeline.layers[0].keyframes[0].elements[0].transform
+    );
 }

@@ -424,10 +424,10 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
         inst_node: &FigmaNode,
         location: &str,
     ) -> Option<BuiltSymbolInfo> {
-        if inst_node.symbol_overrides.is_empty() {
+        if inst_node.symbol_overrides.is_empty() && inst_node.instance_text_layouts.is_empty() {
             return self.ensure_component_symbol(comp_id);
         }
-        let sig = hash_instance_overrides(comp_id, &inst_node.symbol_overrides);
+        let sig = hash_instance_overrides(comp_id, inst_node);
         if let Some(cached) = self.variant_cache.get(&sig) {
             return Some(cached.clone());
         }
@@ -449,7 +449,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
 
         let master = (*self.master_nodes.get(comp_id)?).clone();
         let mut specialized = master;
-        let mut any_applied = false;
+        let mut any_applied = apply_instance_text_layouts(&mut specialized, inst_node);
         for ov in &inst_node.symbol_overrides {
             if apply_override_at_path(&mut specialized, &ov.guid_path, ov) {
                 any_applied = true;
@@ -788,10 +788,11 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
 
             let safe_font = sanitize_font_family(&td.font_family);
             let font_size = td.font_size.clamp(1.0, 1024.0);
+            // NeoFlash measures line advances as 1.2 em plus leading; Figma stores the entire advance.
             let min_leading = -(font_size * 0.9);
             let leading = td
                 .line_height
-                .map(|lh| (lh - font_size).clamp(min_leading, 500.0))
+                .map(|lh| (lh - font_size * 1.2).clamp(min_leading, 500.0))
                 .unwrap_or(2.0);
 
             let base_fmt = TextFormat {
@@ -812,8 +813,15 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             if td.justify {
                 final_fmt.set_align_mode(Some("justify".into()));
             }
-            if !td.style_runs.is_empty() || td.strikethrough || td.align_v != "top" {
+            let auto_size = matches!(td.auto_resize.as_str(), "HEIGHT" | "WIDTH_AND_HEIGHT");
+            {
+                // Figma text starts at its frame's edges; the default Flash field has a 2px gutter.
                 let mut opts = AuthoredTextFieldOptions {
+                    padding_left: 0.0,
+                    padding_right: 0.0,
+                    padding_top: 0.0,
+                    padding_bottom: 0.0,
+                    auto_size: if auto_size { "left" } else { "none" }.to_owned(),
                     vertical_align: td.align_v.clone(),
                     strikethrough: td.strikethrough,
                     ..AuthoredTextFieldOptions::default()
@@ -862,7 +870,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                         }
                         if let Some(lh) = sr.style.line_height {
                             let min_l = -(rf.size * 0.9);
-                            rf.leading = (lh - rf.size).clamp(min_l, 500.0);
+                            rf.leading = (lh - rf.size * 1.2).clamp(min_l, 500.0);
                         }
                         runs.push(TextFormatRun {
                             start: s,
@@ -880,9 +888,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                     }
                     opts.format_runs = runs;
                 }
-                if !opts.is_default() {
-                    final_fmt.set_field_options(Some(opts));
-                }
+                final_fmt.set_field_options(Some(opts));
             }
 
             let word_wrap = td.auto_resize != "WIDTH_AND_HEIGHT";
@@ -2954,13 +2960,25 @@ fn build_independent_border_elements(
     out
 }
 
-fn hash_instance_overrides(comp_id: &str, overrides: &[FigmaSymbolOverride]) -> u64 {
+fn hash_instance_overrides(comp_id: &str, instance: &FigmaNode) -> u64 {
+    let overrides = &instance.symbol_overrides;
     let mut h = std::collections::hash_map::DefaultHasher::new();
     comp_id.hash(&mut h);
+    if !instance.instance_text_layouts.is_empty() {
+        instance.width.to_bits().hash(&mut h);
+        instance.height.to_bits().hash(&mut h);
+        for layout in &instance.instance_text_layouts {
+            layout.id.hash(&mut h);
+            layout.size.map(|s| s.map(f64::to_bits)).hash(&mut h);
+            layout.transform.map(|s| s.map(f64::to_bits)).hash(&mut h);
+        }
+    }
     overrides.len().hash(&mut h);
     for ov in overrides {
         ov.guid_path.hash(&mut h);
         ov.visible.hash(&mut h);
+        ov.text_auto_resize.hash(&mut h);
+        ov.font_size.map(f64::to_bits).hash(&mut h);
         if let Some(op) = ov.opacity {
             ((op * 1000.0).round() as i32).hash(&mut h);
         } else {
@@ -3016,6 +3034,60 @@ fn guid_matches_target(node_id: &str, target_guid: &str) -> bool {
     false
 }
 
+/// Derived text geometry is in the resized instance's coordinate system. The instance
+/// itself still scales its shared master, so undo that scale on each matched text child.
+fn apply_instance_text_layouts(master: &mut FigmaNode, instance: &FigmaNode) -> bool {
+    if instance.instance_text_layouts.is_empty() {
+        return false;
+    }
+    let scale = if master.width > 1e-3
+        && master.height > 1e-3
+        && instance.width > 1e-3
+        && instance.height > 1e-3
+        && ((instance.width - master.width).abs() > 0.25
+            || (instance.height - master.height).abs() > 0.25)
+    {
+        [
+            master.width / instance.width,
+            master.height / instance.height,
+        ]
+    } else {
+        [1.0, 1.0]
+    };
+    let mut changed = false;
+    for layout in &instance.instance_text_layouts {
+        let Some(child) = master
+            .children
+            .iter_mut()
+            .find(|child| child.text.is_some() && guid_matches_target(&child.id, &layout.id))
+        else {
+            continue;
+        };
+        let [w, h] = layout.size.unwrap_or([child.width, child.height]);
+        let source = child
+            .relative_transform
+            .unwrap_or([1., 0., 0., 1., child.x, child.y]);
+        let [a, b, c, d, x, y] = layout.transform.unwrap_or(source);
+        let m = [
+            a * scale[0],
+            b * scale[1],
+            c * scale[0],
+            d * scale[1],
+            x * scale[0],
+            y * scale[1],
+        ];
+        if w != child.width || h != child.height || m != source {
+            child.width = w;
+            child.height = h;
+            child.x = m[4];
+            child.y = m[5];
+            child.relative_transform = Some(m);
+            changed = true;
+        }
+    }
+    changed
+}
+
 fn apply_override_at_path(node: &mut FigmaNode, path: &[String], ov: &FigmaSymbolOverride) -> bool {
     if path.is_empty() {
         return false;
@@ -3024,6 +3096,14 @@ fn apply_override_at_path(node: &mut FigmaNode, path: &[String], ov: &FigmaSymbo
     for child in &mut node.children {
         if guid_matches_target(&child.id, &path[0]) {
             if path.len() == 1 {
+                if let Some(txt) = &mut child.text {
+                    if let Some(mode) = &ov.text_auto_resize {
+                        txt.auto_resize.clone_from(mode);
+                    }
+                    if let Some(size) = ov.font_size {
+                        txt.font_size = size;
+                    }
+                }
                 if let Some(vis) = ov.visible {
                     child.visible = vis;
                 }

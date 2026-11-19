@@ -717,11 +717,17 @@ impl Parser<'_> {
                     &["matrix"],
                 );
                 let clipped = self.boolean(paint_node, "bitmapIsClipped", false, file);
-                let fill_matrix = self.parse_bitmap_fill_matrix(paint_node, file);
+                let mut fill_matrix = self.parse_bitmap_fill_matrix(paint_node, file);
                 let resolved_asset = paint_node
                     .attribute("bitmapPath")
                     .and_then(|bmp_path| self.bitmaps.get(bmp_path))
-                    .map(|asset| (asset.resource_id.clone(), asset.smoothing));
+                    .map(|asset| {
+                        fill_matrix[0] *= asset.source_scale[0];
+                        fill_matrix[1] *= asset.source_scale[0];
+                        fill_matrix[2] *= asset.source_scale[1];
+                        fill_matrix[3] *= asset.source_scale[1];
+                        (asset.resource_id.clone(), asset.smoothing)
+                    });
                 let sampled_color = resolved_asset
                     .as_ref()
                     .and_then(|(res_id, _)| {

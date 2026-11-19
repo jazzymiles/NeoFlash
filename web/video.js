@@ -218,7 +218,11 @@
     function canvas(w,h){const surface=options.createCanvas?options.createCanvas(w,h):typeof global.OffscreenCanvas==='function'?new global.OffscreenCanvas(w,h):global.document?.createElement('canvas');if(!surface)throw new Error('Video painting requires Canvas 2D.');surface.width=w;surface.height=h;return surface;}
     function collectFrames(){const keep=new Set();for(const r of streamRecords){if(r.frozen)keep.add(r.frozen);if(r.suppressedFrame)keep.add(r.suppressedFrame);if(r.appendFrame?.canvas)keep.add(r.appendFrame);}for(const b of bindings.values())if(b.frozen)keep.add(b.frozen);for(const f of derived.values())keep.add(f);for(const f of frames)if(!keep.has(f)){framePixels-=f.width*f.height;f.canvas.width=f.canvas.height=0;frames.delete(f);}}
     function frame(w,h){collectFrames();if(frames.size>=32||framePixels+w*h>MAX_PIXELS)throw new RangeError('Retained video frames exceed 16 Mi pixels / 32 surfaces; clear detached video images or restart.');const result={canvas:canvas(w,h),width:w,height:h,id:++serial};frames.add(result);framePixels+=w*h;return result;}
-    function dimensions(media){const w=media.videoWidth,h=media.videoHeight;if(w===0&&h===0)return[0,0];if(!Number.isInteger(w)||!Number.isInteger(h)||w<1||h<1||w>1920||h>1080)throw new RangeError('Video decoder dimensions must be within 1920×1080.');return[w,h];}
+    function fitsDecoderBounds(w,h){
+      return Number.isInteger(w)&&Number.isInteger(h)&&w>0&&h>0&&Math.max(w,h)<=1920&&Math.min(w,h)<=1080;
+    }
+    const decoderBoundsError='Video decoder dimensions must fit 1920×1080 landscape or 1080×1920 portrait.';
+    function dimensions(media){const w=media.videoWidth,h=media.videoHeight;if(w===0&&h===0)return[0,0];if(!fitsDecoderBounds(w,h))throw new RangeError(decoderBoundsError);return[w,h];}
     function freeze(r){
       if(r.receiveState?.video===false)return r.suppressedFrame||null;
       if(!r.media&&r.appendFrame)return r.appendFrame;
@@ -565,9 +569,9 @@
       let info;
       if(typeof player.avi_open_stream==='function'){
         info=JSON.parse(native('avi_open_stream',bytes));
-        if(info.width<1||info.height<1||info.width>1920||info.height>1080){
+        if(!fitsDecoderBounds(info.width,info.height)){
           try{player.avi_close_stream?.(info.handle);}catch(_){}
-          throw new RangeError('Video decoder dimensions must be within 1920×1080.');
+          throw new RangeError(decoderBoundsError);
         }
         r.aviHandle=info.handle;r.aviBytes=null;
         if(info.has_audio&&typeof player.avi_stream_audio_wav==='function'&&typeof global.document?.createElement==='function'&&typeof global.URL?.createObjectURL==='function'){
@@ -586,7 +590,7 @@
         }
       }else if(typeof player.avi_inspect_json==='function'){
         info=JSON.parse(native('avi_inspect_json',bytes));
-        if(info.width<1||info.height<1||info.width>1920||info.height>1080)throw new RangeError('Video decoder dimensions must be within 1920×1080.');
+        if(!fitsDecoderBounds(info.width,info.height))throw new RangeError(decoderBoundsError);
         r.aviBytes=bytes;r.aviHandle=0;
       }else{
         throw new TypeError('AVI runtime decoding requires the NeoFlash WASM video module.');

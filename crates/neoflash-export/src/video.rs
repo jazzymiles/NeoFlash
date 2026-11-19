@@ -13,19 +13,21 @@ use neoflash_core::{
     AuthoredBitmapFill, AuthoredDraw, AuthoredPlayback, AuthoredScene, Color, ColorTransform,
     DecodedImage, DrawItem, ElementKind, FillRule, GradientKind, GradientPaint, InstancePlayback,
     LayerRole, MaskCoverage, PathCommand, Project, ResolvedVideoPlacement, SoundCommand,
-    SymbolKind, TextAlign, TextFormat, TimelineVideoTracker, VideoSyncMode, evaluate_scene,
-    flatten_scenes_with_ranges, inspect_video_resource, layer_effectively_visible,
-    oval_path_commands, rectangle_path_commands, resolve_scene_video_placements, scene_ranges,
+    SymbolKind, TimelineVideoTracker, VideoSyncMode, evaluate_scene, flatten_scenes_with_ranges,
+    inspect_video_resource, layer_effectively_visible, oval_path_commands, rectangle_path_commands,
+    resolve_scene_video_placements, scene_ranges,
     timeline_video::{
         VideoDeploymentMode, VideoSourceSpec, resolve_video_resource_source, resolve_video_source,
         validate_external_video_path,
     },
 };
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use std::io::Cursor;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     env, fs,
-    io::{BufRead, BufReader, BufWriter, Cursor, Read, Write},
+    io::{BufRead, BufReader, BufWriter, Read, Write},
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -34,10 +36,6 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
-};
-use symphonia::core::{
-    audio::SampleBuffer, codecs::DecoderOptions, errors::Error as SymphoniaError,
-    formats::FormatOptions, io::MediaSourceStream, meta::MetadataOptions, probe::Hint,
 };
 use tiny_skia::{
     Color as SkiaColor, FillRule as SkiaFillRule, FilterQuality, GradientStop as SkiaGradientStop,
@@ -1237,6 +1235,19 @@ impl DecodedVideoStream {
         &self,
         placement: &ResolvedVideoPlacement,
     ) -> Option<(usize, DecodedVideoFrame)> {
+        let index = self.frame_index_at_placement(placement)?;
+        if let Some(decoder) = &self.on_demand {
+            decoder.frame_at_index(index)
+        } else {
+            self.frames.get(index).cloned().map(|frame| (index, frame))
+        }
+    }
+
+    /// Resolve the presentation sample without loading its pixels.
+    pub(crate) fn frame_index_at_placement(
+        &self,
+        placement: &ResolvedVideoPlacement,
+    ) -> Option<usize> {
         let has_any_frames = !self.frames.is_empty()
             || self
                 .on_demand
@@ -1262,21 +1273,13 @@ impl DecodedVideoStream {
             target_ms = target_ms.min(end_ms.saturating_sub(1));
         }
         if let Some(decoder) = &self.on_demand {
-            let chosen_idx = decoder.choose_index_for_target_ms(target_ms)?;
-            return decoder.frame_at_index(chosen_idx);
+            return decoder.choose_index_for_target_ms(target_ms);
         }
-        let mut chosen_idx = 0usize;
-        for (idx, frame) in self.frames.iter().enumerate() {
-            if frame.timestamp_ms <= target_ms {
-                chosen_idx = idx;
-            } else {
-                break;
-            }
-        }
-        self.frames
-            .get(chosen_idx)
-            .cloned()
-            .map(|f| (chosen_idx, f))
+        Some(
+            self.frames
+                .partition_point(|frame| frame.timestamp_ms <= target_ms)
+                .saturating_sub(1),
+        )
     }
 }
 
@@ -1402,7 +1405,7 @@ fn should_use_eager_video_frames(frame_bytes: usize, frame_count: usize) -> bool
             .is_some_and(|total| total <= MAX_EAGER_VIDEO_STREAM_BYTES)
 }
 
-fn has_nfvf_box_header(bytes: &[u8]) -> bool {
+pub(crate) fn has_nfvf_box_header(bytes: &[u8]) -> bool {
     let mut offsets = vec![0usize];
     if bytes.starts_with(LEGACY_STUB_MP4_HEADER) && bytes.len() > 32 {
         offsets.push(32);
@@ -3983,6 +3986,44 @@ impl BitmapBrushCache {
     }
 }
 
+/// Bake just the tiled or edge-extended brush rectangle for interchange footage.
+pub(crate) fn render_local_brush(
+    project: &Project,
+    fill: &AuthoredBitmapFill,
+    bounds: neoflash_core::PathBounds,
+) -> Result<(Vec<u8>, u32, u32), ExportError> {
+    let error =
+        || ExportError::Options(format!("Cannot render bitmap fill '{}'", fill.resource_id));
+    let limit = f64::from(neoflash_core::MAX_BITMAP_DIMENSION);
+    let scale = (limit / bounds.width().max(bounds.height())).min(1.);
+    let width = (bounds.width() * scale).ceil().max(1.) as u32;
+    let height = (bounds.height() * scale).ceil().max(1.) as u32;
+    let mut pixmap = Pixmap::new(width, height).ok_or_else(error)?;
+    let mut cache = BitmapBrushCache::default();
+    let mut images = HashMap::new();
+    let paint = cache
+        .paint(project, &mut images, fill, ColorTransform::default())
+        .ok_or_else(error)?;
+    let sx = f64::from(width) / bounds.width();
+    let sy = f64::from(height) / bounds.height();
+    let transform = affine_to_skia([sx, 0., 0., sy, -bounds.x_min * sx, -bounds.y_min * sy]);
+    let rect = tiny_skia::Rect::from_xywh(
+        bounds.x_min as f32,
+        bounds.y_min as f32,
+        bounds.width() as f32,
+        bounds.height() as f32,
+    )
+    .ok_or_else(error)?;
+    pixmap.fill_rect(rect, &paint, transform, None);
+    Ok((
+        pixmap
+            .encode_png()
+            .map_err(|e| ExportError::Options(e.to_string()))?,
+        width,
+        height,
+    ))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw_authored_item(
     pixmap: &mut Pixmap,
@@ -4124,24 +4165,18 @@ fn draw_authored_item(
             draw_plain_text(
                 pixmap,
                 text,
-                font_family,
+                select_font(font_family, false),
                 *font_size as f32,
-                false,
+                0.,
                 c,
-                TextAlign::Left,
-                None,
                 xf,
                 mask,
             );
         }
-        ElementKind::TextBox {
-            text,
-            width,
-            height,
-            format,
-            ..
-        } => {
-            draw_text_box(pixmap, text, *width, *height, format, ct, alpha, xf, mask);
+        ElementKind::TextBox { .. } => {
+            if let Some(field) = neoflash_core::TextFieldState::from_kind(&item.kind) {
+                draw_text_box(pixmap, project, &field, ct, alpha, xf, mask);
+            }
         }
         ElementKind::Video { width, height } => {
             if *width <= 0.0 || *height <= 0.0 {
@@ -4271,63 +4306,81 @@ fn bitmap_pixmap(img: &DecodedImage, ct: ColorTransform, alpha: f64) -> Option<P
     Some(src_pixmap)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn draw_text_box(
     pixmap: &mut Pixmap,
-    text: &str,
-    width: f64,
-    height: f64,
-    format: &TextFormat,
+    project: &Project,
+    field: &neoflash_core::TextFieldState,
     ct: ColorTransform,
     alpha: f64,
     xf: SkiaTransform,
     mask: Option<&SkiaMask>,
 ) {
-    let raw_color = [
-        ((format.color >> 16) & 0xFF) as u8,
-        ((format.color >> 8) & 0xFF) as u8,
-        (format.color & 0xFF) as u8,
-        255,
-    ];
-    let c = apply_color(raw_color, ct, alpha);
-    draw_plain_text(
-        pixmap,
-        text,
-        &format.font,
-        format.size.max(4.0) as f32,
-        format.bold,
-        c,
-        format.align,
-        Some((width.max(1.0) as f32, height.max(1.0) as f32)),
-        xf,
-        mask,
-    );
+    let Some(box_size) = field.box_size else {
+        return;
+    };
+    let fmt = &field.format;
+    let embedded =
+        crate::fonts::resolve_project_font_bytes(project, &fmt.font, fmt.bold, fmt.italic);
+    let fallback = crate::fonts::fallback_font(&fmt.font, fmt.bold);
+    let bytes = embedded.as_deref().unwrap_or(fallback);
+    let Ok(runs) = crate::fonts::positioned_text_runs(field, bytes)
+        .or_else(|_| crate::fonts::positioned_text_runs(field, fallback))
+    else {
+        return;
+    };
+    let Some(mut local) = Pixmap::new(
+        (box_size.width.ceil() as u32).clamp(1, 4096),
+        (box_size.height.ceil() as u32).clamp(1, 4096),
+    ) else {
+        return;
+    };
+    let sfnt = neoflash_core::sfnt_view_bytes(bytes);
+    let font = FontRef::try_from_slice(sfnt.as_deref().unwrap_or(bytes)).ok();
+    for run in runs {
+        let fmt = run.format.as_ref().unwrap_or(&field.format);
+        let rgb = fmt.color.to_be_bytes();
+        let color = apply_color([rgb[1], rgb[2], rgb[3], 255], ct, alpha);
+        draw_plain_text(
+            &mut local,
+            &run.text,
+            if fmt.font == field.format.font && fmt.bold == field.format.bold {
+                font.as_ref()
+                    .unwrap_or_else(|| select_font(&fmt.font, fmt.bold))
+            } else {
+                select_font(&fmt.font, fmt.bold)
+            },
+            fmt.size.max(4.0) as f32,
+            fmt.letter_spacing as f32,
+            color,
+            SkiaTransform::from_translate(run.x as f32, run.y as f32),
+            None,
+        );
+    }
+    pixmap.draw_pixmap(0, 0, local.as_ref(), &PixmapPaint::default(), xf, mask);
 }
 
 #[allow(clippy::too_many_arguments)]
 fn draw_plain_text(
     pixmap: &mut Pixmap,
     text: &str,
-    family: &str,
+    font: &FontRef<'_>,
     size_px: f32,
-    bold: bool,
+    letter_spacing: f32,
     color: Color,
-    align: TextAlign,
-    box_bounds: Option<(f32, f32)>,
     xf: SkiaTransform,
     mask: Option<&SkiaMask>,
 ) {
     if text.is_empty() || color[3] == 0 || size_px <= 0.5 {
         return;
     }
-    let font = select_font(family, bold);
-    let scale = PxScale::from(size_px.clamp(2.0, 512.0));
+    let scale = PxScale::from(
+        size_px.clamp(2.0, 512.0) * font.height_unscaled() / font.units_per_em().unwrap_or(1000.),
+    );
     let scaled = font.as_scaled(scale);
 
     // Measure lines for local bitmap buffer.
     let lines: Vec<&str> = text.split('\n').collect();
     let line_height = (scaled.ascent() - scaled.descent() + scaled.line_gap()).max(size_px);
-    let mut line_widths = Vec::with_capacity(lines.len());
     let mut max_w = 0.0_f32;
     for line in &lines {
         let mut w = 0.0_f32;
@@ -4337,24 +4390,14 @@ fn draw_plain_text(
             if let Some(p) = prev {
                 w += scaled.kern(p, gid);
             }
-            w += scaled.h_advance(gid);
+            w += scaled.h_advance(gid) + letter_spacing;
             prev = Some(gid);
         }
-        line_widths.push(w);
         max_w = max_w.max(w);
     }
 
-    let (buf_w, buf_h) = if let Some((bw, bh)) = box_bounds {
-        (
-            (bw.ceil() as u32).clamp(4, 4096),
-            (bh.ceil() as u32).clamp(4, 4096),
-        )
-    } else {
-        (
-            ((max_w.ceil() as u32) + 8).clamp(4, 4096),
-            (((lines.len() as f32 * line_height).ceil() as u32) + 8).clamp(4, 4096),
-        )
-    };
+    let buf_w = ((max_w.ceil() as u32) + 8).clamp(4, 4096);
+    let buf_h = (((lines.len() as f32 * line_height).ceil() as u32) + 8).clamp(4, 4096);
 
     let Some(mut text_pixmap) = Pixmap::new(buf_w, buf_h) else {
         return;
@@ -4364,16 +4407,12 @@ fn draw_plain_text(
     let data = text_pixmap.data_mut();
     let base_alpha = f32::from(color[3]) / 255.0;
 
-    for (line_idx, (line, &lw)) in lines.iter().zip(line_widths.iter()).enumerate() {
+    for (line_idx, line) in lines.iter().enumerate() {
         let baseline_y = scaled.ascent() + line_idx as f32 * line_height;
         if baseline_y - scaled.ascent() > buf_h as f32 {
             break;
         }
-        let mut pen_x = match align {
-            TextAlign::Left => 0.0,
-            TextAlign::Center => ((buf_w as f32 - lw) * 0.5).max(0.0),
-            TextAlign::Right => (buf_w as f32 - lw).max(0.0),
-        };
+        let mut pen_x = 0.;
         let mut prev = None;
         for ch in line.chars() {
             let gid = scaled.glyph_id(ch);
@@ -4381,7 +4420,7 @@ fn draw_plain_text(
                 pen_x += scaled.kern(p, gid);
             }
             let glyph = gid.with_scale_and_position(scale, ab_glyph::point(pen_x, baseline_y));
-            pen_x += scaled.h_advance(gid);
+            pen_x += scaled.h_advance(gid) + letter_spacing;
             prev = Some(gid);
             if let Some(outlined) = font.outline_glyph(glyph) {
                 let bounds = outlined.px_bounds();
@@ -4414,313 +4453,6 @@ fn draw_plain_text(
         quality: FilterQuality::Bilinear,
     };
     pixmap.draw_pixmap(0, 0, text_pixmap.as_ref(), &paint, xf, mask);
-}
-
-#[derive(Clone)]
-struct DecodedAudioResource {
-    sample_rate: u32,
-    /// Interleaved stereo (`[left, right]`) samples at `sample_rate`.
-    stereo: Vec<[f32; 2]>,
-}
-
-const MIX_SAMPLE_RATE: u32 = 44_100;
-
-fn decode_audio_resource(bytes: &[u8], media_type: &str) -> Option<DecodedAudioResource> {
-    let cursor = Cursor::new(bytes.to_vec());
-    let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
-    let mut hint = Hint::new();
-    if media_type.contains("mpeg") || media_type.contains("mp3") {
-        hint.with_extension("mp3");
-    } else if media_type.contains("wav") {
-        hint.with_extension("wav");
-    }
-    let probed = symphonia::default::get_probe()
-        .format(
-            &hint,
-            mss,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
-        )
-        .ok()?;
-    let mut format = probed.format;
-    let track = format.default_track()?;
-    let track_id = track.id;
-    let sample_rate = track.codec_params.sample_rate.unwrap_or(MIX_SAMPLE_RATE);
-    let mut decoder = symphonia::default::get_codecs()
-        .make(&track.codec_params, &DecoderOptions::default())
-        .ok()?;
-
-    let mut raw_stereo: Vec<[f32; 2]> = Vec::new();
-    loop {
-        let packet = match format.next_packet() {
-            Ok(p) => p,
-            Err(SymphoniaError::IoError(_)) | Err(SymphoniaError::ResetRequired) => break,
-            Err(_) => break,
-        };
-        if packet.track_id() != track_id {
-            continue;
-        }
-        let Ok(decoded) = decoder.decode(&packet) else {
-            continue;
-        };
-        let spec = *decoded.spec();
-        let channels = spec.channels.count().max(1);
-        let mut buf = SampleBuffer::<f32>::new(decoded.capacity() as u64, spec);
-        buf.copy_interleaved_ref(decoded);
-        let samples = buf.samples();
-        for frame in samples.chunks(channels) {
-            let l = frame[0];
-            let r = if channels > 1 { frame[1] } else { l };
-            raw_stereo.push([l, r]);
-        }
-    }
-    if raw_stereo.is_empty() {
-        return None;
-    }
-    if sample_rate == MIX_SAMPLE_RATE {
-        return Some(DecodedAudioResource {
-            sample_rate: MIX_SAMPLE_RATE,
-            stereo: raw_stereo,
-        });
-    }
-    // Linear resample to MIX_SAMPLE_RATE (44.1 kHz).
-    let ratio = f64::from(sample_rate) / f64::from(MIX_SAMPLE_RATE);
-    let out_len = ((raw_stereo.len() as f64) / ratio).round() as usize;
-    let mut resampled = Vec::with_capacity(out_len);
-    for i in 0..out_len {
-        let src_pos = (i as f64) * ratio;
-        let idx = (src_pos.floor() as usize).min(raw_stereo.len() - 1);
-        let next = (idx + 1).min(raw_stereo.len() - 1);
-        let frac = (src_pos - idx as f64) as f32;
-        let a = raw_stereo[idx];
-        let b = raw_stereo[next];
-        resampled.push([a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac]);
-    }
-    Some(DecodedAudioResource {
-        sample_rate: MIX_SAMPLE_RATE,
-        stereo: resampled,
-    })
-}
-
-struct ActiveAudioVoice {
-    resource_id: String,
-    stream_layer_id: Option<String>,
-    start_sample: usize,
-    slice_start: usize,
-    slice_len: usize,
-    total_play_samples: usize,
-    envelope: Vec<[f64; 3]>,
-}
-
-/// Mix timeline `SoundCommand` events across `frame_events` into a 44.1 kHz 16-bit stereo WAV byte buffer.
-/// Returns `None` if no audible timeline audio was triggered.
-fn mix_timeline_audio_wav(
-    project: &Project,
-    frame_events: &[(u32, Vec<SoundCommand>)],
-    frame_count: u32,
-    fps: f32,
-) -> Option<Vec<u8>> {
-    let total_samples =
-        ((f64::from(frame_count) / f64::from(fps)) * f64::from(MIX_SAMPLE_RATE)).round() as usize;
-    if total_samples == 0 {
-        return None;
-    }
-
-    let mut decoded_cache: HashMap<String, Option<DecodedAudioResource>> = HashMap::new();
-    let mut voices: Vec<ActiveAudioVoice> = Vec::new();
-
-    for (frame_offset, commands) in frame_events {
-        let current_sample = ((f64::from(*frame_offset) / f64::from(fps))
-            * f64::from(MIX_SAMPLE_RATE))
-        .round() as usize;
-        for cmd in commands {
-            match cmd {
-                SoundCommand::StopAll => {
-                    voices.clear();
-                }
-                SoundCommand::Stop { resource } => {
-                    voices.retain(|v| &v.resource_id != resource);
-                }
-                SoundCommand::StreamStop { channel } => {
-                    voices.retain(|v| v.stream_layer_id.as_ref() != Some(channel));
-                }
-                SoundCommand::Play {
-                    resource,
-                    sync,
-                    loops,
-                    loop_forever,
-                    envelope,
-                    in_point,
-                    out_point,
-                } => {
-                    if *sync == neoflash_core::SoundSync::Start
-                        && voices.iter().any(|v| {
-                            &v.resource_id == resource
-                                && current_sample
-                                    < v.start_sample.saturating_add(v.total_play_samples)
-                        })
-                    {
-                        continue;
-                    }
-                    let audio = decoded_cache
-                        .entry(resource.clone())
-                        .or_insert_with(|| {
-                            project
-                                .resources
-                                .iter()
-                                .find(|r| &r.id == resource)
-                                .and_then(|r| {
-                                    let bytes = r.decoded_bytes().ok()?;
-                                    decode_audio_resource(&bytes, &r.media_type)
-                                })
-                        })
-                        .as_ref();
-                    let Some(audio) = audio else {
-                        continue;
-                    };
-                    let sr = f64::from(audio.sample_rate);
-                    let in_s = in_point.unwrap_or(0.0).max(0.0);
-                    let slice_start = ((in_s * sr).round() as usize).min(audio.stereo.len());
-                    let slice_end = out_point
-                        .map(|out_s| {
-                            ((out_s.max(in_s) * sr).round() as usize).min(audio.stereo.len())
-                        })
-                        .unwrap_or(audio.stereo.len());
-                    let slice_len = slice_end.saturating_sub(slice_start);
-                    if slice_len == 0 {
-                        continue;
-                    }
-                    let total_play_samples = if *loop_forever {
-                        total_samples.saturating_sub(current_sample)
-                    } else {
-                        slice_len.saturating_mul((*loops).max(1) as usize)
-                    };
-                    voices.push(ActiveAudioVoice {
-                        resource_id: resource.clone(),
-                        stream_layer_id: None,
-                        start_sample: current_sample,
-                        slice_start,
-                        slice_len,
-                        total_play_samples,
-                        envelope: envelope.clone(),
-                    });
-                }
-                SoundCommand::StreamStart {
-                    channel,
-                    resource,
-                    offset,
-                    loops,
-                    loop_forever,
-                    envelope,
-                    in_point,
-                    out_point,
-                } => {
-                    voices.retain(|v| v.stream_layer_id.as_ref() != Some(channel));
-                    let audio = decoded_cache
-                        .entry(resource.clone())
-                        .or_insert_with(|| {
-                            project
-                                .resources
-                                .iter()
-                                .find(|r| &r.id == resource)
-                                .and_then(|r| {
-                                    let bytes = r.decoded_bytes().ok()?;
-                                    decode_audio_resource(&bytes, &r.media_type)
-                                })
-                        })
-                        .as_ref();
-                    let Some(audio) = audio else {
-                        continue;
-                    };
-                    let sr = f64::from(audio.sample_rate);
-                    let in_s = in_point.unwrap_or(0.0).max(0.0) + offset.max(0.0);
-                    let slice_start = ((in_s * sr).round() as usize).min(audio.stereo.len());
-                    let slice_end = out_point
-                        .map(|out_s| {
-                            ((out_s.max(in_s) * sr).round() as usize).min(audio.stereo.len())
-                        })
-                        .unwrap_or(audio.stereo.len());
-                    let slice_len = slice_end.saturating_sub(slice_start);
-                    if slice_len == 0 {
-                        continue;
-                    }
-                    let total_play_samples = if *loop_forever {
-                        total_samples.saturating_sub(current_sample)
-                    } else {
-                        slice_len.saturating_mul((*loops).max(1) as usize)
-                    };
-                    voices.push(ActiveAudioVoice {
-                        resource_id: resource.clone(),
-                        stream_layer_id: Some(channel.clone()),
-                        start_sample: current_sample,
-                        slice_start,
-                        slice_len,
-                        total_play_samples,
-                        envelope: envelope.clone(),
-                    });
-                }
-            }
-        }
-    }
-
-    if voices.is_empty() {
-        return None;
-    }
-
-    let mut mix = vec![[0.0_f32; 2]; total_samples];
-    for voice in &voices {
-        let Some(Some(audio)) = decoded_cache.get(&voice.resource_id) else {
-            continue;
-        };
-        let end_sample = voice
-            .start_sample
-            .saturating_add(voice.total_play_samples)
-            .min(total_samples);
-        let denom = (voice.total_play_samples.max(1)) as f64;
-        for (s_idx, out_frame) in mix
-            .iter_mut()
-            .enumerate()
-            .take(end_sample)
-            .skip(voice.start_sample)
-        {
-            let elapsed = s_idx - voice.start_sample;
-            let src_idx = voice.slice_start + (elapsed % voice.slice_len);
-            let sample = audio.stereo[src_idx];
-            let pos = (elapsed as f64 / denom).clamp(0.0, 1.0);
-            let (gl, gr) = neoflash_core::envelope_gains(&voice.envelope, pos);
-            out_frame[0] += sample[0] * (gl as f32);
-            out_frame[1] += sample[1] * (gr as f32);
-        }
-    }
-
-    Some(encode_wav_pcm16(&mix, MIX_SAMPLE_RATE))
-}
-
-fn encode_wav_pcm16(stereo: &[[f32; 2]], sample_rate: u32) -> Vec<u8> {
-    let data_bytes = (stereo.len() * 4) as u32;
-    let riff_size = 36u32.saturating_add(data_bytes);
-    let mut out = Vec::with_capacity((riff_size + 8) as usize);
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&riff_size.to_le_bytes());
-    out.extend_from_slice(b"WAVE");
-    out.extend_from_slice(b"fmt ");
-    out.extend_from_slice(&16u32.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
-    out.extend_from_slice(&2u16.to_le_bytes()); // 2 channels
-    out.extend_from_slice(&sample_rate.to_le_bytes());
-    let byte_rate = sample_rate * 4;
-    out.extend_from_slice(&byte_rate.to_le_bytes());
-    out.extend_from_slice(&4u16.to_le_bytes()); // block align
-    out.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&data_bytes.to_le_bytes());
-    for &[l, r] in stereo {
-        let li = (l.clamp(-1.0, 1.0) * 32767.0).round() as i16;
-        let ri = (r.clamp(-1.0, 1.0) * 32767.0).round() as i16;
-        out.extend_from_slice(&li.to_le_bytes());
-        out.extend_from_slice(&ri.to_le_bytes());
-    }
-    out
 }
 
 /// Export a project (or symbol) to MP4, WebM, MOV, GIF, or PNG sequence.
@@ -4789,6 +4521,7 @@ where
     let mut bitmap_cache = HashMap::new();
     let mut rendered_frames: Vec<Vec<u8>> = Vec::with_capacity(prepared.frame_count as usize);
     let mut sound_events: Vec<(u32, Vec<SoundCommand>)> = Vec::new();
+    let mut video_audio = crate::video_audio::VideoSoundChannels::default();
     let mut warnings: Vec<String> = playback.drain_diagnostics();
 
     for idx in 0..prepared.frame_count {
@@ -4819,7 +4552,10 @@ where
             video_tracker.step_with_commands(playback.drain_video_commands(), dt_ms);
         }
         warnings.extend(playback.drain_diagnostics());
-        let cmds = playback.drain_sound_commands();
+        let mut cmds = playback.drain_sound_commands();
+        if options.include_audio {
+            cmds.extend(video_audio.sync(video_tracker.channels.values(), f64::from(fps)));
+        }
         if !cmds.is_empty() {
             sound_events.push((idx, cmds));
         }
@@ -4902,16 +4638,31 @@ where
         fs::create_dir_all(parent)?;
     }
 
-    let wav_audio = if options.include_audio && options.format.supports_audio() {
-        mix_timeline_audio_wav(
-            &prepared.eval_project,
-            &sound_events,
-            prepared.frame_count,
-            fps,
-        )
-    } else {
-        None
-    };
+    if let Some(warning) = video_audio.external_audio_warning() {
+        warnings.push(warning.to_owned());
+    }
+    let wav_audio =
+        if options.include_audio && options.format.supports_audio() && !sound_events.is_empty() {
+            let (frames, used) = crate::audio::mix_sound_commands(
+                &prepared.eval_project,
+                std::mem::take(&mut sound_events),
+                44_100,
+                f64::from(fps),
+                0..=prepared.frame_count.saturating_sub(1),
+                false,
+                &mut HashMap::new(),
+            )?;
+            (!used.is_empty()).then(|| {
+                crate::audio::encode_wav(
+                    &frames,
+                    44_100,
+                    crate::AudioChannels::Stereo,
+                    crate::AudioBitDepth::Bit16,
+                )
+            })
+        } else {
+            None
+        };
 
     match options.format {
         VideoFormat::Gif => {
@@ -5521,6 +5272,32 @@ mod tests {
             assert_eq!(at(12, 8), expected);
             assert_eq!(at(2, 8), [0, 255, 0, 255]);
             assert_eq!(at(2, 2), [0; 4]);
+
+            // Interchange precomps keep the original contour and its independently editable stroke.
+            let mut masked = project.clone();
+            assert_eq!(
+                crate::image_fill_layers::prepare_image_fill_layers(&mut masked).unwrap(),
+                1
+            );
+            masked.validate().unwrap();
+            let reconstructed =
+                render_project_frame_rgba(&masked, None, 0, 20, 16, true, false).unwrap();
+            for (x, y) in [(2, 2), (4, 8), (6, 8), (12, 8), (2, 8)] {
+                assert_eq!(reconstructed.as_chunks::<4>().0[y * 20 + x], at(x, y));
+            }
+            let (svg, _, defs) = crate::render_frame_svg(&project, &Default::default()).unwrap();
+            assert!(
+                defs >= 2 && svg.contains("<pattern") && svg.contains("data:image/png;base64,")
+            );
+            let (json, _) = crate::export_lottie_json(&project, &Default::default()).unwrap();
+            let json: serde_json::Value = serde_json::from_str(&json).unwrap();
+            assert!(json["assets"].as_array().unwrap().iter().any(|asset| {
+                asset["layers"].as_array().is_some_and(|layers| {
+                    layers
+                        .iter()
+                        .any(|image| image["ty"] == 2 && image["masksProperties"].is_array())
+                })
+            }));
         }
 
         let frame = &mut project.symbols[0].timeline.layers[0].keyframes[0];
@@ -5694,7 +5471,12 @@ mod tests {
             let v = ((i as f32 * 440.0 * std::f32::consts::TAU / 44_100.0).sin()) * 0.5;
             samples.push([v, v]);
         }
-        let wav_bytes = encode_wav_pcm16(&samples, 44_100);
+        let wav_bytes = crate::audio::encode_wav(
+            &samples,
+            44_100,
+            crate::AudioChannels::Stereo,
+            crate::AudioBitDepth::Bit16,
+        );
         project.resources.push(
             ResourceUnit::from_bytes("snd_1", "audio/tone.wav", "audio/wav", &wav_bytes)
                 .expect("resource unit"),
@@ -7208,7 +6990,12 @@ mod tests {
             let v = ((i as f32 * 440.0 * std::f32::consts::TAU / 44_100.0).sin()) * 0.4;
             samples.push([v, v]);
         }
-        let wav_bytes = encode_wav_pcm16(&samples, 44_100);
+        let wav_bytes = crate::audio::encode_wav(
+            &samples,
+            44_100,
+            crate::AudioChannels::Stereo,
+            crate::AudioBitDepth::Bit16,
+        );
         project.resources.push(
             ResourceUnit::from_bytes("snd_t283", "audio/tone.wav", "audio/wav", &wav_bytes)
                 .unwrap(),

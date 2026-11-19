@@ -63,14 +63,16 @@ impl<'a> LottieBuilder<'a> {
         for layer in timeline.layers.iter().rev() {
             self.check_cancelled()?;
             for kf in &layer.keyframes {
-                if kf.sound.is_some() {
+                if let Some(audio) = self.stream_audio_layer(layer, kf, total_frames, next_ind) {
+                    lottie_layers.push(audio);
+                    next_ind += 1;
+                    self.exported_count += 1;
+                } else if kf.sound.is_some() {
                     self.add_note_coded(
                         LottieNoteKind::NotExported,
                         Some("LOTTIE_TIMELINE_SOUND"),
                         format!("Layer '{}' (frame {})", layer.name, kf.frame + 1),
-                        format!(
-                            "timeline sound is not supported in Lottie v{LOTTIE_VERSION} export."
-                        ),
+                        "This playback mode, envelope or player profile cannot reproduce the authored sound. lottie-web can export a simple streamed WAV or MP3.",
                         Some(symbol_id.to_owned()),
                         Some(layer.id.clone()),
                         Some(kf.frame),
@@ -482,8 +484,10 @@ impl<'a> LottieBuilder<'a> {
             if let Some(psamples) = track_samples.get(pid)
                 && !psamples.is_empty()
             {
-                let anchor = if matches!(psamples[0].1.kind, ElementKind::Instance { .. }) {
-                    [self.comp_w as f64, self.comp_h as f64]
+                let anchor = if let ElementKind::Instance { symbol_id, .. } = &psamples[0].1.kind {
+                    self.precomp_bounds
+                        .get(symbol_id)
+                        .map_or([0.0; 2], |bounds| bounds.0)
                 } else {
                     [0.0, 0.0]
                 };
@@ -713,7 +717,7 @@ impl<'a> LottieBuilder<'a> {
                         Some(first_frame),
                     );
                 }
-                let precomp_anchor = [self.comp_w as f64, self.comp_h as f64];
+                let (precomp_anchor, [precomp_w, precomp_h]) = self.precomp_bounds[child_symbol_id];
                 let ks = self.build_animated_ks(
                     timeline,
                     layer,
@@ -759,8 +763,8 @@ impl<'a> LottieBuilder<'a> {
                     "sr": 1,
                     "ks": ks,
                     "ao": if orient_auto { 1 } else { 0 },
-                    "w": self.comp_w.max(1) * 2,
-                    "h": self.comp_h.max(1) * 2,
+                    "w": precomp_w,
+                    "h": precomp_h,
                     "ip": first_frame,
                     "op": last_frame,
                     "st": first_frame,

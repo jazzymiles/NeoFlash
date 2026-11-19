@@ -273,6 +273,7 @@ pub(super) struct FigmaNode {
     pub(super) effects: Vec<FigmaEffect>,
     pub(super) component_id: Option<String>,
     pub(super) symbol_overrides: Vec<FigmaSymbolOverride>,
+    pub(super) instance_text_layouts: Vec<FigmaInstanceTextLayout>,
     pub(super) background_color: Option<Color>,
     pub(super) children: Vec<FigmaNode>,
 }
@@ -312,6 +313,7 @@ impl Default for FigmaNode {
             effects: Vec::new(),
             component_id: None,
             symbol_overrides: Vec::new(),
+            instance_text_layouts: Vec::new(),
             background_color: None,
             children: Vec::new(),
         }
@@ -383,7 +385,16 @@ pub(super) struct FigmaTextStyleRun {
 }
 
 #[derive(Clone, Debug)]
+pub(super) struct FigmaInstanceTextLayout {
+    pub(super) id: String,
+    pub(super) size: Option<[f64; 2]>,
+    pub(super) transform: Option<[f64; 6]>,
+}
+
+#[derive(Clone, Debug)]
 pub(super) struct FigmaSymbolOverride {
+    pub(super) text_auto_resize: Option<String>,
+    pub(super) font_size: Option<f64>,
     pub(super) guid_path: Vec<String>,
     pub(super) visible: Option<bool>,
     pub(super) opacity: Option<f64>,

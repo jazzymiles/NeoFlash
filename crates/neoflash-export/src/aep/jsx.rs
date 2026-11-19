@@ -13,7 +13,11 @@ fn js_str(s: &str) -> String {
         .replace('\u{2029}', "\\u2029")
 }
 
-pub(super) fn render_extendscript_jsx(model: &AeProjectModel, aep_path: &Path) -> String {
+pub(super) fn render_extendscript_jsx(
+    model: &AeProjectModel,
+    aep_path: &Path,
+    diagnostics: &mut Vec<AepDiagnostic>,
+) -> String {
     let target_aep_name = aep_path
         .file_name()
         .and_then(|n| n.to_str())
@@ -30,12 +34,16 @@ pub(super) fn render_extendscript_jsx(model: &AeProjectModel, aep_path: &Path) -
     );
     js.push_str(" */\n");
     js.push_str("(function buildNeoFlashAfterEffectsProject() {\n");
-    js.push_str("  if (typeof app === 'undefined' || !app.project) { return; }\n");
+    js.push_str("  if (typeof app === 'undefined') return;\n");
+    js.push_str(
+        "  var request = typeof __neoFlashRequest === 'undefined' ? null : __neoFlashRequest;\n",
+    );
+    js.push_str("  if (!app.project || app.project.file || app.project.numItems > 0) { if (!app.newProject()) return; }\n");
     js.push_str("  app.beginUndoGroup('Import NeoFlash Project');\n");
     js.push_str("  try {\n");
     js.push_str("    if (app.project.expressionEngine !== undefined) { try { app.project.expressionEngine = 'javascript-1.0'; } catch (_) {} }\n");
     js.push_str("    var scriptFile = new File($.fileName);\n");
-    js.push_str("    var baseFolder = scriptFile.parent;\n");
+    js.push_str("    var baseFolder = request ? new Folder(request.folder) : scriptFile.parent;\n");
     js.push_str(
         "    function hasOwn(m, k) { return Object.prototype.hasOwnProperty.call(m, k); }\n",
     );
@@ -265,6 +273,34 @@ pub(super) fn render_extendscript_jsx(model: &AeProjectModel, aep_path: &Path) -
                                     opacity,
                                     even_odd,
                                 } => {
+                                    // ExtendScript exposes the handles but not custom gradient stop values.
+                                    let palette = stops
+                                        .iter()
+                                        .map(|(ratio, rgba)| {
+                                            let [r, g, b, a] =
+                                                rgba.map(|v| (v * 255.0).round() as u8);
+                                            format!(
+                                                "{:.2}% #{r:02X}{g:02X}{b:02X}{a:02X}",
+                                                ratio * 100.0
+                                            )
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .join(", ");
+                                    let note = format!(
+                                        "Gradient stops for {} (RGBA): {palette}",
+                                        grp.name
+                                    );
+                                    let _ = writeln!(
+                                        js,
+                                        "        lyr.comment = (lyr.comment ? lyr.comment + '\\n' : '') + {};",
+                                        js_str(&note)
+                                    );
+                                    diagnostics.push(AepDiagnostic {
+                                        code: "AE_GRADIENT_STOPS_MANUAL",
+                                        kind: AepDiagnosticKind::Approximated,
+                                        location: format!("{} / {} / {}",comp.name,layer.name,grp.name),
+                                        message: "Set the Gradient Fill colors in After Effects using the stop positions and colors in the layer comment.".into(),
+                                    });
                                     let fallback_rgb = stops
                                         .first()
                                         .map(|(_, c)| [c[0], c[1], c[2]])
@@ -722,15 +758,16 @@ pub(super) fn render_extendscript_jsx(model: &AeProjectModel, aep_path: &Path) -
 
     let _ = writeln!(
         js,
-        "    if (hasOwn(compMap, {})) {{ try {{ compMap[{}].openInViewer(); }} catch (_) {{}} }}",
+        "    if (!request && hasOwn(compMap, {})) {{ try {{ compMap[{}].openInViewer(); }} catch (_) {{}} }}",
         js_str(&model.main_comp_id),
         js_str(&model.main_comp_id)
     );
     let _ = writeln!(
         js,
-        "    try {{ app.project.save(new File(baseFolder.fsName + '/' + {})); }} catch (_) {{}}",
+        "    app.project.save(new File(request ? request.file : baseFolder.fsName + '/' + {}));",
         js_str(target_aep_name)
     );
+    js.push_str("    if (request && request.xml) app.project.save(new File(request.xml));\n");
     js.push_str("  } finally {\n");
     js.push_str("    app.endUndoGroup();\n");
     js.push_str("  }\n");

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Improved import of Illustrator SVG, PDF-compatible AI, PDF and EPS artwork. Illustrator styles,
+  clip paths and supported gradients retain their colors. EPS files with an embedded TIFF preview
+  open at the preview resolution. Photoshop files with masks or effects can use the saved full-resolution composite.
+- Preserved image fills when publishing vector shapes to SVG, native banners, SWF, Animate FLA/XFL,
+  Lottie and After Effects. On macOS, After Effects can save the exported compositions as native AEP/AEPX files.
+  Figma text overrides retain saved text-box dimensions and line spacing.
+  The portable JSX export includes the footage needed to build the project in Adobe. Native SWF handles large poster edges. SVG can include the actual selected video frame.
+- Preserved the duration of audio placed on Stage, enabled portrait Full HD video in HTML5
+  and included embedded video soundtracks in offline audio and video exports. Lottie can export embedded clips
+  as image keyframes with sound for Lottie Web. SWF and Animate FLA/XFL can also carry video as timed frames and a soundtrack. The command-line audio exporter also writes lossless FLAC.
+
 - Fixed photos appearing as solid shapes on Stage and in HTML5 when opening Figma imports.
   Existing projects now draw the stored image inside its editable outline, using its saved
   placement, tiling and smoothing settings. PNG frame exports also include these fills.

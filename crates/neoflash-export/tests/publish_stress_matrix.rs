@@ -599,8 +599,12 @@ fn pass4_all_publish_and_export_targets_desktop_images_spritesheet_svg_lottie_vi
     };
     let atlas_report =
         export_project_atlas(&project, &sheet_png, &sheet_opts).expect("export sprite sheet");
-    assert!(atlas_report.image_path.is_file());
-    assert!(atlas_report.metadata_path.is_file());
+    assert_eq!(atlas_report.image_path, sheet_png);
+    assert!(image::open(&atlas_report.image_path).is_ok());
+    assert_eq!(atlas_report.metadata_path, sheet_png.with_extension("json"));
+    let metadata: serde_json::Value =
+        serde_json::from_slice(&fs::read(&atlas_report.metadata_path).unwrap()).unwrap();
+    assert_eq!(metadata["frames"].as_object().unwrap().len(), 4);
 
     // 4. SVG Animation / Sequence & Single-frame SVG
     let svg_single = render_frame_svg(&project, &SvgOptions::default()).expect("render single SVG");

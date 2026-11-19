@@ -965,14 +965,18 @@ fn subprocess_import_standalone_and_into_across_svg_png_wav_swc_and_xfl() {
     assert_eq!(imp_wav.code, 0);
     let wav_proj = Project::from_json(&fs::read_to_string(&wav_standalone).unwrap()).unwrap();
     assert!(wav_proj.resources.iter().any(|r| r.is_audio()));
+    assert_eq!(wav_proj.symbols[0].timeline.frame_count, 1);
     assert!(
         wav_proj.symbols[0]
             .timeline
             .layers
             .iter()
             .flat_map(|l| &l.keyframes)
-            .any(|kf| kf.sound.is_some()),
-        "standalone WAV import should wire FrameSound onto frame 0"
+            .any(|kf| kf
+                .sound
+                .as_ref()
+                .is_some_and(|sound| sound.sync == neoflash_core::SoundSync::Stream)),
+        "standalone WAV playback should follow the timeline even after a user gesture or seek"
     );
 
     // 4. Standalone & `--into` SWC library import (`link_swc_into_project` + conflict rollback).
@@ -1710,7 +1714,7 @@ fn subprocess_export_full_matrix_html5_swf_image_lottie_svg_atlas_aep_fla_xfl() 
     assert!(atlas_json_path.is_file());
     assert!(tmp.path.join("sprites.png").is_file());
 
-    let aep_out = tmp.path.join("anim_scene.aep");
+    let aep_out = tmp.path.join("anim_scene.jsx");
     let ex_aep = run_bin(
         &[
             "--headless",
@@ -1728,9 +1732,13 @@ fn subprocess_export_full_matrix_html5_swf_image_lottie_svg_atlas_aep_fla_xfl() 
     assert_eq!(ex_aep.code, 0, "stdout: {}", ex_aep.stdout);
     let aep_json = ex_aep.parse_stdout_json();
     assert!(aep_json["composition_count"].as_u64().unwrap_or(0) >= 1);
-    assert_eq!(&fs::read(&aep_out).unwrap()[..4], b"RIFX");
-    assert!(tmp.path.join("anim_scene.aepx").is_file());
-    assert!(tmp.path.join("anim_scene.jsx").is_file());
+    assert_eq!(aep_json["output_path"].as_str(), aep_out.to_str());
+    assert!(aep_json["aep_path"].is_null() && aep_json["aepx_path"].is_null());
+    assert!(
+        fs::read_to_string(&aep_out)
+            .unwrap()
+            .contains("app.project.save")
+    );
 
     // 6. Export Lottie JSON + HTML preview (`</script>` + `\u2028` escaped), `.lottie` ZIP, FLA, XFL, SVG.
     let lottie_json_out = tmp.path.join("anim.lottie.json");

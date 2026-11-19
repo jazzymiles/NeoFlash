@@ -218,9 +218,13 @@ impl ClipMeshes {
     }
 
     pub(crate) fn new(clips: &[RuntimeClip], origin: Pos2, zoom: f32) -> Result<Self, String> {
-        let mut map = HashMap::new();
+        let mut by_id = HashMap::with_capacity(clips.len());
         for clip in clips {
-            prepare_mask(&clip.id, clips, origin, zoom, &mut map, &mut Vec::new())?;
+            by_id.entry(clip.id.as_str()).or_insert(clip);
+        }
+        let mut map = HashMap::with_capacity(clips.len());
+        for clip in clips {
+            prepare_mask(&clip.id, &by_id, origin, zoom, &mut map, &mut Vec::new())?;
         }
         Ok(Self(map))
     }
@@ -255,7 +259,7 @@ impl ClipMeshes {
 
 fn prepare_mask(
     id: &str,
-    clips: &[RuntimeClip],
+    clips: &HashMap<&str, &RuntimeClip>,
     origin: Pos2,
     zoom: f32,
     map: &mut HashMap<String, (MaskMesh, bool)>,
@@ -268,8 +272,7 @@ fn prepare_mask(
         return Err("Mask preview contains a cycle or excessive nesting".into());
     }
     let clip = clips
-        .iter()
-        .find(|clip| clip.id == id)
+        .get(id)
         .ok_or_else(|| format!("Missing authored mask {id}"))?;
     active.push(id.into());
     let mut triangles = Vec::new();

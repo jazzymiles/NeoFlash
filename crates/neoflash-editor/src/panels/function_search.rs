@@ -634,12 +634,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("nf-editor-aep-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let out_aep = dir.join("demo_scene.aep");
+        let builder = dir.join("demo_scene.jsx");
 
-        assert!(editor.export_aep_dialog(None, Some(out_aep.clone())));
-        assert!(out_aep.exists());
-        assert!(out_aep.with_extension("aepx").exists());
-        assert!(out_aep.with_extension("jsx").exists());
+        assert!(editor.export_aep_dialog(None, Some(builder.clone())));
+        assert!(builder.exists());
+        assert!(!builder.with_extension("aep").exists());
         assert_eq!(
             serde_json::to_string(&editor.project).unwrap(),
             before_json,

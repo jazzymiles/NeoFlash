@@ -656,3 +656,56 @@ fn xfl_rejects_broken_media_mismatched_button_types_and_invalid_sound_envelopes(
         "invalid_sound_envelope",
     );
 }
+
+#[test]
+fn xfl_video_frame_preview_preserves_placement_and_fill_matrix_only_in_marked_packages() {
+    let dir = TempDir::new();
+    let href = "media/neoflash-video-frames/4x2/bitmap_2.jpg";
+    let inputs = BTreeMap::from([
+        (format!("LIBRARY/{href}"), synthetic_jpeg(8, 4)),
+        ("LIBRARY/other.png".to_owned(), synthetic_png(3, 2)),
+    ]);
+    write_directory_fixture(&dir.0, &inputs);
+    for (instruction, scale) in [("", 1.0), ("<?neoflash-video-frame-previews v1?>", 2.0)] {
+        let xml = format!(
+            r#"{instruction}<DOMDocument><media>
+            <DOMBitmapItem name="frame" href="{href}"/><DOMBitmapItem name="other" href="other.png"/>
+            </media><timelines><DOMTimeline><layers><DOMLayer><frames><DOMFrame index="0"><elements>
+            <DOMBitmapInstance libraryItemName="frame"><matrix><Matrix a="0" b="2" c="-3" d="0" tx="9" ty="12"/></matrix></DOMBitmapInstance>
+            <DOMBitmapInstance libraryItemName="other"/>
+            <DOMShape><fills><FillStyle index="1"><BitmapFill bitmapPath="frame"><matrix><Matrix a="0" b="40" c="-60" d="0" tx="9" ty="12"/></matrix></BitmapFill></FillStyle></fills>
+            <edges><Edge fillStyle1="1" edges="!0 0|800 0|800 400|0 400|0 0"/></edges></DOMShape>
+            </elements></DOMFrame></frames></DOMLayer></layers></DOMTimeline></timelines></DOMDocument>"#
+        );
+        fs::write(dir.0.join("DOMDocument.xml"), xml).unwrap();
+        let project = import_project(&dir.0).unwrap();
+        project.validate().unwrap();
+        let frame = &project.symbol(&project.root).unwrap().timeline.layers[0].keyframes[0];
+        let instance = &frame.elements[0];
+        let ElementKind::Bitmap { width, height, .. } = instance.kind else {
+            panic!("bitmap expected")
+        };
+        assert_eq!(
+            (f64::from(width) * scale, f64::from(height) * scale),
+            (8., 4.)
+        );
+        assert_eq!((instance.transform.x, instance.transform.y), (9., 12.));
+        assert_eq!(
+            (instance.transform.scale_x, instance.transform.scale_y),
+            (2. * scale, 3. * scale)
+        );
+        assert_eq!(
+            frame.bitmap_fills[0].matrix,
+            [0., 2. * scale, -3. * scale, 0., 9., 12.]
+        );
+        assert!(matches!(
+            frame.elements[1].kind,
+            ElementKind::Bitmap {
+                width: 3,
+                height: 2,
+                ..
+            }
+        ));
+        assert_eq!(frame.elements[1].transform.scale_x, 1.0);
+    }
+}

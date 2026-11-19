@@ -11,10 +11,10 @@ use flate2::read::DeflateDecoder;
 use neoflash_core::{Color, FillRule, GradientKind, GradientStop, PathCommand, TextAlign};
 
 use super::{
-    FigmaArcData, FigmaDoc, FigmaDocumentSummary, FigmaEffect, FigmaImportOptions, FigmaNode,
-    FigmaPageMapping, FigmaPageSummary, FigmaPaint, FigmaSymbolOverride, FigmaTextData,
-    FigmaTextStyleOverride, FigmaTextStyleRun, MAX_FIGMA_DECODE_BYTES, MAX_FIGMA_NODES,
-    MAX_KIWI_VALUES, gradient_handles_from_paint_matrix,
+    FigmaArcData, FigmaDoc, FigmaDocumentSummary, FigmaEffect, FigmaImportOptions,
+    FigmaInstanceTextLayout, FigmaNode, FigmaPageMapping, FigmaPageSummary, FigmaPaint,
+    FigmaSymbolOverride, FigmaTextData, FigmaTextStyleOverride, FigmaTextStyleRun,
+    MAX_FIGMA_DECODE_BYTES, MAX_FIGMA_NODES, MAX_KIWI_VALUES, gradient_handles_from_paint_matrix,
 };
 use crate::ImportError;
 
@@ -215,13 +215,18 @@ impl<'a> KiwiVal<'a> {
 }
 
 pub(super) struct KiwiReader<'a> {
+    instance_layout: bool,
     buf: &'a [u8],
     pub(super) pos: usize,
 }
 
 impl<'a> KiwiReader<'a> {
     pub(super) fn new(buf: &'a [u8]) -> Self {
-        Self { buf, pos: 0 }
+        Self {
+            buf,
+            pos: 0,
+            instance_layout: false,
+        }
     }
 
     #[inline]
@@ -415,6 +420,7 @@ fn is_used_node_change_field(name: &str) -> bool {
             | "letterSpacing"
             | "lineHeight"
             | "symbolData"
+            | "derivedSymbolData"
             | "parameterConsumptionMap"
             | "overriddenSymbolID"
     )
@@ -678,6 +684,8 @@ pub(super) fn decode_kiwi_scalar<'a>(
                         })?;
                         let keep = if filter_msg {
                             is_used_message_field(&field.name)
+                        } else if filter_nc && r.instance_layout {
+                            matches!(field.name.as_str(), "guidPath" | "size" | "transform")
                         } else if filter_nc {
                             is_used_node_change_field(&field.name)
                         } else if filter_prop {
@@ -695,8 +703,14 @@ pub(super) fn decode_kiwi_scalar<'a>(
                                 budget,
                                 active_structs,
                             )?;
+                            // A marker identifies derived text boxes. The glyphs and layout blobs stay skipped.
+                            if filter_nc && r.instance_layout && field.name == "derivedTextData" {
+                                pairs.push((field.name.as_str(), KiwiVal::Bool(true)));
+                            }
                             continue;
                         }
+                        let old_layout = r.instance_layout;
+                        r.instance_layout |= filter_nc && field.name == "derivedSymbolData";
                         let val = decode_kiwi_field_value(
                             r,
                             defs,
@@ -706,6 +720,7 @@ pub(super) fn decode_kiwi_scalar<'a>(
                             budget,
                             active_structs,
                         )?;
+                        r.instance_layout = old_layout;
                         pairs.push((field.name.as_str(), val));
                     }
                     Ok(KiwiVal::Object(KiwiObj(pairs)))
@@ -2479,6 +2494,16 @@ pub(super) fn parse_fig_kiwi_canvas_with_options(
     decode_fig_kiwi_stream(bytes, default_name, options).map_err(ImportError::Container)
 }
 
+fn kiwi_transform(tr: &KiwiObj<'_>) -> [f64; 6] {
+    let m00 = tr.get("m00").and_then(KiwiVal::as_f64).unwrap_or(1.0);
+    let m01 = tr.get("m01").and_then(KiwiVal::as_f64).unwrap_or(0.0);
+    let m02 = tr.get("m02").and_then(KiwiVal::as_f64).unwrap_or(0.0);
+    let m10 = tr.get("m10").and_then(KiwiVal::as_f64).unwrap_or(0.0);
+    let m11 = tr.get("m11").and_then(KiwiVal::as_f64).unwrap_or(1.0);
+    let m12 = tr.get("m12").and_then(KiwiVal::as_f64).unwrap_or(0.0);
+    [m00, m10, m01, m11, m02, m12]
+}
+
 fn decode_single_kiwi_node(
     snode: &ScannedKiwiNode<'_>,
     defs: &[KiwiDef],
@@ -2552,20 +2577,8 @@ fn decode_single_kiwi_node(
         .unwrap_or("ALPHA")
         .to_owned();
 
-    let (mut x, mut y) = (0.0, 0.0);
-    let relative_transform = if let Some(tr) = obj.get("transform").and_then(KiwiVal::as_obj) {
-        let m00 = tr.get("m00").and_then(KiwiVal::as_f64).unwrap_or(1.0);
-        let m01 = tr.get("m01").and_then(KiwiVal::as_f64).unwrap_or(0.0);
-        let m02 = tr.get("m02").and_then(KiwiVal::as_f64).unwrap_or(0.0);
-        let m10 = tr.get("m10").and_then(KiwiVal::as_f64).unwrap_or(0.0);
-        let m11 = tr.get("m11").and_then(KiwiVal::as_f64).unwrap_or(1.0);
-        let m12 = tr.get("m12").and_then(KiwiVal::as_f64).unwrap_or(0.0);
-        x = m02;
-        y = m12;
-        Some([m00, m10, m01, m11, m02, m12])
-    } else {
-        None
-    };
+    let relative_transform = obj.object("transform").map(kiwi_transform);
+    let (x, y) = relative_transform.map_or((0.0, 0.0), |m| (m[4], m[5]));
 
     let uniform_r = obj
         .get("cornerRadius")
@@ -2844,14 +2857,9 @@ fn decode_single_kiwi_node(
         let letter_spacing = parse_kiwi_number_px(obj.get("letterSpacing"), font_size)
             .map(|(v, _)| v)
             .unwrap_or(0.0);
-        let line_height =
-            parse_kiwi_number_px(obj.get("lineHeight"), font_size).and_then(|(v, units)| {
-                if v <= 0.0 || (units == "PERCENT" && (v - font_size).abs() <= 0.05) {
-                    None
-                } else {
-                    Some(v)
-                }
-            });
+        let line_height = parse_kiwi_number_px(obj.get("lineHeight"), font_size)
+            .map(|(height, _)| height)
+            .filter(|height| *height > 0.0);
 
         let style_runs = if let Some(td) = td_obj {
             let char_ids: Vec<u64> = td
@@ -2896,6 +2904,32 @@ fn decode_single_kiwi_node(
     } else {
         None
     };
+
+    let instance_text_layouts = obj
+        .get("derivedSymbolData")
+        .and_then(KiwiVal::as_array)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|record| {
+            let r = record.as_obj()?;
+            r.get("derivedTextData")?;
+            let path = r.get("guidPath")?;
+            let path = path
+                .as_array()
+                .or_else(|| path.as_obj()?.get("guids")?.as_array())?;
+            let [guid] = path else { return None };
+            let id = guid_string(guid.as_obj()?)?;
+            let size = r
+                .object("size")
+                .and_then(|s| Some([s.get("x")?.as_f64()?, s.get("y")?.as_f64()?]));
+            let transform = r.object("transform").map(kiwi_transform);
+            (size.is_some() || transform.is_some()).then_some(FigmaInstanceTextLayout {
+                id,
+                size,
+                transform,
+            })
+        })
+        .collect();
 
     let mut symbol_overrides = Vec::new();
     let component_id = if let Some(sd) = obj.get("symbolData").and_then(KiwiVal::as_obj) {
@@ -2948,7 +2982,17 @@ fn decode_single_kiwi_node(
                     .get("overriddenSymbolID")
                     .and_then(KiwiVal::as_obj)
                     .and_then(guid_string);
-                if ov_vis.is_some()
+                let text_auto_resize = ov
+                    .get("textAutoResize")
+                    .and_then(KiwiVal::as_str)
+                    .map(str::to_owned);
+                let font_size = ov
+                    .get("fontSize")
+                    .and_then(KiwiVal::as_f64)
+                    .filter(|n| *n > 0.0);
+                if text_auto_resize.is_some()
+                    || font_size.is_some()
+                    || ov_vis.is_some()
                     || ov_op.is_some()
                     || ov_chars.is_some()
                     || ov_fills.is_some()
@@ -2956,6 +3000,8 @@ fn decode_single_kiwi_node(
                     || ov_sym.is_some()
                 {
                     symbol_overrides.push(FigmaSymbolOverride {
+                        text_auto_resize,
+                        font_size,
                         guid_path,
                         visible: ov_vis,
                         opacity: ov_op,
@@ -3014,6 +3060,7 @@ fn decode_single_kiwi_node(
         effects,
         component_id,
         symbol_overrides,
+        instance_text_layouts,
         background_color,
         children: Vec::new(),
     })
@@ -3054,6 +3101,8 @@ fn apply_component_properties(
                     "Expanded Figma component properties exceed the import size limit".to_owned()
                 })?;
                 let mut ov = FigmaSymbolOverride {
+                    text_auto_resize: None,
+                    font_size: None,
                     guid_path: vec![child.clone()],
                     visible: None,
                     opacity: None,

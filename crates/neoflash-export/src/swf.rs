@@ -14,10 +14,11 @@ use crate::fla_preflight::{
 use flate2::Compression;
 use flate2::write::ZlibEncoder;
 use neoflash_core::{
-    BlendMode, Color, ColorTransform, Easing, Element, ElementKind, FilterSpec, FrameLabelType,
-    FrameSound, GradientKind, GradientPaint, GradientSpread, LayerRole, ObjectEvent, ObjectScript,
-    PathCommand, Project, ScriptLanguage, SoundEffect, SoundSync, Symbol, SymbolKind, TextAlign,
-    Timeline, TweenKind, flatten_scenes_with_ranges, transform_matrix,
+    BlendMode, Color, ColorTransform, Easing, Element, ElementKind, FillRule, FilterSpec,
+    FrameLabelType, FrameSound, GradientKind, GradientPaint, GradientSpread, LayerRole,
+    ObjectEvent, ObjectScript, PathCommand, Project, ScriptLanguage, SoundEffect, SoundSync,
+    Symbol, SymbolKind, TextAlign, Timeline, TweenKind, flatten_scenes_with_ranges,
+    transform_matrix,
 };
 pub use neoflash_import::{
     SwfAudioEvent, SwfBytecodePlayer, SwfDisplayEntry, SwfFrameState, SwfInspection,
@@ -44,62 +45,50 @@ enum StrokeJoin {
     Miter,
 }
 
-fn outline_text_element_to_paths(element: &Element) -> Vec<Element> {
-    let mut outlined_element = element.clone();
-    // A named TextBox is runtime-addressable in the authoring model, but outline_text is an
-    // explicit request for static visual conversion. Clear only the temporary authoring name so
-    // the shared outline converter does not intentionally preserve it as an editable field.
-    outlined_element.name.clear();
-    let mut temp_proj = Project {
-        format_version: 6,
-        name: "outline_tmp".to_owned(),
-        width: 550,
-        height: 400,
-        fps: 24,
-        background: [255, 255, 255, 255],
-        root: "root".to_owned(),
-        symbols: vec![Symbol {
-            id: "root".to_owned(),
-            name: "Scene 1".to_owned(),
-            folder: String::new(),
-            kind: SymbolKind::MovieClip,
-            timeline: Timeline {
-                frame_count: 1,
-                layers: vec![neoflash_core::Layer {
-                    id: "l1".to_owned(),
-                    name: "Layer 1".to_owned(),
-                    visible: true,
-                    locked: false,
-                    properties: Default::default(),
-                    keyframes: vec![neoflash_core::Keyframe {
-                        frame: 0,
-                        elements: vec![outlined_element],
-                        ..Default::default()
-                    }],
-                }],
-                scripts: Vec::new(),
-                guides: Vec::new(),
-            },
-            class_name: None,
-            linkage_id: None,
-        }],
-        library_folders: Vec::new(),
-        sources: Vec::new(),
-        resources: Vec::new(),
-        document_class: None,
-        scenes: Vec::new(),
-        script_language: None,
-        also_compile_compatible_scripts: true,
-    };
-    let _ = crate::fonts::convert_project_text_to_outlines(&mut temp_proj);
-    temp_proj
-        .symbols
-        .into_iter()
-        .next()
-        .and_then(|mut s| s.timeline.layers.pop())
-        .and_then(|mut l| l.keyframes.pop())
-        .map(|k| k.elements)
-        .unwrap_or_default()
+fn swf_text_outline(
+    project: &Project,
+    element: &Element,
+) -> Result<(Vec<PathCommand>, Color), ExportError> {
+    match &element.kind {
+        ElementKind::Text {
+            text,
+            font_family,
+            font_size,
+            color,
+        } => {
+            let font = crate::fonts::resolve_project_font_bytes(project, font_family, false, false);
+            crate::fonts::extract_text_outline_commands_with_diagnostics(
+                &element.id,
+                text,
+                font_family,
+                *font_size,
+                font.as_deref(),
+            )
+            .map(|commands| (commands, *color))
+        }
+        _ => {
+            let field =
+                neoflash_core::TextFieldState::from_kind(&element.kind).ok_or_else(|| {
+                    ExportError::Options(format!("No text field for SWF outline on {}", element.id))
+                })?;
+            let format = &field.format;
+            let font = crate::fonts::resolve_project_font_bytes(
+                project,
+                &format.font,
+                format.bold,
+                format.italic,
+            );
+            let rgb = format.color.to_be_bytes();
+            let color = [rgb[1], rgb[2], rgb[3], field.alpha];
+            crate::fonts::extract_text_field_outline_commands_with_diagnostics(
+                &element.id,
+                &field,
+                font.as_deref(),
+            )
+            .map(|commands| (commands, color))
+        }
+    }
+    .map_err(|errors| ExportError::Options(errors.join("\n")))
 }
 
 /// Target SWF player & virtual machine profile for SWF movie publishing (`T-192`).
@@ -226,7 +215,7 @@ fn layer_swf_depth_width(layer: &neoflash_core::Layer, total_frames: u32) -> Opt
             && keyframe.tween_kind == TweenKind::Shape
             && let Some(next_keyframe) = layer.keyframes.get(keyframe_index + 1)
             && next_keyframe.frame < effective_end
-            && !can_build_morph_shape(&keyframe.elements, &next_keyframe.elements)
+            && !can_morph_keys(keyframe, next_keyframe)
         {
             // Baked shape-tween sampling can retain unmatched shapes from both endpoints.
             // Reserve the conservative union so it cannot overlap the following layer's band.
@@ -382,6 +371,12 @@ fn used_swf_media_resources(project: &Project) -> (BTreeSet<String>, BTreeSet<St
                 bitmaps.insert(resource_id.clone());
             }
         }
+        bitmaps.extend(
+            keyframe
+                .bitmap_fills
+                .iter()
+                .map(|fill| fill.resource_id.clone()),
+        );
         if let Some(sound) = &keyframe.sound {
             sounds.insert(sound.resource.clone());
         }
@@ -842,54 +837,36 @@ pub fn preflight_swf_publish(
             );
             continue;
         };
-        let lossless_override = resource
-            .bitmap_export
-            .is_some_and(|s| s.compression == neoflash_core::BitmapCompression::LosslessPng);
-        if !resource.media_type.eq_ignore_ascii_case("image/png") && !lossless_override {
-            report.push(
-                "swf_bitmap_codec_unsupported",
-                FlaCompatibilityCategory::MediaAndSound,
-                FlaCompatibilityStatus::Blocking,
-                location,
-                format!(
-                    "Placed bitmap '{}' uses {}; this SWF writer currently embeds only PNG resources. Convert it to PNG or set its Library Bitmap Properties to Lossless PNG before publishing.",
-                    resource.path, resource.media_type
-                ),
-            );
-            continue;
-        }
-        let Ok(raw) = resource.decoded_bytes() else {
-            report.push(
-                "swf_bitmap_data_invalid",
-                FlaCompatibilityCategory::MediaAndSound,
-                FlaCompatibilityStatus::Blocking,
-                location,
-                format!("Placed PNG '{}' has invalid resource data.", resource.path),
-            );
-            continue;
-        };
-        if build_define_bits_lossless2_payload(1, &raw).is_none() {
-            report.push(
+        match resource.decode_image() {
+            Ok(_) => {
+                let jpeg = embeds_original_jpeg(resource);
+                report.push(
+                    if jpeg {
+                        "swf_bitmap_jpeg"
+                    } else {
+                        "swf_bitmap_lossless"
+                    },
+                    FlaCompatibilityCategory::MediaAndSound,
+                    FlaCompatibilityStatus::Exact,
+                    location,
+                    format!(
+                        "Bitmap '{}' embeds as {}.",
+                        resource.path,
+                        if jpeg {
+                            "DefineBitsJPEG2"
+                        } else {
+                            "DefineBitsLossless2"
+                        }
+                    ),
+                );
+            }
+            Err(error) => report.push(
                 "swf_bitmap_data_unsupported",
                 FlaCompatibilityCategory::MediaAndSound,
                 FlaCompatibilityStatus::Blocking,
                 location,
-                format!(
-                    "Placed PNG '{}' could not be decoded as a non-empty bitmap of at most 8192x8192 pixels.",
-                    resource.path
-                ),
-            );
-        } else {
-            report.push(
-                "swf_bitmap_png",
-                FlaCompatibilityCategory::MediaAndSound,
-                FlaCompatibilityStatus::Exact,
-                location,
-                format!(
-                    "Placed PNG '{}' is embedded as DefineBitsLossless2.",
-                    resource.path
-                ),
-            );
+                format!("Bitmap '{}' cannot be decoded: {error}", resource.path),
+            ),
         }
     }
     for resource_id in used_sounds {
@@ -1498,6 +1475,7 @@ pub fn preflight_swf_publish(
         }
 
         for layer in &sym.timeline.layers {
+            let bake_video = crate::video_frames::bakeable(project, layer);
             let layer_loc = format!("{sym_loc}:layer:{}", layer.name);
             let layer_has_authored_content = layer
                 .keyframes
@@ -1563,7 +1541,10 @@ pub fn preflight_swf_publish(
                             .to_owned(),
                     );
                 }
-                if kf.video.is_some() {
+                if bake_video && kf.video.is_some() {
+                    report.push("swf_video_bitmap_frames",FlaCompatibilityCategory::MediaAndSound,FlaCompatibilityStatus::Baked,kf_loc.clone(),
+                        "Embedded video is converted to timed bitmap frames. Its unmuted soundtrack uses StartSound at the start of the span; seeking the SWF timeline cannot reposition this sound.".to_owned());
+                } else if kf.video.is_some() {
                     report.push(
                         "swf_video_unsupported",
                         FlaCompatibilityCategory::MediaAndSound,
@@ -1574,13 +1555,29 @@ pub fn preflight_swf_publish(
                     );
                 }
                 for fill in &kf.bitmap_fills {
+                    let supported_target = kf.elements.iter().any(|el| {
+                        el.id == fill.element_id
+                            && matches!(
+                                el.kind,
+                                ElementKind::Rectangle { .. }
+                                    | ElementKind::Ellipse { .. }
+                                    | ElementKind::Path { .. }
+                                    | ElementKind::PaintedPath { .. }
+                            )
+                    });
+                    // A MATRIX stores at most 31 signed bits. Bitmap scale/rotation use
+                    // 16.16 fixed-point in twips per pixel, translation uses integer twips.
+                    let in_range = fill.matrix.iter().enumerate().all(|(i, v)| {
+                        let encoded = (v * if i < 4 { 20. * 65536. } else { 20. }).round();
+                        (-1_073_741_824. ..=1_073_741_823.).contains(&encoded)
+                    });
+                    let supported = supported_target && in_range;
                     report.push(
-                        "swf_bitmap_fill_unsupported",
+                        if supported { "swf_bitmap_fill" } else { "swf_bitmap_fill_unrepresentable" },
                         FlaCompatibilityCategory::ShapesAndPaints,
-                        FlaCompatibilityStatus::Blocking,
+                        if supported { FlaCompatibilityStatus::Exact } else { FlaCompatibilityStatus::Blocking },
                         format!("{kf_loc}:element:{}", fill.element_id),
-                        "Authored bitmap fills are not represented by the SWF shape publisher. Use a bitmap instance or replace the fill before publishing."
-                            .to_owned(),
+                        if supported { "Shape uses a native transformed bitmap fill." } else { "Bitmap fill requires a vector shape and a transform within the SWF MATRIX range." },
                     );
                 }
                 if kf.camera.is_some() {
@@ -1651,9 +1648,10 @@ pub fn preflight_swf_publish(
                             );
                         }
                         TweenKind::Shape => {
-                            let can_morph = layer.keyframes.get(k_idx + 1).is_some_and(|next| {
-                                can_build_morph_shape(&kf.elements, &next.elements)
-                            });
+                            let can_morph = layer
+                                .keyframes
+                                .get(k_idx + 1)
+                                .is_some_and(|next| can_morph_keys(kf, next));
                             report.push(
                                 if can_morph {
                                     "swf_define_morph_shape"
@@ -1884,7 +1882,7 @@ pub fn preflight_swf_publish(
                     }
 
                     match &el.kind {
-                        ElementKind::Video { .. } => {
+                        ElementKind::Video { .. } if !bake_video => {
                             report.push(
                                 "swf_video_unsupported",
                                 FlaCompatibilityCategory::MediaAndSound,
@@ -2013,6 +2011,12 @@ pub fn preflight_swf_publish(
     }
 
     report
+}
+
+fn can_morph_keys(start: &neoflash_core::Keyframe, end: &neoflash_core::Keyframe) -> bool {
+    start.bitmap_fills.is_empty()
+        && end.bitmap_fills.is_empty()
+        && can_build_morph_shape(&start.elements, &end.elements)
 }
 
 fn can_build_morph_shape(start_els: &[Element], end_els: &[Element]) -> bool {
@@ -2576,23 +2580,24 @@ fn build_define_bitmap_quad_shape_payload(
             end: [0, 0],
         },
     ];
-    write_shape_edges_records(&mut w, &edges, 1, 0);
+    write_shape_edges_records(&mut w, &edges, 1, 0, None);
     w.buf
 }
 
-/// Build a `DefineBitsLossless2` (tag 36) payload for a PNG bitmap resource.
+fn embeds_original_jpeg(resource: &neoflash_core::ResourceUnit) -> bool {
+    resource.media_type.eq_ignore_ascii_case("image/jpeg")
+        && !resource
+            .bitmap_export
+            .is_some_and(|s| s.compression == neoflash_core::BitmapCompression::LosslessPng)
+}
+
+/// Encodes decoded pixels as a premultiplied ARGB DefineBitsLossless2 dictionary character.
 fn build_define_bits_lossless2_payload(
     bitmap_id: u16,
-    png_bytes: &[u8],
-) -> Option<(Vec<u8>, u32, u32)> {
-    let img = image::load_from_memory(png_bytes).ok()?.to_rgba8();
-    let width = img.width();
-    let height = img.height();
-    if width == 0 || height == 0 || width > 8192 || height > 8192 {
-        return None;
-    }
-    let rgba = img.into_raw();
-
+    image: &neoflash_core::DecodedImage,
+) -> Option<Vec<u8>> {
+    let (width, height) = (image.width, image.height);
+    let rgba = &image.rgba;
     // DefineBitsLossless2 format 5: premultiplied ARGB (`[a, r_prem, g_prem, b_prem]`).
     let mut argb_prem = Vec::with_capacity(rgba.len());
     for px in rgba.as_chunks::<4>().0 {
@@ -2616,7 +2621,7 @@ fn build_define_bits_lossless2_payload(
     w.u16(width as u16);
     w.u16(height as u16);
     w.bytes(&compressed);
-    Some((w.buf, width, height))
+    Some(w.buf)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3087,8 +3092,17 @@ fn build_define_edit_text_payload(
     w.buf
 }
 
+#[derive(Clone, Copy, Debug)]
+struct SwfBitmapBrush {
+    character: u16,
+    matrix: [f64; 6],
+    repeat: bool,
+    smoothing: bool,
+}
+
 #[derive(Clone, Debug)]
 struct SwfShapeFillStyle {
+    bitmap: Option<SwfBitmapBrush>,
     color: Color,
     gradient: Option<GradientPaint>,
 }
@@ -3236,6 +3250,18 @@ fn convert_commands_to_swf_edges(
 }
 
 fn write_single_fill_style(w: &mut SwfBitWriter, fill: &SwfShapeFillStyle) {
+    if let Some(brush) = fill.bitmap {
+        w.u8(match (brush.repeat, brush.smoothing) {
+            (true, true) => 0x40,
+            (false, true) => 0x41,
+            (true, false) => 0x42,
+            (false, false) => 0x43,
+        });
+        w.u16(brush.character);
+        let [a, b, c, d, x, y] = brush.matrix;
+        w.matrix_px([a * 20., b * 20., c * 20., d * 20., x, y]);
+        return;
+    }
     if let Some(grad) = &fill.gradient
         && !grad.stops.is_empty()
     {
@@ -3278,11 +3304,84 @@ fn write_single_fill_style(w: &mut SwfBitWriter, fill: &SwfShapeFillStyle) {
     }
 }
 
+/// Flash edge records use at most 17 signed bits per delta (3,276.75 pixels).
+/// Subdivide both halves of a morph identically so corresponding contours remain paired.
+impl SwfEdge {
+    fn fits_record(self) -> bool {
+        let segments = self
+            .control
+            .map_or([self.start, self.start, self.end], |c| {
+                [self.start, c, self.end]
+            });
+        segments.windows(2).all(|p| {
+            (0..2).all(|i| (-65_536..=65_535).contains(&(i64::from(p[1][i]) - i64::from(p[0][i]))))
+        })
+    }
+
+    fn halves(self) -> (Self, Self) {
+        let midpoint = |a: [i32; 2], b: [i32; 2]| [a[0].midpoint(b[0]), a[1].midpoint(b[1])];
+        let (left, right, mid) = if let Some(ctrl) = self.control {
+            let left = midpoint(self.start, ctrl);
+            let right = midpoint(ctrl, self.end);
+            (Some(left), Some(right), midpoint(left, right))
+        } else {
+            (None, None, midpoint(self.start, self.end))
+        };
+        (
+            Self {
+                end: mid,
+                control: left,
+                ..self
+            },
+            Self {
+                start: mid,
+                control: right,
+                ..self
+            },
+        )
+    }
+}
+
+fn write_edge_record(w: &mut SwfBitWriter, edge: SwfEdge, morph_peer: Option<SwfEdge>) {
+    if !edge.fits_record() || morph_peer.is_some_and(|peer| !peer.fits_record()) {
+        let (left, right) = edge.halves();
+        let peers = morph_peer.map(SwfEdge::halves).unzip();
+        write_edge_record(w, left, peers.0);
+        write_edge_record(w, right, peers.1);
+        return;
+    }
+    if let Some(ctrl) = edge.control {
+        let cdx = ctrl[0] - edge.start[0];
+        let cdy = ctrl[1] - edge.start[1];
+        let adx = edge.end[0] - ctrl[0];
+        let ady = edge.end[1] - ctrl[1];
+        let nbits = needed_sb_bits(&[cdx, cdy, adx, ady]).max(2);
+        w.bit(true); // Edge record
+        w.bit(false); // Curved edge
+        w.ub(4, (nbits - 2) as u32);
+        w.sb(nbits, cdx);
+        w.sb(nbits, cdy);
+        w.sb(nbits, adx);
+        w.sb(nbits, ady);
+    } else {
+        let dx = edge.end[0] - edge.start[0];
+        let dy = edge.end[1] - edge.start[1];
+        let nbits = needed_sb_bits(&[dx, dy]).max(2);
+        w.bit(true); // Edge record
+        w.bit(true); // Straight edge
+        w.ub(4, (nbits - 2) as u32);
+        w.bit(true); // general line (dx, dy)
+        w.sb(nbits, dx);
+        w.sb(nbits, dy);
+    }
+}
+
 fn write_shape_edges_records(
     w: &mut SwfBitWriter,
     edges: &[SwfEdge],
     num_fill_bits: usize,
     num_line_bits: usize,
+    morph_peers: Option<&[SwfEdge]>,
 ) {
     w.align();
     w.ub(4, num_fill_bits as u32);
@@ -3294,7 +3393,7 @@ fn write_shape_edges_records(
     let mut cur_ls = 0u16;
     let mut first = true;
 
-    for edge in edges {
+    for (index, edge) in edges.iter().enumerate() {
         let need_move = first || edge.start[0] != cur_x || edge.start[1] != cur_y;
         let need_f1 = first || edge.fill_1 != cur_f1;
         let need_ls = first || edge.line != cur_ls;
@@ -3315,8 +3414,6 @@ fn write_shape_edges_records(
                 w.ub(5, mbits as u32);
                 w.sb(mbits, mx);
                 w.sb(mbits, my);
-                cur_x = mx;
-                cur_y = my;
             }
             if need_f1 {
                 w.ub(num_fill_bits, u32::from(edge.fill_1));
@@ -3328,30 +3425,7 @@ fn write_shape_edges_records(
             }
         }
 
-        if let Some(ctrl) = edge.control {
-            let cdx = ctrl[0] - cur_x;
-            let cdy = ctrl[1] - cur_y;
-            let adx = edge.end[0] - ctrl[0];
-            let ady = edge.end[1] - ctrl[1];
-            let nbits = needed_sb_bits(&[cdx, cdy, adx, ady]).clamp(2, 17);
-            w.bit(true); // Edge record
-            w.bit(false); // Curved edge
-            w.ub(4, (nbits - 2) as u32);
-            w.sb(nbits, cdx);
-            w.sb(nbits, cdy);
-            w.sb(nbits, adx);
-            w.sb(nbits, ady);
-        } else {
-            let dx = edge.end[0] - cur_x;
-            let dy = edge.end[1] - cur_y;
-            let nbits = needed_sb_bits(&[dx, dy]).clamp(2, 17);
-            w.bit(true); // Edge record
-            w.bit(true); // Straight edge
-            w.ub(4, (nbits - 2) as u32);
-            w.bit(true); // general line (dx, dy)
-            w.sb(nbits, dx);
-            w.sb(nbits, dy);
-        }
+        write_edge_record(w, *edge, morph_peers.map(|peers| peers[index]));
         cur_x = edge.end[0];
         cur_y = edge.end[1];
     }
@@ -3393,21 +3467,28 @@ fn compute_edges_bounds(edges: &[SwfEdge]) -> [i32; 4] {
 
 /// Build a `DefineShape3` (tag 32) or `DefineShape4` (tag 83) tag code and payload for a vector element.
 fn build_define_shape_for_element(
+    project: &Project,
     shape_id: u16,
     element: &Element,
+    bitmap: Option<SwfBitmapBrush>,
     options: &SwfPublishOptions,
 ) -> Result<Option<(u16, Vec<u8>)>, ExportError> {
     let mut fills: Vec<SwfShapeFillStyle> = Vec::new();
     let mut lines: Vec<SwfShapeLineStyle> = Vec::new();
     let mut edges: Vec<SwfEdge> = Vec::new();
 
-    let mut add_fill = |color: Color, gradient: Option<GradientPaint>| -> u16 {
-        if color[3] == 0 && gradient.is_none() {
-            return 0;
-        }
-        fills.push(SwfShapeFillStyle { color, gradient });
-        fills.len().min(usize::from(u16::MAX)) as u16
-    };
+    let mut add_fill =
+        |color: Color, gradient: Option<GradientPaint>, bitmap: Option<SwfBitmapBrush>| -> u16 {
+            if color[3] == 0 && gradient.is_none() && bitmap.is_none() {
+                return 0;
+            }
+            fills.push(SwfShapeFillStyle {
+                color,
+                gradient,
+                bitmap,
+            });
+            fills.len().min(usize::from(u16::MAX)) as u16
+        };
 
     #[allow(clippy::too_many_arguments)]
     let mut add_line = |color: Color,
@@ -3439,7 +3520,7 @@ fn build_define_shape_for_element(
             stroke_width,
             ..
         } => {
-            let f_idx = add_fill(*fill, None);
+            let f_idx = add_fill(*fill, None, bitmap);
             let l_idx = add_line(
                 *stroke,
                 *stroke_width,
@@ -3464,7 +3545,7 @@ fn build_define_shape_for_element(
             stroke,
             stroke_width,
         } => {
-            let f_idx = add_fill(*fill, None);
+            let f_idx = add_fill(*fill, None, bitmap);
             let l_idx = add_line(
                 *stroke,
                 *stroke_width,
@@ -3486,7 +3567,7 @@ fn build_define_shape_for_element(
             stroke_width,
             ..
         } => {
-            let f_idx = add_fill(*fill, None);
+            let f_idx = add_fill(*fill, None, bitmap);
             let profile = element.stroke_width_profile();
             if !profile.is_default() && options.expand_variable_width_strokes {
                 if f_idx != 0 {
@@ -3495,7 +3576,7 @@ fn build_define_shape_for_element(
                 let expanded =
                     neoflash_core::expand_variable_width_stroke(commands, *stroke_width, &profile);
                 if !expanded.is_empty() {
-                    let sf_idx = add_fill(*stroke, None);
+                    let sf_idx = add_fill(*stroke, None, None);
                     if sf_idx != 0 {
                         convert_commands_to_swf_edges(&expanded, sf_idx, 0, true, &mut edges);
                     }
@@ -3521,7 +3602,7 @@ fn build_define_shape_for_element(
             stroke_width,
             ..
         } => {
-            let f_idx = add_fill(*fill, fill_gradient.clone());
+            let f_idx = add_fill(*fill, fill_gradient.clone(), bitmap);
             let profile = element.stroke_width_profile();
             if !profile.is_default() && options.expand_variable_width_strokes {
                 if f_idx != 0 {
@@ -3530,7 +3611,7 @@ fn build_define_shape_for_element(
                 let expanded =
                     neoflash_core::expand_variable_width_stroke(commands, *stroke_width, &profile);
                 if !expanded.is_empty() {
-                    let sf_idx = add_fill(*stroke, stroke_gradient.clone());
+                    let sf_idx = add_fill(*stroke, stroke_gradient.clone(), None);
                     if sf_idx != 0 {
                         convert_commands_to_swf_edges(&expanded, sf_idx, 0, true, &mut edges);
                     }
@@ -3548,24 +3629,9 @@ fn build_define_shape_for_element(
             }
         }
         ElementKind::TextBox { .. } | ElementKind::Text { .. } if options.outline_text => {
-            for outlined in outline_text_element_to_paths(element) {
-                match &outlined.kind {
-                    ElementKind::Path { commands, fill, .. } => {
-                        let f_idx = add_fill(*fill, None);
-                        convert_commands_to_swf_edges(commands, f_idx, 0, true, &mut edges);
-                    }
-                    ElementKind::PaintedPath {
-                        commands,
-                        fill,
-                        fill_gradient,
-                        ..
-                    } => {
-                        let f_idx = add_fill(*fill, fill_gradient.clone());
-                        convert_commands_to_swf_edges(commands, f_idx, 0, true, &mut edges);
-                    }
-                    _ => {}
-                }
-            }
+            let (commands, color) = swf_text_outline(project, element)?;
+            let fill = add_fill(color, None, None);
+            convert_commands_to_swf_edges(&commands, fill, 0, true, &mut edges);
         }
         _ => return Ok(None),
     }
@@ -3599,7 +3665,17 @@ fn build_define_shape_for_element(
     w.rect_twips(bounds);
     if use_shape4 {
         w.rect_twips(bounds); // edge_bounds
-        w.u8(0); // shape4 flags
+        let nonzero = matches!(
+            element.kind,
+            ElementKind::Path {
+                fill_rule: FillRule::NonZero,
+                ..
+            } | ElementKind::PaintedPath {
+                fill_rule: FillRule::NonZero,
+                ..
+            }
+        );
+        w.u8(if nonzero { 4 } else { 0 });
     }
 
     // FillStyleArray
@@ -3653,6 +3729,7 @@ fn build_define_shape_for_element(
                 write_single_fill_style(
                     &mut w,
                     &SwfShapeFillStyle {
+                        bitmap: None,
                         color: line.color,
                         gradient: line.gradient.clone(),
                     },
@@ -3667,7 +3744,7 @@ fn build_define_shape_for_element(
 
     let num_fill_bits = needed_ub_bits(fills.len() as u32).max(1);
     let num_line_bits = needed_ub_bits(lines.len() as u32).max(1);
-    write_shape_edges_records(&mut w, &edges, num_fill_bits, num_line_bits);
+    write_shape_edges_records(&mut w, &edges, num_fill_bits, num_line_bits, None);
 
     Ok(Some((tag_code, w.buf)))
 }
@@ -3724,7 +3801,7 @@ fn build_define_morph_shape_payload(
     let mut end_edges = Vec::new();
     convert_commands_to_swf_edges(&start_cmds, fill_idx, line_idx, has_fill, &mut start_edges);
     convert_commands_to_swf_edges(&end_cmds, fill_idx, line_idx, has_fill, &mut end_edges);
-    if start_edges.is_empty() || end_edges.is_empty() {
+    if start_edges.is_empty() || start_edges.len() != end_edges.len() {
         return None;
     }
 
@@ -3749,10 +3826,10 @@ fn build_define_morph_shape_payload(
     } else {
         styles_and_start.u8(0);
     }
-    write_shape_edges_records(&mut styles_and_start, &start_edges, 1, 1);
+    write_shape_edges_records(&mut styles_and_start, &start_edges, 1, 1, Some(&end_edges));
 
     let mut end_edges_writer = SwfBitWriter::new();
-    write_shape_edges_records(&mut end_edges_writer, &end_edges, 1, 1);
+    write_shape_edges_records(&mut end_edges_writer, &end_edges, 1, 1, Some(&start_edges));
 
     let mut w = SwfBitWriter::new();
     w.u16(morph_id);
@@ -8055,8 +8132,12 @@ struct SwfDictionaryCompiler<'a> {
     avm2_classes: Vec<AbcClassSpec>,
 }
 
-fn element_character_key(element: &Element) -> String {
-    serde_json::to_string(&(&element.kind, &element.transform.primitive))
+fn element_character_key(
+    element: &Element,
+    fill: Option<&neoflash_core::AuthoredBitmapFill>,
+) -> String {
+    let paint = fill.map(|f| (&f.resource_id, f.matrix, f.repeat, f.smoothing));
+    serde_json::to_string(&(&element.kind, &element.transform.primitive, paint))
         .unwrap_or_else(|_| format!("{:?}", element.kind))
 }
 
@@ -8149,26 +8230,35 @@ impl<'a> SwfDictionaryCompiler<'a> {
             let Ok(raw) = res.decoded_bytes() else {
                 continue;
             };
-            if used_bitmaps.contains(&res.id)
-                && (res.media_type.eq_ignore_ascii_case("image/png")
-                    || res.bitmap_export.is_some_and(|s| {
-                        s.compression == neoflash_core::BitmapCompression::LosslessPng
-                    }))
-            {
+            if used_bitmaps.contains(&res.id) {
                 let bid = self.alloc_char_id();
-                if let Some((payload, bw, bh)) = build_define_bits_lossless2_payload(bid, &raw) {
-                    self.root_tags.write_tag(36, &payload);
-                    self.bitmap_ids.insert(res.id.clone(), bid);
-                    self.bitmap_meta.insert(
-                        res.id.clone(),
-                        (bw, bh, res.bitmap_export.map(|s| s.allow_smoothing)),
-                    );
+                let image = res
+                    .decode_image()
+                    .map_err(|e| ExportError::Options(e.to_string()))?;
+                if embeds_original_jpeg(res) && raw.starts_with(&[0xff, 0xd8]) {
+                    let mut jpeg = SwfBitWriter::new();
+                    jpeg.u16(bid);
+                    jpeg.bytes(&raw);
+                    self.root_tags.write_tag(21, &jpeg.buf);
                 } else {
-                    return Err(ExportError::Options(format!(
-                        "Placed PNG '{}' could not be encoded as DefineBitsLossless2",
-                        res.path
-                    )));
+                    let payload =
+                        build_define_bits_lossless2_payload(bid, &image).ok_or_else(|| {
+                            ExportError::Options(format!(
+                                "Failed to compress SWF bitmap '{}'",
+                                res.path
+                            ))
+                        })?;
+                    self.root_tags.write_tag(36, &payload);
                 }
+                self.bitmap_ids.insert(res.id.clone(), bid);
+                self.bitmap_meta.insert(
+                    res.id.clone(),
+                    (
+                        image.width,
+                        image.height,
+                        res.bitmap_export.map(|s| s.allow_smoothing),
+                    ),
+                );
             }
             if used_sounds.contains(&res.id) {
                 let info = analyze_swf_sound_resource(&res.media_type, &raw).map_err(|issue| {
@@ -8211,23 +8301,28 @@ impl<'a> SwfDictionaryCompiler<'a> {
     fn ensure_timeline_element_character(
         &mut self,
         element: &Element,
+        fill: Option<&neoflash_core::AuthoredBitmapFill>,
         cache: &mut BTreeMap<String, u16>,
     ) -> Result<Option<u16>, ExportError> {
         if matches!(element.kind, ElementKind::Instance { .. }) {
-            return self.ensure_element_character(element);
+            return self.ensure_element_character(element, fill);
         }
-        let character_key = element_character_key(element);
+        let character_key = element_character_key(element, fill);
         if let Some(&cached) = cache.get(&character_key) {
             return Ok(Some(cached));
         }
-        let cid = self.ensure_element_character(element)?;
+        let cid = self.ensure_element_character(element, fill)?;
         if let Some(cid) = cid {
             cache.insert(character_key, cid);
         }
         Ok(cid)
     }
 
-    fn ensure_element_character(&mut self, element: &Element) -> Result<Option<u16>, ExportError> {
+    fn ensure_element_character(
+        &mut self,
+        element: &Element,
+        fill: Option<&neoflash_core::AuthoredBitmapFill>,
+    ) -> Result<Option<u16>, ExportError> {
         match &element.kind {
             ElementKind::Instance { symbol_id, .. } => {
                 if let Some(sym) = self.project.symbol(symbol_id).cloned() {
@@ -8351,8 +8446,31 @@ impl<'a> SwfDictionaryCompiler<'a> {
             }
             _ => {
                 let sid = self.alloc_char_id();
-                let Some((tag_code, payload)) =
-                    build_define_shape_for_element(sid, element, self.options)?
+                let bitmap = fill
+                    .map(|f| {
+                        self.bitmap_ids
+                            .get(&f.resource_id)
+                            .map(|&character| SwfBitmapBrush {
+                                character,
+                                matrix: f.matrix,
+                                repeat: f.repeat,
+                                smoothing: f.smoothing,
+                            })
+                            .ok_or_else(|| {
+                                ExportError::Options(format!(
+                                    "Missing SWF bitmap fill resource '{}'",
+                                    f.resource_id
+                                ))
+                            })
+                    })
+                    .transpose()?;
+                let Some((tag_code, payload)) = build_define_shape_for_element(
+                    self.project,
+                    sid,
+                    element,
+                    bitmap,
+                    self.options,
+                )?
                 else {
                     return Ok(None);
                 };
@@ -8450,8 +8568,11 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     continue;
                 };
                 for (element_offset, el) in kf.elements.iter().enumerate() {
-                    let Some(cid) =
-                        self.ensure_timeline_element_character(el, &mut element_char_cache)?
+                    let Some(cid) = self.ensure_timeline_element_character(
+                        el,
+                        kf.bitmap_fill(&el.id),
+                        &mut element_char_cache,
+                    )?
                     else {
                         continue;
                     };
@@ -8493,7 +8614,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 },
                 ..Element::default()
             };
-            if let Some(cid) = self.ensure_element_character(&dummy_el)? {
+            if let Some(cid) = self.ensure_element_character(&dummy_el, None)? {
                 state_records.push((
                     0x0F,
                     cid,
@@ -8609,7 +8730,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     && kf.tween_kind == TweenKind::Shape
                     && let Some(next_kf) = layer.keyframes.get(k_idx + 1)
                     && next_kf.frame < effective_end
-                    && can_build_morph_shape(&kf.elements, &next_kf.elements)
+                    && can_morph_keys(kf, next_kf)
                 {
                     let morph_id = self.alloc_char_id();
                     if let Some(payload) = build_define_morph_shape_payload(
@@ -8624,7 +8745,11 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     }
                 }
                 for el in &kf.elements {
-                    let _ = self.ensure_timeline_element_character(el, &mut element_char_cache)?;
+                    let _ = self.ensure_timeline_element_character(
+                        el,
+                        kf.bitmap_fill(&el.id),
+                        &mut element_char_cache,
+                    )?;
                 }
             }
         }
@@ -8705,8 +8830,11 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 // Evaluate layer at `frame`
                 let sampled_elements = neoflash_core::sample_layer_in(timeline, layer, frame);
                 for (e_offset, el) in sampled_elements.iter().enumerate() {
-                    let Some(cid) =
-                        self.ensure_timeline_element_character(el, &mut element_char_cache)?
+                    let Some(cid) = self.ensure_timeline_element_character(
+                        el,
+                        active_k_idx.and_then(|k| layer.keyframes[k].bitmap_fill(&el.id)),
+                        &mut element_char_cache,
+                    )?
                     else {
                         continue;
                     };
@@ -8983,7 +9111,10 @@ pub fn publish_swf_bytes(
         });
     }
 
-    let project_cow = crate::strip_skipped_foreign_scripts(project);
+    let mut project_cow = crate::strip_skipped_foreign_scripts(project);
+    if crate::video_frames::has_layers(&project_cow) {
+        crate::video_frames::prepare(project_cow.to_mut(), None)?;
+    }
     let project = project_cow.as_ref();
 
     let scene_ids: Vec<&str> = if project.scenes.is_empty() {
@@ -9461,7 +9592,7 @@ mod dictionary_capacity_tests {
             jpeg_report
                 .items
                 .iter()
-                .any(|item| item.code == "swf_bitmap_codec_unsupported")
+                .any(|item| item.code == "swf_bitmap_data_unsupported")
         );
         assert!(!jpeg_report.can_proceed());
 

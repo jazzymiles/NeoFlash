@@ -326,6 +326,7 @@ fn matrix_attr(m: [f64; 6], prec: usize) -> String {
 
 #[derive(Default)]
 struct SharedBannerDefs {
+    bitmap_paints: crate::svg_bitmap::SvgBitmapPaints,
     defs_markup: String,
     paths: BTreeMap<String, String>,
     gradients: BTreeMap<String, String>,
@@ -524,7 +525,7 @@ fn render_banner_draw(
     frame_clips: &BTreeMap<String, String>,
     defs: &mut SharedBannerDefs,
     out: &mut String,
-) {
+) -> Result<(), ExportError> {
     let item = &draw.item;
     let prec = options.precision.clamp(1, 4);
     let xf = matrix_attr(item.transform, prec);
@@ -532,9 +533,11 @@ fn render_banner_draw(
     let ct = item.color_transform;
 
     let mut group_attrs = String::new();
+    let mut clip_groups = 0;
     for cid in &draw.clip_ids {
         if let Some(svg_cid) = frame_clips.get(cid) {
-            let _ = write!(group_attrs, " clip-path=\"url(#{svg_cid})\"");
+            let _ = write!(out, "<g clip-path=\"url(#{svg_cid})\">");
+            clip_groups += 1;
         }
     }
     if !draw.blend_mode.is_normal() {
@@ -554,7 +557,7 @@ fn render_banner_draw(
     {
         let _ = write!(group_attrs, " filter=\"url(#{fid})\"");
     }
-    if (alpha - 1.0).abs() > 1e-4 {
+    if item.bitmap_fill.is_none() && (alpha - 1.0).abs() > 1e-4 {
         let _ = write!(group_attrs, " opacity=\"{}\"", fmt_num(alpha, 2));
     }
 
@@ -563,6 +566,14 @@ fn render_banner_draw(
         let _ = write!(out, "<g{group_attrs}>");
     }
 
+    let bitmap = item
+        .bitmap_fill
+        .as_ref()
+        .map(|fill| {
+            defs.bitmap_paints
+                .paint(project, &item.kind, fill, ct, &mut defs.defs_markup)
+        })
+        .transpose()?;
     let paint_attrs = |fill: Color,
                        stroke: Color,
                        sw: f64,
@@ -571,7 +582,9 @@ fn render_banner_draw(
                        defs: &mut SharedBannerDefs|
      -> String {
         let mut s = String::new();
-        if let Some(g) = fg {
+        if let Some(paint) = &bitmap {
+            let _ = write!(s, " fill=\"{paint}\"");
+        } else if let Some(g) = fg {
             let gid = defs.intern_gradient(g, ct, prec);
             let _ = write!(s, " fill=\"url(#{gid})\"");
         } else {
@@ -719,12 +732,16 @@ fn render_banner_draw(
         } => {
             let tc = apply_ct(*color, ct);
             if options.text_as_outlines {
-                let outlines = neoflash_core::TextFieldState::static_text_to_outline_commands(
+                let bytes =
+                    crate::fonts::resolve_project_font_bytes(project, font_family, false, false);
+                let outlines = crate::fonts::extract_text_outline_commands_with_diagnostics(
+                    &item.element_id,
                     text,
                     font_family,
                     *font_size,
-                    None,
-                );
+                    bytes.as_deref(),
+                )
+                .map_err(|m| ExportError::Options(m.join(", ")))?;
                 let d = path_d(&outlines, prec);
                 if !d.is_empty() {
                     let pid = defs.intern_path(&d);
@@ -751,12 +768,19 @@ fn render_banner_draw(
             ];
             let tc = apply_ct(base, ct);
             if options.text_as_outlines {
-                let outlines = neoflash_core::TextFieldState::static_text_to_outline_commands(
-                    text,
+                let field = neoflash_core::TextFieldState::from_kind(&item.kind).expect("text box");
+                let bytes = crate::fonts::resolve_project_font_bytes(
+                    project,
                     &format.font,
-                    format.size,
-                    None,
+                    format.bold,
+                    format.italic,
                 );
+                let outlines = crate::fonts::extract_text_field_outline_commands_with_diagnostics(
+                    &item.element_id,
+                    &field,
+                    bytes.as_deref(),
+                )
+                .map_err(|m| ExportError::Options(m.join(", ")))?;
                 let d = path_d(&outlines, prec);
                 if !d.is_empty() {
                     let pid = defs.intern_path(&d);
@@ -780,6 +804,10 @@ fn render_banner_draw(
     if wrapped {
         out.push_str("</g>");
     }
+    for _ in 0..clip_groups {
+        out.push_str("</g>");
+    }
+    Ok(())
 }
 
 fn compile_native_banner_html_inner(
@@ -912,7 +940,7 @@ fn compile_native_banner_html_inner(
                 &frame_clips,
                 &mut defs,
                 &mut frame_markup,
-            );
+            )?;
         }
 
         if let Some(last) = spans.last_mut()

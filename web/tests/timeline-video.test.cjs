@@ -72,8 +72,8 @@ test('authored timeline video binds full placement paths, decodes bundled bytes 
         if (!this.src) return;
         assert.equal(this.muted, true, 'source is browser-muted before decoding');
         assert.equal(this.volume, 0, 'source starts with zero audible gain');
-        this.videoWidth = 320;
-        this.videoHeight = 180;
+        this.videoWidth = 1080;
+        this.videoHeight = 1920;
         this.duration = 4;
         this.readyState = 1;
         this.dispatch('loadedmetadata');

@@ -357,12 +357,13 @@ fn verify_midnight_express_episode(
     let aep_dir = scratch.join("aep");
     fs::create_dir_all(&aep_dir).unwrap();
     let aep_opts = AepOptions {
+        use_native_writer: false,
         shape_morph_step: 4,
         ..AepOptions::default()
     };
     let aep_report = export_project_aep(&project, aep_dir.join(format!("{slug}.aep")), &aep_opts)
         .expect("export Midnight Express AEP");
-    assert!(aep_report.aep_path.exists());
+    assert!(aep_report.output_path.exists() && aep_report.aep_path.is_none());
     assert!(aep_report.jsx_path.as_ref().is_some_and(|p| p.exists()));
     assert_eq!(
         aep_report.footage_files.len(),

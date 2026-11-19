@@ -232,7 +232,20 @@ pub(crate) fn convert(
         );
     }
     if let Some(media) = child(root, "media") {
-        parser.parse_media(media, binary_files);
+        let video_previews = main
+            .root()
+            .children()
+            .filter_map(|child| child.pi())
+            .any(|pi| pi.target == "neoflash-video-frame-previews" && pi.value == Some("v1"));
+        parser.parse_media(media, binary_files, video_previews);
+        let count = parser
+            .bitmaps
+            .values()
+            .filter(|bitmap| bitmap.source_scale != [1.0, 1.0])
+            .count();
+        if count > 0 {
+            parser.report.warning("xfl_video_frame_previews", "DOMDocument.xml/media", format!("Imported {count} video frame images at preview resolution to fit the decoded-image budget. Stage size and frame timing are preserved. The source package contains the full-resolution images."));
+        }
     }
     if let Some(assets) = child(root, "fonts") {
         parser.audit(assets, "DOMDocument.xml", &[], &["DOMFontItem"]);
@@ -929,6 +942,8 @@ struct XflBitmapAsset {
     resource_id: Id,
     width: u32,
     height: u32,
+    /// Full-resolution XFL pixels per imported bitmap pixel on each axis.
+    source_scale: [f64; 2],
     smoothing: bool,
 }
 
@@ -3344,6 +3359,8 @@ impl Parser<'_> {
                     );
                     return vec![];
                 };
+                transform.scale_x *= asset.source_scale[0];
+                transform.scale_y *= asset.source_scale[1];
                 name = String::new();
                 ElementKind::Bitmap {
                     resource_id: asset.resource_id,
@@ -4667,7 +4684,12 @@ impl Parser<'_> {
         }
     }
 
-    fn parse_media(&mut self, media: Node<'_, '_>, binary_files: &BTreeMap<String, Vec<u8>>) {
+    fn parse_media(
+        &mut self,
+        media: Node<'_, '_>,
+        binary_files: &BTreeMap<String, Vec<u8>>,
+        video_previews: bool,
+    ) {
         self.audit(
             media,
             "DOMDocument.xml",
@@ -4681,7 +4703,7 @@ impl Parser<'_> {
         );
         for item in elements(media) {
             match item.tag_name().name() {
-                "DOMBitmapItem" => self.parse_bitmap_item(item, binary_files),
+                "DOMBitmapItem" => self.parse_bitmap_item(item, binary_files, video_previews),
                 "DOMSoundItem" => self.parse_sound_item(item, binary_files),
                 "DOMVideoItem" => self.parse_video_item(item),
                 "DOMCompiledClipItem" => self.parse_compiled_clip_item(item),
@@ -4925,7 +4947,12 @@ impl Parser<'_> {
         Some(unit)
     }
 
-    fn parse_bitmap_item(&mut self, item: Node<'_, '_>, binary_files: &BTreeMap<String, Vec<u8>>) {
+    fn parse_bitmap_item(
+        &mut self,
+        item: Node<'_, '_>,
+        binary_files: &BTreeMap<String, Vec<u8>>,
+        video_previews: bool,
+    ) {
         let loc = self.location(item, "DOMDocument.xml");
         self.audit(
             item,
@@ -5035,6 +5062,28 @@ impl Parser<'_> {
                 };
             let effective_raw = owned_png.as_deref().unwrap_or(raw);
             if let Some((media_type, ext)) = detect_raster_format(effective_raw) {
+                let preview = if video_previews
+                    && let Some(size) = item.attribute("href").and_then(media::video_preview_size)
+                {
+                    match media::decode_video_preview(effective_raw, ext, size) {
+                        Ok(preview) => preview,
+                        Err(error) => {
+                            self.report.error(
+                                "xfl_media_invalid",
+                                &loc,
+                                format!("Invalid video frame image {name:?}: {error}"),
+                            );
+                            return;
+                        }
+                    }
+                } else {
+                    None
+                };
+                let (effective_raw, source_scale) = preview
+                    .as_ref()
+                    .map_or((effective_raw, [1., 1.]), |(bytes, scale)| {
+                        (bytes.as_slice(), *scale)
+                    });
                 let Some(unit) = self.register_resource(
                     &resource_id,
                     build_xfl_resource_path("assets/bitmaps", idx, name, ext),
@@ -5053,6 +5102,7 @@ impl Parser<'_> {
                                 resource_id,
                                 width: decoded.width,
                                 height: decoded.height,
+                                source_scale,
                                 smoothing,
                             },
                         );
@@ -5127,6 +5177,7 @@ impl Parser<'_> {
                                 resource_id,
                                 width: decoded.width,
                                 height: decoded.height,
+                                source_scale: [1., 1.],
                                 smoothing,
                             },
                         );

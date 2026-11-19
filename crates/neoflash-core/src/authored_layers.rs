@@ -19,7 +19,7 @@ pub(crate) struct AuthoredBlendGroupPlan {
     pub roots: Vec<Vec<Id>>,
     pub blend_mode: BlendMode,
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AuthoredDraw {
     pub item: DrawItem,
     pub clip_ids: Vec<String>,

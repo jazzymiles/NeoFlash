@@ -2694,7 +2694,7 @@ fn structured_diagnostics_cover_every_unsupported_or_approximated_construct_with
                 ..PerspectiveGridSpec::default()
             }),
             bitmap_fills: vec![AuthoredBitmapFill {
-                element_id: "grad-spread-shape".into(),
+                element_id: "picture".into(),
                 resource_id: "tex".into(),
                 matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
                 repeat: true,
@@ -2707,6 +2707,18 @@ fn structured_diagnostics_cover_every_unsupported_or_approximated_construct_with
                 ..InstancePropertyOverride::default()
             }],
             elements: vec![
+                Element {
+                    id: "picture".into(),
+                    name: "Tiled picture".into(),
+                    kind: ElementKind::Rectangle {
+                        width: 20.0,
+                        height: 20.0,
+                        fill: [255; 4],
+                        stroke: [0; 4],
+                        stroke_width: 0.0,
+                    },
+                    ..Element::default()
+                },
                 Element {
                     id: "vid-1".into(),
                     name: "IntroVideo".into(),

@@ -1436,6 +1436,12 @@ impl<'a> LottieBuilder<'a> {
             }
         };
 
+        // A precomp draws its origin at the layer anchor. Vector masks live in that same padded coordinate space.
+        let anchor = &layer_obj["ks"]["a"]["k"];
+        let anchor = [
+            anchor[0].as_f64().unwrap_or_default(),
+            anchor[1].as_f64().unwrap_or_default(),
+        ];
         let mask_contours_at = |frame: u32| -> Vec<LottieBezier> {
             let inv_target = invert_affine(neoflash_core::transform_matrix(target_at(frame)));
             let mut out = Vec::new();
@@ -1451,6 +1457,9 @@ impl<'a> LottieBuilder<'a> {
                     Some(inv) => neoflash_core::affine_multiply(inv, mask_m),
                     None => mask_m,
                 };
+                let mut combined = combined;
+                combined[4] += anchor[0];
+                combined[5] += anchor[1];
                 let local_cmds = transform_path_commands(&cmds, combined);
                 out.extend(path_commands_to_lottie_beziers(&local_cmds));
             }

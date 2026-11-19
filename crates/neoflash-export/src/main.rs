@@ -348,7 +348,7 @@ where
             + report.footage_layer_count;
         println!(
             "After Effects export: {} ({} comps, {} layers, {} expressions, {} markers, {} footage)",
-            report.aep_path.display(),
+            report.output_path.display(),
             report.composition_count,
             total_layers,
             report.expression_count,

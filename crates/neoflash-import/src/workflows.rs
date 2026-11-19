@@ -341,6 +341,41 @@ mod tests {
     fn psd_imports_layers_clipping_masks_rle_text_and_flatten_modes_with_diagnostics() {
         let psd_bytes = build_synthetic_psd();
 
+        // A saved reference prevents lossy effects or adjustment layers turning into placeholders.
+        let (appearance, diagnostics) =
+            import_psd_bytes(&psd_bytes, "Auto", &PsdImportOptions::default()).unwrap();
+        assert!(
+            diagnostics
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "psd-merged-appearance")
+        );
+        assert_eq!(appearance.symbols[0].timeline.layers.len(), 1);
+        assert_eq!(
+            &appearance.resources[0].decode_image().unwrap().rgba[..4],
+            &[128, 128, 128, 255],
+            "a positive layer count makes the extra channel a saved selection"
+        );
+        let mut transparent = psd_bytes.clone();
+        // Header, empty color/resource sections, layer/mask length and layer info length.
+        transparent[42..44].copy_from_slice(&(-4i16).to_be_bytes());
+        let (appearance, _) =
+            import_psd_bytes(&transparent, "Alpha", &PsdImportOptions::default()).unwrap();
+        assert_eq!(appearance.background[3], 0);
+        assert_eq!(
+            &appearance.resources[0].decode_image().unwrap().rgba[..4],
+            &[2, 2, 2, 128],
+            "Photoshop merged RGB is matted over white"
+        );
+        let mut no_preview = psd_bytes.clone();
+        let composite_start = no_preview.len() - (16 * 16 * 4 + 2);
+        no_preview.truncate(composite_start);
+        let (editable, _) =
+            import_psd_bytes(&no_preview, "Layers", &PsdImportOptions::default()).unwrap();
+        assert_eq!(
+            editable.symbols[0].timeline.layers[0].name, "MaskBase",
+            "editable fallback preserves bottom-to-top paint order"
+        );
         // 1. TimelineLayers + EditableText + skip hidden layers
         let opts_layers = PsdImportOptions {
             layer_mapping: PsdLayerMapping::TimelineLayers,
