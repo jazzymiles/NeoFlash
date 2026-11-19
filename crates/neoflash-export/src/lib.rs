@@ -255,6 +255,7 @@ const WASM_FILE: &str = "neoflash_web_bg.wasm";
 const BINDINGS_FILE: &str = "neoflash_web.js";
 const NOTICES_FILE: &str = "THIRD_PARTY_NOTICES.txt";
 const RUNTIME_ID_FILE: &str = "runtime-id.js";
+const MODULE_FILE: &str = "module.mjs";
 
 pub(crate) fn static_runtime_js_bytes() -> usize {
     HOST.len()
@@ -1279,6 +1280,7 @@ fn reserved_publish_path(path: &str) -> bool {
         "runtime.js",
         "bundle.js",
         "bundle.js.map",
+        MODULE_FILE,
         "sprite_sheet.png",
         "sprite_sheet.json",
         "assets/sprite_sheet.png",
@@ -1664,15 +1666,15 @@ pub(crate) fn assemble_with_config(
     } else {
         &prepared.wasm
     };
+    let reusable_bindings = wrap_reusable_wasm_bindings(&prepared.bindings);
     let bindings_bytes = if shared_url.is_none() && !level.wasm_inline() {
         format!(
-            "{}\nglobalThis.NeoFlashWasmBase64 = \"{}\";\n",
-            prepared.bindings,
+            "{reusable_bindings}\nglobalThis.NeoFlashWasmBase64 = \"{}\";\n",
             STANDARD.encode(wasm)
         )
         .into_bytes()
     } else {
-        prepared.bindings.clone().into_bytes()
+        reusable_bindings.into_bytes()
     };
     let runtime_js_bytes = if shared_url.is_some() {
         0
@@ -2094,6 +2096,10 @@ pub(crate) fn assemble_with_config(
         };
         files.push(("bundle.js.map".into(), map_json.into_bytes()));
     }
+    let mut module_assets: Vec<String> = extra_asset_files
+        .iter()
+        .map(|(name, _)| name.clone())
+        .collect();
     files.extend(extra_asset_files);
     let mut external_paths = Vec::<String>::new();
     for ext_vid in &effective_external_videos {
@@ -2115,17 +2121,42 @@ pub(crate) fn assemble_with_config(
             )));
         }
         external_paths.push(ext_vid.relative_path.clone());
+        module_assets.push(ext_vid.relative_path.clone());
         if !ext_vid.bytes.is_empty() {
             files.push((ext_vid.relative_path.clone(), ext_vid.bytes.clone()));
         }
     }
+    let mut module_runtime_files = Vec::with_capacity(modules.len() + 3);
+    if shared_url.is_some() {
+        module_runtime_files.push(RUNTIME_ID_FILE);
+    }
+    module_runtime_files.push(BINDINGS_FILE);
+    module_runtime_files.extend(modules.iter().map(|(file, _)| *file));
+    module_runtime_files.push("runtime.js");
+    let module_wasm_url = match (level, &shared_url) {
+        (SizeLevel::Full, _) => None,
+        (_, Some(url)) => Some(format!("{}/{WASM_FILE}", url.trim_end_matches('/'))),
+        _ => Some(WASM_FILE.to_owned()),
+    };
+    let module_mjs = render_module_mjs(
+        project,
+        is_dom_mode,
+        level,
+        shared_url.as_deref(),
+        module_wasm_url.as_deref(),
+        &module_assets,
+        &module_runtime_files,
+        config.is_some_and(|c| !c.minify),
+    )?;
     let include_html = config.map(|c| c.include_html).unwrap_or(true);
     if include_html {
         files.push(("bundle.js".into(), bundle_js.into_bytes()));
+        files.push((MODULE_FILE.into(), module_mjs.into_bytes()));
         files.push(("README.txt".into(), readme.into_bytes()));
         files.push(("index.html".into(), html.into_bytes()));
     } else {
         files.push(("README.txt".into(), readme.into_bytes()));
+        files.push((MODULE_FILE.into(), module_mjs.into_bytes()));
         files.push(("bundle.js".into(), bundle_js.into_bytes()));
     }
     validate_package_file_names(&files)?;
@@ -2223,9 +2254,263 @@ fn shared_runtime_package_files(bindings: &str, wasm: &[u8], id: &str) -> Vec<(S
     files
 }
 
+fn wrap_reusable_wasm_bindings(bindings: &str) -> String {
+    const PREFIX: &str = "let NeoFlashWasm = (function(exports) {";
+    const SUFFIX: &str = "})({ __proto__: null });";
+    let trimmed = bindings.trim_end();
+    if let Some(body) = trimmed
+        .strip_prefix(PREFIX)
+        .and_then(|rest| rest.strip_suffix(SUFFIX))
+    {
+        format!(
+            "globalThis.NeoFlashWasmFactory = globalThis.NeoFlashWasmFactory || function() {{ return (function(exports) {{{body}}})({{ __proto__: null }}); }};\nvar NeoFlashWasm = globalThis.NeoFlashWasm || (globalThis.NeoFlashWasm = globalThis.NeoFlashWasmFactory());\n"
+        )
+    } else {
+        bindings.to_owned()
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_module_mjs(
+    project: &Project,
+    is_dom_mode: bool,
+    level: &SizeLevel,
+    shared_url: Option<&str>,
+    wasm_url: Option<&str>,
+    assets: &[String],
+    runtime_files: &[&str],
+    pretty: bool,
+) -> Result<String, ExportError> {
+    let manifest_value = serde_json::json!({
+        "name": project.name,
+        "width": project.width,
+        "height": project.height,
+        "fps": project.fps,
+        "renderMode": if is_dom_mode { "dom" } else { "canvas" },
+        "runtimeLevel": level.name(),
+        "runtimeUrl": shared_url,
+        "bundle": "bundle.js",
+        "wasmUrl": wasm_url,
+        "assets": assets,
+    });
+    let manifest_json = if pretty {
+        serde_json::to_string_pretty(&manifest_value)?
+    } else {
+        serde_json::to_string(&manifest_value)?
+    };
+    let runtime_files_json = serde_json::to_string(runtime_files)?;
+    let shared_url_json = serde_json::to_string(&shared_url)?;
+    Ok(format!(
+        r#"/* NeoFlash HTML5 publication module (`T-016`). */
+const MODULE_DIR_URL = new URL('.', import.meta.url).href;
+const SHARED_RUNTIME_URL = {shared_url_json};
+const RUNTIME_FILES = Object.freeze({runtime_files_json});
+
+export const manifest = Object.freeze({manifest_json});
+
+const bundleTextCache = new Map();
+
+function pageBaseUrl() {{
+  if (typeof document !== 'undefined' && typeof document.baseURI === 'string' && document.baseURI) {{
+    return document.baseURI;
+  }}
+  if (typeof location !== 'undefined' && typeof location.href === 'string' && location.href) {{
+    return location.href;
+  }}
+  return MODULE_DIR_URL;
+}}
+
+function resolveDirUrl(raw, fallbackBase) {{
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  let spec = raw.trim();
+  const clean = spec.split('#')[0].split('?')[0];
+  const lastSeg = clean.slice(clean.lastIndexOf('/') + 1);
+  if (!clean.endsWith('/') && !/\.[A-Za-z0-9]+$/.test(lastSeg)) {{
+    spec += '/';
+  }}
+  const resolved = new URL(spec, fallbackBase || MODULE_DIR_URL);
+  if (!resolved.pathname.endsWith('/')) {{
+    resolved.pathname = resolved.pathname.slice(0, resolved.pathname.lastIndexOf('/') + 1);
+  }}
+  resolved.search = '';
+  resolved.hash = '';
+  return resolved.href;
+}}
+
+function resolveBundleUrl(baseUrl) {{
+  const raw = typeof baseUrl === 'string' && baseUrl.trim() ? baseUrl.trim() : import.meta.url;
+  const clean = raw.split('#')[0].split('?')[0];
+  if (clean.endsWith('/bundle.js') || clean === 'bundle.js') {{
+    return new URL(raw, MODULE_DIR_URL).href;
+  }}
+  const lastSeg = clean.slice(clean.lastIndexOf('/') + 1);
+  if (!clean.endsWith('/') && lastSeg && !/\.(?:mjs|js|cjs|html|htm|json)$/i.test(lastSeg)) {{
+    return new URL('./bundle.js', new URL(raw + '/', MODULE_DIR_URL).href).href;
+  }}
+  return new URL('./bundle.js', new URL(raw, MODULE_DIR_URL).href).href;
+}}
+
+function parseBundleSource(text) {{
+  const trimmed = String(text || '').trim();
+  if (!trimmed) throw new TypeError('NeoFlash bundle.js is empty.');
+  const prefix = /^(?:\/\*[\s\S]*?\*\/\s*)*(?:globalThis|window|self)\.NeoFlashBundle\s*=\s*/.exec(trimmed);
+  const jsonText = prefix
+    ? trimmed.slice(prefix[0].length).replace(/(?:;\s*)?(?:\/\/#[^\r\n]*\s*)*$/, '').replace(/;\s*$/, '')
+    : trimmed;
+  const parsed = JSON.parse(jsonText);
+  if (!parsed || typeof parsed !== 'object' || !parsed.project || typeof parsed.project !== 'object') {{
+    throw new TypeError('Malformed NeoFlash bundle payload.');
+  }}
+  return parsed;
+}}
+
+async function fetchBundleText(url) {{
+  if (url.startsWith('file:') && typeof process !== 'undefined' && process.versions?.node) {{
+    const fsSpec = 'node:fs/promises';
+    const urlSpec = 'node:url';
+    const [fsMod, urlMod] = await Promise.all([import(fsSpec), import(urlSpec)]);
+    return fsMod.readFile(urlMod.fileURLToPath(url), 'utf8');
+  }}
+  const response = await fetch(url);
+  if (!response.ok) {{
+    throw new Error(`Failed to load NeoFlash bundle (${{url}}: ${{response.status}}).`);
+  }}
+  return response.text();
+}}
+
+export async function loadBundle(baseUrl = import.meta.url) {{
+  const bundleUrl = resolveBundleUrl(baseUrl);
+  let pending = bundleTextCache.get(bundleUrl);
+  if (!pending) {{
+    pending = fetchBundleText(bundleUrl).catch(err => {{
+      bundleTextCache.delete(bundleUrl);
+      throw err;
+    }});
+    bundleTextCache.set(bundleUrl, pending);
+  }}
+  return parseBundleSource(await pending);
+}}
+
+function runtimeRegistry() {{
+  let registry = globalThis.__neoflashRuntimeLoader;
+  if (!(registry instanceof Map)) {{
+    registry = new Map();
+    Object.defineProperty(globalThis, '__neoflashRuntimeLoader', {{
+      value: registry,
+      configurable: true,
+      enumerable: false,
+      writable: true,
+    }});
+  }}
+  if (!(registry.files instanceof Map)) {{
+    registry.files = new Map();
+  }}
+  return registry;
+}}
+
+export async function ensureRuntime(options = {{}}) {{
+  const runtimeBase = options?.runtimeUrl
+    ? resolveDirUrl(options.runtimeUrl, pageBaseUrl())
+    : (SHARED_RUNTIME_URL ? resolveDirUrl(SHARED_RUNTIME_URL, MODULE_DIR_URL) : MODULE_DIR_URL);
+  const registry = runtimeRegistry();
+  const missingFiles = RUNTIME_FILES.filter(file => {{
+    const fileKey = file === 'runtime-id.js' ? `${{runtimeBase}}${{file}}` : file;
+    return !registry.files.has(fileKey);
+  }});
+  if (registry.has(runtimeBase) && missingFiles.length === 0) {{
+    return registry.get(runtimeBase);
+  }}
+
+  const priorPromise = registry.get(runtimeBase);
+  const loadPromise = (async () => {{
+    if (typeof document === 'undefined' || !document.head || typeof document.createElement !== 'function') {{
+      if (typeof globalThis.NeoFlash?.mount === 'function') return;
+      throw new Error('NeoFlash module ensureRuntime requires a DOM document or preloaded NeoFlash runtime.');
+    }}
+    if (typeof globalThis.NeoFlash?.mount === 'function') {{
+      for (const existing of Array.from(document.scripts || [])) {{
+        const rawSrc = existing.getAttribute?.('src') || existing.src || '';
+        if (!rawSrc) continue;
+        const clean = rawSrc.split('#')[0].split('?')[0];
+        const fileName = clean.slice(clean.lastIndexOf('/') + 1);
+        if (fileName && fileName !== 'runtime-id.js' && !registry.files.has(fileName)) {{
+          registry.files.set(fileName, Promise.resolve());
+        }}
+      }}
+    }}
+    globalThis.__neoflashManualMountDepth = (globalThis.__neoflashManualMountDepth || 0) + 1;
+    globalThis.__NEOFLASH_MANUAL_MOUNT__ = true;
+    try {{
+      const pending = priorPromise ? [priorPromise] : [];
+      for (const file of RUNTIME_FILES) {{
+        const fileKey = file === 'runtime-id.js' ? `${{runtimeBase}}${{file}}` : file;
+        let filePromise = registry.files.get(fileKey);
+        if (!filePromise) {{
+          const src = new URL(file, runtimeBase).href;
+          filePromise = new Promise((resolve, reject) => {{
+            const el = document.createElement('script');
+            el.src = src;
+            el.async = false;
+            el.dataset.neoflashRuntime = file;
+            el.onload = () => resolve();
+            el.onerror = () => {{
+              registry.files.delete(fileKey);
+              el.remove?.();
+              reject(new Error(`Failed to load NeoFlash runtime script: ${{src}}`));
+            }};
+            document.head.appendChild(el);
+          }});
+          registry.files.set(fileKey, filePromise);
+        }}
+        pending.push(filePromise);
+      }}
+      await Promise.all(pending);
+    }} finally {{
+      globalThis.__neoflashManualMountDepth = Math.max(0, (globalThis.__neoflashManualMountDepth || 1) - 1);
+      if (globalThis.__neoflashManualMountDepth === 0) {{
+        delete globalThis.__NEOFLASH_MANUAL_MOUNT__;
+      }}
+    }}
+  }})().catch(err => {{
+    if (registry.get(runtimeBase) === loadPromise) registry.delete(runtimeBase);
+    throw err;
+  }});
+
+  registry.set(runtimeBase, loadPromise);
+  return loadPromise;
+}}
+
+export async function mount(container, options = {{}}) {{
+  const [, loadedBundle] = await Promise.all([
+    ensureRuntime(options),
+    options?.bundle ? Promise.resolve(options.bundle) : loadBundle(options?.baseUrl || MODULE_DIR_URL),
+  ]);
+  if (typeof globalThis.NeoFlash?.mount !== 'function') {{
+    throw new Error('NeoFlash runtime did not register globalThis.NeoFlash.mount.');
+  }}
+  const baseUrl = options?.baseUrl
+    ? resolveDirUrl(options.baseUrl, pageBaseUrl())
+    : MODULE_DIR_URL;
+  const runtimeUrl = options?.runtimeUrl
+    ? resolveDirUrl(options.runtimeUrl, pageBaseUrl())
+    : (SHARED_RUNTIME_URL ? resolveDirUrl(SHARED_RUNTIME_URL, MODULE_DIR_URL) : baseUrl);
+  return globalThis.NeoFlash.mount(container, {{
+    ...options,
+    bundle: loadedBundle,
+    baseUrl,
+    runtimeUrl,
+  }});
+}}
+
+export default mount;
+"#
+    ))
+}
+
 fn shared_runtime_files_from(bindings: &str, wasm: &[u8], id: &str) -> Vec<(String, Vec<u8>)> {
+    let reusable = wrap_reusable_wasm_bindings(bindings);
     let bindings_with_fallback = format!(
-        "{bindings}\nglobalThis.NeoFlashWasmBase64 = \"{}\";\n",
+        "{reusable}\nglobalThis.NeoFlashWasmBase64 = \"{}\";\n",
         STANDARD.encode(wasm)
     );
     let mut files = vec![
@@ -2359,14 +2644,18 @@ fn package_marker(
     kind: &str,
 ) -> Result<Vec<u8>, ExportError> {
     let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
-    Ok(serde_json::to_string_pretty(&serde_json::json!({
+    let has_module = files.iter().any(|(file, _)| file == MODULE_FILE);
+    let mut marker = serde_json::json!({
         "generator": "NeoFlash",
         "format_version": 1,
         "kind": kind,
         "project": name,
         "files": names,
-    }))?
-    .into_bytes())
+    });
+    if has_module && let Some(map) = marker.as_object_mut() {
+        map.insert("module".to_owned(), serde_json::json!(MODULE_FILE));
+    }
+    Ok(serde_json::to_string_pretty(&marker)?.into_bytes())
 }
 
 pub(crate) fn has_non_ignorable_dir_entries(dir: &Path) -> std::io::Result<bool> {

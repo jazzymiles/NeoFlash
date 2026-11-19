@@ -518,7 +518,7 @@ fn size_levels_change_delivery_and_leave_out_only_unnamed_families() {
     files.sort();
     assert_eq!(
         files,
-        ["README.txt", "bundle.js", "index.html", MARKER],
+        ["README.txt", "bundle.js", "index.html", MODULE_FILE, MARKER],
         "stale runtime files are removed"
     );
     assert!(html.contains("src=\"https://cdn.example.com/nf/runtime-id.js\""));

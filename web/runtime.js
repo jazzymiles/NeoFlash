@@ -826,7 +826,424 @@
     if (errors.length === 1) throw errors[0];
     if (errors.length) throw new AggregateError(errors, 'Multiple runtime cleanup operations failed.', {cause: errors[0]});
   }
-  const helpers = { createScenePainter, localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow, functionBodyLineOffset, scriptFunction, mapScriptStack, sourceLocationText, mappedErrorFrames, formatTraceValue, formatTraceArgs, emitScriptMessage, completeCleanup, ensureBundleFontsLoaded, mountAfterBundleFonts };
+  const sharedWasmModules = (global && global.__neoflashSharedWasmModules instanceof Map)
+    ? global.__neoflashSharedWasmModules
+    : new Map();
+  if (global && typeof global === 'object' && !(global.__neoflashSharedWasmModules instanceof Map)) {
+    try {
+      Object.defineProperty(global, '__neoflashSharedWasmModules', {
+        value: sharedWasmModules,
+        configurable: true,
+        enumerable: false,
+        writable: true,
+      });
+    } catch (_) {}
+  }
+  const wasmInitPromises = new WeakMap();
+  const mountedContainers = new WeakMap();
+
+  function hashString64(text) {
+    let h1 = 0x811c9dc5 >>> 0;
+    let h2 = 5381 >>> 0;
+    const len = text.length;
+    for (let i = 0; i < len; i++) {
+      const code = text.charCodeAt(i);
+      h1 ^= code;
+      h1 = Math.imul(h1, 0x01000193) >>> 0;
+      h2 = (Math.imul(h2, 33) ^ code) >>> 0;
+    }
+    return `${h1.toString(16).padStart(8, '0')}${h2.toString(16).padStart(8, '0')}`;
+  }
+
+  function decodeBase64Bytes(b64) {
+    if (typeof global.atob === 'function') {
+      const bin = global.atob(b64);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+    if (typeof Buffer !== 'undefined') {
+      return new Uint8Array(Buffer.from(b64, 'base64'));
+    }
+    throw new Error('Base64 decoding is unavailable in this JavaScript environment.');
+  }
+
+  function compileWasmBase64Once(b64) {
+    const cacheKey = `b64:${b64.length}:${hashString64(b64)}`;
+    let pending = sharedWasmModules.get(cacheKey);
+    if (!pending) {
+      pending = Promise.resolve()
+        .then(() => WebAssembly.compile(decodeBase64Bytes(b64)))
+        .catch(err => {
+          sharedWasmModules.delete(cacheKey);
+          throw err;
+        });
+      sharedWasmModules.set(cacheKey, pending);
+    }
+    return pending;
+  }
+
+  function compileWasmUrlOnce(wasmUrl) {
+    const cacheKey = `url:${wasmUrl}`;
+    let pending = sharedWasmModules.get(cacheKey);
+    if (!pending) {
+      pending = (async () => {
+        if (typeof global.fetch !== 'function') {
+          throw new Error('This environment does not provide fetch() for loading WebAssembly.');
+        }
+        const resp = await global.fetch(wasmUrl);
+        if (!resp.ok) {
+          throw new Error(`Failed to fetch WebAssembly runtime (${wasmUrl}: ${resp.status}).`);
+        }
+        const contentType = String(resp.headers?.get?.('Content-Type') || '');
+        if (typeof WebAssembly.compileStreaming === 'function' && /^application\/wasm\b/i.test(contentType)) {
+          return WebAssembly.compileStreaming(resp);
+        }
+        const buf = await resp.arrayBuffer();
+        return WebAssembly.compile(buf);
+      })().catch(err => {
+        sharedWasmModules.delete(cacheKey);
+        throw err;
+      });
+      sharedWasmModules.set(cacheKey, pending);
+    }
+    return pending;
+  }
+
+  function normalizeModuleBaseUrl(rawBase, doc) {
+    const fallback = (typeof doc?.baseURI === 'string' && doc.baseURI)
+      ? doc.baseURI
+      : (typeof global.location?.href === 'string' ? global.location.href : null);
+    if (typeof rawBase !== 'string' || !rawBase.trim()) {
+      if (!fallback) return '';
+      try { return new URL('.', fallback).href; } catch (_) { return fallback; }
+    }
+    let spec = rawBase.trim();
+    const clean = spec.split('#')[0].split('?')[0];
+    const lastSeg = clean.slice(clean.lastIndexOf('/') + 1);
+    if (!clean.endsWith('/') && lastSeg && !/\.[A-Za-z0-9]+$/.test(lastSeg)) {
+      spec += '/';
+    }
+    if (fallback) {
+      try {
+        const resolved = new URL(spec, fallback);
+        if (!resolved.pathname.endsWith('/')) {
+          resolved.pathname = resolved.pathname.slice(0, resolved.pathname.lastIndexOf('/') + 1);
+        }
+        resolved.search = '';
+        resolved.hash = '';
+        return resolved.href;
+      } catch (_) {}
+    }
+    return spec.endsWith('/') ? spec : `${spec}/`;
+  }
+
+  function resolveModuleAssetUrl(relUrl, baseUrl) {
+    if (typeof relUrl !== 'string') return relUrl;
+    const trimmed = relUrl.trim();
+    if (!trimmed) return trimmed;
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) return trimmed;
+    if (baseUrl) {
+      try { return new URL(trimmed, baseUrl).href; } catch (_) {}
+      if (!trimmed.startsWith('/')) {
+        return baseUrl.replace(/\/?$/, '/') + trimmed.replace(/^\.\//, '');
+      }
+    }
+    return trimmed;
+  }
+
+  function parsePublishedBundleText(text) {
+    const trimmed = String(text || '').trim();
+    if (!trimmed) throw new TypeError('NeoFlash bundle.js is empty.');
+    const prefix = /^(?:\/\*[\s\S]*?\*\/\s*)*(?:globalThis|window|self)\.NeoFlashBundle\s*=\s*/.exec(trimmed);
+    const jsonSource = prefix
+      ? trimmed.slice(prefix[0].length).replace(/(?:;\s*)?(?:\/\/#[^\r\n]*\s*)*$/, '').replace(/;\s*$/, '')
+      : trimmed;
+    const parsed = JSON.parse(jsonSource);
+    if (!parsed || typeof parsed !== 'object' || !parsed.project || typeof parsed.project !== 'object') {
+      throw new TypeError('Malformed NeoFlash bundle payload.');
+    }
+    return parsed;
+  }
+
+  async function fetchModuleBundle(bundleUrl) {
+    if (typeof global.fetch !== 'function') {
+      throw new Error('fetch() is unavailable to load NeoFlash bundle.js.');
+    }
+    const resp = await global.fetch(bundleUrl);
+    if (!resp.ok) {
+      throw new Error(`Failed to load NeoFlash bundle (${bundleUrl}: ${resp.status}).`);
+    }
+    return parsePublishedBundleText(await resp.text());
+  }
+
+  const MODULE_SCOPED_CSS = [
+    '[data-neoflash-module], [data-neoflash-module] * { box-sizing: border-box; }',
+    '[data-neoflash-module] { position: relative; width: 100%; height: 100%; display: grid; grid-template-rows: minmax(0,1fr) auto; overflow: hidden; font: 13px system-ui, sans-serif; color: #d2d6dd; }',
+    '[data-neoflash-module][data-clean="true"] { grid-template-rows: minmax(0,1fr); }',
+    '[data-neoflash-module][data-clean="true"] > [data-neoflash-role="footer"] { display: none !important; }',
+    '[data-neoflash-module] [data-neoflash-role="viewport"] { position: relative; width: 100%; height: 100%; overflow: auto; min-height: 0; min-width: 0; overscroll-behavior: contain; touch-action: pan-x pan-y; outline: none; }',
+    '[data-neoflash-module] [data-neoflash-role="viewport"]:fullscreen, [data-neoflash-module] [data-neoflash-role="viewport"]:-webkit-full-screen { background: #000; width: 100vw; height: 100vh; overflow: hidden; }',
+    '[data-neoflash-module] [data-neoflash-role="stage-space"] { position: relative; }',
+    '[data-neoflash-module] [data-neoflash-role="stage-surface"] { position: absolute; }',
+    '[data-neoflash-module] [data-neoflash-role="stage"] { display: block; width: 100%; height: 100%; outline: none; }',
+    '[data-neoflash-module][data-render-mode="dom"] [data-neoflash-role="stage"] { position: absolute; inset: 0; pointer-events: none; opacity: 0; visibility: hidden; }',
+    '[data-neoflash-module] neoflash-stage[data-render-mode="dom"] { position: absolute; inset: 0; display: block; width: 100%; height: 100%; overflow: hidden; transform-origin: 0 0; }',
+    '[data-neoflash-module] [data-neoflash-text-input] { outline: none; scrollbar-width: none; -ms-overflow-style: none; }',
+    '[data-neoflash-module] [data-neoflash-text-input]::-webkit-scrollbar { display: none; width: 0; height: 0; }',
+    '[data-neoflash-module] [data-neoflash-role="semantic-layer"] { position: absolute; inset: 0; pointer-events: none; }',
+    '[data-neoflash-module] .neoflash-a11y-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }',
+    '[data-neoflash-module] .semantic-target { position: absolute; pointer-events: none; padding: 0; margin: 0; border: 0; border-radius: 3px; background: transparent; color: transparent; min-height: 0; font-size: 0; }',
+    '[data-neoflash-module] .semantic-target:hover, [data-neoflash-module] .semantic-target:disabled { background: transparent; }',
+    '[data-neoflash-module] .semantic-target:focus-visible { outline: 3px solid #d4e9ff; outline-offset: 3px; box-shadow: 0 0 0 6px #183d71; }',
+    '[data-neoflash-module] .pan-mode, [data-neoflash-module] .pan-mode canvas { cursor: grab; }',
+    '[data-neoflash-module] .nf-dom-scene { position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; pointer-events: auto; }',
+    '[data-neoflash-module] .nf-dom-container { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }',
+    '[data-neoflash-module] .nf-dom-button { position: absolute; left: 0; top: 0; transform-origin: 0 0; padding: 0; margin: 0; border: 0; border-radius: 0; background: transparent; color: inherit; min-height: 0; pointer-events: auto; cursor: pointer; text-align: left; }',
+    '[data-neoflash-module] .nf-dom-button:hover, [data-neoflash-module] .nf-dom-button:disabled { background: transparent; }',
+    '[data-neoflash-module] .nf-dom-button:focus-visible { outline: 2px solid #7ba9ef; outline-offset: 2px; }',
+    '[data-neoflash-module] .nf-dom-text { position: absolute; left: 0; top: 0; transform-origin: 0 0; margin: 0; padding: 0; line-height: 1.2; }',
+    '[data-neoflash-module] .nf-dom-input { position: absolute; left: 0; top: 0; transform-origin: 0 0; margin: 0; box-sizing: border-box; pointer-events: auto; }',
+    '[data-neoflash-module] .nf-dom-input:focus-visible { outline: 2px solid #7ba9ef; outline-offset: 1px; }',
+    '[data-neoflash-module] .nf-dom-svg { position: absolute; left: 0; top: 0; overflow: visible; transform-origin: 0 0; pointer-events: none; }',
+    '[data-neoflash-module] .nf-dom-bitmap, [data-neoflash-module] .nf-dom-video, [data-neoflash-module] .nf-dom-canvas-island { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }',
+    '[data-neoflash-module] [data-neoflash-role="footer"] { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; background: #25272b; border-top: 1px solid #ffffff12; min-width: 0; }',
+    '[data-neoflash-module] [data-neoflash-role="transport"] { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }',
+    '[data-neoflash-module] [data-neoflash-role="footer"] button, [data-neoflash-module] [data-neoflash-role="footer"] select { background: #34373e; color: #f3f4f6; border: 1px solid #555a64; border-radius: 4px; font: inherit; padding: 6px 10px; cursor: pointer; min-height: 30px; }',
+    '[data-neoflash-module] [data-neoflash-role="preview-info"] { display: flex; flex-wrap: wrap; gap: 4px 12px; min-width: 0; flex: 1; }',
+    '[data-neoflash-module] [data-neoflash-role="status"] { font-variant-numeric: tabular-nums; color: #a5acb7; white-space: nowrap; }',
+    '[data-neoflash-module] [data-neoflash-role="trace"] { flex-basis: 100%; overflow-wrap: anywhere; min-height: 1em; color: #c6d8ef; }',
+    '[data-neoflash-module] [data-neoflash-role="error"] { position: absolute; inset: 12px; max-height: calc(100% - 24px); overflow: auto; margin: auto; z-index: 2; padding: 16px; border: 1px solid #f19393; background: #351d22; color: #ffe0e0; white-space: pre-wrap; display: none; }',
+    '[data-neoflash-module] [data-neoflash-role="loading"] { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }',
+  ].join('\n');
+
+  function ensureModuleStylesLoaded(doc) {
+    if (!doc?.head || typeof doc.createElement !== 'function') return;
+    if (typeof doc.querySelector === 'function' && doc.querySelector('style[data-neoflash-module-styles="true"]')) return;
+    const styleEl = doc.createElement('style');
+    styleEl.setAttribute?.('data-neoflash-module-styles', 'true');
+    styleEl.textContent = MODULE_SCOPED_CSS;
+    doc.head.appendChild(styleEl);
+  }
+
+  function buildScopedModuleDom(doc, container, project, playerConfig, isDomMode, isClean) {
+    ensureModuleStylesLoaded(doc);
+    const existingCanvas = typeof container.querySelector === 'function'
+      ? container.querySelector('[data-neoflash-role="stage"], canvas')
+      : null;
+    const existingViewport = typeof container.querySelector === 'function'
+      ? container.querySelector('[data-neoflash-role="viewport"]')
+      : null;
+    if (existingCanvas && existingViewport) {
+      const existingSurface = container.querySelector?.('[data-neoflash-role="stage-surface"]') || existingCanvas.parentNode || container;
+      const existingSpace = container.querySelector?.('[data-neoflash-role="stage-space"]') || existingSurface.parentNode || existingViewport;
+      let existingSemantic = container.querySelector?.('[data-neoflash-role="semantic-layer"]');
+      if (!existingSemantic && typeof doc?.createElement === 'function') {
+        existingSemantic = doc.createElement('div');
+        existingSemantic.setAttribute?.('data-neoflash-role', 'semantic-layer');
+        existingSurface?.appendChild?.(existingSemantic);
+      }
+      return {
+        ownedRoot: null,
+        rootWrapper: container,
+        viewport: existingViewport,
+        stageSpace: existingSpace,
+        stageSurface: existingSurface,
+        canvas: existingCanvas,
+        semanticEl: existingSemantic,
+        a11yOverlay: container.querySelector?.('.neoflash-a11y-overlay') || null,
+        loadingEl: container.querySelector?.('[data-neoflash-role="loading"]') || null,
+        errorEl: container.querySelector?.('[data-neoflash-role="error"]') || null,
+        footerEl: container.querySelector?.('[data-neoflash-role="footer"]') || null,
+        transportEl: container.querySelector?.('[data-neoflash-role="transport"]') || null,
+        toggleBtn: container.querySelector?.('[data-neoflash-role="toggle"]') || null,
+        restartBtn: container.querySelector?.('[data-neoflash-role="restart"]') || null,
+        zoomSelect: container.querySelector?.('[data-neoflash-role="zoom"]') || null,
+        panBtn: container.querySelector?.('[data-neoflash-role="pan"]') || null,
+        fullscreenBtn: container.querySelector?.('[data-neoflash-role="fullscreen-toggle"]') || null,
+        audioToggleBtn: container.querySelector?.('[data-neoflash-role="audio-toggle"]') || null,
+        audioStatusEl: container.querySelector?.('[data-neoflash-role="audio-status"]') || null,
+        reportToggleBtn: container.querySelector?.('[data-neoflash-role="report-toggle"]') || null,
+        sizeReportEl: container.querySelector?.('[data-neoflash-role="size-report"]') || null,
+        nameEl: container.querySelector?.('[data-neoflash-role="name"]') || null,
+        statusEl: container.querySelector?.('[data-neoflash-role="status"]') || null,
+        loadInfoEl: container.querySelector?.('[data-neoflash-role="load-info"]') || null,
+        traceEl: container.querySelector?.('[data-neoflash-role="trace"]') || null,
+      };
+    }
+
+    const title = String(project?.name || 'NeoFlash publication');
+    const width = Number(project?.width) || 800;
+    const height = Number(project?.height) || 600;
+    const rootWrapper = doc.createElement('div');
+    rootWrapper.setAttribute?.('data-neoflash-module', 'true');
+    if (isClean) rootWrapper.setAttribute?.('data-clean', 'true');
+    if (isDomMode) rootWrapper.setAttribute?.('data-render-mode', 'dom');
+
+    const viewport = doc.createElement('div');
+    viewport.setAttribute?.('data-neoflash-role', 'viewport');
+    viewport.tabIndex = -1;
+    viewport.setAttribute?.('aria-label', title);
+
+    const stageSpace = doc.createElement('div');
+    stageSpace.setAttribute?.('data-neoflash-role', 'stage-space');
+
+    const stageSurface = doc.createElement('div');
+    stageSurface.setAttribute?.('data-neoflash-role', 'stage-surface');
+    stageSurface.setAttribute?.('role', 'group');
+    stageSurface.setAttribute?.('aria-label', title);
+
+    const canvas = doc.createElement('canvas');
+    canvas.setAttribute?.('data-neoflash-role', 'stage');
+    if (isDomMode) {
+      canvas.setAttribute?.('aria-hidden', 'true');
+    } else {
+      canvas.setAttribute?.('aria-label', title);
+    }
+    stageSurface.appendChild(canvas);
+
+    if (isDomMode) {
+      const domStage = doc.createElement('neoflash-stage');
+      domStage.setAttribute?.('data-render-mode', 'dom');
+      domStage.setAttribute?.('width', String(width));
+      domStage.setAttribute?.('height', String(height));
+      stageSurface.appendChild(domStage);
+    }
+
+    const semanticEl = doc.createElement('div');
+    semanticEl.setAttribute?.('data-neoflash-role', 'semantic-layer');
+    stageSurface.appendChild(semanticEl);
+
+    const a11yOverlay = doc.createElement('div');
+    a11yOverlay.className = 'neoflash-a11y-overlay';
+    if (a11yOverlay.style) {
+      a11yOverlay.style.position = 'absolute';
+      a11yOverlay.style.inset = '0';
+      a11yOverlay.style.pointerEvents = 'none';
+      a11yOverlay.style.overflow = 'hidden';
+    }
+    stageSurface.appendChild(a11yOverlay);
+
+    stageSpace.appendChild(stageSurface);
+    viewport.appendChild(stageSpace);
+    rootWrapper.appendChild(viewport);
+
+    let footerEl = null, transportEl = null, toggleBtn = null, restartBtn = null, zoomSelect = null;
+    let panBtn = null, fullscreenBtn = null, audioToggleBtn = null, audioStatusEl = null;
+    let reportToggleBtn = null, sizeReportEl = null, nameEl = null, statusEl = null, loadInfoEl = null, traceEl = null;
+
+    if (!isClean) {
+      footerEl = doc.createElement('div');
+      footerEl.setAttribute?.('data-neoflash-role', 'footer');
+      transportEl = doc.createElement('div');
+      transportEl.setAttribute?.('data-neoflash-role', 'transport');
+      toggleBtn = doc.createElement('button');
+      toggleBtn.type = 'button';
+      toggleBtn.setAttribute?.('data-neoflash-role', 'toggle');
+      toggleBtn.textContent = 'Pause';
+      restartBtn = doc.createElement('button');
+      restartBtn.type = 'button';
+      restartBtn.setAttribute?.('data-neoflash-role', 'restart');
+      restartBtn.textContent = 'Restart';
+      audioToggleBtn = doc.createElement('button');
+      audioToggleBtn.type = 'button';
+      audioToggleBtn.setAttribute?.('data-neoflash-role', 'audio-toggle');
+      audioToggleBtn.hidden = true;
+      audioToggleBtn.textContent = 'Enable audio';
+      transportEl.appendChild(toggleBtn);
+      transportEl.appendChild(restartBtn);
+      transportEl.appendChild(audioToggleBtn);
+
+      const infoEl = doc.createElement('div');
+      infoEl.setAttribute?.('data-neoflash-role', 'preview-info');
+      nameEl = doc.createElement('span');
+      nameEl.setAttribute?.('data-neoflash-role', 'name');
+      nameEl.textContent = title;
+      statusEl = doc.createElement('span');
+      statusEl.setAttribute?.('data-neoflash-role', 'status');
+      audioStatusEl = doc.createElement('span');
+      audioStatusEl.setAttribute?.('data-neoflash-role', 'audio-status');
+      audioStatusEl.hidden = true;
+      traceEl = doc.createElement('span');
+      traceEl.setAttribute?.('data-neoflash-role', 'trace');
+      infoEl.appendChild(nameEl);
+      infoEl.appendChild(statusEl);
+      infoEl.appendChild(audioStatusEl);
+      infoEl.appendChild(traceEl);
+
+      footerEl.appendChild(transportEl);
+      footerEl.appendChild(infoEl);
+      rootWrapper.appendChild(footerEl);
+    }
+
+    let loadingEl = null;
+    if (!isClean && playerConfig?.preloader !== false) {
+      loadingEl = doc.createElement('div');
+      loadingEl.setAttribute?.('data-neoflash-role', 'loading');
+      loadingEl.setAttribute?.('role', 'status');
+      loadingEl.textContent = 'Loading project…';
+      rootWrapper.appendChild(loadingEl);
+    }
+
+    const errorEl = doc.createElement('pre');
+    errorEl.setAttribute?.('data-neoflash-role', 'error');
+    errorEl.setAttribute?.('role', 'alert');
+    if (errorEl.style) errorEl.style.display = 'none';
+    rootWrapper.appendChild(errorEl);
+
+    container.appendChild(rootWrapper);
+    if (rootWrapper.style && !(rootWrapper.clientHeight > 0) && width > 0 && height > 0) {
+      rootWrapper.style.aspectRatio = `${width} / ${height}`;
+    }
+
+    return {
+      ownedRoot: rootWrapper,
+      rootWrapper,
+      viewport,
+      stageSpace,
+      stageSurface,
+      canvas,
+      semanticEl,
+      a11yOverlay,
+      loadingEl,
+      errorEl,
+      footerEl,
+      transportEl,
+      toggleBtn,
+      restartBtn,
+      zoomSelect,
+      panBtn,
+      fullscreenBtn,
+      audioToggleBtn,
+      audioStatusEl,
+      reportToggleBtn,
+      sizeReportEl,
+      nameEl,
+      statusEl,
+      loadInfoEl,
+      traceEl,
+    };
+  }
+
+  function mount(container, options = {}) {
+    return mountInstance(container, options || {});
+  }
+
+  const neoflashApi = Object.freeze({
+    mount,
+    sharedWasmModules,
+  });
+  if (global && typeof global === 'object') {
+    try {
+      Object.defineProperty(global, 'NeoFlash', { value: neoflashApi, configurable: true, enumerable: true, writable: true });
+      Object.defineProperty(global, 'NeoFlashRuntime', { value: neoflashApi, configurable: true, enumerable: true, writable: true });
+    } catch (_) {
+      global.NeoFlash = neoflashApi;
+      global.NeoFlashRuntime = neoflashApi;
+    }
+  }
+
+  const helpers = { createScenePainter, localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow, functionBodyLineOffset, scriptFunction, mapScriptStack, sourceLocationText, mappedErrorFrames, formatTraceValue, formatTraceArgs, emitScriptMessage, completeCleanup, ensureBundleFontsLoaded, mountAfterBundleFonts, mount, sharedWasmModules };
   if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
   if (global && typeof global === 'object') {
     try { Object.defineProperty(global, 'NeoFlashFormatTrace', { value: Object.freeze({ formatTraceValue, formatTraceArgs }), configurable: true }); } catch (_) {}
@@ -1017,65 +1434,273 @@
   }
 
   async function boot() {
+    return mountInstance(null, {
+      __standalone: true,
+      externalFail: fail,
+      setExternalFailed: value => { failed = value; },
+      setExternalStopAsync: fn => { stopAsyncOnFailure = fn; },
+      setExternalSourceFrames: fn => { sourceFrames = fn; },
+    });
+  }
+
+  async function mountInstance(containerTarget, mountOptions = {}) {
+    const isStandaloneInstance = Boolean(mountOptions?.__standalone);
+    let container = null;
+    let instanceDoc = typeof document !== 'undefined' ? document : global.document;
+    if (!isStandaloneInstance) {
+      const lookupDoc = mountOptions?.document || instanceDoc;
+      if (typeof containerTarget === 'string') {
+        container = lookupDoc?.querySelector?.(containerTarget) || null;
+        if (!container) {
+          throw new Error(`NeoFlash.mount target container '${containerTarget}' was not found.`);
+        }
+      } else if (containerTarget && typeof containerTarget === 'object') {
+        container = containerTarget;
+      } else {
+        throw new TypeError('NeoFlash.mount requires a target container element or CSS selector string.');
+      }
+      instanceDoc = mountOptions?.document || container.ownerDocument || lookupDoc;
+      const previousMounted = mountedContainers.get(container);
+      if (previousMounted && !previousMounted.disposed) {
+        try { previousMounted.destroy(); } catch (_) {}
+      }
+    }
+
+    const ownedListeners = [];
+    function addOwnedListener(target, type, handler, listenerOpts) {
+      if (!target || typeof target.addEventListener !== 'function') return;
+      target.addEventListener(type, handler, listenerOpts);
+      ownedListeners.push([target, type, handler, listenerOpts]);
+    }
+
     let onPageHide = null;
-    global.addEventListener?.('pagehide', event => onPageHide?.(event));
-    const bundle = global.NeoFlashBundle;
-    if (!bundle || typeof NeoFlashWasm !== 'function') throw new Error('The HTML5 runtime is incomplete. Re-export this project from NeoFlash.');
+    addOwnedListener(global, 'pagehide', event => onPageHide?.(event));
+
+    const instanceBaseUrl = isStandaloneInstance ? '' : normalizeModuleBaseUrl(mountOptions?.baseUrl, instanceDoc);
+    let rawBundle = isStandaloneInstance ? global.NeoFlashBundle : (mountOptions?.bundle || null);
+    if (!isStandaloneInstance && !rawBundle) {
+      const explicitBundleUrl = typeof mountOptions?.bundleUrl === 'string' && mountOptions.bundleUrl.trim()
+        ? resolveModuleAssetUrl(mountOptions.bundleUrl.trim(), instanceDoc?.baseURI || global.location?.href || instanceBaseUrl)
+        : (instanceBaseUrl ? resolveModuleAssetUrl('bundle.js', instanceBaseUrl) : '');
+      if (explicitBundleUrl && typeof mountOptions?.baseUrl === 'string') {
+        rawBundle = await fetchModuleBundle(explicitBundleUrl);
+      } else {
+        rawBundle = global.NeoFlashBundle || null;
+      }
+    }
+
+    let bundle = rawBundle;
+    if (!isStandaloneInstance && rawBundle && typeof rawBundle === 'object') {
+      const clonedProject = rawBundle.project ? {
+        ...rawBundle.project,
+        resources: Array.isArray(rawBundle.project.resources) ? rawBundle.project.resources.slice() : [],
+      } : null;
+      const resolvedAssetUrls = {};
+      if (rawBundle.asset_urls && typeof rawBundle.asset_urls === 'object') {
+        for (const [resPath, relUrl] of Object.entries(rawBundle.asset_urls)) {
+          resolvedAssetUrls[resPath] = resolveModuleAssetUrl(relUrl, instanceBaseUrl);
+        }
+      }
+      if (Array.isArray(rawBundle.video_manifest)) {
+        for (const entry of rawBundle.video_manifest) {
+          const rel = entry?.source?.url_or_path;
+          if (typeof rel === 'string' && rel && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(rel) && !resolvedAssetUrls[rel]) {
+            resolvedAssetUrls[rel] = resolveModuleAssetUrl(rel, instanceBaseUrl);
+          }
+        }
+      }
+      const resolvedSpriteSheet = rawBundle.sprite_sheet ? {
+        ...rawBundle.sprite_sheet,
+        image_url: resolveModuleAssetUrl(rawBundle.sprite_sheet.image_url, instanceBaseUrl),
+        manifest_url: resolveModuleAssetUrl(rawBundle.sprite_sheet.manifest_url, instanceBaseUrl),
+      } : null;
+      const basePlayerCfg = rawBundle.player_config || {};
+      const baseChromeCfg = basePlayerCfg.chrome || {};
+      const cleanFlag = mountOptions?.clean !== undefined ? Boolean(mountOptions.clean) : true;
+      const autoplayFlag = mountOptions?.autoplay !== undefined
+        ? Boolean(mountOptions.autoplay)
+        : (basePlayerCfg.autoplay !== false);
+      const loopFlag = mountOptions?.loop !== undefined
+        ? Boolean(mountOptions.loop)
+        : (basePlayerCfg.loop_timeline !== false);
+      let resolvedWasmUrl = rawBundle.wasm_url || null;
+      if (typeof mountOptions?.wasmUrl === 'string' && mountOptions.wasmUrl.trim()) {
+        resolvedWasmUrl = resolveModuleAssetUrl(mountOptions.wasmUrl.trim(), instanceDoc?.baseURI || global.location?.href || instanceBaseUrl);
+      } else if (rawBundle.runtime_id && typeof mountOptions?.runtimeUrl === 'string' && mountOptions.runtimeUrl.trim()) {
+        const rtDir = normalizeModuleBaseUrl(mountOptions.runtimeUrl.trim(), instanceDoc);
+        resolvedWasmUrl = rtDir ? `${rtDir}neoflash_web_bg.wasm` : resolvedWasmUrl;
+      } else if (typeof resolvedWasmUrl === 'string' && resolvedWasmUrl) {
+        resolvedWasmUrl = resolveModuleAssetUrl(resolvedWasmUrl, instanceBaseUrl);
+      }
+      const effectiveWasmB64 = typeof mountOptions?.wasmBase64 === 'string' && mountOptions.wasmBase64
+        ? mountOptions.wasmBase64
+        : rawBundle.wasm;
+      bundle = {
+        ...rawBundle,
+        project: clonedProject,
+        scripts: Array.isArray(rawBundle.scripts) ? rawBundle.scripts.map(s => ({ ...s })) : [],
+        program: rawBundle.program ? { ...rawBundle.program } : undefined,
+        warnings: Array.isArray(rawBundle.warnings) ? rawBundle.warnings.slice() : [],
+        wasm: effectiveWasmB64,
+        wasm_url: resolvedWasmUrl,
+        sprite_sheet: resolvedSpriteSheet,
+        asset_urls: Object.keys(resolvedAssetUrls).length > 0 ? resolvedAssetUrls : (rawBundle.asset_urls || null),
+        player_config: {
+          ...basePlayerCfg,
+          autoplay: autoplayFlag,
+          loop_timeline: loopFlag,
+          include_trace: cleanFlag ? basePlayerCfg.include_trace : true,
+          chrome: cleanFlag
+            ? { ...baseChromeCfg, clean: true, show_fps: false, show_dimensions: false, show_controls: false, show_load_summary: false, show_trace: false }
+            : (baseChromeCfg.clean
+                ? { ...baseChromeCfg, clean: false, show_fps: true, show_dimensions: true, show_controls: true, show_load_summary: true, show_trace: true }
+                : { ...baseChromeCfg, clean: false }),
+        },
+      };
+    }
+
+    const baseWasmBindings = mountOptions?.wasmBindings || (typeof NeoFlashWasm !== 'undefined' ? NeoFlashWasm : global.NeoFlashWasm);
+    const hasWasmFactory = !isStandaloneInstance && typeof global.NeoFlashWasmFactory === 'function' && !mountOptions?.wasmBindings;
+    if (!bundle || (typeof baseWasmBindings !== 'function' && !hasWasmFactory)) {
+      throw new Error('The HTML5 runtime is incomplete. Re-export this project from NeoFlash.');
+    }
     if (bundle.runtime_id && global.NeoFlashRuntimeId !== bundle.runtime_id) {
       throw new Error(`This project was published against NeoFlash runtime ${bundle.runtime_id}, but the shared runtime provides ${global.NeoFlashRuntimeId || 'none'}. Publish the shared runtime again from the NeoFlash build that published this project.`);
     }
+
+    const instanceWasm = hasWasmFactory ? global.NeoFlashWasmFactory() : baseWasmBindings;
     const playerConfig = bundle.player_config || {};
     const chromeConfig = playerConfig.chrome || {};
-    if (playerConfig.preloader === false) {
-      const loadingEl = document.getElementById('loading');
-      if (loadingEl) loadingEl.style.display = 'none';
+    const isDomModeBundle = playerConfig.render_mode === 'dom' || bundle?.publish?.renderMode === 'dom';
+    const isCleanMount = chromeConfig.clean === true || (
+      chromeConfig.show_fps === false &&
+      chromeConfig.show_dimensions === false &&
+      chromeConfig.show_controls === false &&
+      chromeConfig.show_load_summary === false &&
+      chromeConfig.show_trace === false
+    );
+
+    let scopedDom = null;
+    if (!isStandaloneInstance) {
+      scopedDom = buildScopedModuleDom(instanceDoc, container, bundle.project, playerConfig, isDomModeBundle, isCleanMount);
     }
-    if (typeof bundle.wasm === 'string') {
-      await NeoFlashWasm({ module_or_path: Uint8Array.from(atob(bundle.wasm), character => character.charCodeAt(0)) });
-    } else if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.wasm_url || '') && typeof global.NeoFlashWasmBase64 === 'string') {
-      await NeoFlashWasm({ module_or_path: Uint8Array.from(atob(global.NeoFlashWasmBase64), character => character.charCodeAt(0)) });
-    } else {
-      // Smaller size levels ship WebAssembly as its own file, which pages opened from disk cannot fetch without a script fallback.
-      if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.wasm_url || '')) {
-        throw new Error('This export loads its WebAssembly runtime from a separate file, which browsers block for pages opened from disk. Serve the folder over HTTP(S), or publish at the Full size level to open index.html directly.');
+
+    if (playerConfig.preloader === false) {
+      const loadingTarget = isStandaloneInstance ? instanceDoc?.getElementById?.('loading') : scopedDom?.loadingEl;
+      if (loadingTarget?.style) loadingTarget.style.display = 'none';
+    }
+
+    let activePlayer = null;
+    const cleanupEarlySetup = () => {
+      for (const [target, type, handler, listenerOpts] of ownedListeners.splice(0, ownedListeners.length)) {
+        try { target.removeEventListener?.(type, handler, listenerOpts); } catch (_) {}
       }
-      try {
-        await NeoFlashWasm({ module_or_path: bundle.wasm_url });
-      } catch (wasmErr) {
-        if (typeof global.NeoFlashWasmBase64 === 'string') {
-          await NeoFlashWasm({ module_or_path: Uint8Array.from(atob(global.NeoFlashWasmBase64), character => character.charCodeAt(0)) });
+      if (scopedDom?.ownedRoot) {
+        try {
+          if (typeof scopedDom.ownedRoot.remove === 'function') scopedDom.ownedRoot.remove();
+          else if (scopedDom.ownedRoot.parentNode) scopedDom.ownedRoot.parentNode.removeChild(scopedDom.ownedRoot);
+        } catch (_) {}
+        scopedDom.ownedRoot = null;
+      }
+      if (activePlayer) {
+        const p = activePlayer;
+        activePlayer = null;
+        try { p.free?.(); } catch (_) {}
+      }
+    };
+
+    try {
+      const canCacheWasmModule = typeof WebAssembly !== 'undefined'
+        && typeof WebAssembly.compile === 'function'
+        && typeof instanceWasm?.initSync === 'function';
+      if (canCacheWasmModule) {
+        let compiledModule;
+        if (typeof bundle.wasm === 'string') {
+          compiledModule = await compileWasmBase64Once(bundle.wasm);
+        } else if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.wasm_url || '') && typeof global.NeoFlashWasmBase64 === 'string') {
+          compiledModule = await compileWasmBase64Once(global.NeoFlashWasmBase64);
         } else {
-          throw wasmErr;
+          if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.wasm_url || '')) {
+            throw new Error('This export loads its WebAssembly runtime from a separate file, which browsers block for pages opened from disk. Serve the folder over HTTP(S), or publish at the Full size level to open index.html directly.');
+          }
+          try {
+            compiledModule = await compileWasmUrlOnce(bundle.wasm_url);
+          } catch (wasmErr) {
+            if (typeof global.NeoFlashWasmBase64 === 'string') {
+              compiledModule = await compileWasmBase64Once(global.NeoFlashWasmBase64);
+            } else {
+              throw wasmErr;
+            }
+          }
+        }
+        let initPromise = wasmInitPromises.get(instanceWasm);
+        if (!initPromise) {
+          initPromise = Promise.resolve(instanceWasm({ module_or_path: compiledModule })).catch(err => {
+            wasmInitPromises.delete(instanceWasm);
+            throw err;
+          });
+          wasmInitPromises.set(instanceWasm, initPromise);
+        }
+        await initPromise;
+      } else if (typeof bundle.wasm === 'string') {
+        await instanceWasm({ module_or_path: Uint8Array.from(atob(bundle.wasm), character => character.charCodeAt(0)) });
+      } else if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.wasm_url || '') && typeof global.NeoFlashWasmBase64 === 'string') {
+        await instanceWasm({ module_or_path: Uint8Array.from(atob(global.NeoFlashWasmBase64), character => character.charCodeAt(0)) });
+      } else {
+        // Smaller size levels ship WebAssembly as its own file, which pages opened from disk cannot fetch without a script fallback.
+        if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.wasm_url || '')) {
+          throw new Error('This export loads its WebAssembly runtime from a separate file, which browsers block for pages opened from disk. Serve the folder over HTTP(S), or publish at the Full size level to open index.html directly.');
+        }
+        try {
+          await instanceWasm({ module_or_path: bundle.wasm_url });
+        } catch (wasmErr) {
+          if (typeof global.NeoFlashWasmBase64 === 'string') {
+            await instanceWasm({ module_or_path: Uint8Array.from(atob(global.NeoFlashWasmBase64), character => character.charCodeAt(0)) });
+          } else {
+            throw wasmErr;
+          }
         }
       }
+    } catch (wasmBootErr) {
+      cleanupEarlySetup();
+      throw wasmBootErr;
     }
+
     const project = bundle.project;
     const bundleAssetUrls = bundle.asset_urls || null;
     const bundleResourceAliases = bundle.resource_aliases || null;
     const needsPublishedValidator = Boolean(bundle.sprite_sheet || (bundleAssetUrls && Object.keys(bundleAssetUrls).length > 0));
     // Published bundles carry a flattened main timeline plus its scene ranges.
     const scenesJson = bundle.scenes ? JSON.stringify(bundle.scenes) : undefined;
-    const player = (needsPublishedValidator && typeof NeoFlashWasm.WebPlayer.new_published === 'function')
-      ? NeoFlashWasm.WebPlayer.new_published(JSON.stringify(project), scenesJson)
-      : new NeoFlashWasm.WebPlayer(JSON.stringify(project), scenesJson);
-    if (bundle.sprite_sheet && typeof player.hydrate_sprite_sheet === 'function') {
-      if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.sprite_sheet.image_url || '')) {
-        throw new Error('This export packs bitmaps into external sprite sheets, which browsers block over file://. Serve the folder over HTTP(S), or disable Sprite sheets in Publish settings for direct file opening.');
+    let player;
+    try {
+      player = (needsPublishedValidator && typeof instanceWasm.WebPlayer.new_published === 'function')
+        ? instanceWasm.WebPlayer.new_published(JSON.stringify(project), scenesJson)
+        : new instanceWasm.WebPlayer(JSON.stringify(project), scenesJson);
+      activePlayer = player;
+      if (bundle.sprite_sheet && typeof player.hydrate_sprite_sheet === 'function') {
+        if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.sprite_sheet.image_url || '')) {
+          throw new Error('This export packs bitmaps into external sprite sheets, which browsers block over file://. Serve the folder over HTTP(S), or disable Sprite sheets in Publish settings for direct file opening.');
+        }
+        const [sheetImgResp, sheetMetaResp] = await Promise.all([
+          global.fetch(bundle.sprite_sheet.image_url),
+          global.fetch(bundle.sprite_sheet.manifest_url),
+        ]);
+        if (!sheetImgResp.ok || !sheetMetaResp.ok) {
+          throw new Error(`Failed to load published sprite sheet (${bundle.sprite_sheet.image_url}: ${sheetImgResp.status}, ${bundle.sprite_sheet.manifest_url}: ${sheetMetaResp.status}).`);
+        }
+        const [sheetPngBuf, sheetManifestText] = await Promise.all([
+          sheetImgResp.arrayBuffer(),
+          sheetMetaResp.text(),
+        ]);
+        player.hydrate_sprite_sheet(new Uint8Array(sheetPngBuf), sheetManifestText);
       }
-      const [sheetImgResp, sheetMetaResp] = await Promise.all([
-        global.fetch(bundle.sprite_sheet.image_url),
-        global.fetch(bundle.sprite_sheet.manifest_url),
-      ]);
-      if (!sheetImgResp.ok || !sheetMetaResp.ok) {
-        throw new Error(`Failed to load published sprite sheet (${bundle.sprite_sheet.image_url}: ${sheetImgResp.status}, ${bundle.sprite_sheet.manifest_url}: ${sheetMetaResp.status}).`);
-      }
-      const [sheetPngBuf, sheetManifestText] = await Promise.all([
-        sheetImgResp.arrayBuffer(),
-        sheetMetaResp.text(),
-      ]);
-      player.hydrate_sprite_sheet(new Uint8Array(sheetPngBuf), sheetManifestText);
+    } catch (playerBootErr) {
+      cleanupEarlySetup();
+      throw playerBootErr;
     }
-    const canvas = document.getElementById('stage');
+
+    const canvas = isStandaloneInstance ? instanceDoc.getElementById('stage') : scopedDom.canvas;
     const accelMode = playerConfig.acceleration || canvas?.getAttribute?.('data-acceleration') || canvas?.dataset?.acceleration || '';
     if (accelMode && canvas?.dataset) canvas.dataset.acceleration = accelMode;
     const contextAttrs = accelMode === 'gpu_web_gl'
@@ -1085,25 +1710,119 @@
         : accelMode === 'canvas2d'
           ? { alpha: false }
           : undefined;
-    const context = (contextAttrs ? canvas.getContext('2d', contextAttrs) : null) || canvas.getContext('2d');
-    if (!context) throw new Error('This browser does not provide Canvas 2D.');
-    if (!global.NeoFlashPaths) throw new Error('The vector path runtime is missing. Re-export this project.');
+    const context = canvas ? ((contextAttrs ? canvas.getContext('2d', contextAttrs) : null) || canvas.getContext('2d')) : null;
+    if (!context) {
+      cleanupEarlySetup();
+      throw new Error('This browser does not provide Canvas 2D.');
+    }
+    if (!global.NeoFlashPaths) {
+      cleanupEarlySetup();
+      throw new Error('The vector path runtime is missing. Re-export this project.');
+    }
     const paths = new global.NeoFlashPaths.PathCache();
     const gradients = new global.NeoFlashPaths.GradientRenderer();
     const clippings = new global.NeoFlashPaths.ClipRenderer();
-    const status = document.getElementById('status');
-    const toggle = document.getElementById('toggle');
-    const traceElement = document.getElementById('trace');
-    const viewport = document.getElementById('viewport');
-    const semanticLayer = new global.NeoFlashAccessibility.SemanticLayer(document.getElementById('semantic-layer'), node => {
+    const status = isStandaloneInstance ? instanceDoc.getElementById('status') : scopedDom.statusEl;
+    const toggle = isStandaloneInstance ? instanceDoc.getElementById('toggle') : scopedDom.toggleBtn;
+    const traceElement = isStandaloneInstance ? instanceDoc.getElementById('trace') : scopedDom.traceEl;
+    const viewport = isStandaloneInstance ? instanceDoc.getElementById('viewport') : scopedDom.viewport;
+    const stageSpace = isStandaloneInstance ? instanceDoc.getElementById('stage-space') : scopedDom.stageSpace;
+    const stageSurface = isStandaloneInstance
+      ? (instanceDoc.getElementById('stage-surface') || instanceDoc.getElementById('stage-wrap'))
+      : scopedDom.stageSurface;
+    const semanticTargetEl = isStandaloneInstance ? instanceDoc.getElementById('semantic-layer') : scopedDom.semanticEl;
+    const audioToggleButton = isStandaloneInstance ? instanceDoc.getElementById?.('audio-toggle') : scopedDom.audioToggleBtn;
+    const audioStatusLabel = isStandaloneInstance ? instanceDoc.getElementById?.('audio-status') : scopedDom.audioStatusEl;
+    const restartButton = isStandaloneInstance ? instanceDoc.getElementById?.('restart') : scopedDom.restartBtn;
+    const zoomSelect = isStandaloneInstance ? instanceDoc.getElementById?.('zoom') : scopedDom.zoomSelect;
+    const panButton = isStandaloneInstance ? instanceDoc.getElementById?.('pan') : scopedDom.panBtn;
+    const fullscreenToggle = isStandaloneInstance ? instanceDoc.getElementById?.('fullscreen-toggle') : scopedDom.fullscreenBtn;
+    const footerElement = isStandaloneInstance ? instanceDoc.querySelector?.('footer') : scopedDom.footerEl;
+    const nameElement = isStandaloneInstance ? instanceDoc.getElementById?.('name') : scopedDom.nameEl;
+    const transportElement = isStandaloneInstance ? instanceDoc.querySelector?.('.transport') : scopedDom.transportEl;
+    const loadInfoElement = isStandaloneInstance ? instanceDoc.getElementById?.('load-info') : scopedDom.loadInfoEl;
+    const reportToggle = isStandaloneInstance ? instanceDoc.getElementById?.('report-toggle') : scopedDom.reportToggleBtn;
+    const sizeReportElement = isStandaloneInstance ? instanceDoc.getElementById?.('size-report') : scopedDom.sizeReportEl;
+    const loadingElement = isStandaloneInstance ? instanceDoc.getElementById?.('loading') : scopedDom.loadingEl;
+    const instanceErrorElement = isStandaloneInstance ? errorElement : scopedDom.errorEl;
+    const instanceEventHost = isStandaloneInstance ? global : (scopedDom?.rootWrapper || container || global);
+    const instanceOnTrace = typeof mountOptions?.onTrace === 'function' ? mountOptions.onTrace : null;
+    const instanceOnError = typeof mountOptions?.onError === 'function' ? mountOptions.onError : null;
+    const instanceParameters = (!isStandaloneInstance && mountOptions?.parameters && typeof mountOptions.parameters === 'object')
+      ? { ...mountOptions.parameters }
+      : null;
+    const instanceRootUrl = (!isStandaloneInstance && instanceBaseUrl)
+      ? resolveModuleAssetUrl('bundle.js', instanceBaseUrl)
+      : null;
+    const instanceKeyTarget = isStandaloneInstance
+      ? (typeof global.addEventListener === 'function' ? global : null)
+      : (viewport || (typeof global.addEventListener === 'function' ? global : null));
+    const domHostDocument = (!isStandaloneInstance && instanceDoc && typeof Proxy === 'function')
+      ? new Proxy(instanceDoc, {
+          get(target, prop) {
+            if (prop === 'getElementById') {
+              return id => id === 'stage-dom-root'
+                ? (stageSurface?.querySelector?.('neoflash-stage[data-render-mode="dom"]') || null)
+                : target.getElementById?.(id) || null;
+            }
+            if (prop === 'body' && scopedDom?.rootWrapper) {
+              return scopedDom.rootWrapper;
+            }
+            const val = Reflect.get(target, prop, target);
+            return typeof val === 'function' ? val.bind(target) : val;
+          },
+        })
+      : instanceDoc;
+
+    let failed = false;
+    let stopAsyncOnFailure = () => {};
+    let sourceFrames = () => [];
+    const fail = error => {
+      if (isStandaloneInstance && typeof mountOptions.externalFail === 'function') {
+        failed = true;
+        mountOptions.externalFail(error);
+        if (instanceOnError) {
+          try { instanceOnError(error); } catch (_) {}
+        }
+        return;
+      }
+      if (failed) {
+        global.__neoflashSuppressConsoleRelay = true;
+        try { console.error(error); } finally { global.__neoflashSuppressConsoleRelay = false; }
+        return;
+      }
+      failed = true;
+      if (loadingElement?.style) loadingElement.style.display = 'none';
+      if (instanceErrorElement) {
+        if (instanceErrorElement.style) instanceErrorElement.style.display = 'block';
+        const omitted = bundle?.publish?.omitted_modules || [];
+        const hint = omitted.length ? `\n\nThis package was published at the Compact size level without: ${omitted.join('; ')}. If a script needs one of them, publish at the Balanced level.` : '';
+        const frames = sourceFrames(error);
+        const location = sourceLocationText(frames[0]);
+        instanceErrorElement.textContent = 'NeoFlash could not run this project.\n\n' + (location ? location + '\n' : '') + describeThrown(error, true) + hint;
+      }
+      global.__neoflashSuppressConsoleRelay = true;
+      try {
+        console.error(error);
+        try { stopAsyncOnFailure(); } catch (cleanupError) { console.error(cleanupError); }
+      } finally {
+        global.__neoflashSuppressConsoleRelay = false;
+      }
+      if (instanceOnError) {
+        try { instanceOnError(error); } catch (_) {}
+      }
+      const frames = sourceFrames(error);
+      emitScriptMessage('error', describeThrown(error), frames, instanceEventHost, error);
+    };
+
+    const semanticLayer = new global.NeoFlashAccessibility.SemanticLayer(semanticTargetEl, node => {
       if (failed) return;
       try {activateSemantic(node);} catch (error) {fail(error);}
     }, {onFocus:semanticNativeFocus,onBlur:semanticNativeBlur});
-    const stageSurface = document.getElementById('stage-surface') || document.getElementById('stage-wrap');
-    let a11yOverlay = document.getElementById('stage-a11y-overlay');
-    if (!a11yOverlay && typeof document.createElement === 'function') {
-      a11yOverlay = document.createElement('div');
-      a11yOverlay.id = 'stage-a11y-overlay';
+    let a11yOverlay = isStandaloneInstance ? instanceDoc.getElementById('stage-a11y-overlay') : scopedDom.a11yOverlay;
+    if (!a11yOverlay && typeof instanceDoc?.createElement === 'function') {
+      a11yOverlay = instanceDoc.createElement('div');
+      if (isStandaloneInstance) a11yOverlay.id = 'stage-a11y-overlay';
       a11yOverlay.className = 'neoflash-a11y-overlay';
       if (a11yOverlay.style) {
         a11yOverlay.style.position = 'absolute';
@@ -1113,34 +1832,41 @@
       }
       stageSurface?.appendChild?.(a11yOverlay);
     }
-    const preview = new global.NeoFlashPreview.Preview(viewport, document.getElementById('stage-space'), document.getElementById('stage-surface'), canvas, project, () => {
+    const preview = new global.NeoFlashPreview.Preview(viewport, stageSpace, stageSurface, canvas, project, () => {
       if (!failed) { try { render(); } catch (error) { fail(error); } }
     });
     const functions = new Map();
-    const sourceUnits = bundle.scripts.concat(bundle.program ? [bundle.program] : []);
+    const sourceUnits = (bundle.scripts || []).concat(bundle.program ? [bundle.program] : []);
     const bodyOffset = functionBodyLineOffset();
     sourceFrames = error => mappedErrorFrames(error, sourceUnits, bodyOffset);
+    if (isStandaloneInstance) mountOptions.setExternalSourceFrames?.(sourceFrames);
     const proxies = new Map();
     let scene = [];
     let lastTime = null;
     let accumulated = 0;
     let lastTrace = '', lastTraceLocation = '';
     const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame', '__nfAs2Method', '__nfAs2Value', '__nfProgram', '__nfDisplay', '__nfLegacy', '__nfXML'];
-    const compiledProgramFn = bundle.program ? (() => {
-      try { return compileProgramUnit(bundle.program); }
-      catch (error) { throw new Error(`Project script syntax error: ${describeThrown(error)}`, { cause: error }); }
-    })() : null;
-    for (const script of bundle.scripts) {
-      try {
-        functions.set(sourceKey(script), {
-          fn: scriptFunction(script, bindings),
-          location: script.location,
-        });
-      } catch (error) { throw new Error(`Script syntax error in ${script.location}: ${describeThrown(error)}`, { cause: error }); }
+    let compiledProgramFn = null;
+    try {
+      compiledProgramFn = bundle.program ? (() => {
+        try { return compileProgramUnit(bundle.program); }
+        catch (error) { throw new Error(`Project script syntax error: ${describeThrown(error)}`, { cause: error }); }
+      })() : null;
+      for (const script of (bundle.scripts || [])) {
+        try {
+          functions.set(sourceKey(script), {
+            fn: scriptFunction(script, bindings),
+            location: script.location,
+          });
+        } catch (error) { throw new Error(`Script syntax error in ${script.location}: ${describeThrown(error)}`, { cause: error }); }
+      }
+    } catch (compileErr) {
+      cleanupEarlySetup();
+      throw compileErr;
     }
     global.__neoflashSuppressConsoleRelay = true;
     try {
-      for (const warning of bundle.warnings) console.warn('NeoFlash:', warning);
+      for (const warning of (bundle.warnings || [])) console.warn('NeoFlash:', warning);
     } finally {
       global.__neoflashSuppressConsoleRelay = false;
     }
@@ -1149,6 +1875,7 @@
       x: 'x', y: 'y', rotation: 'rotation', alpha: 'alpha', scaleX: 'scale_x', scaleY: 'scale_y',
       _x: 'x', _y: 'y', _rotation: 'rotation', _alpha: 'alpha', _xscale: 'scale_x', _yscale: 'scale_y',
     };
+    const resolveRuntimeWasm = () => (typeof instanceWasm !== 'undefined' && instanceWasm) ? instanceWasm : (typeof NeoFlashWasm === 'undefined' ? global.NeoFlashWasm : NeoFlashWasm);
     const graphMode=typeof player.runtime_snapshot_json==='function';
     const hasLifecycleApi = typeof player.enable_lifecycle === 'function' && typeof player.lifecycle_next_step_json === 'function';
     const references = new WeakMap();
@@ -1170,11 +1897,12 @@
     let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, filterHost = null, audioHost = null, videoHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, externalHost = null, program = null, as2PlatformHost = null, as2ObjectHost = null, as2TextHost = null, as2DataHost = null, as2BindingHost = null, as2NetworkHost = null, as2FilesHost = null, as2LocaleHost = null, as2MediaHost = null, as2ServicesHost = null, as2TransitionsHost = null, as2DepthManagerHost = null, as2StageHost = null, as2CaptureHost = null, as2ConnectionsHost = null, as2BoxingHost = null, as2PrintHost = null;
     let geometryHost = null, geometry3dHost = null, easingHost = null, broadcasterHost = null, airHost = null, as3NetSysHost = null, fte3dHost = null, as3MediaEventsHost = null, domStageHost = null, currentBuiltins = null;
     let frameLabelType = null, sceneValueFactory = null;
-    if (global && typeof global === 'object') {
-      global.__neoflashConsoleFormat = args => ({
-        message: formatTraceArgs(args, { program }),
-        location: sourceFrames(new Error())[0] || null,
-      });
+    const consoleFormatHook = args => ({
+      message: formatTraceArgs(args, { program }),
+      location: sourceFrames(new Error())[0] || null,
+    });
+    if (global && typeof global === 'object' && (typeof isStandaloneInstance === 'undefined' || isStandaloneInstance)) {
+      global.__neoflashConsoleFormat = consoleFormatHook;
     }
     const timelineMetadataProperties=Object.freeze({currentLabel:'current_label',currentFrameLabel:'current_frame_label',currentLabels:'labels',framesLoaded:'frames_loaded',isPlaying:'is_playing',currentScene:'scene_name',scenes:'scene_name'});
     let eventFamilies = {};
@@ -1193,7 +1921,7 @@
     const initialViewportOverflow = typeof viewport !== 'undefined' ? viewport?.style?.overflow : undefined;
     let hostStageLayoutPinned = false;
     function ownsViewportFullscreen() {
-      const docRef = typeof document === 'undefined' ? global.document : document;
+      const docRef = typeof instanceDoc !== 'undefined' && instanceDoc ? instanceDoc : (typeof document === 'undefined' ? global.document : document);
       const fsEl = docRef?.fullscreenElement || docRef?.webkitFullscreenElement || null;
       return Boolean(typeof viewport !== 'undefined' && viewport && fsEl === viewport);
     }
@@ -1306,12 +2034,13 @@
       if(typeof fail==='function')fail(failure);else {try { audioHost?.reset(); } finally { throw failure; }}
     }
     function updateAudioStatus(){
-      if(typeof document==='undefined')return;
+      const activeDoc=typeof instanceDoc!=='undefined'&&instanceDoc?instanceDoc:(typeof document==='undefined'?null:document);
+      if(!activeDoc)return;
       const videoState=videoHost?.status();
       const states=[audioHost?.status(),videoState?.audible===false?null:videoState].filter(value=>value&&value.state!=='idle');
       const effectivelyUnlocked=value=>Boolean(value.unlocked||value.requiresGesture===false);
       const state={state:states.some(value=>value.state==='awaiting_gesture')?'awaiting_gesture':states.some(value=>value.state==='loading')?'loading':states.length?'ready':'idle',unlocked:states.every(effectivelyUnlocked),muted:states.length>0&&states.every(value=>value.muted),pending:states.reduce((n,value)=>n+value.pending,0),active:states.reduce((n,value)=>n+value.active,0),loading:states.reduce((n,value)=>n+value.loading,0),error:states.find(value=>value.error)?.error};
-      const button=document.getElementById('audio-toggle'),label=document.getElementById('audio-status');if(!button||!label)return;
+      const button=typeof audioToggleButton!=='undefined'?audioToggleButton:activeDoc.getElementById?.('audio-toggle'),label=typeof audioStatusLabel!=='undefined'?audioStatusLabel:activeDoc.getElementById?.('audio-status');if(!button||!label)return;
       button.hidden=label.hidden=state.state==='idle';
       button.textContent=!state.unlocked||state.state==='awaiting_gesture'?'Enable audio':state.muted?'Unmute audio':'Mute audio';
       button.setAttribute('aria-pressed',String(state.muted));
@@ -1342,8 +2071,9 @@
     let fontLoadingDoneHandler=null;
     function initializeFamily(initialize = true) {
       if (!global.NeoFlashDisplay || typeof player.display_nodes_json !== 'function') return;
-      const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
-      if(global.NeoFlashAS2Platform)as2PlatformHost=global.NeoFlashAS2Platform.create(wasm,{global,document:global.document,onError:inputFailure,requestRender:requestTimerRender});
+      const wasm=resolveRuntimeWasm();
+      const activeDoc=typeof instanceDoc!=='undefined'&&instanceDoc?instanceDoc:(typeof document==='undefined'?null:document);
+      if(global.NeoFlashAS2Platform)as2PlatformHost=global.NeoFlashAS2Platform.create(wasm,{global,document:activeDoc||global.document,onError:inputFailure,requestRender:requestTimerRender});
       eventFamilies=global.NeoFlashEvents?.createFamilies?.(wasm,{isByteArray:value=>Boolean(binaryHost?.ByteArray.__nfIs(value)),requestRender:requestTimerRender})||{};
       geometryHost=global.NeoFlashGeom.create(wasm,{getVector3D:()=>geometry3dHost.Vector3D});
       if(global.NeoFlashGeom3D)geometry3dHost=global.NeoFlashGeom3D.create(wasm,{getPoint:()=>geometryHost.Point});
@@ -1360,15 +2090,15 @@
         }});
       if(global.NeoFlashFilters&&typeof player.filter_rgba==='function')filterHost=global.NeoFlashFilters.create({player,getBitmap:()=>bitmapHost,geometry:geometryHost});
       if(global.NeoFlashText&&typeof player.object_text_info==='function'){
-        textHost=global.NeoFlashText.create({player,wasm,events:global.NeoFlashEvents,project:typeof project==='undefined'?null:project,document:typeof document==='undefined'?null:document,getProgram:()=>program,geometry:geometryHost,fontMetrics:bundle?.fonts?.metrics||null,onUpdate:ref=>(domStageHost||textInputHost)?.sync(ref),onScroll:ref=>{if(eventHub&&global.NeoFlashEvents&&player.object_alive(ref))eventHub.dispatch(proxyForRef(JSON.parse(ref)),new global.NeoFlashEvents.Event('scroll',false,false));},measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.save();try{global.NeoFlashText.applyFont(context,format,true);return context.measureText(text).width;}finally{context.restore();}}});
-        if(typeof document!=='undefined'&&document?.fonts?.addEventListener){
-          if(fontLoadingDoneHandler)document.fonts.removeEventListener('loadingdone',fontLoadingDoneHandler);
+        textHost=global.NeoFlashText.create({player,wasm,events:global.NeoFlashEvents,project:typeof project==='undefined'?null:project,document:activeDoc,getProgram:()=>program,geometry:geometryHost,fontMetrics:bundle?.fonts?.metrics||null,onUpdate:ref=>(domStageHost||textInputHost)?.sync(ref),onScroll:ref=>{if(eventHub&&global.NeoFlashEvents&&player.object_alive(ref))eventHub.dispatch(proxyForRef(JSON.parse(ref)),new global.NeoFlashEvents.Event('scroll',false,false));},measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.save();try{global.NeoFlashText.applyFont(context,format,true);return context.measureText(text).width;}finally{context.restore();}}});
+        if(activeDoc?.fonts?.addEventListener){
+          if(fontLoadingDoneHandler)activeDoc.fonts.removeEventListener('loadingdone',fontLoadingDoneHandler);
           fontLoadingDoneHandler=()=>{textHost?.invalidateCache?.();if(typeof context!=='undefined')render();};
-          document.fonts.addEventListener('loadingdone',fontLoadingDoneHandler);
+          activeDoc.fonts.addEventListener('loadingdone',fontLoadingDoneHandler);
         }
       }
       let invokeAsfunction=()=>{};
-      if(textHost&&global.NeoFlashAS2Text)as2TextHost=global.NeoFlashAS2Text.create({broadcaster:global.NeoFlashBroadcaster,wasm,player,text:textHost,getNet:()=>netHost,onAsfunction:(ref,spec)=>{const tf=proxyForRef(JSON.parse(ref));invokeAsfunction(tf?._parent||proxyFor([]),spec);afterTimerEvent();},targetForRef:key=>proxyForRef(JSON.parse(key)),afterCallback:afterTimerEvent,project:typeof project==='undefined'?null:project,document:typeof document==='undefined'?null:document});
+      if(textHost&&global.NeoFlashAS2Text)as2TextHost=global.NeoFlashAS2Text.create({broadcaster:global.NeoFlashBroadcaster,wasm,player,text:textHost,getNet:()=>netHost,onAsfunction:(ref,spec)=>{const tf=proxyForRef(JSON.parse(ref));invokeAsfunction(tf?._parent||proxyFor([]),spec);afterTimerEvent();},targetForRef:key=>proxyForRef(JSON.parse(key)),afterCallback:afterTimerEvent,project:typeof project==='undefined'?null:project,document:activeDoc});
       display=global.NeoFlashDisplay.create({player,geometry:geometryHost,getGeom3D:()=>geometry3dHost,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,onSuperConstruct:handleSuperConstruct,isRetiring:target=>retiringTargets.has(target),isRetiringReference:key=>pendingRetirementRefs.has(key)||retiringTargets.has(proxies.get(key)?.proxy),onTabChange:(target,type)=>{if(eventHub&&global.NeoFlashEvents)eventHub.dispatch(target,new global.NeoFlashEvents.Event(type,true,false));},onTextLink:(target,text)=>{if(eventHub&&global.NeoFlashEvents&&display.alive(target)){eventHub.dispatch(target,new global.NeoFlashEvents.TextEvent('link',true,false,text));afterTimerEvent();}},project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,getAudio:()=>audioHost,getFte3D:()=>fte3dHost,as2,
         shapeContains:(kind,x,y,world)=>{const hasCanvas=typeof context!=='undefined'&&typeof context.isPointInPath==='function'&&typeof Path2D==='function';if(hasCanvas)inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.contains(hasCanvas?context:null,kind,x,y,hasCanvas?inputPaths.get(kind.commands):null,world);},
         clipsContain:(snapshot,ids,x,y)=>{if(typeof context==='undefined')throw new Error('Clipped input requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.clipsContain(context,ids,global.NeoFlashPaths.clipTable(snapshot.clips||[],snapshot.filter_groups||[]),x,y,inputPaths);},
@@ -1405,7 +2135,7 @@
           afterInput:()=>{if(familyDisposed)return;dispatchScripts();if(typeof context!=='undefined')render();},onError:inputFailure});
         if(global.NeoFlashLegacyInput){
           legacyHost=global.NeoFlashLegacyInput.create({stage:stageHost.stage,platform:as2PlatformHost,
-            keyTarget:typeof global.addEventListener==='function'?global:null,
+            keyTarget:typeof instanceKeyTarget!=='undefined'?instanceKeyTarget:(typeof global.addEventListener==='function'?global:null),
             alive:listener=>!references.has(listener)||display.alive(listener),
             onVisibility:visible=>{legacyCursorVisible=visible;updateCursor();},onError:inputFailure});
           if(global.NeoFlashAS2Stage)as2StageHost=global.NeoFlashAS2Stage.create({wasm,legacy:legacyHost,geometry:geometryHost,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,scaleMode:initialFlashScaleMode,align:initialFlashAlign,allowsFullScreen:allowFullscreen,preview:typeof preview==='undefined'?null:preview,viewport:typeof viewport==='undefined'?null:viewport,canvas:typeof canvas==='undefined'?null:canvas,display,getRoot:()=>proxyFor([]),contextTarget:event=>{if(typeof hitAt==='function')return hitAt(event,true)?.target||proxyFor([]);const p=stagePointFromEvent(event);if(p&&p.inside&&display?.pickDetails)return display.pickDetails(p.x,p.y)?.target||proxyFor([]);return proxyFor([]);},onError:inputFailure,afterEvent:afterTimerEvent});
@@ -1610,15 +2340,15 @@
         printAsBitmapNum(level,boundingBox){legacyPrint(this,level,boundingBox,true);}});
       if(isDomRenderMode&&global.NeoFlashDomLayout?.createDomStageHost){
         domStageHost=global.NeoFlashDomLayout.createDomStageHost({
-          document:typeof document==='undefined'?null:document,
-          surface:typeof document==='undefined'?null:document.getElementById('stage-surface'),
+          document:typeof domHostDocument!=='undefined'?domHostDocument:activeDoc,
+          surface:typeof stageSurface!=='undefined'?stageSurface:(activeDoc?activeDoc.getElementById('stage-surface'):null),
           viewport:typeof viewport==='undefined'?null:viewport,
           canvas:typeof canvas==='undefined'?null:canvas,
           project:typeof project==='undefined'?null:project,
           config:hostPlayerConfig,
           player,
           getDisplay:()=>display,
-          getStageHost:()=>stageHost,
+          getStageHost:()=>familyDisposed?null:stageHost,
           getTextHost:()=>textHost,
           getBitmapHost:()=>bitmapHost,
           getVideoHost:()=>videoHost,
@@ -1663,7 +2393,7 @@
         legacyGlobals=Object.freeze({...legacyGlobals,Selection:Object.freeze({...domStageHost.Selection,setFocus:value=>{const target=typeof value==='string'?(value?display.resolveTarget(value,proxyFor([])):null):value;if(!display.as2CanFocus?.(target))return false;return domStageHost.Selection.setFocus(target);}})});
       }else if(global.NeoFlashTextInput&&textHost&&stageHost&&typeof player.object_text_input==='function'){
         textInputHost=global.NeoFlashTextInput.create({getSize:logicalSize,getOrigin:stageOrigin,player,text:textHost,display,events:{...global.NeoFlashEvents,...eventFamilies},hub:eventHub,stage:stageHost,referenceOf:target=>references.get(target),proxyForRef,onLegacyTab:event=>display.as2Tab?.(event)||false,beforeLegacyTextEvent:(target,name)=>{if(name==='onChanged')as2ObjectHost?.textChanged(target);},onLegacyTextEvent:(target,name,args)=>as2TextHost?.textEvent(references.get(target).key,name,args),
-          canvas:typeof canvas==='undefined'?null:canvas,surface:typeof document==='undefined'?null:document.getElementById('stage-surface'),document:typeof document==='undefined'?null:document,project:typeof project==='undefined'?null:project,
+          canvas:typeof canvas==='undefined'?null:canvas,surface:typeof stageSurface!=='undefined'?stageSurface:(activeDoc?activeDoc.getElementById('stage-surface'):null),document:activeDoc,project:typeof project==='undefined'?null:project,
           onError:inputFailure,afterInput:afterTimerEvent,onClick:(target,event)=>{target=display.resolveInput(target);if(!target)return;stageHost.handlePointer('click',event,target);if(display.alive(target)){player.object_click(references.get(target).key);dispatchScripts(target);if(typeof context!=='undefined')render();}}});
         legacyGlobals=Object.freeze({...legacyGlobals,Selection:Object.freeze({...textInputHost.Selection,setFocus:value=>{const target=typeof value==='string'?(value?display.resolveTarget(value,proxyFor([])):null):value;if(!display.as2CanFocus?.(target))return false;return textInputHost.Selection.setFocus(target);}})});
       }
@@ -1743,6 +2473,8 @@
         };
         loaderHost=global.NeoFlashLoader.create({
           player,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,project:typeof project==='undefined'?null:project,
+          rootParameters:typeof instanceParameters!=='undefined'?instanceParameters:null,
+          rootUrl:typeof instanceRootUrl!=='undefined'?instanceRootUrl:null,
           legacyVariables:legacyNavigationVariables,display,proxyForRef,referenceOf:target=>references.get(target),
           getRoot:()=>proxyFor([]),
           getBuiltin:qname=>{try{return program?.type?.(qname);}catch(_){return as3MediaEventsHost?.builtins?.[qname]||as3NetSysHost?.builtins?.[qname]||fte3dHost?.builtins?.[qname]||null;}},
@@ -1842,7 +2574,7 @@
             const gateFonts=typeof mountAfterBundleFonts==='function'?mountAfterBundleFonts:null;
             if(!gateFonts)return mount();
             return gateFonts(
-              typeof document==='undefined'?null:document,
+              activeDoc,
               childBundle,
               mount,
               isCurrent,
@@ -1890,7 +2622,7 @@
       if(global.NeoFlashAS2Transitions&&easingHost)as2TransitionsHost=global.NeoFlashAS2Transitions.create({wasm,timers:timerHost,easing:easingHost,EventDispatcher:as2PlatformHost.EventDispatcher,stage:stageHost.stage,getFrameRate:()=>runtimeFrameRate,isMovieClip:target=>display.alive(target)&&display.descriptor(target).owner==='movie_clip',afterEvent:afterTimerEvent,onError:timerFailure});
       if(global.NeoFlashAS2Media&&videoHost)as2MediaHost=global.NeoFlashAS2Media.create(wasm,{video:videoHost,EventDispatcher:as2PlatformHost.EventDispatcher,afterEvent:afterTimerEvent});
       if(global.NeoFlashXML){
-        xmlHost=global.NeoFlashXML.create({parseLegacy:source=>wasm.parse_as2_xml_json(source),namespaceLookup:(ancestors,value,reverse)=>JSON.parse(wasm.as2_xml_namespace_json(JSON.stringify(ancestors),value,reverse)),parse:source=>{const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;if(typeof wasm?.parse_xml_json!=='function')throw new Error('XML parser is missing. Re-export this project.');return wasm.parse_xml_json(source);},net:netHost,onError:netFailure});
+        xmlHost=global.NeoFlashXML.create({parseLegacy:source=>wasm.parse_as2_xml_json(source),namespaceLookup:(ancestors,value,reverse)=>JSON.parse(wasm.as2_xml_namespace_json(JSON.stringify(ancestors),value,reverse)),parse:source=>{const wasm=resolveRuntimeWasm();if(typeof wasm?.parse_xml_json!=='function')throw new Error('XML parser is missing. Re-export this project.');return wasm.parse_xml_json(source);},net:netHost,onError:netFailure});
         legacyGlobals=Object.freeze({...legacyGlobals,XML:xmlHost.LegacyXML,XMLNode:xmlHost.XMLNode});
       }
       if(global.NeoFlashAIR&&typeof wasm?.AirKernel==='function'){
@@ -1911,7 +2643,7 @@
             else proxyFor([])?.gotoAndStop?.(target+1);
           }
         };
-        as3MediaEventsHost=global.NeoFlashAS3MediaEvents.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},eventHub,binary:binaryHost,geometry:geometryHost,net:netHost,getAudio:()=>audioHost,getStage:()=>stageHost?.stage||null,StageClass:global.NeoFlashStage?.Stage,LoaderInfoClass:loaderHost?.LoaderInfo,airBuiltins:airHost?.builtins||null,canvas:typeof canvas==='undefined'?null:canvas,menuContainer:typeof viewport==='undefined'?null:viewport,document:typeof document==='undefined'?null:document,hitTest:event=>{if(typeof canvas==='undefined')return stageHost?.stage||null;const h=hitAt(event,true);return h?.target||(h?(graphMode?proxyForRef(h):proxyFor(h)):stageHost?.stage||null);},coordinates:event=>{const p=stagePointFromEvent(event);return p?[p.x,p.y]:[Number(event?.clientX)||0,Number(event?.clientY)||0];},localPoint:(target,x,y)=>{if(!target||target===stageHost?.stage||!display)return[x,y];const p=display.convert(target,{x,y},false);return[p.x,p.y];},onBuiltInMenuAction:key=>{if(key==='play'){if(typeof player.set_playing==='function')player.set_playing(!player.is_playing());else if(typeof player.play==='function')player.play();}else if(key==='rewind'){if(typeof player.set_playing==='function')player.set_playing(false);else if(typeof player.stop==='function')player.stop();if(typeof player.seek==='function')player.seek(0);else rootProxy.seek(0);}else if(key==='forwardAndBack'){const next=Math.min(player.total_frames()-1,player.current_frame()+1);if(typeof player.seek==='function')player.seek(next);else rootProxy.seek(next);}drainSounds();drainVideos();if(typeof context!=='undefined')render();},getAccessibilityActive:()=>Boolean(typeof semanticLayer!=='undefined'&&semanticLayer?.container),onAccessibilityUpdate:()=>updateAs2Accessibility(),afterEvent:afterTimerEvent,onError:netFailure});
+        as3MediaEventsHost=global.NeoFlashAS3MediaEvents.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},eventHub,binary:binaryHost,geometry:geometryHost,net:netHost,getAudio:()=>audioHost,getStage:()=>stageHost?.stage||null,StageClass:global.NeoFlashStage?.Stage,LoaderInfoClass:loaderHost?.LoaderInfo,airBuiltins:airHost?.builtins||null,canvas:typeof canvas==='undefined'?null:canvas,menuContainer:typeof viewport==='undefined'?null:viewport,document:activeDoc,hitTest:event=>{if(typeof canvas==='undefined')return stageHost?.stage||null;const h=hitAt(event,true);return h?.target||(h?(graphMode?proxyForRef(h):proxyFor(h)):stageHost?.stage||null);},coordinates:event=>{const p=stagePointFromEvent(event);return p?[p.x,p.y]:[Number(event?.clientX)||0,Number(event?.clientY)||0];},localPoint:(target,x,y)=>{if(!target||target===stageHost?.stage||!display)return[x,y];const p=display.convert(target,{x,y},false);return[p.x,p.y];},onBuiltInMenuAction:key=>{if(key==='play'){if(typeof player.set_playing==='function')player.set_playing(!player.is_playing());else if(typeof player.play==='function')player.play();}else if(key==='rewind'){if(typeof player.set_playing==='function')player.set_playing(false);else if(typeof player.stop==='function')player.stop();if(typeof player.seek==='function')player.seek(0);else rootProxy.seek(0);}else if(key==='forwardAndBack'){const next=Math.min(player.total_frames()-1,player.current_frame()+1);if(typeof player.seek==='function')player.seek(next);else rootProxy.seek(next);}drainSounds();drainVideos();if(typeof context!=='undefined')render();},getAccessibilityActive:()=>Boolean(typeof semanticLayer!=='undefined'&&semanticLayer?.container),onAccessibilityUpdate:()=>updateAs2Accessibility(),afterEvent:afterTimerEvent,onError:netFailure});
       }
       if(textHost)legacyGlobals=Object.freeze({...legacyGlobals,TextFormat:textHost.As2TextFormat||textHost.TextFormat});
       if(as2TextHost){
@@ -1943,7 +2675,7 @@
       as2.setResolver((receiver,name)=>{const ref=legacyGlobals.nativeRef?.(receiver,name);return ref?ref.get():as2ObjectHost?as2ObjectHost.get(receiver,name):receiver[name];});
       as2.setKeyResolver((receiver,name)=>legacyGlobals.caseKey(receiver,name));
       if(global.NeoFlashAS2Strings){
-        const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
+        const wasm=resolveRuntimeWasm();
         legacyGlobals=Object.freeze({...legacyGlobals,strings:global.NeoFlashAS2Strings.create({execute:request=>wasm.as2_string_json(request)})});
       }
       if(global.NeoFlashAS2Boxing&&legacyGlobals.strings){as2BoxingHost=global.NeoFlashAS2Boxing.create({execute:request=>wasm.as2_box_json(request),strings:legacyGlobals.strings});legacyGlobals=Object.freeze({...legacyGlobals,boxing:as2BoxingHost});}
@@ -1964,7 +2696,7 @@
       const builtins=currentBuiltins={...display.builtins};
       // FrameLabel stores a Rust value and uses the existing event dispatcher.
       if(global.NeoFlashEvents){
-        const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
+        const wasm=resolveRuntimeWasm();
         const values=new WeakMap();
         frameLabelType=class FrameLabel extends global.NeoFlashEvents.EventDispatcher {
           constructor(name,frame){
@@ -2017,7 +2749,7 @@
       builtins.__nfDisplay=display;builtins.__nfLegacy=legacyGlobals;
       builtins.__nfObjectExecute=legacyGlobals.objects3.execute;
       if(global.NeoFlashGeom3D){
-        const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
+        const wasm=resolveRuntimeWasm();
         geometry3dHost??=global.NeoFlashGeom3D.create(wasm,{getPoint:()=>geometryHost.Point});
         for(const name of ['Vector3D','Matrix3D','Utils3D','PerspectiveProjection','Orientation3D'])if(geometry3dHost[name])builtins['flash.geom.'+name]=geometry3dHost[name];
         builtins.__nfGeometryNumberVector=geometry3dHost.setNumberVectorFactory;
@@ -2027,7 +2759,7 @@
       if(geometryHost.MatrixTransformer)builtins['fl.motion.MatrixTransformer']=geometryHost.MatrixTransformer;
       if(easingHost)Object.assign(builtins,easingHost.builtins);
       if(global.NeoFlashNumberFormat){
-        const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
+        const wasm=resolveRuntimeWasm();
         const numberFormat=global.NeoFlashNumberFormat.create(wasm);
         as3NetSysHost?.hookNumberFormatter?.(numberFormat.NumberFormatter);
         for(const name of ['NumberFormatter','NumberParseResult'])builtins['flash.globalization.'+name]=numberFormat[name];
@@ -2156,6 +2888,16 @@
         type:name=>{if(!builtins[name])throw new TypeError(`Unsupported built-in class ${name}.`);return builtins[name];},
         is:(value,name)=>Boolean(builtins[name]?.__nfIs?.(value)),
       };
+      if(typeof instanceParameters!=='undefined'&&instanceParameters&&typeof instanceParameters==='object'){
+        try{
+          const rootClip=proxyFor([]);
+          for(const [paramKey,paramVal] of Object.entries(instanceParameters)){
+            if(paramKey&&!(paramKey in rootClip)){
+              try{rootClip[paramKey]=paramVal===undefined||paramVal===null?'':String(paramVal);}catch(_){}
+            }
+          }
+        }catch(_){}
+      }
     }
     function cleanupAdapters(method) {
       // Invalidate pending render work first; every adapter must get a chance to
@@ -2224,11 +2966,17 @@
       if(familyDisposed)return;
       pointerOverContent=false;legacyCursorVisible=true;
       familyDisposed=true;
+      const activeDoc=typeof instanceDoc!=='undefined'&&instanceDoc?instanceDoc:(typeof document==='undefined'?null:document);
       completeCleanup([
         () => { if(typeof canvas!=='undefined'&&canvas)canvas.style.cursor='default'; },
         () => {
           const handler=fontLoadingDoneHandler; fontLoadingDoneHandler=null;
-          if(handler&&typeof document!=='undefined')document?.fonts?.removeEventListener?.('loadingdone',handler);
+          if(handler&&activeDoc)activeDoc.fonts?.removeEventListener?.('loadingdone',handler);
+        },
+        () => {
+          if(global&&typeof global==='object'&&global.__neoflashConsoleFormat===consoleFormatHook){
+            delete global.__neoflashConsoleFormat;
+          }
         },
         clearPainters, () => cleanupAdapters('dispose'), clearFamilyState,
         () => as2PlatformHost?.dispose(), () => legacyHost?.dispose(), () => stageHost?.dispose(),
@@ -2764,7 +3512,7 @@
       const cached = proxies.get(key);
       if (cached && cached.lifetime === lifetime) return cached.proxy;
       let resolvedProxy = null;
-      const live=()=>retiringTargets.has(resolvedProxy)||(objectRef?player.object_alive(key):player.lifetime_id(key)===lifetime);
+      const live=()=>retiringTargets.has(resolvedProxy)||(!familyDisposed&&(typeof runtimeDisposed==='undefined'||!runtimeDisposed)&&(objectRef?player.object_alive(key):player.lifetime_id(key)===lifetime));
       if (!lifetime||!live()) {
         if (cached) return cached.proxy;
         throw new Error(`Display object ${key} is no longer active.`);
@@ -3069,6 +3817,12 @@
       const message = formatTraceArgs(values, { program });
       lastTrace = message.replace(/\r?\n\s*/g, ' ').slice(0, 160);
       lastTraceLocation = location;
+      if (typeof instanceOnTrace === 'function') {
+        try { instanceOnTrace(message, values, frames[0] || null); } catch (_) {}
+      }
+      if (typeof instanceEventHost !== 'undefined' && instanceEventHost && instanceEventHost !== global) {
+        emitScriptMessage('trace', message, frames, instanceEventHost);
+      }
       emitScriptMessage('trace', message, frames);
     }
     let lifecycleStepCount = 0;
@@ -3388,24 +4142,30 @@
       const focusBounds=display?.as2FocusBounds?.();if(focusBounds){context.save();context.strokeStyle='#ffcc00';context.lineWidth=2;context.strokeRect(focusBounds.x,focusBounds.y,focusBounds.width,focusBounds.height);context.restore();}
       const semanticScene=enrichedSemNodes.length || preparedAccessibility.fallback.length?(snapshot?scene.map(item=>{const ancestry_refs=[];for(let node=objects.get(JSON.stringify(item.owner_ref));node;node=objects.get(JSON.stringify(node.parent_ref)))ancestry_refs.push(node.object_ref);return {...item,...(clippedBounds.has(item)?{clipped_bounds:clippedBounds.get(item)}:{}),transform:bitmapMatrix(item),ancestry_refs,kind:item.kind.type==='bitmap_pixels'?{...item.kind,alpha_bounds:bitmapHost.cache.bounds(item.kind)}:item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind};}):scene):[];
       const targetCount = semanticLayer.update(enrichedSemNodes, semanticScene, {...project,width,height}, {x:preview.view.scale,y:preview.view.scaleY||preview.view.scale}, (line, kind) => { context.font = font(kind); return context.measureText(line).width; }, {x:originX,y:originY});
-      syncSemanticFocus(stageHost?.stage?.focus,null,textInputHost?.owns?.(document.activeElement));
+      syncSemanticFocus(stageHost?.stage?.focus,null,textInputHost?.owns?.(instanceDoc?.activeElement));
       const fallbackTargetCount=syncStageAccessibilityOverlay(preparedAccessibility.fallback,semanticScene);
       bitmapHost?.cache.endFrame();
       if (targetCount || fallbackTargetCount) canvas.setAttribute('aria-hidden', 'true'); else canvas.removeAttribute('aria-hidden');
       }
-      status.textContent = `${player.current_frame() + 1} / ${player.total_frames()} · ${runtimeFrameRate} fps`;
-      if (typeof measuredFps === 'number' && measuredFps > 0) {
-        status.dataset.measuredFps = measuredFps.toFixed(1);
-        status.dataset.targetFps = String(runtimeFrameRate);
-        status.title = `Measured: ${measuredFps.toFixed(1)} fps · Target: ${runtimeFrameRate} fps`;
-      } else {
-        delete status.dataset.measuredFps;
-        delete status.dataset.targetFps;
-        status.removeAttribute('title');
+      if (status) {
+        status.textContent = `${player.current_frame() + 1} / ${player.total_frames()} · ${runtimeFrameRate} fps`;
+        if (typeof measuredFps === 'number' && measuredFps > 0) {
+          if (status.dataset) {
+            status.dataset.measuredFps = measuredFps.toFixed(1);
+            status.dataset.targetFps = String(runtimeFrameRate);
+          }
+          status.title = `Measured: ${measuredFps.toFixed(1)} fps · Target: ${runtimeFrameRate} fps`;
+        } else {
+          if (status.dataset) {
+            delete status.dataset.measuredFps;
+            delete status.dataset.targetFps;
+          }
+          status.removeAttribute?.('title');
+        }
       }
       const traceText = lastTrace + (lastTraceLocation ? ` (${lastTraceLocation})` : '');
-      if (traceElement.textContent !== traceText) traceElement.textContent = traceText;
-      toggle.textContent = player.is_playing() ? 'Pause' : 'Play';
+      if (traceElement && traceElement.textContent !== traceText) traceElement.textContent = traceText;
+      if (toggle) toggle.textContent = player.is_playing() ? 'Pause' : 'Play';
     }
     function hitAt(event,details=false) {
       let snapshot=graphMode?(display?.snapshot?display.snapshot():JSON.parse(player.runtime_snapshot_json())):null;
@@ -3458,7 +4218,7 @@
     });
     canvas.addEventListener('pointermove',guardHostCallback(event=>{const hit=hitAt(event);pointerOverContent=Boolean(hit&&display.handCursor(graphMode?proxyForRef(hit):proxyFor(hit)));updateCursor();}));
     canvas.addEventListener('pointerleave', guardHostCallback(() => { pointerOverContent=false;updateCursor(); }));
-    toggle.addEventListener('click', guardHostCallback(() => {
+    toggle?.addEventListener('click', guardHostCallback(() => {
       player.set_playing(!player.is_playing());
       drainSounds();drainVideos();
       lastTime = null;
@@ -3466,21 +4226,23 @@
       resetMeasuredFps();
       render();
     }));
-    document.getElementById('restart').addEventListener('click', () => {
-      if (familyDisposed) return;
+    function restartInstance() {
+      if (familyDisposed || runtimeDisposed) return;
       failed = false;
-      errorElement.style.display = 'none';
+      if (isStandaloneInstance) mountOptions.setExternalFailed?.(false);
+      if (instanceErrorElement?.style) instanceErrorElement.style.display = 'none';
       accumulated = 0; lastTime = null; resetMeasuredFps();
+      if (instanceEventHost !== global) emitScriptMessage('restart', 'Player restarted', [], instanceEventHost);
       emitScriptMessage('restart', 'Player restarted', []);
       try { resetProject(); render(); } catch (error) { fail(error); }
-    });
-    document.getElementById('audio-toggle')?.addEventListener('click',guardHostCallback(()=>{
+    }
+    restartButton?.addEventListener('click', restartInstance);
+    audioToggleButton?.addEventListener('click',guardHostCallback(()=>{
       const services=[audioHost,videoHost].filter(host=>{if(!host)return false;const state=host.status();return state.state!=='idle'&&state.audible!==false;}),mute=services.length&&services.every(host=>{const state=host.status();return (state.unlocked||state.requiresGesture===false)&&!state.muted&&state.state!=='awaiting_gesture';});
       for(const host of services)mediaGesture(host,mute?'setMuted':'resumeFromGesture',...(mute?[true]:[]));
     }));
-    global.addEventListener('resize', guardHostCallback(() => { resize(); render(); }));
-    document.addEventListener('visibilitychange', () => { lastTime = null; accumulated = 0; resetMeasuredFps(); });
-    const zoomSelect = document.getElementById('zoom');
+    addOwnedListener(global, 'resize', guardHostCallback(() => { resize(); render(); }));
+    addOwnedListener(instanceDoc, 'visibilitychange', () => { lastTime = null; accumulated = 0; resetMeasuredFps(); });
     zoomSelect?.addEventListener('change', event => {
       hostStageLayoutPinned = false;
       if (!as2StageHost?.isActive?.()) {
@@ -3497,9 +4259,7 @@
       preview.mode = initialMode;
       if (zoomSelect && (initialMode === 'fit' || initialMode === '1')) zoomSelect.value = initialMode;
     }
-    const panButton = document.getElementById('pan');
     panButton?.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
-    const fullscreenToggle = document.getElementById('fullscreen-toggle');
     if (fullscreenToggle) {
       if (!allowFullscreen) fullscreenToggle.hidden = true;
       const syncFullscreenToggle = () => {
@@ -3515,8 +4275,8 @@
         if (failed || !allowFullscreen) return;
         try {
           if (ownsViewportFullscreen()) {
-            const exitFn = document.exitFullscreen || document.webkitExitFullscreen;
-            if (typeof exitFn === 'function') Promise.resolve(exitFn.call(document)).catch(fail);
+            const exitFn = instanceDoc?.exitFullscreen || instanceDoc?.webkitExitFullscreen;
+            if (typeof exitFn === 'function') Promise.resolve(exitFn.call(instanceDoc)).catch(fail);
           } else {
             const reqFn = viewport?.requestFullscreen || viewport?.webkitRequestFullscreen;
             if (typeof reqFn !== 'function') throw new Error('Fullscreen is unavailable in this browser context.');
@@ -3525,15 +4285,9 @@
           }
         } catch (error) { fail(error); }
       });
-      document.addEventListener?.('fullscreenchange', syncFullscreenToggle);
-      document.addEventListener?.('webkitfullscreenchange', syncFullscreenToggle);
+      addOwnedListener(instanceDoc, 'fullscreenchange', syncFullscreenToggle);
+      addOwnedListener(instanceDoc, 'webkitfullscreenchange', syncFullscreenToggle);
     }
-    const footerElement = document.querySelector?.('footer');
-    const nameElement = document.getElementById('name');
-    const transportElement = document.querySelector?.('.transport');
-    const loadInfoElement = document.getElementById('load-info');
-    const reportToggle = document.getElementById('report-toggle');
-    const sizeReportElement = document.getElementById('size-report');
     const isCleanChrome = chromeConfig.clean === true || (
       chromeConfig.show_fps === false &&
       chromeConfig.show_dimensions === false &&
@@ -3542,7 +4296,8 @@
       chromeConfig.show_trace === false
     );
     if (isCleanChrome) {
-      document.body?.setAttribute('data-clean', 'true');
+      if (isStandaloneInstance) instanceDoc?.body?.setAttribute?.('data-clean', 'true');
+      else scopedDom?.rootWrapper?.setAttribute?.('data-clean', 'true');
       if (footerElement) footerElement.hidden = true;
     } else {
       if (chromeConfig.show_controls === false && transportElement) transportElement.hidden = true;
@@ -3595,28 +4350,63 @@
     let rafId = 0;
     let resizeRafId = 0;
     let resizeObserver = null;
-    function teardownRuntime() {
+    let moduleHandle = null;
+    function teardownRuntime(freeWasmPlayer = !isStandaloneInstance) {
       if (runtimeDisposed) return;
       runtimeDisposed = true;
-      const animation=rafId, resizeAnimation=resizeRafId, observer=resizeObserver;
-      rafId=0; resizeRafId=0; resizeObserver=null;
+      const animation = rafId, resizeAnimation = resizeRafId, observer = resizeObserver;
+      const listenersToRemove = ownedListeners.splice(0, ownedListeners.length);
+      const domRootToRemove = scopedDom?.ownedRoot || null;
+      const wasmPlayer = activePlayer;
+      rafId = 0; resizeRafId = 0; resizeObserver = null;
+      if (scopedDom) scopedDom.ownedRoot = null;
+      if (freeWasmPlayer) activePlayer = null;
       completeCleanup([
-        () => { if(animation)global.cancelAnimationFrame?.(animation); },
-        () => { if(resizeAnimation)global.cancelAnimationFrame?.(resizeAnimation); },
-        () => observer?.disconnect(), disposeFamily, () => gradients.clear(), () => clippings.clear(),
+        () => { if (animation) global.cancelAnimationFrame?.(animation); },
+        () => { if (resizeAnimation) global.cancelAnimationFrame?.(resizeAnimation); },
+        () => observer?.disconnect(),
+        ...listenersToRemove.map(([target, type, handler, listenerOpts]) => () => target.removeEventListener?.(type, handler, listenerOpts)),
+        disposeFamily,
+        () => semanticLayer?.clear?.(),
+        () => {
+          if (a11yOverlay) {
+            if (typeof a11yOverlay.replaceChildren === 'function') a11yOverlay.replaceChildren();
+            else if ('textContent' in a11yOverlay) a11yOverlay.textContent = '';
+          }
+        },
+        () => gradients.clear(),
+        () => clippings.clear(),
+        () => paths?.paths?.clear?.(),
+        () => {
+          if (domRootToRemove) {
+            if (typeof domRootToRemove.remove === 'function') domRootToRemove.remove();
+            else if (domRootToRemove.parentNode) domRootToRemove.parentNode.removeChild(domRootToRemove);
+          }
+        },
+        () => {
+          if (container && mountedContainers.get(container) === moduleHandle) {
+            mountedContainers.delete(container);
+          }
+        },
+        () => {
+          if (freeWasmPlayer && wasmPlayer) {
+            wasmPlayer.free?.();
+          }
+        },
       ]);
     }
     onPageHide = event => {
       if (runtimeDisposed) return;
-      try { completeCleanup([() => storageHost?.flushAll(), () => { if(!event?.persisted)teardownRuntime(); }]); }
+      try { completeCleanup([() => storageHost?.flushAll(), () => { if(!event?.persisted)teardownRuntime(true); }]); }
       catch(error) { console.error(error); }
     };
     stopAsyncOnFailure=()=>completeCleanup([
       () => cleanupAdapters('reset'), () => gradients.clear(), () => clippings.clear(),
       () => filterHost?.renderer.clear(),
     ]);
-    await ensureBundleFontsLoaded(typeof document==='undefined'?null:document,bundle?.fonts?.css_rules||'');
-    if (runtimeDisposed) return;
+    if (isStandaloneInstance) mountOptions.setExternalStopAsync?.(stopAsyncOnFailure);
+    await ensureBundleFontsLoaded(instanceDoc || null, bundle?.fonts?.css_rules || '');
+    if (runtimeDisposed) return null;
     initializeFamily(false);
     canvas.tabIndex=-1;
     stageHost?.attach();
@@ -3628,7 +4418,7 @@
     // Startup script failures use the same stopped-but-restartable policy as
     // later events. Keep installing the animation loop after reporting them.
     try { initializeProgram(); dispatchScripts(); render(); } catch (error) { fail(error); }
-    if (typeof ResizeObserver === 'function') {
+    if (typeof ResizeObserver === 'function' && viewport) {
       let lastObservedWidth = viewport.clientWidth;
       let lastObservedHeight = viewport.clientHeight;
       resizeObserver = new ResizeObserver(guardHostCallback(() => {
@@ -3656,11 +4446,11 @@
       }));
       resizeObserver.observe(viewport);
     }
-    document.getElementById('loading').style.display = 'none';
+    if (loadingElement?.style) loadingElement.style.display = 'none';
     function animate(now) {
       rafId = 0;
       if (runtimeDisposed) return;
-      if (!failed && !document.hidden) {
+      if (!failed && !instanceDoc?.hidden) {
         try {
           if (lastTime !== null && player.is_playing()) {
             accumulated += Math.min(now - lastTime, 250);
@@ -3697,7 +4487,129 @@
     if (!runtimeDisposed) {
       rafId = global.requestAnimationFrame(animate) || 0;
     }
-    global.NeoFlashPlayer = Object.freeze({ get root() { return proxyFor([]); }, get measuredFps() { return measuredFps; }, get targetFps() { return runtimeFrameRate; }, loadPublish: (url, target = null) => { if (!loaderHost?.loadPublish) throw new Error('Loader host is unavailable in this publication.'); return loaderHost.loadPublish(url, target); }, pause: () => { player.set_playing(false); resetMeasuredFps(); drainSounds();drainVideos(); }, resume: () => {resetMeasuredFps();player.set_playing(true);drainVideos();}, restart: () => document.getElementById('restart').click() });
+
+    const assertLiveInstance = () => {
+      if (runtimeDisposed) throw new Error('This NeoFlash module instance has been destroyed.');
+    };
+    const pauseInstance = () => {
+      assertLiveInstance();
+      player.set_playing(false);
+      lastTime = null;
+      accumulated = 0;
+      resetMeasuredFps();
+      drainSounds();
+      drainVideos();
+      if (toggle) toggle.textContent = 'Play';
+    };
+    const resumeInstance = () => {
+      assertLiveInstance();
+      resetMeasuredFps();
+      lastTime = null;
+      accumulated = 0;
+      player.set_playing(true);
+      drainSounds();
+      drainVideos();
+      if (toggle) toggle.textContent = 'Pause';
+    };
+
+    if (isStandaloneInstance) {
+      const standaloneHandle = Object.freeze({
+        get root() { return proxyFor([]); },
+        get measuredFps() { return measuredFps; },
+        get targetFps() { return runtimeFrameRate; },
+        loadPublish: (url, target = null) => {
+          if (!loaderHost?.loadPublish) throw new Error('Loader host is unavailable in this publication.');
+          return loaderHost.loadPublish(url, target);
+        },
+        pause: () => { player.set_playing(false); resetMeasuredFps(); drainSounds(); drainVideos(); },
+        resume: () => { resetMeasuredFps(); player.set_playing(true); drainVideos(); },
+        restart: () => { if (restartButton?.click) restartButton.click(); else restartInstance(); },
+      });
+      global.NeoFlashPlayer = standaloneHandle;
+      return standaloneHandle;
+    }
+
+    let rootStoppedByHost = false;
+    moduleHandle = Object.freeze({
+      get root() { return runtimeDisposed ? null : proxyFor([]); },
+      container,
+      get measuredFps() { return runtimeDisposed ? 0 : measuredFps; },
+      get targetFps() { return runtimeDisposed ? 0 : runtimeFrameRate; },
+      get isPlaying() { return !runtimeDisposed && !failed && !rootStoppedByHost && Boolean(player.is_playing()); },
+      get currentFrame() { return runtimeDisposed ? 0 : player.current_frame() + 1; },
+      get totalFrames() { return runtimeDisposed ? 0 : player.total_frames(); },
+      get disposed() { return runtimeDisposed; },
+      play: () => {
+        const wasStoppedByHost = rootStoppedByHost;
+        rootStoppedByHost = false;
+        resumeInstance();
+        const root = proxyFor([]);
+        if ((wasStoppedByHost || root?.isPlaying === false) && typeof root?.play === 'function') {
+          root.play();
+          dispatchScripts();
+          if (!failed) render();
+        }
+      },
+      pause: () => pauseInstance(),
+      resume: () => {
+        const wasStoppedByHost = rootStoppedByHost;
+        rootStoppedByHost = false;
+        resumeInstance();
+        if (wasStoppedByHost) {
+          const root = proxyFor([]);
+          if (typeof root?.play === 'function') {
+            root.play();
+            dispatchScripts();
+            if (!failed) render();
+          }
+        }
+      },
+      restart: () => {
+        assertLiveInstance();
+        rootStoppedByHost = false;
+        restartInstance();
+      },
+      gotoAndPlay: (frame, scene) => {
+        assertLiveInstance();
+        rootStoppedByHost = false;
+        player.set_playing(true);
+        if (toggle) toggle.textContent = 'Pause';
+        const root = proxyFor([]);
+        if (scene !== undefined && scene !== null) root.gotoAndPlay(frame, scene);
+        else root.gotoAndPlay(frame);
+        lastTime = null;
+        accumulated = 0;
+        resetMeasuredFps();
+        dispatchScripts();
+        if (!failed) render();
+      },
+      gotoAndStop: (frame, scene) => {
+        assertLiveInstance();
+        rootStoppedByHost = true;
+        const root = proxyFor([]);
+        if (scene !== undefined && scene !== null) root.gotoAndStop(frame, scene);
+        else root.gotoAndStop(frame);
+        lastTime = null;
+        accumulated = 0;
+        resetMeasuredFps();
+        dispatchScripts();
+        if (!failed) render();
+      },
+      loadPublish: (url, target = null) => {
+        assertLiveInstance();
+        if (!loaderHost?.loadPublish) throw new Error('Loader host is unavailable in this publication.');
+        return loaderHost.loadPublish(url, target);
+      },
+      destroy: () => {
+        teardownRuntime(true);
+      },
+    });
+    if (container) {
+      mountedContainers.set(container, moduleHandle);
+    }
+    return moduleHandle;
   }
-  boot().catch(fail);
+  if (global.NeoFlashBundle && !global.__NEOFLASH_MANUAL_MOUNT__ && !(global.__neoflashManualMountDepth > 0)) {
+    boot().catch(fail);
+  }
 })(globalThis);

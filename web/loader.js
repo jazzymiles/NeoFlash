@@ -91,13 +91,19 @@
     }
     function newRecord(target,as2=false,owner=null,isRoot=false){
       const defaultBytes=new Uint8Array([0x46,0x57,0x53,12,8,0,0,0]);
+      const rootParams=(isRoot&&options.rootParameters&&typeof options.rootParameters==='object')
+        ?Object.fromEntries(Object.entries(options.rootParameters).map(([k,v])=>[k,v===undefined||v===null?'':String(v)]))
+        :{};
+      const defaultRootUrl=typeof options.rootUrl==='string'&&options.rootUrl
+        ?options.rootUrl
+        :(typeof global.location?.href==='string'?global.location.href:'app:///publication.swf');
       const record={target,ref:target?referenceOf(target)?.objectRef:null,generation,as2,isRoot,legacy:owner,operation:null,info:null,content:null,pixel:null,
-        url:isRoot?(typeof global.location?.href==='string'?global.location.href:'app:///publication.swf'):'',
+        url:isRoot?defaultRootUrl:'',
         bytesLoaded:isRoot?defaultBytes.length:0,bytesTotal:isRoot?defaultBytes.length:0,
         width:isRoot?550:0,height:isRoot?400:0,contentType:isRoot?'application/x-shockwave-flash':null,
         swfVersion:12,actionScriptVersion:3,frameRate:Number(options.getFrameRate?.())||24,
         rawBytes:isRoot?defaultBytes:new Uint8Array(0),
-        parameters:{},sharedEvents:!as2?new events.EventDispatcher():null,
+        parameters:rootParams,sharedEvents:!as2?new events.EventDispatcher():null,
         uncaughtErrorEvents:null,
         applicationDomain:null,childSandboxBridge:null,parentSandboxBridge:null};
       if(!as2)record.info=new LoaderInfo(token,record);
@@ -171,6 +177,13 @@
       if(current(op))op.record.operation=null;
     }
     const utf8Decoder=new TextDecoder('utf-8',{fatal:false});
+    function isNeoFlashModuleEntry(text){
+      return /(?:^|\n)\s*export\s+(?:const\s+manifest\b|async\s+function\s+(?:mount|loadBundle)\b)/.test(text)&&/neoflash|bundle\.js/i.test(text);
+    }
+    function extractInlineModuleBundleJson(text){
+      const match=/(?:^|\n)\s*export\s+const\s+bundle\s*=\s*(?:Object\.freeze\(\s*)?(\{[\s\S]*\})\s*\)?\s*;/.exec(text);
+      return match?match[1]:null;
+    }
     function parseNeoFlashBundleText(text){
       const trimmed=text.trim();
       if(!trimmed)return null;
@@ -180,6 +193,8 @@
         jsonSource=trimmed.slice(prefixMatch[0].length).replace(/(?:;\s*)?(?:\/\/#[^\r\n]*\s*)*$/,'').replace(/;\s*$/,'');
       }else if(trimmed.startsWith('{')&&trimmed.includes('"project"')&&trimmed.includes('"symbols"')){
         jsonSource=trimmed;
+      }else if(trimmed.includes('export const bundle')&&trimmed.includes('"project"')){
+        jsonSource=extractInlineModuleBundleJson(trimmed);
       }
       if(!jsonSource)return null;
       const parsed=JSON.parse(jsonSource);
@@ -229,6 +244,10 @@
             bundleRel='bundle.js';
           }
         }catch(_){}
+      }else if(isNeoFlashModuleEntry(trimmed)){
+        const manifestBundle=/"bundle"\s*:\s*["']([^"']*bundle\.js(?:\?[^"']*)?)["']/.exec(trimmed)
+          ||/\bnew\s+URL\(\s*["']([^"']*bundle\.js(?:\?[^"']*)?)["']/.exec(trimmed);
+        bundleRel=manifestBundle?manifestBundle[1]:'./bundle.js';
       }
       if(!bundleRel)return null;
       return resolveRelativeBundleUrl(bundleRel,effectiveBase);
@@ -266,8 +285,8 @@
       if(bytes.length>=5&&bytes.length<=32*1024*1024){
         const head=utf8Decoder.decode(bytes.subarray(0,Math.min(bytes.length,65536))).replace(/^\uFEFF/,'').trimStart();
         if(/^(?:<\?xml\b[\s\S]*?\?>\s*)?(?:<!DOCTYPE\b[^>]*>\s*)?<svg\b/i.test(head))return 'image/svg+xml';
-        if(/^(?:\/\*[\s\S]*?\*\/\s*)*(?:globalThis|window|self)\.NeoFlashBundle\s*=/.test(head)||(head.startsWith('{')&&head.includes('"project"')))return 'application/vnd.neoflash.bundle';
-        if((/^<!doctype\s+html|^<html/i.test(head)&&(/neoflash/i.test(head)||/<script\b[^>]*\bsrc=["'][^"']*bundle\.js/i.test(head)))||(head.startsWith('{')&&head.includes('"bundle.js"')))return 'application/vnd.neoflash.publish-entry';
+        if(/^(?:\/\*[\s\S]*?\*\/\s*)*(?:globalThis|window|self)\.NeoFlashBundle\s*=/.test(head)||(head.startsWith('{')&&head.includes('"project"'))||(head.includes('export const bundle')&&head.includes('"project"')))return 'application/vnd.neoflash.bundle';
+        if((/^<!doctype\s+html|^<html/i.test(head)&&(/neoflash/i.test(head)||/<script\b[^>]*\bsrc=["'][^"']*bundle\.js/i.test(head)))||(head.startsWith('{')&&head.includes('"bundle.js"'))||isNeoFlashModuleEntry(head))return 'application/vnd.neoflash.publish-entry';
       }
       throw new TypeError('Loader supports PNG, JPEG, GIF, WebP, BMP, TIFF, SVG, SWF and published NeoFlash bundles. Other file formats are not implemented.');
     }
