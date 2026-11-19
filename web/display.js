@@ -126,6 +126,8 @@
     const ownerCache=new Map(),descriptorCache=new Map();
     const readOnlyPlayerMethods=new Set([
       'runtime_snapshot_json','display_nodes_json','scene_json','accessibility_json',
+      // Draining lifecycle packets and changing transport do not change the displayed frame.
+      'enable_lifecycle','lifecycle_next_step_json','set_authored_display_events','set_playing',
       'object_ref','object_alive','lifetime_id','reset_generation','lifecycle_depth','current_frame','total_frames',
       'is_playing','script_overflowed','is_dispatch_current','timeline_sound_resources_json',
       'property','object_property','visible','object_visible',
@@ -155,7 +157,7 @@
       'object_set_scroll_rect','object_set_mask','object_set_bitmap',
       'object_set_smoothing','object_set_pixel_snapping','object_video_update',
       'graphics_apply','graphics_copy_from','set_morph_shape_ops','set_text_line_draws',
-      'stop_all_sounds','set_playing','object_set_button_sound_transform',
+      'stop_all_sounds','object_set_button_sound_transform',
       'bitmap_create','bitmap_set_pixels','bitmap_color_transform','bitmap_apply_filter',
       'bitmap_draw_rgba','bitmap_draw_rgba_blended','bitmap_set_pixel','bitmap_fill_rect',
       'bitmap_copy_pixels','bitmap_clone','bitmap_scroll','bitmap_dispose','pixel_decode','pixel_release',

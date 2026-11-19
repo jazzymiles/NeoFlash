@@ -16,33 +16,6 @@ pub(super) struct BitmapAsset {
     pub average_color: Color,
 }
 
-fn sample_average_rgba(rgba: &[u8]) -> Color {
-    let mut r_sum = 0u64;
-    let mut g_sum = 0u64;
-    let mut b_sum = 0u64;
-    let mut a_sum = 0u64;
-    let mut count = 0u64;
-    for px in rgba.as_chunks::<4>().0 {
-        if px[3] > 0 {
-            r_sum += u64::from(px[0]);
-            g_sum += u64::from(px[1]);
-            b_sum += u64::from(px[2]);
-            a_sum += u64::from(px[3]);
-            count += 1;
-        }
-    }
-    if let Some(r) = r_sum.checked_div(count) {
-        [
-            r as u8,
-            (g_sum / count) as u8,
-            (b_sum / count) as u8,
-            (a_sum / count) as u8,
-        ]
-    } else {
-        [128, 128, 128, 255]
-    }
-}
-
 fn compact_duplicate_media_under_pressure(
     resources: &mut Vec<ResourceUnit>,
     bitmaps: &mut BTreeMap<u16, BitmapAsset>,
@@ -469,7 +442,7 @@ pub(super) fn resources(
         if decoded.bounds_words[0] != 0 || decoded.bounds_words[2] != 0 {
             report.warning("fla_bitmap_origin",&location,"The bitmap's stored bounds start away from 0,0; the image is placed at its instance origin.");
         }
-        let average_color = sample_average_rgba(&decoded.rgba);
+        let average_color = crate::average_bitmap_color(&decoded.rgba);
         let png = decoded.png_bytes().map_err(|e| e.to_string())?;
         if png.len() > MAX_RESOURCE_BYTES {
             report.warning(

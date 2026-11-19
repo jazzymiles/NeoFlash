@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Opening a Figma file imports all design pages as named scenes in one project by default. Dense pages retain separate editable layers and repeated photos share their original embedded image. Large artboard layouts fit inside the exported stage.
+- Opening a Figma file imports all design pages as named scenes in one project by default. Dense pages retain separate editable layers and repeated photos share their original embedded image. Large artboard layouts fit inside the exported stage. HTML5 can switch between dense, script-free scenes with thousands of image fills. Animate FLA exports retain distinct Library names that differ only in letter case and split long vector edge records. SWF publishing can outline multilingual text with an installed font that covers its glyphs and reuse identical drawings across scenes.
 
 - Improved import of Illustrator SVG, PDF-compatible AI, PDF and EPS artwork. Illustrator styles,
   clip paths and supported gradients retain their colors. EPS files with an embedded TIFF preview

@@ -940,6 +940,7 @@ fn immediate_text(node: Node<'_, '_>) -> String {
 #[derive(Clone, Debug)]
 struct XflBitmapAsset {
     resource_id: Id,
+    average_color: Color,
     width: u32,
     height: u32,
     /// Full-resolution XFL pixels per imported bitmap pixel on each axis.
@@ -5100,6 +5101,7 @@ impl Parser<'_> {
                             name.to_owned(),
                             XflBitmapAsset {
                                 resource_id,
+                                average_color: crate::average_bitmap_color(&decoded.rgba),
                                 width: decoded.width,
                                 height: decoded.height,
                                 source_scale,
@@ -5175,6 +5177,7 @@ impl Parser<'_> {
                             name.to_owned(),
                             XflBitmapAsset {
                                 resource_id,
+                                average_color: crate::average_bitmap_color(&decoded.rgba),
                                 width: decoded.width,
                                 height: decoded.height,
                                 source_scale: [1., 1.],

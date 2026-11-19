@@ -2998,7 +2998,7 @@ fn build_xfl_package(
 
     // Assign unique library item names for non-scene symbols
     let mut symbol_lib_names: BTreeMap<Id, String> = BTreeMap::new();
-    let mut used_lib_names: BTreeSet<String> = BTreeSet::new();
+    let mut used_lib_names_lower = BTreeSet::new();
     for sym in &project.symbols {
         if scene_set.contains(sym.id.as_str()) {
             continue;
@@ -3011,7 +3011,7 @@ fn build_xfl_package(
         };
         let mut candidate = full_name.clone();
         let mut suffix = 2usize;
-        while !used_lib_names.insert(candidate.clone()) {
+        while !used_lib_names_lower.insert(candidate.to_ascii_lowercase()) {
             candidate = format!("{full_name}_{suffix}");
             suffix += 1;
         }
@@ -4122,8 +4122,8 @@ fn write_dom_shape_xml(
 ) -> String {
     let has_fill = bitmap_paint.is_some() || fill_gradient.is_some() || fill[3] > 0;
     let has_stroke = stroke_width > 0.0 && (stroke_gradient.is_some() || stroke[3] > 0);
-    let edge_str = path_commands_to_xfl_edges(commands, has_fill);
-    if edge_str.is_empty() || (!has_fill && !has_stroke) {
+    let edge_chunks = path_commands_to_xfl_edges(commands, has_fill);
+    if edge_chunks.is_empty() || (!has_fill && !has_stroke) {
         return String::new();
     }
 
@@ -4176,8 +4176,15 @@ fn write_dom_shape_xml(
         edge_attrs.push_str(" strokeStyle=\"1\"");
     }
 
+    let mut edges_xml = String::new();
+    for edge in edge_chunks {
+        edges_xml.push_str(&format!(
+            "{indent}    <Edge{edge_attrs} edges=\"{edge}\"/>\n"
+        ));
+    }
+
     format!(
-        "{indent}<DOMShape{attrs}>\n{matrix_xml}{fills_xml}{strokes_xml}{indent}  <edges>\n{indent}    <Edge{edge_attrs} edges=\"{edge_str}\"/>\n{indent}  </edges>\n{indent}</DOMShape>\n"
+        "{indent}<DOMShape{attrs}>\n{matrix_xml}{fills_xml}{strokes_xml}{indent}  <edges>\n{edges_xml}{indent}  </edges>\n{indent}</DOMShape>\n"
     )
 }
 
@@ -4237,14 +4244,25 @@ fn write_paint_xml(color: Color, gradient: Option<&GradientPaint>, indent: &str)
     }
 }
 
-fn path_commands_to_xfl_edges(commands: &[PathCommand], close_for_fill: bool) -> String {
+fn path_commands_to_xfl_edges(commands: &[PathCommand], close_for_fill: bool) -> Vec<String> {
     let to_twips = |v: f64| -> i32 { (v * 20.0).round().clamp(-1_000_000.0, 1_000_000.0) as i32 };
+    let mut chunks = Vec::new();
     let mut out = String::new();
     let mut cur = [0i32, 0i32];
     let mut contour_start = [0i32, 0i32];
     let mut has_contour = false;
 
     for cmd in commands {
+        // XFL limits each Edge attribute to 65,535 bytes. Each new Edge
+        // starts with an absolute move, so curves can span records losslessly.
+        if out.len() >= 48_000 {
+            if out.contains(['|', '[']) {
+                chunks.push(std::mem::take(&mut out));
+            } else {
+                out.clear();
+            }
+            out.push_str(&format!("!{} {}", cur[0], cur[1]));
+        }
         match *cmd {
             PathCommand::MoveTo { x, y } => {
                 if close_for_fill && has_contour && cur != contour_start {
@@ -4332,9 +4350,9 @@ fn path_commands_to_xfl_edges(commands: &[PathCommand], close_for_fill: bool) ->
         out.push_str(&format!("|{} {}", contour_start[0], contour_start[1]));
     }
     // Fallback if all commands collapsed to a single point
-    if !out.contains('|') && !out.contains('[') {
+    if chunks.is_empty() && !out.contains(['|', '[']) {
         if close_for_fill {
-            return format!(
+            return vec![format!(
                 "!{} {}|{} {}|{} {}|{} {}",
                 contour_start[0],
                 contour_start[1],
@@ -4344,18 +4362,21 @@ fn path_commands_to_xfl_edges(commands: &[PathCommand], close_for_fill: bool) ->
                 contour_start[1] + 20,
                 contour_start[0],
                 contour_start[1]
-            );
+            )];
         } else {
-            return format!(
+            return vec![format!(
                 "!{} {}|{} {}",
                 contour_start[0],
                 contour_start[1],
                 contour_start[0] + 20,
                 contour_start[1]
-            );
+            )];
         }
     }
-    out
+    if out.contains(['|', '[']) {
+        chunks.push(out);
+    }
+    chunks
 }
 
 fn write_matrix_xml(t: &Transform, indent: &str) -> String {
@@ -4677,6 +4698,25 @@ mod tests {
         ));
         fs::create_dir_all(&path).expect("create XFL replacement test directory");
         path
+    }
+
+    #[test]
+    fn long_xfl_contour_continues_across_bounded_edges() {
+        let mut commands = vec![PathCommand::MoveTo { x: 1.0, y: 2.0 }];
+        for x in 2..15_000 {
+            commands.push(PathCommand::LineTo {
+                x: x as f64,
+                y: 3.0,
+            });
+        }
+        let edges = path_commands_to_xfl_edges(&commands, true);
+        assert!(edges.len() > 1);
+        assert!(edges.iter().all(|edge| edge.len() <= 65_535));
+        for adjacent in edges.windows(2) {
+            let last = adjacent[0].rsplit('|').next().unwrap();
+            assert!(adjacent[1].starts_with(&format!("!{last}|")));
+        }
+        assert!(edges.last().unwrap().ends_with("|20 40"));
     }
 
     #[test]

@@ -386,6 +386,7 @@ pub(crate) fn build_project_from_swf(
         location,
         builder.report,
     );
+    inline_single_use_dictionary_shapes(&mut project, builder.report, location);
     project.script_language = Some(
         if inspection.as3_flag || !project.sources.is_empty() || project.document_class.is_some() {
             ScriptLanguage::ActionScript3
@@ -439,6 +440,100 @@ pub(crate) fn build_project_from_swf(
             None
         }
     }
+}
+
+// SWF assigns a dictionary entry even to an anonymous drawing placed exactly once. Large
+// movies can hold more such entries than the editable library. Move their drawing to the
+// one placement, preserving its ID, name, transform, masks, blend, and bitmap paint.
+fn inline_single_use_dictionary_shapes(
+    project: &mut Project,
+    report: &mut ImportReport,
+    location: &str,
+) {
+    const EDITABLE_LIBRARY_LIMIT: usize = 10_000;
+    if project.symbols.len() <= EDITABLE_LIBRARY_LIMIT {
+        return;
+    }
+    let mut uses = HashMap::<Id, usize>::new();
+    for sym in &project.symbols {
+        for layer in &sym.timeline.layers {
+            for frame in &layer.keyframes {
+                for el in &frame.elements {
+                    if let ElementKind::Instance { symbol_id, .. } = &el.kind {
+                        let count = uses.entry(symbol_id.clone()).or_default();
+                        *count = count.saturating_add(1);
+                        if !el.scripts.is_empty() || el.instance_behavior.is_some() {
+                            *count = usize::MAX;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let excess = project.symbols.len() - EDITABLE_LIBRARY_LIMIT;
+    let mut drawings = HashMap::new();
+    project.symbols.retain_mut(|sym| {
+        if drawings.len() == excess
+            || uses.get(&sym.id) != Some(&1)
+            || sym.folder != "Shapes"
+            || sym.kind != SymbolKind::Graphic
+            || sym.linkage_id.is_some()
+            || sym.class_name.is_some()
+            || sym.timeline.frame_count != 1
+            || !sym.timeline.scripts.is_empty()
+        {
+            return true;
+        }
+        let [layer] = sym.timeline.layers.as_mut_slice() else {
+            return true;
+        };
+        let [frame] = layer.keyframes.as_mut_slice() else {
+            return true;
+        };
+        let [drawing] = frame.elements.as_mut_slice() else {
+            return true;
+        };
+        if drawing.transform != Transform::default()
+            || !drawing.scripts.is_empty()
+            || !matches!(
+                drawing.kind,
+                ElementKind::Path { .. }
+                    | ElementKind::PaintedPath { .. }
+                    | ElementKind::Bitmap { .. }
+            )
+        {
+            return true;
+        }
+        drawings.insert(
+            sym.id.clone(),
+            (std::mem::take(drawing).kind, frame.bitmap_fills.pop()),
+        );
+        false
+    });
+    if drawings.is_empty() {
+        return;
+    }
+    let count = drawings.len();
+    for sym in &mut project.symbols {
+        for layer in &mut sym.timeline.layers {
+            for frame in &mut layer.keyframes {
+                for el in &mut frame.elements {
+                    if let ElementKind::Instance { symbol_id, .. } = &el.kind
+                        && let Some((drawing, brush)) = drawings.remove(symbol_id)
+                    {
+                        el.kind = drawing;
+                        if let Some(mut brush) = brush {
+                            brush.element_id.clone_from(&el.id);
+                            frame.bitmap_fills.push(brush);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    report.warning("swf_inline_single_use_shapes", location, format!(
+        "{count} anonymous single-use dictionary shapes were recovered directly as editable drawings on their original layers."
+    ));
 }
 
 impl SwfBuilder<'_> {

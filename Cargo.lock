@@ -2659,6 +2659,7 @@ dependencies = [
  "cfb",
  "color_quant",
  "flate2",
+ "fontdb",
  "fs2",
  "gif",
  "image",

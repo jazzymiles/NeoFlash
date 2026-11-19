@@ -726,50 +726,20 @@ impl Parser<'_> {
                         fill_matrix[1] *= asset.source_scale[0];
                         fill_matrix[2] *= asset.source_scale[1];
                         fill_matrix[3] *= asset.source_scale[1];
-                        (asset.resource_id.clone(), asset.smoothing)
+                        asset
                     });
                 let sampled_color = resolved_asset
                     .as_ref()
-                    .and_then(|(res_id, _)| {
-                        self.resources
-                            .iter()
-                            .find(|r| &r.id == res_id)
-                            .and_then(|r| r.decoded_bytes().ok())
-                    })
-                    .and_then(|bytes| image::load_from_memory(&bytes).ok())
-                    .map(|img| {
-                        let rgba = img.to_rgba8();
-                        let mut r_sum = 0u64;
-                        let mut g_sum = 0u64;
-                        let mut b_sum = 0u64;
-                        let mut a_sum = 0u64;
-                        let mut count = 0u64;
-                        for px in rgba.pixels() {
-                            if px[3] > 0 {
-                                r_sum += u64::from(px[0]);
-                                g_sum += u64::from(px[1]);
-                                b_sum += u64::from(px[2]);
-                                a_sum += u64::from(px[3]);
-                                count += 1;
-                            }
-                        }
-                        #[allow(clippy::manual_checked_ops)]
-                        if count > 0 {
-                            [
-                                (r_sum / count) as u8,
-                                (g_sum / count) as u8,
-                                (b_sum / count) as u8,
-                                (a_sum / count) as u8,
-                            ]
-                        } else {
-                            [128, 128, 128, 255]
-                        }
-                    })
-                    .unwrap_or([128, 128, 128, 255]);
-                let bitmap = if let Some((res_id, smoothing)) = resolved_asset
+                    .map_or([128, 128, 128, 255], |a| a.average_color);
+                let bitmap = if let Some(asset) = resolved_asset
                     && fill_matrix.iter().all(|v| v.is_finite() && v.abs() <= 1e9)
                 {
-                    Some((res_id, fill_matrix, !clipped, smoothing))
+                    Some((
+                        asset.resource_id.clone(),
+                        fill_matrix,
+                        !clipped,
+                        asset.smoothing,
+                    ))
                 } else {
                     warn_approximated
                         .get_or_insert("Unresolved BitmapFill is approximated as neutral gray.");

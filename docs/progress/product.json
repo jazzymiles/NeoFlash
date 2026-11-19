@@ -3598,7 +3598,7 @@
         },
         {
           "id": "export-swf",
-          "title": "Publish bounded SWF movies and AVM1 callbacks",
+          "title": "Publish bounded SWF movies with shared drawings, multilingual text outlines and AVM1 callbacks",
           "status": "partial"
         },
         {

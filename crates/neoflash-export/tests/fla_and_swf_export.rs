@@ -2050,6 +2050,10 @@ fn t242_fla_xfl_no_double_wrap_folder_layer_frame_scripts_and_sources_round_trip
     // 1. Pre-wrapped on(...) / onClipEvent(...) (including leading whitespace and // or /* */ comments)
     //    plus timeline.scripts when layers[0] is LayerRole::Folder
     let mut as2_proj = build_rich_authoring_project(ScriptLanguage::ActionScript2);
+    // Distinct symbol instances must remain reachable on case-insensitive XFL filesystems.
+    let button = as2_proj.symbol_mut("sym_btn").unwrap();
+    button.folder = "UI/Icons".into();
+    button.name = "badgeclip".into();
     let root_id = as2_proj.root.clone();
     {
         let root_sym = as2_proj.symbol_mut(&root_id).unwrap();

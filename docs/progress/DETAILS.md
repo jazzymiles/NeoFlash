@@ -975,7 +975,7 @@ Project format, macOS, verification, accessibility and application delivery.
 
 - Working: Save .nflash projects
 - Working: Export derived copies through versioned FLA/XFL target profiles with compatibility preflight
-- Partial: Publish bounded SWF movies and AVM1 callbacks
+- Partial: Publish bounded SWF movies with shared drawings, multilingual text outlines and AVM1 callbacks
 - Working: Open .nflash projects with validation
 - Working: Projects independent of absolute paths
 

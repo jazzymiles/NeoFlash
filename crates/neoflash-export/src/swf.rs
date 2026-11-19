@@ -45,50 +45,131 @@ enum StrokeJoin {
     Miter,
 }
 
+#[derive(Default)]
+struct SwfOutlineFonts {
+    system: Option<fontdb::Database>,
+    // Recently successful faces avoid searching and rereading the font collection for each label.
+    recent: Vec<(String, bool, bool, Vec<u8>)>,
+    substitutions: BTreeSet<(String, String)>,
+}
+
+impl SwfOutlineFonts {
+    fn system_outline(
+        &mut self,
+        family: &str,
+        bold: bool,
+        italic: bool,
+        text: &str,
+        extract: impl Fn(&[u8]) -> Result<Vec<PathCommand>, Vec<String>>,
+    ) -> Option<Vec<PathCommand>> {
+        use ab_glyph::{Font, FontRef};
+        let covers = |bytes: &[u8]| {
+            FontRef::try_from_slice(bytes).is_ok_and(|font| {
+                text.chars()
+                    .all(|ch| ch.is_whitespace() || font.glyph_id(ch).0 != 0)
+            })
+        };
+        for (name, b, i, bytes) in &self.recent {
+            if name == family
+                && *b == bold
+                && *i == italic
+                && covers(bytes)
+                && let Ok(commands) = extract(bytes)
+            {
+                return Some(commands);
+            }
+        }
+        let db = self.system.get_or_insert_with(|| {
+            let mut db = fontdb::Database::new();
+            db.load_system_fonts();
+            db
+        });
+        let weight = if bold {
+            fontdb::Weight::BOLD
+        } else {
+            fontdb::Weight::NORMAL
+        };
+        // The outline routines address the primary face in an SFNT or collection.
+        let mut faces: Vec<_> = db.faces().filter(|face| face.index == 0).collect();
+        faces.sort_by_key(|face| {
+            (
+                !face
+                    .families
+                    .iter()
+                    .any(|(name, _)| name.eq_ignore_ascii_case(family)),
+                (face.style != fontdb::Style::Normal) != italic,
+                face.weight.0.abs_diff(weight.0),
+                face.post_script_name.as_str(),
+            )
+        });
+        for face in faces {
+            if let Some(Some((commands, cached))) = db.with_face_data(face.id, |bytes, _| {
+                if !covers(bytes) {
+                    return None;
+                }
+                let commands = extract(bytes).ok()?;
+                // Bound resident font bytes for the duration of this one publication.
+                let cached = (bytes.len() <= 32 * 1024 * 1024).then(|| bytes.to_vec());
+                Some((commands, cached))
+            }) {
+                self.substitutions
+                    .insert((family.to_owned(), face.post_script_name.clone()));
+                if let Some(bytes) = cached {
+                    if self.recent.len() == 4 {
+                        self.recent.remove(0);
+                    }
+                    self.recent.push((family.to_owned(), bold, italic, bytes));
+                }
+                return Some(commands);
+            }
+        }
+        None
+    }
+}
+
 fn swf_text_outline(
     project: &Project,
     element: &Element,
+    fonts: &mut SwfOutlineFonts,
 ) -> Result<(Vec<PathCommand>, Color), ExportError> {
-    match &element.kind {
+    let field = neoflash_core::TextFieldState::from_kind(&element.kind).ok_or_else(|| {
+        ExportError::Options(format!("No text field for SWF outline on {}", element.id))
+    })?;
+    let format = &field.format;
+    let font =
+        crate::fonts::resolve_project_font_bytes(project, &format.font, format.bold, format.italic);
+    let extract = |bytes: Option<&[u8]>| match &element.kind {
         ElementKind::Text {
             text,
             font_family,
             font_size,
-            color,
-        } => {
-            let font = crate::fonts::resolve_project_font_bytes(project, font_family, false, false);
-            crate::fonts::extract_text_outline_commands_with_diagnostics(
-                &element.id,
-                text,
-                font_family,
-                *font_size,
-                font.as_deref(),
-            )
-            .map(|commands| (commands, *color))
-        }
-        _ => {
-            let field =
-                neoflash_core::TextFieldState::from_kind(&element.kind).ok_or_else(|| {
-                    ExportError::Options(format!("No text field for SWF outline on {}", element.id))
-                })?;
-            let format = &field.format;
-            let font = crate::fonts::resolve_project_font_bytes(
-                project,
+            ..
+        } => crate::fonts::extract_text_outline_commands_with_diagnostics(
+            &element.id,
+            text,
+            font_family,
+            *font_size,
+            bytes,
+        ),
+        _ => crate::fonts::extract_text_field_outline_commands_with_diagnostics(
+            &element.id,
+            &field,
+            bytes,
+        ),
+    };
+    let commands = extract(font.as_deref()).or_else(|errors| {
+        fonts
+            .system_outline(
                 &format.font,
                 format.bold,
                 format.italic,
-            );
-            let rgb = format.color.to_be_bytes();
-            let color = [rgb[1], rgb[2], rgb[3], field.alpha];
-            crate::fonts::extract_text_field_outline_commands_with_diagnostics(
-                &element.id,
-                &field,
-                font.as_deref(),
+                &field.text,
+                |bytes| extract(Some(bytes)),
             )
-            .map(|commands| (commands, color))
-        }
-    }
-    .map_err(|errors| ExportError::Options(errors.join("\n")))
+            .ok_or_else(|| ExportError::Options(errors.join("\n")))
+    })?;
+    let rgb = format.color.to_be_bytes();
+    Ok((commands, [rgb[1], rgb[2], rgb[3], field.alpha]))
 }
 
 /// Target SWF player & virtual machine profile for SWF movie publishing (`T-192`).
@@ -3470,6 +3551,7 @@ fn build_define_shape_for_element(
     project: &Project,
     shape_id: u16,
     element: &Element,
+    fonts: &mut SwfOutlineFonts,
     bitmap: Option<SwfBitmapBrush>,
     options: &SwfPublishOptions,
 ) -> Result<Option<(u16, Vec<u8>)>, ExportError> {
@@ -3629,7 +3711,7 @@ fn build_define_shape_for_element(
             }
         }
         ElementKind::TextBox { .. } | ElementKind::Text { .. } if options.outline_text => {
-            let (commands, color) = swf_text_outline(project, element)?;
+            let (commands, color) = swf_text_outline(project, element, fonts)?;
             let fill = add_fill(color, None, None);
             convert_commands_to_swf_edges(&commands, fill, 0, true, &mut edges);
         }
@@ -8121,6 +8203,9 @@ struct SwfDictionaryCompiler<'a> {
     sound_ids: BTreeMap<String, u16>,
     sound_durations_44: BTreeMap<String, u64>,
     font_ids: BTreeMap<(String, bool, bool), u16>,
+    outline_fonts: SwfOutlineFonts,
+    shape_characters: HashMap<[u8; 32], u16>,
+    anonymous_sprites: HashMap<(u16, [u8; 32]), u16>,
     symbol_char_ids: BTreeMap<String, u16>,
     button_variant_ids: BTreeMap<(String, String), u16>,
     sprite_variant_ids: BTreeMap<String, u16>,
@@ -8135,10 +8220,11 @@ struct SwfDictionaryCompiler<'a> {
 fn element_character_key(
     element: &Element,
     fill: Option<&neoflash_core::AuthoredBitmapFill>,
-) -> String {
+) -> Option<[u8; 32]> {
     let paint = fill.map(|f| (&f.resource_id, f.matrix, f.repeat, f.smoothing));
-    serde_json::to_string(&(&element.kind, &element.transform.primitive, paint))
-        .unwrap_or_else(|_| format!("{:?}", element.kind))
+    serde_json::to_vec(&(&element.kind, &element.transform.primitive, paint))
+        .ok()
+        .map(|bytes| crate::sha256_bytes(&bytes))
 }
 
 fn button_scripts_variant_key(scripts: &[ObjectScript]) -> String {
@@ -8199,6 +8285,9 @@ impl<'a> SwfDictionaryCompiler<'a> {
             sound_ids: BTreeMap::new(),
             sound_durations_44: BTreeMap::new(),
             font_ids: BTreeMap::new(),
+            outline_fonts: SwfOutlineFonts::default(),
+            shape_characters: HashMap::new(),
+            anonymous_sprites: HashMap::new(),
             symbol_char_ids: BTreeMap::new(),
             button_variant_ids: BTreeMap::new(),
             sprite_variant_ids: BTreeMap::new(),
@@ -8302,18 +8391,21 @@ impl<'a> SwfDictionaryCompiler<'a> {
         &mut self,
         element: &Element,
         fill: Option<&neoflash_core::AuthoredBitmapFill>,
-        cache: &mut BTreeMap<String, u16>,
     ) -> Result<Option<u16>, ExportError> {
         if matches!(element.kind, ElementKind::Instance { .. }) {
             return self.ensure_element_character(element, fill);
         }
-        let character_key = element_character_key(element, fill);
-        if let Some(&cached) = cache.get(&character_key) {
+        // Character definitions are immutable throughout the movie. Reuse the same outline or
+        // brush across sprites, preserving independent placement, blend, mask and transform tags.
+        let Some(character_key) = element_character_key(element, fill) else {
+            return self.ensure_element_character(element, fill);
+        };
+        if let Some(&cached) = self.shape_characters.get(&character_key) {
             return Ok(Some(cached));
         }
         let cid = self.ensure_element_character(element, fill)?;
         if let Some(cid) = cid {
-            cache.insert(character_key, cid);
+            self.shape_characters.insert(character_key, cid);
         }
         Ok(cid)
     }
@@ -8468,6 +8560,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     self.project,
                     sid,
                     element,
+                    &mut self.outline_fonts,
                     bitmap,
                     self.options,
                 )?
@@ -8547,7 +8640,6 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 ))
             })?
             .depth_bands;
-        let mut element_char_cache = BTreeMap::<String, u16>::new();
 
         for (l_idx, layer) in sym.timeline.layers.iter().enumerate() {
             if !layer.visible
@@ -8568,11 +8660,8 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     continue;
                 };
                 for (element_offset, el) in kf.elements.iter().enumerate() {
-                    let Some(cid) = self.ensure_timeline_element_character(
-                        el,
-                        kf.bitmap_fill(&el.id),
-                        &mut element_char_cache,
-                    )?
+                    let Some(cid) =
+                        self.ensure_timeline_element_character(el, kf.bitmap_fill(&el.id))?
                     else {
                         continue;
                     };
@@ -8709,7 +8798,6 @@ impl<'a> SwfDictionaryCompiler<'a> {
 
         // Pre-allocate morph shapes for compatible shape tween spans
         let mut morph_spans: BTreeMap<(usize, usize), (u16, u32, u32, Easing)> = BTreeMap::new();
-        let mut element_char_cache: BTreeMap<String, u16> = BTreeMap::new();
 
         for (l_idx, layer) in timeline.layers.iter().enumerate() {
             if !layer.visible
@@ -8745,11 +8833,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     }
                 }
                 for el in &kf.elements {
-                    let _ = self.ensure_timeline_element_character(
-                        el,
-                        kf.bitmap_fill(&el.id),
-                        &mut element_char_cache,
-                    )?;
+                    let _ = self.ensure_timeline_element_character(el, kf.bitmap_fill(&el.id))?;
                 }
             }
         }
@@ -8833,7 +8917,6 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     let Some(cid) = self.ensure_timeline_element_character(
                         el,
                         active_k_idx.and_then(|k| layer.keyframes[k].bitmap_fill(&el.id)),
-                        &mut element_char_cache,
                     )?
                     else {
                         continue;
@@ -9022,7 +9105,21 @@ impl<'a> SwfDictionaryCompiler<'a> {
             bid
         } else {
             let (sprite_tags, frame_count) = self.build_timeline_tags(&sym.timeline, false)?;
+            // Separate placements still create separate runtime MovieClips. A compiled sprite
+            // needs its own dictionary identity only when it has an external binding or metadata.
+            let shareable = sym.linkage_id.is_none()
+                && sym.class_name.is_none()
+                && sym.scale9_grid().is_none()
+                && sym.timeline.scripts.is_empty();
+            let sprite_key = shareable.then(|| (frame_count, crate::sha256_bytes(&sprite_tags)));
+            if let Some(existing) = sprite_key.and_then(|key| self.anonymous_sprites.get(&key)) {
+                self.symbol_char_ids.insert(sym.id.clone(), *existing);
+                return Ok(());
+            }
             let sid = self.alloc_char_id();
+            if let Some(key) = sprite_key {
+                self.anonymous_sprites.insert(key, sid);
+            }
             let mut w = SwfBitWriter::new();
             w.u16(sid);
             w.u16(frame_count);
@@ -9099,7 +9196,7 @@ pub fn publish_swf_bytes(
         return Err(ExportError::MissingRootSymbol(project.root.clone()));
     }
 
-    let report = preflight_swf_publish(project, options);
+    let mut report = preflight_swf_publish(project, options);
     if !report.can_proceed() {
         return Err(ExportError::CompatibilityBlocked {
             profile: match options.profile {
@@ -9393,6 +9490,17 @@ pub fn publish_swf_bytes(
     body.bytes(&compiler.root_tags.buf);
 
     let swf_bytes = wrap_swf_container(&body.buf, options.profile, options.compression)?;
+    for (family, face) in compiler.outline_fonts.substitutions {
+        report.push(
+            "swf_outline_font_substituted",
+            FlaCompatibilityCategory::TextAndFonts,
+            FlaCompatibilityStatus::Approximated,
+            format!("font:{family}"),
+            format!(
+                "Outlined text using installed face '{face}' for glyphs missing from '{family}'."
+            ),
+        );
+    }
     Ok((swf_bytes, report))
 }
 
@@ -9718,6 +9826,39 @@ mod dictionary_capacity_tests {
         );
         let (bytes, _) = publish_swf_bytes(&project, &options).unwrap();
         assert!(bytes.starts_with(b"FWS"));
+    }
+
+    #[test]
+    fn system_outline_fallback_requires_glyph_coverage_and_reuses_the_installed_face() {
+        let mut db = fontdb::Database::new();
+        db.load_font_data(crate::fonts::fallback_font("Inter", false).to_vec());
+        let mut fonts = SwfOutlineFonts {
+            system: Some(db),
+            ..Default::default()
+        };
+        let extract = |data: &[u8]| {
+            crate::fonts::extract_text_outline_commands_with_diagnostics(
+                "Caption",
+                "Ω",
+                "Requested",
+                18.,
+                Some(data),
+            )
+        };
+        let a = fonts
+            .system_outline("Requested", false, false, "Ω", extract)
+            .unwrap();
+        let b = fonts
+            .system_outline("Requested", false, false, "Ω", extract)
+            .unwrap();
+        assert!(!a.is_empty() && a == b);
+        assert_eq!(fonts.recent.len(), 1);
+        assert_eq!(fonts.substitutions.len(), 1);
+        assert!(
+            fonts
+                .system_outline("Requested", false, false, "中", |_| Ok(Vec::new()))
+                .is_none()
+        );
     }
 
     #[test]

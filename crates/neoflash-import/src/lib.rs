@@ -12,6 +12,34 @@ pub mod workflows;
 mod xfl;
 mod xfl_export;
 
+/// Compatibility color for vector consumers that cannot render the bitmap brush.
+fn average_bitmap_color(rgba: &[u8]) -> neoflash_core::Color {
+    let mut r_sum = 0u64;
+    let mut g_sum = 0u64;
+    let mut b_sum = 0u64;
+    let mut a_sum = 0u64;
+    let mut count = 0u64;
+    for px in rgba.as_chunks::<4>().0 {
+        if px[3] > 0 {
+            r_sum += u64::from(px[0]);
+            g_sum += u64::from(px[1]);
+            b_sum += u64::from(px[2]);
+            a_sum += u64::from(px[3]);
+            count += 1;
+        }
+    }
+    if let Some(r) = r_sum.checked_div(count) {
+        [
+            r as u8,
+            (g_sum / count) as u8,
+            (b_sum / count) as u8,
+            (a_sum / count) as u8,
+        ]
+    } else {
+        [128, 128, 128, 255]
+    }
+}
+
 pub use figma::*;
 pub use legacy::contents::*;
 pub use legacy::contours::*;
