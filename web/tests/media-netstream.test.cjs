@@ -996,10 +996,10 @@ test('T-327 Real Headless Chrome Canvas + DOM end-to-end suite: AS2/AS3 Video pi
       });
       vid.attachNetStream(ns);
       if (ExternalInterface.available) {
+        ExternalInterface.addCallback("startMediaSuite", step1SingleFrameAndVideoPixels);
         ExternalInterface.addCallback("closeAs3Stream", closeAllForAudit);
       }
       trace("BOOT_READY=1");
-      setTimeout(step1SingleFrameAndVideoPixels, 30);
     }
 
     private function step1SingleFrameAndVideoPixels():void {
@@ -1309,6 +1309,11 @@ trace("AS2_SND_SHARED=" + (as2Tf.ll == 30 && as2Tf.lr == 70 && as2Tf.rl == 40 &&
       } else {
         await cdp.evalJson(`(() => { const btn = document.getElementById('audio-toggle'); if (btn) btn.click(); return true; })()`, { userGesture: true });
       }
+      await cdp.evalJson(`(() => {
+        const stage = document.getElementById('stage');
+        if (typeof stage?.startMediaSuite === 'function') stage.startMediaSuite();
+        return true;
+      })()`, { userGesture: true });
 
       await cdp.waitTrace('ALL_MEDIA_CHECKS_READY=1', 25000);
 
