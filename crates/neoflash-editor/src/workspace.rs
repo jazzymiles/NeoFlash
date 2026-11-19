@@ -1985,8 +1985,19 @@ fn normalized_preset_name(name: &str) -> Result<&str, WorkspacePresetError> {
     Ok(name)
 }
 
+/// Opaque in-memory cache of resolved `existing_recent_files` (`T-390`).
+#[derive(Debug, Default)]
+pub struct RecentFilesCache(std::sync::Mutex<Option<(Vec<String>, Vec<std::path::PathBuf>)>>);
+
+impl Clone for RecentFilesCache {
+    fn clone(&self) -> Self {
+        let cached = self.0.lock().ok().and_then(|guard| guard.clone());
+        Self(std::sync::Mutex::new(cached))
+    }
+}
+
 /// Preferences ▸ General (besides theme, UI scale, undo levels and Shift-select).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GeneralPrefs {
     /// Interface language. Only English exists.
@@ -2004,6 +2015,23 @@ pub struct GeneralPrefs {
     pub autosave_minutes: u32,
     /// Show keyboard shortcuts in tooltips.
     pub tooltip_shortcuts: bool,
+    /// In-memory cache `(recent_files snapshot, filtered existing paths)` so `File ▸ Open recent`
+    /// never repeats `Path::exists()` / `canonicalize()` syscalls across menu opens (`T-390`).
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub recent_files_cache: RecentFilesCache,
+}
+impl PartialEq for GeneralPrefs {
+    fn eq(&self, other: &Self) -> bool {
+        self.language == other.language
+            && self.on_launch == other.on_launch
+            && self.recent_files == other.recent_files
+            && self.session_files == other.session_files
+            && self.active_session_file == other.active_session_file
+            && self.autosave == other.autosave
+            && self.autosave_minutes == other.autosave_minutes
+            && self.tooltip_shortcuts == other.tooltip_shortcuts
+    }
 }
 impl Default for GeneralPrefs {
     fn default() -> Self {
@@ -2016,6 +2044,7 @@ impl Default for GeneralPrefs {
             autosave: true,
             autosave_minutes: 5,
             tooltip_shortcuts: true,
+            recent_files_cache: RecentFilesCache::default(),
         }
     }
 }
@@ -2023,6 +2052,13 @@ impl Default for GeneralPrefs {
 impl GeneralPrefs {
     pub const MAX_RECENT_FILES: usize = 10;
     pub const MAX_SESSION_FILES: usize = 32;
+
+    /// Explicitly invalidate the in-memory `existing_recent_files_cached` snapshot.
+    pub fn invalidate_recent_files_cache(&self) {
+        if let Ok(mut guard) = self.recent_files_cache.0.lock() {
+            *guard = None;
+        }
+    }
 
     /// Record the ordered open document-tab paths and active tab path (`T-231`).
     pub fn set_session_files(
@@ -2094,11 +2130,13 @@ impl GeneralPrefs {
         });
         self.recent_files.insert(0, entry);
         self.recent_files.truncate(Self::MAX_RECENT_FILES);
+        self.invalidate_recent_files_cache();
     }
 
     /// Existing recent document paths in most-recent-first order (missing files dropped, max 10).
     pub fn existing_recent_files(&self) -> Vec<std::path::PathBuf> {
         let mut out = Vec::new();
+        let mut seen_resolved = Vec::new();
         for raw in &self.recent_files {
             let trimmed = raw.trim();
             if trimmed.is_empty() {
@@ -2107,9 +2145,8 @@ impl GeneralPrefs {
             let path = std::path::PathBuf::from(trimmed);
             if path.exists() {
                 let resolved = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
-                if !out.iter().any(|p: &std::path::PathBuf| {
-                    std::fs::canonicalize(p).as_ref().ok() == Some(&resolved) || p == &path
-                }) {
+                if !seen_resolved.contains(&resolved) && !out.contains(&path) {
+                    seen_resolved.push(resolved);
                     out.push(path);
                     if out.len() >= Self::MAX_RECENT_FILES {
                         break;
@@ -2117,7 +2154,22 @@ impl GeneralPrefs {
                 }
             }
         }
+        if let Ok(mut guard) = self.recent_files_cache.0.lock() {
+            *guard = Some((self.recent_files.clone(), out.clone()));
+        }
         out
+    }
+
+    /// Cached existing recent document paths for menu presentation (`T-390`), avoiding repeated
+    /// `stat()` / `realpath()` syscalls when `recent_files` has not changed.
+    pub fn existing_recent_files_cached(&self) -> Vec<std::path::PathBuf> {
+        if let Ok(guard) = self.recent_files_cache.0.lock()
+            && let Some((cached_raw, cached_paths)) = guard.as_ref()
+            && *cached_raw == self.recent_files
+        {
+            return cached_paths.clone();
+        }
+        self.existing_recent_files()
     }
 }
 
@@ -3036,6 +3088,7 @@ impl WorkspacePrefs {
         g.language = "English".into();
         g.recent_files.retain(|p| !p.is_empty() && p.len() <= 4096);
         g.recent_files.truncate(10);
+        g.invalidate_recent_files_cache();
         g.session_files
             .retain(|p| !p.trim().is_empty() && p.len() <= 4096);
         g.session_files.truncate(GeneralPrefs::MAX_SESSION_FILES);
@@ -4032,6 +4085,7 @@ impl WorkspacePrefs {
 
     pub fn clear_recent_files(&mut self) {
         self.general.recent_files.clear();
+        self.general.invalidate_recent_files_cache();
     }
 
     /// Switch the density profile. Its layer-row preset (Normal / Short / Compact), default

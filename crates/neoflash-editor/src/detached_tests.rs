@@ -2236,15 +2236,19 @@ fn t372_floating_actions_and_studio_panels_stay_above_timeline_clicks_and_yield_
         Some(egui::WindowLevel::AlwaysOnTop)
     );
 
+    // Native macOS `NSMenu` renders at `NSPopUpMenuWindowLevel` (101) >> `NSFloatingWindowLevel` (3),
+    // so native menu tracking never lowers floating studio panels (`T-390`).
     crate::native_windows::set_native_menu_tracking_for_test(true);
+    assert!(crate::native_windows::is_native_menu_tracking());
     let _ = step(&mut editor, vec![]);
     assert_eq!(
         observed_levels.borrow().get(&actions_vp).copied().flatten(),
-        Some(egui::WindowLevel::Normal)
+        Some(egui::WindowLevel::AlwaysOnTop)
     );
-    assert!(!crate::native_windows::window_should_float_for_title(Some(
+    assert!(crate::native_windows::window_should_float_for_title(Some(
         "Actions — NeoFlash"
     )));
+    assert!(!crate::native_windows::should_order_below_root_for_test());
     crate::native_windows::set_native_menu_tracking_for_test(false);
     let _ = step(&mut editor, vec![]);
     assert_eq!(
@@ -3336,4 +3340,207 @@ fn t384_tightened_dock_zones_and_clean_stage_overlay_when_moving_floating_window
         vec![egui::Event::PointerMoved(egui::pos2(960.0, 55.0))],
     );
     assert!(has_text(&hit_top_out, "Dock Top"));
+}
+
+#[test]
+fn t390_root_menu_popup_lowers_only_overlapping_floating_windows_and_preserves_non_overlapping_panels()
+ {
+    use crate::workspace::{PanelId, PanelPlacement, WindowGeometry};
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::rc::Rc;
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let observed_levels: Rc<RefCell<HashMap<egui::ViewportId, Option<egui::WindowLevel>>>> =
+        Rc::new(RefCell::new(HashMap::new()));
+    let window_rects: Rc<RefCell<HashMap<egui::ViewportId, egui::Rect>>> =
+        Rc::new(RefCell::new(HashMap::new()));
+
+    let levels_cb = Rc::clone(&observed_levels);
+    let rects_cb = Rc::clone(&window_rects);
+    ctx.set_embed_viewports(false);
+    egui::Context::set_immediate_viewport_renderer(move |ctx, mut viewport| {
+        let id = viewport.ids.this;
+        levels_cb
+            .borrow_mut()
+            .insert(id, viewport.builder.window_level);
+        let rect = rects_cb.borrow().get(&id).copied().unwrap_or_else(|| {
+            egui::Rect::from_min_size(egui::pos2(40.0, 40.0), egui::vec2(280.0, 420.0))
+        });
+        let mut input = egui::RawInput {
+            viewport_id: id,
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, rect.size())),
+            ..Default::default()
+        };
+        let root_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1440.0, 900.0));
+        input.viewports.insert(
+            egui::ViewportId::ROOT,
+            egui::ViewportInfo {
+                outer_rect: Some(root_rect),
+                inner_rect: Some(root_rect),
+                ..Default::default()
+            },
+        );
+        input.viewports.insert(
+            id,
+            egui::ViewportInfo {
+                parent: Some(egui::ViewportId::ROOT),
+                outer_rect: Some(rect),
+                inner_rect: Some(rect),
+                ..Default::default()
+            },
+        );
+        let _ = ctx.run(input, |ctx| {
+            (viewport.viewport_ui_cb)(ctx);
+        });
+    });
+
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    editor.set_panel_visible(PanelId::Tools, true);
+    editor.set_panel_placement(&ctx, PanelId::Tools, PanelPlacement::Detached);
+    editor.set_panel_visible(PanelId::Actions, true);
+    editor.set_panel_placement(&ctx, PanelId::Actions, PanelPlacement::Detached);
+
+    let tools_vp = egui::ViewportId::from_hash_of(PanelId::Tools.viewport_key().unwrap());
+    let actions_vp = egui::ViewportId::from_hash_of(PanelId::Actions.viewport_key().unwrap());
+
+    // Position Tools at `(120, 44)` (directly underneath the in-window `File` menu popup)
+    // and Actions far to the right at `(860, 220)` (completely non-overlapping).
+    let tools_rect = egui::Rect::from_min_size(egui::pos2(120.0, 44.0), egui::vec2(140.0, 460.0));
+    let actions_rect =
+        egui::Rect::from_min_size(egui::pos2(860.0, 220.0), egui::vec2(520.0, 480.0));
+    window_rects.borrow_mut().insert(tools_vp, tools_rect);
+    window_rects.borrow_mut().insert(actions_vp, actions_rect);
+    editor.workspace.remember_floating_geometry(
+        PanelId::Tools,
+        WindowGeometry {
+            outer_position: [tools_rect.min.x, tools_rect.min.y],
+            inner_size: [tools_rect.width(), tools_rect.height()],
+        },
+    );
+    editor.workspace.remember_floating_geometry(
+        PanelId::Actions,
+        WindowGeometry {
+            outer_position: [actions_rect.min.x, actions_rect.min.y],
+            inner_size: [actions_rect.width(), actions_rect.height()],
+        },
+    );
+
+    let clock = std::cell::Cell::new(0.0_f64);
+    let step = |ed: &mut Editor, events: Vec<egui::Event>| -> egui::FullOutput {
+        observed_levels.borrow_mut().clear();
+        let t = clock.get() + 0.1;
+        clock.set(t);
+        let root_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1440.0, 900.0));
+        let mut raw = egui::RawInput {
+            screen_rect: Some(root_rect),
+            focused: true,
+            time: Some(t),
+            events,
+            ..Default::default()
+        };
+        raw.viewports.insert(
+            egui::ViewportId::ROOT,
+            egui::ViewportInfo {
+                outer_rect: Some(root_rect),
+                inner_rect: Some(root_rect),
+                ..Default::default()
+            },
+        );
+        ctx.run(raw, |ctx| {
+            ed.sync_closed_detached_panels(ctx);
+            ed.menu(ctx);
+            ed.dock_grid(ctx);
+            ed.stage(ctx);
+            ed.draw_dialogs(ctx);
+            ed.detached_panels(ctx);
+            crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
+        })
+    };
+
+    crate::native_windows::set_native_menu_tracking_for_test(false);
+    let _ = step(&mut editor, vec![]);
+    let bar_out = step(&mut editor, vec![]);
+    assert_eq!(
+        observed_levels.borrow().get(&tools_vp).copied().flatten(),
+        Some(egui::WindowLevel::AlwaysOnTop)
+    );
+    assert_eq!(
+        observed_levels.borrow().get(&actions_vp).copied().flatten(),
+        Some(egui::WindowLevel::AlwaysOnTop)
+    );
+
+    // Find and click the in-window "File" menu button at top-left of ROOT.
+    let file_btn_pos = bar_out
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .filter(|(_, n)| {
+            n.label() == Some("File")
+                && n.bounds()
+                    .is_some_and(|b| b.y1 <= f64::from(neoflash_ui::metrics::top_bar()) + 2.0)
+        })
+        .filter_map(|(_, n)| n.bounds())
+        .min_by(|a, b| a.x0.total_cmp(&b.x0))
+        .map(|b| egui::pos2(((b.x0 + b.x1) * 0.5) as f32, ((b.y0 + b.y1) * 0.5) as f32))
+        .expect("File button in NF top bar");
+
+    let _ = step(
+        &mut editor,
+        vec![
+            egui::Event::PointerMoved(file_btn_pos),
+            crate::tests::primary_button(file_btn_pos, true),
+        ],
+    );
+    let _ = step(
+        &mut editor,
+        vec![crate::tests::primary_button(file_btn_pos, false)],
+    );
+    // Run one more pass so egui::Area records the exact File popup rect in ROOT memory.
+    let _ = step(&mut editor, vec![]);
+
+    // Overlapping `Tools` at `(24, 44)` drops to `Normal`, while non-overlapping `Actions` at
+    // `(860, 220)` stays at `AlwaysOnTop` (`window_should_float_for_title == true`)!
+    assert_eq!(
+        observed_levels.borrow().get(&tools_vp).copied().flatten(),
+        Some(egui::WindowLevel::Normal),
+        "Tools overlapping the open File popup must drop below the popup"
+    );
+    assert_eq!(
+        observed_levels.borrow().get(&actions_vp).copied().flatten(),
+        Some(egui::WindowLevel::AlwaysOnTop),
+        "non-overlapping detached Actions must stay AlwaysOnTop when File menu opens"
+    );
+    assert!(!crate::native_windows::window_should_float_for_title(Some(
+        "Tools — NeoFlash"
+    )));
+    assert!(crate::native_windows::window_should_float_for_title(Some(
+        "Actions — NeoFlash"
+    )));
+    assert!(crate::native_windows::should_order_below_root_for_test());
+
+    // Closing the File popup via Escape restores Tools to AlwaysOnTop.
+    let _ = step(
+        &mut editor,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: Some(egui::Key::Escape),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    let _ = step(&mut editor, vec![]);
+    assert_eq!(
+        observed_levels.borrow().get(&tools_vp).copied().flatten(),
+        Some(egui::WindowLevel::AlwaysOnTop)
+    );
+    assert_eq!(
+        observed_levels.borrow().get(&actions_vp).copied().flatten(),
+        Some(egui::WindowLevel::AlwaysOnTop)
+    );
 }

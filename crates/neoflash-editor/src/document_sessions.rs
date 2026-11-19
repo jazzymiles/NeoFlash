@@ -2,7 +2,177 @@
 use crate::app::{Editor, Pending, ScriptTarget};
 use eframe::egui::{self, Vec2};
 use neoflash_core::{History, ObjectEvent, Project};
+use std::cell::Cell;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DirtyCacheEntry {
+    history_revision: u64,
+    undo_len: usize,
+    redo_len: usize,
+    can_undo: bool,
+    saved_symbols_ptr: usize,
+    saved_resources_ptr: usize,
+    saved_sources_ptr: usize,
+    project_header_hash: u64,
+    ui_pass_if_in_flight: u64,
+    is_dirty: bool,
+}
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct DirtyCacheState {
+    entry: Option<DirtyCacheEntry>,
+    #[cfg(test)]
+    pub(crate) full_comparisons: usize,
+}
+
+fn fast_project_header_hash(project: &Project, active_symbol_id: Option<&str>) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    project.format_version.hash(&mut h);
+    project.name.hash(&mut h);
+    project.width.hash(&mut h);
+    project.height.hash(&mut h);
+    project.fps.hash(&mut h);
+    project.background.hash(&mut h);
+    project.root.hash(&mut h);
+    project.document_class.hash(&mut h);
+    project
+        .script_language
+        .as_ref()
+        .map(std::mem::discriminant)
+        .hash(&mut h);
+    project.also_compile_compatible_scripts.hash(&mut h);
+    std::mem::discriminant(&project.html_render_mode()).hash(&mut h);
+    project.library_folders.len().hash(&mut h);
+    project.scenes.len().hash(&mut h);
+    project.sources.len().hash(&mut h);
+    if !project.sources.is_empty() {
+        (project.sources.as_ptr() as usize).hash(&mut h);
+    }
+    project.resources.len().hash(&mut h);
+    if !project.resources.is_empty() {
+        (project.resources.as_ptr() as usize).hash(&mut h);
+    }
+    project.symbols.len().hash(&mut h);
+    if !project.symbols.is_empty() {
+        (project.symbols.as_ptr() as usize).hash(&mut h);
+    }
+    let hash_symbol_shallow =
+        |sym: &neoflash_core::Symbol, h: &mut std::collections::hash_map::DefaultHasher| {
+            sym.id.hash(h);
+            sym.name.hash(h);
+            sym.folder.hash(h);
+            std::mem::discriminant(&sym.kind).hash(h);
+            sym.class_name.hash(h);
+            sym.linkage_id.hash(h);
+            sym.timeline.frame_count.hash(h);
+            sym.timeline.layers.len().hash(h);
+            sym.timeline.scripts.len().hash(h);
+            if let Some(layer) = sym.timeline.layers.first() {
+                layer.id.hash(h);
+                layer.name.hash(h);
+                layer.visible.hash(h);
+                layer.locked.hash(h);
+                layer.keyframes.len().hash(h);
+                if let Some(kf) = layer.keyframes.first() {
+                    kf.frame.hash(h);
+                    kf.elements.len().hash(h);
+                }
+            }
+        };
+    if let Some(first) = project.symbols.first() {
+        hash_symbol_shallow(first, &mut h);
+    }
+    if let Some(sym_id) = active_symbol_id
+        && project.symbols.first().is_none_or(|f| f.id != sym_id)
+        && let Some(sym) = project.symbol(sym_id)
+    {
+        hash_symbol_shallow(sym, &mut h);
+    }
+    h.finish()
+}
+
+pub(crate) fn compute_dirty_cached(
+    project: &Project,
+    saved_project: Option<&Project>,
+    history: &History,
+    active_symbol_id: Option<&str>,
+    ui_pass_if_in_flight: Option<u64>,
+    cache: &Cell<DirtyCacheState>,
+) -> bool {
+    let Some(saved) = saved_project else {
+        let mut state = cache.get();
+        state.entry = None;
+        cache.set(state);
+        return true;
+    };
+    if saved.symbols.is_empty() || project.symbols.is_empty() {
+        return saved != project;
+    }
+    let Some(ui_pass_tag) = ui_pass_if_in_flight else {
+        let mut state = cache.get();
+        state.entry = None;
+        #[cfg(test)]
+        {
+            state.full_comparisons += 1;
+        }
+        cache.set(state);
+        return saved != project;
+    };
+
+    let saved_symbols_ptr = saved.symbols.as_ptr() as usize;
+    let saved_resources_ptr = if saved.resources.is_empty() {
+        0
+    } else {
+        saved.resources.as_ptr() as usize
+    };
+    let saved_sources_ptr = if saved.sources.is_empty() {
+        0
+    } else {
+        saved.sources.as_ptr() as usize
+    };
+    let history_revision = history.revision();
+    let undo_len = history.undo_len();
+    let redo_len = history.redo_len();
+    let can_undo = history.can_undo();
+    let project_header_hash = fast_project_header_hash(project, active_symbol_id);
+
+    let mut state = cache.get();
+    if let Some(prev) = state.entry
+        && prev.history_revision == history_revision
+        && prev.undo_len == undo_len
+        && prev.redo_len == redo_len
+        && prev.can_undo == can_undo
+        && prev.saved_symbols_ptr == saved_symbols_ptr
+        && prev.saved_resources_ptr == saved_resources_ptr
+        && prev.saved_sources_ptr == saved_sources_ptr
+        && prev.project_header_hash == project_header_hash
+        && prev.ui_pass_if_in_flight == ui_pass_tag
+    {
+        return prev.is_dirty;
+    }
+
+    let is_dirty = saved != project;
+    #[cfg(test)]
+    {
+        state.full_comparisons += 1;
+    }
+    state.entry = Some(DirtyCacheEntry {
+        history_revision,
+        undo_len,
+        redo_len,
+        can_undo,
+        saved_symbols_ptr,
+        saved_resources_ptr,
+        saved_sources_ptr,
+        project_header_hash,
+        ui_pass_if_in_flight: ui_pass_tag,
+        is_dirty,
+    });
+    cache.set(state);
+    is_dirty
+}
 
 // A single field list makes capture/restore symmetric. The active slot is None: live state
 // belongs exclusively to Editor, so a stale snapshot can never replace a saved document.
@@ -24,7 +194,14 @@ macro_rules! document_state {
                 self.recovery.move_prompts_to(&mut editor.recovery);
             }
             pub(crate) fn dirty(&self) -> bool {
-                self.saved_project.as_ref() != Some(&self.project)
+                compute_dirty_cached(
+                    &self.project,
+                    self.saved_project.as_ref(),
+                    &self.history,
+                    self.edit_session.current_symbol(),
+                    Some(0),
+                    &self.dirty_cache,
+                )
             }
             pub(crate) fn tracked_disk_path(&self) -> Option<&Path> {
                 self.path.as_deref().or(self.import_source.as_deref())
@@ -73,6 +250,7 @@ document_state! { project, path, undo_levels, recovery, saved_project, root;
     path: Option<PathBuf> = path,
     import_source: Option<PathBuf> = None,
     saved_project: Option<Project> = saved_project,
+    dirty_cache: Cell<DirtyCacheState> = Cell::new(DirtyCacheState::default()),
     edit_session: crate::symbol_edit::SymbolEditSession = crate::symbol_edit::SymbolEditSession::for_scene(root.clone(), 0.75, Vec2::ZERO),
     editing: Vec<String> = vec![root.clone()],
     frame: u32 = 0,

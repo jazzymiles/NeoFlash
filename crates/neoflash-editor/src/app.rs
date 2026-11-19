@@ -207,6 +207,11 @@ pub struct Editor {
     pub(crate) ai_session: crate::panels::ai_dialogs::AiDocumentSession,
     pub(crate) shared_frame_clipboard: Option<crate::timeline_edit::SharedFrameClipboard>,
     pub(crate) persist_workspace_requested: bool,
+    pub(crate) dirty_cache: std::cell::Cell<crate::document_sessions::DirtyCacheState>,
+    dirty_ui_pass: u64,
+    next_dirty_ui_pass: u64,
+    last_workspace_snapshot: Option<Box<WorkspacePrefs>>,
+    last_viewport_title: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -716,6 +721,11 @@ impl Editor {
             beta_feedback: Default::default(),
             shared_frame_clipboard: None,
             persist_workspace_requested: false,
+            dirty_cache: std::cell::Cell::new(crate::document_sessions::DirtyCacheState::default()),
+            dirty_ui_pass: 0,
+            next_dirty_ui_pass: 1,
+            last_workspace_snapshot: None,
+            last_viewport_title: None,
         };
         crate::panels::publish_settings::sync_publish_profile_with_render_mode(
             &mut s.workspace.publish,
@@ -1025,15 +1035,51 @@ impl Editor {
             .symbol_mut(&id)
             .expect("editor has a valid symbol")
     }
+    fn has_in_flight_project_edit(&self) -> bool {
+        self.property_edit.is_some()
+            || self.object_gesture.is_some()
+            || self.vector.point_drag.is_some()
+            || self.vector.live_deform_drag.is_some()
+            || self.shape_draft.is_some()
+            || self.timeline_key_drag.is_some()
+            || self.timeline_edit.dragging()
+            || self.scale9_guide_drag.is_some()
+            || self.stage_view.drag.is_some()
+            || self.timeline_motion.drag.is_some()
+            || self.timeline_motion.curve_drag.is_some()
+            || self.timeline_motion.sketch_recording
+            || self.timeline_shape_hints.drag.is_some()
+            || self.authoring_modify.distort_session.is_some()
+            || self.authoring_modify.envelope_session.is_some()
+            || self.stage_text_edit.coalesced_typing_active
+            || self.stage_text_edit.ime_preedit.is_some()
+            || (self.history.can_undo() && self.history.undo_len() == 0)
+    }
     pub fn dirty(&self) -> bool {
         if !self.has_document() {
             return false;
         }
-        self.vector
+        if self
+            .vector
             .draft
             .as_ref()
             .is_some_and(|d| d.anchors.len() >= 2)
-            || self.saved_project.as_ref() != Some(&self.project)
+        {
+            return true;
+        }
+        let ui_pass_if_in_flight = if self.has_in_flight_project_edit() {
+            (self.dirty_ui_pass > 0).then_some(self.dirty_ui_pass)
+        } else {
+            Some(0)
+        };
+        crate::document_sessions::compute_dirty_cached(
+            &self.project,
+            self.saved_project.as_ref(),
+            &self.history,
+            Some(self.symbol_id()),
+            ui_pass_if_in_flight,
+            &self.dirty_cache,
+        )
     }
     pub(crate) fn has_modal_dialog(&self) -> bool {
         self.confirm.is_some()
@@ -4502,8 +4548,13 @@ impl eframe::App for Editor {
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        let pass_nr = self.next_dirty_ui_pass;
+        self.next_dirty_ui_pass = self.next_dirty_ui_pass.wrapping_add(1).max(1);
+        self.dirty_ui_pass = pass_nr;
         self.workspace.active_bottom = self.bottom;
-        let workspace_before = self.workspace.clone();
+        if self.last_workspace_snapshot.as_deref() != Some(&self.workspace) {
+            self.last_workspace_snapshot = Some(Box::new(self.workspace.clone()));
+        }
         self.apply_density(ctx);
         self.poll_preview_output(ctx);
         self.poll_debugger(ctx);
@@ -4594,9 +4645,13 @@ impl eframe::App for Editor {
         self.reconcile_stage_cursor_after_overlays(ctx);
         crate::native_windows::configure_panels();
         let win_state = crate::macos_menu::sync(self, ctx);
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(win_state.title));
+        if self.last_viewport_title.as_deref() != Some(win_state.title.as_str()) {
+            self.last_viewport_title = Some(win_state.title.clone());
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(win_state.title));
+        }
         self.workspace.active_bottom = self.bottom;
-        if self.workspace != workspace_before {
+        if self.last_workspace_snapshot.as_deref() != Some(&self.workspace) {
+            self.last_workspace_snapshot = Some(Box::new(self.workspace.clone()));
             self.persist_workspace_requested = true;
         }
         if self.persist_workspace_requested || self.allow_close || native_quit || close_requested {
@@ -4608,6 +4663,7 @@ impl eframe::App for Editor {
         }
         crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
         crate::shell::capture(ctx, ctx.cumulative_pass_nr());
+        self.dirty_ui_pass = 0;
     }
 }
 

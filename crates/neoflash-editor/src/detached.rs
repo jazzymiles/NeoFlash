@@ -413,10 +413,62 @@ pub(crate) fn snap_floating_window_geometry(
 }
 
 impl Editor {
-    pub(crate) fn should_order_floating_windows_below_root(&self, ctx: &egui::Context) -> bool {
+    pub(crate) fn should_lower_all_floating_windows_globally(&self, ctx: &egui::Context) -> bool {
         self.has_modal_dialog_in(ctx)
             || self.test_movie_preview_open
             || crate::panels::help_manual::is_help_manual_open(ctx)
+    }
+
+    /// Screen-space bounding rectangles (in `* zoom` physical/scaled coordinates matching
+    /// [`WindowGeometry`]) of open popup/menu `Order::Foreground` areas on `ViewportId::ROOT`
+    /// (`T-390`). Excludes permanent Stage chrome (`stage-zoom-control`) and non-interactive
+    /// tooltips. Returns `None` when no measured popup area exists yet on `ROOT`.
+    fn collect_root_popup_screen_rects(
+        &self,
+        ctx: &egui::Context,
+        zoom: f32,
+    ) -> Option<Vec<egui::Rect>> {
+        if ctx.viewport_id() != egui::ViewportId::ROOT {
+            return None;
+        }
+        let root_inner = self.detached.root_inner?;
+        let cursor_id = egui::Id::new("nf2-cursor");
+        let stage_zoom_id = egui::Id::new("stage-zoom-control");
+        let rects = ctx.memory(|m| {
+            let mut out = Vec::new();
+            for layer in m.areas().visible_layer_ids() {
+                if layer.order != egui::Order::Foreground
+                    || layer.id == cursor_id
+                    || layer.id == stage_zoom_id
+                {
+                    continue;
+                }
+                if self
+                    .workspace
+                    .floating
+                    .iter()
+                    .any(|w| layer.id == egui::Id::new(("floating-dock", w.id)))
+                {
+                    continue;
+                }
+                if let Some(area_rect) = m.area_rect(layer.id)
+                    && area_rect.is_finite()
+                    && area_rect.is_positive()
+                {
+                    out.push(
+                        (area_rect * zoom)
+                            .translate(root_inner.min.to_vec2())
+                            .expand(8.0 * zoom),
+                    );
+                }
+            }
+            out
+        });
+        (!rects.is_empty()).then_some(rects)
+    }
+
+    pub(crate) fn should_order_floating_windows_below_root(&self, ctx: &egui::Context) -> bool {
+        self.should_lower_all_floating_windows_globally(ctx)
             || crate::panels::dialog_helpers::is_editor_popup_open_on_viewport(
                 self,
                 ctx,
@@ -424,17 +476,30 @@ impl Editor {
             )
     }
 
+    /// Native macOS `NSMenu` renders at `NSPopUpMenuWindowLevel` (`101`), far above
+    /// `NSFloatingWindowLevel` (`3`), so native menu tracking never lowers floating windows (`T-390`).
     pub(crate) fn should_lower_all_floating_windows(&self, ctx: &egui::Context) -> bool {
         self.should_order_floating_windows_below_root(ctx)
-            || crate::native_windows::is_native_menu_tracking()
     }
 
-    pub(crate) fn desired_floating_window_level(
-        &self,
-        ctx: &egui::Context,
+    fn desired_floating_window_level_for_rect(
         visible_panels: &[PanelId],
+        modal_open: bool,
+        root_popup_open: bool,
+        root_popup_rects: Option<&[egui::Rect]>,
+        win_screen_rect: egui::Rect,
     ) -> egui::WindowLevel {
-        if self.should_lower_all_floating_windows(ctx) || visible_panels.is_empty() {
+        let lower = visible_panels.is_empty()
+            || modal_open
+            || if root_popup_open {
+                match root_popup_rects {
+                    Some(rects) => rects.iter().any(|r| r.intersects(win_screen_rect)),
+                    None => true,
+                }
+            } else {
+                false
+            };
+        if lower {
             egui::WindowLevel::Normal
         } else {
             egui::WindowLevel::AlwaysOnTop
@@ -1603,15 +1668,24 @@ impl Editor {
             DockSurface::Main => true,
             DockSurface::Floating(id) => visible.contains(&id),
         });
-        let modal_open_now = self.has_modal_dialog_in(ctx)
-            || self.test_movie_preview_open
-            || crate::panels::help_manual::is_help_manual_open(ctx);
+        let modal_open_now = self.should_lower_all_floating_windows_globally(ctx);
         if modal_open_now && !self.detached.was_modal_open && !visible.is_empty() {
             ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Focus);
             ctx.request_repaint_of(egui::ViewportId::ROOT);
         }
         self.detached.was_modal_open = modal_open_now;
-        let mut floating_windows: Vec<(PanelId, String)> = Vec::new();
+        let root_popup_open = !modal_open_now
+            && crate::panels::dialog_helpers::is_editor_popup_open_on_viewport(
+                self,
+                ctx,
+                egui::ViewportId::ROOT,
+            );
+        let root_popup_rects = if root_popup_open {
+            self.collect_root_popup_screen_rects(ctx, zoom)
+        } else {
+            None
+        };
+        let mut floating_windows: Vec<(PanelId, String, egui::Rect)> = Vec::new();
         for window_id in visible {
             let Some(window) = self
                 .workspace
@@ -1713,10 +1787,25 @@ impl Editor {
                     .collect::<Vec<_>>()
                     .join(" + ")
             );
+            let win_height_px = if collapsed {
+                neoflash_ui::metrics::panel_tab() * zoom
+            } else {
+                geometry.inner_size[1]
+            };
+            let win_screen_rect = egui::Rect::from_min_size(
+                egui::pos2(geometry.outer_position[0], geometry.outer_position[1]),
+                egui::vec2(geometry.inner_size[0], win_height_px),
+            );
             if !visible_panels.is_empty() {
-                floating_windows.push((window_id, title.clone()));
+                floating_windows.push((window_id, title.clone(), win_screen_rect));
             }
-            let desired_level = self.desired_floating_window_level(ctx, &visible_panels);
+            let desired_level = Self::desired_floating_window_level_for_rect(
+                &visible_panels,
+                modal_open_now,
+                root_popup_open,
+                root_popup_rects.as_deref(),
+                win_screen_rect,
+            );
             let mut builder = egui::ViewportBuilder::default()
                 .with_title(&title)
                 .with_decorations(false)
@@ -2064,30 +2153,47 @@ impl Editor {
                 crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
             });
         }
-        let lower_all = self.should_lower_all_floating_windows(ctx);
-        if lower_all {
-            for (win_id, _) in &floating_windows {
-                if self.detached.applied_levels.get(win_id).copied()
+        let global_lower_after = self.should_lower_all_floating_windows_globally(ctx);
+        let root_popup_open_after = !global_lower_after && root_popup_open;
+        let root_popup_rects_after = if root_popup_open_after {
+            root_popup_rects
+        } else {
+            None
+        };
+        let lower_all =
+            global_lower_after || (root_popup_open_after && root_popup_rects_after.is_none());
+        let lower_below_root = lower_all;
+        let mut floating_titles = HashSet::with_capacity(floating_windows.len());
+        let mut lowered_below_root_titles = HashSet::new();
+        for (win_id, title, win_rect) in floating_windows {
+            let overlaps_popup = root_popup_rects_after
+                .as_ref()
+                .is_some_and(|rects| rects.iter().any(|r| r.intersects(win_rect)));
+            let lower_win = lower_all || overlaps_popup;
+            if lower_win {
+                if self.detached.applied_levels.get(&win_id).copied()
                     == Some(egui::WindowLevel::AlwaysOnTop)
                 {
                     ctx.send_viewport_cmd_to(
-                        viewport(*win_id),
+                        viewport(win_id),
                         egui::ViewportCommand::WindowLevel(egui::WindowLevel::Normal),
                     );
                     self.detached
                         .applied_levels
-                        .insert(*win_id, egui::WindowLevel::Normal);
+                        .insert(win_id, egui::WindowLevel::Normal);
                 }
+                if !lower_all {
+                    lowered_below_root_titles.insert(title);
+                }
+            } else {
+                floating_titles.insert(title);
             }
         }
-        let lower_below_root = self.should_order_floating_windows_below_root(ctx);
         crate::native_windows::set_panel_window_levels(
             lower_all,
             lower_below_root,
-            floating_windows
-                .into_iter()
-                .map(|(_, title)| title)
-                .collect(),
+            floating_titles,
+            lowered_below_root_titles,
         );
         self.docking_overlay(ctx, DockSurface::Main);
         self.finalize_panel_drag(ctx);
@@ -2153,6 +2259,7 @@ impl Editor {
             crate::native_windows::set_panel_window_levels(
                 lower_all,
                 lower_below_root,
+                HashSet::new(),
                 HashSet::new(),
             );
         }

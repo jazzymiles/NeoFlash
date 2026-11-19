@@ -1226,3 +1226,210 @@ fn t377_native_macos_menu_and_in_window_menu_bar_match_one_to_one() {
         let _ = step(&mut editor, vec![]);
     }
 }
+
+#[test]
+fn t390_menu_sync_fingerprint_skips_idle_pan_hover_and_tracks_every_menu_mutation() {
+    use crate::macos_menu::{
+        MenuSyncFingerprint, TOP_MENU_COUNT, decode_menu_tag, encode_menu_tag,
+    };
+    use crate::workspace::PanelPlacement;
+
+    // 1. Verify per-top-menu `(menu_idx << 16) | local_idx` tag encoding never aliases across menus.
+    assert_eq!(decode_menu_tag(-1), None);
+    assert_eq!(decode_menu_tag(encode_menu_tag(TOP_MENU_COUNT, 0)), None);
+    for menu_idx in 0..TOP_MENU_COUNT {
+        for local_idx in [0, 1, 17, 63, 255] {
+            let tag = encode_menu_tag(menu_idx, local_idx);
+            assert!(tag >= 0);
+            assert_eq!(decode_menu_tag(tag), Some((menu_idx, local_idx)));
+        }
+    }
+
+    // 2. Verify O(1) MenuSyncFingerprint stays identical across idle, stage pan, and status updates.
+    let (mut editor, ctx, dir) = setup("fingerprint-stability");
+    let base = MenuSyncFingerprint::capture(&editor, Some(&ctx));
+
+    editor.pan = egui::vec2(320.0, -140.0);
+    editor.status = "Hovered stage".to_owned();
+    assert_eq!(
+        MenuSyncFingerprint::capture(&editor, Some(&ctx)),
+        base,
+        "pan and non-menu status updates must NOT invalidate MenuSyncFingerprint"
+    );
+
+    // 3. Verify every menu-visible state transition changes MenuSyncFingerprint immediately.
+    let mut prev = base;
+    let mut assert_changed = |ed: &Editor, reason: &str| {
+        let next = MenuSyncFingerprint::capture(ed, Some(&ctx));
+        assert_ne!(next, prev, "MenuSyncFingerprint missed change on: {reason}");
+        prev = next;
+    };
+
+    editor.transact_named("Rename project", |ed| ed.project.name = "Hero".to_owned());
+    assert_changed(&editor, "Undo/history commit");
+
+    editor.undo();
+    assert_changed(&editor, "Undo step");
+
+    editor.redo();
+    assert_changed(&editor, "Redo step");
+
+    editor.select_all();
+    assert_changed(&editor, "Selection change");
+
+    editor.set_tool(crate::app::Tool::Text);
+    assert_changed(&editor, "Tool change");
+
+    editor.frame = 3;
+    assert_changed(&editor, "Playhead frame change");
+
+    editor.zoom = 2.0;
+    assert_changed(&editor, "Stage zoom change");
+
+    editor.onion = !editor.onion;
+    assert_changed(&editor, "Onion skin toggle");
+
+    editor.stage_view.prefs.grid_show = !editor.stage_view.prefs.grid_show;
+    assert_changed(&editor, "Grid show toggle");
+
+    editor.set_panel_visible(PanelId::Align, true);
+    assert_changed(&editor, "Panel visibility change");
+
+    editor.set_panel_placement(&ctx, PanelId::Align, PanelPlacement::Detached);
+    assert_changed(&editor, "Panel detach placement change");
+
+    editor.execute_native_menu_action(
+        &ctx,
+        NativeMenuAction::ApplyWorkspaceTemplate(WorkspaceTemplate::Animator),
+    );
+    assert_changed(&editor, "Workspace template change");
+
+    editor.execute_native_menu_action(&ctx, NativeMenuAction::SetTheme(ThemeMode::Light));
+    assert_changed(&editor, "Theme change");
+
+    editor.execute_native_menu_action(&ctx, NativeMenuAction::SetDensity(DensityPref::Compact));
+    assert_changed(&editor, "Density change");
+
+    editor
+        .workspace
+        .shortcuts
+        .set_shortcuts(CommandId::FileSave, vec![Shortcut::alt_cmd(Key::S)]);
+    assert_changed(&editor, "Custom shortcut override");
+
+    let saved_file = dir.join("hero.nflash");
+    assert!(editor.save_to_path(saved_file));
+    assert_changed(&editor, "Save & recent files update");
+
+    editor.new_document_session(&ctx);
+    assert_changed(&editor, "New document session tab");
+}
+
+#[test]
+fn rf02_dirty_cache_and_recent_files_cache_avoid_repeat_traversals_and_preserve_exactness() {
+    use neoflash_core::{Element, ElementKind, ResourceUnit, Transform};
+
+    let (mut editor, ctx, dir) = setup("rf02-dirty-and-recent-cache");
+
+    // Populate 600 vector elements + binary ResourceUnits so full Project comparison is non-trivial.
+    let root_id = editor.project.root.clone();
+    {
+        let sym = editor.project.symbol_mut(&root_id).unwrap();
+        let elements = &mut sym.timeline.layers[0].keyframes[0].elements;
+        for idx in 0..600 {
+            elements.push(Element {
+                id: format!("rf02-el-{idx}"),
+                name: String::new(),
+                transform: Transform::default(),
+                kind: ElementKind::Rectangle {
+                    width: 40.0,
+                    height: 30.0,
+                    fill: [200, 100, 50, 255],
+                    stroke: [0, 0, 0, 255],
+                    stroke_width: 1.0,
+                },
+                visible: true,
+                ..Element::default()
+            });
+        }
+    }
+    let res = ResourceUnit::from_bytes(
+        "rf02-img",
+        "images/banner.png",
+        "image/png",
+        &vec![0x5A; 32 * 1024],
+    )
+    .unwrap();
+    editor.project.resources.push(res);
+
+    let file_path = dir.join("heavy-doc.nflash");
+    assert!(editor.save_to_path(file_path.clone()));
+    editor.dirty_cache.set(Default::default());
+
+    // 200 repeated dirty() + native_window_state() queries must run at most 1 full Project comparison!
+    for _ in 0..200 {
+        assert!(!editor.dirty());
+        let win = editor.native_window_state();
+        assert!(!win.document_edited);
+        assert!(!win.represented_filename.is_empty());
+    }
+    assert_eq!(
+        editor.dirty_cache.get().full_comparisons,
+        1,
+        "clean saved document must cache dirty() across repeated queries without re-traversing Project"
+    );
+
+    // Commit an edit -> dirty() becomes true immediately; Undo -> dirty() returns to false; Redo -> true.
+    editor.transact_named("Change stage FPS", |ed| ed.project.fps = 60);
+    assert!(editor.dirty());
+    assert!(editor.native_window_state().document_edited);
+
+    editor.undo();
+    assert!(
+        !editor.dirty(),
+        "Undo back to saved state must clear dirty()"
+    );
+
+    editor.redo();
+    assert!(
+        editor.dirty(),
+        "Redo away from saved state must set dirty()"
+    );
+
+    assert!(editor.save(false));
+    assert!(!editor.dirty(), "Saving must clear dirty()");
+
+    // Direct header mutation without transact (used by several legacy/export tests) still invalidates cache.
+    editor.project.fps = 120;
+    assert!(editor.dirty());
+    editor.project.fps = 60;
+    assert!(!editor.dirty());
+
+    // Inactive session tab caches dirty() independently in O(1).
+    editor.new_document_session(&ctx);
+    assert_eq!(editor.active_session, 1);
+    let inactive = editor.sessions[0].as_ref().expect("inactive tab 0");
+    inactive.dirty_cache.set(Default::default());
+    for _ in 0..100 {
+        assert!(!inactive.dirty());
+    }
+    assert_eq!(inactive.dirty_cache.get().full_comparisons, 1);
+
+    // Recent-files cache preserves GeneralPrefs PartialEq symmetry and invalidates on clear.
+    let uncached_clone = crate::workspace::GeneralPrefs {
+        recent_files: editor.workspace.general.recent_files.clone(),
+        ..editor.workspace.general.clone()
+    };
+    uncached_clone.invalidate_recent_files_cache();
+    let cached_paths = editor.workspace.general.existing_recent_files_cached();
+    assert_eq!(cached_paths.len(), 1);
+    assert_eq!(editor.workspace.general, uncached_clone);
+
+    editor.workspace.clear_recent_files();
+    assert!(
+        editor
+            .workspace
+            .general
+            .existing_recent_files_cached()
+            .is_empty()
+    );
+}

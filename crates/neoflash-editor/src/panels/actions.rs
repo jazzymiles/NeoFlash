@@ -2709,15 +2709,13 @@ mod tests {
         let _ = step_detached(&mut editor);
         assert_eq!(
             observed_levels.borrow().get(&tools_vp).copied().flatten(),
-            Some(egui::WindowLevel::Normal)
+            Some(egui::WindowLevel::AlwaysOnTop),
+            "native macOS NSMenu (level 101) renders above NSFloatingWindowLevel (3) without lowering palettes"
         );
-        assert!(!crate::native_windows::window_should_float_for_title(Some(
+        assert!(crate::native_windows::window_should_float_for_title(Some(
             "Tools — NeoFlash"
         )));
-        assert!(
-            !crate::native_windows::should_order_below_root_for_test(),
-            "native macOS NSMenu tracking must lower floating palettes without ordering detached Actions below root"
-        );
+        assert!(!crate::native_windows::should_order_below_root_for_test());
         crate::native_windows::set_native_menu_tracking_for_test(false);
 
         // 3b. Regression (`#125` #2): Popovers opened INSIDE detached palettes (`Tools` modifier

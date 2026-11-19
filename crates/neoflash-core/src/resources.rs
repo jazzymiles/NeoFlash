@@ -190,7 +190,7 @@ impl BitmapExportSettings {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Serialize, Deserialize)]
 pub struct ResourceUnit {
     pub id: Id,
     pub path: String,
@@ -203,6 +203,18 @@ pub struct ResourceUnit {
     /// Optional per-resource publish bitmap compression settings (document version 9).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bitmap_export: Option<BitmapExportSettings>,
+}
+
+impl PartialEq for ResourceUnit {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.path == other.path
+            && self.media_type == other.media_type
+            && self.audio_export == other.audio_export
+            && self.bitmap_export == other.bitmap_export
+            && (Arc::ptr_eq(&self.data_base64, &other.data_base64)
+                || *self.data_base64 == *other.data_base64)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -312,5 +324,52 @@ impl ResourceUnit {
             return Err(ResourceError("media_type must be an ASCII type/subtype token without parameters, at most 255 bytes".into()));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resource_unit_eq_uses_arc_ptr_short_circuit_and_content_fallback() {
+        let payload = vec![0xAB; 64 * 1024];
+        let unit_a =
+            ResourceUnit::from_bytes("res-hero", "images/hero.png", "image/png", &payload).unwrap();
+        let unit_clone = unit_a.clone();
+        assert!(Arc::ptr_eq(&unit_a.data_base64, &unit_clone.data_base64));
+        assert_eq!(unit_a, unit_clone);
+
+        // Distinct Arc allocation with identical base64 string must still compare equal.
+        let mut distinct_arc = unit_a.clone();
+        distinct_arc.data_base64 = Arc::from(unit_a.data_base64.as_ref());
+        assert!(!Arc::ptr_eq(&unit_a.data_base64, &distinct_arc.data_base64));
+        assert_eq!(unit_a, distinct_arc);
+
+        // Mutations to metadata, export settings, or payload bytes must compare unequal.
+        let mut diff_id = unit_a.clone();
+        diff_id.id = "res-other".into();
+        assert_ne!(unit_a, diff_id);
+
+        let mut diff_path = unit_a.clone();
+        diff_path.path = "images/alt.png".into();
+        assert_ne!(unit_a, diff_path);
+
+        let mut diff_media = unit_a.clone();
+        diff_media.media_type = "image/webp".into();
+        assert_ne!(unit_a, diff_media);
+
+        let mut diff_audio = unit_a.clone();
+        diff_audio.audio_export = Some(SoundExportSettings::mp3_default());
+        assert_ne!(unit_a, diff_audio);
+
+        let mut diff_bitmap = unit_a.clone();
+        diff_bitmap.bitmap_export = Some(BitmapExportSettings::lossless_default());
+        assert_ne!(unit_a, diff_bitmap);
+
+        let unit_diff_bytes =
+            ResourceUnit::from_bytes("res-hero", "images/hero.png", "image/png", &[0xCD; 64])
+                .unwrap();
+        assert_ne!(unit_a, unit_diff_bytes);
     }
 }

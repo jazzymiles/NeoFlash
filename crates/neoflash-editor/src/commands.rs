@@ -3056,12 +3056,15 @@ impl Editor {
         };
 
         let has_doc = self.has_document();
-        let text_target = ctx.is_some_and(|c| self.clipboard_target(c).is_text())
-            || self
+        let text_target = || {
+            ctx.is_some_and(|c| {
+                c.wants_keyboard_input() && c.memory(|memory| memory.focused().is_some())
+            }) || self
                 .clipboard
                 .menu_target
                 .as_ref()
-                .is_some_and(|target| target.is_text());
+                .is_some_and(|target| target.is_text())
+        };
 
         let panel_for_window_cmd = |id: CommandId| -> Option<PanelId> {
             match id {
@@ -3250,9 +3253,9 @@ impl Editor {
             CommandId::FileRevert => self.can_revert(),
             CommandId::EditUndo => self.history.can_undo() || self.vector.draft.is_some(),
             CommandId::EditRedo => self.history.can_redo(),
-            CommandId::EditCut | CommandId::EditCopy => text_target || !self.selection.is_empty(),
-            CommandId::EditPaste => text_target || self.layer_editable(),
-            CommandId::EditPasteInPlace => !text_target && self.layer_editable(),
+            CommandId::EditCut | CommandId::EditCopy => !self.selection.is_empty() || text_target(),
+            CommandId::EditPaste => self.layer_editable() || text_target(),
+            CommandId::EditPasteInPlace => self.layer_editable() && !text_target(),
             CommandId::EditClear | CommandId::EditDuplicate | CommandId::EditDeselect => {
                 !self.selection.is_empty()
             }

@@ -29,9 +29,8 @@ struct PanelWindowLevelsState {
     lower_all: bool,
     #[cfg_attr(any(not(target_os = "macos"), test), allow(dead_code))]
     lower_below_root: bool,
-    #[cfg_attr(any(not(target_os = "macos"), test), allow(dead_code))]
-    was_lowered_below_root: bool,
     floating_panel_titles: HashSet<String>,
+    lowered_below_root_titles: HashSet<String>,
 }
 
 #[cfg(not(test))]
@@ -52,6 +51,7 @@ thread_local! {
 }
 
 /// Returns `true` while a native macOS `NSMenu` bar tracking session is open.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn is_native_menu_tracking() -> bool {
     #[cfg(not(test))]
     {
@@ -70,22 +70,27 @@ pub fn set_native_menu_tracking_for_test(tracking: bool) {
 
 #[cfg(test)]
 pub fn should_order_below_root_for_test() -> bool {
-    TEST_PANEL_WINDOW_LEVELS.with(|cell| cell.borrow().lower_below_root)
+    TEST_PANEL_WINDOW_LEVELS.with(|cell| {
+        let state = cell.borrow();
+        state.lower_below_root || !state.lowered_below_root_titles.is_empty()
+    })
 }
 
 /// Record which detached window titles belong to active studio panels/palettes that float above
-/// the Stage/Timeline when no modal, `Help`, or menu/popup is open, plus whether floating windows
-/// must be lowered (and ordered below the root window when a root-window modal/Help/menu is active).
+/// the Stage/Timeline when no modal, `Help`, or overlapping root popup is open, plus whether all or
+/// specific overlapping floating windows must be lowered below the root window (`T-390`).
 pub fn set_panel_window_levels(
     lower_all: bool,
     lower_below_root: bool,
     floating_panel_titles: HashSet<String>,
+    lowered_below_root_titles: HashSet<String>,
 ) {
     #[cfg(not(test))]
     if let Ok(mut state) = panel_window_levels().lock() {
         state.lower_all = lower_all;
         state.lower_below_root = lower_below_root;
         state.floating_panel_titles = floating_panel_titles;
+        state.lowered_below_root_titles = lowered_below_root_titles;
     }
     #[cfg(test)]
     TEST_PANEL_WINDOW_LEVELS.with(|cell| {
@@ -93,38 +98,41 @@ pub fn set_panel_window_levels(
         state.lower_all = lower_all;
         state.lower_below_root = lower_below_root;
         state.floating_panel_titles = floating_panel_titles;
+        state.lowered_below_root_titles = lowered_below_root_titles;
     });
 }
 
 /// Pure check used by `configure_panels` (and unit tests) to decide whether a detached window with
 /// `title` should use `NSFloatingWindowLevel` (`true`) or `NSNormalWindowLevel` (`false`).
+/// Native macOS `NSMenu` renders at `NSPopUpMenuWindowLevel` (`101`), already far above
+/// `NSFloatingWindowLevel` (`3`), so menu tracking never lowers floating panels (`T-390`).
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn window_should_float_for_title(title: Option<&str>) -> bool {
-    if is_native_menu_tracking() {
-        return false;
-    }
     let Some(title) = title else {
         return false;
     };
     #[cfg(not(test))]
     {
-        panel_window_levels()
-            .lock()
-            .ok()
-            .is_some_and(|state| !state.lower_all && state.floating_panel_titles.contains(title))
+        panel_window_levels().lock().ok().is_some_and(|state| {
+            !state.lower_all
+                && !state.lowered_below_root_titles.contains(title)
+                && state.floating_panel_titles.contains(title)
+        })
     }
     #[cfg(test)]
     {
         TEST_PANEL_WINDOW_LEVELS.with(|cell| {
             let state = cell.borrow();
-            !state.lower_all && state.floating_panel_titles.contains(title)
+            !state.lower_all
+                && !state.lowered_below_root_titles.contains(title)
+                && state.floating_panel_titles.contains(title)
         })
     }
 }
 
 #[cfg(all(target_os = "macos", not(test)))]
 mod imp {
-    use super::{NATIVE_MENU_TRACKING, is_native_menu_tracking, panel_window_levels};
+    use super::{NATIVE_MENU_TRACKING, panel_window_levels};
     use objc2::{
         MainThreadMarker, ffi, msg_send,
         rc::Retained,
@@ -146,12 +154,21 @@ mod imp {
     };
 
     const NS_WINDOW_BELOW: isize = -1;
+    const NS_WINDOW_ABOVE: isize = 1;
+
+    struct ConfiguredPanelWindow {
+        title: String,
+        chrome_configured: bool,
+        applied_floating: bool,
+        ordered_below_root: bool,
+    }
 
     static ROOT: AtomicIsize = AtomicIsize::new(0);
-    static FLOATING_TITLES: OnceLock<Mutex<HashMap<isize, String>>> = OnceLock::new();
+    static CONFIGURED_WINDOWS: OnceLock<Mutex<HashMap<isize, ConfiguredPanelWindow>>> =
+        OnceLock::new();
 
-    fn floating_titles() -> &'static Mutex<HashMap<isize, String>> {
-        FLOATING_TITLES.get_or_init(|| Mutex::new(HashMap::new()))
+    fn configured_windows() -> &'static Mutex<HashMap<isize, ConfiguredPanelWindow>> {
+        CONFIGURED_WINDOWS.get_or_init(|| Mutex::new(HashMap::new()))
     }
 
     pub fn root_window_number() -> isize {
@@ -159,10 +176,11 @@ mod imp {
     }
 
     pub fn floating_window_title_for_number(number: isize) -> Option<String> {
-        floating_titles()
+        configured_windows()
             .lock()
             .ok()
-            .and_then(|titles| titles.get(&number).cloned())
+            .and_then(|windows| windows.get(&number).map(|w| w.title.clone()))
+            .filter(|t| !t.is_empty())
     }
 
     type MenuNotificationFn =
@@ -173,8 +191,9 @@ mod imp {
         _sel: objc2::runtime::Sel,
         _notification: Option<&AnyObject>,
     ) {
+        // Native `NSMenu` renders at `NSPopUpMenuWindowLevel` (101), already far above
+        // `NSFloatingWindowLevel` (3); record tracking state without WindowServer level thrashing.
         NATIVE_MENU_TRACKING.store(true, Ordering::Release);
-        configure_panels();
     }
 
     unsafe extern "C-unwind" fn menu_did_end_tracking(
@@ -183,7 +202,6 @@ mod imp {
         _notification: Option<&AnyObject>,
     ) {
         NATIVE_MENU_TRACKING.store(false, Ordering::Release);
-        configure_panels();
     }
 
     fn ns_string(text: &str) -> Option<Retained<AnyObject>> {
@@ -317,105 +335,130 @@ mod imp {
             root = candidate.windowNumber();
             ROOT.store(root, Ordering::Relaxed);
         }
-        let native_menu_open = is_native_menu_tracking();
-        let (lower_all, order_below_root, transitioned_below_root, floating_titles_set) =
-            if let Ok(mut state) = panel_window_levels().lock() {
-                // Native macOS `NSMenu` already renders at `NSPopUpMenuWindowLevel` (101); keep
-                // `lower_all` true so floating panels drop to `NSNormalWindowLevel`, while only
-                // root-window modals, Help, and in-window root menus reorder windows below `root`.
-                let order_below = state.lower_below_root;
-                let transitioned = order_below && !state.was_lowered_below_root;
-                state.was_lowered_below_root = order_below;
+        if windows.len() <= 1 {
+            if let Ok(mut cached) = configured_windows().lock() {
+                cached.clear();
+            }
+            return;
+        }
+        let (lower_all, order_below_root, floating_titles_set, lowered_below_root_titles) =
+            if let Ok(state) = panel_window_levels().lock() {
                 (
-                    state.lower_all || native_menu_open,
-                    order_below,
-                    transitioned,
+                    state.lower_all,
+                    state.lower_below_root,
                     state.floating_panel_titles.clone(),
+                    state.lowered_below_root_titles.clone(),
                 )
             } else {
-                (native_menu_open, false, false, HashSet::new())
+                (false, false, HashSet::new(), HashSet::new())
             };
-        const NS_WINDOW_ABOVE: isize = 1;
         let app_active = app.isActive();
         let mut live_floating = HashSet::new();
+        let Ok(mut cached_map) = configured_windows().lock() else {
+            return;
+        };
         for window in windows.iter() {
             let number = window.windowNumber();
             if number == root {
                 continue;
             }
             live_floating.insert(number);
-            // Removing `NSWindowStyleMask::Titled` clears `NSWindow.title()` in AppKit; preserve
-            // any non-empty viewport title first so native hit-testing and z-order policy can
-            // identify the window.
-            let raw_title = window.title().to_string();
-            let resolved_title = if let Ok(mut titles) = floating_titles().lock() {
+
+            // Reuse cached window title whenever it already matches a known active/lowered panel
+            // title, avoiding per-frame `NSString -> String` allocations. Removing
+            // `NSWindowStyleMask::Titled` clears `NSWindow.title()` in AppKit, so any non-empty
+            // viewport title observed before/after style-mask setup is preserved here.
+            let was_seen = cached_map.contains_key(&number);
+            let entry = cached_map
+                .entry(number)
+                .or_insert_with(|| ConfiguredPanelWindow {
+                    title: String::new(),
+                    chrome_configured: false,
+                    applied_floating: false,
+                    ordered_below_root: false,
+                });
+            let title_already_matched = !entry.title.is_empty()
+                && (floating_titles_set.contains(&entry.title)
+                    || lowered_below_root_titles.contains(&entry.title));
+            if !title_already_matched {
+                let raw_title = window.title().to_string();
                 if !raw_title.is_empty() {
-                    titles.insert(number, raw_title.clone());
-                    Some(raw_title)
-                } else {
-                    titles.get(&number).cloned()
+                    entry.title = raw_title;
                 }
-            } else {
-                (!raw_title.is_empty()).then_some(raw_title)
-            };
-            let mask = (window.styleMask()
-                - NSWindowStyleMask::Titled
-                - NSWindowStyleMask::Closable
-                - NSWindowStyleMask::Miniaturizable
-                - NSWindowStyleMask::FullSizeContentView)
-                | NSWindowStyleMask::Borderless
-                | NSWindowStyleMask::Resizable;
-            if window.styleMask() != mask {
-                window.setStyleMask(mask);
             }
-            if window.titleVisibility() != NSWindowTitleVisibility::Hidden {
-                window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
+
+            if !entry.chrome_configured
+                || !window.styleMask().contains(NSWindowStyleMask::Borderless)
+            {
+                let mask = (window.styleMask()
+                    - NSWindowStyleMask::Titled
+                    - NSWindowStyleMask::Closable
+                    - NSWindowStyleMask::Miniaturizable
+                    - NSWindowStyleMask::FullSizeContentView)
+                    | NSWindowStyleMask::Borderless
+                    | NSWindowStyleMask::Resizable;
+                if window.styleMask() != mask {
+                    window.setStyleMask(mask);
+                }
+                if window.titleVisibility() != NSWindowTitleVisibility::Hidden {
+                    window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
+                }
+                if !window.titlebarAppearsTransparent() {
+                    window.setTitlebarAppearsTransparent(true);
+                }
+                if !window.hasShadow() {
+                    window.setHasShadow(true);
+                }
+                if window.tabbingMode() != NSWindowTabbingMode::Disallowed {
+                    window.setTabbingMode(NSWindowTabbingMode::Disallowed);
+                }
+                if !window.hidesOnDeactivate() {
+                    window.setHidesOnDeactivate(true);
+                }
+                let behavior = (window.collectionBehavior()
+                    - NSWindowCollectionBehavior::FullScreenPrimary)
+                    | NSWindowCollectionBehavior::FullScreenAuxiliary;
+                if window.collectionBehavior() != behavior {
+                    window.setCollectionBehavior(behavior);
+                }
+                entry.chrome_configured = true;
             }
-            if !window.titlebarAppearsTransparent() {
-                window.setTitlebarAppearsTransparent(true);
-            }
-            if !window.hasShadow() {
-                window.setHasShadow(true);
-            }
-            if window.tabbingMode() != NSWindowTabbingMode::Disallowed {
-                window.setTabbingMode(NSWindowTabbingMode::Disallowed);
-            }
-            if !window.hidesOnDeactivate() {
-                window.setHidesOnDeactivate(true);
-            }
+
+            let order_this_below_root = order_below_root
+                || (!entry.title.is_empty() && lowered_below_root_titles.contains(&entry.title));
             let should_float = !lower_all
-                && resolved_title
-                    .as_deref()
-                    .is_some_and(|title| floating_titles_set.contains(title));
+                && !order_this_below_root
+                && !entry.title.is_empty()
+                && floating_titles_set.contains(&entry.title);
             let desired_level = if should_float {
                 NSFloatingWindowLevel
             } else {
                 NSNormalWindowLevel
             };
-            let was_floating = window.level() == NSFloatingWindowLevel;
-            if window.level() != desired_level {
+
+            if (!was_seen || entry.applied_floating != should_float)
+                && window.level() != desired_level
+            {
                 window.setLevel(desired_level);
             }
-            if order_below_root && root > 0 && (transitioned_below_root || was_floating) {
+            if order_this_below_root && !entry.ordered_below_root && root > 0 {
                 unsafe {
                     let _: () = msg_send![&*window, orderWindow: NS_WINDOW_BELOW, relativeTo: root];
                 }
-            } else if should_float && !was_floating && root > 0 && app_active && window.isVisible()
+            } else if should_float
+                && (!was_seen || !entry.applied_floating || entry.ordered_below_root)
+                && root > 0
+                && app_active
+                && window.isVisible()
             {
                 unsafe {
                     let _: () = msg_send![&*window, orderWindow: NS_WINDOW_ABOVE, relativeTo: root];
                 }
             }
-            let behavior = (window.collectionBehavior()
-                - NSWindowCollectionBehavior::FullScreenPrimary)
-                | NSWindowCollectionBehavior::FullScreenAuxiliary;
-            if window.collectionBehavior() != behavior {
-                window.setCollectionBehavior(behavior);
-            }
+            entry.applied_floating = should_float;
+            entry.ordered_below_root = order_this_below_root;
         }
-        if let Ok(mut titles) = floating_titles().lock() {
-            titles.retain(|number, _| live_floating.contains(number));
-        }
+        cached_map.retain(|number, _| live_floating.contains(number));
     }
 }
 

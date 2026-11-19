@@ -844,7 +844,7 @@ impl NativeMenuSpec {
 
     fn build_file_menu(editor: &Editor, ctx: Option<&egui::Context>) -> NativeTopMenuSpec {
         let has_doc = editor.has_document();
-        let recent = editor.workspace.general.existing_recent_files();
+        let recent = editor.workspace.general.existing_recent_files_cached();
         let recent_labels = recent_file_display_labels(&recent);
         let mut recent_items = Vec::with_capacity(recent.len() + 2);
         for (path, label) in recent.iter().zip(recent_labels) {
@@ -2339,6 +2339,294 @@ impl NativeMenuSpec {
     }
 }
 
+pub(crate) const TOP_MENU_COUNT: usize = NativeMenuSpec::TOP_LEVEL_TITLES.len();
+
+/// Encode `(menu_idx, local_idx)` into a non-negative AppKit `NSMenuItem.tag` so rebuilding one
+/// top-level menu in `menuNeedsUpdate:` never invalidates tags of any other top-level menu (`T-390`).
+pub(crate) const fn encode_menu_tag(menu_idx: usize, local_idx: usize) -> isize {
+    (((menu_idx & 0xFF) << 16) | (local_idx & 0xFFFF)) as isize
+}
+
+/// Decode a tag produced by [`encode_menu_tag`] back into `(menu_idx, local_idx)`.
+pub(crate) const fn decode_menu_tag(tag: isize) -> Option<(usize, usize)> {
+    if tag < 0 {
+        return None;
+    }
+    let raw = tag as usize;
+    let menu_idx = (raw >> 16) & 0xFF;
+    let local_idx = raw & 0xFFFF;
+    if menu_idx < TOP_MENU_COUNT {
+        Some((menu_idx, local_idx))
+    } else {
+        None
+    }
+}
+
+/// O(1) editor + context fingerprint governing [`NativeMenuSpec`] presentation (`T-390`).
+/// When unchanged across idle, hover, pan, or scrub frames, `macos_menu::sync` skips
+/// [`NativeMenuSpec::build`] and Objective-C synchronization completely (`< 1 µs`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MenuSyncFingerprint {
+    pub has_doc: bool,
+    pub session_count: usize,
+    pub active_session: usize,
+    pub history_revision: u64,
+    pub can_undo: bool,
+    pub can_redo: bool,
+    pub dirty: bool,
+    pub playing: bool,
+    pub live_script_preview: bool,
+    pub enable_simple_buttons: bool,
+    pub audio_muted: bool,
+    pub panels_hidden: bool,
+    pub active_panels_mask: u32,
+    pub visible_panels_mask: u32,
+    pub detached_panels_mask: u32,
+    pub priority_mask: u8,
+    pub zoom_pct: u32,
+    pub zoom_is_100: bool,
+    pub layer: usize,
+    pub frame: u32,
+    pub selection_len: usize,
+    pub modal_open: bool,
+    pub studio_open: bool,
+    pub text_focus: bool,
+    pub digest_hi: u64,
+    pub digest_lo: u64,
+}
+
+impl MenuSyncFingerprint {
+    pub fn capture(editor: &Editor, ctx: Option<&egui::Context>) -> Self {
+        use std::hash::{Hash, Hasher};
+
+        let has_doc = editor.has_document();
+        let session_count = editor.session_count();
+        let dirty = editor.dirty();
+        let mut active_panels_mask = 0u32;
+        let mut visible_panels_mask = 0u32;
+        let mut detached_panels_mask = 0u32;
+        for (bit, panel) in PanelId::DETACHABLE.into_iter().enumerate() {
+            if editor.workspace.is_panel_active(panel) {
+                active_panels_mask |= 1u32 << bit;
+            }
+            if editor.workspace.is_panel_visible(panel) {
+                visible_panels_mask |= 1u32 << bit;
+            }
+            if editor.workspace.placement(panel) == PanelPlacement::Detached {
+                detached_panels_mask |= 1u32 << bit;
+            }
+        }
+        let priority_mask = u8::from(editor.workspace.dock.has_priority(PanelId::Properties))
+            | (u8::from(editor.workspace.dock.has_priority(PanelId::Library)) << 1);
+        let zoom_pct = (editor.zoom * 100.0).round() as u32;
+        let zoom_is_100 = (editor.zoom - 1.0).abs() < 0.005;
+        let modal_open = ctx.map_or_else(
+            || editor.has_modal_dialog(),
+            |c| editor.has_modal_dialog_in(c),
+        );
+        let studio_open = ctx.is_some_and(crate::panels::ui_studio::is_studio_open);
+        let text_focus = ctx
+            .is_some_and(|c| c.wants_keyboard_input() && c.memory(|m| m.focused().is_some()))
+            || editor
+                .clipboard
+                .menu_target
+                .as_ref()
+                .is_some_and(|t| t.is_text());
+
+        let mut h1 = std::collections::hash_map::DefaultHasher::new();
+        let mut h2 = std::collections::hash_map::DefaultHasher::new();
+        0x9E37_79B9_7F4A_7C15_u64.hash(&mut h2);
+
+        macro_rules! mix {
+            ($val:expr) => {{
+                let v = $val;
+                v.hash(&mut h1);
+                v.hash(&mut h2);
+            }};
+        }
+
+        mix!(std::mem::discriminant(&editor.tool));
+        mix!(std::mem::discriminant(&editor.active_free_transform_mode()));
+        mix!(editor.is_motion_sketch_armed());
+        mix!(editor.vector.draft.as_ref().map(|d| d.anchors.len()));
+        mix!(editor.history.undo_label());
+        mix!(editor.history.redo_label());
+        mix!(editor.onion);
+        mix!(editor.onion_outlines);
+        mix!(editor.onion_anchor);
+        mix!(editor.timeline_shape_hints.show);
+        mix!(editor.authoring_modify.to_stage);
+        mix!(std::mem::discriminant(&editor.stage_ab_mode()));
+
+        let v = &editor.stage_view.prefs;
+        mix!(v.rulers);
+        mix!(v.grid_show);
+        mix!(v.grid_snap);
+        mix!(v.grid_over_objects);
+        mix!(v.guides_show);
+        mix!(v.guides_lock);
+        mix!(v.guides_snap);
+        mix!(v.objects_snap);
+        mix!(v.pixels_snap);
+
+        mix!(std::mem::discriminant(&editor.workspace.template));
+        mix!(&editor.workspace.active_named_preset);
+        mix!(editor.workspace.unsaved_layout);
+        mix!(editor.workspace.named_presets.len());
+        for name in editor.workspace.named_presets.keys() {
+            mix!(name);
+        }
+        mix!(std::mem::discriminant(&editor.workspace.theme));
+        mix!(std::mem::discriminant(&editor.workspace.density));
+        mix!(std::mem::discriminant(&editor.workspace.stage_toolbar));
+        mix!(editor.workspace.timeline.loop_playback);
+        mix!(editor.workspace.drawing.object_drawing);
+        mix!(editor.workspace.text_size.to_bits());
+        mix!(&editor.workspace.shortcuts.set);
+        mix!(editor.workspace.shortcuts.overrides.len());
+        for (k, chords) in &editor.workspace.shortcuts.overrides {
+            mix!(k);
+            mix!(chords);
+        }
+        mix!(&editor.workspace.general.recent_files);
+        mix!(editor.has_ready_ai_connection());
+
+        mix!(editor.debugger.startup_status.is_some());
+        mix!(editor.debugger.breakpoints.len());
+        if let Some(snap) = editor.debugger.snapshot() {
+            mix!(true);
+            mix!(std::mem::discriminant(&snap.state));
+            mix!(snap.command_pending);
+        } else {
+            mix!(false);
+        }
+
+        if has_doc {
+            mix!(editor.symbol_id());
+            mix!(editor.editing_scene());
+            mix!(editor.layer_editable());
+            mix!(editor.can_revert());
+            mix!(
+                editor
+                    .timeline_edit
+                    .range
+                    .as_ref()
+                    .map(|r| (r.start, r.end, &r.layers))
+            );
+            mix!(editor.timeline_edit.play_all_scenes);
+            mix!(editor.timeline_edit.focused);
+            mix!(editor.shared_frame_clipboard.is_some());
+            mix!(editor.can_paste_motion());
+            mix!(editor.has_copied_keyframe_ease());
+            mix!(editor.can_copy_active_keyframe_ease());
+            mix!(editor.current_tween().map(|t| std::mem::discriminant(&t)));
+            mix!(editor.can_create_tween());
+            mix!(editor.can_add_motion_guide_to(editor.layer));
+            mix!(editor.can_link_av_layers());
+            mix!(editor.can_unlink_av_layers());
+            mix!(
+                editor
+                    .active_timeline_work_area()
+                    .map(|w| (w.in_frame, w.out_frame))
+            );
+            mix!(!editor.active_timeline_markers().is_empty());
+
+            mix!(&editor.selection.symbol);
+            let targets = &editor.selection.targets;
+            for t in targets.iter().take(8) {
+                mix!(&t.layer);
+                mix!(&t.element);
+            }
+            if let Some(last) = targets.last() {
+                mix!(&last.layer);
+                mix!(&last.element);
+            }
+            if editor.selection.len() == 1
+                && let Some(el) = editor.selected_element()
+            {
+                mix!(std::mem::discriminant(&el.kind));
+                match &el.kind {
+                    ElementKind::Instance { symbol_id, .. } => mix!(symbol_id),
+                    ElementKind::Text { font_size, .. } => mix!(font_size.to_bits()),
+                    ElementKind::TextBox { format, .. } => {
+                        mix!(format.size.to_bits());
+                        mix!(format.bold);
+                        mix!(format.italic);
+                        mix!(std::mem::discriminant(&format.align));
+                    }
+                    _ => {}
+                }
+            }
+
+            for index in 0..session_count {
+                if index == editor.active_session {
+                    mix!(&editor.project.name);
+                    mix!(&editor.path);
+                    mix!(&editor.import_source);
+                    mix!(dirty);
+                } else if let Some(session) = &editor.sessions[index] {
+                    mix!(&session.project.name);
+                    mix!(&session.path);
+                    mix!(&session.import_source);
+                    mix!(session.dirty());
+                }
+            }
+        }
+
+        Self {
+            has_doc,
+            session_count,
+            active_session: editor.active_session,
+            history_revision: editor.history.revision(),
+            can_undo: editor.history.can_undo(),
+            can_redo: editor.history.can_redo(),
+            dirty,
+            playing: editor.playing,
+            live_script_preview: editor.live_script_preview,
+            enable_simple_buttons: editor.enable_simple_buttons,
+            audio_muted: editor.timeline_audio.muted,
+            panels_hidden: editor.panels_hidden,
+            active_panels_mask,
+            visible_panels_mask,
+            detached_panels_mask,
+            priority_mask,
+            zoom_pct,
+            zoom_is_100,
+            layer: editor.layer,
+            frame: editor.frame,
+            selection_len: editor.selection.len(),
+            modal_open,
+            studio_open,
+            text_focus,
+            digest_hi: h1.finish(),
+            digest_lo: h2.finish(),
+        }
+    }
+}
+
+thread_local! {
+    static REPRESENTED_FILENAME_CACHE: std::cell::RefCell<Option<(PathBuf, String)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn cached_canonical_represented_filename(raw_path: &Path) -> String {
+    if let Some(hit) = REPRESENTED_FILENAME_CACHE.with(|cell| {
+        let borrow = cell.borrow();
+        borrow.as_ref().and_then(|(cached_raw, cached_canon)| {
+            (cached_raw == raw_path).then(|| cached_canon.clone())
+        })
+    }) {
+        return hit;
+    }
+    let resolved = crate::recovery::canonical_or_normalized_path(raw_path)
+        .to_string_lossy()
+        .into_owned();
+    REPRESENTED_FILENAME_CACHE.with(|cell| {
+        *cell.borrow_mut() = Some((raw_path.to_path_buf(), resolved.clone()));
+    });
+    resolved
+}
+
 impl Editor {
     /// Compute the root window's title, macOS `documentEdited` dirty indicator, and canonical
     /// `representedFilename` (`""` when untitled, unsaved-imported, or when no document is open).
@@ -2361,8 +2649,7 @@ impl Editor {
         let represented_filename = self
             .path
             .as_deref()
-            .map(crate::recovery::canonical_or_normalized_path)
-            .map(|p| p.to_string_lossy().into_owned())
+            .map(cached_canonical_represented_filename)
             .unwrap_or_default();
         NativeWindowDocState {
             title,
@@ -2385,6 +2672,9 @@ impl Editor {
                 self.request_quit(ctx);
             }
             NativeMenuAction::OpenRecent(path) => {
+                if !path.exists() {
+                    self.workspace.general.invalidate_recent_files_cache();
+                }
                 self.request(Pending::OpenPath(path), ctx);
             }
             NativeMenuAction::ClearRecent => {
@@ -2867,29 +3157,47 @@ mod native {
     const NS_APP_DELEGATE_REPLY_SUCCESS: usize = 0;
     const NS_APP_DELEGATE_REPLY_FAILURE: usize = 2;
 
+    type MenuActionSlot = Vec<(NativeMenuAction, bool)>;
+    type MenuActionSlots = [MenuActionSlot; TOP_MENU_COUNT];
+
     static CONTEXT: Mutex<Option<egui::Context>> = Mutex::new(None);
-    static ACTION_TABLE: OnceLock<Mutex<Vec<(NativeMenuAction, bool)>>> = OnceLock::new();
+    static ACTION_TABLE: OnceLock<Mutex<MenuActionSlots>> = OnceLock::new();
 
     struct MainThreadCache {
+        installed: bool,
         target: Option<Retained<AnyObject>>,
         services_menu: Option<Retained<AnyObject>>,
-        last_menu_spec: Option<NativeMenuSpec>,
+        #[allow(dead_code)]
+        main_menu: Option<Retained<AnyObject>>,
+        top_items: Vec<Retained<AnyObject>>,
+        top_menus: Vec<Retained<AnyObject>>,
+        top_enabled: [bool; TOP_MENU_COUNT],
+        specs: [Option<NativeTopMenuSpec>; TOP_MENU_COUNT],
+        dirty: [bool; TOP_MENU_COUNT],
+        last_fingerprint: Option<MenuSyncFingerprint>,
         last_window_state: Option<(isize, bool, String)>,
     }
 
     thread_local! {
         static CACHE: RefCell<MainThreadCache> = const {
             RefCell::new(MainThreadCache {
+                installed: false,
                 target: None,
                 services_menu: None,
-                last_menu_spec: None,
+                main_menu: None,
+                top_items: Vec::new(),
+                top_menus: Vec::new(),
+                top_enabled: [true; TOP_MENU_COUNT],
+                specs: [const { None }; TOP_MENU_COUNT],
+                dirty: [true; TOP_MENU_COUNT],
+                last_fingerprint: None,
                 last_window_state: None,
             })
         };
     }
 
-    fn action_table() -> &'static Mutex<Vec<(NativeMenuAction, bool)>> {
-        ACTION_TABLE.get_or_init(|| Mutex::new(Vec::new()))
+    fn action_table() -> &'static Mutex<MenuActionSlots> {
+        ACTION_TABLE.get_or_init(|| Mutex::new(std::array::from_fn(|_| Vec::new())))
     }
 
     fn wake_root_viewport() {
@@ -2956,6 +3264,7 @@ mod native {
     type InvokeMenuActionFn = unsafe extern "C-unwind" fn(&AnyObject, Sel, Option<&AnyObject>);
     type ValidateMenuItemFn =
         unsafe extern "C-unwind" fn(&AnyObject, Sel, Option<&AnyObject>) -> Bool;
+    type MenuNeedsUpdateFn = unsafe extern "C-unwind" fn(&AnyObject, Sel, Option<&AnyObject>);
     type PerformKeyEquivalentFn =
         unsafe extern "C-unwind" fn(&AnyObject, Sel, Option<&NSEvent>) -> Bool;
     type PrelaunchNotificationFn = unsafe extern "C-unwind" fn(&AnyObject, Sel, Option<&AnyObject>);
@@ -3063,13 +3372,13 @@ mod native {
             return;
         };
         let tag: isize = unsafe { msg_send![sender, tag] };
-        if tag < 0 {
+        let Some((menu_idx, local_idx)) = decode_menu_tag(tag) else {
             return;
-        }
+        };
         let found = action_table()
             .lock()
             .ok()
-            .and_then(|table| table.get(tag as usize).cloned());
+            .and_then(|table| table.get(menu_idx)?.get(local_idx).cloned());
         if let Some((action, enabled)) = found
             && enabled
         {
@@ -3089,15 +3398,47 @@ mod native {
             return Bool::NO;
         };
         let tag: isize = unsafe { msg_send![menu_item, tag] };
-        if tag >= 0
-            && let Some(enabled) = action_table()
-                .lock()
-                .ok()
-                .and_then(|table| table.get(tag as usize).map(|(_, enabled)| *enabled))
+        if let Some((menu_idx, local_idx)) = decode_menu_tag(tag)
+            && let Some(enabled) = action_table().lock().ok().and_then(|table| {
+                table
+                    .get(menu_idx)?
+                    .get(local_idx)
+                    .map(|(_, enabled)| *enabled)
+            })
         {
             return Bool::new(enabled);
         }
         unsafe { msg_send![menu_item, isEnabled] }
+    }
+
+    unsafe extern "C-unwind" fn menu_needs_update(
+        _target: &AnyObject,
+        _sel: Sel,
+        menu: Option<&AnyObject>,
+    ) {
+        let Some(menu) = menu else {
+            return;
+        };
+        let menu_ptr = menu as *const AnyObject;
+        let pending = CACHE.with(|cache| {
+            let mut state = cache.borrow_mut();
+            let idx = state
+                .top_menus
+                .iter()
+                .position(|m| std::ptr::eq(&**m, menu_ptr))?;
+            if !state.dirty[idx] {
+                return None;
+            }
+            let spec = state.specs[idx].clone()?;
+            let target = state.target.clone()?;
+            let services = state.services_menu.clone()?;
+            state.dirty[idx] = false;
+            Some((idx, spec, target, services))
+        });
+        let Some((menu_idx, spec, target, services_menu)) = pending else {
+            return;
+        };
+        rebuild_single_top_menu(menu, menu_idx, &spec, &target, &services_menu);
     }
 
     unsafe extern "C-unwind" fn main_menu_perform_key_equivalent(
@@ -3177,6 +3518,14 @@ mod native {
                 };
                 if !validate_added.as_bool() {
                     return Err("Could not add validateMenuItem: to NeoFlashMacMenuTarget.".into());
+                }
+                let update_imp =
+                    unsafe { std::mem::transmute::<MenuNeedsUpdateFn, Imp>(menu_needs_update) };
+                let update_added = unsafe {
+                    ffi::class_addMethod(cls, sel!(menuNeedsUpdate:), update_imp, c"v@:@".as_ptr())
+                };
+                if !update_added.as_bool() {
+                    return Err("Could not add menuNeedsUpdate: to NeoFlashMacMenuTarget.".into());
                 }
                 unsafe { ffi::objc_registerClassPair(cls) };
                 AnyClass::get(c"NeoFlashMacMenuTarget")
@@ -3393,6 +3742,8 @@ mod native {
         *CONTEXT
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(ctx.clone());
+        let app = NSApplication::sharedApplication(mtm);
+        ensure_persistent_main_menu(&app)?;
         Ok(())
     }
 
@@ -3477,15 +3828,21 @@ mod native {
         Some(fallback)
     }
 
+    struct PopulateCtx<'a> {
+        menu_cls: &'a AnyClass,
+        item_cls: &'a AnyClass,
+        target: &'a AnyObject,
+        services_menu: &'a Retained<AnyObject>,
+        menu_idx: usize,
+    }
+
     fn populate_menu(
         menu: &AnyObject,
-        menu_cls: &AnyClass,
-        item_cls: &AnyClass,
-        target: &AnyObject,
-        services_menu: &Retained<AnyObject>,
+        pctx: &PopulateCtx<'_>,
         items: &[NativeMenuItemSpec],
         actions: &mut Vec<(NativeMenuAction, bool)>,
     ) {
+        let item_cls = pctx.item_cls;
         for spec in items {
             match spec {
                 NativeMenuItemSpec::Separator => {
@@ -3549,10 +3906,11 @@ mod native {
                         let _: () =
                             unsafe { msg_send![&*item, setKeyEquivalentModifierMask: mask] };
                     }
-                    let tag = actions.len() as isize;
+                    let local_idx = actions.len();
+                    let tag = encode_menu_tag(pctx.menu_idx, local_idx);
                     actions.push((action.clone(), *enabled));
                     let _: () = unsafe { msg_send![&*item, setTag: tag] };
-                    let _: () = unsafe { msg_send![&*item, setTarget: Some(target)] };
+                    let _: () = unsafe { msg_send![&*item, setTarget: Some(pctx.target)] };
                     let _: () = unsafe { msg_send![&*item, setEnabled: Bool::new(*enabled)] };
                     let state = if *checked {
                         NS_CONTROL_STATE_ON
@@ -3580,17 +3938,9 @@ mod native {
                     let _: () = unsafe { msg_send![&*item, setTag: -1isize] };
                     if matches!(role, Some(NativeSubmenuRole::Services)) {
                         let _: () =
-                            unsafe { msg_send![&*item, setSubmenu: Some(&**services_menu)] };
-                    } else if let Some(sub) = alloc_menu(menu_cls, label) {
-                        populate_menu(
-                            &sub,
-                            menu_cls,
-                            item_cls,
-                            target,
-                            services_menu,
-                            sub_items,
-                            actions,
-                        );
+                            unsafe { msg_send![&*item, setSubmenu: Some(&**pctx.services_menu)] };
+                    } else if let Some(sub) = alloc_menu(pctx.menu_cls, label) {
+                        populate_menu(&sub, pctx, sub_items, actions);
                         let _: () = unsafe { msg_send![&*item, setSubmenu: Some(&*sub)] };
                     }
                     let _: () = unsafe { msg_send![menu, addItem: &*item] };
@@ -3599,139 +3949,272 @@ mod native {
         }
     }
 
+    /// Detach `services_menu` from any existing `NSMenuItem` in `menu` before `[menu removeAllItems]`
+    /// so AppKit never raises `NSInternalInconsistencyException` while an autoreleased item still
+    /// points to `services_menu`.
+    fn detach_services_menu_from(menu: &AnyObject, services_menu: &AnyObject) {
+        let count: isize = unsafe { msg_send![menu, numberOfItems] };
+        for idx in 0..count.max(0) {
+            let item: *mut AnyObject = unsafe { msg_send![menu, itemAtIndex: idx] };
+            if !item.is_null() {
+                let sub: *const AnyObject = unsafe { msg_send![item, submenu] };
+                if std::ptr::eq(sub, services_menu as *const AnyObject) {
+                    let _: () = unsafe { msg_send![item, setSubmenu: None::<&AnyObject>] };
+                }
+            }
+        }
+    }
+
+    fn rebuild_single_top_menu(
+        menu: &AnyObject,
+        menu_idx: usize,
+        spec: &NativeTopMenuSpec,
+        target: &AnyObject,
+        services_menu: &Retained<AnyObject>,
+    ) {
+        let (Some(menu_cls), Some(item_cls)) =
+            (AnyClass::get(c"NSMenu"), AnyClass::get(c"NSMenuItem"))
+        else {
+            return;
+        };
+        detach_services_menu_from(menu, services_menu);
+        let _: () = unsafe { msg_send![menu, removeAllItems] };
+        let mut local_actions = Vec::with_capacity(spec.items.len() * 2);
+        let pctx = PopulateCtx {
+            menu_cls,
+            item_cls,
+            target,
+            services_menu,
+            menu_idx,
+        };
+        populate_menu(menu, &pctx, &spec.items, &mut local_actions);
+        if let Ok(mut table) = action_table().lock()
+            && let Some(slot) = table.get_mut(menu_idx)
+        {
+            *slot = local_actions;
+        }
+    }
+
+    fn bootstrap_app_menu_items() -> NativeTopMenuSpec {
+        NativeTopMenuSpec {
+            title: "NeoFlash".to_owned(),
+            enabled: true,
+            items: vec![
+                custom_item("About NeoFlash", None, true, false, NativeMenuAction::About),
+                NativeMenuItemSpec::Separator,
+                NativeMenuItemSpec::Submenu {
+                    label: "Services".to_owned(),
+                    enabled: true,
+                    role: Some(NativeSubmenuRole::Services),
+                    items: Vec::new(),
+                },
+                NativeMenuItemSpec::Separator,
+                NativeMenuItemSpec::System {
+                    label: "Hide NeoFlash".to_owned(),
+                    role: NativeSystemItemRole::HideApp,
+                    shortcut: Some(Shortcut::cmd(Key::H)),
+                    shortcut_label: "⌘H".to_owned(),
+                    enabled: true,
+                },
+                NativeMenuItemSpec::System {
+                    label: "Hide Others".to_owned(),
+                    role: NativeSystemItemRole::HideOthers,
+                    shortcut: Some(Shortcut::alt_cmd(Key::H)),
+                    shortcut_label: "⌥⌘H".to_owned(),
+                    enabled: true,
+                },
+                NativeMenuItemSpec::System {
+                    label: "Show All".to_owned(),
+                    role: NativeSystemItemRole::ShowAll,
+                    shortcut: None,
+                    shortcut_label: String::new(),
+                    enabled: true,
+                },
+                NativeMenuItemSpec::Separator,
+                custom_item(
+                    "Quit NeoFlash",
+                    Some(Shortcut::cmd(Key::Q)),
+                    true,
+                    false,
+                    NativeMenuAction::Quit,
+                ),
+            ],
+        }
+    }
+
+    fn bootstrap_window_menu_items() -> NativeTopMenuSpec {
+        NativeTopMenuSpec {
+            title: "Window".to_owned(),
+            enabled: true,
+            items: vec![
+                NativeMenuItemSpec::System {
+                    label: "Minimize".to_owned(),
+                    role: NativeSystemItemRole::MinimizeWindow,
+                    shortcut: Some(Shortcut::cmd(Key::M)),
+                    shortcut_label: "⌘M".to_owned(),
+                    enabled: true,
+                },
+                NativeMenuItemSpec::System {
+                    label: "Zoom".to_owned(),
+                    role: NativeSystemItemRole::ZoomWindow,
+                    shortcut: None,
+                    shortcut_label: String::new(),
+                    enabled: true,
+                },
+            ],
+        }
+    }
+
+    /// Install `NSApplication.mainMenu` ONCE with 11 persistent top-level `NSMenu` objects whose
+    /// delegate is `NeoFlashMacMenuTarget` (`menuNeedsUpdate:`), pre-populating `NeoFlash` and
+    /// `Window` so responder-chain chords (`⌘H`, `⌥⌘H`, `⌘M`, `⌘Q`) work immediately (`T-390`).
+    fn ensure_persistent_main_menu(app: &NSApplication) -> Result<(), String> {
+        if CACHE.with(|cache| cache.borrow().installed) {
+            return Ok(());
+        }
+        let target_cls = ensure_target_class()?;
+        let main_menu_cls = ensure_main_menu_class()?;
+        let menu_cls =
+            AnyClass::get(c"NSMenu").ok_or_else(|| "Could not find NSMenu class.".to_owned())?;
+        let item_cls = AnyClass::get(c"NSMenuItem")
+            .ok_or_else(|| "Could not find NSMenuItem class.".to_owned())?;
+
+        let target = unsafe {
+            let raw: *mut AnyObject = msg_send![target_cls, alloc];
+            if raw.is_null() {
+                return Err("Could not allocate NeoFlashMacMenuTarget instance.".into());
+            }
+            let init: *mut AnyObject = msg_send![raw, init];
+            Retained::from_raw(init)
+                .ok_or_else(|| "Could not init NeoFlashMacMenuTarget instance.".to_owned())?
+        };
+        let services_menu = alloc_menu(menu_cls, "Services")
+            .ok_or_else(|| "Could not allocate Services NSMenu.".to_owned())?;
+        let main_menu = alloc_menu(main_menu_cls, "MainMenu")
+            .ok_or_else(|| "Could not allocate NeoFlashMainMenu.".to_owned())?;
+
+        let mut top_items = Vec::with_capacity(TOP_MENU_COUNT);
+        let mut top_menus = Vec::with_capacity(TOP_MENU_COUNT);
+        for title in NativeMenuSpec::TOP_LEVEL_TITLES {
+            let top_item = alloc_menu_item(item_cls, title, None, "")
+                .ok_or_else(|| format!("Could not allocate top-level NSMenuItem {title}."))?;
+            let _: () = unsafe { msg_send![&*top_item, setEnabled: Bool::YES] };
+            let submenu = alloc_menu(menu_cls, title)
+                .ok_or_else(|| format!("Could not allocate top-level NSMenu {title}."))?;
+            let _: () = unsafe { msg_send![&*submenu, setDelegate: Some(&*target)] };
+            let _: () = unsafe { msg_send![&*top_item, setSubmenu: Some(&*submenu)] };
+            let _: () = unsafe { msg_send![&*main_menu, addItem: &*top_item] };
+            top_items.push(top_item);
+            top_menus.push(submenu);
+        }
+
+        // Pre-populate `NeoFlash` (idx 0) and `Window` (idx 9) so responder-chain shortcuts
+        // (`⌘H`, `⌥⌘H`, `⌘M`, `⌘Q`) work immediately before the user ever opens a menu.
+        let app_bootstrap = bootstrap_app_menu_items();
+        rebuild_single_top_menu(&top_menus[0], 0, &app_bootstrap, &target, &services_menu);
+        let window_bootstrap = bootstrap_window_menu_items();
+        rebuild_single_top_menu(&top_menus[9], 9, &window_bootstrap, &target, &services_menu);
+
+        let _: () = unsafe { msg_send![app, setServicesMenu: Some(&*services_menu)] };
+        let _: () = unsafe { msg_send![app, setMainMenu: Some(&*main_menu)] };
+
+        CACHE.with(|cache| {
+            let mut state = cache.borrow_mut();
+            state.installed = true;
+            state.target = Some(target);
+            state.services_menu = Some(services_menu);
+            state.main_menu = Some(main_menu);
+            state.top_items = top_items;
+            state.top_menus = top_menus;
+            state.top_enabled = [true; TOP_MENU_COUNT];
+            state.dirty = [true; TOP_MENU_COUNT];
+        });
+        Ok(())
+    }
+
     pub(super) fn sync(editor: &Editor, ctx: &egui::Context, win_state: &NativeWindowDocState) {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
         };
         let app = NSApplication::sharedApplication(mtm);
+        if ensure_persistent_main_menu(&app).is_err() {
+            return;
+        }
 
-        // 1. Sync root NSWindow documentEdited + representedFilename only when changed.
-        if let Some(root) = find_root_window(&app) {
+        // 1. Sync root NSWindow documentEdited + representedFilename only when changed (skipping
+        //    even `find_root_window` + `String::clone` when the tracked root window matches).
+        let tracked_root = crate::native_windows::root_window_number();
+        let win_unchanged = tracked_root > 0
+            && CACHE.with(|cache| {
+                cache
+                    .borrow()
+                    .last_window_state
+                    .as_ref()
+                    .is_some_and(|(num, edited, path)| {
+                        *num == tracked_root
+                            && *edited == win_state.document_edited
+                            && path == &win_state.represented_filename
+                    })
+            });
+        if !win_unchanged && let Some(root) = find_root_window(&app) {
             let win_num = root.windowNumber();
-            let key = (
-                win_num,
-                win_state.document_edited,
-                win_state.represented_filename.clone(),
-            );
-            let needs_win_sync =
-                CACHE.with(|cache| cache.borrow().last_window_state.as_ref() != Some(&key));
+            let needs_win_sync = CACHE.with(|cache| {
+                cache
+                    .borrow()
+                    .last_window_state
+                    .as_ref()
+                    .is_none_or(|(num, edited, path)| {
+                        *num != win_num
+                            || *edited != win_state.document_edited
+                            || path != &win_state.represented_filename
+                    })
+            });
             if needs_win_sync {
                 root.setDocumentEdited(win_state.document_edited);
                 if let Some(path_ns) = ns_string(&win_state.represented_filename) {
                     let _: () = unsafe { msg_send![&*root, setRepresentedFilename: &*path_ns] };
                 }
                 CACHE.with(|cache| {
-                    cache.borrow_mut().last_window_state = Some(key);
+                    cache.borrow_mut().last_window_state = Some((
+                        win_num,
+                        win_state.document_edited,
+                        win_state.represented_filename.clone(),
+                    ));
                 });
             }
         }
 
-        // 2. Build NativeMenuSpec and skip Objective-C rebuild if unchanged.
-        let spec = NativeMenuSpec::build(editor, Some(ctx));
-        let unchanged = CACHE.with(|cache| cache.borrow().last_menu_spec.as_ref() == Some(&spec));
-        if unchanged {
+        // 2. O(1) fingerprint check: skip `NativeMenuSpec::build` completely (`< 1 µs`) on idle,
+        //    hover, pan, and mouse-move frames (`T-390`).
+        let fingerprint = MenuSyncFingerprint::capture(editor, Some(ctx));
+        if CACHE.with(|cache| cache.borrow().last_fingerprint == Some(fingerprint)) {
             return;
         }
 
-        let (Ok(target_cls), Ok(main_menu_cls)) = (ensure_target_class(), ensure_main_menu_class())
-        else {
-            return;
-        };
-        let (Some(menu_cls), Some(item_cls)) =
-            (AnyClass::get(c"NSMenu"), AnyClass::get(c"NSMenuItem"))
-        else {
-            return;
-        };
-
-        let (target, services_menu, first_services_install) = CACHE.with(|cache| {
+        // 3. Store updated `NativeTopMenuSpec`s in `MainThreadCache` and mark ONLY changed top-level
+        //    menus dirty for lazy `menuNeedsUpdate:` population — ZERO Objective-C item rebuilds
+        //    during `Editor::update` and ZERO repeat `[app setMainMenu:]` calls!
+        let spec = NativeMenuSpec::build(editor, Some(ctx));
+        let mut enabled_updates: Vec<(Retained<AnyObject>, bool)> = Vec::new();
+        CACHE.with(|cache| {
             let mut state = cache.borrow_mut();
-            let target = if let Some(t) = &state.target {
-                t.clone()
-            } else {
-                let Some(created) = (unsafe {
-                    let raw: *mut AnyObject = msg_send![target_cls, alloc];
-                    if raw.is_null() {
-                        None
-                    } else {
-                        let init: *mut AnyObject = msg_send![raw, init];
-                        Retained::from_raw(init)
-                    }
-                }) else {
-                    return (None, None, false);
-                };
-                state.target = Some(created.clone());
-                created
-            };
-            let mut first_services = false;
-            let services = if let Some(s) = &state.services_menu {
-                s.clone()
-            } else {
-                let Some(created) = alloc_menu(menu_cls, "Services") else {
-                    return (Some(target), None, false);
-                };
-                state.services_menu = Some(created.clone());
-                first_services = true;
-                created
-            };
-            (Some(target), Some(services), first_services)
-        });
-
-        let (Some(target), Some(services_menu)) = (target, services_menu) else {
-            return;
-        };
-
-        // Detach the shared Services submenu from any previous parent item before re-attaching it.
-        let prev_parent: *mut AnyObject = unsafe { msg_send![&*services_menu, supermenu] };
-        if !prev_parent.is_null() {
-            let count: isize = unsafe { msg_send![prev_parent, numberOfItems] };
-            for idx in 0..count.max(0) {
-                let item: *mut AnyObject = unsafe { msg_send![prev_parent, itemAtIndex: idx] };
-                if !item.is_null() {
-                    let sub: *const AnyObject = unsafe { msg_send![item, submenu] };
-                    if std::ptr::eq(sub, &*services_menu as *const AnyObject) {
-                        let _: () = unsafe { msg_send![item, setSubmenu: None::<&AnyObject>] };
-                        break;
+            for (idx, top_spec) in spec.menus.into_iter().enumerate().take(TOP_MENU_COUNT) {
+                if state.top_enabled[idx] != top_spec.enabled {
+                    state.top_enabled[idx] = top_spec.enabled;
+                    if let Some(item) = state.top_items.get(idx) {
+                        enabled_updates.push((item.clone(), top_spec.enabled));
                     }
                 }
+                if state.specs[idx].as_ref() != Some(&top_spec) {
+                    state.specs[idx] = Some(top_spec);
+                    state.dirty[idx] = true;
+                }
             }
-        }
-
-        let Some(main_menu) = alloc_menu(main_menu_cls, "MainMenu") else {
-            return;
-        };
-        let mut new_actions = Vec::with_capacity(192);
-        for top in &spec.menus {
-            let Some(top_item) = alloc_menu_item(item_cls, &top.title, None, "") else {
-                continue;
-            };
-            let _: () = unsafe { msg_send![&*top_item, setEnabled: Bool::new(top.enabled)] };
-            let Some(submenu) = alloc_menu(menu_cls, &top.title) else {
-                continue;
-            };
-            populate_menu(
-                &submenu,
-                menu_cls,
-                item_cls,
-                &target,
-                &services_menu,
-                &top.items,
-                &mut new_actions,
-            );
-            let _: () = unsafe { msg_send![&*top_item, setSubmenu: Some(&*submenu)] };
-            let _: () = unsafe { msg_send![&*main_menu, addItem: &*top_item] };
-        }
-
-        if let Ok(mut table) = action_table().lock() {
-            *table = new_actions;
-        }
-        if first_services_install {
-            let _: () = unsafe { msg_send![&*app, setServicesMenu: Some(&*services_menu)] };
-        }
-        let _: () = unsafe { msg_send![&*app, setMainMenu: Some(&*main_menu)] };
-
-        CACHE.with(|cache| {
-            cache.borrow_mut().last_menu_spec = Some(spec);
+            state.last_fingerprint = Some(fingerprint);
         });
+        for (item, enabled) in enabled_updates {
+            let _: () = unsafe { msg_send![&*item, setEnabled: Bool::new(enabled)] };
+        }
     }
 }
 

@@ -314,14 +314,18 @@ impl Editor {
         ui: &mut egui::Ui,
         ctx: &egui::Context,
         title: &str,
-        clipboard_target: &crate::clipboard::ClipboardTarget,
+        pre_menu_target: Option<&crate::clipboard::ClipboardTarget>,
         edit_open: &mut bool,
     ) {
         if title == "Edit" {
             *edit_open = true;
             if !self.clipboard.menu_open || self.clipboard.menu_viewport != Some(ctx.viewport_id())
             {
-                self.clipboard.menu_target = Some(clipboard_target.clone());
+                self.clipboard.menu_target = Some(
+                    pre_menu_target
+                        .cloned()
+                        .unwrap_or_else(|| self.clipboard_target(ctx)),
+                );
             }
         }
         let Some(top_spec) = NativeMenuSpec::build_top_menu(self, Some(ctx), title) else {
@@ -460,7 +464,11 @@ impl Editor {
 
     pub fn menu(&mut self, ctx: &egui::Context) {
         use neoflash_ui::tokens::space;
-        let clipboard_target = self.clipboard_target(ctx);
+        // Sample pre-menu text focus only when a text widget actually owns keyboard input,
+        // avoiding per-frame `Selection` + `Scope` clones when idle or authoring on Stage.
+        let pre_menu_target = ctx
+            .wants_keyboard_input()
+            .then(|| self.clipboard_target(ctx));
         let mut edit_open = false;
         // Top bar: logo · menu bar (or the collapsed ≡ menu) · workspace · Test Movie · Publish.
         let nf = neoflash_ui::palette(ctx);
@@ -521,7 +529,7 @@ impl Editor {
                                                 ui,
                                                 ctx,
                                                 title,
-                                                &clipboard_target,
+                                                pre_menu_target.as_ref(),
                                                 &mut edit_open,
                                             );
                                         });
@@ -544,7 +552,7 @@ impl Editor {
                                             ui,
                                             ctx,
                                             title,
-                                            &clipboard_target,
+                                            pre_menu_target.as_ref(),
                                             &mut edit_open,
                                         );
                                     },
@@ -556,7 +564,7 @@ impl Editor {
                                         ui,
                                         ctx,
                                         title,
-                                        &clipboard_target,
+                                        pre_menu_target.as_ref(),
                                         &mut edit_open,
                                     );
                                 });
