@@ -1888,13 +1888,16 @@ fn mask_luminance_and_invert_modes_and_compact_row_height_roundtrip_with_single_
     editor.project.validate().unwrap();
     undo_restores(&mut editor, &after_role);
 
-    // Inline mask row icons fit strictly inside the 64 pt Mode column (even on 16 pt Compact rows)
+    // Inline mask row icons fit strictly inside the 64 pt Mode column (even on the shortest Compact rows)
     // without overlapping the Visibility eye toggle, and respond to real pointer clicks.
     use crate::tests::primary_button;
     ctx.enable_accesskit();
     editor.workspace.timeline.compact_rows = true;
     editor.workspace.timeline.preview = crate::workspace::FramePreview::Off;
-    assert_eq!(editor.workspace.timeline.row_height(), 16.0);
+    assert_eq!(
+        editor.workspace.timeline.row_height(),
+        neoflash_ui::metrics::LAYER_ROW_COMPACT
+    );
     let mut time = 0.0;
     let mut render_tl = |editor: &mut Editor, events: Vec<egui::Event>| {
         time += 0.1;

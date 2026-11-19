@@ -1,8 +1,8 @@
 // NF3 surfaces B: reference-page helpers, Publish settings, Preferences.
 const NF_MASTER = 'v3 · Normal · Light';
 function nf3MoreVars() {
-  const defs = { 'width/sidebar-wide': [208, 192, 176], 'width/field-m': [160, 148, 136], 'width/field-l': [224, 204, 188], 'width/field-s': [96, 88, 80],
-    'width/reference': [960, 900, 860], 'width/tree': [240, 220, 204], 'width/studio': [1280, 1200, 1120], 'height/studio': [760, 700, 640] };
+  const defs = { 'width/sidebar-wide': [216, 196, 180], 'width/field-m': [168, 152, 140], 'width/field-l': [232, 208, 192], 'width/field-s': [104, 92, 84],
+    'width/reference': [980, 920, 880], 'width/tree': [248, 224, 208], 'width/studio': [1280, 1200, 1120], 'height/studio': [760, 700, 640] };
   const ids = ['Normal', 'Compact', 'Classic Flash'].map(n => NF.densColl.modes.find(m => m.name === n).modeId);
   for (const name of Object.keys(defs)) {
     let v = NF.v[name];

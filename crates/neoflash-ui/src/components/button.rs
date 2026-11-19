@@ -327,10 +327,9 @@ impl<'a> ToolButton<'a> {
 /// Normal-density side of the [`ToolButton::corner_hit`] square; layout uses [`corner_hit_side`].
 pub const CORNER_HIT: f32 = 12.0;
 
-/// Side of the [`ToolButton::corner_hit`] square at the current density: 3/7 of the tool button
-/// (12 / 10 / 9 pt).
+/// Side of the [`ToolButton::corner_hit`] square at the current density (12 / 11 / 10 pt).
 pub fn corner_hit_side() -> f32 {
-    (crate::metrics::tool_button() * 3.0 / 7.0).round()
+    crate::metrics::density().pick(CORNER_HIT, 11.0, 10.0)
 }
 
 /// Horizontal padding of [`Button`] at the current density (`pad/button`: 10 / 8 / 7 pt).

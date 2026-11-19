@@ -5999,7 +5999,7 @@ fn density_profiles_resize_chrome_and_follow_preferences_preview() {
     );
     assert_eq!(
         editor.workspace.sizes.layer_column_width,
-        metrics::LAYER_COLUMN_MODE_SOLO - 44.
+        metrics::LAYER_COLUMN_MODE_SOLO - 40.
     );
     // A dock still at the previous profile's default width follows the new profile.
     assert_eq!(
@@ -8712,13 +8712,14 @@ fn classic_flash_tools_modifiers_and_multicolumn_bottom_up_compaction() {
     let ctx = egui::Context::default();
     ctx.enable_accesskit();
     let mut editor = Editor::from_project(&ctx, Project::blank());
+    let two_columns = neoflash_ui::metrics::tools_two_columns();
 
     // 1. In 2-column mode (`Select` tool) the options block wraps its cells like every other
     // block: `Snap to objects` and `Smooth` on Row 1, `Straighten` under `Snap to objects`, with
     // no `Tool options` sun button or inline `Tool properties…` dump even at wide widths.
     editor.set_tool(Tool::Select);
-    render_tools(&mut editor, &ctx, 76.0, 0.1, vec![]);
-    let out_2col = render_tools(&mut editor, &ctx, 76.0, 0.2, vec![]);
+    render_tools(&mut editor, &ctx, two_columns, 0.1, vec![]);
+    let out_2col = render_tools(&mut editor, &ctx, two_columns, 0.2, vec![]);
     let h_2col = editor
         .detached
         .tools_desired_inner_height
@@ -8731,7 +8732,8 @@ fn classic_flash_tools_modifiers_and_multicolumn_bottom_up_compaction() {
     let default_colors = named_bounds(&out_2col, "Black and white").expect("default paint colors");
     let swap_colors = named_bounds(&out_2col, "Swap colors").expect("swap paint colors");
     assert!(
-        ((default_colors.left() + swap_colors.right()) * 0.5 - 46.0).abs() < 1.0,
+        ((default_colors.left() + swap_colors.right()) * 0.5 - (8.0 + two_columns * 0.5)).abs()
+            < 1.0,
         "the middle paint block is centred in the 76 pt Tools body"
     );
     assert!(
@@ -8831,12 +8833,12 @@ fn classic_flash_tools_modifiers_and_multicolumn_bottom_up_compaction() {
 
     // 3. Verify per-tool classic Flash modifiers across Pencil, Brush, Bucket, Eraser, Lasso, Zoom.
     editor.set_tool(Tool::Pencil);
-    let out_pencil = render_tools(&mut editor, &ctx, 76.0, 0.3, vec![]);
+    let out_pencil = render_tools(&mut editor, &ctx, two_columns, 0.3, vec![]);
     assert!(named_bounds(&out_pencil, "Object drawing (J)").is_some());
     assert!(named_bounds(&out_pencil, "Pencil mode").is_some());
 
     editor.set_tool(Tool::Brush);
-    let out_brush = render_tools(&mut editor, &ctx, 76.0, 0.4, vec![]);
+    let out_brush = render_tools(&mut editor, &ctx, two_columns, 0.4, vec![]);
     for label in [
         "Object drawing (J)",
         "Lock fill",
@@ -8853,23 +8855,23 @@ fn classic_flash_tools_modifiers_and_multicolumn_bottom_up_compaction() {
     }
 
     editor.set_tool(Tool::Bucket);
-    let out_bucket = render_tools(&mut editor, &ctx, 76.0, 0.5, vec![]);
+    let out_bucket = render_tools(&mut editor, &ctx, two_columns, 0.5, vec![]);
     assert!(named_bounds(&out_bucket, "Gap size").is_some());
     assert!(named_bounds(&out_bucket, "Lock fill").is_some());
 
     editor.set_tool(Tool::Eraser);
-    let out_eraser = render_tools(&mut editor, &ctx, 76.0, 0.6, vec![]);
+    let out_eraser = render_tools(&mut editor, &ctx, two_columns, 0.6, vec![]);
     assert!(named_bounds(&out_eraser, "Eraser mode").is_some());
     assert!(named_bounds(&out_eraser, "Faucet").is_some());
     assert!(named_bounds(&out_eraser, "Eraser size").is_some());
 
     editor.set_tool(Tool::Lasso);
-    let out_lasso = render_tools(&mut editor, &ctx, 76.0, 0.7, vec![]);
+    let out_lasso = render_tools(&mut editor, &ctx, two_columns, 0.7, vec![]);
     assert!(named_bounds(&out_lasso, "Touch selects").is_some());
     assert!(named_bounds(&out_lasso, "Slice merge fills").is_some());
 
     editor.set_tool(Tool::Zoom);
-    let out_zoom = render_tools(&mut editor, &ctx, 76.0, 0.8, vec![]);
+    let out_zoom = render_tools(&mut editor, &ctx, two_columns, 0.8, vec![]);
     assert!(named_bounds(&out_zoom, "Enlarge").is_some());
     assert!(named_bounds(&out_zoom, "Reduce").is_some());
 

@@ -4,7 +4,7 @@
 
 - Redesigned the editor interface as **design system v3**: every control now follows one of three density paradigms
   chosen in **Preferences ▸ General ▸ Density** or **Window ▸ Density** — **Normal** (the former Comfortable, now
-  noticeably tighter: 26 pt controls, 264 pt inspector), **Compact** and **Classic Flash** — including paddings,
+  moderately tighter: 28 pt controls, 288 pt inspector, the same spacing between controls), **Compact** and **Classic Flash** — including paddings,
   gaps, corner radii, checkboxes, switches, sliders, label columns and default panel and dialog widths, not only
   heights. Nothing resizes while you work: **Preferences**, **Publish settings**, **Scripting Reference**, Help,
   Document settings, Convert to symbol, Trace bitmap, Find and replace, the export and import dialogs and the AI

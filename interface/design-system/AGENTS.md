@@ -68,22 +68,25 @@ to HTML5 / Rust + WebAssembly, video, images, audio). The design is made in Figm
 Normal / Compact / Classic Flash (logical px). The full table is `docs/DESIGN-SYSTEM.md` › "Density table" in the
 repository root; the v2.25 exports in `exports/` are drawn at the previous Comfortable sizes.
 
-- Window regions: top bar 36 / 32 / 28 · tools rail 40 / 36 / 32 (two columns 72 / 64 / 57) · inspector 264 / 240 /
-  224 · bottom dock 300 by default (tabs 30 / 26 / 22, controls row 34 / 30 / 26) · status bar 22 / 20 / 18.
-- Control heights: 26 / 22 / 20 fields, selects, buttons, icon buttons; 24 / 20 / 18 rows and menu items; 30 / 26 / 22
-  panel tabs, panel and dock headers and the play button; 24 / 22 / 20 section headers; 44 / 38 / 32 dialog headers.
-- Toggles: row 18 / 16 / 16, check box and radio 14 / 14 / 12, switch 26 × 14 / 24 × 12 / 22 × 12, slider thumb
-  12 / 10 / 10. Badge and Kbd 18 / 16 / 16.
-- Spacing steps 1–6: 4 · 6 · 8 · 12 · 20 · 28 / 3 · 4 · 6 · 8 · 16 · 22 / 2 · 4 · 5 · 6 · 12 · 16 (tiny gap · control
-  gap · field padding · panel padding · dialog padding · block gap); form row gap 6 / 4 / 3. Radii sm–xl:
-  3 · 5 · 8 · 10 / 3 · 4 · 6 · 8 / 2 · 3 · 4 · 6.
-- Dialog widths S / M / L / XL: 360 / 480 / 720 / 880 (Compact 328 / 440 / 660 / 820, Classic Flash 304 / 408 / 620 /
-  760); shared heights 576 / 500 / 440 (Preferences, Publish settings, Find and replace …) and 640 / 600 / 560
-  (Scripting Reference, Help, 960 / 900 / 860 wide). Label column in dialogs 112 / 100 / 92, in inspectors
-  72 / 64 / 60. Natural control widths: number 64 / 56 / 52, small 96 / 88 / 80, medium 160 / 148 / 136, large
-  224 / 204 / 188.
+- Window regions: top bar 40 / 34 / 30 · tools rail 44 / 40 / 34 (two columns 80 / 72 / 61, tool cell 32 / 28 / 24) ·
+  inspector 288 / 264 / 248 · bottom dock 300 by default (tabs 34 / 30 / 26, controls row 38 / 32 / 28) · status bar
+  24 / 22 / 20.
+- Control heights: 28 / 24 / 22 fields, selects, buttons, icon buttons; 26 / 22 / 20 rows and menu items; 34 / 30 / 26
+  panel tabs, panel and dock headers (play button 32 / 28 / 24); 28 / 24 / 22 section headers; 48 / 40 / 34 dialog
+  headers.
+- Toggles: row 20 / 18 / 16, check box and radio 16 / 14 / 14, switch 28 × 16 / 26 × 14 / 24 × 14, slider thumb
+  12 / 12 / 10. Badge and Kbd 20 / 18 / 16.
+- Spacing steps 1–6: 4 · 8 · 10 · 14 · 24 · 32 / 3 · 6 · 8 · 12 · 18 · 24 / 3 · 6 · 8 · 10 · 14 · 18 (tiny gap · control
+  gap · field padding · panel padding · dialog padding · block gap); form row gap 8 / 6 / 5. Radii sm–xl:
+  4 · 6 · 8 · 12 / 3 · 5 · 8 · 10 / 2 · 4 · 6 · 8. Density lowers heights and default widths; the control gap, the
+  field padding and the panel padding never go below 6, 8 and 10.
+- Dialog widths S / M / L / XL: 380 / 500 / 740 / 900 (Compact 344 / 456 / 680 / 840, Classic Flash 320 / 424 / 640 /
+  780); shared heights 600 / 520 / 470 (Preferences, Publish settings, Find and replace …) and 660 / 610 / 570
+  (Scripting Reference, Help, 980 / 920 / 880 wide). Label column in dialogs 120 / 108 / 96, in inspectors
+  80 / 72 / 64. Natural control widths: number 68 / 60 / 56, small 104 / 92 / 84, medium 168 / 152 / 140, large
+  232 / 208 / 192.
 - Fonts: Inter (UI), Roboto Mono (code, timecode, numbers); the type scale is the same in every density.
-- Panel minima: every side panel shares one minimum width, the inspector width (264 / 240 / 224), so a dock never
+- Panel minima: every side panel shares one minimum width, the inspector width (288 / 264 / 248), so a dock never
   changes width with its active tab; Tools is one or two columns; wide panels (Compiler errors, Ease, Motion editor,
   Timeline) keep larger, density-scaled minima.
 - Detached Tools uses eight Stage anchors; middle-left / right use one column, the others two. The palette shows a

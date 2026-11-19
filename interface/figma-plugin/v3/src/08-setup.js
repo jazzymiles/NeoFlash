@@ -22,7 +22,7 @@ async function nf3Setup() {
       moved.push({ id: e.t.id, name: e.t.name, icons: e.n });
     }
   }
-  const boolDefs = { 'show/tool-20': [true, false, false], 'show/tool-16': [false, true, true] };
+  const boolDefs = { 'show/tool-20': [true, true, false], 'show/tool-16': [false, false, true] };
   const ids = ['Normal', 'Compact', 'Classic Flash'].map(n => NF.densColl.modes.find(m => m.name === n).modeId);
   for (const name of Object.keys(boolDefs)) {
     let v = NF.v[name];

@@ -4058,7 +4058,7 @@ impl WorkspacePrefs {
         self.sizes.layer_column_width = d.pick(
             neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO,
             neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO - 24.,
-            neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO - 44.,
+            neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO - 40.,
         );
     }
 

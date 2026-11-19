@@ -1328,7 +1328,7 @@ fn v3_spacing_steps_follow_the_density_table_and_keep_their_names() {
     assert_eq!(metrics::density(), Density::Comfortable);
     assert_eq!(
         format_density_values(SpacingToken::S2.density_values()),
-        "6 · 4 · 4"
+        "8 · 6 · 6"
     );
     assert_eq!(
         SpacingToken::RowGap.density_values(),

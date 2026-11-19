@@ -303,9 +303,11 @@ impl Editor {
             + 2. * nf::button::button_padding()
             + metrics::ICON_UI
             + space::s2();
+        // The target select never gets narrower than its icon plus a short name.
+        let target_min = metrics::field_num() + metrics::ICON_UI + gap;
         // Target select, the fixed left cluster, then `groups` and the right cluster.
         let needed = |hidden: usize, assist_w: f32| {
-            let mut width = metrics::field_s() + badge_w + event_w;
+            let mut width = target_min + badge_w + event_w;
             for group in TOOL_GROUPS
                 .iter()
                 .enumerate()
@@ -333,10 +335,10 @@ impl Editor {
             (hidden, false)
         };
         let assist_w = if assist_text { assist_text_w } else { btn };
-        let rest = needed(hidden, assist_w) - metrics::field_s();
+        let rest = needed(hidden, assist_w) - target_min;
         // The target names scene, layer and frame: up to one long plus one short field.
-        let target_width = (inner.width() - rest)
-            .clamp(metrics::field_s(), metrics::field_l() + metrics::field_s());
+        let target_width =
+            (inner.width() - rest).clamp(target_min, metrics::field_l() + metrics::field_s());
         let flex = (inner.width() - rest - target_width).max(0.);
 
         ui.scope_builder(

@@ -37,8 +37,12 @@ from `neoflash-ui`, which `build.rs` generates from the exported files. Exact ga
    default panel and dialog widths come from one table with three paradigms: **Normal** (the `Comfortable` value in
    saved preferences), **Compact** and **Classic Flash**. Type scale and colours never depend on density. A layout is
    written once and is correct in all three.
-2. **Normal is already compact.** Controls are 26 pt (were 32), the inspector 264 pt (was 320). Nothing is wide
-   "for comfort": numeric fields, selects and sliders have natural widths.
+2. **Density removes waste, not breathing room.** A denser paradigm lowers heights and default widths. It does
+   not scale everything: the gap between two outlined controls (8 / 6 / 6), the inner padding of a field
+   (10 / 8 / 8) and the panel padding (14 / 12 / 10) have floors, because below them 11 pt text touches its box and
+   neighbouring outlines merge. Primary targets — tools (32 / 28 / 24), the top bar, tabs — stay larger than form
+   controls in every density. Normal is moderately tighter than v2.25 (28 pt controls instead of 32, a 288 pt
+   inspector instead of 320); the space it saves comes from structure: natural field widths and one row per record.
 3. **Nothing jumps.** A dialog has one size per density — never per page, target or tab. A dock keeps its width when
    the active tab changes (minimum and maximum are taken over all its tabs). Scroll areas never shrink to their
    content. A control keeps its label and position in every context (`Browse…` is always `Browse…`). A row never
@@ -61,33 +65,33 @@ keeps the two equal). Values are logical points, Normal / Compact / Classic Flas
 
 | Metric (function · Figma variable) | Normal | Compact | Classic Flash | v2.25 (C / Co / CF) |
 | --- | --- | --- | --- | --- |
-| `control()` · `size/control` — fields, selects, buttons, icon buttons | 26 | 22 | 20 | 32 / 28 / 24 |
-| `row()` · `size/row` — tree rows, menu items, table rows | 24 | 20 | 18 | 28 / 24 / 20 |
-| `panel_tab()`, `panel_header()`, `dock_tab()`, `icon_button_md()` · `size/tab` | 30 | 26 | 22 | 36–40 / 30–32 / 26–28 |
-| `section_header()` · `size/section` | 24 | 22 | 20 | 32 / 28 / 24 |
-| `top_bar()` · `size/top-bar` | 36 | 32 | 28 | 48 / 40 / 32 |
-| `status_bar()`, `menu_section()` · `size/status` | 22 | 20 | 18 | 24 / 22 / 20 |
-| `dialog_header()` · `size/dialog-header` | 44 | 38 | 32 | 60 / 52 / 44 |
-| `tool_button()` · `size/tool`, tool glyph `icon_tool()` | 28, 20 | 24, 16 | 22, 16 | 32, 20 / 28, 20 / 24, 16 |
-| `tools_rail()`, `tools_two_columns()` · `width/tools-1`, `width/tools-2` | 40, 72 | 36, 64 | 32, 57 | 56, 80 / 48, 68 / 40, 56 |
-| `inspector()` · `width/inspector` — default and minimum right dock | 264 | 240 | 224 | 320 / 288 / 256 |
-| `timeline_controls()` · `size/timeline-controls` | 34 | 30 | 26 | 44 / 40 / 32 |
-| `timeline_ruler()`, `layers_header()` · `size/timeline-ruler` | 24 | 22 | 20 | 32 / 26 / 22 |
-| default layer row (presets Normal / Short / Compact) · `size/layer-row` | 22 | 18 | 16 | 28 / 22 / 16 |
-| `layer_column()` (+ Mode 64 + Solo 20 + 8 = `layer_column_mode_solo()`) | 208 (300) | 184 (276) | 164 (256) | 280 (372) / 240 (332) / 200 (292) |
-| `breadcrumb()`, `zoom_control()` · `size/stage-bar` | 28, 32 | 24, 28 | 22, 24 | 34, 42 / 30, 36 / 26, 30 |
+| `control()` · `size/control` — fields, selects, buttons, icon buttons | 28 | 24 | 22 | 32 / 28 / 24 |
+| `row()` · `size/row` — tree rows, menu items, table rows | 26 | 22 | 20 | 28 / 24 / 20 |
+| `panel_tab()`, `panel_header()`, `dock_tab()`, `icon_button_md()` · `size/tab` | 34 (play button 32) | 30 (28) | 26 (24) | 36–40 / 30–32 / 26–28 |
+| `section_header()` · `size/section` | 28 | 24 | 22 | 32 / 28 / 24 |
+| `top_bar()` · `size/top-bar` | 40 | 34 | 30 | 48 / 40 / 32 |
+| `status_bar()`, `menu_section()` · `size/status` | 24 | 22 | 20 | 24 / 22 / 20 |
+| `dialog_header()` · `size/dialog-header` | 48 | 40 | 34 | 60 / 52 / 44 |
+| `tool_button()` · `size/tool`, tool glyph `icon_tool()` | 32, 20 | 28, 20 | 24, 16 | 32, 20 / 28, 20 / 24, 16 |
+| `tools_rail()`, `tools_two_columns()` · `width/tools-1`, `width/tools-2` | 44, 80 | 40, 72 | 34, 61 | 56, 80 / 48, 68 / 40, 56 |
+| `inspector()` · `width/inspector` — default and minimum right dock | 288 | 264 | 248 | 320 / 288 / 256 |
+| `timeline_controls()` · `size/timeline-controls` | 38 | 32 | 28 | 44 / 40 / 32 |
+| `timeline_ruler()`, `layers_header()` · `size/timeline-ruler` | 26 | 22 | 20 | 32 / 26 / 22 |
+| default layer row (presets Normal / Short / Compact) · `size/layer-row` | 24 | 20 | 18 | 28 / 22 / 16 |
+| `layer_column()` (+ Mode 64 + Solo 20 + 8 = `layer_column_mode_solo()`) | 232 (324) | 208 (300) | 192 (284) | 280 (372) / 240 (332) / 200 (292) |
+| `breadcrumb()`, `zoom_control()` · `size/stage-bar` | 30, 34 | 26, 30 | 24, 26 | 34, 42 / 30, 36 / 26, 30 |
 | `stage_ruler()` · `size/stage-ruler` | 18 | 16 | 16 | 20 / 18 / 16 |
-| `toggle_row()`, `check_box()` · `size/toggle`, `size/check` | 18, 14 | 16, 14 | 16, 12 | 20, 18 (fixed) |
-| `switch_width()` × `switch_height()`, `slider_thumb()` | 26 × 14, 12 | 24 × 12, 10 | 22 × 12, 10 | 32 × 18, 14 (fixed) |
-| `badge()`, `kbd()`, `swatch()`, `menu_separator()` | 18, 18, 18, 9 | 16, 16, 16, 7 | 16, 16, 14, 5 | 22, 20, 18, 9 (fixed) |
-| `space::s1()` … `s6()` · `gap/*`, `pad/*` | 4 · 6 · 8 · 12 · 20 · 28 | 3 · 4 · 6 · 8 · 16 · 22 | 2 · 4 · 5 · 6 · 12 · 16 | 4 · 8 · 12 · 16 · 24 · 32 (fixed) |
-| `row_gap()` · `gap/row` — between form rows | 6 | 4 | 3 | 8 (fixed) |
-| `radius::sm()` … `xl()` · `radius/*` | 3 · 5 · 8 · 10 | 3 · 4 · 6 · 8 | 2 · 3 · 4 · 6 | 4 · 6 · 8 · 12 (fixed) |
-| `label_width()`, `dialog_label()` · `width/label`, `width/dialog-label` | 72, 112 | 64, 100 | 60, 92 | 76, 120 (fixed) |
-| `field_num()`, `field_s()`, `field_m()`, `field_l()` · `width/num`, `width/field-*` | 64, 96, 160, 224 | 56, 88, 148, 204 | 52, 80, 136, 188 | 64–160 clamp, 200 |
-| `sidebar()`, `sidebar_wide()`, `tree_width()`, `menu_width()` | 160, 208, 240, 208 | 148, 192, 220, 188 | 136, 176, 204, 172 | 160, —, 224, 220 |
-| `dialog_s()`, `dialog_m()`, `dialog_l()`, `dialog_xl()` · `width/dialog-*` | 360, 480, 720, 880 | 328, 440, 660, 820 | 304, 408, 620, 760 | per-dialog literals |
-| `dialog_l_height()`, `dialog_xl_height()`, `reference_width()` | 576, 640, 960 | 500, 600, 900 | 440, 560, 860 | content-driven |
+| `toggle_row()`, `check_box()` · `size/toggle`, `size/check` | 20, 16 | 18, 14 | 16, 14 | 20, 18 (fixed) |
+| `switch_width()` × `switch_height()`, `slider_thumb()` | 28 × 16, 12 | 26 × 14, 12 | 24 × 14, 10 | 32 × 18, 14 (fixed) |
+| `badge()`, `kbd()`, `swatch()`, `menu_separator()` | 20, 20, 18, 9 | 18, 18, 16, 7 | 16, 16, 16, 7 | 22, 20, 18, 9 (fixed) |
+| `space::s1()` … `s6()` · `gap/*`, `pad/*` | 4 · 8 · 10 · 14 · 24 · 32 | 3 · 6 · 8 · 12 · 18 · 24 | 3 · 6 · 8 · 10 · 14 · 18 | 4 · 8 · 12 · 16 · 24 · 32 (fixed) |
+| `row_gap()` · `gap/row` — between form rows | 8 | 6 | 5 | 8 (fixed) |
+| `radius::sm()` … `xl()` · `radius/*` | 4 · 6 · 8 · 12 | 3 · 5 · 8 · 10 | 2 · 4 · 6 · 8 | 4 · 6 · 8 · 12 (fixed) |
+| `label_width()`, `dialog_label()` · `width/label`, `width/dialog-label` | 80, 120 | 72, 108 | 64, 96 | 76, 120 (fixed) |
+| `field_num()`, `field_s()`, `field_m()`, `field_l()` · `width/num`, `width/field-*` | 68, 104, 168, 232 | 60, 92, 152, 208 | 56, 84, 140, 192 | 64–160 clamp, 200 |
+| `sidebar()`, `sidebar_wide()`, `tree_width()`, `menu_width()` | 168, 216, 248, 216 | 152, 196, 224, 196 | 140, 180, 208, 180 | 160, —, 224, 220 |
+| `dialog_s()`, `dialog_m()`, `dialog_l()`, `dialog_xl()` · `width/dialog-*` | 380, 500, 740, 900 | 344, 456, 680, 840 | 320, 424, 640, 780 | per-dialog literals |
+| `dialog_l_height()`, `dialog_xl_height()`, `reference_width()` | 600, 660, 980 | 520, 610, 920 | 470, 570, 880 | content-driven |
 
 The spacing scale has a meaning per step: `s1` tiny gap inside a control, `s2` gap between controls, `s3` inner
 padding of fields and buttons, `s4` panel padding, `s5` dialog padding, `s6` gap between blocks. The uppercase
