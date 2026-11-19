@@ -348,7 +348,18 @@ mod tests {
         out.extend_from_slice(&8u16.to_be_bytes()); // 8-bit depth
         out.extend_from_slice(&3u16.to_be_bytes()); // RGB mode
         out.extend_from_slice(&0u32.to_be_bytes()); // color mode data
-        out.extend_from_slice(&0u32.to_be_bytes()); // image resources
+        // This fixture exercises editable layers. Its dummy merged pixels are not a saved Photoshop composite.
+        let mut version_info = Vec::from(*b"8BIM");
+        version_info.extend_from_slice(&1057u16.to_be_bytes());
+        version_info.extend_from_slice(&[0, 0]);
+        version_info.extend_from_slice(&17u32.to_be_bytes());
+        version_info.extend_from_slice(&1u32.to_be_bytes());
+        version_info.push(0); // hasRealMergedData
+        version_info.extend_from_slice(&[0; 8]); // empty writer and reader Unicode strings
+        version_info.extend_from_slice(&1u32.to_be_bytes());
+        version_info.push(0); // even resource length
+        out.extend_from_slice(&(version_info.len() as u32).to_be_bytes());
+        out.extend_from_slice(&version_info);
 
         struct LRec<'a> {
             name: &'a str,
