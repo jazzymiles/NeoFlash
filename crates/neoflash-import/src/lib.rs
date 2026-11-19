@@ -63,6 +63,7 @@ pub use swc::{
 pub use swf::{
     SwfAudioEvent, SwfBytecodePlayer, SwfCompression, SwfDisplayEntry, SwfFrameState,
     SwfInspection, SwfPlaybackResult, SwfTagCounts, SwfVmKind, play_swf_bytes, play_swf_path,
+    verify_swf_publication,
 };
 pub use vector_fidelity::*;
 #[doc(hidden)]

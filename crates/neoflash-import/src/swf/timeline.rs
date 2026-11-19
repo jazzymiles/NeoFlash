@@ -128,6 +128,8 @@ struct SwfBuilder<'a> {
     jpeg_tables: Option<Vec<u8>>,
     bitmaps: HashMap<u16, SwfBitmapRef>,
     bitmap_rgba_bytes: usize,
+    decoded_bitmap_budget: usize,
+    bitmap_count_limit: usize,
     compact_jpeg_size: Option<[u32; 2]>,
     sounds: HashMap<u16, SwfSoundAsset>,
     fonts: HashMap<u16, SwfFontDef>,
@@ -163,6 +165,7 @@ pub(crate) fn build_project_from_swf(
     tags_offset: usize,
     location: &str,
     report: &mut ImportReport,
+    publication_bitmap_budget: Option<usize>,
 ) -> Option<Project> {
     let bounds = inspection.stage_bounds_twips.unwrap_or([0, 11000, 0, 8000]);
     let width_px = if bounds[1] < bounds[0] {
@@ -207,12 +210,20 @@ pub(crate) fn build_project_from_swf(
         .unwrap_or("Imported SWF")
         .to_owned();
 
+    let decoded_bitmap_budget = publication_bitmap_budget
+        .unwrap_or(MAX_BITMAP_BYTES)
+        .max(MAX_BITMAP_BYTES);
+    let bitmap_count_limit = if publication_bitmap_budget.is_some() {
+        MAX_RESOURCES
+    } else {
+        MAX_AUTHORED_BITMAPS
+    };
     let compact_jpeg_size =
-        if inspection.tags.bitmaps <= MAX_AUTHORED_BITMAPS && inspection.tags.show_frame > 1 {
+        if inspection.tags.bitmaps <= bitmap_count_limit && inspection.tags.show_frame > 1 {
             super::media::compact_jpeg_dimensions(
                 body.get(tags_offset..)?,
                 inspection.tags.bitmaps,
-                MAX_BITMAP_BYTES / 4,
+                decoded_bitmap_budget / 4,
             )
         } else {
             None
@@ -224,6 +235,8 @@ pub(crate) fn build_project_from_swf(
         jpeg_tables: None,
         bitmaps: HashMap::new(),
         bitmap_rgba_bytes: 0,
+        decoded_bitmap_budget,
+        bitmap_count_limit,
         compact_jpeg_size,
         sounds: HashMap::new(),
         fonts: HashMap::new(),
@@ -406,6 +419,17 @@ pub(crate) fn build_project_from_swf(
     );
 
     finalize_project_format_version(&mut project);
+
+    if publication_bitmap_budget.is_some() {
+        project.resources.retain(|r| r.path != "legacy/source.swf");
+        if let Err(err) = project.validate() {
+            builder
+                .report
+                .error("swf_invalid_project", location, err.to_string());
+            return None;
+        }
+        return Some(project);
+    }
 
     // Final validation & 128 MiB JSON budget check.
     match project.to_json() {
@@ -687,8 +711,8 @@ impl SwfBuilder<'_> {
                 }
                 // DefineBits, DefineBitsJPEG2/3/4
                 6 | 21 | 35 | 90 if scope_uid == "root" => {
-                    if self.bitmaps.len() < MAX_AUTHORED_BITMAPS
-                        && self.bitmap_rgba_bytes < MAX_BITMAP_BYTES
+                    if self.bitmaps.len() < self.bitmap_count_limit
+                        && self.bitmap_rgba_bytes < self.decoded_bitmap_budget
                     {
                         if let Some((bid, bref)) = decode_jpeg_bitmap_tag(
                             tag_code,
@@ -703,7 +727,7 @@ impl SwfBuilder<'_> {
                             let px_bytes = (bref.stored_size[0] as usize)
                                 .saturating_mul(bref.stored_size[1] as usize)
                                 .saturating_mul(4);
-                            if self.bitmap_rgba_bytes + px_bytes <= MAX_BITMAP_BYTES {
+                            if self.bitmap_rgba_bytes + px_bytes <= self.decoded_bitmap_budget {
                                 self.bitmap_rgba_bytes += px_bytes;
                                 self.register_bitmap_character(bid, &bref);
                                 self.bitmaps.insert(bid, bref);
@@ -719,8 +743,8 @@ impl SwfBuilder<'_> {
                 }
                 // DefineBitsLossless 1/2
                 20 | 36 if scope_uid == "root" => {
-                    if self.bitmaps.len() < MAX_AUTHORED_BITMAPS
-                        && self.bitmap_rgba_bytes < MAX_BITMAP_BYTES
+                    if self.bitmaps.len() < self.bitmap_count_limit
+                        && self.bitmap_rgba_bytes < self.decoded_bitmap_budget
                     {
                         if let Some((bid, bref)) = decode_lossless_bitmap_tag(
                             tag_code,
@@ -733,7 +757,7 @@ impl SwfBuilder<'_> {
                             let px_bytes = (bref.stored_size[0] as usize)
                                 .saturating_mul(bref.stored_size[1] as usize)
                                 .saturating_mul(4);
-                            if self.bitmap_rgba_bytes + px_bytes <= MAX_BITMAP_BYTES {
+                            if self.bitmap_rgba_bytes + px_bytes <= self.decoded_bitmap_budget {
                                 self.bitmap_rgba_bytes += px_bytes;
                                 self.register_bitmap_character(bid, &bref);
                                 self.bitmaps.insert(bid, bref);
@@ -3593,4 +3617,110 @@ fn fnv1a_64(bytes: &[u8]) -> u64 {
         hash = hash.wrapping_mul(0x0100_0000_01b3);
     }
     hash
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use neoflash_core::{AuthoredBitmapFill, BlendMode, FillRule, PathCommand};
+
+    #[test]
+    fn inline_single_use_dictionary_shape_preserves_placement_and_bitmap_paint() {
+        let drawing = ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                PathCommand::LineTo { x: 12.0, y: 0.0 },
+                PathCommand::LineTo { x: 12.0, y: 8.0 },
+                PathCommand::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [255; 4],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        };
+        let shape = |id: &str| Symbol {
+            id: id.into(),
+            name: id.into(),
+            folder: "Shapes".into(),
+            kind: SymbolKind::Graphic,
+            timeline: single_frame_timeline(
+                id,
+                vec![Element {
+                    kind: drawing.clone(),
+                    ..Default::default()
+                }],
+            ),
+            class_name: None,
+            linkage_id: None,
+        };
+        let mut single = shape("single");
+        let frame = &mut single.timeline.layers[0].keyframes[0];
+        let mut brush = AuthoredBitmapFill {
+            element_id: frame.elements[0].id.clone(),
+            resource_id: "gradient-texture".into(),
+            matrix: [0.5, 0.1, -0.2, 1.5, 7.0, 2.0],
+            repeat: false,
+            smoothing: true,
+        };
+        frame.bitmap_fills.push(brush.clone());
+        let shared = shape("shared");
+        let mut linked = shape("linked");
+        linked.linkage_id = Some("ExportedDrawing".into());
+        let mut project = Project::blank();
+        let placement = |id: &str, symbol_id: &str| Element {
+            id: id.into(),
+            name: format!("named-{id}"),
+            kind: ElementKind::Instance {
+                symbol_id: symbol_id.into(),
+                playback: InstancePlayback::SingleFrame(0),
+            },
+            ..Default::default()
+        };
+        let mut first = placement("photo", "single");
+        first.transform.x = 42.0;
+        first.transform.rotation = 27.0;
+        first.blend_mode = BlendMode::Multiply;
+        let mut expected = vec![
+            first,
+            placement("copy-a", "shared"),
+            placement("copy-b", "shared"),
+            placement("export", "linked"),
+        ];
+        project.symbols[0].timeline.layers[0].keyframes[0].elements = expected.clone();
+        expected[0].kind = drawing;
+        brush.element_id.clone_from(&expected[0].id);
+
+        // Exceed the real library limit by one. Shared and linked candidates appear first.
+        project
+            .symbols
+            .extend([shared.clone(), linked.clone(), single]);
+        let mut unused = shared.clone();
+        unused.timeline.layers.clear();
+        for i in project.symbols.len()..10_001 {
+            unused.id = format!("unused-{i}");
+            project.symbols.push(unused.clone());
+        }
+        let mut report = ImportReport {
+            source: "fixture.swf".into(),
+            format: crate::ImportFormat::Swf,
+            version: None,
+            can_import: true,
+            statistics: Default::default(),
+            diagnostics: Vec::new(),
+            binary_fla: None,
+            swf: None,
+            swc: None,
+        };
+        inline_single_use_dictionary_shapes(&mut project, &mut report, "fixture.swf");
+
+        assert_eq!(project.symbols.len(), 10_000);
+        assert!(project.symbol("single").is_none());
+        assert_eq!(project.symbol("shared"), Some(&shared));
+        assert_eq!(project.symbol("linked"), Some(&linked));
+        let frame = &project.symbols[0].timeline.layers[0].keyframes[0];
+        assert_eq!(frame.elements, expected);
+        assert_eq!(frame.bitmap_fills, [brush]);
+        assert_eq!(report.diagnostics.len(), 1);
+        assert_eq!(report.diagnostics[0].code, "swf_inline_single_use_shapes");
+    }
 }

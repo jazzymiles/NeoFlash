@@ -279,6 +279,85 @@ pub(crate) fn convert(
     location: &str,
     report: &mut ImportReport,
 ) -> Option<Project> {
+    convert_for_target(container, location, report, None)
+}
+
+/// Decode a freshly compiled movie with the same geometry, resource and project validation as
+/// File/Open. The author's compressed movie and its expanded editable JSON have separate limits.
+/// The caller supplies the decoded byte count of the bitmaps it actually compiled.
+pub fn verify_swf_publication(
+    bytes: &[u8],
+    compiled_bitmap_bytes: usize,
+) -> Result<usize, ImportError> {
+    let container = read_container_from_bytes(bytes.to_vec())?;
+    let mut report = ImportReport {
+        source: "compiled SWF".into(),
+        format: crate::ImportFormat::Swf,
+        version: Some(container.swf_version.to_string()),
+        can_import: false,
+        statistics: Default::default(),
+        diagnostics: Vec::new(),
+        binary_fla: None,
+        swf: None,
+        swc: None,
+    };
+    let project = convert_for_target(
+        &container,
+        "compiled SWF",
+        &mut report,
+        Some(compiled_bitmap_bytes),
+    );
+    if let Some(issue) = report.diagnostics.iter().find(|d| {
+        d.severity == crate::Severity::Error
+            || d.code.starts_with("swf_truncated")
+            || d.code == "swf_trailing_bytes"
+    }) {
+        return Err(ImportError::Blocked(format!(
+            "{} [{}]: {}",
+            issue.location, issue.code, issue.message
+        )));
+    }
+    let Some(project) = project else {
+        return Err(ImportError::Blocked(
+            "compiled movie could not be recovered".into(),
+        ));
+    };
+    let inspection = report
+        .swf
+        .ok_or_else(|| ImportError::Blocked("missing SWF header".into()))?;
+    let images = project
+        .resources
+        .iter()
+        .filter(|r| r.media_type.starts_with("image/"))
+        .count();
+    if !inspection.end_tag_reached || inspection.tags.bitmaps != images {
+        return Err(ImportError::Blocked(
+            "compiled SWF timeline or bitmap dictionary did not round trip completely".into(),
+        ));
+    }
+    // Count compact JSON directly into a sink instead of allocating a second document.
+    struct ByteCount(usize);
+    impl std::io::Write for ByteCount {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = ByteCount(0);
+    serde_json::to_writer(&mut count, &project)
+        .map_err(|err| ImportError::Blocked(err.to_string()))?;
+    Ok(count.0)
+}
+
+fn convert_for_target(
+    container: &SwfContainer,
+    location: &str,
+    report: &mut ImportReport,
+    publication_bitmap_budget: Option<usize>,
+) -> Option<Project> {
     let Some(body) = container.body.as_deref() else {
         let msg = container
             .zws_error
@@ -424,6 +503,7 @@ pub(crate) fn convert(
         rect_bytes + 4,
         location,
         report,
+        publication_bitmap_budget,
     )
 }
 

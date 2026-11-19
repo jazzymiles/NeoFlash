@@ -9192,6 +9192,13 @@ pub fn publish_swf_bytes(
     project: &Project,
     options: &SwfPublishOptions,
 ) -> Result<(Vec<u8>, FlaCompatibilityReport), ExportError> {
+    compile_swf_document(project, options).map(|(bytes, report, _)| (bytes, report))
+}
+
+fn compile_swf_document(
+    project: &Project,
+    options: &SwfPublishOptions,
+) -> Result<(Vec<u8>, FlaCompatibilityReport, usize), ExportError> {
     if project.symbol(&project.root).is_none() {
         return Err(ExportError::MissingRootSymbol(project.root.clone()));
     }
@@ -9501,19 +9508,30 @@ pub fn publish_swf_bytes(
             ),
         );
     }
-    Ok((swf_bytes, report))
+    let decoded_bitmap_bytes = compiler
+        .bitmap_meta
+        .values()
+        .fold(0usize, |bytes, (w, h, _)| {
+            bytes.saturating_add((*w as usize).saturating_mul(*h as usize).saturating_mul(4))
+        });
+    Ok((swf_bytes, report, decoded_bitmap_bytes))
 }
 
-/// Publish `project` as a `.swf` movie at `dest`, verifying the compiled movie via
-/// `import_swf_bytes` before atomically replacing `dest`.
+/// Publish a SWF after recovering and validating its compiled timeline, shapes and resources.
 pub fn publish_swf(
     project: &Project,
     dest: impl AsRef<Path>,
     options: &SwfPublishOptions,
 ) -> Result<FlaCompatibilityReport, ExportError> {
     let dest = dest.as_ref();
-    let (bytes, report) = publish_swf_bytes(project, options)?;
-    let _verified = import_swf_bytes(&bytes)?;
+    let (bytes, mut report, bitmap_bytes) = compile_swf_document(project, options)?;
+    let editable_bytes = neoflash_import::verify_swf_publication(&bytes, bitmap_bytes)
+        .map_err(|err| ExportError::RoundTripVerification(err.to_string()))?;
+    if editable_bytes > neoflash_core::MAX_PROJECT_JSON_BYTES {
+        report.push("swf_editable_size_limit", FlaCompatibilityCategory::DocumentSettings,
+            FlaCompatibilityStatus::Approximated, "document",
+            format!("The validated SWF movie can be published. Reopening the compiled vectors as editable JSON requires {editable_bytes} bytes, above the 128 MiB .nflash file limit. Keep the original editable project."));
+    }
     crate::atomic_write(dest, &bytes)?;
     Ok(report)
 }

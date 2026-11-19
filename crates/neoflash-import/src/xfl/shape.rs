@@ -721,12 +721,11 @@ impl Parser<'_> {
                 let resolved_asset = paint_node
                     .attribute("bitmapPath")
                     .and_then(|bmp_path| self.bitmaps.get(bmp_path))
-                    .map(|asset| {
+                    .inspect(|asset| {
                         fill_matrix[0] *= asset.source_scale[0];
                         fill_matrix[1] *= asset.source_scale[0];
                         fill_matrix[2] *= asset.source_scale[1];
                         fill_matrix[3] *= asset.source_scale[1];
-                        asset
                     });
                 let sampled_color = resolved_asset
                     .as_ref()
