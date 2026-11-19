@@ -308,6 +308,20 @@ fn nested_masks_clip_the_source_before_outer_coverage_and_keep_transforms() {
     let snapshot = Player::new(&project).runtime_snapshot(&project);
     let masks = MaskCoverage::new(&project, &snapshot.clips).unwrap();
     assert!((masks.alpha(&snapshot.draws[0].clip_ids, [20., 20.]) - 0.25).abs() < 0.004);
+    // Both visible shapes inherit the same ordered outer/inner clip stack.
+    let expected = [
+        r#"layer:["mask-layer"]"#,
+        r#"layer:["nested-visible","inner-mask"]"#,
+    ];
+    for draw in &scene.draws {
+        assert_eq!(draw.clip_ids, expected);
+    }
+    for draw in &snapshot.draws {
+        assert_eq!(draw.clip_ids.len(), expected.len());
+        for (actual, suffix) in draw.clip_ids.iter().zip(expected) {
+            assert!(actual.ends_with(suffix), "{actual} must end with {suffix}");
+        }
+    }
 }
 
 #[test]

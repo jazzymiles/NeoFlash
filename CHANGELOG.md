@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed Figma frames importing as empty rectangles. Painted frames now keep their backgrounds, text,
+  nested components and vector artwork. Binary Figma files retain text, visibility and icon swaps bound
+  to component properties, and stroked icons keep their editable centerlines. Repeated clipping masks
+  on dense pages render faster in the editor and in HTML5. The import report names any pages skipped
+  or partially imported at the document limit.
+
 - Eliminated native macOS and in-window menu invocation lag (`T-390`, `RF-02`): installed a persistent
   `NSApplication.mainMenu` once with `menuNeedsUpdate:` per-menu item materialization and an O(1) state fingerprint
   instead of rebuilding and replacing `mainMenu` on every 60 Hz frame, cached `File ▸ Open recent` path checks and

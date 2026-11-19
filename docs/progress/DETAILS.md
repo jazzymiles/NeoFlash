@@ -729,7 +729,7 @@ Publishing websites, apps, games and animation; JS/TS and the browser runtime.
 - Working: Sound streaming
 - Working: Native Embedded, local External and Progressive video decoding, synchronization and bounded on-demand windowed frame decoding
 - Working: Bounded PSD/PSB, numbered-sequence, PDF/AI, FXG and palette imports through editor and CLI routes
-- Working: Import Figma .fig (including Zstandard v106+ Kiwi archives), .figma and .figma.json files with page selection, Create MovieClip symbol option and 1-page-per-layer mapping
+- Working: Import selected Figma pages as layers or a MovieClip with editable text, vectors and components inside painted frames
 - Working: Import and play RIFF AVI video/audio in authoring, runtime NetStream and HTML5 MP4 publish transcoding
 - Working: Dynamically load published NeoFlash HTML5 packages at runtime via loadMovie, Loader and NeoFlash.loadPublish
 - Working: Validated Embedded, packaged External and URL-backed Progressive MP4/WebM/Ogg/AVI video import with interactive In/Out trim, Stage placement, timeline expansion and bounded on-demand windowed decoding

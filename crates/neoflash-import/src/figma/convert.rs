@@ -51,6 +51,7 @@ struct FigmaBuildCtx<'a, 'b> {
     project: &'a mut Project,
     report: &'a mut ImportReport,
     authored_elements: usize,
+    page_truncated: bool,
     warned_element_budget: bool,
     warned_expanded_budget: bool,
     warned_symbol_budget: bool,
@@ -58,6 +59,27 @@ struct FigmaBuildCtx<'a, 'b> {
 }
 
 impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
+    fn warn_page_limit(&mut self, page: &FigmaNode, skipped: bool) {
+        let outcome = if skipped {
+            "Skipped this page"
+        } else {
+            "Imported only part of this page"
+        };
+        self.report.warning(
+            if skipped { "figma-page-skipped" } else { "figma-page-truncated" },
+            format!("{} ({})", page.name, page.id),
+            format!("{outcome} because the selection exceeds NeoFlash's project size limits. Import this page separately or select fewer pages."),
+        );
+    }
+
+    fn retain_page(&mut self, page: &FigmaNode, expanded_nodes: usize) -> bool {
+        if !std::mem::take(&mut self.page_truncated) {
+            return true;
+        }
+        self.warn_page_limit(page, expanded_nodes == 0);
+        expanded_nodes > 0
+    }
+
     fn lookup_image(&mut self, image_ref: &str, location: &str) -> Option<(String, u32, u32)> {
         if let Some(found) = self.image_resources.get(image_ref) {
             return Some(found.clone());
@@ -349,6 +371,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             return None;
         }
         if self.project.symbols.len() >= MAX_PROJECT_SYMBOLS {
+            self.page_truncated = true;
             if !self.warned_symbol_budget {
                 self.warned_symbol_budget = true;
                 self.report.warning(
@@ -485,27 +508,22 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             && container.height > 0.0
             && self.authored_elements < MAX_AUTHORED_ELEMENTS
         {
-            let mut bg_node = container.clone();
-            bg_node.children.clear();
-            bg_node.x = 0.0;
-            bg_node.y = 0.0;
-            bg_node.rotation_deg = 0.0;
-            bg_node.relative_transform = None;
-            bg_node.opacity = 1.0;
-            bg_node.effects.clear();
-            bg_node.blend_mode = "NORMAL".into();
             let mut bg_bfs = Vec::new();
-            let (bg_els, bg_exp, _) = self.convert_leaf_to_elements(
-                &bg_node,
-                0.0,
-                0.0,
+            let mut bg_els = self.shape_elements(
+                container,
+                Transform::default(),
+                BlendMode::Normal,
+                &[],
                 &format!("{} / Background", container.name),
-                expanded_budget,
-                depth + 1,
+                expanded_budget.saturating_sub(expanded_used),
                 &mut bg_bfs,
             );
+            // The placed instance owns visibility, including instances of hidden masters.
+            for element in &mut bg_els {
+                element.visible = true;
+            }
             if !bg_els.is_empty() {
-                expanded_used = expanded_used.saturating_add(bg_exp);
+                expanded_used = expanded_used.saturating_add(bg_els.len());
                 layers.push(Layer {
                     id: new_id("layer"),
                     name: "Background".into(),
@@ -565,6 +583,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
         depth: usize,
     ) -> Option<BuiltSymbolInfo> {
         if self.project.symbols.len() >= MAX_PROJECT_SYMBOLS {
+            self.page_truncated = true;
             if !self.warned_symbol_budget {
                 self.warned_symbol_budget = true;
                 self.report.warning(
@@ -617,6 +636,8 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             || expanded_budget == 0
             || self.authored_elements >= MAX_AUTHORED_ELEMENTS
         {
+            self.page_truncated |=
+                expanded_budget == 0 || self.authored_elements >= MAX_AUTHORED_ELEMENTS;
             return (Vec::new(), 0, 1);
         }
         let blend_mode = self.map_blend_mode(&node.blend_mode, location);
@@ -630,6 +651,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             && depth + comp_info.graph_depth <= MAX_SYMBOL_GRAPH_DEPTH
         {
             if comp_info.expanded_nodes > expanded_budget {
+                self.page_truncated = true;
                 if !self.warned_expanded_budget {
                     self.warned_expanded_budget = true;
                     self.report.warning(
@@ -684,6 +706,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             && depth + comp_info.graph_depth <= MAX_SYMBOL_GRAPH_DEPTH
         {
             if comp_info.expanded_nodes > expanded_budget {
+                self.page_truncated = true;
                 return (Vec::new(), 0, 1);
             }
             let el = Element {
@@ -709,8 +732,16 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             );
         }
 
-        // 2. Non-empty container (`FRAME`, `GROUP`, `SECTION`, `COMPONENT_SET`, detached `INSTANCE`)
-        if !node.children.is_empty() && node.fill_paths.is_empty() && node.text.is_none() {
+        // On frames and other containers, fill geometry describes the background. Boolean
+        // operations instead use their computed outline in place of the operand children.
+        let container = matches!(
+            node.node_type.as_str(),
+            "FRAME" | "GROUP" | "SECTION" | "COMPONENT_SET" | "COMPONENT" | "SYMBOL" | "INSTANCE"
+        );
+        if !node.children.is_empty()
+            && (container || node.fill_paths.is_empty())
+            && node.text.is_none()
+        {
             let Some(sym_info) =
                 self.build_symbol_with_optional_bg(node, "Figma Layers", expanded_budget, depth)
             else {
@@ -880,7 +911,30 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             return (vec![el], 1, 1);
         }
 
-        // 4. Vector / Primitive / Image Fill Elements
+        let elements = self.shape_elements(
+            node,
+            base_tf,
+            blend_mode,
+            &filters,
+            location,
+            expanded_budget,
+            bitmap_fills,
+        );
+        let count = elements.len();
+        (elements, count, 1)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn shape_elements(
+        &mut self,
+        node: &FigmaNode,
+        base_tf: Transform,
+        blend_mode: BlendMode,
+        filters: &[FilterSpec],
+        location: &str,
+        expanded_budget: usize,
+        bitmap_fills: &mut Vec<AuthoredBitmapFill>,
+    ) -> Vec<Element> {
         let mut out = Vec::new();
         let (fallback_cmds, prim_opt) = self.fallback_shape_commands(node);
         let indep_borders = has_unequal_border_weights(node);
@@ -966,7 +1020,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                     visible: node.visible,
                     cache_as_bitmap: !filters.is_empty(),
                     blend_mode,
-                    filters: filters.clone(),
+                    filters: filters.to_vec(),
                     ..Element::default()
                 });
                 self.authored_elements += 1;
@@ -976,6 +1030,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
 
         for (fi, paint) in node.fills.iter().enumerate() {
             if self.authored_elements >= MAX_AUTHORED_ELEMENTS || out.len() >= expanded_budget {
+                self.page_truncated = true;
                 break;
             }
             let is_last_fill = fi + 1 == node.fills.len();
@@ -1024,7 +1079,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                                 cache_as_bitmap: !filters.is_empty(),
                                 blend_mode,
                                 filters: if is_last_fill && cur_stroke_w == 0.0 {
-                                    filters.clone()
+                                    filters.to_vec()
                                 } else {
                                     Vec::new()
                                 },
@@ -1048,7 +1103,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                                     visible: node.visible,
                                     cache_as_bitmap: !filters.is_empty(),
                                     blend_mode,
-                                    filters: filters.clone(),
+                                    filters: filters.to_vec(),
                                     ..Element::default()
                                 });
                                 self.authored_elements += 1;
@@ -1088,7 +1143,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                                 cache_as_bitmap: !filters.is_empty(),
                                 blend_mode,
                                 filters: if is_last_fill {
-                                    filters.clone()
+                                    filters.to_vec()
                                 } else {
                                     Vec::new()
                                 },
@@ -1147,7 +1202,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                             cache_as_bitmap: !filters.is_empty(),
                             blend_mode,
                             filters: if is_last_fill {
-                                filters.clone()
+                                filters.to_vec()
                             } else {
                                 Vec::new()
                             },
@@ -1173,7 +1228,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                             cache_as_bitmap: !filters.is_empty(),
                             blend_mode,
                             filters: if is_last_fill {
-                                filters.clone()
+                                filters.to_vec()
                             } else {
                                 Vec::new()
                             },
@@ -1183,7 +1238,10 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                         self.report.statistics.elements += 1;
                     } else {
                         for (cmds, rule) in &paths_to_fill {
-                            if self.authored_elements >= MAX_AUTHORED_ELEMENTS {
+                            if self.authored_elements >= MAX_AUTHORED_ELEMENTS
+                                || out.len() >= expanded_budget
+                            {
+                                self.page_truncated = true;
                                 break;
                             }
                             out.push(Element {
@@ -1213,7 +1271,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                                 cache_as_bitmap: !filters.is_empty(),
                                 blend_mode,
                                 filters: if is_last_fill {
-                                    filters.clone()
+                                    filters.to_vec()
                                 } else {
                                     Vec::new()
                                 },
@@ -1243,7 +1301,10 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                     let grad = build_figma_gradient_paint(*kind, stops, *start, *end);
                     let fallback_c = stops.first().map(|s| s.color).unwrap_or([0, 0, 0, 255]);
                     for (cmds, rule) in &paths_to_fill {
-                        if self.authored_elements >= MAX_AUTHORED_ELEMENTS {
+                        if self.authored_elements >= MAX_AUTHORED_ELEMENTS
+                            || out.len() >= expanded_budget
+                        {
+                            self.page_truncated = true;
                             break;
                         }
                         out.push(Element {
@@ -1263,7 +1324,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                             cache_as_bitmap: !filters.is_empty(),
                             blend_mode,
                             filters: if is_last_fill {
-                                filters.clone()
+                                filters.to_vec()
                             } else {
                                 Vec::new()
                             },
@@ -1290,8 +1351,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             out.extend(borders);
         }
 
-        let count = out.len();
-        (out, count, 1)
+        out
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1309,6 +1369,11 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             || expanded_budget == 0
             || self.authored_elements >= MAX_AUTHORED_ELEMENTS
         {
+            self.page_truncated |= (expanded_budget == 0
+                || self.authored_elements >= MAX_AUTHORED_ELEMENTS)
+                && children
+                    .iter()
+                    .any(|child| child.visible || self.options.import_hidden_layers);
             return (Vec::new(), 0, 1);
         }
         let mut layers = Vec::new();
@@ -1387,6 +1452,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                 }
                 let rem = expanded_budget.saturating_sub(expanded_used);
                 if rem == 0 || self.authored_elements >= MAX_AUTHORED_ELEMENTS {
+                    self.page_truncated = true;
                     break;
                 }
                 let loc = format!("{parent_loc} / {}", child.name);
@@ -1429,6 +1495,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                 continue;
             }
             if self.authored_elements >= MAX_AUTHORED_ELEMENTS {
+                self.page_truncated = true;
                 if !self.warned_element_budget {
                     self.warned_element_budget = true;
                     self.report.warning(
@@ -1441,6 +1508,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             }
             let rem_budget = expanded_budget.saturating_sub(expanded_used);
             if rem_budget == 0 {
+                self.page_truncated = true;
                 if !self.warned_expanded_budget {
                     self.warned_expanded_budget = true;
                     self.report.warning(
@@ -1974,6 +2042,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
         } else {
             for child in visible_top {
                 if self.authored_elements >= MAX_AUTHORED_ELEMENTS {
+                    self.page_truncated = true;
                     if !self.warned_element_budget {
                         self.warned_element_budget = true;
                         self.report.warning(
@@ -1988,6 +2057,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                 }
                 let rem = expanded_budget.saturating_sub(expanded_used);
                 if rem == 0 {
+                    self.page_truncated = true;
                     if !self.warned_expanded_budget {
                         self.warned_expanded_budget = true;
                         self.report.warning(
@@ -2032,8 +2102,6 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             }],
             properties: LayerProperties::default(),
         };
-        self.report.statistics.layers += 1;
-        self.report.statistics.keyframes += 1;
         (layer, expanded_used)
     }
 }
@@ -2125,6 +2193,7 @@ pub(super) fn build_project_from_figma_doc(
         project: &mut project,
         report: &mut report,
         authored_elements: 0,
+        page_truncated: false,
         warned_element_budget: false,
         warned_expanded_budget: false,
         warned_symbol_budget: false,
@@ -2155,6 +2224,7 @@ pub(super) fn build_project_from_figma_doc(
         }
     }
 
+    ctx.page_truncated = false;
     match options.page_mapping {
         FigmaPageMapping::Layers => {
             let pages_for_layers: Vec<&FigmaNode> = if options.selected_page_ids.is_some() {
@@ -2176,9 +2246,17 @@ pub(super) fn build_project_from_figma_doc(
             let mut page_layers = Vec::with_capacity(pages_for_layers.len());
             for (idx, page) in pages_for_layers.into_iter().enumerate() {
                 let rem = MAX_EXPANDED_SCENE_NODES.saturating_sub(expanded_used);
+                if rem == 0 || ctx.authored_elements >= MAX_AUTHORED_ELEMENTS {
+                    ctx.warn_page_limit(page, true);
+                    continue;
+                }
                 let (layer, p_exp) = ctx.build_single_layer_for_page(page, idx, idx == 0, rem);
                 expanded_used = expanded_used.saturating_add(p_exp);
-                page_layers.push(layer);
+                if ctx.retain_page(page, p_exp) {
+                    page_layers.push(layer);
+                    ctx.report.statistics.layers += 1;
+                    ctx.report.statistics.keyframes += 1;
+                }
             }
             let root_id = ctx.project.root.clone();
             if let Some(root_sym) = ctx.project.symbol_mut(&root_id)
@@ -2202,6 +2280,7 @@ pub(super) fn build_project_from_figma_doc(
             let first_budget = MAX_EXPANDED_SCENE_NODES.saturating_sub(scenes_expanded_used);
             let (root_layers, root_exp) = ctx.build_page_layers(primary_page, true, first_budget);
             scenes_expanded_used = scenes_expanded_used.saturating_add(root_exp);
+            ctx.retain_page(primary_page, root_exp);
 
             let root_id = ctx.project.root.clone();
             if let Some(root_sym) = ctx.project.symbol_mut(&root_id) {
@@ -2233,25 +2312,19 @@ pub(super) fn build_project_from_figma_doc(
             if !extra_user_pages.is_empty() {
                 let mut scene_ids = vec![root_id];
                 for (idx, extra_page) in extra_user_pages.into_iter().enumerate() {
+                    let rem = MAX_EXPANDED_SCENE_NODES.saturating_sub(scenes_expanded_used);
                     if ctx.project.symbols.len() >= MAX_PROJECT_SYMBOLS
                         || ctx.authored_elements >= MAX_AUTHORED_ELEMENTS
+                        || rem < 4
                     {
-                        break;
-                    }
-                    let rem = MAX_EXPANDED_SCENE_NODES.saturating_sub(scenes_expanded_used);
-                    if rem < 4 {
-                        if !ctx.warned_expanded_budget {
-                            ctx.warned_expanded_budget = true;
-                            ctx.report.warning(
-                                "figma-expanded-node-budget-exceeded",
-                                extra_page.name.clone(),
-                                format!("Compacted remaining Figma pages after reaching {MAX_EXPANDED_SCENE_NODES} expanded scene nodes."),
-                            );
-                        }
-                        break;
+                        ctx.warn_page_limit(extra_page, true);
+                        continue;
                     }
                     let (mut page_layers, p_exp) = ctx.build_page_layers(extra_page, false, rem);
                     scenes_expanded_used = scenes_expanded_used.saturating_add(p_exp);
+                    if !ctx.retain_page(extra_page, p_exp) {
+                        continue;
+                    }
                     if page_layers.is_empty() {
                         page_layers.push(Layer {
                             id: new_id("layer"),

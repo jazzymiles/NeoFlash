@@ -541,6 +541,49 @@ pub(crate) fn scene_from_evaluation(
     scene_from_evaluation_with_overrides(project, None, evaluation, show_masking, outline_symbol)
 }
 
+// One placement path can match nested target layers. Return each clip once in the
+// authored plan order, regardless of the order in which its ancestors were visited.
+struct MaskTargets<'a, R: ?Sized> {
+    roots: HashMap<&'a R, Vec<usize>>,
+    clip_ids: Vec<String>,
+}
+
+impl<'a, R: std::hash::Hash + Eq + ?Sized> MaskTargets<'a, R> {
+    fn new() -> Self {
+        Self {
+            roots: HashMap::new(),
+            clip_ids: Vec::new(),
+        }
+    }
+
+    fn add(&mut self, clip_id: String, roots: impl Iterator<Item = &'a R>) {
+        let index = self.clip_ids.len();
+        self.clip_ids.push(clip_id);
+        for root in roots {
+            self.roots.entry(root).or_default().push(index);
+        }
+    }
+
+    fn indices<'b>(&self, ancestors: impl Iterator<Item = &'b R>) -> Vec<usize>
+    where
+        R: 'b,
+    {
+        let mut result = Vec::new();
+        for ancestor in ancestors {
+            if let Some(groups) = self.roots.get(ancestor) {
+                result.extend_from_slice(groups);
+            }
+        }
+        result.sort_unstable();
+        result.dedup();
+        result
+    }
+}
+
+fn authored_ancestors(path: &[Id]) -> impl Iterator<Item = &[Id]> {
+    (0..=path.len()).rev().map(|end| &path[..end])
+}
+
 fn scene_from_evaluation_with_overrides(
     project: &Project,
     symbol_overrides: Option<&HashMap<String, Symbol>>,
@@ -595,68 +638,49 @@ fn scene_from_evaluation_with_overrides(
         clips: vec![],
         mask_groups: vec![],
     };
-    if show_masking {
-        // Attach all relationships first: a mask inside a source symbol must clip
-        // that source's painted content before it becomes the outer mask.
-        for plan in &evaluation.masks {
+    if show_masking && !evaluation.masks.is_empty() {
+        // Classify each draw once. Its nearest mask source owns it; masks on
+        // intervening target layers stay attached when it becomes clip geometry.
+        let mut source_roots = HashMap::new();
+        let mut targets = MaskTargets::new();
+        for (owner, plan) in evaluation.masks.iter().enumerate() {
+            for root in &plan.sources {
+                source_roots.insert(root.as_slice(), owner);
+            }
             for (index, (_, roots)) in plan.target_groups.iter().enumerate() {
-                for draw in &mut scene.draws {
-                    if roots.iter().any(|p| draw.item.instance_path.starts_with(p)) {
-                        draw.clip_ids.push(target_clip_id(
-                            &plan.id,
-                            plan.target_groups.len(),
-                            index,
-                        ));
-                    }
-                }
+                targets.add(
+                    target_clip_id(&plan.id, plan.target_groups.len(), index),
+                    roots.iter().map(Vec::as_slice),
+                );
             }
         }
-        let source_owner = |path: &[Id]| {
-            evaluation
-                .masks
+        let mut source_draws = vec![Vec::new(); evaluation.masks.len()];
+        for mut draw in std::mem::take(&mut scene.draws) {
+            let path = &draw.item.instance_path;
+            let clips = targets.indices(authored_ancestors(path));
+            draw.clip_ids
+                .extend(clips.into_iter().map(|i| targets.clip_ids[i].clone()));
+            let owner = authored_ancestors(path).find_map(|p| source_roots.get(p));
+            if let Some(&owner) = owner {
+                source_draws[owner].push(draw);
+            } else {
+                scene.draws.push(draw);
+            }
+        }
+        for (plan, sources) in evaluation.masks.iter().zip(&source_draws) {
+            // An ancestor target's coverage applies when that target is composed.
+            let inherited: HashSet<_> = plan
+                .sources
                 .iter()
-                .enumerate()
-                .flat_map(|(index, plan)| {
-                    plan.sources
-                        .iter()
-                        .filter(move |p| path.starts_with(p))
-                        .map(move |p| (p.len(), index))
-                })
-                .max()
-                .map(|(_, index)| index)
-        };
-        for (index, plan) in evaluation.masks.iter().enumerate() {
-            // An ancestor target's mask is deferred until that target is composed.
-            // It must not also attenuate a mask source inside the target subtree.
-            let inherited: HashSet<_> = evaluation
-                .masks
-                .iter()
-                .flat_map(|other| {
-                    other
-                        .target_groups
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, (_, roots))| {
-                            plan.sources
-                                .iter()
-                                .any(|source| roots.iter().any(|target| source.starts_with(target)))
-                        })
-                        .map(|(index, _)| {
-                            target_clip_id(&other.id, other.target_groups.len(), index)
-                        })
-                })
+                .flat_map(|root| targets.indices(authored_ancestors(root)))
+                .map(|i| &targets.clip_ids[i])
                 .collect();
             let source_clips = |ids: &[String]| {
                 ids.iter()
-                    .filter(|id| !inherited.contains(*id))
+                    .filter(|id| !inherited.contains(id))
                     .cloned()
                     .collect()
             };
-            let sources: Vec<_> = scene
-                .draws
-                .iter()
-                .filter(|draw| source_owner(&draw.item.instance_path) == Some(index))
-                .collect();
             let luminance = plan.mode == MaskMode::Luminance;
             let alpha_components = plan.mode.uses_paint_coverage().then(|| {
                 sources
@@ -696,9 +720,6 @@ fn scene_from_evaluation_with_overrides(
                 invert: plan.invert,
             });
         }
-        scene
-            .draws
-            .retain(|draw| source_owner(&draw.item.instance_path).is_none());
         for plan in &evaluation.masks {
             alias_target_clips(&mut scene.clips, &plan.id, plan.target_groups.len());
         }
@@ -834,79 +855,72 @@ pub(crate) fn apply_runtime_masks(snapshot: &mut RuntimeSnapshot, plans: &[Runti
         .iter()
         .map(|node| (node.object_ref.clone(), node.parent_ref.clone()))
         .collect();
-    let belongs = |reference: &ObjectRef, roots: &[ObjectRef]| {
-        let mut current = Some(reference);
-        for _ in 0..=parents.len() {
-            let Some(value) = current else {
-                return false;
-            };
-            if roots.contains(value) {
-                return true;
-            }
-            current = parents.get(value).and_then(|p| p.as_ref());
+    let mut source_roots = HashMap::new();
+    let mut targets = MaskTargets::new();
+    for (owner, plan) in plans.iter().enumerate() {
+        for root in &plan.sources {
+            source_roots.entry(root).or_insert(owner);
         }
-        false
-    };
-    // Record target clips before capturing any source; nested masks are
-    // expressed by component clip IDs, not flattened contour winding.
-    for plan in plans {
         for (index, (_, roots)) in plan.target_groups.iter().enumerate() {
-            let clip = target_clip_id(&plan.id, plan.target_groups.len(), index);
-            for node in &mut snapshot.objects {
-                if belongs(&node.object_ref, roots) {
-                    node.clip_ids.push(clip.clone());
-                }
-            }
-            for draw in &mut snapshot.draws {
-                if belongs(&draw.owner_ref, roots) {
-                    draw.clip_ids.push(clip.clone());
-                }
-            }
-            for node in &mut snapshot.semantics {
-                if belongs(&node.owner_ref, roots) {
-                    node.clip_ids.push(clip.clone());
-                }
-            }
+            targets.add(
+                target_clip_id(&plan.id, plan.target_groups.len(), index),
+                roots.iter(),
+            );
         }
     }
-    let source_owner = |reference: &ObjectRef| {
-        // The nearest source ancestor owns this primitive. An outer source
-        // excludes its inner mask artwork but includes its clipped targets.
-        let mut current = Some(reference);
-        for _ in 0..=parents.len() {
-            let value = current?;
-            if let Some(index) = plans.iter().position(|plan| plan.sources.contains(value)) {
-                return Some(index);
-            }
-            current = parents.get(value).and_then(|p| p.as_ref());
+    // All primitives and semantic nodes sharing an owner inherit the same mask
+    // relationships. Resolve those relationships once per distinct owner.
+    let mut membership = HashMap::new();
+    for reference in snapshot
+        .objects
+        .iter()
+        .map(|node| &node.object_ref)
+        .chain(snapshot.draws.iter().map(|draw| &draw.owner_ref))
+        .chain(snapshot.semantics.iter().map(|node| &node.owner_ref))
+        .chain(plans.iter().flat_map(|plan| &plan.sources))
+    {
+        if membership.contains_key(reference) {
+            continue;
         }
-        None
+        let ancestors = std::iter::successors(Some(reference), |r| parents.get(*r)?.as_ref())
+            .take(parents.len() + 1);
+        let owner = ancestors.clone().find_map(|r| source_roots.get(r).copied());
+        membership.insert(reference.clone(), (owner, targets.indices(ancestors)));
+    }
+    let attach = |reference: &ObjectRef, ids: &mut Vec<String>| {
+        ids.extend(
+            membership[reference]
+                .1
+                .iter()
+                .map(|&i| targets.clip_ids[i].clone()),
+        );
     };
-    for (index, plan) in plans.iter().enumerate() {
-        let inherited: HashSet<_> = plans
+    for node in &mut snapshot.objects {
+        attach(&node.object_ref, &mut node.clip_ids);
+    }
+    for node in &mut snapshot.semantics {
+        attach(&node.owner_ref, &mut node.clip_ids);
+    }
+    let mut source_draws = vec![Vec::new(); plans.len()];
+    for draw in &mut snapshot.draws {
+        attach(&draw.owner_ref, &mut draw.clip_ids);
+        if let Some(owner) = membership[&draw.owner_ref].0 {
+            source_draws[owner].push(&*draw);
+        }
+    }
+    for (plan, sources) in plans.iter().zip(&source_draws) {
+        let inherited: HashSet<_> = plan
+            .sources
             .iter()
-            .flat_map(|other| {
-                other
-                    .target_groups
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, (_, roots))| {
-                        plan.sources.iter().any(|source| belongs(source, roots))
-                    })
-                    .map(|(index, _)| target_clip_id(&other.id, other.target_groups.len(), index))
-            })
+            .flat_map(|root| &membership[root].1)
+            .map(|&i| &targets.clip_ids[i])
             .collect();
         let source_clips = |ids: &[String]| {
             ids.iter()
-                .filter(|id| !inherited.contains(*id))
+                .filter(|id| !inherited.contains(id))
                 .cloned()
                 .collect()
         };
-        let sources: Vec<_> = snapshot
-            .draws
-            .iter()
-            .filter(|draw| source_owner(&draw.owner_ref) == Some(index))
-            .collect();
         let luminance = plan.mode == MaskMode::Luminance;
         let alpha_components = plan.mode.uses_paint_coverage().then(|| {
             sources
@@ -962,7 +976,7 @@ pub(crate) fn apply_runtime_masks(snapshot: &mut RuntimeSnapshot, plans: &[Runti
         .map(|clip| clip.id.as_str())
         .collect();
     for node in &mut snapshot.objects {
-        if source_owner(&node.object_ref).is_some() {
+        if membership[&node.object_ref].0.is_some() {
             node.authored_mask_source = true;
             node.display.effective_visible = false;
         }
@@ -972,10 +986,10 @@ pub(crate) fn apply_runtime_masks(snapshot: &mut RuntimeSnapshot, plans: &[Runti
     }
     snapshot
         .draws
-        .retain(|draw| source_owner(&draw.owner_ref).is_none());
+        .retain(|draw| membership[&draw.owner_ref].0.is_none());
     snapshot
         .semantics
-        .retain(|node| source_owner(&node.owner_ref).is_none());
+        .retain(|node| membership[&node.owner_ref].0.is_none());
 }
 
 fn alpha_geometry(component: &AlphaClipComponent) -> ClipComponent {

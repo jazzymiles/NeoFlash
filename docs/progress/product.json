@@ -2782,7 +2782,7 @@
         },
         {
           "id": "figma-layered-import",
-          "title": "Import Figma .fig (including Zstandard v106+ Kiwi archives), .figma and .figma.json files with page selection, Create MovieClip symbol option and 1-page-per-layer mapping",
+          "title": "Import selected Figma pages as layers or a MovieClip with editable text, vectors and components inside painted frames",
           "status": "working"
         },
         {

@@ -124,6 +124,10 @@ impl KiwiDef {
 pub(super) struct KiwiObj<'a>(Vec<(&'a str, KiwiVal<'a>)>);
 
 impl<'a> KiwiObj<'a> {
+    fn object(&self, key: &str) -> Option<&KiwiObj<'a>> {
+        self.get(key)?.as_obj()
+    }
+
     #[inline]
     pub(super) fn get(&self, key: &str) -> Option<&KiwiVal<'a>> {
         self.0.iter().rev().find(|(k, _)| *k == key).map(|(_, v)| v)
@@ -411,6 +415,7 @@ fn is_used_node_change_field(name: &str) -> bool {
             | "letterSpacing"
             | "lineHeight"
             | "symbolData"
+            | "parameterConsumptionMap"
             | "overriddenSymbolID"
     )
 }
@@ -659,6 +664,7 @@ pub(super) fn decode_kiwi_scalar<'a>(
                 KiwiDefKind::Message => {
                     let filter_msg = def.name == "Message";
                     let filter_nc = def.name == "NodeChange";
+                    let filter_prop = def.name == "ComponentPropAssignment";
                     let mut pairs = Vec::with_capacity(12);
                     loop {
                         let fid = r.read_var_uint()?;
@@ -674,6 +680,8 @@ pub(super) fn decode_kiwi_scalar<'a>(
                             is_used_message_field(&field.name)
                         } else if filter_nc {
                             is_used_node_change_field(&field.name)
+                        } else if filter_prop {
+                            matches!(field.name.as_str(), "defID" | "value" | "varValue")
                         } else {
                             true
                         };
@@ -1445,6 +1453,121 @@ fn format_guid_pair(g: (u64, u64)) -> String {
     format!("{}:{}", g.0, g.1)
 }
 
+type KiwiGuid = (u64, u64);
+
+fn kiwi_guid(val: &KiwiVal<'_>) -> Option<KiwiGuid> {
+    let guid = val.as_obj()?;
+    Some((
+        guid.get("sessionID")?.as_u64()?,
+        guid.get("localID")?.as_u64()?,
+    ))
+}
+
+enum ComponentProperty {
+    Text(String),
+    Visible(bool),
+    Symbol(KiwiGuid),
+}
+
+impl ComponentProperty {
+    fn read(value: &KiwiObj<'_>) -> Option<Self> {
+        if let Some(text) = value
+            .get("textValue")
+            .or_else(|| value.get("textDataValue"))
+            .and_then(KiwiVal::as_obj)
+            .and_then(|t| t.get("characters"))
+            .and_then(KiwiVal::as_str)
+        {
+            Some(Self::Text(text.to_owned()))
+        } else if let Some(visible) = value.get("boolValue").and_then(KiwiVal::as_bool) {
+            Some(Self::Visible(visible))
+        } else {
+            value
+                .get("guidValue")
+                .or_else(|| value.get("symbolIdValue"))
+                .and_then(kiwi_guid)
+                .map(Self::Symbol)
+        }
+    }
+
+    fn field(&self) -> &'static str {
+        match self {
+            Self::Text(_) => "TEXT_DATA",
+            Self::Visible(_) => "VISIBLE",
+            Self::Symbol(_) => "OVERRIDDEN_SYMBOL_ID",
+        }
+    }
+}
+
+fn read_property_assignments(val: &KiwiVal<'_>) -> Vec<(KiwiGuid, ComponentProperty)> {
+    val.as_array()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|v| {
+            let obj = v.as_obj()?;
+            let prop_id = kiwi_guid(obj.get("defID")?)?;
+            let value = obj
+                .get("value")
+                .and_then(KiwiVal::as_obj)
+                .and_then(ComponentProperty::read)
+                .or_else(|| ComponentProperty::read(obj.object("varValue")?.object("value")?))?;
+            Some((prop_id, value))
+        })
+        .collect()
+}
+
+type KiwiBindingTargets = HashMap<String, HashMap<(KiwiGuid, &'static str), Vec<String>>>;
+
+fn record_property_bindings(
+    obj: &KiwiObj<'_>,
+    snode: &ScannedKiwiNode<'_>,
+    scanned: &ScannedKiwiStream<'_>,
+    targets: &mut KiwiBindingTargets,
+) {
+    let Some(entries) = obj
+        .get("parameterConsumptionMap")
+        .and_then(KiwiVal::as_obj)
+        .and_then(|m| m.get("entries"))
+        .and_then(KiwiVal::as_array)
+    else {
+        return;
+    };
+    for entry in entries.iter().filter_map(KiwiVal::as_obj) {
+        let field = match entry.get("variableField").and_then(KiwiVal::as_str) {
+            Some("TEXT_DATA") => "TEXT_DATA",
+            Some("VISIBLE") => "VISIBLE",
+            Some("OVERRIDDEN_SYMBOL_ID") => "OVERRIDDEN_SYMBOL_ID",
+            _ => continue,
+        };
+        let Some(def_id) = entry
+            .object("variableData")
+            .and_then(|v| v.object("value")?.object("propRefValue")?.get("defId"))
+            .and_then(kiwi_guid)
+        else {
+            continue;
+        };
+        // Copies of a component can reuse the same property IDs on different pages.
+        // Only descendants of the referenced master may be targeted by an instance.
+        let mut parent = snode.parent_guid;
+        for _ in 0..128 {
+            let Some(index) = parent.and_then(|id| scanned.idx_by_guid.get(&id)) else {
+                break;
+            };
+            let node = &scanned.nodes[*index];
+            if matches!(node.node_type.as_ref(), "SYMBOL" | "COMPONENT") && !node.is_state_group {
+                targets
+                    .entry(format_guid_pair(node.guid))
+                    .or_default()
+                    .entry((def_id, field))
+                    .or_default()
+                    .push(format_guid_pair(snode.guid));
+                break;
+            }
+            parent = node.parent_guid;
+        }
+    }
+}
+
 struct ScannedKiwiNode<'a> {
     guid: (u64, u64),
     parent_guid: Option<(u64, u64)>,
@@ -1455,6 +1578,7 @@ struct ScannedKiwiNode<'a> {
     internal_only: bool,
     is_state_group: bool,
     ref_symbols: Vec<(u64, u64)>,
+    property_assignments: Option<(&'a KiwiField, &'a [u8])>,
     raw_slice: &'a [u8],
 }
 
@@ -1970,6 +2094,7 @@ fn scan_kiwi_message_pass1<'a>(
                     let mut internal_only = false;
                     let mut is_state_group = false;
                     let mut ref_symbols: Vec<(u64, u64)> = Vec::new();
+                    let mut property_assignments = None;
 
                     loop {
                         let nfid = r.read_var_uint()?;
@@ -2107,6 +2232,19 @@ fn scan_kiwi_message_pass1<'a>(
                                     ref_symbols.push(g);
                                 }
                             }
+                            "componentPropAssignments" if want_refs => {
+                                let start = r.pos;
+                                skip_kiwi_field_value(
+                                    &mut r,
+                                    defs,
+                                    field.type_id,
+                                    field.is_array,
+                                    2,
+                                    &mut budget,
+                                    &mut active_structs,
+                                )?;
+                                property_assignments = Some((field, &msg_buf[start..r.pos]));
+                            }
                             "symbolData" if want_refs => {
                                 scan_symbol_data_refs(
                                     &mut r,
@@ -2164,6 +2302,7 @@ fn scan_kiwi_message_pass1<'a>(
                         internal_only,
                         is_state_group,
                         ref_symbols,
+                        property_assignments,
                         raw_slice: &msg_buf[slice_start..slice_end],
                     };
                     let is_doc = scanned.node_type == "DOCUMENT";
@@ -2343,18 +2482,21 @@ pub(super) fn parse_fig_kiwi_canvas_with_options(
 fn decode_single_kiwi_node(
     snode: &ScannedKiwiNode<'_>,
     defs: &[KiwiDef],
-    nc_def_idx: usize,
-    blobs: &[&[u8]],
-    blob_base: u64,
+    scanned: &ScannedKiwiStream<'_>,
+    targets: &mut KiwiBindingTargets,
     budget: &mut usize,
     active_structs: &mut Vec<usize>,
 ) -> Result<FigmaNode, String> {
+    let nc_def_idx = scanned.nc_def_idx;
+    let blobs = &scanned.blobs;
+    let blob_base = scanned.blob_base;
     let mut r = KiwiReader::new(snode.raw_slice);
     let val = decode_kiwi_scalar(&mut r, defs, nc_def_idx as i32, 1, budget, active_structs)?;
     let obj = val
         .as_obj()
         .ok_or_else(|| "Decoded NodeChange is not an object".to_owned())?;
 
+    record_property_bindings(obj, snode, scanned, targets);
     let guid = format_guid_pair(snode.guid);
     let node_type = snode.node_type.clone().into_owned();
     let name = snode.name.clone().into_owned();
@@ -2600,7 +2742,12 @@ fn decode_single_kiwi_node(
         }
     }
 
-    if (fill_paths.is_empty() || (stroke_paths.is_empty() && !strokes.is_empty()))
+    // Kiwi strokeGeometry is the expanded outline, including cap and join contours.
+    // Editable strokes need the network centerline so the converter applies the width once.
+    let wants_centerline = node_type == "VECTOR" && fills.is_empty() && !strokes.is_empty();
+    if (fill_paths.is_empty()
+        || (stroke_paths.is_empty() && !strokes.is_empty())
+        || wants_centerline)
         && let Some(vd) = obj.get("vectorData").and_then(KiwiVal::as_obj)
         && let Some(vnb) = vd.get("vectorNetworkBlob")
         && let Some(blob) = resolve_kiwi_blob(vnb, blobs, blob_base)
@@ -2627,7 +2774,7 @@ fn decode_single_kiwi_node(
                     .collect();
             }
         }
-        if stroke_paths.is_empty() && !vn_strokes.is_empty() {
+        if (stroke_paths.is_empty() || wants_centerline) && !vn_strokes.is_empty() {
             stroke_paths = vn_strokes;
         }
     }
@@ -2872,6 +3019,68 @@ fn decode_single_kiwi_node(
     })
 }
 
+fn apply_component_properties(
+    nodes: &mut [Option<FigmaNode>],
+    assignments: HashMap<usize, Vec<(KiwiGuid, ComponentProperty)>>,
+    binding_targets: &KiwiBindingTargets,
+) -> Result<(), String> {
+    let mut remaining = MAX_FIGMA_DECODE_BYTES;
+    for (idx, values) in assignments {
+        let Some(node) = &mut nodes[idx] else {
+            continue;
+        };
+        let Some(targets) = node
+            .component_id
+            .as_ref()
+            .and_then(|id| binding_targets.get(id))
+        else {
+            continue;
+        };
+        let mut resolved = Vec::new();
+        for (def_id, value) in values {
+            let Some(children) = targets.get(&(def_id, value.field())) else {
+                continue;
+            };
+            for child in children {
+                let text_size = match &value {
+                    ComponentProperty::Text(text) => text.len(),
+                    _ => 0,
+                };
+                let bytes = size_of::<FigmaSymbolOverride>()
+                    + text_size
+                    + child.len()
+                    + size_of::<String>();
+                remaining = remaining.checked_sub(bytes).ok_or_else(|| {
+                    "Expanded Figma component properties exceed the import size limit".to_owned()
+                })?;
+                let mut ov = FigmaSymbolOverride {
+                    guid_path: vec![child.clone()],
+                    visible: None,
+                    opacity: None,
+                    characters: None,
+                    fills: None,
+                    strokes: None,
+                    overridden_symbol_id: None,
+                };
+                match &value {
+                    ComponentProperty::Text(text) => ov.characters = Some(text.clone()),
+                    ComponentProperty::Visible(visible) => ov.visible = Some(*visible),
+                    ComponentProperty::Symbol(guid) => {
+                        ov.overridden_symbol_id = Some(format_guid_pair(*guid))
+                    }
+                }
+                resolved.push(ov);
+            }
+        }
+        if !resolved.is_empty() {
+            // A direct override on a particular descendant takes precedence over its bound default.
+            resolved.append(&mut node.symbol_overrides);
+            node.symbol_overrides = resolved;
+        }
+    }
+    Ok(())
+}
+
 fn collect_ordered_master_indices(
     idx: usize,
     scanned: &ScannedKiwiStream<'_>,
@@ -3008,6 +3217,9 @@ fn decode_fig_kiwi_stream(
         }
     }
 
+    let mut assignments = HashMap::new();
+    let mut budget = MAX_KIWI_VALUES;
+    let mut active_structs = Vec::new();
     while let Some((uidx, in_master)) = queue.pop_front() {
         let unode = &scanned.nodes[uidx];
         let next_in_master = in_master
@@ -3021,7 +3233,27 @@ fn decode_fig_kiwi_stream(
             }
         }
 
-        for &(rs, rl) in &unode.ref_symbols {
+        let mut prop_refs = Vec::new();
+        if let Some((field, bytes)) = unode.property_assignments
+            && let std::collections::hash_map::Entry::Vacant(entry) = assignments.entry(uidx)
+        {
+            let val = decode_kiwi_field_value(
+                &mut KiwiReader::new(bytes),
+                &defs,
+                field.type_id,
+                field.is_array,
+                2,
+                &mut budget,
+                &mut active_structs,
+            )?;
+            let props = read_property_assignments(&val);
+            prop_refs.extend(props.iter().filter_map(|(_, v)| match v {
+                ComponentProperty::Symbol(guid) => Some(*guid),
+                _ => None,
+            }));
+            entry.insert(props);
+        }
+        for &(rs, rl) in unode.ref_symbols.iter().chain(&prop_refs) {
             if let Some(&tidx) = scanned.idx_by_guid.get(&(rs, rl)) {
                 enqueue(tidx, true, &mut reach_state, &mut queue);
             } else if let Some(cands) = masters_by_local.get(&rl) {
@@ -3034,8 +3266,7 @@ fn decode_fig_kiwi_stream(
         }
     }
 
-    let mut budget = MAX_KIWI_VALUES;
-    let mut active_structs = Vec::new();
+    let mut binding_targets = KiwiBindingTargets::new();
     let mut decoded_nodes: Vec<Option<FigmaNode>> = (0..n).map(|_| None).collect();
     for idx in 0..n {
         if reach_state[idx] == 0 {
@@ -3044,15 +3275,15 @@ fn decode_fig_kiwi_stream(
         let fnode = decode_single_kiwi_node(
             &scanned.nodes[idx],
             &defs,
-            scanned.nc_def_idx,
-            &scanned.blobs,
-            scanned.blob_base,
+            &scanned,
+            &mut binding_targets,
             &mut budget,
             &mut active_structs,
         )?;
         decoded_nodes[idx] = Some(fnode);
     }
 
+    apply_component_properties(&mut decoded_nodes, assignments, &binding_targets)?;
     let mut pages = Vec::new();
     for &pidx in &active_page_indices {
         if let Some(pnode) =

@@ -39,6 +39,7 @@ fn figma_json_decomposes_artboard_into_layers_components_masks_vectors_and_text(
                         "type": "COMPONENT",
                         "visible": false,
                         "absoluteBoundingBox": {{"x": 0, "y": 0, "width": 160, "height": 48}},
+                        "fills": [{{"type": "SOLID", "color": {{"r": 1, "g": 0, "b": 1}}}}],
                         "children": [
                           {{
                             "id": "1:11",
@@ -143,12 +144,21 @@ fn figma_json_decomposes_artboard_into_layers_components_masks_vectors_and_text(
         root.timeline.layers[2].properties.mask.as_deref(),
         Some(root.timeline.layers[1].id.as_str())
     );
-    assert!(
-        project
-            .symbols
-            .iter()
-            .any(|s| s.name == "CTA_Button" && s.kind == SymbolKind::MovieClip)
-    );
+    let master = project
+        .symbols
+        .iter()
+        .find(|s| s.name == "CTA_Button")
+        .unwrap();
+    assert_eq!(master.kind, SymbolKind::MovieClip);
+    let background = &master.timeline.layers[0].keyframes[0].elements[0];
+    assert!(background.visible);
+    assert!(matches!(
+        background.kind,
+        ElementKind::Rectangle {
+            fill: [255, 0, 255, 255],
+            ..
+        }
+    ));
 }
 
 fn write_var_uint(out: &mut Vec<u8>, mut v: u64) {
@@ -902,7 +912,7 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
     // Let's rewrite def count at top or make Blob struct/message:
     // Actually we wrote 15 defs (0..=14), so let's make Blob def 14 and Message def 15 (16 defs total)!
     schema.clear();
-    write_var_uint(&mut schema, 16);
+    write_var_uint(&mut schema, 17);
     // Re-emit 0..=13 cleanly:
     write_cstr(&mut schema, "GUID");
     schema.push(1);
@@ -1042,7 +1052,7 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
     write_var_uint(&mut schema, 2);
     write_cstr(&mut schema, "NodeChange");
     schema.push(2);
-    write_var_uint(&mut schema, 19);
+    write_var_uint(&mut schema, 23);
     for (tag, n, tid, arr) in [
         (1u64, "guid", 0i64, 0u8),
         (2, "guidPath", 0, 1),
@@ -1063,6 +1073,10 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
         (17, "rectangleTopRightCornerRadius", -5, 0),
         (18, "rectangleBottomRightCornerRadius", -5, 0),
         (19, "rectangleBottomLeftCornerRadius", -5, 0),
+        (20, "strokePaints", 6, 1),
+        (21, "strokeGeometry", 7, 1),
+        (22, "componentPropAssignments", 16, 1),
+        (23, "parameterConsumptionMap", 16, 0),
     ] {
         write_cstr(&mut schema, n);
         write_var_int(&mut schema, tid);
@@ -1093,6 +1107,30 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
         write_var_uint(&mut schema, tag);
     }
 
+    // The test schema uses one tagged message for the assignment and binding envelopes.
+    write_cstr(&mut schema, "Property");
+    schema.push(2);
+    let property_fields = [
+        ("defID", 0, 0),
+        ("value", 16, 0),
+        ("textValue", 11, 0),
+        ("entries", 16, 1),
+        ("variableField", -6, 0),
+        ("variableData", 16, 0),
+        ("propRefValue", 16, 0),
+        ("defId", 0, 0),
+        ("boolValue", -1, 0),
+        ("varValue", 16, 0),
+        ("symbolIdValue", 0, 0),
+    ];
+    write_var_uint(&mut schema, property_fields.len() as u64);
+    for (index, (name, ty, array)) in property_fields.into_iter().enumerate() {
+        write_cstr(&mut schema, name);
+        write_var_int(&mut schema, ty);
+        schema.push(array);
+        write_var_uint(&mut schema, index as u64 + 1);
+    }
+
     let write_guid = |m: &mut Vec<u8>, s: u64, l: u64| {
         write_var_uint(m, s);
         write_var_uint(m, l);
@@ -1108,8 +1146,8 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
             write_var_float(m, v);
         }
     };
-    let write_solid = |m: &mut Vec<u8>, rgba: [f32; 4]| {
-        write_var_uint(m, 9);
+    let write_paint = |m: &mut Vec<u8>, tag: u64, rgba: [f32; 4]| {
+        write_var_uint(m, tag);
         write_var_uint(m, 1); // 1 paint
         write_var_uint(m, 1);
         write_cstr(m, "SOLID");
@@ -1118,6 +1156,33 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
             write_var_float(m, c);
         }
         write_var_uint(m, 0);
+    };
+
+    let write_solid = |m: &mut Vec<u8>, rgba| write_paint(m, 9, rgba);
+    let write_geometry = |m: &mut Vec<u8>, tag: u64| {
+        write_var_uint(m, tag);
+        write_var_uint(m, 1); // one path
+        write_var_uint(m, 1);
+        write_cstr(m, "NONZERO");
+        write_var_uint(m, 2);
+        write_var_uint(m, 1); // commandsBlob = 1
+        write_var_uint(m, 0);
+    };
+
+    let write_outline = |m: &mut Vec<u8>| write_geometry(m, 10);
+    let write_binding = |m: &mut Vec<u8>, def_id, field| {
+        m.extend_from_slice(&[23, 4, 1, 5]); // parameterConsumptionMap.entries[0].variableField
+        write_cstr(m, field);
+        m.extend_from_slice(&[6, 2, 7, 8]); // variableData.value.propRefValue.defId
+        write_guid(m, 5, def_id);
+        m.extend_from_slice(&[0, 0, 0, 0, 0]);
+    };
+    let write_label_assignment = |m: &mut Vec<u8>, label: &str| {
+        write_var_uint(m, 1);
+        write_guid(m, 5, 42);
+        m.extend_from_slice(&[2, 3, 1]); // value.textValue.characters
+        write_cstr(m, label);
+        m.extend_from_slice(&[0, 0, 0]);
     };
 
     // Binary `commandsBlob` (blob ID = 1 with `blobBaseIndex = 1` -> `blobs[0]`):
@@ -1189,7 +1254,7 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
     write_var_uint(&mut msg, 3);
     write_var_uint(&mut msg, 1);
 
-    // nodeChanges (13 nodes):
+    // nodeChanges:
     // 0: DOCUMENT (0:0)
     // 1: Internal Only Canvas (0:99, internalOnly=true) — put FIRST to prove it is never chosen as Stage!
     // 2: Master SYMBOL (10:1, parent 0:99, "ButtonMaster", 180x48)
@@ -1202,9 +1267,9 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
     // 9: VECTOR with commandsBlob (2:4, parent 2:1)
     // 10: VECTOR with vectorNetworkBlob (2:5, parent 2:1)
     // 11: Multi-run TEXT (2:6, parent 2:1, "Hello World" with bold accent run)
-    // 12: User Page 2 CANVAS (0:2, "Settings Screen") + child RECTANGLE (3:1, parent 0:2) -> 14 nodes!
+    // 12: User Page 2 CANVAS (0:2, "Settings Screen") + child RECTANGLE (3:1, parent 0:2) + a stroke-only vector (3:2)
     write_var_uint(&mut msg, 1);
-    write_var_uint(&mut msg, 14);
+    write_var_uint(&mut msg, 19);
 
     // 0: DOCUMENT 0:0
     write_var_uint(&mut msg, 1);
@@ -1239,6 +1304,8 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
     write_var_float(&mut msg, 180.0);
     write_var_float(&mut msg, 48.0);
     write_matrix(&mut msg, 0.0, 0.0);
+    write_solid(&mut msg, [0.1, 0.1, 0.1, 1.0]);
+    write_outline(&mut msg);
     write_var_uint(&mut msg, 0);
 
     // 3: Master child RECTANGLE 10:2
@@ -1254,6 +1321,7 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
     write_var_float(&mut msg, 48.0);
     write_matrix(&mut msg, 0.0, 0.0);
     write_solid(&mut msg, [0.2, 0.3, 0.8, 1.0]);
+    write_binding(&mut msg, 43, "VISIBLE");
     write_var_uint(&mut msg, 0);
 
     // 4: Master child TEXT 10:3
@@ -1278,6 +1346,7 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
     write_cstr(&mut msg, "Medium");
     write_var_uint(&mut msg, 14); // fontSize
     write_var_float(&mut msg, 16.0);
+    write_binding(&mut msg, 42, "TEXT_DATA");
     write_var_uint(&mut msg, 0);
 
     // 5: User Page 1 CANVAS 0:1
@@ -1302,6 +1371,8 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
     write_var_float(&mut msg, 1440.0);
     write_var_float(&mut msg, 900.0);
     write_matrix(&mut msg, 0.0, 0.0);
+    write_solid(&mut msg, [0.1, 0.1, 0.1, 1.0]);
+    write_outline(&mut msg);
     write_var_uint(&mut msg, 0);
 
     // 7: INSTANCE 2:2 referencing 10:1 with symbolOverrides for 10:2 (green fill) & 10:3 ("Submit Now")
@@ -1337,6 +1408,8 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
     write_var_uint(&mut msg, 0);
     write_var_uint(&mut msg, 0);
     write_var_uint(&mut msg, 0); // end symbolData
+    msg.extend_from_slice(&[22, 1]); // componentPropAssignments
+    write_label_assignment(&mut msg, "Superseded by direct override");
     write_var_uint(&mut msg, 0); // end INSTANCE
 
     // 8: Asymmetric ROUNDED_RECTANGLE 2:3 with corners [tl=4, tr=12, br=20, bl=28] + image fill
@@ -1395,13 +1468,7 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
     write_var_float(&mut msg, 100.0);
     write_matrix(&mut msg, 680.0, 80.0);
     write_solid(&mut msg, [0.95, 0.45, 0.2, 1.0]);
-    write_var_uint(&mut msg, 10); // fillGeometry len=1
-    write_var_uint(&mut msg, 1);
-    write_var_uint(&mut msg, 1);
-    write_cstr(&mut msg, "NONZERO");
-    write_var_uint(&mut msg, 2);
-    write_var_uint(&mut msg, 1); // commandsBlob = 1
-    write_var_uint(&mut msg, 0);
+    write_outline(&mut msg);
     write_var_uint(&mut msg, 0);
 
     // 10: VECTOR 2:5 with `vectorNetworkBlob = 2` (`blobBaseIndex = 1` -> `blobs[1]`)
@@ -1494,6 +1561,73 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
     write_var_float(&mut msg, 300.0);
     write_matrix(&mut msg, 20.0, 20.0);
     write_solid(&mut msg, [0.2, 0.25, 0.35, 1.0]);
+    write_var_uint(&mut msg, 0);
+
+    // Stroke-only icon with both a cached stroke outline and an editable network centerline.
+    write_var_uint(&mut msg, 1);
+    write_guid(&mut msg, 3, 2);
+    write_parent(&mut msg, 0, 2, "b");
+    write_var_uint(&mut msg, 4);
+    write_cstr(&mut msg, "VECTOR");
+    write_var_uint(&mut msg, 5);
+    write_cstr(&mut msg, "Stroked icon");
+    write_paint(&mut msg, 20, [0.2, 0.4, 0.6, 1.0]);
+    write_geometry(&mut msg, 21);
+    write_var_uint(&mut msg, 11); // vectorData
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 2); // vectorNetworkBlob
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 0);
+
+    // Second instance binds the same master label solely through its public text property.
+    write_var_uint(&mut msg, 1);
+    write_guid(&mut msg, 2, 7);
+    write_parent(&mut msg, 2, 1, "f");
+    write_var_uint(&mut msg, 4);
+    write_cstr(&mut msg, "INSTANCE");
+    write_var_uint(&mut msg, 5);
+    write_cstr(&mut msg, "File menu");
+    msg.extend_from_slice(&[15, 1]); // symbolData.symbolID
+    write_guid(&mut msg, 10, 1);
+    write_var_uint(&mut msg, 0);
+    msg.extend_from_slice(&[22, 3]); // componentPropAssignments
+    write_label_assignment(&mut msg, "File");
+    write_var_uint(&mut msg, 1); // defID
+    write_guid(&mut msg, 5, 43);
+    msg.extend_from_slice(&[2, 9, 0, 0, 0]); // value.boolValue = false
+    write_var_uint(&mut msg, 1);
+    write_guid(&mut msg, 5, 44);
+    msg.extend_from_slice(&[10, 2, 11]); // varValue.value.symbolIdValue
+    write_guid(&mut msg, 10, 5);
+    msg.extend_from_slice(&[0, 0, 0]);
+    write_var_uint(&mut msg, 0);
+
+    // The swapped glyph is on the internal page and only reachable via the property assignment.
+    for (id, name, color) in [
+        (4, "Default glyph", [0.9, 0.1, 0.1, 1.0]),
+        (5, "Alternate glyph", [0.1, 0.2, 0.9, 1.0]),
+    ] {
+        write_var_uint(&mut msg, 1);
+        write_guid(&mut msg, 10, id);
+        write_parent(&mut msg, 0, 99, name);
+        write_var_uint(&mut msg, 4);
+        write_cstr(&mut msg, "SYMBOL");
+        write_var_uint(&mut msg, 5);
+        write_cstr(&mut msg, name);
+        write_solid(&mut msg, color);
+        write_var_uint(&mut msg, 0);
+    }
+    write_var_uint(&mut msg, 1);
+    write_guid(&mut msg, 10, 6);
+    write_parent(&mut msg, 10, 1, "c");
+    write_var_uint(&mut msg, 4);
+    write_cstr(&mut msg, "INSTANCE");
+    write_var_uint(&mut msg, 5);
+    write_cstr(&mut msg, "Glyph");
+    msg.extend_from_slice(&[15, 1]); // symbolData.symbolID
+    write_guid(&mut msg, 10, 4);
+    write_var_uint(&mut msg, 0);
+    write_binding(&mut msg, 44, "OVERRIDDEN_SYMBOL_ID");
     write_var_uint(&mut msg, 0);
 
     // Message field 2: `blobs` = [cmd_blob, vn_blob]
@@ -1611,6 +1745,50 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
         "symbolOverrides text variant must be materialized"
     );
 
+    let variant = project
+        .symbols
+        .iter()
+        .find(|s| s.name == "ButtonMaster Variant")
+        .unwrap();
+    let background = &variant.timeline.layers[0].keyframes[0].elements;
+    assert!(matches!(
+        background.as_slice(),
+        [Element {
+            kind: ElementKind::Path { .. },
+            ..
+        }]
+    ));
+
+    let file_instance = &project
+        .symbol(&project.root)
+        .unwrap()
+        .timeline
+        .layers
+        .iter()
+        .find(|l| l.name == "File menu")
+        .unwrap()
+        .keyframes[0]
+        .elements[0];
+    let ElementKind::Instance { symbol_id, .. } = &file_instance.kind else {
+        panic!("Expected an editable component instance")
+    };
+    assert!(
+        project
+            .symbol(symbol_id)
+            .unwrap()
+            .timeline
+            .layers
+            .iter()
+            .flat_map(|l| &l.keyframes[0].elements)
+            .any(|e| matches!(&e.kind, ElementKind::TextBox { text, .. } if text == "File"))
+    );
+    assert!(
+        !project
+            .to_json()
+            .unwrap()
+            .contains("Superseded by direct override")
+    );
+
     // 4. Asymmetric corner radii [tl=4, tr=12, br=20, bl=28] -> NeoFlash [tl=4, tr=12, bl=28, br=20]
     //    AND rounded bitmap fill preserved via `AuthoredBitmapFill`!
     let home = project.symbol(&project.root).unwrap();
@@ -1654,6 +1832,21 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
     assert!(matches!(
         &vn_layer.keyframes[0].elements[0].kind,
         ElementKind::Path { commands, fill_rule: FillRule::EvenOdd, .. } if commands.len() >= 4
+    ));
+
+    let icon_layer = project
+        .symbol(&project.scenes[1])
+        .unwrap()
+        .timeline
+        .layers
+        .iter()
+        .find(|layer| layer.name == "Stroked icon")
+        .unwrap();
+    assert!(matches!(&icon_layer.keyframes[0].elements[0].kind,
+        ElementKind::Path { commands, stroke, fill, stroke_width, .. }
+        if *stroke == [51, 102, 153, 255] && fill[3] == 0 && *stroke_width == 1.0
+           && matches!(commands.as_slice(), [PathCommand::MoveTo { x: 0.0, y: 0.0 },
+               PathCommand::CubicTo { x: 80.0, y: 0.0, .. }, ..])
     ));
 
     // 6. Multi-run `TEXT` decoded into `TextBox` with bold italic gold run!
@@ -1727,6 +1920,60 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
             .map(|l| l.name.as_str())
             .collect::<Vec<_>>(),
         vec!["Settings Screen", "Home Screen"]
+    );
+
+    // Figma also emits fillGeometry on frames containing editable artwork. The
+    // frame's path is its own background, underneath the text, vectors and instances.
+    let artboard = &layered_root.timeline.layers[1].keyframes[0].elements[0];
+    let ElementKind::Instance { symbol_id, .. } = &artboard.kind else {
+        panic!(
+            "Expected layered frame with its contents, got {:?}",
+            artboard.kind
+        );
+    };
+    let frame_layers = &layered_proj.symbol(symbol_id).unwrap().timeline.layers;
+    let file_slot = &frame_layers
+        .iter()
+        .find(|l| l.name == "File menu")
+        .unwrap()
+        .keyframes[0]
+        .elements[0];
+    let ElementKind::Instance { symbol_id, .. } = &file_slot.kind else {
+        panic!("File slot must resolve")
+    };
+    let file_layers = &layered_proj.symbol(symbol_id).unwrap().timeline.layers;
+    assert!(
+        !file_layers
+            .iter()
+            .find(|l| l.name == "BtnBg")
+            .unwrap()
+            .visible
+    );
+    let glyph_slot = &file_layers
+        .iter()
+        .find(|l| l.name == "Glyph")
+        .unwrap()
+        .keyframes[0]
+        .elements[0];
+    let ElementKind::Instance { symbol_id, .. } = &glyph_slot.kind else {
+        panic!("Glyph slot must resolve")
+    };
+    assert_eq!(
+        layered_proj.symbol(symbol_id).unwrap().name,
+        "Alternate glyph"
+    );
+
+    assert_eq!(frame_layers[0].name, "Background");
+    assert!(matches!(
+        frame_layers[0].keyframes[0].elements[0].kind,
+        ElementKind::Path { .. }
+    ));
+    assert!(
+        frame_layers
+            .iter()
+            .any(|l| l.keyframes[0].elements.iter().any(|el| {
+                matches!(&el.kind, ElementKind::TextBox { text, .. } if text == "Hello World")
+            }))
     );
 
     // Selecting ONLY "Settings Screen" skips the 5000px image on "Home Screen" and `ButtonMaster`!
@@ -2032,6 +2279,7 @@ fn t391_inspect_figma_bytes_and_page_selective_layers_mapping() {
                     "clipsContent": true,
                     "absoluteBoundingBox": {{"x": 0, "y": 0, "width": 1200, "height": 630}},
                     "fills": [{{"type": "SOLID", "color": {{"r": 0.1, "g": 0.12, "b": 0.18, "a": 1.0}}}}],
+                    "fillGeometry": [{{"path": "M0 0H1200V630H0Z"}}],
                     "children": [
                       {{
                         "id": "1:2",
@@ -2041,6 +2289,14 @@ fn t391_inspect_figma_bytes_and_page_selective_layers_mapping() {
                         "absoluteBoundingBox": {{"x": 40, "y": 60, "width": 400, "height": 48}},
                         "fills": [{{"type": "SOLID", "color": {{"r": 1, "g": 1, "b": 1, "a": 1}}}}],
                         "style": {{"fontFamily": "Inter", "fontSize": 36, "fontWeight": 700}}
+                      }},
+                      {{
+                        "id": "1:4",
+                        "type": "BOOLEAN_OPERATION",
+                        "name": "Cutout",
+                        "fillGeometry": [{{"path": "M0 0H40V40H0Z M10 10V30H30V10Z", "windingRule": "EVENODD"}}],
+                        "fills": [{{"type": "SOLID", "color": {{"r": 1, "g": 0, "b": 0}}}}],
+                        "children": [{{"id": "1:5", "type": "RECTANGLE", "name": "Operand"}}]
                       }},
                       {{
                         "id": "1:3",
@@ -2140,7 +2396,7 @@ fn t391_inspect_figma_bytes_and_page_selective_layers_mapping() {
     assert_eq!(summary.pages[0].name, "Cover");
     assert!(summary.pages[0].visible);
     assert_eq!(summary.pages[0].top_frame_count, 1);
-    assert_eq!(summary.pages[0].node_count, 3);
+    assert_eq!(summary.pages[0].node_count, 5);
     assert_eq!(summary.pages[3].id, "0:4");
     assert!(!summary.pages[3].visible);
 
@@ -2172,6 +2428,27 @@ fn t391_inspect_figma_bytes_and_page_selective_layers_mapping() {
         .collect();
     assert_eq!(layer_names, vec!["Dashboard", "Cover", "Settings"]);
 
+    let cover_el = &root.timeline.layers[1].keyframes[0].elements[0];
+    let ElementKind::Instance { symbol_id, .. } = &cover_el.kind else {
+        panic!("Expected cover frame to retain its children");
+    };
+    let cover = &project.symbol(symbol_id).unwrap().timeline.layers;
+    assert_eq!(
+        cover.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(),
+        ["Background", "Frame Clip", "Cover Title", "Cutout"]
+    );
+    assert!(matches!(
+        &cover[3].keyframes[0].elements[..],
+        [Element {
+            kind: ElementKind::Path {
+                fill_rule: FillRule::EvenOdd,
+                ..
+            },
+            ..
+        }]
+    ));
+    assert_eq!(cover[3].properties.mask.as_ref(), Some(&cover[1].id));
+
     // Referenced master `BadgeMaster` (`90:1`) is materialized, while `UnusedHeavyMaster` (`99:1`)
     // and unselected `Scratch Box` (`4:1`) are NOT materialized, and only 1 image resource is imported!
     assert!(project.symbols.iter().any(|s| s.name == "BadgeMaster"));
@@ -2183,4 +2460,71 @@ fn t391_inspect_figma_bytes_and_page_selective_layers_mapping() {
     );
     assert!(!project.symbols.iter().any(|s| s.name.contains("Scratch")));
     assert_eq!(project.resources.len(), 1);
+}
+
+#[test]
+fn figma_page_limits_locate_partial_and_skipped_pages_for_both_mappings() {
+    use serde_json::json;
+
+    let mut master = json!({
+        "id": "m0", "type": "COMPONENT", "name": "Base",
+        "children": [{"id": "leaf", "type": "RECTANGLE",
+            "fills": [{"type": "SOLID", "color": {"r": 1, "g": 0, "b": 0}}]}]
+    });
+    let mut masters = Vec::new();
+    for level in 1..=10 {
+        masters.push(master);
+        let pair: Vec<_> = (0..2).map(|i| json!({
+            "id": format!("m{level}-{i}"), "type": "INSTANCE", "componentId": format!("m{}", level - 1),
+        })).collect();
+        master = json!({"id": format!("m{level}"), "type": "COMPONENT", "name": format!("Pair {level}"), "children": pair});
+    }
+    masters.push(master);
+    let page = |id: &str, count: usize| {
+        let children: Vec<_> = (0..count)
+            .map(|i| {
+                json!({
+                    "id": format!("{id}-{i}"), "type": "INSTANCE", "componentId": "m10",
+                })
+            })
+            .collect();
+        json!({"id": id, "type": "CANVAS", "name": id, "children": children})
+    };
+    let file = json!({"document": {"type": "DOCUMENT", "children": [
+        {"id": "masters", "type": "CANVAS", "internalOnly": true, "children": masters},
+        page("First", 1), page("Large", 60), page("Last", 1),
+    ]}})
+    .to_string();
+    for mapping in [FigmaPageMapping::Layers, FigmaPageMapping::Scenes] {
+        let options = FigmaImportOptions {
+            selected_page_ids: Some(vec!["First".into(), "Large".into(), "Last".into()]),
+            page_mapping: mapping,
+            ..Default::default()
+        };
+        let (project, report) = import_figma_json_str(&file, "Page limits", &options).unwrap();
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "figma-page-truncated" && d.location == "Large (Large)")
+        );
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "figma-page-skipped" && d.location == "Last (Last)")
+        );
+        assert!(
+            !report
+                .diagnostics
+                .iter()
+                .any(|d| d.location == "First (First)")
+        );
+        let pages = if mapping == FigmaPageMapping::Layers {
+            project.symbol(&project.root).unwrap().timeline.layers.len()
+        } else {
+            project.scenes.len()
+        };
+        assert_eq!(pages, 2);
+    }
 }
