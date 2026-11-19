@@ -283,6 +283,9 @@ struct Bundle<'a> {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     scenes: Vec<SceneRange>,
     scripts: Vec<&'a CompiledScript>,
+    // The Full profile also ships a program prelude for documents with no authored scripts.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    scriptless: bool,
     /// Absent when a smaller size level drops the prelude of a project without scripts.
     #[serde(skip_serializing_if = "Option::is_none")]
     program: Option<ProgramBundle<'a>>,
@@ -1993,6 +1996,7 @@ pub(crate) fn assemble_with_config(
         project: &effective_published,
         scenes: prepared.scenes.clone(),
         scripts: effective_scripts.iter().collect(),
+        scriptless,
         program,
         wasm: level.wasm_inline().then(|| STANDARD.encode(wasm)),
         wasm_url: match (level, &shared_url) {

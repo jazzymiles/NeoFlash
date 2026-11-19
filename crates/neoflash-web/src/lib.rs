@@ -362,7 +362,11 @@ impl WebPlayer {
         scenes: Option<String>,
     ) -> Result<WebPlayer, JsValue> {
         let authored = authored.map_err(|error| JsValue::from_str(&error.to_string()))?;
-        let (project, mut ranges) = neoflash_core::flatten_scenes_with_ranges(&authored);
+        let (flat, mut ranges) = neoflash_core::flatten_scenes_cow(&authored);
+        let project = match flat {
+            std::borrow::Cow::Borrowed(_) => authored,
+            std::borrow::Cow::Owned(project) => project,
+        };
         if ranges.is_empty()
             && let Some(scenes) = scenes
         {
@@ -1846,6 +1850,10 @@ impl WebPlayer {
             )
             .map_err(display_error)?;
         serde_json::to_string(&result).map_err(display_error)
+    }
+
+    pub fn set_authored_display_events(&mut self, observe: bool) {
+        self.player.set_authored_display_events(observe);
     }
 
     pub fn enable_lifecycle(&mut self) {

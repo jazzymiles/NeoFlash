@@ -788,21 +788,12 @@ impl Player {
         let referenced_child_bitmaps =
             super::bitmap::referenced_bitmap_resources(&remapped_symbols);
         let mut imported_child_pixels: Vec<(String, PixelRef)> = Vec::new();
-        for res_id in referenced_child_bitmaps {
+        for (res_id, placed) in referenced_child_bitmaps {
             if let Some(res) = remapped_resources.iter().find(|r| r.id == res_id)
                 && res.is_image()
                 && !res.data_base64.is_empty()
             {
-                let decoded = match res.decode_image() {
-                    Ok(img) => img,
-                    Err(e) => {
-                        for (_, pref) in imported_child_pixels {
-                            let _ = self.graph.pixels.release(&pref);
-                        }
-                        return Err(error(&format!("Invalid mounted bitmap resource: {e}")));
-                    }
-                };
-                match self.graph.pixels.import(&decoded) {
+                match self.graph.pixels.import_authored(res, placed) {
                     Ok(pref) => imported_child_pixels.push((res_id.to_owned(), pref)),
                     Err(e) => {
                         for (_, pref) in imported_child_pixels {

@@ -569,3 +569,41 @@ fn reentrant_inner_goto_pushes_bounded_continuation_and_supersedes_old_visit() {
         "exceeding MAX_LIFECYCLE_DEPTH must error"
     );
 }
+
+#[test]
+fn script_free_pages_skip_unobserved_placements_and_can_resume_observing() {
+    let keys = [
+        (0, Vec::new()),
+        (1, (0..2100).map(|i| shape(&format!("shape-{i}"))).collect()),
+        (2, vec![shape("single")]),
+        (3, vec![shape("observed")]),
+    ]
+    .into_iter()
+    .map(|(frame, elements)| Keyframe {
+        frame,
+        elements,
+        ..Default::default()
+    })
+    .collect();
+    let project = make_project(vec![symbol("root", 4, keys, vec![])]);
+    let mut player = Player::new(&project);
+    player.set_authored_display_events(false);
+    player.enable_lifecycle();
+    drain_phases(&mut player);
+    for frame in [1, 2] {
+        player.seek(&project, frame);
+        assert!(
+            drain_phases(&mut player)
+                .iter()
+                .all(|s| s.display_events.is_empty())
+        );
+    }
+    player.set_authored_display_events(true);
+    player.tick(&project);
+    assert!(
+        drain_phases(&mut player)
+            .iter()
+            .flat_map(|s| &s.display_events)
+            .any(|e| e.kind == "added")
+    );
+}

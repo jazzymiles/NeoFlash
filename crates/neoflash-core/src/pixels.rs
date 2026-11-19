@@ -51,6 +51,19 @@ struct Buffer {
     transparent: bool,
     revision: u64,
     pixels: Option<Vec<u8>>,
+    // Render-only brush handles can retain encoded Library data when the live pixel arena is full.
+    encoded_paint: Option<crate::ResourceUnit>,
+}
+impl Buffer {
+    fn require_pixels(&self) -> Result<(), BitmapError> {
+        if self.pixels.is_some() {
+            Ok(())
+        } else if self.encoded_paint.is_some() {
+            Err(error("authored paint is read-only"))
+        } else {
+            Err(error("buffer is disposed"))
+        }
+    }
 }
 #[derive(Default)]
 pub(crate) struct PixelArena {
@@ -135,23 +148,24 @@ impl PixelArena {
         for p in pixels.as_chunks_mut::<4>().0 {
             p.copy_from_slice(&pixel);
         }
+        Ok(self.insert_buffer(Buffer {
+            width: w,
+            height: h,
+            transparent,
+            revision: 1,
+            pixels: Some(pixels),
+            encoded_paint: None,
+        }))
+    }
+    fn insert_buffer(&mut self, buffer: Buffer) -> PixelRef {
         self.next += 1;
         let reference = PixelRef {
             id: self.next.to_string(),
             generation: self.generation.to_string(),
         };
-        self.buffers.insert(
-            reference.clone(),
-            Buffer {
-                width: w,
-                height: h,
-                transparent,
-                revision: 1,
-                pixels: Some(pixels),
-            },
-        );
-        self.bytes += bytes;
-        Ok(reference)
+        self.bytes += buffer.pixels.as_ref().map_or(0, Vec::len);
+        self.buffers.insert(reference.clone(), buffer);
+        reference
     }
     fn buffer(&self, r: &PixelRef) -> Result<&Buffer, BitmapError> {
         self.buffers
@@ -160,9 +174,7 @@ impl PixelArena {
     }
     fn live(&self, r: &PixelRef) -> Result<&Buffer, BitmapError> {
         let b = self.buffer(r)?;
-        if b.pixels.is_none() {
-            return Err(error("buffer is disposed"));
-        }
+        b.require_pixels()?;
         Ok(b)
     }
     fn live_mut(&mut self, r: &PixelRef) -> Result<&mut Buffer, BitmapError> {
@@ -170,9 +182,7 @@ impl PixelArena {
             .buffers
             .get_mut(r)
             .ok_or_else(|| error("stale or foreign buffer reference"))?;
-        if b.pixels.is_none() {
-            return Err(error("buffer is disposed"));
-        }
+        b.require_pixels()?;
         Ok(b)
     }
     pub(crate) fn info(&self, r: &PixelRef) -> Result<PixelDescriptor, BitmapError> {
@@ -183,10 +193,21 @@ impl PixelArena {
             height: b.height,
             transparent: b.transparent,
             revision: b.revision.to_string(),
-            disposed: b.pixels.is_none(),
+            disposed: b.pixels.is_none() && b.encoded_paint.is_none(),
         })
     }
     pub(crate) fn pixels(&self, r: &PixelRef) -> Result<Vec<u8>, BitmapError> {
+        if let Some(resource) = &self.buffer(r)?.encoded_paint {
+            let image = resource
+                .decode_image()
+                .map_err(|e| BitmapError(e.to_string()))?;
+            let mut result = image.rgba.to_vec();
+            for p in result.as_chunks_mut::<4>().0 {
+                let argb = u32::from_be_bytes([p[3], p[0], p[1], p[2]]);
+                *p = straight(&premul(argb, true));
+            }
+            return Ok(result);
+        }
         let b = self.live(r)?;
         let source = b.pixels.as_ref().unwrap();
         let mut result = Vec::with_capacity(source.len());
@@ -194,6 +215,33 @@ impl PixelArena {
             result.extend_from_slice(&straight(pixel));
         }
         Ok(result)
+    }
+    pub(crate) fn import_authored(
+        &mut self,
+        resource: &crate::ResourceUnit,
+        placed: bool,
+    ) -> Result<PixelRef, BitmapError> {
+        let (width, height) = resource
+            .image_dimensions()
+            .map_err(|e| BitmapError(e.to_string()))?;
+        if !placed && self.bytes + width as usize * height as usize * 4 > MAX_BITMAP_BYTES {
+            if self.buffers.len() >= MAX_BUFFERS {
+                return Err(error("authored images exceed the 256 buffer budget"));
+            }
+            return Ok(self.insert_buffer(Buffer {
+                width,
+                height,
+                transparent: true,
+                revision: 1,
+                pixels: None,
+                encoded_paint: Some(resource.clone()),
+            }));
+        }
+        self.reserve_import(width, height)?;
+        let image = resource
+            .decode_image()
+            .map_err(|e| BitmapError(e.to_string()))?;
+        self.import(&image)
     }
     pub(crate) fn import(&mut self, image: &crate::DecodedImage) -> Result<PixelRef, BitmapError> {
         let r = self.create(image.width, image.height, true, 0)?;
@@ -342,30 +390,23 @@ impl PixelArena {
         Ok(())
     }
     pub(crate) fn clone_buffer(&mut self, r: &PixelRef) -> Result<PixelRef, BitmapError> {
-        let b = self.live(r)?;
-        let (w, h, t) = (b.width, b.height, b.transparent);
-        let n = w as usize * h as usize * 4;
+        let b = self.buffer(r)?;
+        if let Some(resource) = b.encoded_paint.clone() {
+            return self.import_authored(&resource, true);
+        }
+        b.require_pixels()?;
+        let n = b.width as usize * b.height as usize * 4;
         if self.buffers.len() >= MAX_BUFFERS || self.bytes + n > MAX_BITMAP_BYTES {
             return Err(error("buffer clone exceeds pixel budget"));
         }
-        let pixels = b.pixels.clone();
-        self.next += 1;
-        let result = PixelRef {
-            id: self.next.to_string(),
-            generation: self.generation.to_string(),
-        };
-        self.buffers.insert(
-            result.clone(),
-            Buffer {
-                width: w,
-                height: h,
-                transparent: t,
-                revision: 1,
-                pixels,
-            },
-        );
-        self.bytes += n;
-        Ok(result)
+        Ok(self.insert_buffer(Buffer {
+            width: b.width,
+            height: b.height,
+            transparent: b.transparent,
+            revision: 1,
+            pixels: b.pixels.clone(),
+            encoded_paint: None,
+        }))
     }
     pub(crate) fn scroll(&mut self, r: &PixelRef, dx: i32, dy: i32) -> Result<(), BitmapError> {
         let b = self.live(r)?;
@@ -377,6 +418,9 @@ impl PixelArena {
             .buffers
             .get_mut(r)
             .ok_or_else(|| error("stale or foreign buffer reference"))?;
+        if b.encoded_paint.take().is_some() {
+            b.revision += 1;
+        }
         if let Some(p) = b.pixels.take() {
             self.bytes -= p.len();
             b.revision += 1;
@@ -390,4 +434,43 @@ fn clip(x: i32, y: i32, w: i32, h: i32, bw: u32, bh: u32) -> (usize, usize, usiz
     let x1 = (i64::from(x) + i64::from(w.max(0))).clamp(0, i64::from(bw));
     let y1 = (i64::from(y) + i64::from(h.max(0))).clamp(0, i64::from(bh));
     (x0 as usize, y0 as usize, x1 as usize, y1 as usize)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::{ColorType, ImageEncoder, codecs::png::PngEncoder};
+
+    #[test]
+    fn authored_paint_keeps_pixels_and_dimensions_when_mutable_arena_is_full() {
+        let mut png = Vec::new();
+        let rgba = [41, 91, 127, 63, 35, 126, 89, 0];
+        PngEncoder::new(&mut png)
+            .write_image(&rgba, 2, 1, ColorType::Rgba8.into())
+            .unwrap();
+        let image =
+            crate::ResourceUnit::from_bytes("sample", "assets/sample.png", "image/png", &png)
+                .unwrap();
+        let mut normal = PixelArena::default();
+        let resident = normal.import_authored(&image, true).unwrap();
+
+        let mut full = PixelArena {
+            bytes: MAX_BITMAP_BYTES,
+            ..PixelArena::default()
+        };
+        assert!(full.import_authored(&image, true).is_err());
+        let reference = full.import_authored(&image, false).unwrap();
+        let info = full.info(&reference).unwrap();
+        assert_eq!((info.width, info.height, info.disposed), (2, 1, false));
+        assert_eq!(
+            full.pixels(&reference).unwrap(),
+            normal.pixels(&resident).unwrap()
+        );
+        assert_eq!(full.bytes, MAX_BITMAP_BYTES);
+        full.dispose(&reference).unwrap();
+        assert!(full.info(&reference).unwrap().disposed);
+        assert!(full.pixels(&reference).is_err());
+        full.reset();
+        assert!(full.info(&reference).is_err());
+    }
 }

@@ -560,10 +560,10 @@
       const colorKey=JSON.stringify({multipliers:colorTransform.multipliers,offsets:colorTransform.offsets});
       const id=JSON.stringify([pixelKey,kind.revision,kind.width,kind.height,colorKey]);used.add(id);
       const old=uploads.get(id);if(old){uploads.delete(id);uploads.set(id,old);return old;}
-      // Each derived image retains RGBA bytes for alpha tests plus a Canvas
-      // surface (estimated at four bytes/pixel). Browser/GPU bookkeeping is not
-      // exactly measurable here. Oversized entries are transient, never cached.
-      const cost=kind.width*kind.height*8;
+      // Keep the Canvas, one hit-test bit per pixel and four colors for clamped brushes.
+      // The temporary RGBA upload is released once the surface has received it.
+      const pixelCount=kind.width*kind.height;
+      const cost=pixelCount*4+Math.ceil(pixelCount/8)+16;
       if(!Number.isSafeInteger(cost)||cost<0)throw new RangeError('Invalid bitmap cache dimensions.');
       let reusable=null;
       for(const [entry,record]of uploads)if(record.pixelKey===pixelKey&&record.revision!==kind.revision){
@@ -571,18 +571,25 @@
         else drop(entry);
       }
       if(cost<=maxCacheBytes&&maxCacheEntries>0)while(uploads.size&&(cacheBytes+cost>maxCacheBytes||uploads.size>=maxCacheEntries))drop(uploads.keys().next().value);
-      const bytes=kind.color_transform?native('bitmap_pixels_transformed',pixelKey,colorKey):native('bitmap_pixels',pixelKey);
+      const identity=colorTransform.multipliers.every(value=>value===1)&&colorTransform.offsets.every(value=>value===0);
+      const bytes=identity?native('bitmap_pixels',pixelKey):native('bitmap_pixels_transformed',pixelKey,colorKey);
       if(bytes.length!==kind.width*kind.height*4)throw new Error('Rust bitmap dimensions do not match its RGBA buffer.');
       const surface=reusable||canvas(kind.width,kind.height),context=surface.getContext('2d');
       if(!context)throw new Error('Bitmap rendering requires Canvas 2D.');
       if(surface.width!==kind.width)surface.width=kind.width;if(surface.height!==kind.height)surface.height=kind.height;
       const data=context.createImageData(kind.width,kind.height);data.data.set(bytes);context.putImageData(data,0,0);
       let alphaBounds=null;
-      for(let y=0;y<kind.height;y++)for(let x=0;x<kind.width;x++)if(bytes[(y*kind.width+x)*4+3]){
+      const hitBits=new Uint8Array(Math.ceil(pixelCount/8));
+      const offsets=[0,kind.width-1,pixelCount-kind.width,pixelCount-1];
+      const corners=offsets.map(index=>bytes.slice(index*4,index*4+4));
+      for(let y=0;y<kind.height;y++)for(let x=0;x<kind.width;x++){
+        const index=y*kind.width+x;
+        if(!bytes[index*4+3])continue;
+        hitBits[index>>>3]|=1<<(index&7);
         if(!alphaBounds)alphaBounds={left:x,top:y,right:x+1,bottom:y+1};
         else {alphaBounds.left=Math.min(alphaBounds.left,x);alphaBounds.top=Math.min(alphaBounds.top,y);alphaBounds.right=Math.max(alphaBounds.right,x+1);alphaBounds.bottom=Math.max(alphaBounds.bottom,y+1);}
       }
-      const record={canvas:surface,bytes,width:kind.width,height:kind.height,revision:kind.revision,alphaBounds,pixelKey,colorKey,cost,retained:cost<=maxCacheBytes&&maxCacheEntries>0};
+      const record={canvas:surface,hitBits,corners,width:kind.width,height:kind.height,revision:kind.revision,alphaBounds,pixelKey,colorKey,cost,retained:cost<=maxCacheBytes&&maxCacheEntries>0};
       if(record.retained){uploads.set(id,record);cacheBytes+=cost;}return record;
     }
     function consume(kind,operation){const record=upload(kind);try{return operation(record);}finally{if(!record.retained)release(record);}}
@@ -603,7 +610,8 @@
           const bytes=ct?native('bitmap_pixels_transformed',pixelKey,JSON.stringify({multipliers:ct.multipliers,offsets:ct.offsets})):native('bitmap_pixels',pixelKey);
           return bytes[(Math.floor(y)*kind.width+Math.floor(x))*4+3]>0;
         }
-        return consume(kind,record=>record.bytes[(Math.floor(y)*kind.width+Math.floor(x))*4+3]>0);
+        const index=Math.floor(y)*kind.width+Math.floor(x);
+        return consume(kind,record=>Boolean(record.hitBits[index>>>3]&(1<<(index&7))));
       },
       bounds(kind){return consume(kind,record=>record.alphaBounds);},
       stats(){return {entries:uploads.size,bytes:cacheBytes,maxBytes:maxCacheBytes,maxEntries:maxCacheEntries};},

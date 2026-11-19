@@ -253,7 +253,7 @@
       if(!Number.isFinite(det)||det===0){
         const base=matrixOf(context),baseDet=base[0]*base[3]-base[1]*base[2];if(!Number.isFinite(baseDet)||baseDet===0)return;
         const area=box([[0,0],[width,0],[width,height],[0,height]].map(p=>point(inverse(base),...p)));if(!area)return;
-        context.fillStyle=rgba(record.bytes.slice(0,4));context.fillRect(area.left,area.top,area.right-area.left,area.bottom-area.top);return;
+        context.fillStyle=rgba(record.corners[0]);context.fillRect(area.left,area.top,area.right-area.left,area.bottom-area.top);return;
       }
       context.transform(...m);const total=matrixOf(context),totalDet=total[0]*total[3]-total[1]*total[2];if(!Number.isFinite(totalDet)||totalDet===0)return;
       const area=box([[0,0],[width,0],[width,height],[0,height]].map(p=>point(inverse(total),...p)));if(!area)return;
@@ -264,16 +264,15 @@
         return;
       }
       const w=record.width,h=record.height,x0=Math.floor(area.left)-1,y0=Math.floor(area.top)-1,x1=Math.ceil(area.right)+1,y1=Math.ceil(area.bottom)+1;
-      const corner=(cx,cy)=>rgba(record.bytes.slice((cy*w+cx)*4,(cy*w+cx)*4+4));
       context.drawImage(record.canvas,0,0,w,h);
       if(y0<0)context.drawImage(record.canvas,0,0,w,1,0,y0,w,-y0);
       if(y1>h)context.drawImage(record.canvas,0,h-1,w,1,0,h,w,y1-h);
       if(x0<0)context.drawImage(record.canvas,0,0,1,h,x0,0,-x0,h);
       if(x1>w)context.drawImage(record.canvas,w-1,0,1,h,w,0,x1-w,h);
-      if(x0<0&&y0<0){context.fillStyle=corner(0,0);context.fillRect(x0,y0,-x0,-y0);}
-      if(x1>w&&y0<0){context.fillStyle=corner(w-1,0);context.fillRect(w,y0,x1-w,-y0);}
-      if(x0<0&&y1>h){context.fillStyle=corner(0,h-1);context.fillRect(x0,h,-x0,y1-h);}
-      if(x1>w&&y1>h){context.fillStyle=corner(w-1,h-1);context.fillRect(w,h,x1-w,y1-h);}
+      if(x0<0&&y0<0){context.fillStyle=rgba(record.corners[0]);context.fillRect(x0,y0,-x0,-y0);}
+      if(x1>w&&y0<0){context.fillStyle=rgba(record.corners[1]);context.fillRect(w,y0,x1-w,-y0);}
+      if(x0<0&&y1>h){context.fillStyle=rgba(record.corners[2]);context.fillRect(x0,h,-x0,y1-h);}
+      if(x1>w&&y1>h){context.fillStyle=rgba(record.corners[3]);context.fillRect(w,h,x1-w,y1-h);}
     });
   }
   function controlBounds(commands,matrix,padding) {

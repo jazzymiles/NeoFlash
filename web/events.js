@@ -308,6 +308,7 @@
         capture: useCapture, priority, sequence: sequence++ });
       entries.sort((a, b) => b.priority - a.priority || a.sequence - b.sequence);
       record.set(type, entries);
+      options.onListener?.(type);
     }
     function remove(target, type, listener, useCapture = false) {
       assertTarget(target);

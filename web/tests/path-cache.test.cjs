@@ -52,7 +52,7 @@ test('GradientRenderer renders bitmap fills in repeat and clamped-edge modes',()
   });
   const createCanvas=(w=32,h=32)=>{const c={width:w,height:h};c.getContext=()=>makeContext(c);return c;};
   const renderer=new GradientRenderer({createCanvas});
-  const record={canvas:{width:2,height:2},width:2,height:2,bytes:new Uint8Array([255,0,0,255,0,255,0,255,0,0,255,255,255,255,0,255])};
+  const record={canvas:{width:2,height:2},width:2,height:2,corners:[[255,0,0,255],[0,255,0,255],[0,0,255,255],[255,255,0,255]]};
   const bitmaps={paint:(paint,fn)=>fn(record)};
   const commands=[{op:'move_to',x:-4,y:-4},{op:'line_to',x:12,y:-4},{op:'line_to',x:12,y:12},{op:'line_to',x:-4,y:12},{op:'close'}];
   const dest=createCanvas(20,20).getContext('2d');
@@ -124,4 +124,31 @@ test('inverted and luminance masks update clipTable, clipsContain and ClipRender
   clipRenderer.draw(dest,{clip_ids:['inv-luma']},table,fakePaths,()=>compOps.push('target'));
   assert.ok(compOps.includes('fillRect:source-out'),'inverted mask flips alpha coverage via source-out');
   assert.ok(compOps.includes('drawImage:destination-in'),'masked target applies inverted mask via destination-in');
+});
+
+test('bitmap paint cache keeps hit bits and clamped corner colors within its byte budget', () => {
+  const { create } = require('../bitmap.js');
+  const bytes = new Uint8Array(9 * 2 * 4);
+  bytes.set([10, 20, 30, 255], 0);
+  bytes.set([40, 50, 60, 1], 8 * 4);
+  bytes.set([70, 80, 90, 127], 17 * 4);
+  let uploads = 0;
+  const { cache } = create({
+    player: { bitmap_pixels() { uploads++; return bytes; } },
+    geometry: { Rectangle: class {} },
+    createCanvas: () => ({ getContext: () => ({
+      createImageData: () => ({ data: new Uint8ClampedArray(bytes.length) }), putImageData() {},
+    }) }),
+    maxCacheBytes: 92,
+  });
+  const paint = { pixel_ref: { id: '1', generation: '1' }, width: 9, height: 2, revision: '1' };
+  assert.equal(cache.hit(paint, 8, 0), true);
+  assert.equal(cache.hit(paint, 0, 1), false);
+  assert.equal(cache.hit(paint, 8, 1), true);
+  assert.deepEqual(cache.bounds(paint), { left: 0, top: 0, right: 9, bottom: 2 });
+  cache.paint(paint, record => assert.deepEqual(record.corners.map(p => Array.from(p)), [
+    [10, 20, 30, 255], [40, 50, 60, 1], [0, 0, 0, 0], [70, 80, 90, 127],
+  ]));
+  assert.equal(uploads, 1);
+  assert.equal(cache.stats().bytes, 91);
 });

@@ -5,22 +5,30 @@ pub(super) struct BitmapState {
     pub smoothing: bool,
     pub pixel_snapping: PixelSnapping,
 }
-pub(super) fn referenced_bitmap_resources(symbols: &[Symbol]) -> BTreeSet<&str> {
-    symbols
+/// Reserve directly placed, script-accessible BitmapData before read-only shape paints.
+pub(super) fn referenced_bitmap_resources(symbols: &[Symbol]) -> Vec<(&str, bool)> {
+    let mut placed = BTreeSet::new();
+    let mut paints = BTreeSet::new();
+    for key in symbols
         .iter()
         .flat_map(|s| &s.timeline.layers)
         .flat_map(|l| &l.keyframes)
-        .flat_map(|k| {
-            let placed = k.elements.iter().filter_map(|e| match &e.kind {
-                ElementKind::Bitmap { resource_id, .. } => Some(resource_id.as_str()),
-                _ => None,
-            });
-            placed.chain(
-                k.bitmap_fills
-                    .iter()
-                    .map(|paint| paint.resource_id.as_str()),
-            )
-        })
+    {
+        for element in &key.elements {
+            if let ElementKind::Bitmap { resource_id, .. } = &element.kind {
+                placed.insert(resource_id.as_str());
+            }
+        }
+        paints.extend(
+            key.bitmap_fills
+                .iter()
+                .map(|paint| paint.resource_id.as_str()),
+        );
+    }
+    placed
+        .iter()
+        .map(|&id| (id, true))
+        .chain(paints.difference(&placed).map(|&id| (id, false)))
         .collect()
 }
 
@@ -33,20 +41,13 @@ impl RuntimeGraph {
             ));
             return;
         }
-        let mut total = 0usize;
-        for id in referenced {
+        for (id, placed) in referenced {
             let Some(resource) = project.resources.iter().find(|resource| resource.id == id) else {
                 self.bitmap_error = Some(BitmapError("missing image resource".into()));
                 return;
             };
             if resource.data_base64.is_empty() && resource.is_image() {
                 if let Some(hydrated) = self.hydrated_bitmaps.get(id).cloned() {
-                    total += hydrated.width as usize * hydrated.height as usize * 4;
-                    if total > MAX_BITMAP_BYTES {
-                        self.bitmap_error =
-                            Some(BitmapError("authored image buffers exceed 128 MiB".into()));
-                        return;
-                    }
                     match self.pixels.import(&hydrated) {
                         Ok(reference) => {
                             self.resource_pixels.insert(id.into(), reference);
@@ -59,24 +60,7 @@ impl RuntimeGraph {
                 }
                 continue;
             }
-            let result = Ok(resource)
-                .and_then(|resource| {
-                    let (w, h) = resource
-                        .image_dimensions()
-                        .map_err(|e| BitmapError(e.to_string()))?;
-                    total += w as usize * h as usize * 4;
-                    if total > MAX_BITMAP_BYTES {
-                        return Err(BitmapError("authored image buffers exceed 128 MiB".into()));
-                    }
-                    Ok(resource)
-                })
-                .and_then(|resource| {
-                    resource
-                        .decode_image()
-                        .map_err(|e| BitmapError(e.to_string()))
-                })
-                .and_then(|image| self.pixels.import(&image));
-            match result {
+            match self.pixels.import_authored(resource, placed) {
                 Ok(reference) => {
                     self.resource_pixels.insert(id.into(), reference);
                 }

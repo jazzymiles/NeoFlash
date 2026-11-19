@@ -348,6 +348,7 @@ pub(crate) struct RuntimeGraph {
     as2_snapshot_selection: HashMap<ObjectRef, String>,
     events: Vec<DisplayEvent>,
     events_overflowed: bool,
+    omit_authored_events: bool,
     lifecycle_mode: bool,
     graphics_cost: usize,
     namespaces: BTreeMap<ObjectRef, LinkedNamespace>,
@@ -433,8 +434,12 @@ impl RuntimeGraph {
                     (
                         path.clone(),
                         node.reference.clone(),
-                        self.route(&node.reference),
-                        self.on_stage(&node.reference),
+                        if self.omit_authored_events {
+                            Vec::new()
+                        } else {
+                            self.route(&node.reference)
+                        },
+                        !self.omit_authored_events && self.on_stage(&node.reference),
                     )
                 })
                 .collect();
@@ -515,6 +520,9 @@ impl RuntimeGraph {
                 continue;
             };
             let reference = node.reference.clone();
+            if self.omit_authored_events {
+                continue;
+            }
             let route = self.route(&reference);
             let on_stage = self.on_stage(&reference);
             self.push_timeline_event(DisplayEvent {
@@ -551,6 +559,9 @@ impl RuntimeGraph {
         self.events = prior;
     }
     pub(crate) fn push_timeline_event(&mut self, event: DisplayEvent) {
+        if self.omit_authored_events {
+            return;
+        }
         if self.events.len() < MAX_DISPLAY_EVENTS {
             self.events.push(event);
         } else if self.lifecycle_mode {
@@ -700,6 +711,16 @@ impl RuntimeGraph {
 }
 
 impl Player {
+    /// A host rendering a document without scripts may skip unobserved authored placement events.
+    /// Host-driven display mutations still return their own event packets.
+    pub fn set_authored_display_events(&mut self, observe: bool) {
+        self.graph.omit_authored_events = !observe;
+        if !observe {
+            self.graph.events.clear();
+            self.graph.events_overflowed = false;
+        }
+    }
+
     pub fn object_ref(&self, path: &[Id]) -> Option<ObjectRef> {
         self.graph
             .authored

@@ -60,7 +60,7 @@
   const unsupportedText=new Set(['htmlText','styleSheet']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,geometry,getGeom3D=()=>null,proxyFor,proxyForRef,referenceOf,getStage=()=>null,getStageHost=()=>null,measureText,pathBounds,onMutation=()=>{},onSuperConstruct=null,isRetiring=()=>false,isRetiringReference=()=>false,onTabChange=()=>{},onTextLink=null,project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAudio=()=>null,getAS2Text=()=>null,getFte3D=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
+  function create({player,geometry,getGeom3D=()=>null,proxyFor,proxyForRef,referenceOf,getStage=()=>null,getStageHost=()=>null,measureText,pathBounds,onMutation=()=>{},onObserveUnload=()=>{},onSuperConstruct=null,isRetiring=()=>false,isRetiringReference=()=>false,onTabChange=()=>{},onTextLink=null,project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAudio=()=>null,getAS2Text=()=>null,getFte3D=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
     if(!geometry)throw new Error('The Rust geometry family is missing. Re-export this project.');
     const {Point,Rectangle,Matrix,ColorTransform}=geometry;
     const legacy = new Map();
@@ -1854,6 +1854,7 @@
         if(!list){list=[];record.authoredClip.set(event,list);}
         list.push(fn);
         if(event==='load')pendingClipLoads.push({target,fn});
+        if(event==='unload')onObserveUnload();
       }else{
         record.authoredButton.push({event,key:keySpec??null,fn});
       }
@@ -1888,6 +1889,7 @@
       if(!callbackNames.has(name))throw new TypeError(`AS2 callback ${name} is not supported yet.`);
       if(value!==null&&value!==undefined&&typeof value!=='function')throw new TypeError(`${name} requires a function or null.`);
       target[name]=value;
+      if (name === 'onUnload' && typeof value === 'function') onObserveUnload();
       const {id,record}=ensureLegacyRecord(target);
       if(value==null)record.handlers.delete(name);else record.handlers.set(name,value);
       if(!record.handlers.size&&!record.dynamic&&!record.authoredClip.size&&!record.authoredButton.length)legacy.delete(id);
