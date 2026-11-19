@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed photos appearing as solid shapes on Stage and in HTML5 when opening Figma imports.
+  Existing projects now draw the stored image inside its editable outline, using its saved
+  placement, tiling and smoothing settings. PNG frame exports also include these fills.
+
 - Fixed Figma frames importing as empty rectangles. Painted frames now keep their backgrounds, text,
   nested components and vector artwork. Binary Figma files retain text, visibility and icon swaps bound
   to component properties, and stroked icons keep their editable centerlines. Repeated clipping masks

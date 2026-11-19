@@ -692,6 +692,7 @@ fn scene_from_evaluation_with_overrides(
                             draw.item.color_transform,
                             source_clips(&draw.clip_ids),
                             luminance,
+                            draw.item.bitmap_fill.as_ref(),
                         )
                     })
                     .collect::<Vec<_>>()
@@ -1009,6 +1010,7 @@ pub(crate) fn alpha_component(
     color: ColorTransform,
     clip_ids: Vec<String>,
     luminance: bool,
+    bitmap_fill: Option<&AuthoredBitmapFill>,
 ) -> Option<AlphaClipComponent> {
     let mut fill_gradient = None;
     let mut resource_bitmap = None;
@@ -1021,8 +1023,10 @@ pub(crate) fn alpha_component(
         } => {
             resource_bitmap = Some(MaskResourceBitmap {
                 resource_id: resource_id.clone(),
-                width: *width,
-                height: *height,
+                mapping: MaskBitmapMapping::Placement {
+                    width: *width,
+                    height: *height,
+                },
                 smoothing: *smoothing,
                 color_transform: color,
             });
@@ -1037,7 +1041,18 @@ pub(crate) fn alpha_component(
         | ElementKind::Path { fill, .. }
         | ElementKind::PaintedPath { fill, .. } => {
             let (commands, rule) = crate::runtime_graph::clipping::vector_path(kind)?;
-            let alpha = if let ElementKind::PaintedPath {
+            let alpha = if let Some(fill) = bitmap_fill {
+                resource_bitmap = Some(MaskResourceBitmap {
+                    resource_id: fill.resource_id.clone(),
+                    mapping: MaskBitmapMapping::Fill {
+                        matrix: fill.matrix,
+                        repeat: fill.repeat,
+                    },
+                    smoothing: fill.smoothing,
+                    color_transform: color,
+                });
+                1.
+            } else if let ElementKind::PaintedPath {
                 fill_gradient: Some(gradient),
                 ..
             } = kind
@@ -1087,7 +1102,10 @@ fn mask_rectangle(width: f64, height: f64) -> Vec<PathCommand> {
     ]
 }
 
-fn runtime_alpha_component(draw: &RuntimeDrawItem, luminance: bool) -> Option<AlphaClipComponent> {
+pub(crate) fn runtime_alpha_component(
+    draw: &RuntimeDrawItem,
+    luminance: bool,
+) -> Option<AlphaClipComponent> {
     match &draw.item.kind {
         RuntimeDrawKind::Element(kind) => alpha_component(
             kind,
@@ -1095,6 +1113,7 @@ fn runtime_alpha_component(draw: &RuntimeDrawItem, luminance: bool) -> Option<Al
             draw.item.color_transform,
             draw.clip_ids.clone(),
             luminance,
+            draw.item.bitmap_fill.as_ref(),
         ),
         RuntimeDrawKind::GradientPath {
             commands,

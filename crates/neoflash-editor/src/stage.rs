@@ -223,7 +223,7 @@ pub(crate) fn local_bounds(item: &DrawItem, p: &egui::Painter) -> Rect {
             ..
         } => crate::vector::path_bounds_cached(commands, item.path_fingerprint)
             .map(|b| {
-                let pad = if crate::vector::vector_paint_visibility(&item.kind)
+                let pad = if crate::vector::vector_paint_visibility(item)
                     .is_some_and(|v| v.stroke || !v.fill)
                 {
                     *stroke_width as f32 / 2.
@@ -259,7 +259,7 @@ pub(crate) fn world_bounds(item: &DrawItem, p: &egui::Painter) -> Rect {
                     item.transform,
                 )
                 .map(|bounds| {
-                    let pad = if crate::vector::vector_paint_visibility(&item.kind)
+                    let pad = if crate::vector::vector_paint_visibility(item)
                         .is_some_and(|v| v.stroke || !v.fill)
                     {
                         let half = (*stroke_width * 0.5).max(0.0);
@@ -346,7 +346,7 @@ pub(crate) fn hit_item_with_slop(
             stroke_width,
             ..
         } => {
-            let Some(visibility) = crate::vector::vector_paint_visibility(&item.kind) else {
+            let Some(visibility) = crate::vector::vector_paint_visibility(item) else {
                 return false;
             };
             let local_slop = f64::from(slop) / (max_scale * f64::from(zoom));
@@ -402,24 +402,54 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle, retain_solid_
     let color = |value: Color, alpha: f64, tint: Option<Color32>| {
         color(item.color_transform.apply(value), alpha, tint)
     };
+    let bitmap_fill = bitmap_texture.filter(|_| !outlines).and_then(|id| {
+        crate::bitmaps::BitmapFillPaint::new(p.ctx(), item, id, self::color([255; 4], alpha, tint))
+    });
+    if let Some(paint) = bitmap_fill
+        && let ElementKind::Path {
+            commands,
+            fill_rule,
+            ..
+        }
+        | ElementKind::PaintedPath {
+            commands,
+            fill_rule,
+            ..
+        } = &item.kind
+    {
+        let scale = item.transform[0]
+            .hypot(item.transform[1])
+            .max(item.transform[2].hypot(item.transform[3]))
+            .max(0.001);
+        let tolerance = (0.25 / (scale * zoom as f64)).clamp(0.001, 1.) as f32;
+        match crate::vector::tessellate_cached_with_fingerprint(
+            commands,
+            item.path_fingerprint,
+            *fill_rule,
+            None,
+            tolerance,
+        ) {
+            Ok(geometry) => {
+                p.add(Shape::mesh(paint.mesh(&geometry, screen)));
+            }
+            Err(error) => paint_stage_error_plate(p, screen(Pos2::ZERO), &error),
+        }
+    }
     match &item.kind {
         ElementKind::Rectangle { fill, stroke, .. } | ElementKind::Ellipse { fill, stroke, .. } => {
+            let stroke = if outlines {
+                [90, 110, 130, 255]
+            } else {
+                *stroke
+            };
             crate::stage_primitives::paint_primitive(
                 p,
                 item,
                 origin,
                 zoom,
-                color(*fill, alpha, tint),
-                color(
-                    if outlines {
-                        [90, 110, 130, 255]
-                    } else {
-                        *stroke
-                    },
-                    alpha,
-                    tint,
-                ),
+                [color(*fill, alpha, tint), color(stroke, alpha, tint)],
                 outlines,
+                bitmap_fill,
             );
         }
         ElementKind::Text {
@@ -674,7 +704,11 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle, retain_solid_
                 item.path_fingerprint,
                 *fill_rule,
                 *stroke_width,
-                (fill, fill_gradient.as_ref()),
+                if bitmap_fill.is_some() {
+                    (&[0; 4], None)
+                } else {
+                    (fill, fill_gradient.as_ref())
+                },
                 (stroke, stroke_gradient.as_ref()),
                 screen,
                 |c| color(c, alpha, tint),
@@ -700,7 +734,7 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle, retain_solid_
                 .max(0.001);
             let paint = crate::vector::PathPaint {
                 rule: *fill_rule,
-                fill: if outlines {
+                fill: if outlines || bitmap_fill.is_some() {
                     Color32::TRANSPARENT
                 } else {
                     color(*fill, alpha, tint)
@@ -2435,12 +2469,8 @@ impl Editor {
                     draw.item.color_transform,
                 )
             } else {
-                self.bitmap_textures.texture_transformed(
-                    painter.ctx(),
-                    &self.project,
-                    &draw.item.kind,
-                    draw.item.color_transform,
-                )
+                self.bitmap_textures
+                    .texture_transformed(painter.ctx(), &self.project, &draw.item)
             };
             let video_status_badge = if matches!(draw.item.kind, ElementKind::Video { .. })
                 && bitmap_texture.is_none()
@@ -3101,6 +3131,7 @@ impl Editor {
                     transform: transform_matrix(el.transform),
                     alpha: el.transform.alpha,
                     color_transform: el.transform.color_transform,
+                    bitmap_fill: None,
                     path_fingerprint: None,
                     kind: el.kind.clone(),
                 };
@@ -4046,6 +4077,7 @@ mod symbol_context_tests {
                 transform: [1., 0., 0., 1., 0., 0.],
                 alpha: 1.,
                 color_transform: ColorTransform::default(),
+                bitmap_fill: None,
                 path_fingerprint: None,
                 kind: ElementKind::Rectangle {
                     width: 10.,

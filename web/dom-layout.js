@@ -2540,6 +2540,12 @@
 
       const drawsByOwnerAndAncestors = new Map();
       for (const item of draws) {
+        // A bitmap brush requires an island. Include preceding siblings in the
+        // same blend group so its result is composited against the backdrop once.
+        if (item.filter_id && (item.kind?.fill_bitmap || item.kind?.stroke_bitmap)) {
+          const root = fgAncestry(item.filter_id)[0];
+          if (root && !rootGroupReasons.has(root.id)) rootGroupReasons.set(root.id, 'bitmap_fill');
+        }
         const ownKey = item.owner_ref ? JSON.stringify(item.owner_ref) : JSON.stringify(item.instance_path || []);
         for (let cur = objectsByKey.get(ownKey); cur; cur = cur.parent_ref ? objectsByKey.get(JSON.stringify(cur.parent_ref)) : null) {
           const ck = cur.object_ref ? JSON.stringify(cur.object_ref) : JSON.stringify(cur.path || []);
@@ -2659,14 +2665,24 @@
             rootCssBlend: Boolean(islandCssBlend && islandCssBlend !== 'normal'),
           });
           if (painted && painted.width > 0 && painted.height > 0) {
+            // An island is painted in Stage coordinates. Mount it at its authored
+            // depth so an opaque background cannot cover later SVG or text siblings.
+            // A filtered group already includes its owner's blend and clipping.
+            const draw = entry.draws[0];
+            const owner = entry.rootFg
+              ? objectsByKey.get(JSON.stringify(entry.rootFg.owner_ref))?.parent_ref
+              : draw.owner_ref || draw.instance_path || [];
+            const mounted = mountContainerChain(containerChainFor(JSON.stringify(owner)));
+            if (!mounted.targetList) continue;
+            const localMatrix = matMultiply(matInverse(mounted.worldMatrix), [1, 0, 0, 1, painted.left, painted.top]);
             seenIslands.add(islandKey);
             Object.assign(rec.element.style, {
-              transform: `translate(${painted.left}px, ${painted.top}px)`,
+              transform: cssMatrix(localMatrix),
               width: `${painted.width}px`,
               height: `${painted.height}px`,
               mixBlendMode: islandCssBlend && islandCssBlend !== 'normal' ? islandCssBlend : '',
             });
-            sceneDesired.push(rec.element);
+            mounted.targetList.push(rec.element);
           }
           continue;
         }

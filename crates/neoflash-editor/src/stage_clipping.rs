@@ -354,7 +354,7 @@ pub(crate) fn capture(
 }
 
 fn is_fill_only_vector_silhouette(item: &DrawItem) -> bool {
-    crate::vector::vector_paint_visibility(&item.kind)
+    crate::vector::vector_paint_visibility(item)
         .is_some_and(|visibility| visibility.fill && !visibility.stroke)
 }
 
@@ -365,7 +365,7 @@ pub(crate) fn vector_mesh(
     origin: Pos2,
     zoom: f32,
 ) -> Result<Option<Mesh>, String> {
-    let Some(visibility) = crate::vector::vector_paint_visibility(&item.kind) else {
+    let Some(visibility) = crate::vector::vector_paint_visibility(item) else {
         return Ok(None);
     };
     let (width, fingerprint) = match &item.kind {
@@ -575,7 +575,7 @@ thread_local! {
 }
 
 fn item_silhouette_fingerprint(item: &DrawItem) -> Option<(u64, u64, usize)> {
-    let visibility = crate::vector::vector_paint_visibility(&item.kind)?;
+    let visibility = crate::vector::vector_paint_visibility(item)?;
     match &item.kind {
         ElementKind::Path {
             commands,
@@ -955,6 +955,7 @@ mod tests {
             transform: [1., 0., 0., 1., 0., 0.],
             alpha: 1.,
             color_transform: Default::default(),
+            bitmap_fill: None,
             path_fingerprint: None,
             kind,
         }
@@ -1169,6 +1170,7 @@ mod tests {
             transform: [1., 0., 0., 1., 80., 70.],
             alpha: 1.,
             color_transform: Default::default(),
+            bitmap_fill: None,
             path_fingerprint: None,
             kind: ElementKind::Rectangle {
                 width: size.x as f64,
@@ -1275,6 +1277,7 @@ mod tests {
             transform: [1., 0., 0., 1., 100., 90.],
             alpha: 1.,
             color_transform: Default::default(),
+            bitmap_fill: None,
             path_fingerprint: None,
             kind: ElementKind::Rectangle {
                 width: 80.,
@@ -1442,6 +1445,7 @@ mod tests {
             transform: [1., 0., 0., 1., -100_000_000., -100_000_000.],
             alpha: 1.,
             color_transform: Default::default(),
+            bitmap_fill: None,
             path_fingerprint: None,
             kind: ElementKind::Rectangle {
                 width: 200_000_000.,

@@ -45,13 +45,13 @@ pub(crate) struct VectorPaintVisibility {
 
 /// Effective vector passes, matching the renderer: an explicit gradient replaces the solid
 /// fallback, and a stroke also needs a positive authored width.
-pub(crate) fn vector_paint_visibility(kind: &ElementKind) -> Option<VectorPaintVisibility> {
+pub(crate) fn vector_paint_visibility(item: &DrawItem) -> Option<VectorPaintVisibility> {
     let visible_alpha = |solid: &Color, gradient: Option<&GradientPaint>| {
         gradient.map_or(solid[3] != 0, |paint| {
             paint.stops.iter().any(|stop| stop.color[3] != 0)
         })
     };
-    match kind {
+    match &item.kind {
         ElementKind::Rectangle {
             fill,
             stroke,
@@ -70,7 +70,7 @@ pub(crate) fn vector_paint_visibility(kind: &ElementKind) -> Option<VectorPaintV
             stroke_width,
             ..
         } => Some(VectorPaintVisibility {
-            fill: fill[3] != 0,
+            fill: item.bitmap_fill.is_some() || fill[3] != 0,
             stroke: stroke[3] != 0 && *stroke_width > 0.,
         }),
         ElementKind::PaintedPath {
@@ -81,7 +81,7 @@ pub(crate) fn vector_paint_visibility(kind: &ElementKind) -> Option<VectorPaintV
             stroke_gradient,
             ..
         } => Some(VectorPaintVisibility {
-            fill: visible_alpha(fill, fill_gradient.as_ref()),
+            fill: item.bitmap_fill.is_some() || visible_alpha(fill, fill_gradient.as_ref()),
             stroke: visible_alpha(stroke, stroke_gradient.as_ref()) && *stroke_width > 0.,
         }),
         _ => None,
@@ -4972,7 +4972,6 @@ mod tests {
         let ctx = egui::Context::default();
         let painter = ctx.layer_painter(egui::LayerId::background());
         for (name, kind, expected, probe) in cases {
-            assert_eq!(vector_paint_visibility(&kind), Some(expected), "{name}");
             assert_eq!(
                 rendered_path_passes(&kind),
                 usize::from(expected.fill) + usize::from(expected.stroke),
@@ -4986,9 +4985,11 @@ mod tests {
                 transform: [1., 0., 0., 1., 0., 0.],
                 alpha: 1.,
                 color_transform: Default::default(),
+                bitmap_fill: None,
                 path_fingerprint: None,
                 kind,
             };
+            assert_eq!(vector_paint_visibility(&item), Some(expected), "{name}");
             assert_eq!(
                 crate::stage::hit_item_with_slop(&item, &painter, probe, 1., 3.),
                 expected.fill || expected.stroke,
@@ -5063,6 +5064,7 @@ mod tests {
             transform: [1., 0., 0., 1., 5., 7.],
             alpha: 1.,
             color_transform: Default::default(),
+            bitmap_fill: None,
             path_fingerprint: Some(fingerprint),
             kind: ElementKind::Path {
                 commands: commands.clone(),

@@ -3057,6 +3057,7 @@ fn merge_selection_hatch_paths_in_theme(theme: crate::theme::ThemeMode) {
             }),
             alpha: 1.,
             color_transform: Default::default(),
+            bitmap_fill: None,
             path_fingerprint: None,
             kind,
         };
@@ -3151,6 +3152,7 @@ fn merge_selection_hatch_paths_in_theme(theme: crate::theme::ThemeMode) {
             transform: transform_matrix(Transform::default()),
             alpha: 1.,
             color_transform: Default::default(),
+            bitmap_fill: None,
             path_fingerprint: None,
             kind: ElementKind::Path {
                 commands,

@@ -195,10 +195,10 @@ pub use runtime::{
 pub use runtime_graph::{
     AlphaClipComponent, As2AccProps, As2AccUpdateEntry, ClipComponent, ColorTransform,
     DisplayError, DisplayEvent, DisplayInputState, DisplayMutation, DynamicKind, LoaderMutation,
-    MAX_DYNAMIC_OBJECTS, MaskResourceBitmap, MountedPublishResult, MutationResult, ObjectRef,
-    RuntimeAccessibleNode, RuntimeAlphaMask, RuntimeClip, RuntimeDrawItem, RuntimeDrawKind,
-    RuntimeFilterGroup, RuntimeObject, RuntimeScriptDispatch, RuntimeSnapshot, ScrollRect,
-    StageMutation, VideoState,
+    MAX_DYNAMIC_OBJECTS, MaskBitmapMapping, MaskResourceBitmap, MountedPublishResult,
+    MutationResult, ObjectRef, RuntimeAccessibleNode, RuntimeAlphaMask, RuntimeClip,
+    RuntimeDrawItem, RuntimeDrawKind, RuntimeFilterGroup, RuntimeObject, RuntimeScriptDispatch,
+    RuntimeSnapshot, ScrollRect, StageMutation, VideoState,
 };
 pub use runtime_graphics::{
     BitmapFillSpec, BitmapPaint, GradientKind, GradientPaint, GradientSpec, GradientSpread,

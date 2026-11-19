@@ -870,6 +870,7 @@ fn tight_transformed_bounds_and_screen_axis_box_scale_for_skewed_rotated_and_def
         }),
         alpha: 1.,
         color_transform: ColorTransform::default(),
+        bitmap_fill: None,
         path_fingerprint: None,
         kind: ElementKind::Ellipse {
             width: 100.,

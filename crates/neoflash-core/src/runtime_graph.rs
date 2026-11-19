@@ -12,8 +12,8 @@ mod as2_snapshot;
 mod bitmap;
 pub(crate) mod clipping;
 pub use clipping::{
-    AlphaClipComponent, ClipComponent, MaskResourceBitmap, RuntimeAlphaMask, RuntimeClip,
-    ScrollRect,
+    AlphaClipComponent, ClipComponent, MaskBitmapMapping, MaskResourceBitmap, RuntimeAlphaMask,
+    RuntimeClip, ScrollRect,
 };
 mod filters;
 pub use filters::RuntimeFilterGroup;
@@ -1224,6 +1224,15 @@ impl Player {
                     item.color_transform = ColorTransform::default();
                     if let RuntimeDrawKind::Element(kind) = &mut item.kind {
                         concatenated_color_transform.transform_kind(kind);
+                        if let Some(paint) = &item.bitmap_fill
+                            && let Some(painted) = self.graph.authored_bitmap_shape(
+                                kind,
+                                paint,
+                                concatenated_color_transform,
+                            )
+                        {
+                            item.kind = painted;
+                        }
                     }
                     if !matches!(
                         source.kind,
@@ -1265,6 +1274,7 @@ impl Player {
                             transform: display.world,
                             alpha: 1.,
                             color_transform: ColorTransform::default(),
+                            bitmap_fill: None,
                             path_fingerprint: None,
                             kind: RuntimeDrawKind::Element(kind),
                         },
@@ -1285,6 +1295,7 @@ impl Player {
                             transform: display.world,
                             alpha: 1.,
                             color_transform: ColorTransform::default(),
+                            bitmap_fill: None,
                             path_fingerprint: None,
                             kind: RuntimeDrawKind::VideoFrame {
                                 width: video.width,
@@ -1324,6 +1335,7 @@ impl Player {
                                 transform: affine_multiply(display.world, [1., 0., 0., 1., x, y]),
                                 alpha: 1.,
                                 color_transform: ColorTransform::default(),
+                                bitmap_fill: None,
                                 path_fingerprint: None,
                                 kind: RuntimeDrawKind::Element(kind),
                             },
@@ -1346,6 +1358,7 @@ impl Player {
                             transform: display.world,
                             alpha: 1.,
                             color_transform: ColorTransform::default(),
+                            bitmap_fill: None,
                             path_fingerprint: None,
                             kind: RuntimeDrawKind::TextField {
                                 field: Box::new(concatenated_color_transform.transform_text(field)),
@@ -1373,6 +1386,7 @@ impl Player {
                             transform: display.world,
                             alpha: 1.,
                             color_transform: ColorTransform::default(),
+                            bitmap_fill: None,
                             path_fingerprint: None,
                             kind: RuntimeDrawKind::BitmapPixels {
                                 pixel_ref: pixel.pixel_ref.clone(),
@@ -1408,6 +1422,7 @@ impl Player {
                             transform: display.world,
                             alpha: 1.,
                             color_transform: ColorTransform::default(),
+                            bitmap_fill: None,
                             path_fingerprint: None,
                             kind,
                         },
@@ -1442,6 +1457,7 @@ impl Player {
                                     transform: affine_multiply(display.world, run_matrix),
                                     alpha: 1.,
                                     color_transform: ColorTransform::default(),
+                                    bitmap_fill: None,
                                     path_fingerprint: None,
                                     kind: RuntimeDrawKind::TextField {
                                         field: Box::new(
@@ -2876,6 +2892,7 @@ impl Player {
                     transform: mat,
                     alpha: 1.0,
                     color_transform: ColorTransform::default(),
+                    bitmap_fill: None,
                     path_fingerprint: None,
                     kind,
                 });

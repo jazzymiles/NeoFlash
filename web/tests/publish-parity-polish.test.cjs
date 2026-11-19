@@ -736,6 +736,18 @@ function buildVisualCameraMasksProject(renderMode) {
     },
   });
 
+  const mixedBlendSym = boxClip('sym-mixed-blend', 'MixedBlend', [0, 255, 255, 255]);
+  const mixedFrame = mixedBlendSym.timeline.layers[0].keyframes[0];
+  const vector = mixedFrame.elements[0];
+  mixedFrame.elements.push({
+    ...vector, id: 'mixed-image', transform: makeTransform({ x: 22, y: 10 }),
+    kind: { ...vector.kind, width: 40, height: 30 },
+  });
+  mixedFrame.bitmap_fills = [{
+    element_id: 'mixed-image', resource_id: 'texture',
+    matrix: [20, 0, 0, 20, 0, 0], repeat: false, smoothing: false,
+  }];
+
   const layerBlendSym = {
     id: 'sym-layer-erase',
     name: 'LayerEraseClip',
@@ -847,13 +859,40 @@ function buildVisualCameraMasksProject(renderMode) {
               frame: 0,
               label: '',
               tween: null,
+              bitmap_fills: [{
+                element_id: 'textured-badge', resource_id: 'texture',
+                matrix: [0, 12, -12, 0, 48, 0], repeat: true, smoothing: false,
+              }],
               elements: [
+                {
+                  id: 'textured-badge', name: 'Textured badge',
+                  transform: makeTransform({ x: 290, y: 30 }),
+                  kind: {
+                    type: 'path', fill_rule: 'evenodd', fill: [255, 255, 255, 255],
+                    stroke: [255, 215, 0, 255], stroke_width: 4,
+                    commands: [
+                      { op: 'move_to', x: 0, y: 0 }, { op: 'line_to', x: 80, y: 0 },
+                      { op: 'line_to', x: 80, y: 50 }, { op: 'line_to', x: 0, y: 50 }, { op: 'close' },
+                      { op: 'move_to', x: 30, y: 15 }, { op: 'line_to', x: 50, y: 15 },
+                      { op: 'line_to', x: 50, y: 35 }, { op: 'line_to', x: 30, y: 35 }, { op: 'close' },
+                    ],
+                  },
+                },
                 {
                   id: 'hud-inst',
                   name: 'hudClip',
                   transform: makeTransform({ x: 12, y: 14 }),
                   kind: { type: 'instance', symbol_id: 'sym-hud-box', playback: 'independent' },
                   scripts: [],
+                },
+                {
+                  ...vector, id: 'blend-backdrop', transform: makeTransform({ x: 95, y: 20 }),
+                  kind: { ...vector.kind, fill: [128, 128, 128, 255] },
+                },
+                {
+                  id: 'mixed-blend', name: 'mixedBlend', transform: makeTransform({ x: 95, y: 20 }),
+                  blend_mode: 'multiply',
+                  kind: { type: 'instance', symbol_id: mixedBlendSym.id, playback: 'independent' },
                 },
               ],
             },
@@ -993,9 +1032,14 @@ function buildVisualCameraMasksProject(renderMode) {
       boxClip('sym-hud-box', 'HudBox', [16, 185, 129, 255]),
       boxClip('sym-world-box', 'WorldBox', [249, 115, 22, 255]),
       boxClip('sym-scroll-box', 'ScrollBox', [168, 85, 247, 255]),
+      mixedBlendSym,
       layerBlendSym,
     ],
     resources: [
+      { id: 'texture', path: 'texture.png', media_type: 'image/png',
+        // Lossless 2 × 1 image with one magenta and one turquoise pixel.
+        data_base64: 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEUlEQVR4nGP4KXDwP+fPy/8BF3YFnvppjdEAAAAASUVORK5CYII=',
+      },
       {
         id: 'publish-settings',
         path: 'publish/settings.json',
@@ -1427,6 +1471,15 @@ test('Canvas + DOM publish parity: scenes, symbols, Restart recovery with author
     await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/vis-dom/index.html`);
     await cdp.waitTrace('VISUAL_READY=1');
 
+    // Sample the same authored coordinates from the cropped DOM island and the full Stage.
+    // The 90° brush turns two horizontal texels into repeating 12 px horizontal bands.
+    function readBadgePixels(canvas, left, top, width, height) {
+      const ctx = canvas.getContext('2d');
+      return [[300, 36], [300, 48], [300, 60], [330, 55], [290, 55]].map(([x, y]) =>
+        Array.from(ctx.getImageData(Math.floor((x - left) * canvas.width / width),
+          Math.floor((y - top) * canvas.height / height), 1, 1).data));
+    }
+    const expectedBands = [[249, 16, 193, 255], [9, 249, 211, 255], [249, 16, 193, 255]];
     const domVis = await cdp.evalJson(`(() => {
       const stageEl = document.getElementById('stage-dom-root');
       const hudEl = stageEl.querySelector('.nf-dom-container[data-nf-name="hudClip"]');
@@ -1434,8 +1487,10 @@ test('Canvas + DOM publish parity: scenes, symbols, Restart recovery with author
       const scrollEl = stageEl.querySelector('.nf-dom-container[data-nf-name="scrollClip"]');
       const scrollRectEl = scrollEl?.querySelector('.nf-dom-scroll-rect');
       const scrollInner = scrollEl?.querySelector('.nf-dom-scroll-inner');
+      const sceneBounds = stageEl.querySelector('.nf-dom-scene').getBoundingClientRect();
       const islands = Array.from(stageEl.querySelectorAll('canvas.nf-dom-canvas-island')).map((c) => {
         const ctx = c.getContext('2d');
+        const bounds = c.getBoundingClientRect();
         const img = ctx.getImageData(0, 0, c.width, c.height).data;
         let lit = 0;
         let transparent = 0;
@@ -1445,6 +1500,11 @@ test('Canvas + DOM publish parity: scenes, symbols, Restart recovery with author
         }
         return {
           reason: c.getAttribute('data-nf-island-reason'),
+          beforeHud: c.parentElement === hudEl?.parentElement && Boolean(c.compareDocumentPosition(hudEl) & Node.DOCUMENT_POSITION_FOLLOWING),
+          badge: c.dataset.nfIslandReason === 'bitmap_fill' && !c.style.mixBlendMode
+            ? (${readBadgePixels})(c, (bounds.x - sceneBounds.x) * 400 / sceneBounds.width,
+              (bounds.y - sceneBounds.y) * 300 / sceneBounds.height, bounds.width * 400 / sceneBounds.width,
+              bounds.height * 300 / sceneBounds.height) : null,
           width: c.width,
           height: c.height,
           lit,
@@ -1458,8 +1518,33 @@ test('Canvas + DOM publish parity: scenes, symbols, Restart recovery with author
         scrollTransform: scrollEl?.style?.transform || '',
         scrollOverflow: scrollRectEl?.style?.overflow || '',
         scrollInnerTransform: scrollInner?.style?.transform || '',
+        blendPoint: {
+          x: sceneBounds.x + 130 * sceneBounds.width / 400,
+          y: sceneBounds.y + 40 * sceneBounds.height / 300,
+        },
         islands,
       };
+    })()`);
+
+    const badgeIsland = domVis.islands.find(i => i.badge);
+    assert.ok(badgeIsland?.beforeHud, 'The bitmap fill belongs below the following HUD sibling');
+    const domBadge = badgeIsland.badge;
+    assert.deepEqual(domBadge?.slice(0, 3), expectedBands, 'DOM island must sample the authored image');
+    assert.equal(domBadge[3][3], 0, 'DOM island must preserve the hole');
+    assert.deepEqual(domBadge[4], [255, 215, 0, 255], 'DOM island must preserve the gold stroke');
+
+    // Read the compositor's pixel: the bitmap covers cyan inside the Multiply group,
+    // then the isolated group blends once against the gray backdrop.
+    const { data: blendShot } = await cdp.send('Page.captureScreenshot', {
+      format: 'png', clip: { ...domVis.blendPoint, width: 1, height: 1, scale: 1 },
+    });
+    const domBlend = await cdp.evalJson(`(async () => {
+      const image = new Image();
+      image.src = 'data:image/png;base64,${blendShot}';
+      await image.decode();
+      const ctx = document.createElement('canvas').getContext('2d');
+      ctx.drawImage(image, 0, 0);
+      return Array.from(ctx.getImageData(0, 0, 1, 1).data);
     })()`);
 
     assert.equal(domVis.dpr, '2.5', 'DOM stage must track devicePixelRatio = 2.5');
@@ -1511,6 +1596,8 @@ test('Canvas + DOM publish parity: scenes, symbols, Restart recovery with author
         canvasWidth: c.width,
         canvasHeight: c.height,
         cssWidth: parseFloat(c.style.width),
+        blend: Array.from(ctx.getImageData(Math.floor(130 * c.width / 400), Math.floor(40 * c.height / 300), 1, 1).data),
+        badge: (${readBadgePixels})(c, 0, 0, 400, 300),
         nonBg,
       };
     })()`);
@@ -1518,6 +1605,11 @@ test('Canvas + DOM publish parity: scenes, symbols, Restart recovery with author
       canvasVis.canvasWidth > canvasVis.cssWidth * 2,
       `Canvas backing store must scale with DPR 2.5 (backing=${canvasVis.canvasWidth}, css=${canvasVis.cssWidth})`
     );
+    assert.deepEqual(canvasVis.badge.slice(0, 3), expectedBands, 'Canvas must sample the authored image');
+    assert.deepEqual(canvasVis.badge[3], [15, 23, 42, 255], 'Canvas must show the Stage through the hole');
+    assert.deepEqual(canvasVis.badge[4], [255, 215, 0, 255], 'Canvas must preserve the gold stroke');
+    assert.deepEqual(canvasVis.blend, [125, 8, 97, 255], 'Multiply composites the opaque bitmap against gray');
+    assert.deepEqual(domBlend, canvasVis.blend, 'DOM must blend the entire vector and bitmap group once');
     assert.ok(canvasVis.nonBg > 100, `Canvas mode must paint camera/masked/blended stage content (${canvasVis.nonBg})`);
 
     await cdp.navigateAndWait('about:blank');

@@ -203,18 +203,23 @@ pub(super) fn paint(
                     )
                 })
         } else {
-            editor.bitmap_textures.texture_transformed(
-                painter.ctx(),
-                &editor.project,
-                &draw.item.kind,
-                draw.item.color_transform,
-            )
+            editor
+                .bitmap_textures
+                .texture_transformed(painter.ctx(), &editor.project, &draw.item)
         };
         if let Some(id) = texture
-            && let Some(image) = editor
-                .bitmap_textures
-                .image(id)
-                .or_else(|| editor.video_textures.image(id))
+            && let Some(image) = editor.bitmap_textures.image(id).or_else(|| {
+                editor.video_textures.image(id).map(|(image, smooth)| {
+                    (
+                        image,
+                        if smooth {
+                            TextureOptions::LINEAR
+                        } else {
+                            TextureOptions::NEAREST
+                        },
+                    )
+                })
+            })
         {
             images.insert(id, image);
         }
@@ -366,7 +371,7 @@ pub(super) fn paint(
         return Ok(());
     }
     let font = Arc::new(painter.ctx().fonts(|fonts| fonts.image()));
-    images.insert(TextureId::Managed(0), (font, true));
+    images.insert(TextureId::Managed(0), (font, TextureOptions::LINEAR));
     let coverage = MaskCoverage::new(&editor.project, &scene.clips)?;
     let bg = editor.project.background;
     let stage_bg = Color32::from_rgba_unmultiplied(bg[0], bg[1], bg[2], bg[3]);
@@ -437,7 +442,7 @@ pub(super) fn paint(
 struct Renderer<'a> {
     scene: &'a AuthoredScene,
     draws: &'a [Captured],
-    images: &'a HashMap<TextureId, (Arc<ColorImage>, bool)>,
+    images: &'a HashMap<TextureId, (Arc<ColorImage>, TextureOptions)>,
     coverage: &'a MaskCoverage,
     origin: Pos2,
     zoom: f32,
@@ -640,10 +645,10 @@ fn raster_mesh(
     mesh: &Mesh,
     clip: Rect,
     scale: f32,
-    images: &HashMap<TextureId, (Arc<ColorImage>, bool)>,
+    images: &HashMap<TextureId, (Arc<ColorImage>, TextureOptions)>,
     work: &mut usize,
 ) -> Result<(), String> {
-    let (image, smooth) = images
+    let (image, options) = images
         .get(&mesh.texture_id)
         .ok_or("Native mask cannot read the artwork texture")?;
     for triangle in mesh.indices.as_chunks::<3>().0 {
@@ -687,7 +692,7 @@ fn raster_mesh(
                     (0..3).map(|i| verts[i].uv.x * w[i]).sum(),
                     (0..3).map(|i| verts[i].uv.y * w[i]).sum(),
                 );
-                let tex = texture(image, uv, *smooth);
+                let tex = texture(image, uv, *options);
                 let rgba = std::array::from_fn::<_, 4, _>(|channel| {
                     let color: f32 = (0..3)
                         .map(|i| f32::from(verts[i].color[channel]) * w[i])
@@ -711,16 +716,32 @@ fn edge(a: Pos2, b: Pos2, p: Pos2) -> f32 {
 fn top_left(a: Pos2, b: Pos2) -> bool {
     b.y < a.y || (b.y == a.y && b.x > a.x)
 }
-fn texture(image: &ColorImage, uv: Pos2, smooth: bool) -> [f32; 4] {
-    let pixel = |x: i32, y: i32| {
-        image.pixels[y.clamp(0, image.size[1] as i32 - 1) as usize * image.size[0]
-            + x.clamp(0, image.size[0] as i32 - 1) as usize]
+fn texture(image: &ColorImage, uv: Pos2, options: TextureOptions) -> [f32; 4] {
+    // Reduce the coordinates before conversion to integer texels. Bilinear filtering
+    // samples both sides of the seam when the authored image tiles.
+    let repeat = options.wrap_mode == egui::TextureWrapMode::Repeat;
+    let coord = |u: f32| {
+        if repeat {
+            u.rem_euclid(1.)
+        } else {
+            u.clamp(0., 1.)
+        }
+    };
+    let index = |value: i32, size: usize| -> usize {
+        if repeat {
+            value.rem_euclid(size as i32) as usize
+        } else {
+            value.clamp(0, size as i32 - 1) as usize
+        }
+    };
+    let pixel = |x, y| {
+        image.pixels[index(y, image.size[1]) * image.size[0] + index(x, image.size[0])]
             .to_array()
             .map(f32::from)
     };
-    let x = uv.x * image.size[0] as f32;
-    let y = uv.y * image.size[1] as f32;
-    if !smooth {
+    let x = coord(uv.x) * image.size[0] as f32;
+    let y = coord(uv.y) * image.size[1] as f32;
+    if options.magnification == egui::TextureFilter::Nearest {
         return pixel(x.floor() as i32, y.floor() as i32);
     }
     let (x, y) = (x - 0.5, y - 0.5);
@@ -757,6 +778,131 @@ mod tests {
             },
             ..Default::default()
         }
+    }
+    #[test]
+    fn native_bitmap_fill_keeps_contour_stroke_and_sampler_under_a_mask() {
+        use image::ImageEncoder;
+        let ctx = egui::Context::default();
+        let mut project = Project::blank();
+        project.format_version = 9;
+        let mut png = vec![];
+        image::codecs::png::PngEncoder::new(&mut png)
+            .write_image(
+                &[255, 0, 0, 128, 0, 0, 255, 128],
+                2,
+                1,
+                image::ExtendedColorType::Rgba8,
+            )
+            .unwrap();
+        project
+            .resources
+            .push(ResourceUnit::from_bytes("image", "image.png", "image/png", &png).unwrap());
+        let content = &mut project.symbols[0].timeline.layers[0];
+        content.properties.mask = Some("mask".into());
+        let contour = |min, max| {
+            [
+                PathCommand::MoveTo { x: min, y: min },
+                PathCommand::LineTo { x: max, y: min },
+                PathCommand::LineTo { x: max, y: max },
+                PathCommand::LineTo { x: min, y: max },
+                PathCommand::Close,
+            ]
+        };
+        content.keyframes[0].elements = vec![Element {
+            kind: ElementKind::PaintedPath {
+                commands: contour(0., 16.)
+                    .into_iter()
+                    .chain(contour(5., 11.))
+                    .collect(),
+                fill_rule: FillRule::EvenOdd,
+                fill: [0; 4],
+                fill_gradient: None,
+                stroke: [0, 255, 0, 255],
+                stroke_gradient: None,
+                stroke_width: 2.,
+            },
+            ..rect("pattern", 0., [0; 4])
+        }];
+        let mut mask = content.clone();
+        mask.id = "mask".into();
+        mask.properties.mask = None;
+        mask.properties.role = LayerRole::Mask;
+        mask.properties.mask_mode = MaskMode::Alpha;
+        mask.keyframes[0].elements = vec![rect("mask-source", 0., [255; 4])];
+        // Stay off texel boundaries so rounding in triangle interpolation cannot flip nearest samples.
+        let rotated = [0., 1., -1., 0., 8., 0.25];
+        content.keyframes[0].bitmap_fills = vec![AuthoredBitmapFill {
+            element_id: "pattern".into(),
+            resource_id: "image".into(),
+            matrix: rotated,
+            repeat: false,
+            smoothing: false,
+        }];
+        project.symbols[0].timeline.layers.push(mask);
+        project.validate().unwrap();
+        let mut editor = Editor::from_project(&ctx, project);
+        let mut render = |repeat, smoothing, matrix| {
+            let fill =
+                &mut editor.project.symbols[0].timeline.layers[0].keyframes[0].bitmap_fills[0];
+            fill.repeat = repeat;
+            fill.smoothing = smoothing;
+            fill.matrix = matrix;
+            let scene = evaluate_scene(&editor.project, &editor.project.root, 0, false, true);
+            let bounds = Rect::from_min_max(Pos2::ZERO, egui::pos2(16., 16.));
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(bounds),
+                    ..Default::default()
+                },
+                |ctx| {
+                    let painter = ctx
+                        .layer_painter(egui::LayerId::background())
+                        .with_clip_rect(bounds);
+                    editor.paint_scene_at(&painter, &scene, Pos2::ZERO, 1.);
+                },
+            );
+            ctx.data(|data| {
+                data.get_temp::<Cache>(egui::Id::new("neoflash-alpha-mask-rasters"))
+                    .unwrap()
+                    .0
+                    .last()
+                    .unwrap()
+                    .image
+                    .clone()
+            })
+        };
+        let clamped = render(false, false, rotated);
+        assert_eq!(
+            clamped[(3, 4)].to_array(),
+            [0, 0, 128, 128],
+            "clamp outside the rotated image"
+        );
+        assert_eq!(
+            clamped[(0, 3)],
+            Color32::GREEN,
+            "stroke on top of the texture"
+        );
+        assert_eq!(clamped[(7, 7)], Color32::TRANSPARENT, "even-odd hole");
+        assert_eq!(
+            clamped[(3, 12)],
+            Color32::TRANSPARENT,
+            "soft mask cuts off the bottom"
+        );
+        let nearest = render(true, false, rotated);
+        assert_eq!(nearest[(3, 4)].to_array(), [128, 0, 0, 128]);
+        assert_eq!(nearest[(3, 3)].to_array(), [0, 0, 128, 128]);
+        let smooth = render(true, true, rotated);
+        assert_eq!(
+            smooth[(3, 4)].to_array(),
+            [96, 0, 32, 128],
+            "bilinear repeat samples through the tile seam"
+        );
+        let singular = render(true, true, [0.; 6]);
+        assert_eq!(
+            singular[(3, 4)].to_array(),
+            [128, 0, 0, 128],
+            "singular paint samples the first texel"
+        );
     }
     #[test]
     fn native_soft_mask_flattens_overlap_once_and_replaces_cached_png_pixels() {

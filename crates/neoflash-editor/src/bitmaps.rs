@@ -1,20 +1,67 @@
 //! Bounded native textures for the pure authoring scene. Pixels remain resources.
 use eframe::egui::{self, TextureHandle, TextureId, TextureOptions};
-use neoflash_core::{ColorTransform, ElementKind, Project};
+use neoflash_core::{DrawItem, ElementKind, Project};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
 
 const MAX_TEXTURE_BYTES: usize = 256 * 1024 * 1024;
-type Key = (String, bool, [u64; 8]);
+type Key = (String, bool, bool, [u64; 8]);
 
 struct Texture {
     source: Arc<str>,
     handle: TextureHandle,
     bytes: usize,
     image: Arc<egui::ColorImage>,
-    smoothing: bool,
+    options: TextureOptions,
+}
+
+/// Map vertices of the ordinary local fill tessellation into source image UVs.
+#[derive(Clone, Copy)]
+pub(crate) struct BitmapFillPaint {
+    id: TextureId,
+    local_to_uv: [f64; 6],
+    color: egui::Color32,
+}
+
+impl BitmapFillPaint {
+    pub(crate) fn new(
+        ctx: &egui::Context,
+        item: &DrawItem,
+        id: TextureId,
+        color: egui::Color32,
+    ) -> Option<Self> {
+        let matrix = item.bitmap_fill.as_ref()?.matrix;
+        // A collapsed FillTransform samples the center of the first source texel.
+        let inverse =
+            neoflash_core::invert_affine_matrix(matrix).unwrap_or([0., 0., 0., 0., 0.5, 0.5]);
+        let [w, h] = ctx.tex_manager().read().meta(id)?.size.map(|n| n as f64);
+        let [a, b, c, d, x, y] = inverse;
+        Some(Self {
+            id,
+            local_to_uv: [a / w, b / h, c / w, d / h, x / w, y / h],
+            color,
+        })
+    }
+
+    pub(crate) fn mesh(
+        self,
+        geometry: &lyon_tessellation::VertexBuffers<lyon_tessellation::math::Point, u32>,
+        screen: impl Fn(egui::Pos2) -> egui::Pos2,
+    ) -> egui::Mesh {
+        let mut mesh = egui::Mesh::with_texture(self.id);
+        mesh.vertices.extend(geometry.vertices.iter().map(|vertex| {
+            let local = egui::pos2(vertex.x, vertex.y);
+            egui::epaint::Vertex {
+                pos: screen(local),
+                uv: crate::stage::affine(self.local_to_uv, local),
+                color: self.color,
+            }
+        }));
+        mesh.indices.clone_from(&geometry.indices);
+        mesh
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -81,7 +128,7 @@ pub(crate) struct BitmapTextures {
 impl BitmapTextures {
     pub fn begin_frame(&mut self, project: &Project) {
         self.used.clear();
-        self.textures.retain(|(id, _, _), texture| {
+        self.textures.retain(|(id, _, _, _), texture| {
             project.resources.iter().any(|resource| {
                 resource.id == *id && Arc::ptr_eq(&resource.data_base64, &texture.source)
             })
@@ -98,21 +145,24 @@ impl BitmapTextures {
         &mut self,
         ctx: &egui::Context,
         project: &Project,
-        kind: &ElementKind,
-        color: ColorTransform,
+        item: &DrawItem,
     ) -> Option<TextureId> {
-        let ElementKind::Bitmap {
+        let (resource_id, smoothing, repeat) = if let ElementKind::Bitmap {
             resource_id,
             smoothing,
             ..
-        } = kind
-        else {
-            return None;
+        } = &item.kind
+        {
+            (resource_id, *smoothing, false)
+        } else {
+            let fill = item.bitmap_fill.as_ref()?;
+            (&fill.resource_id, fill.smoothing, fill.repeat)
         };
         let resource = project
             .resources
             .iter()
             .find(|resource| resource.id == *resource_id)?;
+        let color = item.color_transform;
         let channels: Vec<_> = color
             .multipliers
             .into_iter()
@@ -121,7 +171,8 @@ impl BitmapTextures {
             .collect();
         let key = (
             resource_id.clone(),
-            *smoothing,
+            smoothing,
+            repeat,
             channels.try_into().unwrap(),
         );
         self.used.insert(key.clone());
@@ -155,16 +206,15 @@ impl BitmapTextures {
             self.warn(
                 resource_id,
                 &resource.data_base64,
-                "Native image preview exceeds its 64 MiB texture budget.".into(),
+                "Native image preview exceeds its 256 MiB texture budget.".into(),
             );
             return None;
         }
-        let sibling_key = (resource_id.clone(), !*smoothing, key.2);
-        let image = if let Some(sibling) = self
-            .textures
-            .get(&sibling_key)
-            .filter(|tex| Arc::ptr_eq(&tex.source, &resource.data_base64))
-        {
+        let image = if let Some((_, sibling)) = self.textures.iter().find(|(other, texture)| {
+            other.0 == *resource_id
+                && other.3 == key.3
+                && Arc::ptr_eq(&texture.source, &resource.data_base64)
+        }) {
             sibling.image.clone()
         } else if color.is_identity() {
             Arc::new(egui::ColorImage::from_rgba_unmultiplied(
@@ -182,15 +232,13 @@ impl BitmapTextures {
                 &pixels,
             ))
         };
-        let handle = ctx.load_texture(
-            format!("bitmap-{resource_id}-{smoothing}"),
-            image.clone(),
-            if *smoothing {
-                TextureOptions::LINEAR
-            } else {
-                TextureOptions::NEAREST
-            },
-        );
+        let options = match (smoothing, repeat) {
+            (false, false) => TextureOptions::NEAREST,
+            (false, true) => TextureOptions::NEAREST_REPEAT,
+            (true, false) => TextureOptions::LINEAR,
+            (true, true) => TextureOptions::LINEAR_REPEAT,
+        };
+        let handle = ctx.load_texture(format!("bitmap-{resource_id}"), image.clone(), options);
         let id = handle.id();
         self.textures.insert(
             key,
@@ -199,17 +247,17 @@ impl BitmapTextures {
                 handle,
                 bytes,
                 image,
-                smoothing: *smoothing,
+                options,
             },
         );
         Some(id)
     }
 
-    pub(crate) fn image(&self, id: TextureId) -> Option<(Arc<egui::ColorImage>, bool)> {
+    pub(crate) fn image(&self, id: TextureId) -> Option<(Arc<egui::ColorImage>, TextureOptions)> {
         self.textures
             .values()
             .find(|texture| texture.handle.id() == id)
-            .map(|texture| (texture.image.clone(), texture.smoothing))
+            .map(|texture| (texture.image.clone(), texture.options))
     }
 
     fn warn(&mut self, id: &str, source: &Arc<str>, message: String) {

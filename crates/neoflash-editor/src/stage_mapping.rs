@@ -273,6 +273,7 @@ mod tests {
                     transform: draw_matrix,
                     alpha: 1.,
                     color_transform: ColorTransform::default(),
+                    bitmap_fill: None,
                     path_fingerprint: None,
                     kind: ElementKind::Rectangle {
                         width: 10.,

@@ -1100,7 +1100,7 @@
         },
         {
           "id": "bitmap-fills",
-          "title": "Bitmap fills",
+          "title": "Render image fills inside vector shapes on Stage and in published HTML5",
           "status": "working"
         },
         {

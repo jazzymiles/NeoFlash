@@ -291,9 +291,9 @@ pub(crate) fn paint_primitive(
     item: &DrawItem,
     origin: Pos2,
     zoom: f32,
-    fill: Color32,
-    stroke_color: Color32,
+    [fill, stroke_color]: [Color32; 2],
     outlines: bool,
+    bitmap_fill: Option<crate::bitmaps::BitmapFillPaint>,
 ) {
     let Some(primitive) = Primitive::from_kind(&item.kind) else {
         return;
@@ -324,7 +324,8 @@ pub(crate) fn paint_primitive(
         (fill, None),
         (stroke_color, Some(primitive.stroke_width as f32)),
     ] {
-        if color.a() == 0
+        let texture = bitmap_fill.filter(|_| stroke.is_none());
+        if (color.a() == 0 && texture.is_none())
             || (stroke.is_none() && !closed)
             || stroke.is_some_and(|width| width <= 0.0)
         {
@@ -332,7 +333,12 @@ pub(crate) fn paint_primitive(
         }
         match tessellate_cached(primitive, &points, closed, stroke, local_tolerance) {
             Ok(geometry) => {
-                if let Some(mesh) = transformed_mesh(&geometry, item.transform, origin, zoom, color)
+                if let Some(texture) = texture {
+                    p.add(Shape::mesh(texture.mesh(&geometry, |local| {
+                        origin + crate::stage::affine(item.transform, local).to_vec2() * zoom
+                    })));
+                } else if let Some(mesh) =
+                    transformed_mesh(&geometry, item.transform, origin, zoom, color)
                 {
                     p.add(Shape::mesh(mesh));
                 }
@@ -622,6 +628,7 @@ mod tests {
             transform: matrix(),
             alpha: 1.,
             color_transform: neoflash_core::ColorTransform::default(),
+            bitmap_fill: None,
             path_fingerprint: None,
             kind: ElementKind::Rectangle {
                 width: 80.,
@@ -642,9 +649,9 @@ mod tests {
                     &item,
                     Pos2::ZERO,
                     2.,
-                    Color32::GREEN,
-                    Color32::BLUE,
+                    [Color32::GREEN, Color32::BLUE],
                     outlines,
+                    None,
                 );
             })
         };

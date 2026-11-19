@@ -17,6 +17,9 @@ pub struct DrawItem<K = ElementKind> {
     pub alpha: f64,
     #[serde(default, skip_serializing_if = "crate::ColorTransform::is_identity")]
     pub color_transform: crate::ColorTransform,
+    /// Image paint on this shape's active keyframe, in its local coordinates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bitmap_fill: Option<AuthoredBitmapFill>,
     /// Derived local-path cache hint. It is intentionally absent from serialized snapshots and
     /// equality so renderer preparation never changes the public evaluation contract.
     #[serde(skip)]
@@ -36,6 +39,7 @@ where
             && self.transform == other.transform
             && self.alpha == other.alpha
             && self.color_transform == other.color_transform
+            && self.bitmap_fill == other.bitmap_fill
             && self.kind == other.kind
     }
 }
@@ -49,6 +53,7 @@ impl<K> DrawItem<K> {
             transform: self.transform,
             alpha: self.alpha,
             color_transform: self.color_transform,
+            bitmap_fill: self.bitmap_fill,
             path_fingerprint: None,
             kind: map(self.kind),
         }
@@ -2764,6 +2769,16 @@ impl Walker<'_> {
             let layer_blend = layer_effective_blend_mode(&symbol.timeline, layer);
             let synced_layer = layer_effectively_synced(&symbol.timeline, layer);
             let active_key = layer.key_at(frame);
+            let fills_by_element =
+                active_key
+                    .filter(|key| !key.bitmap_fills.is_empty())
+                    .map(|key| {
+                        key.bitmap_fills
+                            .iter()
+                            .rev()
+                            .map(|paint| (paint.element_id.as_str(), paint))
+                            .collect::<std::collections::HashMap<_, _>>()
+                    });
             let active_key_overrides = active_key
                 .map(|k| k.instance_overrides.as_slice())
                 .unwrap_or(&[]);
@@ -2997,6 +3012,10 @@ impl Walker<'_> {
                     self.result.nodes.push(node);
                     if effective_visible {
                         self.result.items.push(DrawItem {
+                            bitmap_fill: fills_by_element
+                                .as_ref()
+                                .and_then(|fills| fills.get(e.id.as_str()).copied())
+                                .cloned(),
                             element_id: e.id,
                             name: e.name,
                             instance_path: path,

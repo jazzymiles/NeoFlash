@@ -13,6 +13,14 @@ const MAX_SAMPLE_WORK: usize = 128_000_000;
 type Edge = ([f64; 2], [f64; 2]);
 type EdgeRows = Vec<Vec<Edge>>;
 
+struct MaskImage {
+    image: Arc<DecodedImage>,
+    local_to_pixel: [f64; 6],
+    repeat: bool,
+    smoothing: bool,
+    color: ColorTransform,
+}
+
 struct Component {
     edges: EdgeRows,
     bounds: Option<PathBounds>,
@@ -20,7 +28,7 @@ struct Component {
     rule: FillRule,
     alpha: f64,
     gradient: Option<GradientPaint>,
-    bitmap: Option<(Arc<DecodedImage>, u32, u32, bool, ColorTransform)>,
+    bitmap: Option<MaskImage>,
     luminance: bool,
     clips: Vec<usize>,
 }
@@ -125,13 +133,34 @@ impl MaskCoverage {
                                 format!("Mask image '{}' is missing", paint.resource_id)
                             })?;
                         let decoded = resource.decode_image().map_err(|e| e.to_string())?;
-                        Ok::<_, String>((
-                            decoded,
-                            paint.width,
-                            paint.height,
-                            paint.smoothing,
-                            paint.color_transform,
-                        ))
+                        let (local_to_pixel, repeat) = match paint.mapping {
+                            crate::MaskBitmapMapping::Placement { width, height } => (
+                                [
+                                    f64::from(decoded.width) / f64::from(width.max(1)),
+                                    0.,
+                                    0.,
+                                    f64::from(decoded.height) / f64::from(height.max(1)),
+                                    0.,
+                                    0.,
+                                ],
+                                false,
+                            ),
+                            crate::MaskBitmapMapping::Fill { matrix, repeat } => {
+                                // A singular brush samples its first texel, as in the player.
+                                (
+                                    crate::invert_affine_matrix(matrix)
+                                        .unwrap_or([0., 0., 0., 0., 0.5, 0.5]),
+                                    repeat,
+                                )
+                            }
+                        };
+                        Ok::<_, String>(MaskImage {
+                            image: decoded,
+                            local_to_pixel,
+                            repeat,
+                            smoothing: paint.smoothing,
+                            color: paint.color_transform,
+                        })
                     })
                     .transpose()?;
                 let mut clips =
@@ -327,22 +356,18 @@ impl MaskCoverage {
                         crate::authored_layers::bt709_luminance(sample[0], sample[1], sample[2]);
                 }
             }
-            if let Some((image, width, height, smoothing, color)) = &component.bitmap {
-                if *width == 0 || *height == 0 {
-                    continue;
-                }
-                let x = local[0] * f64::from(image.width) / f64::from(*width);
-                let y = local[1] * f64::from(image.height) / f64::from(*height);
+            if let Some(paint) = &component.bitmap {
+                let [a, b, c, d, tx, ty] = paint.local_to_pixel;
+                let x = a * local[0] + c * local[1] + tx;
+                let y = b * local[0] + d * local[1] + ty;
+                let [r, g, b, a] = bitmap_rgba(&paint.image, x, y, paint.smoothing, paint.repeat);
+                let color = paint.color;
+                alpha *= (a * color.multipliers[3] + color.offsets[3] / 255.).clamp(0., 1.);
                 if component.luminance {
-                    let [r, g, b, a] = bitmap_rgba(image, x, y, *smoothing);
                     let r = (r * color.multipliers[0] + color.offsets[0] / 255.).clamp(0., 1.);
                     let g = (g * color.multipliers[1] + color.offsets[1] / 255.).clamp(0., 1.);
                     let b = (b * color.multipliers[2] + color.offsets[2] / 255.).clamp(0., 1.);
-                    let a = (a * color.multipliers[3] + color.offsets[3] / 255.).clamp(0., 1.);
-                    alpha *= a * (0.2126 * r + 0.7152 * g + 0.0722 * b);
-                } else {
-                    let a = bitmap_alpha(image, x, y, *smoothing);
-                    alpha *= (a * color.multipliers[3] + color.offsets[3] / 255.).clamp(0., 1.);
+                    alpha *= 0.2126 * r + 0.7152 * g + 0.0722 * b;
                 }
             }
             for id in &component.clips {
@@ -431,10 +456,25 @@ fn contains(edges: &[Vec<Edge>], bounds: PathBounds, rule: FillRule, p: [f64; 2]
         FillRule::NonZero => winding != 0,
     }
 }
-fn bitmap_rgba(image: &DecodedImage, x: f64, y: f64, smoothing: bool) -> [f64; 4] {
+fn bitmap_rgba(image: &DecodedImage, x: f64, y: f64, smoothing: bool, repeat: bool) -> [f64; 4] {
+    let bound = |v: f64, len: u32| {
+        if repeat {
+            v.rem_euclid(f64::from(len))
+        } else {
+            v.clamp(0., f64::from(len))
+        }
+    };
+    let (x, y) = (bound(x, image.width), bound(y, image.height));
+    let coord = |v: i64, len: u32| {
+        (if repeat {
+            v.rem_euclid(i64::from(len))
+        } else {
+            v.clamp(0, i64::from(len) - 1)
+        }) as usize
+    };
     let pixel = |x: i64, y: i64| -> [f64; 4] {
-        let x = x.clamp(0, i64::from(image.width) - 1) as usize;
-        let y = y.clamp(0, i64::from(image.height) - 1) as usize;
+        let x = coord(x, image.width);
+        let y = coord(y, image.height);
         let i = (y * image.width as usize + x) * 4;
         [
             f64::from(image.rgba[i]) / 255.,
@@ -459,10 +499,6 @@ fn bitmap_rgba(image: &DecodedImage, x: f64, y: f64, smoothing: bool) -> [f64; 4
         top * (1. - fy) + bottom * fy
     })
 }
-fn bitmap_alpha(image: &DecodedImage, x: f64, y: f64, smoothing: bool) -> f64 {
-    bitmap_rgba(image, x, y, smoothing)[3]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

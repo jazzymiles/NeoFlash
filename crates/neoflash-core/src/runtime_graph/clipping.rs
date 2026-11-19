@@ -69,11 +69,17 @@ pub struct AlphaClipComponent {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MaskResourceBitmap {
     pub resource_id: Id,
-    pub width: u32,
-    pub height: u32,
+    #[serde(flatten)]
+    pub mapping: MaskBitmapMapping,
     pub smoothing: bool,
     #[serde(default, skip_serializing_if = "ColorTransform::is_identity")]
     pub color_transform: ColorTransform,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum MaskBitmapMapping {
+    Placement { width: u32, height: u32 },
+    Fill { matrix: [f64; 6], repeat: bool },
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RuntimeAlphaMask {
@@ -155,6 +161,7 @@ impl RuntimeGraph {
     pub(super) fn collect_alpha_masks(
         &self,
         objects: &HashMap<&ObjectRef, &RuntimeObject>,
+        image_shapes: &HashMap<&ObjectRef, &RuntimeDrawItem>,
         target: &ObjectRef,
         singular: &BTreeSet<ObjectRef>,
     ) -> Vec<RuntimeAlphaMask> {
@@ -212,7 +219,13 @@ impl RuntimeGraph {
                     luminance: false,
                 });
             }
-            if let Some(kind) = &node.display.kind
+            if let Some(draw) = image_shapes.get(&reference)
+                && let Some(mut component) =
+                    crate::authored_layers::runtime_alpha_component(draw, false)
+            {
+                component.clip_ids = node.clip_ids.clone();
+                components.push(component);
+            } else if let Some(kind) = &node.display.kind
                 && vector_path(kind).is_some()
                 && let Some(component) = crate::authored_layers::alpha_component(
                     kind,
@@ -220,6 +233,7 @@ impl RuntimeGraph {
                     node.concatenated_color_transform,
                     node.clip_ids.clone(),
                     false,
+                    None,
                 )
             {
                 components.push(component);
@@ -414,6 +428,12 @@ impl RuntimeGraph {
                 singular.insert(node.object_ref.clone());
             }
         }
+        let image_shapes: HashMap<_, _> = snapshot
+            .draws
+            .iter()
+            .filter(|draw| draw.item.bitmap_fill.is_some())
+            .map(|draw| (&draw.owner_ref, draw))
+            .collect();
         let mut own_clips = BTreeMap::<ObjectRef, Vec<String>>::new();
         let mut consumed = BTreeSet::new();
         for (target, rect) in &self.scroll_rects {
@@ -498,7 +518,7 @@ impl RuntimeGraph {
             }
             let alpha_components = if alpha_mask {
                 Some(
-                    self.collect_alpha_masks(&objects, target, &singular)
+                    self.collect_alpha_masks(&objects, &image_shapes, target, &singular)
                         .into_iter()
                         .flat_map(|mask| mask.components)
                         .filter(|component| nonsingular(component.matrix))

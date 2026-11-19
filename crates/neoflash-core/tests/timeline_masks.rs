@@ -389,3 +389,100 @@ fn luminance_and_inverted_masks_evaluate_coverage_hit_test_and_runtime_snapshot(
         "point outside inverted geometry mask hole should hit target"
     );
 }
+
+#[test]
+fn nested_authored_bitmap_fills_follow_the_active_key_and_supply_mask_pixels() {
+    let mut bytes = vec![];
+    let rgba = [255, 255, 255, 255, 0, 0, 0, 0];
+    image::codecs::png::PngEncoder::new(&mut bytes)
+        .write_image(&rgba, 2, 1, image::ExtendedColorType::Rgba8)
+        .unwrap();
+    let mut project = masked(vec![], MaskMode::Luminance);
+    project
+        .resources
+        .push(ResourceUnit::from_bytes("photo", "photo.png", "image/png", &bytes).unwrap());
+    let mut photo = rect("image shape", 20., 8.);
+    let mut shape_layer = layer("image layer", vec![photo.clone()]);
+    let fill = AuthoredBitmapFill {
+        element_id: photo.id.clone(),
+        resource_id: "photo".into(),
+        matrix: [2., 0., 0., 1., 2., 0.],
+        repeat: true,
+        smoothing: false,
+    };
+    shape_layer.keyframes[0].set_bitmap_fill(fill.clone());
+    let mut solid = shape_layer.keyframes[0].clone();
+    solid.frame = 2;
+    solid.bitmap_fills.clear();
+    shape_layer.keyframes.push(solid);
+    photo.visible = false;
+    shape_layer.keyframes.push(Keyframe {
+        frame: 3,
+        elements: vec![photo],
+        ..Default::default()
+    });
+
+    let mut inner = project.symbols[0].clone();
+    inner.id = "photo group".into();
+    inner.timeline.frame_count = 4;
+    inner.timeline.layers = vec![shape_layer];
+    project.symbols.push(inner);
+    let mut instance = Element {
+        id: "visible instance".into(),
+        kind: ElementKind::Instance {
+            symbol_id: "photo group".into(),
+            playback: InstancePlayback::Loop,
+        },
+        ..Element::default()
+    };
+    instance.transform.x = 10.;
+    instance.transform.alpha = 0.5;
+    project.symbols[0].timeline.layers[0].keyframes[0].elements = vec![instance.clone()];
+    instance.id = "mask instance".into();
+    project.symbols[0].timeline.layers[1].keyframes[0].elements = vec![instance];
+    project.upgrade_format_for_features();
+    let project = Project::from_json(&project.to_json().unwrap()).unwrap();
+    let mut player = Player::new(&project);
+    player.seek(&project, 1);
+    let scene = evaluate_scene(&project, &project.root, 1, false, true);
+    assert_eq!(scene.draws.len(), 1);
+    assert_eq!(scene.draws[0].item.bitmap_fill.as_ref(), Some(&fill));
+    assert_eq!(scene.draws[0].item.transform[4], 10.);
+    let mask = MaskCoverage::new(&project, &scene.clips).unwrap();
+    for (x, expected) in [(10.5, 0.), (12.5, 0.5), (14.5, 0.), (16.5, 0.5)] {
+        assert!((mask.alpha(&scene.draws[0].clip_ids, [x, 2.]) - expected).abs() < 0.001);
+    }
+    let snapshot = player.runtime_snapshot(&project);
+    let draw = &snapshot.draws[0].item;
+    assert_eq!(draw.bitmap_fill.as_ref(), Some(&fill));
+    let RuntimeDrawKind::GradientPath {
+        fill_bitmap: Some(paint),
+        ..
+    } = &draw.kind
+    else {
+        panic!("runtime did not resolve the image paint");
+    };
+    assert_eq!(paint.matrix, fill.matrix);
+    assert_eq!(player.bitmap_pixels(&paint.pixel_ref).unwrap(), rgba);
+    assert_eq!(paint.color_transform.multipliers[3], 0.5);
+    let mask_pixels = snapshot.clips[0].alpha_components.as_ref().unwrap()[0]
+        .fill_bitmap
+        .as_ref()
+        .unwrap();
+    assert_eq!(mask_pixels, paint);
+
+    player.seek(&project, 2);
+    assert!(
+        player.runtime_snapshot(&project).draws[0]
+            .item
+            .bitmap_fill
+            .is_none()
+    );
+    assert!(
+        evaluate(&project, &project.root, 2)
+            .iter()
+            .all(|d| d.bitmap_fill.is_none())
+    );
+    player.seek(&project, 3);
+    assert!(player.runtime_snapshot(&project).draws.is_empty());
+}

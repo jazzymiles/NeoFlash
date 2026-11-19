@@ -10,12 +10,12 @@ use ab_glyph::{Font, FontRef, PxScale, ScaleFont};
 use color_quant::NeuQuant;
 use image::{RgbaImage, imageops::FilterType};
 use neoflash_core::{
-    AuthoredDraw, AuthoredPlayback, AuthoredScene, Color, ColorTransform, DecodedImage, DrawItem,
-    ElementKind, FillRule, GradientKind, GradientPaint, InstancePlayback, LayerRole, MaskCoverage,
-    PathCommand, Project, ResolvedVideoPlacement, SoundCommand, SymbolKind, TextAlign, TextFormat,
-    TimelineVideoTracker, VideoSyncMode, evaluate_scene, flatten_scenes_with_ranges,
-    inspect_video_resource, layer_effectively_visible, oval_path_commands, rectangle_path_commands,
-    resolve_scene_video_placements, scene_ranges,
+    AuthoredBitmapFill, AuthoredDraw, AuthoredPlayback, AuthoredScene, Color, ColorTransform,
+    DecodedImage, DrawItem, ElementKind, FillRule, GradientKind, GradientPaint, InstancePlayback,
+    LayerRole, MaskCoverage, PathCommand, Project, ResolvedVideoPlacement, SoundCommand,
+    SymbolKind, TextAlign, TextFormat, TimelineVideoTracker, VideoSyncMode, evaluate_scene,
+    flatten_scenes_with_ranges, inspect_video_resource, layer_effectively_visible,
+    oval_path_commands, rectangle_path_commands, resolve_scene_video_placements, scene_ranges,
     timeline_video::{
         VideoDeploymentMode, VideoSourceSpec, resolve_video_resource_source, resolve_video_source,
         validate_external_video_path,
@@ -3677,6 +3677,8 @@ pub fn render_authored_scene_with_video_rgba(
     let coverage = MaskCoverage::new(project, &scene.clips).ok();
     let mut mask_cache: HashMap<Vec<String>, Option<SkiaMask>> = HashMap::new();
 
+    // Keep the last premultiplied brush across placements without retaining a second copy of every image.
+    let mut bitmap_brush = BitmapBrushCache::default();
     for draw in &scene.draws {
         let mask_ref = if draw.clip_ids.is_empty() {
             None
@@ -3702,6 +3704,7 @@ pub fn render_authored_scene_with_video_rgba(
             stage_scale,
             mask_ref,
             bitmap_cache,
+            &mut bitmap_brush,
             video_cache,
             video_placements,
         );
@@ -3912,6 +3915,74 @@ fn configure_paint_shader<'a>(
     paint
 }
 
+fn decoded_bitmap(
+    project: &Project,
+    cache: &mut HashMap<String, Option<Arc<DecodedImage>>>,
+    resource_id: &str,
+) -> Option<Arc<DecodedImage>> {
+    cache
+        .entry(resource_id.to_owned())
+        .or_insert_with(|| {
+            project
+                .resources
+                .iter()
+                .find(|resource| resource.id == resource_id)
+                .and_then(|resource| resource.decode_image().ok())
+        })
+        .clone()
+}
+
+#[derive(Default)]
+struct BitmapBrushCache {
+    last: Option<(String, ColorTransform, Pixmap)>,
+}
+
+impl BitmapBrushCache {
+    fn paint(
+        &mut self,
+        project: &Project,
+        cache: &mut HashMap<String, Option<Arc<DecodedImage>>>,
+        fill: &AuthoredBitmapFill,
+        ct: ColorTransform,
+    ) -> Option<SkiaPaint<'_>> {
+        let transform = affine_to_skia(fill.matrix);
+        if neoflash_core::invert_affine_matrix(fill.matrix).is_none() {
+            let image = decoded_bitmap(project, cache, &fill.resource_id)?;
+            let color = ct.apply(*image.rgba.as_chunks::<4>().0.first()?);
+            let mut paint = SkiaPaint::default();
+            paint.set_color_rgba8(color[0], color[1], color[2], color[3]);
+            return Some(paint);
+        }
+        if !self
+            .last
+            .as_ref()
+            .is_some_and(|(id, color, _)| id == &fill.resource_id && *color == ct)
+        {
+            let image = decoded_bitmap(project, cache, &fill.resource_id)?;
+            self.last = Some((
+                fill.resource_id.clone(),
+                ct,
+                bitmap_pixmap(&image, ct, 1.0)?,
+            ));
+        }
+        let (_, _, pixels) = self.last.as_ref()?;
+        Some(SkiaPaint {
+            shader: tiny_skia::Pattern::new(
+                pixels.as_ref(),
+                if fill.repeat {
+                    SpreadMode::Repeat
+                } else {
+                    SpreadMode::Pad
+                },
+                bitmap_quality(fill.smoothing),
+                1.0,
+                transform,
+            ),
+            ..SkiaPaint::default()
+        })
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw_authored_item(
     pixmap: &mut Pixmap,
@@ -3920,6 +3991,7 @@ fn draw_authored_item(
     stage_scale: SkiaTransform,
     mask: Option<&SkiaMask>,
     bitmap_cache: &mut HashMap<String, Option<Arc<DecodedImage>>>,
+    bitmap_brush: &mut BitmapBrushCache,
     video_cache: &mut HashMap<String, Option<Arc<DecodedVideoStream>>>,
     video_placements: &HashMap<Vec<String>, ResolvedVideoPlacement>,
 ) {
@@ -3930,6 +4002,11 @@ fn draw_authored_item(
     }
     let ct = item.color_transform;
     let xf = stage_scale.pre_concat(affine_to_skia(item.transform));
+
+    let bitmap_paint = item
+        .bitmap_fill
+        .as_ref()
+        .and_then(|fill| bitmap_brush.paint(project, bitmap_cache, fill, ct));
 
     match &item.kind {
         ElementKind::Rectangle {
@@ -3949,6 +4026,7 @@ fn draw_authored_item(
                 FillRule::NonZero,
                 (*fill, None),
                 (*stroke, None, *stroke_width),
+                bitmap_paint.as_ref(),
                 ct,
                 alpha,
                 xf,
@@ -3972,6 +4050,7 @@ fn draw_authored_item(
                 FillRule::NonZero,
                 (*fill, None),
                 (*stroke, None, *stroke_width),
+                bitmap_paint.as_ref(),
                 ct,
                 alpha,
                 xf,
@@ -3991,6 +4070,7 @@ fn draw_authored_item(
                 *fill_rule,
                 (*fill, None),
                 (*stroke, None, *stroke_width),
+                bitmap_paint.as_ref(),
                 ct,
                 alpha,
                 xf,
@@ -4012,6 +4092,7 @@ fn draw_authored_item(
                 *fill_rule,
                 (*fill, fill_gradient.as_ref()),
                 (*stroke, stroke_gradient.as_ref(), *stroke_width),
+                bitmap_paint.as_ref(),
                 ct,
                 alpha,
                 xf,
@@ -4027,17 +4108,7 @@ fn draw_authored_item(
             if *width == 0 || *height == 0 {
                 return;
             }
-            let decoded = bitmap_cache
-                .entry(resource_id.clone())
-                .or_insert_with(|| {
-                    project
-                        .resources
-                        .iter()
-                        .find(|r| r.id == *resource_id)
-                        .and_then(|r| r.decode_image().ok())
-                })
-                .clone();
-            if let Some(img) = decoded {
+            if let Some(img) = decoded_bitmap(project, bitmap_cache, resource_id) {
                 draw_bitmap(
                     pixmap, &img, *width, *height, *smoothing, ct, alpha, xf, mask,
                 );
@@ -4109,16 +4180,21 @@ fn draw_vector_commands(
     fill_rule: FillRule,
     fill: (Color, Option<&GradientPaint>),
     stroke: (Color, Option<&GradientPaint>, f64),
+    bitmap_paint: Option<&SkiaPaint<'_>>,
     ct: ColorTransform,
     alpha: f64,
     xf: SkiaTransform,
     mask: Option<&SkiaMask>,
 ) {
+    // The evaluated image color transform already includes ancestor and placement opacity.
+    let alpha = if bitmap_paint.is_some() { 1.0 } else { alpha };
     let Some(path) = build_skia_path(commands) else {
         return;
     };
     let fill_visible = fill.1.is_some() || apply_color(fill.0, ct, alpha)[3] > 0;
-    if fill_visible {
+    if let Some(paint) = bitmap_paint {
+        pixmap.fill_path(&path, paint, to_skia_fill_rule(fill_rule), xf, mask);
+    } else if fill_visible {
         let paint = configure_paint_shader(fill.0, fill.1, ct, alpha);
         pixmap.fill_path(&path, &paint, to_skia_fill_rule(fill_rule), xf, mask);
     }
@@ -4149,12 +4225,31 @@ fn draw_bitmap(
     xf: SkiaTransform,
     mask: Option<&SkiaMask>,
 ) {
-    if img.width == 0 || img.height == 0 {
-        return;
-    }
-    let Some(mut src_pixmap) = Pixmap::new(img.width, img.height) else {
+    let Some(src_pixmap) = bitmap_pixmap(img, ct, alpha) else {
         return;
     };
+    let scale_x = target_w as f32 / img.width as f32;
+    let scale_y = target_h as f32 / img.height as f32;
+    let img_xf = xf.pre_concat(SkiaTransform::from_scale(scale_x, scale_y));
+    let paint = PixmapPaint {
+        opacity: 1.0,
+        blend_mode: tiny_skia::BlendMode::SourceOver,
+        quality: bitmap_quality(smoothing),
+    };
+    pixmap.draw_pixmap(0, 0, src_pixmap.as_ref(), &paint, img_xf, mask);
+}
+
+fn bitmap_quality(smoothing: bool) -> FilterQuality {
+    if smoothing {
+        FilterQuality::Bilinear
+    } else {
+        FilterQuality::Nearest
+    }
+}
+
+fn bitmap_pixmap(img: &DecodedImage, ct: ColorTransform, alpha: f64) -> Option<Pixmap> {
+    let mut src_pixmap = Pixmap::new(img.width, img.height)?;
+    let unchanged = ct.is_identity() && alpha == 1.0;
     for (dst, src) in src_pixmap
         .data_mut()
         .as_chunks_mut::<4>()
@@ -4162,26 +4257,18 @@ fn draw_bitmap(
         .iter_mut()
         .zip(img.rgba.as_chunks::<4>().0)
     {
-        let c = apply_color([src[0], src[1], src[2], src[3]], ct, alpha);
+        if unchanged && src[3] == 255 {
+            *dst = *src;
+            continue;
+        }
+        let c = apply_color(*src, ct, alpha);
         let af = f32::from(c[3]) / 255.0;
         dst[0] = (f32::from(c[0]) * af).round() as u8;
         dst[1] = (f32::from(c[1]) * af).round() as u8;
         dst[2] = (f32::from(c[2]) * af).round() as u8;
         dst[3] = c[3];
     }
-    let scale_x = target_w as f32 / img.width as f32;
-    let scale_y = target_h as f32 / img.height as f32;
-    let img_xf = xf.pre_concat(SkiaTransform::from_scale(scale_x, scale_y));
-    let paint = PixmapPaint {
-        opacity: 1.0,
-        blend_mode: tiny_skia::BlendMode::SourceOver,
-        quality: if smoothing {
-            FilterQuality::Bilinear
-        } else {
-            FilterQuality::Nearest
-        },
-    };
-    pixmap.draw_pixmap(0, 0, src_pixmap.as_ref(), &paint, img_xf, mask);
+    Some(src_pixmap)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -5384,6 +5471,64 @@ mod tests {
             .expect("render frame 0");
         assert_eq!(rgba.len(), 320 * 200 * 4);
         assert!(rgba.as_chunks::<4>().0.iter().any(|px| px[3] == 255));
+    }
+
+    #[test]
+    fn raster_output_samples_authored_bitmap_inside_transformed_shape() {
+        let mut project = Project::blank();
+        project.width = 20;
+        project.height = 16;
+        project.format_version = 9;
+        let red = [255, 0, 0, 255];
+        let blue = [0, 0, 255, 255];
+        let png = encode_rgba_png_frame(&[red, blue].concat(), 2, 1).unwrap();
+        project
+            .resources
+            .push(ResourceUnit::from_bytes("stripes", "stripes.png", "image/png", &png).unwrap());
+        let shape = Element {
+            id: "oval".into(),
+            name: "Striped oval".into(),
+            transform: Transform {
+                x: 2.,
+                y: 2.,
+                ..Default::default()
+            },
+            kind: ElementKind::Ellipse {
+                width: 16.,
+                height: 12.,
+                fill: [255; 4],
+                stroke: [0, 255, 0, 255],
+                stroke_width: 2.,
+            },
+            ..Default::default()
+        };
+        let frame = &mut project.symbols[0].timeline.layers[0].keyframes[0];
+        frame.elements.push(shape);
+        frame.set_bitmap_fill(AuthoredBitmapFill {
+            element_id: "oval".into(),
+            resource_id: "stripes".into(),
+            matrix: [2., 0., 0., 2., 2., 0.],
+            repeat: true,
+            smoothing: false,
+        });
+
+        for (repeat, expected) in [(true, red), (false, blue)] {
+            project.symbols[0].timeline.layers[0].keyframes[0].bitmap_fills[0].repeat = repeat;
+            let rgba = render_project_frame_rgba(&project, None, 0, 20, 16, true, false).unwrap();
+            let at = |x: usize, y: usize| rgba.as_chunks::<4>().0[y * 20 + x];
+            assert_eq!(at(4, 8), red);
+            assert_eq!(at(6, 8), blue);
+            assert_eq!(at(12, 8), expected);
+            assert_eq!(at(2, 8), [0, 255, 0, 255]);
+            assert_eq!(at(2, 2), [0; 4]);
+        }
+
+        let frame = &mut project.symbols[0].timeline.layers[0].keyframes[0];
+        frame.bitmap_fills[0].matrix = [0.; 6];
+        frame.elements[0].transform.alpha = 0.5;
+        let rgba = render_project_frame_rgba(&project, None, 0, 20, 16, true, false).unwrap();
+        let at = |x: usize, y: usize| rgba.as_chunks::<4>().0[y * 20 + x];
+        assert_eq!(at(12, 8), [255, 0, 0, 128]);
     }
 
     #[test]

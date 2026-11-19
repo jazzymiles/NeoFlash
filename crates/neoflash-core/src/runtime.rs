@@ -441,17 +441,21 @@ impl Player {
         self.reset_with_playing(project, true);
     }
 
+    fn reset_display_graph(&mut self, project: &Project) {
+        self.graph.reset();
+        self.suppressed_content.clear();
+        if self.source_root.is_none() {
+            self.graph.prepare_bitmaps(project);
+        }
+    }
+
     fn reset_with_playing(&mut self, project: &Project, playing: bool) {
         if self.linked_sound_started() {
             // Linked players are retired by graph.reset(). Preserve the one global
             // silence command that their already-started host audio still needs.
             self.sound.stop_all();
         }
-        self.graph.reset();
-        self.suppressed_content.clear();
-        if self.source_root.is_none() {
-            self.graph.prepare_bitmaps(project);
-        }
+        self.reset_display_graph(project);
         self.clocks.clear();
         self.overrides.clear();
         self.previous.clear();
@@ -606,8 +610,7 @@ impl Player {
         // commands and stream stops first, retaining the established root-before-linked
         // command order in the root sound queue.
         let linked_sound_commands = self.stop_and_drain_linked_streams();
-        self.graph.reset();
-        self.suppressed_content.clear();
+        self.reset_display_graph(project);
         self.clocks.clear();
         self.overrides.clear();
         self.previous.clear();

@@ -277,7 +277,7 @@ Authoring tools: stage, vectors, text, selection and library.
 - Working: Blur, Glow, DropShadow and ColorMatrix filters from scripts
 - Working: Scripted BitmapData color/filter operations and capture
 - Working: Apply element, layer and keyframe filters plus blend modes and Cache as bitmap in the Filters panel
-- Working: Bitmap fills
+- Working: Render image fills inside vector shapes on Stage and in published HTML5
 - Working: Alpha, luminance and inverted masks
 - Working: Color — Bitmap fill panel with Library/swatch tiling, scale, rotation and smoothing
 

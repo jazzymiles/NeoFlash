@@ -5,22 +5,28 @@ pub(super) struct BitmapState {
     pub smoothing: bool,
     pub pixel_snapping: PixelSnapping,
 }
+pub(super) fn referenced_bitmap_resources(symbols: &[Symbol]) -> BTreeSet<&str> {
+    symbols
+        .iter()
+        .flat_map(|s| &s.timeline.layers)
+        .flat_map(|l| &l.keyframes)
+        .flat_map(|k| {
+            let placed = k.elements.iter().filter_map(|e| match &e.kind {
+                ElementKind::Bitmap { resource_id, .. } => Some(resource_id.as_str()),
+                _ => None,
+            });
+            placed.chain(
+                k.bitmap_fills
+                    .iter()
+                    .map(|paint| paint.resource_id.as_str()),
+            )
+        })
+        .collect()
+}
+
 impl RuntimeGraph {
     pub(crate) fn prepare_bitmaps(&mut self, project: &Project) {
-        let referenced: BTreeSet<_> = project
-            .symbols
-            .iter()
-            .flat_map(|s| &s.timeline.layers)
-            .flat_map(|l| &l.keyframes)
-            .flat_map(|k| &k.elements)
-            .filter_map(|e| {
-                if let ElementKind::Bitmap { resource_id, .. } = &e.kind {
-                    Some(resource_id.as_str())
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let referenced = referenced_bitmap_resources(&project.symbols);
         if referenced.len() > 256 {
             self.bitmap_error = Some(BitmapError(
                 "authored images exceed the 256 buffer budget".into(),
@@ -80,6 +86,72 @@ impl RuntimeGraph {
                 }
             }
         }
+    }
+
+    pub(super) fn authored_bitmap_shape(
+        &self,
+        kind: &ElementKind,
+        fill: &crate::AuthoredBitmapFill,
+        color_transform: ColorTransform,
+    ) -> Option<RuntimeDrawKind> {
+        let (commands, fill_rule) = super::clipping::vector_path(kind)?;
+        let (stroke, stroke_width, stroke_gradient) = match kind {
+            ElementKind::Rectangle {
+                stroke,
+                stroke_width,
+                ..
+            }
+            | ElementKind::Ellipse {
+                stroke,
+                stroke_width,
+                ..
+            }
+            | ElementKind::Path {
+                stroke,
+                stroke_width,
+                ..
+            } => (*stroke, *stroke_width, None),
+            ElementKind::PaintedPath {
+                stroke,
+                stroke_width,
+                stroke_gradient,
+                ..
+            } => (*stroke, *stroke_width, stroke_gradient.clone()),
+            _ => return None,
+        };
+        let fill_bitmap = self
+            .resource_pixels
+            .get(&fill.resource_id)
+            .and_then(|pixel_ref| {
+                let pixel = self.pixels.info(pixel_ref).ok()?;
+                (!pixel.disposed).then(|| crate::BitmapPaint {
+                    pixel_ref: pixel_ref.clone(),
+                    width: pixel.width,
+                    height: pixel.height,
+                    revision: pixel.revision,
+                    matrix: fill.matrix,
+                    repeat: fill.repeat,
+                    smoothing: fill.smoothing,
+                    color_transform,
+                })
+            });
+        Some(RuntimeDrawKind::GradientPath {
+            commands,
+            fill_rule,
+            fill: [0; 4],
+            fill_gradient: None,
+            fill_bitmap,
+            stroke,
+            stroke_width,
+            stroke_gradient,
+            stroke_bitmap: None,
+            stroke_caps: LineCaps::Round,
+            stroke_joints: LineJoints::Round,
+            stroke_miter_limit: default_miter_limit(),
+            stroke_pixel_hinting: false,
+            stroke_scale_mode: LineScaleMode::Normal,
+            stroke_hairline: false,
+        })
     }
 
     pub(crate) fn hydrate_sprite_sheet(
