@@ -523,6 +523,7 @@ impl Editor {
                 }
             }
             Ok("export_lottie") => s.open_export_lottie(None),
+            Ok("figma_import") => s.open_figma_import_screenshot_sample(&cc.egui_ctx),
             Ok("import_video") => s.open_import_video(&cc.egui_ctx),
             Ok(dialog) if dialog.starts_with("ai_") && s.open_sample_ai_dialog(dialog) => {}
             Ok("batch_rename") => s.open_batch_rename_library_modal(&cc.egui_ctx),

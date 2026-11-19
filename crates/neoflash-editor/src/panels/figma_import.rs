@@ -404,6 +404,68 @@ impl Editor {
         self.open_figma_import_dialog(ctx, vec![path], FigmaImportTarget::OpenDocument);
     }
 
+    /// Screenshot aid (`NEOFLASH_SCREENSHOT_DIALOG=figma_import`): opens a multi-page sample draft.
+    pub(crate) fn open_figma_import_screenshot_sample(&mut self, ctx: &egui::Context) {
+        let pages = vec![
+            FigmaPageChoice {
+                summary: FigmaPageSummary {
+                    id: "0:1".into(),
+                    name: "01 · Hero & Navigation".into(),
+                    visible: true,
+                    top_frame_count: 3,
+                    node_count: 148,
+                },
+                selected: true,
+            },
+            FigmaPageChoice {
+                summary: FigmaPageSummary {
+                    id: "0:2".into(),
+                    name: "02 · Interactive Cards".into(),
+                    visible: true,
+                    top_frame_count: 6,
+                    node_count: 312,
+                },
+                selected: true,
+            },
+            FigmaPageChoice {
+                summary: FigmaPageSummary {
+                    id: "0:3".into(),
+                    name: "03 · Component Library".into(),
+                    visible: true,
+                    top_frame_count: 14,
+                    node_count: 890,
+                },
+                selected: false,
+            },
+            FigmaPageChoice {
+                summary: FigmaPageSummary {
+                    id: "0:4".into(),
+                    name: "99 · Scratchpad".into(),
+                    visible: false,
+                    top_frame_count: 1,
+                    node_count: 24,
+                },
+                selected: false,
+            },
+        ];
+        ctx.data_mut(|d| {
+            d.insert_temp(
+                draft_id(),
+                FigmaImportDraft {
+                    path: PathBuf::from("LandingPage.fig"),
+                    remaining_paths: Vec::new(),
+                    target: FigmaImportTarget::Stage { point: None },
+                    doc_name: "Landing Page — v3".into(),
+                    pages,
+                    create_movie_clip: true,
+                    import_hidden_layers: false,
+                    error: None,
+                    phase: FigmaModalPhase::Ready,
+                },
+            );
+        });
+    }
+
     pub(crate) fn figma_import_dialog(&mut self, ctx: &egui::Context) {
         if let Some(req) = PENDING_FIGMA_QUEUE.with(|q| q.borrow_mut().take()) {
             self.open_figma_import_dialog(ctx, req.paths, req.target);
