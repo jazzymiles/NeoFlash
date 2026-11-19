@@ -43,6 +43,9 @@ pub(crate) fn paint_stage_error_plate(painter: &egui::Painter, origin: Pos2, mes
     painter.galley(rect.min + pad, galley, p.danger_default);
 }
 
+/// Small enough to fit large imported documents into a laptop viewport.
+pub(crate) const MIN_STAGE_ZOOM: f32 = 0.001;
+
 #[derive(Clone, Default)]
 struct SymbolContextClips {
     ids: Vec<String>,
@@ -837,7 +840,7 @@ impl Editor {
                 if self.zoom == 0. || (self.stage_view.auto_fit && stage_resized) {
                     let fit = ((rect.width() - 60.) / size.x)
                         .min((rect.height() - 60.) / size.y)
-                        .clamp(0.1, 2.);
+                        .clamp(MIN_STAGE_ZOOM, 2.);
                     self.zoom = fit;
                     self.pan = Vec2::ZERO;
                     self.stage_view.auto_fit = true;
@@ -859,7 +862,7 @@ impl Editor {
                             self.cancel_vector();
                         }
                         let old_zoom = self.zoom;
-                        let new_zoom = (old_zoom * zoom_delta).clamp(0.1, 8.0);
+                        let new_zoom = (old_zoom * zoom_delta).clamp(MIN_STAGE_ZOOM, 8.0);
                         if let Some(pointer) = ctx.input(|i| i.pointer.latest_pos()) {
                             let rel = pointer - rect.center() - self.pan;
                             self.pan -= rel * (new_zoom / old_zoom - 1.0);
@@ -876,7 +879,7 @@ impl Editor {
                             self.cancel_vector();
                         }
                         if ctx.input(|input| input.modifiers.command) {
-                            self.zoom = (self.zoom * (1. + delta.y * 0.002)).clamp(0.1, 4.);
+                            self.zoom = (self.zoom * (1. + delta.y * 0.002)).clamp(MIN_STAGE_ZOOM, 4.);
                         } else {
                             self.pan += delta;
                         }
@@ -1950,7 +1953,7 @@ impl Editor {
         stage_point: Pos2,
     ) -> Option<Id> {
         let timeline = &self.symbol().timeline;
-        let zoom = self.zoom.max(0.1);
+        let zoom = self.zoom.max(MIN_STAGE_ZOOM);
         for layer in timeline.layers.iter().rev() {
             if layer.properties.role != LayerRole::Normal
                 || !layer_effectively_visible(timeline, layer)
@@ -2064,7 +2067,7 @@ impl Editor {
         authored_scene: &AuthoredScene,
     ) -> Option<Vec<Id>> {
         let preview = self.authored_preview.as_ref()?;
-        let zoom = self.zoom.max(0.1);
+        let zoom = self.zoom.max(MIN_STAGE_ZOOM);
         let context_point = mapping.edit_to_stage_pos(stage_point);
 
         // 1. Front-to-back hit-test against presented draws (covers MovieClips, Buttons with visible

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Opening a Figma file imports all design pages as named scenes in one project by default. Dense pages retain separate editable layers and repeated photos share their original embedded image. Large artboard layouts fit inside the exported stage.
+
 - Improved import of Illustrator SVG, PDF-compatible AI, PDF and EPS artwork. Illustrator styles,
   clip paths and supported gradients retain their colors. EPS files with an embedded TIFF preview
   open at the preview resolution. Photoshop files with masks or effects can use the saved full-resolution composite.
@@ -34,7 +36,7 @@
   or **File ▸ Open…** opens the NF v3 **Import Figma** modal on a background worker (~26x faster page inspection via
   two-pass Kiwi reachability skipping unselected pages, `Internal Only Canvas` and unreferenced blobs/images), lets you
   pick which pages to import (`Select all` / `Deselect all`), toggle **`[x] Create MovieClip symbol`** and
-  **`[ ] Include hidden layers`**, and maps **each selected Figma page to its own separate NeoFlash layer** (`1 page =
+  **`[ ] Include hidden layers`**, and, for Stage or Library imports, maps **each selected Figma page to its own separate NeoFlash layer** (`1 page =
   1 layer`, either inside the created `MovieClip` or directly on the active timeline as one Undo step).
 - Added loadable **HTML5 publication modules** (`T-016`): standard HTML5 exports (`Full`, `Balanced`, `Compact` and
   `Shared`, in both `Canvas` and `Web App · DOM` modes) now emit `module.mjs` (`export { mount, bundle, manifest,

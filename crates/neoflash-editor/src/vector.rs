@@ -3251,7 +3251,7 @@ impl Editor {
         if !self.can_smooth_or_straighten_selection() {
             return false;
         }
-        let zoom = self.zoom.max(0.1);
+        let zoom = self.zoom.max(crate::stage::MIN_STAGE_ZOOM);
         let timeline = &self.symbol().timeline;
         let mut updates: Vec<(crate::selection::SelectionTarget, Vec<PathCommand>)> = Vec::new();
         for target in &self.selection.targets {

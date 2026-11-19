@@ -280,7 +280,8 @@ fn polystar_drag_is_large_enough(
         > POLYSTAR_MIN_DRAG_PX
 }
 fn local_position_tolerance(mapping: StageMapping, zoom: f32, screen_tolerance: f32) -> f32 {
-    screen_tolerance / (zoom.max(0.1) * mapping.scale_bounds().1.max(1e-6) as f32)
+    screen_tolerance
+        / (zoom.max(crate::stage::MIN_STAGE_ZOOM) * mapping.scale_bounds().1.max(1e-6) as f32)
 }
 fn extended(tool: Tool) -> bool {
     matches!(

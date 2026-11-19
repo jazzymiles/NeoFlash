@@ -479,6 +479,7 @@ pub fn is_figma_bytes(bytes: &[u8]) -> bool {
 mod convert;
 mod json_doc;
 mod kiwi;
+mod page_layout;
 #[cfg(test)]
 mod tests;
 pub(crate) mod zstd;

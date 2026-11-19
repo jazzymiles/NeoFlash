@@ -2065,12 +2065,12 @@ fn real_world_figma_corpus_imports_and_validates() {
         .and_then(|p| p.parent().map(Path::to_path_buf))
         .unwrap_or_else(|| worktree_root.to_path_buf());
 
-    // Discover all `.fig` / `.figma.json` entries across `interface/figma` + `target/figma-corpus`
-    // dynamically without embedding or printing any private filenames or document text.
+    // Exercise the owner's local import fixtures without embedding their names or document text.
     let mut files = Vec::new();
     for dir in [
         common_root.join("interface/figma"),
         common_root.join("target/figma-corpus"),
+        common_root.join("tests"),
     ] {
         if let Ok(entries) = std::fs::read_dir(&dir) {
             let mut dir_files: Vec<PathBuf> = entries
@@ -2162,8 +2162,7 @@ fn real_world_figma_corpus_imports_and_validates() {
         }
     }
 
-    // 2. Import and validate EVERY `.fig` / `.figma.json` across `interface/figma` + `target/figma-corpus`
-    //    without printing any private filenames or document text!
+    // 2. Exercise both a selective layer import and opening the entire document as scenes.
 
     let mut imported_count = 0usize;
     let mut total_symbols = 0usize;
@@ -2188,7 +2187,7 @@ fn real_world_figma_corpus_imports_and_validates() {
             "corpus file #{imported_count} summary had 0 user pages"
         );
 
-        // Benchmark default interactive single-page `Layers` import (`first visible non-empty page`).
+        // Benchmark importing the first visible, non-empty page into a single layer.
         let first_page_id = summary
             .pages
             .iter()
@@ -2502,6 +2501,64 @@ fn t391_inspect_figma_bytes_and_page_selective_layers_mapping() {
 }
 
 #[test]
+fn dense_page_preserves_named_layers_and_editable_translated_folders() {
+    use serde_json::json;
+
+    let leaf = |name: &str| {
+        json!({
+            "id": name, "name": name, "type": "RECTANGLE", "size":{"x":4,"y":5},
+            "relativeTransform": [[1,0,2],[0,1,3]],
+            "fills": [{"type":"SOLID","color":{"r":0.2,"g":0.3,"b":0.4}}]
+        })
+    };
+    let mut children: Vec<_> = (0..100).map(|n| leaf(&format!("Tile {n}"))).collect();
+    children.push(json!({
+        "id":"folder", "name":"Translations", "type":"FRAME", "visible":false, "locked":true,
+        "relativeTransform":[[1,0,20],[0,1,30]], "children":[leaf("Editable child")]
+    }));
+    children.push(json!({
+        "id":"rotation", "name":"Rotation", "type":"FRAME",
+        "relativeTransform":[[0,-1,20],[1,0,30]], "children":[leaf("Rotated child")]
+    }));
+    let file = json!({"document":{"type":"DOCUMENT", "children":[
+      {"id":"first", "type":"CANVAS", "name":"Empty first", "children":[]}, {
+        "id":"page", "type":"CANVAS", "name":"Page", "children": [{
+            "id":"art", "name":"Art", "type":"FRAME", "size":{"x":100,"y":100},
+            "children":children
+        }]
+    }, {"id":"last", "type":"CANVAS", "name":"Empty last", "children":[]}]}})
+    .to_string();
+    let (project, _) =
+        import_figma_json_str(&file, "Page", &FigmaImportOptions::default()).unwrap();
+    let scenes: Vec<_> = project
+        .scenes
+        .iter()
+        .map(|id| project.symbol(id).unwrap())
+        .collect();
+    assert_eq!(
+        scenes.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
+        ["Empty first", "Page", "Empty last"]
+    );
+    assert!(scenes.iter().all(|s| s.timeline.frame_count == 1));
+    let layers = &scenes[1].timeline.layers;
+    for (i, layer) in layers.iter().take(100).enumerate() {
+        assert_eq!(layer.name, format!("Tile {i}"));
+        assert_eq!(layer.keyframes[0].elements.len(), 1);
+    }
+    let folder = layers.iter().find(|l| l.name == "Translations").unwrap();
+    assert_eq!(folder.properties.role, LayerRole::Folder);
+    assert!(!folder.visible && folder.locked);
+    let child = layers.iter().find(|l| l.name == "Editable child").unwrap();
+    assert_eq!(child.properties.parent.as_ref(), Some(&folder.id));
+    let tf = child.keyframes[0].elements[0].transform;
+    assert_eq!((tf.x, tf.y), (22., 33.));
+    let rotated = layers.iter().find(|l| l.name == "Rotation").unwrap();
+    let element = &rotated.keyframes[0].elements[0];
+    assert!(matches!(element.kind, ElementKind::Instance { .. }));
+    assert_eq!(element.transform.rotation, 90.);
+}
+
+#[test]
 fn figma_page_limits_locate_partial_and_skipped_pages_for_both_mappings() {
     use serde_json::json;
 
@@ -2547,11 +2604,12 @@ fn figma_page_limits_locate_partial_and_skipped_pages_for_both_mappings() {
                 .iter()
                 .any(|d| d.code == "figma-page-truncated" && d.location == "Large (Large)")
         );
-        assert!(
+        assert_eq!(
             report
                 .diagnostics
                 .iter()
-                .any(|d| d.code == "figma-page-skipped" && d.location == "Last (Last)")
+                .any(|d| d.code == "figma-page-skipped" && d.location == "Last (Last)"),
+            mapping == FigmaPageMapping::Layers
         );
         assert!(
             !report
@@ -2564,6 +2622,13 @@ fn figma_page_limits_locate_partial_and_skipped_pages_for_both_mappings() {
         } else {
             project.scenes.len()
         };
-        assert_eq!(pages, 2);
+        assert_eq!(
+            pages,
+            if mapping == FigmaPageMapping::Layers {
+                2
+            } else {
+                3
+            }
+        );
     }
 }

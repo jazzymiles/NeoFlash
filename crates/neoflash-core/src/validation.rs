@@ -36,7 +36,14 @@ impl Project {
 
     pub fn to_json(&self) -> Result<String, ProjectError> {
         self.validate()?;
-        let json = serde_json::to_string_pretty(self)?;
+        let pretty = serde_json::to_string_pretty(self)?;
+        if pretty.len() <= MAX_PROJECT_JSON_BYTES {
+            return Ok(pretty);
+        }
+        // Indentation alone can push a densely layered, otherwise valid document over
+        // the file limit. The reader accepts both forms and enforces the same byte cap.
+        drop(pretty);
+        let json = serde_json::to_string(self)?;
         if json.len() > MAX_PROJECT_JSON_BYTES {
             return Err(ProjectError::Invalid(
                 "document exceeds the 128 MiB encoded JSON limit".into(),

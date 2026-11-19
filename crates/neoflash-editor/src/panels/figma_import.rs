@@ -99,6 +99,16 @@ pub(crate) struct FigmaImportDraft {
     phase: FigmaModalPhase,
 }
 
+impl FigmaImportDraft {
+    fn page_mapping(&self) -> FigmaPageMapping {
+        if matches!(self.target, FigmaImportTarget::OpenDocument) && !self.create_movie_clip {
+            FigmaPageMapping::Scenes
+        } else {
+            FigmaPageMapping::Layers
+        }
+    }
+}
+
 fn draft_id() -> egui::Id {
     egui::Id::new("nf3-figma-import-draft")
 }
@@ -154,7 +164,10 @@ pub(crate) fn is_figma_file_path(path: &Path) -> bool {
     false
 }
 
-fn build_page_choices(summary: &FigmaDocumentSummary) -> Vec<FigmaPageChoice> {
+fn build_page_choices(
+    summary: &FigmaDocumentSummary,
+    target: &FigmaImportTarget,
+) -> Vec<FigmaPageChoice> {
     let n = summary.pages.len();
     let default_idx = if n == 0 {
         None
@@ -176,7 +189,7 @@ fn build_page_choices(summary: &FigmaDocumentSummary) -> Vec<FigmaPageChoice> {
         .enumerate()
         .map(|(i, p)| FigmaPageChoice {
             summary: p.clone(),
-            selected: default_idx == Some(i),
+            selected: matches!(target, FigmaImportTarget::OpenDocument) || default_idx == Some(i),
         })
         .collect()
 }
@@ -216,6 +229,7 @@ fn create_draft(
         FigmaImportTarget::Stage { .. } | FigmaImportTarget::Library => true,
         FigmaImportTarget::OpenDocument => false,
     };
+    let import_hidden_layers = matches!(target, FigmaImportTarget::OpenDocument);
     let fallback_name = path
         .file_name()
         .and_then(|s| s.to_str())
@@ -236,7 +250,7 @@ fn create_draft(
             doc_name: fallback_name,
             pages: Vec::new(),
             create_movie_clip: default_mc,
-            import_hidden_layers: false,
+            import_hidden_layers,
             error: None,
             phase: FigmaModalPhase::Inspecting(spawn_inspect_worker(path.clone())),
             path,
@@ -245,7 +259,7 @@ fn create_draft(
 
     match inspect_figma_path(&path) {
         Ok(summary) => {
-            let pages = build_page_choices(&summary);
+            let pages = build_page_choices(&summary, &target);
             let err = pages
                 .is_empty()
                 .then(|| "This Figma file contains no importable pages.".to_owned());
@@ -260,7 +274,7 @@ fn create_draft(
                 },
                 pages,
                 create_movie_clip: default_mc,
-                import_hidden_layers: false,
+                import_hidden_layers,
                 error: err,
                 phase: FigmaModalPhase::Ready,
             }
@@ -272,7 +286,7 @@ fn create_draft(
             doc_name: fallback_name,
             pages: Vec::new(),
             create_movie_clip: default_mc,
-            import_hidden_layers: false,
+            import_hidden_layers,
             error: Some(err.to_string()),
             phase: FigmaModalPhase::Ready,
         },
@@ -486,7 +500,7 @@ impl Editor {
                     .unwrap_or(Err(TryRecvError::Disconnected));
                 match outcome {
                     Ok(Ok(summary)) => {
-                        draft.pages = build_page_choices(&summary);
+                        draft.pages = build_page_choices(&summary, &draft.target);
                         if !summary.name.trim().is_empty() {
                             draft.doc_name = summary.name;
                         }
@@ -610,11 +624,7 @@ impl Editor {
                             let summary_txt = if is_inspecting {
                                 draft.doc_name.clone()
                             } else {
-                                format!(
-                                    "{} of {} selected",
-                                    selected_count,
-                                    draft.pages.len()
-                                )
+                                format!("{} of {} selected", selected_count, draft.pages.len())
                             };
                             ui.add(
                                 egui::Label::new(
@@ -724,17 +734,21 @@ impl Editor {
                         } else if selected_count == 0 {
                             footer_note(ui, "Select at least one page");
                         } else {
-                            let mode_label = match (&draft.target, draft.create_movie_clip) {
-                                (_, true) => "MovieClip",
-                                (FigmaImportTarget::Library, false) => "Library symbols",
-                                _ => "Timeline layers",
+                            let suffix = if selected_count == 1 { "" } else { "s" };
+                            let destination = if draft.page_mapping() == FigmaPageMapping::Scenes {
+                                format!("scene{suffix}")
+                            } else {
+                                let mode_label = match (&draft.target, draft.create_movie_clip) {
+                                    (_, true) => "MovieClip",
+                                    (FigmaImportTarget::Library, false) => "Library symbols",
+                                    _ => "Timeline layers",
+                                };
+                                format!("layer{suffix} · {mode_label}")
                             };
                             footer_note(
                                 ui,
                                 &format!(
-                                    "{selected_count} page{} → {selected_count} layer{} · {mode_label}",
-                                    if selected_count == 1 { "" } else { "s" },
-                                    if selected_count == 1 { "" } else { "s" },
+                                    "{selected_count} page{suffix} → {selected_count} {destination}"
                                 ),
                             );
                         }
@@ -782,14 +796,19 @@ impl Editor {
                 .collect();
             if !selected_ids.is_empty() {
                 draft.error = None;
+                // A complete document also retains unused component masters from the Library.
+                let page_mapping = draft.page_mapping();
+                let full_document = page_mapping == FigmaPageMapping::Scenes
+                    && draft.import_hidden_layers
+                    && selected_ids.len() == draft.pages.len();
                 let opts = FigmaImportOptions {
                     layer_mapping: FigmaLayerMapping::TimelineLayers,
                     import_hidden_layers: draft.import_hidden_layers,
                     preserve_masks: true,
                     preserve_blend_modes: true,
                     resize_stage_to_artboard: true,
-                    selected_page_ids: Some(selected_ids),
-                    page_mapping: FigmaPageMapping::Layers,
+                    selected_page_ids: (!full_document).then_some(selected_ids),
+                    page_mapping,
                 };
                 draft.phase =
                     FigmaModalPhase::Importing(spawn_import_worker(draft.path.clone(), opts));
@@ -1445,7 +1464,9 @@ mod tests {
             .request(crate::app::Pending::OpenPath(fig_path.clone()), &h.ctx);
         assert!(has_figma_import_dialog(&h.ctx));
         h.settle();
-        h.click("Feed");
+        let draft = figma_import_draft(&h.ctx).unwrap();
+        assert!(draft.pages.iter().all(|page| page.selected));
+        assert!(draft.import_hidden_layers);
         h.click("Import");
         h.wait_until_closed();
 
@@ -1453,15 +1474,23 @@ mod tests {
         assert_eq!(h.editor.project.name, "UI Screens Kit");
         assert_eq!(h.editor.project.width, 400);
         assert_eq!(h.editor.project.height, 300);
-        let root_layers: Vec<&str> = h
+        let scenes: Vec<_> = h
             .editor
-            .symbol()
-            .timeline
-            .layers
-            .iter()
-            .map(|l| l.name.as_str())
+            .scene_list()
+            .into_iter()
+            .map(|(_, name)| name)
             .collect();
-        assert_eq!(root_layers, vec!["Onboarding", "Feed"]);
+        assert_eq!(scenes, ["Empty Cover", "Onboarding", "Feed", "Profile"]);
+        let profile = h.editor.project.scenes.last().unwrap().clone();
+        h.editor.switch_scene(&profile);
+        assert!(
+            h.editor
+                .symbol()
+                .timeline
+                .layers
+                .iter()
+                .any(|layer| layer.name == "Hidden Badge" && !layer.visible)
+        );
 
         let _ = std::fs::remove_dir_all(&temp);
     }

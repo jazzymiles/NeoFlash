@@ -1101,4 +1101,13 @@ fn t295_stage_auto_fit_tracks_resize_stops_on_manual_zoom_pan_and_resumes_on_fit
     assert!((editor.zoom - fitted_small).abs() < 1e-3);
     run_stage(&mut editor, Vec2::new(1400., 900.));
     assert!((editor.zoom - fitted_large).abs() < 1e-3);
+
+    editor.project.width = 8192;
+    editor.project.height = 8192;
+    editor.fit_stage();
+    run_stage(&mut editor, Vec2::new(700., 500.));
+    assert!(8192.0 * editor.zoom <= 500.0);
+    let overview_zoom = editor.zoom;
+    editor.zoom_out();
+    assert!(editor.zoom < overview_zoom);
 }

@@ -39,7 +39,7 @@ use std::{
 };
 use tiny_skia::{
     Color as SkiaColor, FillRule as SkiaFillRule, FilterQuality, GradientStop as SkiaGradientStop,
-    IntSize, LineCap, LineJoin, LinearGradient, Mask as SkiaMask, Paint as SkiaPaint,
+    IntRect, IntSize, LineCap, LineJoin, LinearGradient, Mask as SkiaMask, Paint as SkiaPaint,
     Path as SkiaPath, PathBuilder, Pixmap, PixmapPaint, Point as SkiaPoint, RadialGradient,
     SpreadMode, Stroke as SkiaStroke, Transform as SkiaTransform,
 };
@@ -3677,40 +3677,71 @@ pub fn render_authored_scene_with_video_rgba(
     let sy = h as f32 / project.height.max(1) as f32;
     let stage_scale = SkiaTransform::from_scale(sx, sy);
 
-    let coverage = MaskCoverage::new(project, &scene.clips).ok();
-    let mut mask_cache: HashMap<Vec<String>, Option<SkiaMask>> = HashMap::new();
-
-    // Keep the last premultiplied brush across placements without retaining a second copy of every image.
+    let viewport = IntRect::from_xywh(0, 0, w, h).expect("allocated pixmap dimensions");
+    let clips: HashMap<_, _> = scene
+        .clips
+        .iter()
+        .map(|clip| (clip.id.as_str(), clip))
+        .collect();
+    let clip_bounds: HashMap<_, _> = clips
+        .iter()
+        .map(|(&id, clip)| (id, clip_pixel_bounds(clip, stage_scale, viewport)))
+        .collect();
     let mut bitmap_brush = BitmapBrushCache::default();
-    for draw in &scene.draws {
-        let mask_ref = if draw.clip_ids.is_empty() {
+    // Adjacent placements share a mask. Bound its allocation to the intersection of the
+    // artboards in this run, and release it before drawing the next run in stacking order.
+    for draws in scene.draws.chunk_by(|a, b| a.clip_ids == b.clip_ids) {
+        let ids = &draws[0].clip_ids;
+        let Some(rect) = ids.iter().try_fold(viewport, |area, id| {
+            area.intersect(&clip_bounds.get(id.as_str()).copied().flatten()?)
+        }) else {
+            continue;
+        };
+        let transform = stage_scale.post_translate(-(rect.x() as f32), -(rect.y() as f32));
+        let mask = if ids.is_empty() {
             None
         } else {
-            if !mask_cache.contains_key(&draw.clip_ids) {
-                let built = build_clip_mask(
-                    w,
-                    h,
-                    project.width.max(1),
-                    project.height.max(1),
-                    &draw.clip_ids,
-                    &scene.clips,
-                    coverage.as_ref(),
-                );
-                mask_cache.insert(draw.clip_ids.clone(), built);
-            }
-            mask_cache.get(&draw.clip_ids).and_then(|m| m.as_ref())
+            let Some(mask) = build_clip_mask(
+                project,
+                rect,
+                [
+                    f64::from(project.width) / f64::from(w),
+                    f64::from(project.height) / f64::from(h),
+                ],
+                transform,
+                ids,
+                &clips,
+            ) else {
+                continue;
+            };
+            Some(mask)
         };
-        draw_authored_item(
-            &mut pixmap,
-            project,
-            draw,
-            stage_scale,
-            mask_ref,
-            bitmap_cache,
-            &mut bitmap_brush,
-            video_cache,
-            video_placements,
-        );
+        let mut crop =
+            (rect != viewport).then(|| pixmap.clone_rect(rect).expect("bounded pixmap rectangle"));
+        let surface = crop.as_mut().unwrap_or(&mut pixmap);
+        for draw in draws {
+            draw_authored_item(
+                surface,
+                project,
+                draw,
+                transform,
+                mask.as_ref(),
+                bitmap_cache,
+                &mut bitmap_brush,
+                video_cache,
+                video_placements,
+            );
+        }
+        if let Some(crop) = crop {
+            for (src, dst) in crop.pixels().chunks_exact(rect.width() as usize).zip(
+                pixmap
+                    .pixels_mut()
+                    .chunks_exact_mut(w as usize)
+                    .skip(rect.y() as usize),
+            ) {
+                dst[rect.x() as usize..rect.right() as usize].copy_from_slice(src);
+            }
+        }
     }
 
     // Convert premultiplied RGBA from tiny-skia to straight RGBA8 for encoders and egui textures.
@@ -3727,44 +3758,99 @@ pub fn render_authored_scene_with_video_rgba(
     out
 }
 
+fn clip_pixel_bounds(
+    clip: &neoflash_core::RuntimeClip,
+    scale: SkiaTransform,
+    viewport: IntRect,
+) -> Option<IntRect> {
+    if clip.invert {
+        return Some(viewport);
+    }
+    let bounds = |commands: &[PathCommand], matrix| {
+        build_skia_path(commands)?
+            .bounds()
+            .transform(scale.pre_concat(affine_to_skia(matrix)))
+    };
+    let join = |a: tiny_skia::Rect, b| a.join(&b).unwrap_or(viewport.to_rect());
+    let union = if let Some(alpha) = &clip.alpha_components {
+        alpha
+            .iter()
+            .filter_map(|c| bounds(&c.commands, c.matrix))
+            .reduce(join)
+    } else {
+        clip.components
+            .iter()
+            .filter_map(|c| bounds(&c.commands, c.matrix))
+            .reduce(join)
+    }?;
+    union
+        .outset(1., 1.)?
+        .intersect(&viewport.to_rect())?
+        .round_out()?
+        .intersect(&viewport)
+}
+
 fn build_clip_mask(
-    out_w: u32,
-    out_h: u32,
-    stage_w: u32,
-    stage_h: u32,
-    clip_ids: &[String],
-    clips: &[neoflash_core::RuntimeClip],
-    coverage: Option<&MaskCoverage>,
+    project: &Project,
+    rect: IntRect,
+    step: [f64; 2],
+    transform: SkiaTransform,
+    ids: &[String],
+    clips: &HashMap<&str, &neoflash_core::RuntimeClip>,
 ) -> Option<SkiaMask> {
-    if let Some(cov) = coverage {
-        let step_x = f64::from(stage_w) / f64::from(out_w.max(1));
-        let step_y = f64::from(stage_h) / f64::from(out_h.max(1));
-        if let Ok(bytes) = cov.raster(
-            clip_ids,
-            [0.0, 0.0],
-            [step_x, step_y],
-            out_w as usize,
-            out_h as usize,
-        ) && let Some(size) = IntSize::from_wh(out_w, out_h)
-        {
-            return SkiaMask::from_vec(bytes, size);
+    let out_w = rect.width();
+    let out_h = rect.height();
+    // Alpha and nested masks use the shared coverage sampler. Only their reachable
+    // components count against its work budget, irrespective of other artboards.
+    let simple = ids.iter().all(|id| {
+        clips.get(id.as_str()).is_some_and(|c| {
+            c.alpha_components.is_none()
+                && !c.invert
+                && c.components.iter().all(|part| part.clip_ids.is_empty())
+        })
+    });
+    if !simple {
+        let mut subset = Vec::new();
+        let mut seen = HashSet::new();
+        let mut pending: Vec<_> = ids.iter().map(String::as_str).collect();
+        while let Some(id) = pending.pop() {
+            if seen.insert(id) {
+                let clip = *clips.get(id)?;
+                if let Some(alpha) = &clip.alpha_components {
+                    pending.extend(
+                        alpha
+                            .iter()
+                            .flat_map(|c| c.clip_ids.iter().map(String::as_str)),
+                    );
+                } else {
+                    pending.extend(
+                        clip.components
+                            .iter()
+                            .flat_map(|c| c.clip_ids.iter().map(String::as_str)),
+                    );
+                }
+                subset.push(clip.clone());
+            }
+        }
+        if let Ok(coverage) = MaskCoverage::new(project, &subset) {
+            let origin = [f64::from(rect.x()) * step[0], f64::from(rect.y()) * step[1]];
+            if let Ok(bytes) = coverage.raster(ids, origin, step, out_w as usize, out_h as usize) {
+                return SkiaMask::from_vec(bytes, IntSize::from_wh(out_w, out_h)?);
+            }
         }
     }
-    // Fallback fast path: rasterize geometric clip components with tiny-skia.
-    let sx = out_w as f32 / stage_w.max(1) as f32;
-    let sy = out_h as f32 / stage_h.max(1) as f32;
-    let stage_scale = SkiaTransform::from_scale(sx, sy);
     let mut combined: Option<SkiaMask> = None;
-    for clip_id in clip_ids {
-        let Some(clip) = clips.iter().find(|c| &c.id == clip_id) else {
-            continue;
-        };
+    for id in ids {
+        let clip = clips.get(id.as_str())?;
         let mut mask = SkiaMask::new(out_w, out_h)?;
         for comp in &clip.components {
             if let Some(path) = build_skia_path(&comp.commands) {
-                let xf = stage_scale.pre_concat(affine_to_skia(comp.matrix));
+                let xf = transform.pre_concat(affine_to_skia(comp.matrix));
                 mask.fill_path(&path, to_skia_fill_rule(comp.fill_rule), true, xf);
             }
+        }
+        if clip.invert {
+            mask.invert();
         }
         if let Some(existing) = &mut combined {
             for (dst, src) in existing.data_mut().iter_mut().zip(mask.data().iter()) {
@@ -3937,7 +4023,9 @@ fn decoded_bitmap(
 
 #[derive(Default)]
 struct BitmapBrushCache {
-    last: Option<(String, ColorTransform, Pixmap)>,
+    // Packed texels are shared by repeated image placements in the same frame.
+    entries: VecDeque<(String, ColorTransform, Pixmap)>,
+    bytes: usize,
 }
 
 impl BitmapBrushCache {
@@ -3956,19 +4044,27 @@ impl BitmapBrushCache {
             paint.set_color_rgba8(color[0], color[1], color[2], color[3]);
             return Some(paint);
         }
-        if !self
-            .last
-            .as_ref()
-            .is_some_and(|(id, color, _)| id == &fill.resource_id && *color == ct)
+        if let Some(index) = self
+            .entries
+            .iter()
+            .position(|(id, color, _)| id == &fill.resource_id && *color == ct)
         {
+            self.entries.swap(0, index);
+        } else {
             let image = decoded_bitmap(project, cache, &fill.resource_id)?;
-            self.last = Some((
-                fill.resource_id.clone(),
-                ct,
-                bitmap_pixmap(&image, ct, 1.0)?,
-            ));
+            let pixels = bitmap_pixmap(&image, ct, 1.0)?;
+            const CACHE_BYTES: usize = 160 * 1024 * 1024;
+            while self.bytes + pixels.data().len() > CACHE_BYTES {
+                let Some((_, _, old)) = self.entries.pop_back() else {
+                    break;
+                };
+                self.bytes -= old.data().len();
+            }
+            self.bytes += pixels.data().len();
+            self.entries
+                .push_front((fill.resource_id.clone(), ct, pixels));
         }
-        let (_, _, pixels) = self.last.as_ref()?;
+        let (_, _, pixels) = self.entries.front()?;
         Some(SkiaPaint {
             shader: tiny_skia::Pattern::new(
                 pixels.as_ref(),

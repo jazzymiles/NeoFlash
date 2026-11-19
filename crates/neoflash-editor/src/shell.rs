@@ -438,7 +438,7 @@ impl Editor {
     }
     pub(crate) fn zoom_out(&mut self) {
         self.finish_edits();
-        self.zoom = (self.zoom / 1.25).max(0.1);
+        self.zoom = (self.zoom / 1.25).max(crate::stage::MIN_STAGE_ZOOM);
         self.mark_manual_stage_view();
     }
     pub(crate) fn zoom_actual(&mut self) {

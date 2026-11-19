@@ -11,12 +11,13 @@ use image::codecs::png::{CompressionType, FilterType as PngFilterType, PngEncode
 use image::{DynamicImage, GenericImageView, ImageEncoder, ImageFormat, ImageReader, Limits};
 use neoflash_core::MAX_BITMAP_DIMENSION;
 
+use super::page_layout::PageLayout;
 use super::*;
 
 /// Maximum distinct bitmap resources imported into `Project.resources` (`validation.rs` caps at 256).
 const MAX_IMPORTED_BITMAPS: usize = 256;
-/// Safe ceiling for total uncompressed RGBA8 pixels across all bitmaps (`28M * 4B = 112 MiB < 128 MiB`).
-const MAX_TOTAL_BITMAP_PIXELS: u64 = 28_000_000;
+/// Directly placed bitmaps reserve mutable runtime buffers; vector paints can read their encoded Library image.
+const MAX_PLACED_BITMAP_PIXELS: u64 = neoflash_core::MAX_BITMAP_BYTES as u64 / 4;
 /// Safe ceiling for total raw encoded image bytes in `Project.resources` (`46 MiB < 64 MiB` and `< 128 MiB` JSON).
 const MAX_TOTAL_IMAGE_RAW_BYTES: usize = 46 * 1024 * 1024;
 /// Safe ceiling for a single encoded image resource (`14 MiB < 16 MiB`).
@@ -985,11 +986,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             Vec::new()
         };
 
-        let is_rect_node = matches!(
-            node.node_type.as_str(),
-            "RECTANGLE" | "ROUNDED_RECTANGLE" | "FRAME" | "COMPONENT" | "SYMBOL" | "SECTION"
-        );
-        let has_radius = node.corner_radii.iter().any(|&r| r > 0.0);
+        let is_rect_node = node.is_rectangular();
 
         if node.fills.is_empty() && stroke_w > 0.0 {
             let scmds = node
@@ -1060,11 +1057,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                 } => {
                     if let Some((res_id, iw, ih)) = self.lookup_image(image_ref, location) {
                         // Direct crisp `Bitmap` for non-rounded rectangular fills without explicit path
-                        if is_rect_node
-                            && !has_radius
-                            && node.fill_paths.is_empty()
-                            && scale_mode != "TILE"
-                        {
+                        if node.uses_bitmap_instance(scale_mode) {
                             let mut img_tf = base_tf;
                             if iw > 0 && ih > 0 && node.width > 0.0 && node.height > 0.0 {
                                 img_tf.scale_x *= node.width / f64::from(iw);
@@ -1527,8 +1520,23 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             }
             let loc = format!("{parent_loc} / {}", child.name);
 
-            if matches!(child.node_type.as_str(), "GROUP" | "SECTION")
+            // A plain, translated frame of leaves needs only a named timeline folder.
+            // Each child stays independently editable and retains its own mask, lock and order.
+            // A frame with clipping, paint, compositing or a non-translation matrix needs a symbol.
+            let shallow_group =
+                matches!(child.node_type.as_str(), "GROUP" | "SECTION") && depth <= 3;
+            let leaf_frame = child.node_type == "FRAME"
+                && child
+                    .children
+                    .iter()
+                    .all(|node| node.children.is_empty() && !node.is_mask);
+            let translation = child.relative_transform.map_or_else(
+                || (child.rotation_deg == 0.0).then_some([child.x, child.y]),
+                |[a, b, c, d, tx, ty]| ([a, b, c, d] == [1., 0., 0., 1.]).then_some([tx, ty]),
+            );
+            if (shallow_group || leaf_frame)
                 && !child.is_mask
+                && !child.clips_content
                 && child.fills.is_empty()
                 && child.strokes.is_empty()
                 && child.effects.is_empty()
@@ -1537,7 +1545,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                 && self.options.layer_mapping == FigmaLayerMapping::TimelineLayers
                 && !child.children.is_empty()
                 && child.children.len() <= 64
-                && depth <= 3
+                && let Some([tx, ty]) = translation
             {
                 let folder_id = new_id("folder");
                 layers.push(Layer {
@@ -1555,8 +1563,8 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
 
                 let (group_sub_layers, g_exp, g_dep) = self.build_layers_for_children(
                     &child.children,
-                    offset_x - child.x,
-                    offset_y - child.y,
+                    offset_x - tx,
+                    offset_y - ty,
                     None,
                     &loc,
                     rem_budget,
@@ -1750,139 +1758,117 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             self.report.statistics.keyframes += 1;
         }
 
-        // Coalesce adjacent plain normal layers when a container has > 96 layers to keep `.nflash`
-        // JSON compact while preserving exact bottom-to-top draw order (`layers[0]` = bottom).
-        if layers.len() > 96 {
-            layers = coalesce_plain_layers(layers);
-        }
-
         (layers, expanded_used, max_depth)
     }
 
     fn build_page_layers(
         &mut self,
         page: &FigmaNode,
-        update_stage_metrics: bool,
+        layout: PageLayout,
+        primary: bool,
         expanded_budget: usize,
     ) -> (Vec<Layer>, usize) {
-        if update_stage_metrics && let Some(bg) = page.background_color {
-            self.project.background = bg;
-        }
-
-        let visible_top: Vec<&FigmaNode> = page
+        let mut children = page
             .children
             .iter()
-            .filter(|n| n.visible || self.options.import_hidden_layers)
-            .collect();
-
-        if visible_top.len() == 1
-            && matches!(
-                visible_top[0].node_type.as_str(),
-                "FRAME" | "COMPONENT" | "SYMBOL" | "SECTION"
-            )
-        {
-            let artboard = visible_top[0];
-            if update_stage_metrics {
-                if self.options.resize_stage_to_artboard
-                    && artboard.width >= 1.0
-                    && artboard.height >= 1.0
-                {
-                    self.project.width = (artboard.width.round() as u32).clamp(1, 8192);
-                    self.project.height = (artboard.height.round() as u32).clamp(1, 8192);
-                }
-                if let Some(FigmaPaint::Solid { color }) = artboard.fills.first()
-                    && color[3] > 0
-                {
-                    self.project.background = [color[0], color[1], color[2], 255];
-                }
-            }
-            let (layers, exp, _) = self.build_layers_for_children(
-                &artboard.children,
-                0.0,
-                0.0,
-                if artboard.clips_content {
-                    Some((
-                        artboard.width.max(1.0),
-                        artboard.height.max(1.0),
-                        artboard.corner_radii,
-                    ))
-                } else {
-                    None
-                },
-                &artboard.name,
-                expanded_budget,
-                1,
-            );
-            (layers, exp)
+            .filter(|n| n.visible || self.options.import_hidden_layers);
+        let artboard = children.next().filter(|n| {
+            children.next().is_none()
+                && matches!(
+                    n.node_type.as_str(),
+                    "FRAME" | "COMPONENT" | "SYMBOL" | "SECTION"
+                )
+                && n.visible
+                && !n.locked
+                && !n.is_mask
+                && n.opacity == 1.0
+                && matches!(n.blend_mode.as_str(), "" | "NORMAL" | "PASS_THROUGH")
+                && n.effects.is_empty()
+                && n.strokes.is_empty()
+                && n.corner_radii == [0.0; 4]
+                && matches!(
+                    n.fills.as_slice(),
+                    [] | [FigmaPaint::Solid {
+                        color: [_, _, _, 255]
+                    }]
+                )
+                && layout.fills_stage(
+                    n,
+                    (self.project.width, self.project.height),
+                    self.options.resize_stage_to_artboard,
+                )
+        });
+        let background = artboard
+            .and_then(|n| match n.fills.first() {
+                Some(FigmaPaint::Solid { color }) => Some(*color),
+                _ => None,
+            })
+            .or(page.background_color);
+        if primary && let Some(bg) = background {
+            self.project.background = bg;
+        }
+        let backdrop = background.filter(|color| *color != self.project.background);
+        let budget = expanded_budget.saturating_sub(usize::from(backdrop.is_some()));
+        let (mut layers, mut exp, _) = if let Some(n) = artboard {
+            let clip =
+                n.clips_content
+                    .then_some((n.width.max(1.0), n.height.max(1.0), n.corner_radii));
+            self.build_layers_for_children(&n.children, 0.0, 0.0, clip, &n.name, budget, 1)
         } else {
-            let mut min_x = f64::INFINITY;
-            let mut min_y = f64::INFINITY;
-            let mut max_x = f64::NEG_INFINITY;
-            let mut max_y = f64::NEG_INFINITY;
-            for n in &visible_top {
-                if n.x.is_finite() && n.y.is_finite() {
-                    min_x = min_x.min(n.x);
-                    min_y = min_y.min(n.y);
-                    max_x = max_x.max(n.x + n.width.max(0.0));
-                    max_y = max_y.max(n.y + n.height.max(0.0));
-                }
-            }
-            let base_x = if min_x.is_finite() { min_x } else { 0.0 };
-            let base_y = if min_y.is_finite() { min_y } else { 0.0 };
-
-            if update_stage_metrics && self.options.resize_stage_to_artboard {
-                let bbox_w = (max_x - min_x).round();
-                let bbox_h = (max_y - min_y).round();
-                let largest_frame = visible_top
-                    .iter()
-                    .filter(|n| matches!(n.node_type.as_str(), "FRAME" | "SECTION"))
-                    .max_by(|a, b| {
-                        (a.width * a.height)
-                            .partial_cmp(&(b.width * b.height))
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    })
-                    .or_else(|| {
-                        visible_top.iter().find(|n| {
-                            matches!(
-                                n.node_type.as_str(),
-                                "FRAME" | "SECTION" | "COMPONENT" | "SYMBOL"
-                            )
-                        })
-                    });
-
-                if bbox_w.is_finite()
-                    && bbox_h.is_finite()
-                    && bbox_w >= 1.0
-                    && bbox_h >= 1.0
-                    && bbox_w <= 3840.0
-                    && bbox_h <= 2160.0
-                {
-                    self.project.width = (bbox_w as u32).clamp(1, 8192);
-                    self.project.height = (bbox_h as u32).clamp(1, 8192);
-                } else if let Some(frame) = largest_frame
-                    && frame.width >= 1.0
-                    && frame.height >= 1.0
-                {
-                    self.project.width = (frame.width.round() as u32).clamp(1, 8192);
-                    self.project.height = (frame.height.round() as u32).clamp(1, 8192);
-                }
-            }
-            let (layers, exp, _) = self.build_layers_for_children(
+            self.build_layers_for_children(
                 &page.children,
-                base_x,
-                base_y,
+                layout.origin[0],
+                layout.origin[1],
                 None,
                 &page.name,
-                expanded_budget,
+                budget,
                 1,
-            );
-            (layers, exp)
+            )
+        };
+        if self.options.resize_stage_to_artboard {
+            layout.fit_elements(&mut layers);
         }
+        // The document has a shared stage colour. A page with a different canvas colour
+        // carries its own stage-sized backdrop so scene navigation and export agree.
+        if let Some(color) = backdrop {
+            layers.insert(
+                0,
+                Layer {
+                    id: new_id("layer"),
+                    name: "Page background".into(),
+                    visible: true,
+                    locked: true,
+                    keyframes: vec![Keyframe {
+                        elements: vec![Element {
+                            id: new_id("el"),
+                            name: "Page background".into(),
+                            kind: ElementKind::Rectangle {
+                                width: f64::from(self.project.width),
+                                height: f64::from(self.project.height),
+                                fill: color,
+                                stroke: [0; 4],
+                                stroke_width: 0.0,
+                            },
+                            ..Element::default()
+                        }],
+                        ..Keyframe::default()
+                    }],
+                    properties: LayerProperties::default(),
+                },
+            );
+            exp += 1;
+            self.authored_elements += 1;
+            self.report.statistics.layers += 1;
+            self.report.statistics.keyframes += 1;
+            self.report.statistics.elements += 1;
+        }
+        (layers, exp)
     }
 
     fn build_single_layer_for_page(
         &mut self,
         page: &FigmaNode,
+        layout: PageLayout,
         page_index: usize,
         update_stage_metrics: bool,
         expanded_budget: usize,
@@ -1904,98 +1890,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             .filter(|n| n.visible || self.options.import_hidden_layers)
             .collect();
 
-        let node_origin = |n: &FigmaNode| -> (f64, f64) {
-            if let Some([_, _, _, _, tx, ty]) = n.relative_transform
-                && tx.is_finite()
-                && ty.is_finite()
-            {
-                (tx, ty)
-            } else {
-                (n.x, n.y)
-            }
-        };
-
-        let (base_x, base_y) = if visible_top.len() == 1
-            && matches!(
-                visible_top[0].node_type.as_str(),
-                "FRAME" | "COMPONENT" | "SYMBOL" | "SECTION"
-            ) {
-            let artboard = visible_top[0];
-            if update_stage_metrics {
-                if self.options.resize_stage_to_artboard
-                    && artboard.width >= 1.0
-                    && artboard.height >= 1.0
-                {
-                    self.project.width = (artboard.width.round() as u32).clamp(1, 8192);
-                    self.project.height = (artboard.height.round() as u32).clamp(1, 8192);
-                }
-                if let Some(FigmaPaint::Solid { color }) = artboard.fills.first()
-                    && color[3] > 0
-                {
-                    self.project.background = [color[0], color[1], color[2], 255];
-                }
-            }
-            let (ax, ay) = node_origin(artboard);
-            (
-                if ax.is_finite() { ax } else { 0.0 },
-                if ay.is_finite() { ay } else { 0.0 },
-            )
-        } else {
-            let mut min_x = f64::INFINITY;
-            let mut min_y = f64::INFINITY;
-            let mut max_x = f64::NEG_INFINITY;
-            let mut max_y = f64::NEG_INFINITY;
-            for n in &visible_top {
-                let (nx, ny) = node_origin(n);
-                if nx.is_finite() && ny.is_finite() {
-                    min_x = min_x.min(nx);
-                    min_y = min_y.min(ny);
-                    max_x = max_x.max(nx + n.width.max(0.0));
-                    max_y = max_y.max(ny + n.height.max(0.0));
-                }
-            }
-            let bx = if min_x.is_finite() { min_x } else { 0.0 };
-            let by = if min_y.is_finite() { min_y } else { 0.0 };
-
-            if update_stage_metrics && self.options.resize_stage_to_artboard {
-                let bbox_w = (max_x - min_x).round();
-                let bbox_h = (max_y - min_y).round();
-                let largest_frame = visible_top
-                    .iter()
-                    .filter(|n| matches!(n.node_type.as_str(), "FRAME" | "SECTION"))
-                    .max_by(|a, b| {
-                        (a.width * a.height)
-                            .partial_cmp(&(b.width * b.height))
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    })
-                    .or_else(|| {
-                        visible_top.iter().find(|n| {
-                            matches!(
-                                n.node_type.as_str(),
-                                "FRAME" | "SECTION" | "COMPONENT" | "SYMBOL"
-                            )
-                        })
-                    });
-
-                if bbox_w.is_finite()
-                    && bbox_h.is_finite()
-                    && bbox_w >= 1.0
-                    && bbox_h >= 1.0
-                    && bbox_w <= 3840.0
-                    && bbox_h <= 2160.0
-                {
-                    self.project.width = (bbox_w as u32).clamp(1, 8192);
-                    self.project.height = (bbox_h as u32).clamp(1, 8192);
-                } else if let Some(frame) = largest_frame
-                    && frame.width >= 1.0
-                    && frame.height >= 1.0
-                {
-                    self.project.width = (frame.width.round() as u32).clamp(1, 8192);
-                    self.project.height = (frame.height.round() as u32).clamp(1, 8192);
-                }
-            }
-            (bx, by)
-        };
+        let [base_x, base_y] = layout.origin;
 
         let mut all_elements = Vec::new();
         let mut all_bfs = Vec::new();
@@ -2091,7 +1986,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             }
         }
 
-        let layer = Layer {
+        let mut layer = Layer {
             id: new_id("layer"),
             name: layer_name,
             visible: if self.options.selected_page_ids.is_some() {
@@ -2108,6 +2003,9 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             }],
             properties: LayerProperties::default(),
         };
+        if self.options.resize_stage_to_artboard {
+            layout.fit_elements(std::slice::from_mut(&mut layer));
+        }
         (layer, expanded_used)
     }
 }
@@ -2120,6 +2018,11 @@ pub(super) fn build_project_from_figma_doc(
 ) -> Result<(Project, ImportReport), ImportError> {
     let mut project = Project::blank();
     project.name = sanitize_symbol_name(&doc.name);
+    // Each static design page occupies exactly one frame, including the root scene.
+    let root = project.root.clone();
+    if let Some(scene) = project.symbol_mut(&root) {
+        scene.timeline.frame_count = 1;
+    }
     let mut report = ImportReport {
         source: source_label.to_owned(),
         format: ImportFormat::Figma,
@@ -2178,6 +2081,30 @@ pub(super) fn build_project_from_figma_doc(
     } else {
         all_user_pages
     };
+
+    let mut layouts = HashMap::new();
+    let mut stage = (0, 0);
+    for &page in &user_pages {
+        let layout = PageLayout::measure(page, options.import_hidden_layers);
+        if options.resize_stage_to_artboard
+            && (page.visible || options.import_hidden_layers || options.selected_page_ids.is_some())
+        {
+            let (width, height) = layout.stage_extent();
+            stage = (stage.0.max(width), stage.1.max(height));
+            if layout.scale() < 1.0 {
+                report.warning(
+                    "figma-page-fitted-to-stage",
+                    format!("{} ({})", page.name, page.id),
+                    format!("Fit the complete {:.0} × {:.0} Figma page to {width} × {height} stage pixels at {:.2}% scale.", layout.width, layout.height, layout.scale() * 100.0),
+                );
+            }
+        }
+        layouts.insert(&page.id, layout);
+    }
+    if stage != (0, 0) {
+        project.width = stage.0.max(1);
+        project.height = stage.1.max(1);
+    }
 
     // Collect master `COMPONENT` / `SYMBOL` definitions across ALL pages (including `Internal Only Canvas`).
     let mut master_nodes: HashMap<String, &FigmaNode> = HashMap::new();
@@ -2256,7 +2183,8 @@ pub(super) fn build_project_from_figma_doc(
                     ctx.warn_page_limit(page, true);
                     continue;
                 }
-                let (layer, p_exp) = ctx.build_single_layer_for_page(page, idx, idx == 0, rem);
+                let (layer, p_exp) =
+                    ctx.build_single_layer_for_page(page, layouts[&page.id], idx, idx == 0, rem);
                 expanded_used = expanded_used.saturating_add(p_exp);
                 if ctx.retain_page(page, p_exp) {
                     page_layers.push(layer);
@@ -2272,20 +2200,15 @@ pub(super) fn build_project_from_figma_doc(
             }
         }
         FigmaPageMapping::Scenes => {
-            let primary_page = if options.selected_page_ids.is_some() {
-                user_pages[0]
-            } else {
-                user_pages
-                    .iter()
-                    .copied()
-                    .find(|p| (p.visible || options.import_hidden_layers) && !p.children.is_empty())
-                    .unwrap_or(user_pages[0])
-            };
+            let mut scene_pages = user_pages.iter().copied().filter(|p| {
+                options.selected_page_ids.is_some() || p.visible || options.import_hidden_layers
+            });
+            let primary_page = scene_pages.next().unwrap_or(user_pages[0]);
 
-            let mut scenes_expanded_used = 1usize;
-            let first_budget = MAX_EXPANDED_SCENE_NODES.saturating_sub(scenes_expanded_used);
-            let (root_layers, root_exp) = ctx.build_page_layers(primary_page, true, first_budget);
-            scenes_expanded_used = scenes_expanded_used.saturating_add(root_exp);
+            // Separate scenes are never evaluated at the same time.
+            let scene_budget = MAX_EXPANDED_SCENE_NODES - 1;
+            let (root_layers, root_exp) =
+                ctx.build_page_layers(primary_page, layouts[&primary_page.id], true, scene_budget);
             ctx.retain_page(primary_page, root_exp);
 
             let root_id = ctx.project.root.clone();
@@ -2298,75 +2221,55 @@ pub(super) fn build_project_from_figma_doc(
                 }
             }
 
-            // Map additional non-empty user pages to `Project.scenes` (just like multi-scene FLA/XFL!),
-            // keeping `Internal Only Canvas` strictly excluded from stage scenes.
-            let extra_user_pages: Vec<&FigmaNode> = if options.selected_page_ids.is_some() {
-                user_pages.iter().copied().skip(1).collect()
-            } else {
-                user_pages
-                    .iter()
-                    .copied()
-                    .filter(|p| {
-                        p.id != primary_page.id
-                            && !p.internal_only
-                            && (p.visible || options.import_hidden_layers)
-                            && !p.children.is_empty()
-                    })
-                    .collect()
-            };
-
-            if !extra_user_pages.is_empty() {
-                let mut scene_ids = vec![root_id];
-                for (idx, extra_page) in extra_user_pages.into_iter().enumerate() {
-                    let rem = MAX_EXPANDED_SCENE_NODES.saturating_sub(scenes_expanded_used);
-                    if ctx.project.symbols.len() >= MAX_PROJECT_SYMBOLS
-                        || ctx.authored_elements >= MAX_AUTHORED_ELEMENTS
-                        || rem < 4
-                    {
-                        ctx.warn_page_limit(extra_page, true);
-                        continue;
-                    }
-                    let (mut page_layers, p_exp) = ctx.build_page_layers(extra_page, false, rem);
-                    scenes_expanded_used = scenes_expanded_used.saturating_add(p_exp);
-                    if !ctx.retain_page(extra_page, p_exp) {
-                        continue;
-                    }
-                    if page_layers.is_empty() {
-                        page_layers.push(Layer {
-                            id: new_id("layer"),
-                            name: "Layer 1".into(),
-                            visible: true,
-                            locked: false,
-                            keyframes: vec![Keyframe::default()],
-                            properties: LayerProperties::default(),
-                        });
-                    }
-                    let scene_id = new_id("figscene");
-                    let fallback_title = format!("Page {}", idx + 2);
-                    let scene_title = if extra_page.name.trim().is_empty() {
-                        &fallback_title
-                    } else {
-                        extra_page.name.as_str()
-                    };
-                    ctx.project.symbols.push(Symbol {
-                        id: scene_id.clone(),
-                        name: sanitize_symbol_name(scene_title),
-                        folder: String::new(),
-                        kind: SymbolKind::MovieClip,
-                        timeline: Timeline {
-                            frame_count: 1,
-                            layers: page_layers,
-                            scripts: Vec::new(),
-                            guides: Vec::new(),
-                        },
-                        class_name: None,
-                        linkage_id: None,
+            // Even an empty design page is an editable scene in the source page order.
+            let mut scene_ids = vec![root_id];
+            for (idx, extra_page) in scene_pages.enumerate() {
+                if ctx.project.symbols.len() >= MAX_PROJECT_SYMBOLS
+                    || ctx.authored_elements >= MAX_AUTHORED_ELEMENTS
+                {
+                    ctx.warn_page_limit(extra_page, true);
+                    continue;
+                }
+                let (mut page_layers, p_exp) =
+                    ctx.build_page_layers(extra_page, layouts[&extra_page.id], false, scene_budget);
+                if !ctx.retain_page(extra_page, p_exp) {
+                    continue;
+                }
+                if page_layers.is_empty() {
+                    page_layers.push(Layer {
+                        id: new_id("layer"),
+                        name: "Layer 1".into(),
+                        visible: true,
+                        locked: false,
+                        keyframes: vec![Keyframe::default()],
+                        properties: LayerProperties::default(),
                     });
-                    scene_ids.push(scene_id);
                 }
-                if scene_ids.len() > 1 {
-                    ctx.project.scenes = scene_ids;
-                }
+                let scene_id = new_id("figscene");
+                let fallback_title = format!("Page {}", idx + 2);
+                let scene_title = if extra_page.name.trim().is_empty() {
+                    &fallback_title
+                } else {
+                    extra_page.name.as_str()
+                };
+                ctx.project.symbols.push(Symbol {
+                    id: scene_id.clone(),
+                    name: sanitize_symbol_name(scene_title),
+                    folder: String::new(),
+                    kind: SymbolKind::MovieClip,
+                    timeline: Timeline {
+                        frame_count: 1,
+                        layers: page_layers,
+                        scripts: Vec::new(),
+                        guides: Vec::new(),
+                    },
+                    class_name: None,
+                    linkage_id: None,
+                });
+                scene_ids.push(scene_id);
+            }
+            if scene_ids.len() > 1 {
+                ctx.project.scenes = scene_ids;
             }
         }
     }
@@ -2437,32 +2340,74 @@ fn collect_master_nodes<'b>(
     }
 }
 
+impl FigmaNode {
+    fn is_rectangular(&self) -> bool {
+        matches!(
+            self.node_type.as_str(),
+            "RECTANGLE" | "ROUNDED_RECTANGLE" | "FRAME" | "COMPONENT" | "SYMBOL" | "SECTION"
+        )
+    }
+
+    fn uses_bitmap_instance(&self, scale_mode: &str) -> bool {
+        self.is_rectangular()
+            && self.fill_paths.is_empty()
+            && self.corner_radii.iter().all(|&r| r <= 0.0)
+            && scale_mode != "TILE"
+    }
+}
+
+#[derive(Default)]
+struct ReferencedImages {
+    ordered: Vec<String>,
+    seen: HashSet<String>,
+    placed: HashSet<String>,
+}
+
+impl ReferencedImages {
+    fn record(&mut self, key: &str, placed: bool) {
+        let key = key.to_ascii_lowercase();
+        if key.is_empty() {
+            return;
+        }
+        if self.seen.insert(key.clone()) {
+            self.ordered.push(key.clone());
+        }
+        if placed {
+            self.placed.insert(key);
+        }
+    }
+}
+
 fn collect_referenced_image_keys(
     node: &FigmaNode,
     include_hidden: bool,
     is_root_or_master: bool,
-    ordered: &mut Vec<String>,
-    seen: &mut HashSet<String>,
+    refs: &mut ReferencedImages,
 ) {
     if !is_root_or_master && !node.visible && !include_hidden {
         return;
     }
-    for p in node.fills.iter().chain(node.strokes.iter()) {
+    for p in &node.fills {
+        if let FigmaPaint::Image {
+            image_ref,
+            scale_mode,
+            ..
+        } = p
+        {
+            refs.record(image_ref, node.uses_bitmap_instance(scale_mode));
+        }
+    }
+    for p in &node.strokes {
         if let FigmaPaint::Image { image_ref, .. } = p {
-            let low = image_ref.to_ascii_lowercase();
-            if !low.is_empty() && seen.insert(low.clone()) {
-                ordered.push(low);
-            }
+            refs.record(image_ref, false);
         }
     }
     for ov in &node.symbol_overrides {
         for plist in [&ov.fills, &ov.strokes].into_iter().flatten() {
             for p in plist {
                 if let FigmaPaint::Image { image_ref, .. } = p {
-                    let low = image_ref.to_ascii_lowercase();
-                    if !low.is_empty() && seen.insert(low.clone()) {
-                        ordered.push(low);
-                    }
+                    // An override can replace a direct bitmap on the master.
+                    refs.record(image_ref, true);
                 }
             }
         }
@@ -2472,8 +2417,7 @@ fn collect_referenced_image_keys(
             child,
             include_hidden,
             is_root_or_master && matches!(node.node_type.as_str(), "COMPONENT" | "SYMBOL"),
-            ordered,
-            seen,
+            refs,
         );
     }
 }
@@ -2535,14 +2479,13 @@ fn prepare_referenced_images<'b>(
     if !images.has_any() {
         return;
     }
-    let mut ordered_refs = Vec::new();
-    let mut seen = HashSet::new();
+    let mut refs = ReferencedImages::default();
     let include_hidden = ctx.options.import_hidden_layers;
     let mut visited_masters = HashSet::new();
     let mut ref_masters = Vec::new();
 
     for &page in user_pages {
-        collect_referenced_image_keys(page, include_hidden, true, &mut ordered_refs, &mut seen);
+        collect_referenced_image_keys(page, include_hidden, true, &mut refs);
         collect_transitively_referenced_masters(
             page,
             include_hidden,
@@ -2562,8 +2505,13 @@ fn prepare_referenced_images<'b>(
         }
     }
     for mnode in ref_masters {
-        collect_referenced_image_keys(mnode, true, true, &mut ordered_refs, &mut seen);
+        collect_referenced_image_keys(mnode, true, true, &mut refs);
     }
+    let ReferencedImages {
+        ordered: mut ordered_refs,
+        placed,
+        ..
+    } = refs;
     if ordered_refs.is_empty() {
         return;
     }
@@ -2589,6 +2537,7 @@ fn prepare_referenced_images<'b>(
         orig_h: u32,
         target_w: u32,
         target_h: u32,
+        placed: bool,
     }
 
     let mut candidates = Vec::with_capacity(ordered_refs.len());
@@ -2639,6 +2588,7 @@ fn prepare_referenced_images<'b>(
             th = ((f64::from(th) * scale).round() as u32).clamp(1, MAX_BITMAP_DIMENSION);
         }
         candidates.push(RawImageCandidate {
+            placed: placed.contains(&key),
             key,
             bytes: raw_bytes,
             format: fmt,
@@ -2653,33 +2603,35 @@ fn prepare_referenced_images<'b>(
         return;
     }
 
-    // Enforce global RGBA8 runtime pixel budget (`sum(tw * th) <= MAX_TOTAL_BITMAP_PIXELS`).
+    // Only directly placed resources must fit simultaneously in the mutable pixel arena.
     loop {
         let total_px: u64 = candidates
             .iter()
+            .filter(|c| c.placed)
             .map(|c| u64::from(c.target_w) * u64::from(c.target_h))
             .sum();
-        if total_px <= MAX_TOTAL_BITMAP_PIXELS {
+        if total_px <= MAX_PLACED_BITMAP_PIXELS {
             break;
         }
         let small_px: u64 = candidates
             .iter()
+            .filter(|c| c.placed)
             .filter(|c| u64::from(c.target_w) * u64::from(c.target_h) <= 65_536)
             .map(|c| u64::from(c.target_w) * u64::from(c.target_h))
             .sum();
         let large_px = total_px.saturating_sub(small_px);
         if large_px == 0 {
-            let factor = ((MAX_TOTAL_BITMAP_PIXELS as f64) / (total_px as f64))
+            let factor = ((MAX_PLACED_BITMAP_PIXELS as f64) / (total_px as f64))
                 .sqrt()
                 .min(0.95);
-            for c in &mut candidates {
+            for c in candidates.iter_mut().filter(|c| c.placed) {
                 c.target_w = ((f64::from(c.target_w) * factor).floor() as u32).max(1);
                 c.target_h = ((f64::from(c.target_h) * factor).floor() as u32).max(1);
             }
         } else {
-            let avail_large = MAX_TOTAL_BITMAP_PIXELS.saturating_sub(small_px).max(1);
+            let avail_large = MAX_PLACED_BITMAP_PIXELS.saturating_sub(small_px).max(1);
             let factor = ((avail_large as f64) / (large_px as f64)).sqrt().min(0.95);
-            for c in &mut candidates {
+            for c in candidates.iter_mut().filter(|c| c.placed) {
                 if u64::from(c.target_w) * u64::from(c.target_h) > 65_536 {
                     c.target_w = ((f64::from(c.target_w) * factor).floor() as u32).max(1);
                     c.target_h = ((f64::from(c.target_h) * factor).floor() as u32).max(1);
@@ -3134,30 +3086,6 @@ fn apply_override_at_path(node: &mut FigmaNode, path: &[String], ov: &FigmaSymbo
         }
     }
     applied
-}
-
-fn is_coalesceable_layer(l: &Layer) -> bool {
-    l.visible && !l.locked && l.properties.is_default() && l.keyframes.len() == 1
-}
-
-fn coalesce_plain_layers(layers: Vec<Layer>) -> Vec<Layer> {
-    let mut out: Vec<Layer> = Vec::with_capacity(64);
-    for mut layer in layers {
-        if is_coalesceable_layer(&layer)
-            && let Some(prev) = out.last_mut()
-            && is_coalesceable_layer(prev)
-            && prev.keyframes[0].elements.len() + layer.keyframes[0].elements.len() <= 128
-        {
-            let mut src_kf = layer.keyframes.pop().unwrap();
-            prev.keyframes[0].elements.append(&mut src_kf.elements);
-            prev.keyframes[0]
-                .bitmap_fills
-                .append(&mut src_kf.bitmap_fills);
-            continue;
-        }
-        out.push(layer);
-    }
-    out
 }
 
 fn sanitize_font_family(raw: &str) -> String {
