@@ -93,3 +93,7 @@ These families use captured browser-backed adapters. Regex patterns currently us
 ## Local saved state
 
 Use SharedObject.getLocal for named application/game state, and call flush after meaningful changes. AS3 returns SharedObjectFlushStatus.FLUSHED; AS2 returns true. The saved-game example demonstrates both dialects and ByteArray AMF0/AMF3 object records. Reloading the same HTTP(S) publication or using Restart restores successfully saved data. Clear removes only that named record. Browser access/quota failures must be handled by project code; file/opaque origins cannot use this persistence profile. A best-effort pagehide flush is not a durability guarantee, and Restart discards unflushed changes. Remote SharedObjects and Flash .sol files are separate work.
+
+## Mountable HTML5 modules
+
+Every standard HTML5 publication (`Full`, `Balanced`, `Compact` and `Shared`, in both `Canvas` and `Web App · DOM` modes) emits an ES module entry `module.mjs` (`export { mount, bundle, manifest, loadBundle, ensureRuntime }`) alongside standalone `index.html`. Host web apps can import multiple publications on one page and mount each into its own container element (`const app = await mount(container, { autoplay, scaleMode, align, parameters, onTrace, onError })`), sharing compiled `WebAssembly.Module` code across instances while keeping each instance's `WebPlayer`, `<canvas>`/DOM subtree, audio/video channels, timers and event listeners isolated until `app.destroy()` is called. Child publications can also be loaded dynamically via `loadPublish("child/module.mjs")`.

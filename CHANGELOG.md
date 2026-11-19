@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- Eliminated native macOS and in-window menu invocation lag (`T-390`, `RF-02`): installed a persistent
+  `NSApplication.mainMenu` once with `menuNeedsUpdate:` per-menu item materialization and an O(1) state fingerprint
+  instead of rebuilding and replacing `mainMenu` on every 60 Hz frame, cached `File ▸ Open recent` path checks and
+  window `representedFilename` resolution, stopped lowering floating studio windows during native macOS menu tracking
+  and scoped in-window popup lowering to intersecting floating panels, and added `Arc::ptr_eq` short-circuiting on
+  `ResourceUnit` plus revision-cached `dirty()` checks so large imported projects keep steady 60 Hz UI frames.
+- Added fast page-selective **Figma** import (`T-391`): opening or importing `.fig`, `.figma` or `.figma.json` files
+  from Stage drag-and-drop, **File ▸ Import ▸ Import graphics to Stage…**, **Import to Library…**, **Library ▸ Import…**
+  or **File ▸ Open…** opens the NF v3 **Import Figma** modal on a background worker (~26x faster page inspection via
+  two-pass Kiwi reachability skipping unselected pages, `Internal Only Canvas` and unreferenced blobs/images), lets you
+  pick which pages to import (`Select all` / `Deselect all`), toggle **`[x] Create MovieClip symbol`** and
+  **`[ ] Include hidden layers`**, and maps **each selected Figma page to its own separate NeoFlash layer** (`1 page =
+  1 layer`, either inside the created `MovieClip` or directly on the active timeline as one Undo step).
+- Added loadable **HTML5 publication modules** (`T-016`): standard HTML5 exports (`Full`, `Balanced`, `Compact` and
+  `Shared`, in both `Canvas` and `Web App · DOM` modes) now emit `module.mjs` (`export { mount, bundle, manifest,
+  loadBundle, ensureRuntime }`) alongside standalone `index.html`, backed by multi-instance
+  `NeoFlash.mount(container, options)` in `web/runtime.js` (sharing compiled `WebAssembly.Module` caches across
+  containers while isolating per-instance `WebPlayer` state, DOM/Canvas subtrees, `parameters`, audio/video/timers/events
+  and `instance.destroy()` cleanup, plus `loadPublish("child/module.mjs")` support).
+
 - Redesigned the editor interface as **design system v3**: every control now follows one of three density paradigms
   chosen in **Preferences ▸ General ▸ Density** or **Window ▸ Density** — **Normal** (the former Comfortable, now
   moderately tighter: 28 pt controls, 288 pt inspector, the same spacing between controls), **Compact** and **Classic Flash** — including paddings,
