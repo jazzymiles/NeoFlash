@@ -55,6 +55,7 @@ pub(crate) mod export_audio;
 pub(crate) mod export_image;
 pub(crate) mod export_lottie;
 pub(crate) mod export_video;
+pub(crate) mod figma_import;
 pub(crate) mod filters;
 pub(crate) mod find_replace;
 pub(crate) mod font_embedding;

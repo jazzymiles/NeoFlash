@@ -8,8 +8,8 @@ use neoflash_core::{Color, FillRule, GradientKind, GradientStop, PathCommand, Te
 use serde_json::Value;
 
 use super::{
-    BASE64, FigmaArcData, FigmaDoc, FigmaEffect, FigmaNode, FigmaPaint, FigmaTextData,
-    FigmaTextStyleOverride, MAX_FIGMA_DECODE_BYTES, MAX_FIGMA_NODES,
+    BASE64, FigmaArcData, FigmaDoc, FigmaDocumentSummary, FigmaEffect, FigmaNode, FigmaPageSummary,
+    FigmaPaint, FigmaTextData, FigmaTextStyleOverride, MAX_FIGMA_DECODE_BYTES, MAX_FIGMA_NODES,
     gradient_handles_from_paint_matrix,
 };
 use crate::{ImportError, vector_fidelity::parse_svg_path_data};
@@ -1019,5 +1019,175 @@ pub(super) fn parse_figma_json_doc(
         version_label: "Figma REST JSON".into(),
         pages,
         inline_images,
+    })
+}
+
+fn is_top_frame_type(node_type: &str) -> bool {
+    matches!(
+        node_type,
+        "FRAME" | "SECTION" | "COMPONENT" | "COMPONENT_SET" | "SYMBOL"
+    )
+}
+
+fn count_json_subtree_nodes(v: &Value, budget: &mut usize, depth: usize) -> Result<usize, String> {
+    if depth > 128 {
+        return Err("Figma JSON node hierarchy exceeds maximum depth of 128".into());
+    }
+    *budget = budget
+        .checked_sub(1)
+        .ok_or_else(|| format!("Figma JSON exceeds maximum node count ({MAX_FIGMA_NODES})"))?;
+    let mut total = 1usize;
+    if let Some(carr) = v.get("children").and_then(Value::as_array) {
+        for c in carr {
+            total = total.saturating_add(count_json_subtree_nodes(c, budget, depth + 1)?);
+        }
+    }
+    Ok(total)
+}
+
+fn summarize_json_page(
+    page_val: &Value,
+    budget: &mut usize,
+) -> Result<Option<FigmaPageSummary>, String> {
+    let id = page_val
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("0:0")
+        .to_owned();
+    let node_type = page_val
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("CANVAS");
+    let name = page_val
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or(node_type)
+        .to_owned();
+    let internal_only = page_val
+        .get("internalOnly")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || node_type == "INTERNAL_ONLY_CANVAS"
+        || (node_type == "CANVAS" && name == "Internal Only Canvas");
+    if internal_only {
+        return Ok(None);
+    }
+    let visible = page_val
+        .get("visible")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let mut top_frame_count = 0usize;
+    let mut node_count = 0usize;
+    if let Some(children) = page_val.get("children").and_then(Value::as_array) {
+        for child in children {
+            let ct = child.get("type").and_then(Value::as_str).unwrap_or("FRAME");
+            if is_top_frame_type(ct) {
+                top_frame_count += 1;
+            }
+            node_count = node_count.saturating_add(count_json_subtree_nodes(child, budget, 1)?);
+        }
+    }
+    Ok(Some(FigmaPageSummary {
+        id,
+        name,
+        visible,
+        top_frame_count,
+        node_count,
+    }))
+}
+
+pub(super) fn inspect_figma_json_doc(
+    json_str: &str,
+    default_name: &str,
+) -> Result<FigmaDocumentSummary, ImportError> {
+    if json_str.len() > MAX_FIGMA_DECODE_BYTES {
+        return Err(ImportError::Container(
+            "Figma JSON payload exceeds 256 MiB limit".into(),
+        ));
+    }
+    let root_val: Value = serde_json::from_str(json_str)
+        .map_err(|e| ImportError::Container(format!("Invalid JSON in Figma file: {e}")))?;
+
+    let doc_name = root_val
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(default_name)
+        .to_owned();
+
+    let mut budget = MAX_FIGMA_NODES;
+    let mut pages = Vec::new();
+
+    if let Some(doc_val) = root_val.get("document") {
+        let dtype = doc_val
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("DOCUMENT");
+        if dtype == "DOCUMENT" {
+            if let Some(carr) = doc_val.get("children").and_then(Value::as_array) {
+                for p in carr {
+                    if let Some(s) =
+                        summarize_json_page(p, &mut budget).map_err(ImportError::Container)?
+                    {
+                        pages.push(s);
+                    }
+                }
+            }
+        } else if let Some(s) =
+            summarize_json_page(doc_val, &mut budget).map_err(ImportError::Container)?
+        {
+            pages.push(s);
+        }
+    } else if let Some(nodes_obj) = root_val.get("nodes").and_then(Value::as_object) {
+        for (idx, (_id, entry)) in nodes_obj.iter().enumerate() {
+            if let Some(d) = entry.get("document") {
+                let dtype = d.get("type").and_then(Value::as_str).unwrap_or("FRAME");
+                if dtype == "CANVAS" {
+                    if let Some(s) =
+                        summarize_json_page(d, &mut budget).map_err(ImportError::Container)?
+                    {
+                        pages.push(s);
+                    }
+                } else {
+                    let sub_nodes = count_json_subtree_nodes(d, &mut budget, 1)
+                        .map_err(ImportError::Container)?;
+                    pages.push(FigmaPageSummary {
+                        id: format!("canvas-{idx}"),
+                        name: format!("Page {}", idx + 1),
+                        visible: true,
+                        top_frame_count: usize::from(is_top_frame_type(dtype)),
+                        node_count: sub_nodes,
+                    });
+                }
+            }
+        }
+    } else if let Some(rtype) = root_val.get("type").and_then(Value::as_str)
+        && matches!(rtype, "DOCUMENT" | "CANVAS")
+    {
+        if rtype == "DOCUMENT" {
+            if let Some(carr) = root_val.get("children").and_then(Value::as_array) {
+                for p in carr {
+                    if let Some(s) =
+                        summarize_json_page(p, &mut budget).map_err(ImportError::Container)?
+                    {
+                        pages.push(s);
+                    }
+                }
+            }
+        } else if let Some(s) =
+            summarize_json_page(&root_val, &mut budget).map_err(ImportError::Container)?
+        {
+            pages.push(s);
+        }
+    } else {
+        return Err(ImportError::Container(
+            "JSON file does not match Figma REST API (`document` / `nodes`) schema".into(),
+        ));
+    }
+
+    Ok(FigmaDocumentSummary {
+        name: doc_name,
+        version_label: "Figma REST JSON".into(),
+        pages,
     })
 }

@@ -12,7 +12,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
-use std::io::{Cursor, Read};
+use std::io::{BufReader, Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use crate::{Diagnostic, ImportError, ImportFormat, ImportReport, Severity, Statistics};
@@ -56,7 +56,37 @@ pub enum FigmaLayerMapping {
     FlattenSingleLayer,
 }
 
-/// Options controlling Figma `.fig` and `.figma.json` import (`T-249`).
+/// How selected Figma pages map into the imported NeoFlash [`Project`] (`T-391`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FigmaPageMapping {
+    /// Primary page becomes the root timeline and additional pages become `Project.scenes`.
+    #[default]
+    Scenes,
+    /// Every selected Figma page becomes its own separate top-level NeoFlash `Layer` on the root
+    /// symbol's timeline (`1 Figma page = 1 Layer`).
+    Layers,
+}
+
+/// Fast structural summary of a Figma `.fig` or `.figma.json` document (`T-391`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FigmaDocumentSummary {
+    pub name: String,
+    pub version_label: String,
+    pub pages: Vec<FigmaPageSummary>,
+}
+
+/// Per-page metadata returned by [`inspect_figma_bytes`] / [`inspect_figma_path`] (`T-391`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FigmaPageSummary {
+    pub id: String,
+    pub name: String,
+    pub visible: bool,
+    pub top_frame_count: usize,
+    pub node_count: usize,
+}
+
+/// Options controlling Figma `.fig` and `.figma.json` import (`T-249`, `T-391`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FigmaImportOptions {
@@ -65,6 +95,11 @@ pub struct FigmaImportOptions {
     pub preserve_masks: bool,
     pub preserve_blend_modes: bool,
     pub resize_stage_to_artboard: bool,
+    /// Optional explicit subset of Figma page IDs to import, in exact requested order.
+    /// `None` imports all non-internal pages.
+    pub selected_page_ids: Option<Vec<String>>,
+    /// How multiple Figma pages map into the resulting project (`Scenes` vs `1 page = 1 Layer`).
+    pub page_mapping: FigmaPageMapping,
 }
 
 impl Default for FigmaImportOptions {
@@ -75,16 +110,23 @@ impl Default for FigmaImportOptions {
             preserve_masks: true,
             preserve_blend_modes: true,
             resize_stage_to_artboard: true,
+            selected_page_ids: None,
+            page_mapping: FigmaPageMapping::Scenes,
         }
     }
+}
+
+pub(crate) enum FigmaZipReader<'a> {
+    Memory(ZipArchive<Cursor<&'a [u8]>>),
+    File(ZipArchive<BufReader<File>>),
 }
 
 /// Lazy image provider backed by an opened `.fig` ZIP archive and/or inline base64 images,
 /// avoiding eager extraction of hundreds of megabytes of unreferenced raster entries.
 pub(crate) struct FigmaImageArchive<'a> {
-    zip: Option<ZipArchive<Cursor<&'a [u8]>>>,
-    /// Lowercase normalized image hash -> ZIP entry index.
-    zip_index: HashMap<String, usize>,
+    zip: Option<FigmaZipReader<'a>>,
+    /// Lowercase normalized image hash -> exact ZIP entry name.
+    zip_index: HashMap<String, String>,
     inline: BTreeMap<String, Vec<u8>>,
 }
 
@@ -98,8 +140,8 @@ impl<'a> FigmaImageArchive<'a> {
     }
 
     pub(crate) fn from_zip(
-        zip: ZipArchive<Cursor<&'a [u8]>>,
-        zip_index: HashMap<String, usize>,
+        zip: FigmaZipReader<'a>,
+        zip_index: HashMap<String, String>,
         inline: BTreeMap<String, Vec<u8>>,
     ) -> Self {
         Self {
@@ -129,36 +171,60 @@ impl<'a> FigmaImageArchive<'a> {
         if let Some(bytes) = self.inline.get(&low) {
             return Ok(Some(bytes.clone()));
         }
-        let Some(&entry_idx) = self.zip_index.get(&low) else {
+        let Some(entry_name) = self.zip_index.get(&low) else {
             return Ok(None);
         };
         let Some(zip) = self.zip.as_mut() else {
             return Ok(None);
         };
-        let entry = zip
-            .by_index(entry_idx)
-            .map_err(|e| format!("Could not open embedded Figma image '{image_ref}': {e}"))?;
-        if entry.size() > MAX_ZIP_IMAGE_ENTRY_BYTES as u64 {
-            return Err(format!(
-                "Embedded Figma image '{image_ref}' exceeds 64 MiB single-entry safety limit"
-            ));
+        match zip {
+            FigmaZipReader::Memory(za) => {
+                let entry = za.by_name(entry_name).map_err(|e| {
+                    format!("Could not open embedded Figma image '{image_ref}': {e}")
+                })?;
+                read_zip_image_entry(entry, image_ref)
+            }
+            FigmaZipReader::File(za) => {
+                let entry = za.by_name(entry_name).map_err(|e| {
+                    format!("Could not open embedded Figma image '{image_ref}': {e}")
+                })?;
+                read_zip_image_entry(entry, image_ref)
+            }
         }
-        let cap = (entry.size() as usize).min(4 * 1024 * 1024);
-        let mut buf = Vec::with_capacity(cap);
-        entry
-            .take(MAX_ZIP_IMAGE_ENTRY_BYTES as u64 + 1)
-            .read_to_end(&mut buf)
-            .map_err(|e| format!("Failed reading embedded Figma image '{image_ref}': {e}"))?;
-        if buf.len() > MAX_ZIP_IMAGE_ENTRY_BYTES {
-            return Err(format!(
-                "Embedded Figma image '{image_ref}' exceeds 64 MiB single-entry safety limit"
-            ));
-        }
-        if buf.is_empty() {
-            return Ok(None);
-        }
-        Ok(Some(buf))
     }
+}
+
+fn read_zip_image_entry<R: Read>(
+    mut entry: zip::read::ZipFile<'_, R>,
+    image_ref: &str,
+) -> Result<Option<Vec<u8>>, String> {
+    if entry
+        .unix_mode()
+        .is_some_and(|mode| mode & 0o170000 == 0o120000)
+    {
+        return Err(format!("Symlink ZIP entry in .fig archive: {image_ref}"));
+    }
+    if entry.size() > MAX_ZIP_IMAGE_ENTRY_BYTES as u64 {
+        return Err(format!(
+            "Embedded Figma image '{image_ref}' exceeds 64 MiB single-entry safety limit"
+        ));
+    }
+    let cap = (entry.size() as usize).min(4 * 1024 * 1024);
+    let mut buf = Vec::with_capacity(cap);
+    entry
+        .by_ref()
+        .take(MAX_ZIP_IMAGE_ENTRY_BYTES as u64 + 1)
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("Failed reading embedded Figma image '{image_ref}': {e}"))?;
+    if buf.len() > MAX_ZIP_IMAGE_ENTRY_BYTES {
+        return Err(format!(
+            "Embedded Figma image '{image_ref}' exceeds 64 MiB single-entry safety limit"
+        ));
+    }
+    if buf.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(buf))
 }
 
 #[derive(Clone, Debug, Default)]
@@ -384,18 +450,15 @@ pub fn is_figma_bytes(bytes: &[u8]) -> bool {
         return true;
     }
     if bytes.starts_with(b"PK\x03\x04")
-        && let Ok(mut zip) = ZipArchive::new(Cursor::new(bytes))
+        && let Ok(zip) = ZipArchive::new(Cursor::new(bytes))
     {
-        for i in 0..zip.len().min(128) {
-            if let Ok(entry) = zip.by_index(i) {
-                let name = entry.name();
-                if name == "canvas.fig"
-                    || name.ends_with(".fig")
-                    || name == "document.json"
-                    || name.ends_with("/document.json")
-                {
-                    return true;
-                }
+        for name in zip.file_names().take(128) {
+            if name == "canvas.fig"
+                || name.ends_with(".fig")
+                || name == "document.json"
+                || name.ends_with("/document.json")
+            {
+                return true;
             }
         }
     }
@@ -410,8 +473,253 @@ mod tests;
 pub(crate) mod zstd;
 
 use convert::build_project_from_figma_doc;
-use json_doc::parse_figma_json_doc;
-use kiwi::parse_fig_kiwi_canvas;
+use json_doc::{inspect_figma_json_doc, parse_figma_json_doc};
+use kiwi::{inspect_fig_kiwi_canvas, parse_fig_kiwi_canvas_with_options};
+
+struct ExtractedFigmaZipPayload {
+    canvas_bytes: Option<Vec<u8>>,
+    json_bytes: Option<Vec<u8>>,
+    zip_image_index: HashMap<String, String>,
+    meta_name: Option<String>,
+}
+
+fn ensure_not_zip_symlink<R: Read>(
+    entry: &zip::read::ZipFile<'_, R>,
+    ename: &str,
+) -> Result<(), ImportError> {
+    if entry
+        .unix_mode()
+        .is_some_and(|mode| mode & 0o170000 == 0o120000)
+    {
+        return Err(ImportError::Container(format!(
+            "Symlink ZIP entry in .fig archive: {ename}"
+        )));
+    }
+    Ok(())
+}
+
+fn scan_figma_zip_archive<R: Read + Seek>(
+    zip: &mut ZipArchive<R>,
+    index_images: bool,
+) -> Result<ExtractedFigmaZipPayload, ImportError> {
+    if zip.len() > 16_384 {
+        return Err(ImportError::Container(
+            ".fig ZIP archive exceeds 16,384 entries".into(),
+        ));
+    }
+    let mut canvas_entry_name: Option<String> = None;
+    let mut meta_entry_name: Option<String> = None;
+    let mut json_entry_name: Option<String> = None;
+    let mut zip_image_index: HashMap<String, String> = HashMap::new();
+
+    {
+        for raw_name in zip.file_names() {
+            let ename = raw_name.replace('\\', "/");
+            crate::source::safe_name(&ename)?;
+            if ename.ends_with('/') {
+                continue;
+            }
+            if ename == "canvas.fig" || (ename.ends_with(".fig") && canvas_entry_name.is_none()) {
+                canvas_entry_name = Some(raw_name.to_owned());
+            } else if ename == "meta.json" || ename.ends_with("/meta.json") {
+                meta_entry_name = Some(raw_name.to_owned());
+            } else if let Some(rest) = ename
+                .strip_prefix("images/")
+                .or_else(|| ename.rsplit_once("/images/").map(|(_, r)| r))
+            {
+                if index_images {
+                    let key = rest
+                        .split('.')
+                        .next()
+                        .unwrap_or(rest)
+                        .trim()
+                        .to_ascii_lowercase();
+                    if !key.is_empty() {
+                        zip_image_index
+                            .entry(key)
+                            .or_insert_with(|| raw_name.to_owned());
+                    }
+                }
+            } else if ename.ends_with(".json") && json_entry_name.is_none() {
+                json_entry_name = Some(raw_name.to_owned());
+            }
+        }
+    }
+
+    let mut meta_name: Option<String> = None;
+    if let Some(ref mname) = meta_entry_name {
+        let entry = zip
+            .by_name(mname)
+            .map_err(|e| ImportError::Container(e.to_string()))?;
+        ensure_not_zip_symlink(&entry, mname)?;
+        let mut raw = String::new();
+        let _ = entry.take(1024 * 1024).read_to_string(&mut raw);
+        if let Ok(v) = serde_json::from_str::<Value>(&raw)
+            && let Some(fname) = v
+                .get("file_name")
+                .or_else(|| v.get("name"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        {
+            meta_name = Some(fname.to_owned());
+        }
+    }
+
+    let mut canvas_bytes: Option<Vec<u8>> = None;
+    if let Some(ref cname) = canvas_entry_name {
+        let entry = zip
+            .by_name(cname)
+            .map_err(|e| ImportError::Container(e.to_string()))?;
+        ensure_not_zip_symlink(&entry, cname)?;
+        let entry_size = entry.size();
+        if entry_size > MAX_FIGMA_DECODE_BYTES as u64 {
+            return Err(ImportError::Container(
+                "canvas.fig entry exceeds 256 MiB limit".into(),
+            ));
+        }
+        let cap = (entry_size as usize).min(16 * 1024 * 1024);
+        let mut raw = Vec::with_capacity(cap);
+        entry
+            .take(MAX_FIGMA_DECODE_BYTES as u64 + 1)
+            .read_to_end(&mut raw)?;
+        if raw.len() > MAX_FIGMA_DECODE_BYTES {
+            return Err(ImportError::Container(
+                "canvas.fig entry exceeds 256 MiB limit".into(),
+            ));
+        }
+        canvas_bytes = Some(raw);
+    }
+
+    let mut json_bytes: Option<Vec<u8>> = None;
+    if canvas_bytes.is_none()
+        && let Some(ref jname) = json_entry_name
+    {
+        let entry = zip
+            .by_name(jname)
+            .map_err(|e| ImportError::Container(e.to_string()))?;
+        ensure_not_zip_symlink(&entry, jname)?;
+        let entry_size = entry.size();
+        if entry_size > MAX_FIGMA_DECODE_BYTES as u64 {
+            return Err(ImportError::Container(
+                ".fig JSON entry exceeds 256 MiB limit".into(),
+            ));
+        }
+        let cap = (entry_size as usize).min(16 * 1024 * 1024);
+        let mut raw = Vec::with_capacity(cap);
+        entry
+            .take(MAX_FIGMA_DECODE_BYTES as u64 + 1)
+            .read_to_end(&mut raw)?;
+        if raw.len() > MAX_FIGMA_DECODE_BYTES {
+            return Err(ImportError::Container(
+                ".fig JSON entry exceeds 256 MiB limit".into(),
+            ));
+        }
+        json_bytes = Some(raw);
+    }
+
+    Ok(ExtractedFigmaZipPayload {
+        canvas_bytes,
+        json_bytes,
+        zip_image_index,
+        meta_name,
+    })
+}
+
+fn inspect_extracted_zip_payload(
+    payload: ExtractedFigmaZipPayload,
+    source_name: &str,
+) -> Result<FigmaDocumentSummary, ImportError> {
+    let effective_name = payload.meta_name.as_deref().unwrap_or(source_name);
+    if let Some(cb) = payload.canvas_bytes {
+        let mut summary = inspect_fig_kiwi_canvas(&cb, effective_name)?;
+        if let Some(mtitle) = payload.meta_name {
+            summary.name = mtitle;
+        }
+        return Ok(summary);
+    }
+    if let Some(jb) = payload.json_bytes {
+        let s = std::str::from_utf8(&jb)
+            .map_err(|_| ImportError::Container("Figma JSON entry must be UTF-8".into()))?;
+        let mut summary = inspect_figma_json_doc(s, effective_name)?;
+        if let Some(mtitle) = payload.meta_name
+            && (summary.name.is_empty() || summary.name == "Document")
+        {
+            summary.name = mtitle;
+        }
+        return Ok(summary);
+    }
+    Err(ImportError::Container(
+        ".fig ZIP archive contains neither canvas.fig nor a Figma JSON document".into(),
+    ))
+}
+
+/// Quickly inspect a Figma `.fig` archive or `.figma.json` byte slice, returning its document
+/// title, format version, and non-internal user pages without decoding geometry blobs or images.
+pub fn inspect_figma_bytes(
+    bytes: &[u8],
+    source_name: &str,
+) -> Result<FigmaDocumentSummary, ImportError> {
+    if bytes.len() > MAX_FIGMA_FILE_BYTES {
+        return Err(ImportError::Container(format!(
+            "Figma file exceeds {} MiB input limit",
+            MAX_FIGMA_FILE_BYTES / (1024 * 1024)
+        )));
+    }
+    if bytes.starts_with(b"fig-kiwi") || bytes.starts_with(b"fig-jam.") {
+        return inspect_fig_kiwi_canvas(bytes, source_name);
+    }
+    if bytes.starts_with(b"PK\x03\x04") {
+        let mut zip = ZipArchive::new(Cursor::new(bytes))
+            .map_err(|e| ImportError::Container(format!("Invalid .fig ZIP archive: {e}")))?;
+        let payload = scan_figma_zip_archive(&mut zip, false)?;
+        return inspect_extracted_zip_payload(payload, source_name);
+    }
+    let json_str = std::str::from_utf8(bytes).map_err(|_| {
+        ImportError::Container("Figma file is neither a binary .fig archive nor UTF-8 JSON".into())
+    })?;
+    inspect_figma_json_doc(json_str, source_name)
+}
+
+/// Quickly inspect a `.fig` or `.figma.json` file on disk (`< 100 ms` even on 250+ MiB `.fig`
+/// archives by seeking `canvas.fig` directly without reading embedded raster entries).
+pub fn inspect_figma_path(path: &Path) -> Result<FigmaDocumentSummary, ImportError> {
+    let file_len = std::fs::metadata(path)?.len();
+    if file_len > MAX_FIGMA_FILE_BYTES as u64 {
+        return Err(ImportError::Container(format!(
+            "Figma file exceeds {} MiB input limit",
+            MAX_FIGMA_FILE_BYTES / (1024 * 1024)
+        )));
+    }
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.trim_end_matches(".figma"))
+        .filter(|s| !s.is_empty())
+        .unwrap_or("Figma Import");
+
+    let mut file = File::open(path)?;
+    let mut magic = [0u8; 4];
+    let read_n = file.read(&mut magic)?;
+    file.seek(SeekFrom::Start(0))?;
+    if read_n == 4 && &magic == b"PK\x03\x04" {
+        let mut zip = ZipArchive::new(BufReader::new(file))
+            .map_err(|e| ImportError::Container(format!("Invalid .fig ZIP archive: {e}")))?;
+        let payload = scan_figma_zip_archive(&mut zip, false)?;
+        return inspect_extracted_zip_payload(payload, stem);
+    }
+
+    let mut bytes = Vec::with_capacity((file_len as usize).min(64 * 1024 * 1024));
+    file.take(MAX_FIGMA_FILE_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > MAX_FIGMA_FILE_BYTES {
+        return Err(ImportError::Container(format!(
+            "Figma file exceeds {} MiB input limit",
+            MAX_FIGMA_FILE_BYTES / (1024 * 1024)
+        )));
+    }
+    inspect_figma_bytes(&bytes, stem)
+}
 
 /// Import a `.figma.json` UTF-8 string into a multi-layer NeoFlash [`Project`].
 pub fn import_figma_json_str(
@@ -423,6 +731,40 @@ pub fn import_figma_json_str(
     let inline = std::mem::take(&mut doc.inline_images);
     let mut images = FigmaImageArchive::from_inline(inline);
     build_project_from_figma_doc(doc, &mut images, options, source_name)
+}
+
+fn import_from_zip_payload(
+    payload: ExtractedFigmaZipPayload,
+    zip_reader: FigmaZipReader<'_>,
+    source_name: &str,
+    options: &FigmaImportOptions,
+) -> Result<(Project, ImportReport), ImportError> {
+    let effective_name = payload.meta_name.as_deref().unwrap_or(source_name);
+    if let Some(cb) = payload.canvas_bytes {
+        let mut doc = parse_fig_kiwi_canvas_with_options(&cb, effective_name, options)?;
+        if let Some(mtitle) = payload.meta_name {
+            doc.name = mtitle;
+        }
+        let mut images =
+            FigmaImageArchive::from_zip(zip_reader, payload.zip_image_index, BTreeMap::new());
+        return build_project_from_figma_doc(doc, &mut images, options, source_name);
+    }
+    if let Some(jb) = payload.json_bytes {
+        let s = std::str::from_utf8(&jb)
+            .map_err(|_| ImportError::Container("Figma JSON entry must be UTF-8".into()))?;
+        let mut doc = parse_figma_json_doc(s, effective_name)?;
+        if let Some(mtitle) = payload.meta_name
+            && (doc.name.is_empty() || doc.name == "Document")
+        {
+            doc.name = mtitle;
+        }
+        let inline = std::mem::take(&mut doc.inline_images);
+        let mut images = FigmaImageArchive::from_zip(zip_reader, payload.zip_image_index, inline);
+        return build_project_from_figma_doc(doc, &mut images, options, source_name);
+    }
+    Err(ImportError::Container(
+        ".fig ZIP archive contains neither canvas.fig nor a Figma JSON document".into(),
+    ))
 }
 
 /// Import a Figma `.fig` archive (ZIP with `canvas.fig` + `images/*` or standalone `fig-kiwi` /
@@ -439,130 +781,15 @@ pub fn import_figma_bytes(
         )));
     }
     if bytes.starts_with(b"fig-kiwi") || bytes.starts_with(b"fig-jam.") {
-        let doc = parse_fig_kiwi_canvas(bytes, source_name)?;
+        let doc = parse_fig_kiwi_canvas_with_options(bytes, source_name, options)?;
         let mut images = FigmaImageArchive::from_inline(BTreeMap::new());
         return build_project_from_figma_doc(doc, &mut images, options, source_name);
     }
     if bytes.starts_with(b"PK\x03\x04") {
         let mut zip = ZipArchive::new(Cursor::new(bytes))
             .map_err(|e| ImportError::Container(format!("Invalid .fig ZIP archive: {e}")))?;
-        if zip.len() > 16_384 {
-            return Err(ImportError::Container(
-                ".fig ZIP archive exceeds 16,384 entries".into(),
-            ));
-        }
-        let mut canvas_bytes: Option<Vec<u8>> = None;
-        let mut json_bytes: Option<Vec<u8>> = None;
-        let mut zip_image_index: HashMap<String, usize> = HashMap::new();
-        let mut meta_name: Option<String> = None;
-
-        for i in 0..zip.len() {
-            let entry = zip
-                .by_index(i)
-                .map_err(|e| ImportError::Container(e.to_string()))?;
-            let ename = entry.name().replace('\\', "/");
-            crate::source::safe_name(&ename)?;
-            if entry
-                .unix_mode()
-                .is_some_and(|mode| mode & 0o170000 == 0o120000)
-            {
-                return Err(ImportError::Container(format!(
-                    "Symlink ZIP entry in .fig archive: {ename}"
-                )));
-            }
-            if entry.is_dir() {
-                continue;
-            }
-            if ename == "canvas.fig" || ename.ends_with(".fig") {
-                if entry.size() > MAX_FIGMA_DECODE_BYTES as u64 {
-                    return Err(ImportError::Container(
-                        "canvas.fig entry exceeds 256 MiB limit".into(),
-                    ));
-                }
-                let cap = (entry.size() as usize).min(16 * 1024 * 1024);
-                let mut raw = Vec::with_capacity(cap);
-                entry
-                    .take(MAX_FIGMA_DECODE_BYTES as u64 + 1)
-                    .read_to_end(&mut raw)?;
-                if raw.len() > MAX_FIGMA_DECODE_BYTES {
-                    return Err(ImportError::Container(
-                        "canvas.fig entry exceeds 256 MiB limit".into(),
-                    ));
-                }
-                canvas_bytes = Some(raw);
-            } else if ename == "meta.json" || ename.ends_with("/meta.json") {
-                let mut raw = String::new();
-                let _ = entry.take(1024 * 1024).read_to_string(&mut raw);
-                if let Ok(v) = serde_json::from_str::<Value>(&raw)
-                    && let Some(fname) = v
-                        .get("file_name")
-                        .or_else(|| v.get("name"))
-                        .and_then(Value::as_str)
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                {
-                    meta_name = Some(fname.to_owned());
-                }
-            } else if let Some(rest) = ename
-                .strip_prefix("images/")
-                .or_else(|| ename.rsplit_once("/images/").map(|(_, r)| r))
-            {
-                if entry.size() > 0 {
-                    let key = rest
-                        .split('.')
-                        .next()
-                        .unwrap_or(rest)
-                        .trim()
-                        .to_ascii_lowercase();
-                    if !key.is_empty() {
-                        zip_image_index.entry(key).or_insert(i);
-                    }
-                }
-            } else if ename.ends_with(".json") && json_bytes.is_none() {
-                if entry.size() > MAX_FIGMA_DECODE_BYTES as u64 {
-                    return Err(ImportError::Container(
-                        ".fig JSON entry exceeds 256 MiB limit".into(),
-                    ));
-                }
-                let cap = (entry.size() as usize).min(16 * 1024 * 1024);
-                let mut raw = Vec::with_capacity(cap);
-                entry
-                    .take(MAX_FIGMA_DECODE_BYTES as u64 + 1)
-                    .read_to_end(&mut raw)?;
-                if raw.len() > MAX_FIGMA_DECODE_BYTES {
-                    return Err(ImportError::Container(
-                        ".fig JSON entry exceeds 256 MiB limit".into(),
-                    ));
-                }
-                json_bytes = Some(raw);
-            }
-        }
-
-        let effective_name = meta_name.as_deref().unwrap_or(source_name);
-        if let Some(cb) = canvas_bytes {
-            let mut doc = parse_fig_kiwi_canvas(&cb, effective_name)?;
-            if let Some(mtitle) = meta_name {
-                doc.name = mtitle;
-            }
-            let mut images = FigmaImageArchive::from_zip(zip, zip_image_index, BTreeMap::new());
-            return build_project_from_figma_doc(doc, &mut images, options, source_name);
-        }
-        if let Some(jb) = json_bytes {
-            let s = std::str::from_utf8(&jb)
-                .map_err(|_| ImportError::Container("Figma JSON entry must be UTF-8".into()))?;
-            let mut doc = parse_figma_json_doc(s, effective_name)?;
-            if let Some(mtitle) = meta_name
-                && (doc.name.is_empty() || doc.name == "Document")
-            {
-                doc.name = mtitle;
-            }
-            let inline = std::mem::take(&mut doc.inline_images);
-            let mut images = FigmaImageArchive::from_zip(zip, zip_image_index, inline);
-            return build_project_from_figma_doc(doc, &mut images, options, source_name);
-        }
-        return Err(ImportError::Container(
-            ".fig ZIP archive contains neither canvas.fig nor a Figma JSON document".into(),
-        ));
+        let payload = scan_figma_zip_archive(&mut zip, true)?;
+        return import_from_zip_payload(payload, FigmaZipReader::Memory(zip), source_name, options);
     }
 
     let json_str = std::str::from_utf8(bytes).map_err(|_| {
@@ -583,9 +810,29 @@ pub fn import_figma_path(
             MAX_FIGMA_FILE_BYTES / (1024 * 1024)
         )));
     }
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.trim_end_matches(".figma"))
+        .filter(|s| !s.is_empty())
+        .unwrap_or("Figma Import");
+
+    let mut file = File::open(path)?;
+    let mut magic = [0u8; 4];
+    let read_n = file.read(&mut magic)?;
+    file.seek(SeekFrom::Start(0))?;
+    if read_n == 4 && &magic == b"PK\x03\x04" {
+        let mut zip = ZipArchive::new(BufReader::new(file))
+            .map_err(|e| ImportError::Container(format!("Invalid .fig ZIP archive: {e}")))?;
+        let payload = scan_figma_zip_archive(&mut zip, true)?;
+        let (project, mut report) =
+            import_from_zip_payload(payload, FigmaZipReader::File(zip), stem, options)?;
+        report.source = path.display().to_string();
+        return Ok((project, report));
+    }
+
     let mut bytes = Vec::with_capacity((file_len as usize).min(64 * 1024 * 1024));
-    File::open(path)?
-        .take(MAX_FIGMA_FILE_BYTES as u64 + 1)
+    file.take(MAX_FIGMA_FILE_BYTES as u64 + 1)
         .read_to_end(&mut bytes)?;
     if bytes.len() > MAX_FIGMA_FILE_BYTES {
         return Err(ImportError::Container(format!(
@@ -593,12 +840,6 @@ pub fn import_figma_path(
             MAX_FIGMA_FILE_BYTES / (1024 * 1024)
         )));
     }
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .map(|s| s.trim_end_matches(".figma"))
-        .filter(|s| !s.is_empty())
-        .unwrap_or("Figma Import");
     let (project, mut report) = import_figma_bytes(&bytes, stem, options)?;
     report.source = path.display().to_string();
     Ok((project, report))

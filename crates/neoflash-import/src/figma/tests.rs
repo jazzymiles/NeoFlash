@@ -1686,6 +1686,81 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
         .validate()
         .expect("flattened multi-scene project validates");
     assert_eq!(ranges.len(), 2);
+
+    // 8. Binary `.fig` Kiwi fast page inspection + selective 1-page-per-layer mapping (`T-391`)!
+    let bin_summary = inspect_figma_bytes(&fig_bytes, "fallback").expect("binary .fig inspect");
+    assert_eq!(bin_summary.name, "Desktop v106 Design");
+    assert_eq!(bin_summary.version_label, "fig-kiwi v106 (zstd)");
+    assert_eq!(
+        bin_summary
+            .pages
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Home Screen", "Settings Screen"],
+        "Internal Only Canvas must be excluded from binary .fig page summary"
+    );
+
+    let (layered_proj, _) = import_figma_bytes(
+        &fig_bytes,
+        "fallback",
+        &FigmaImportOptions {
+            selected_page_ids: Some(vec![
+                bin_summary.pages[1].id.clone(),
+                bin_summary.pages[0].id.clone(),
+            ]),
+            page_mapping: FigmaPageMapping::Layers,
+            ..FigmaImportOptions::default()
+        },
+    )
+    .expect("binary .fig 1-page-per-layer selective import");
+    layered_proj
+        .validate()
+        .expect("binary .fig layered validates");
+    assert!(layered_proj.scenes.is_empty());
+    let layered_root = layered_proj.symbol(&layered_proj.root).unwrap();
+    assert_eq!(
+        layered_root
+            .timeline
+            .layers
+            .iter()
+            .map(|l| l.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Settings Screen", "Home Screen"]
+    );
+
+    // Selecting ONLY "Settings Screen" skips the 5000px image on "Home Screen" and `ButtonMaster`!
+    let (single_page_proj, _) = import_figma_bytes(
+        &fig_bytes,
+        "fallback",
+        &FigmaImportOptions {
+            selected_page_ids: Some(vec![bin_summary.pages[1].id.clone()]),
+            page_mapping: FigmaPageMapping::Layers,
+            ..FigmaImportOptions::default()
+        },
+    )
+    .expect("binary .fig single-page selective import");
+    single_page_proj.validate().unwrap();
+    assert_eq!(
+        single_page_proj
+            .symbol(&single_page_proj.root)
+            .unwrap()
+            .timeline
+            .layers
+            .len(),
+        1
+    );
+    assert!(
+        single_page_proj.resources.is_empty(),
+        "unselected page image must not be decoded or imported"
+    );
+    assert!(
+        !single_page_proj
+            .symbols
+            .iter()
+            .any(|s| s.name == "ButtonMaster"),
+        "unreferenced Internal Only Canvas master must not be materialized"
+    );
 }
 
 #[test]
@@ -1808,11 +1883,61 @@ fn real_world_figma_corpus_imports_and_validates() {
     let mut total_symbols = 0usize;
     let mut total_layers = 0usize;
     let mut total_elements = 0usize;
+    let mut total_inspect_ms = 0.0f64;
+    let mut max_inspect_ms = 0.0f64;
+    let mut total_selective_ms = 0.0f64;
+    let mut max_selective_ms = 0.0f64;
+    let mut total_full_ms = 0.0f64;
+
     for path in &files {
+        let t_ins = std::time::Instant::now();
+        let summary = inspect_figma_path(path).unwrap_or_else(|e| {
+            panic!("corpus file #{imported_count} failed inspect_figma_path: {e}")
+        });
+        let ins_ms = t_ins.elapsed().as_secs_f64() * 1000.0;
+        total_inspect_ms += ins_ms;
+        max_inspect_ms = max_inspect_ms.max(ins_ms);
+        assert!(
+            !summary.pages.is_empty(),
+            "corpus file #{imported_count} summary had 0 user pages"
+        );
+
+        // Benchmark default interactive single-page `Layers` import (`first visible non-empty page`).
+        let first_page_id = summary
+            .pages
+            .iter()
+            .find(|p| p.visible && p.node_count > 0)
+            .or_else(|| summary.pages.iter().find(|p| p.node_count > 0))
+            .unwrap_or(&summary.pages[0])
+            .id
+            .clone();
+        let sel_opts = FigmaImportOptions {
+            import_hidden_layers: false,
+            selected_page_ids: Some(vec![first_page_id]),
+            page_mapping: FigmaPageMapping::Layers,
+            ..FigmaImportOptions::default()
+        };
+        let t_sel = std::time::Instant::now();
+        let (sel_proj, sel_rep) = import_figma_path(path, &sel_opts).unwrap_or_else(|e| {
+            panic!("corpus file #{imported_count} failed selective import_figma_path: {e}")
+        });
+        let sel_ms = t_sel.elapsed().as_secs_f64() * 1000.0;
+        total_selective_ms += sel_ms;
+        max_selective_ms = max_selective_ms.max(sel_ms);
+        assert!(sel_rep.can_import);
+        sel_proj
+            .validate()
+            .unwrap_or_else(|e| panic!("corpus file #{imported_count} selective validate(): {e}"));
+        let sel_root = sel_proj.symbol(&sel_proj.root).unwrap();
+        assert_eq!(sel_root.timeline.layers.len(), 1);
+        assert!(sel_proj.scenes.is_empty());
+
+        let t_full = std::time::Instant::now();
         let (project, report) = import_figma_path(path, &FigmaImportOptions::default())
             .unwrap_or_else(|e| {
                 panic!("corpus file #{imported_count} failed import_figma_path: {e}")
             });
+        total_full_ms += t_full.elapsed().as_secs_f64() * 1000.0;
         assert!(
             report.can_import,
             "corpus file #{imported_count} can_import was false"
@@ -1836,6 +1961,226 @@ fn real_world_figma_corpus_imports_and_validates() {
         imported_count += 1;
     }
     println!(
-        "Verified {imported_count} real Figma document(s): {total_symbols} symbols, {total_layers} layers, {total_elements} elements"
+        "Verified {imported_count} real Figma document(s): {total_symbols} symbols, {total_layers} layers, {total_elements} elements | inspect total={total_inspect_ms:.1}ms (max={max_inspect_ms:.1}ms) | selective-1page total={total_selective_ms:.1}ms (max={max_selective_ms:.1}ms) | full-all-pages total={total_full_ms:.1}ms"
     );
+}
+
+#[test]
+fn t391_inspect_figma_bytes_and_page_selective_layers_mapping() {
+    let png_used_b64 = BASE64.encode(tiny_png_bytes());
+    let png_unused_b64 = BASE64.encode(tiny_png_bytes());
+    let figma_json = format!(
+        r#"{{
+          "name": "Multi Page Product Kit",
+          "schemaVersion": 0,
+          "images": {{
+            "img_used": "{png_used_b64}",
+            "img_unused_internal": "{png_unused_b64}"
+          }},
+          "document": {{
+            "id": "0:0",
+            "name": "Document",
+            "type": "DOCUMENT",
+            "children": [
+              {{
+                "id": "0:99",
+                "name": "Internal Only Canvas",
+                "type": "CANVAS",
+                "internalOnly": true,
+                "children": [
+                  {{
+                    "id": "90:1",
+                    "name": "BadgeMaster",
+                    "type": "COMPONENT",
+                    "absoluteBoundingBox": {{"x": 0, "y": 0, "width": 80, "height": 32}},
+                    "children": [
+                      {{
+                        "id": "90:2",
+                        "name": "BadgeBg",
+                        "type": "RECTANGLE",
+                        "absoluteBoundingBox": {{"x": 0, "y": 0, "width": 80, "height": 32}},
+                        "fills": [{{"type": "IMAGE", "imageRef": "img_used"}}]
+                      }}
+                    ]
+                  }},
+                  {{
+                    "id": "99:1",
+                    "name": "UnusedHeavyMaster",
+                    "type": "COMPONENT",
+                    "absoluteBoundingBox": {{"x": 0, "y": 0, "width": 400, "height": 400}},
+                    "children": [
+                      {{
+                        "id": "99:2",
+                        "name": "UnusedHeavyImg",
+                        "type": "RECTANGLE",
+                        "absoluteBoundingBox": {{"x": 0, "y": 0, "width": 400, "height": 400}},
+                        "fills": [{{"type": "IMAGE", "imageRef": "img_unused_internal"}}]
+                      }}
+                    ]
+                  }}
+                ]
+              }},
+              {{
+                "id": "0:1",
+                "name": "Cover",
+                "type": "CANVAS",
+                "children": [
+                  {{
+                    "id": "1:1",
+                    "name": "Cover Artboard",
+                    "type": "FRAME",
+                    "clipsContent": true,
+                    "absoluteBoundingBox": {{"x": 0, "y": 0, "width": 1200, "height": 630}},
+                    "fills": [{{"type": "SOLID", "color": {{"r": 0.1, "g": 0.12, "b": 0.18, "a": 1.0}}}}],
+                    "children": [
+                      {{
+                        "id": "1:2",
+                        "name": "Cover Title",
+                        "type": "TEXT",
+                        "characters": "Design Kit v3",
+                        "absoluteBoundingBox": {{"x": 40, "y": 60, "width": 400, "height": 48}},
+                        "fills": [{{"type": "SOLID", "color": {{"r": 1, "g": 1, "b": 1, "a": 1}}}}],
+                        "style": {{"fontFamily": "Inter", "fontSize": 36, "fontWeight": 700}}
+                      }},
+                      {{
+                        "id": "1:3",
+                        "name": "Hidden Draft Note",
+                        "type": "RECTANGLE",
+                        "visible": false,
+                        "absoluteBoundingBox": {{"x": 40, "y": 140, "width": 100, "height": 40}},
+                        "fills": [{{"type": "SOLID", "color": {{"r": 1, "g": 0, "b": 0, "a": 1}}}}]
+                      }}
+                    ]
+                  }}
+                ]
+              }},
+              {{
+                "id": "0:2",
+                "name": "Dashboard",
+                "type": "CANVAS",
+                "children": [
+                  {{
+                    "id": "2:1",
+                    "name": "Dash Frame",
+                    "type": "FRAME",
+                    "clipsContent": true,
+                    "absoluteBoundingBox": {{"x": 50, "y": 20, "width": 1440, "height": 900}},
+                    "children": [
+                      {{
+                        "id": "2:2",
+                        "name": "Badge Instance",
+                        "type": "INSTANCE",
+                        "componentId": "90:1",
+                        "absoluteBoundingBox": {{"x": 70, "y": 40, "width": 80, "height": 32}}
+                      }}
+                    ]
+                  }}
+                ]
+              }},
+              {{
+                "id": "0:3",
+                "name": "Settings",
+                "type": "CANVAS",
+                "children": [
+                  {{
+                    "id": "3:1",
+                    "name": "Settings Modal",
+                    "type": "FRAME",
+                    "absoluteBoundingBox": {{"x": 0, "y": 0, "width": 640, "height": 480}},
+                    "children": [
+                      {{
+                        "id": "3:2",
+                        "name": "Avatar Mask",
+                        "type": "ELLIPSE",
+                        "isMask": true,
+                        "maskType": "VECTOR",
+                        "absoluteBoundingBox": {{"x": 20, "y": 20, "width": 64, "height": 64}},
+                        "fills": [{{"type": "SOLID", "color": {{"r": 1, "g": 1, "b": 1, "a": 1}}}}]
+                      }},
+                      {{
+                        "id": "3:3",
+                        "name": "Avatar Fill",
+                        "type": "RECTANGLE",
+                        "absoluteBoundingBox": {{"x": 20, "y": 20, "width": 64, "height": 64}},
+                        "fills": [{{"type": "SOLID", "color": {{"r": 0.2, "g": 0.6, "b": 1.0, "a": 1}}}}]
+                      }}
+                    ]
+                  }}
+                ]
+              }},
+              {{
+                "id": "0:4",
+                "name": "Unselected Scratchpad",
+                "type": "CANVAS",
+                "visible": false,
+                "children": [
+                  {{
+                    "id": "4:1",
+                    "name": "Scratch Box",
+                    "type": "RECTANGLE",
+                    "absoluteBoundingBox": {{"x": 0, "y": 0, "width": 200, "height": 200}},
+                    "fills": [{{"type": "SOLID", "color": {{"r": 0.5, "g": 0.5, "b": 0.5, "a": 1}}}}]
+                  }}
+                ]
+              }}
+            ]
+          }}
+        }}"#
+    );
+
+    let summary =
+        inspect_figma_bytes(figma_json.as_bytes(), "fallback").expect("inspect_figma_bytes");
+    assert_eq!(summary.name, "Multi Page Product Kit");
+    assert_eq!(
+        summary.pages.len(),
+        4,
+        "Internal Only Canvas must be excluded"
+    );
+    assert_eq!(summary.pages[0].id, "0:1");
+    assert_eq!(summary.pages[0].name, "Cover");
+    assert!(summary.pages[0].visible);
+    assert_eq!(summary.pages[0].top_frame_count, 1);
+    assert_eq!(summary.pages[0].node_count, 3);
+    assert_eq!(summary.pages[3].id, "0:4");
+    assert!(!summary.pages[3].visible);
+
+    // Select 3 pages in custom order (`Dashboard`, `Cover`, `Settings`), skipping `0:4` (`Unselected Scratchpad`)!
+    let opts = FigmaImportOptions {
+        import_hidden_layers: false,
+        selected_page_ids: Some(vec!["0:2".into(), "0:1".into(), "0:3".into()]),
+        page_mapping: FigmaPageMapping::Layers,
+        ..FigmaImportOptions::default()
+    };
+    let (project, report) =
+        import_figma_bytes(figma_json.as_bytes(), "Kit", &opts).expect("3-page Layers import");
+    assert!(report.can_import);
+    project.validate().expect("3-page Layers project validates");
+    assert!(
+        project.scenes.is_empty(),
+        "Layers mapping must place all selected pages on root timeline without extra scenes"
+    );
+    // Stage dimensions come from the first selected page (`0:2` Dashboard = 1440x900).
+    assert_eq!(project.width, 1440);
+    assert_eq!(project.height, 900);
+
+    let root = project.symbol(&project.root).unwrap();
+    let layer_names: Vec<&str> = root
+        .timeline
+        .layers
+        .iter()
+        .map(|l| l.name.as_str())
+        .collect();
+    assert_eq!(layer_names, vec!["Dashboard", "Cover", "Settings"]);
+
+    // Referenced master `BadgeMaster` (`90:1`) is materialized, while `UnusedHeavyMaster` (`99:1`)
+    // and unselected `Scratch Box` (`4:1`) are NOT materialized, and only 1 image resource is imported!
+    assert!(project.symbols.iter().any(|s| s.name == "BadgeMaster"));
+    assert!(
+        !project
+            .symbols
+            .iter()
+            .any(|s| s.name == "UnusedHeavyMaster")
+    );
+    assert!(!project.symbols.iter().any(|s| s.name.contains("Scratch")));
+    assert_eq!(project.resources.len(), 1);
 }

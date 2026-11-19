@@ -4,14 +4,15 @@
 //! `commandsBlob` and `vectorNetworkBlob` geometry decoders (`T-249`, `T-312`).
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::Read;
 
 use flate2::read::DeflateDecoder;
 use neoflash_core::{Color, FillRule, GradientKind, GradientStop, PathCommand, TextAlign};
 
 use super::{
-    FigmaArcData, FigmaDoc, FigmaEffect, FigmaNode, FigmaPaint, FigmaSymbolOverride, FigmaTextData,
+    FigmaArcData, FigmaDoc, FigmaDocumentSummary, FigmaEffect, FigmaImportOptions, FigmaNode,
+    FigmaPageMapping, FigmaPageSummary, FigmaPaint, FigmaSymbolOverride, FigmaTextData,
     FigmaTextStyleOverride, FigmaTextStyleRun, MAX_FIGMA_DECODE_BYTES, MAX_FIGMA_NODES,
     MAX_KIWI_VALUES, gradient_handles_from_paint_matrix,
 };
@@ -277,21 +278,21 @@ impl<'a> KiwiReader<'a> {
     #[inline]
     fn skip_cstr(&mut self) -> Result<(), String> {
         let tail = &self.buf[self.pos..];
-        let Some(rel_nul) = tail.iter().position(|&b| b == 0) else {
+        let Ok(cstr) = std::ffi::CStr::from_bytes_until_nul(tail) else {
             return Err("Unterminated string in Kiwi stream".into());
         };
-        self.pos += rel_nul + 1;
+        self.pos += cstr.to_bytes_with_nul().len();
         Ok(())
     }
 
     #[inline]
     fn read_cow_str(&mut self) -> Result<Cow<'a, str>, String> {
         let tail = &self.buf[self.pos..];
-        let Some(rel_nul) = tail.iter().position(|&b| b == 0) else {
+        let Ok(cstr) = std::ffi::CStr::from_bytes_until_nul(tail) else {
             return Err("Unterminated string in Kiwi stream".into());
         };
-        let slice = &tail[..rel_nul];
-        self.pos += rel_nul + 1;
+        let slice = cstr.to_bytes();
+        self.pos += slice.len() + 1;
         Ok(match std::str::from_utf8(slice) {
             Ok(s) => Cow::Borrowed(s),
             Err(_) => Cow::Owned(String::from_utf8_lossy(slice).into_owned()),
@@ -1432,14 +1433,378 @@ fn resolve_kiwi_blob<'a>(
     blobs.get(idx).copied()
 }
 
-pub(super) fn parse_fig_kiwi_canvas(
-    bytes: &[u8],
-    default_name: &str,
-) -> Result<FigmaDoc, ImportError> {
-    decode_fig_kiwi_stream(bytes, default_name).map_err(ImportError::Container)
+fn is_top_frame_kiwi_type(node_type: &str) -> bool {
+    matches!(
+        node_type,
+        "FRAME" | "SECTION" | "COMPONENT" | "COMPONENT_SET" | "SYMBOL"
+    )
 }
 
-fn decode_fig_kiwi_stream(bytes: &[u8], default_name: &str) -> Result<FigmaDoc, String> {
+#[inline]
+fn format_guid_pair(g: (u64, u64)) -> String {
+    format!("{}:{}", g.0, g.1)
+}
+
+struct ScannedKiwiNode<'a> {
+    guid: (u64, u64),
+    parent_guid: Option<(u64, u64)>,
+    position: Cow<'a, str>,
+    node_type: Cow<'a, str>,
+    name: Cow<'a, str>,
+    visible: bool,
+    internal_only: bool,
+    is_state_group: bool,
+    ref_symbols: Vec<(u64, u64)>,
+    raw_slice: &'a [u8],
+}
+
+struct ScannedKiwiStream<'a> {
+    blob_base: u64,
+    blobs: Vec<&'a [u8]>,
+    nc_def_idx: usize,
+    nodes: Vec<ScannedKiwiNode<'a>>,
+    idx_by_guid: HashMap<(u64, u64), usize>,
+    doc_idx: Option<usize>,
+    doc_name: String,
+}
+
+fn read_guid_value<'a>(
+    r: &mut KiwiReader<'a>,
+    defs: &'a [KiwiDef],
+    type_id: i32,
+    is_array: bool,
+    depth: usize,
+    budget: &mut usize,
+    active_structs: &mut Vec<usize>,
+) -> Result<Option<(u64, u64)>, String> {
+    if !is_array
+        && type_id >= 0
+        && let Some(def) = defs.get(type_id as usize)
+        && def.kind == KiwiDefKind::Struct
+        && def.fields.len() == 2
+        && def.fields[0].name == "sessionID"
+        && matches!(def.fields[0].type_id, -4 | -8)
+        && !def.fields[0].is_array
+        && def.fields[1].name == "localID"
+        && matches!(def.fields[1].type_id, -4 | -8)
+        && !def.fields[1].is_array
+    {
+        *budget = budget
+            .checked_sub(2)
+            .ok_or_else(|| "Kiwi stream exceeds decoded value safety budget".to_owned())?;
+        let s = r.read_var_uint()?;
+        let l = r.read_var_uint()?;
+        return Ok(Some((s, l)));
+    }
+    let val = decode_kiwi_field_value(r, defs, type_id, is_array, depth, budget, active_structs)?;
+    let Some(obj) = val.as_obj() else {
+        return Ok(None);
+    };
+    let (Some(s), Some(l)) = (
+        obj.get("sessionID").and_then(KiwiVal::as_u64),
+        obj.get("localID").and_then(KiwiVal::as_u64),
+    ) else {
+        return Ok(None);
+    };
+    Ok(Some((s, l)))
+}
+
+type KiwiParentIndex<'a> = (Option<(u64, u64)>, Cow<'a, str>);
+
+fn read_parent_index_value<'a>(
+    r: &mut KiwiReader<'a>,
+    defs: &'a [KiwiDef],
+    type_id: i32,
+    is_array: bool,
+    depth: usize,
+    budget: &mut usize,
+    active_structs: &mut Vec<usize>,
+) -> Result<KiwiParentIndex<'a>, String> {
+    if !is_array
+        && type_id >= 0
+        && let Some(def) = defs.get(type_id as usize)
+        && def.kind == KiwiDefKind::Struct
+        && def.fields.len() == 2
+        && def.fields[0].name == "guid"
+        && !def.fields[0].is_array
+        && def.fields[1].name == "position"
+        && def.fields[1].type_id == -6
+        && !def.fields[1].is_array
+    {
+        let pguid = read_guid_value(
+            r,
+            defs,
+            def.fields[0].type_id,
+            false,
+            depth + 1,
+            budget,
+            active_structs,
+        )?;
+        *budget = budget
+            .checked_sub(1)
+            .ok_or_else(|| "Kiwi stream exceeds decoded value safety budget".to_owned())?;
+        let pos = r.read_cow_str()?;
+        return Ok((pguid, pos));
+    }
+    let val = decode_kiwi_field_value(r, defs, type_id, is_array, depth, budget, active_structs)?;
+    if let Some(pi) = val.as_obj() {
+        let pguid = pi
+            .get("guid")
+            .and_then(KiwiVal::as_obj)
+            .and_then(|go| Some((go.get("sessionID")?.as_u64()?, go.get("localID")?.as_u64()?)));
+        let pos = pi
+            .get("position")
+            .and_then(|v| match v {
+                KiwiVal::Str(s) => Some(s.clone()),
+                KiwiVal::Enum(s) => Some(Cow::Borrowed(*s)),
+                _ => None,
+            })
+            .unwrap_or(Cow::Borrowed(""));
+        Ok((pguid, pos))
+    } else {
+        Ok((None, Cow::Borrowed("")))
+    }
+}
+
+fn read_str_or_enum_fast<'a>(
+    r: &mut KiwiReader<'a>,
+    defs: &'a [KiwiDef],
+    type_id: i32,
+    is_array: bool,
+    depth: usize,
+    budget: &mut usize,
+    active_structs: &mut Vec<usize>,
+) -> Result<Option<Cow<'a, str>>, String> {
+    if !is_array {
+        if type_id == -6 {
+            *budget = budget
+                .checked_sub(1)
+                .ok_or_else(|| "Kiwi stream exceeds decoded value safety budget".to_owned())?;
+            return Ok(Some(r.read_cow_str()?));
+        }
+        if type_id >= 0
+            && let Some(def) = defs.get(type_id as usize)
+            && def.kind == KiwiDefKind::Enum
+        {
+            *budget = budget
+                .checked_sub(1)
+                .ok_or_else(|| "Kiwi stream exceeds decoded value safety budget".to_owned())?;
+            let v = r.read_var_uint()?;
+            if let Ok(vu32) = u32::try_from(v)
+                && let Some(ename) = def.enum_name(vu32)
+            {
+                return Ok(Some(Cow::Borrowed(ename)));
+            }
+            return Ok(None);
+        }
+    }
+    let val = decode_kiwi_field_value(r, defs, type_id, is_array, depth, budget, active_structs)?;
+    Ok(match val {
+        KiwiVal::Str(s) => Some(s),
+        KiwiVal::Enum(s) => Some(Cow::Borrowed(s)),
+        _ => None,
+    })
+}
+
+fn scan_symbol_data_refs<'a>(
+    r: &mut KiwiReader<'a>,
+    defs: &'a [KiwiDef],
+    sd_field: &KiwiField,
+    depth: usize,
+    budget: &mut usize,
+    active_structs: &mut Vec<usize>,
+    out_refs: &mut Vec<(u64, u64)>,
+) -> Result<(), String> {
+    let type_id = sd_field.type_id;
+    let is_array = sd_field.is_array;
+    if is_array || type_id < 0 {
+        return skip_kiwi_field_value(r, defs, type_id, is_array, depth, budget, active_structs);
+    }
+    let sd_def = defs
+        .get(type_id as usize)
+        .ok_or_else(|| format!("Invalid Kiwi SymbolData definition index {type_id}"))?;
+    if sd_def.kind != KiwiDefKind::Message {
+        return skip_kiwi_field_value(r, defs, type_id, is_array, depth, budget, active_structs);
+    }
+    loop {
+        let fid = r.read_var_uint()?;
+        if fid == 0 {
+            break;
+        }
+        let fid_u32 =
+            u32::try_from(fid).map_err(|_| format!("Kiwi field tag {fid} out of u32 range"))?;
+        let field = sd_def
+            .field_by_tag(fid_u32)
+            .ok_or_else(|| format!("Unknown field tag {fid} on Kiwi message '{}'", sd_def.name))?;
+        match field.name.as_str() {
+            "symbolID" => {
+                if let Some(g) = read_guid_value(
+                    r,
+                    defs,
+                    field.type_id,
+                    field.is_array,
+                    depth + 1,
+                    budget,
+                    active_structs,
+                )? {
+                    out_refs.push(g);
+                }
+            }
+            "symbolOverrides"
+                if field.is_array
+                    && field.type_id >= 0
+                    && defs
+                        .get(field.type_id as usize)
+                        .is_some_and(|d| d.kind == KiwiDefKind::Message) =>
+            {
+                let ov_def = &defs[field.type_id as usize];
+                let ov_len = usize::try_from(r.read_var_uint()?)
+                    .map_err(|_| "Kiwi symbolOverrides length overflow".to_owned())?;
+                if ov_len > MAX_KIWI_VALUES {
+                    return Err("Kiwi symbolOverrides exceeds maximum element limit".into());
+                }
+                for _ in 0..ov_len {
+                    loop {
+                        let ofid = r.read_var_uint()?;
+                        if ofid == 0 {
+                            break;
+                        }
+                        let ofid_u32 = u32::try_from(ofid)
+                            .map_err(|_| format!("Kiwi field tag {ofid} out of u32 range"))?;
+                        let ofield = ov_def.field_by_tag(ofid_u32).ok_or_else(|| {
+                            format!("Unknown field tag {ofid} on Kiwi message '{}'", ov_def.name)
+                        })?;
+                        if ofield.name == "overriddenSymbolID" {
+                            if let Some(g) = read_guid_value(
+                                r,
+                                defs,
+                                ofield.type_id,
+                                ofield.is_array,
+                                depth + 2,
+                                budget,
+                                active_structs,
+                            )? {
+                                out_refs.push(g);
+                            }
+                        } else {
+                            skip_kiwi_field_value(
+                                r,
+                                defs,
+                                ofield.type_id,
+                                ofield.is_array,
+                                depth + 2,
+                                budget,
+                                active_structs,
+                            )?;
+                        }
+                    }
+                }
+            }
+            _ => {
+                skip_kiwi_field_value(
+                    r,
+                    defs,
+                    field.type_id,
+                    field.is_array,
+                    depth + 1,
+                    budget,
+                    active_structs,
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn scan_blobs_array<'a>(
+    r: &mut KiwiReader<'a>,
+    defs: &'a [KiwiDef],
+    type_id: i32,
+    is_array: bool,
+    budget: &mut usize,
+    active_structs: &mut Vec<usize>,
+) -> Result<Vec<&'a [u8]>, String> {
+    if !is_array || type_id < 0 {
+        skip_kiwi_field_value(r, defs, type_id, is_array, 1, budget, active_structs)?;
+        return Ok(Vec::new());
+    }
+    let len = usize::try_from(r.read_var_uint()?)
+        .map_err(|_| "Kiwi blobs array length overflow".to_owned())?;
+    if len > MAX_KIWI_VALUES {
+        return Err("Kiwi blobs array exceeds maximum element limit".into());
+    }
+    let blob_def = defs
+        .get(type_id as usize)
+        .ok_or_else(|| format!("Invalid Kiwi Blob definition index {type_id}"))?;
+    let mut blobs = Vec::with_capacity(len.min(65_536));
+    if blob_def.kind == KiwiDefKind::Message {
+        for _ in 0..len {
+            *budget = budget
+                .checked_sub(1)
+                .ok_or_else(|| "Kiwi stream exceeds decoded value safety budget".to_owned())?;
+            let mut slice: &'a [u8] = &[];
+            loop {
+                let fid = r.read_var_uint()?;
+                if fid == 0 {
+                    break;
+                }
+                let fid_u32 = u32::try_from(fid)
+                    .map_err(|_| format!("Kiwi field tag {fid} out of u32 range"))?;
+                let field = blob_def.field_by_tag(fid_u32).ok_or_else(|| {
+                    format!(
+                        "Unknown field tag {fid} on Kiwi message '{}'",
+                        blob_def.name
+                    )
+                })?;
+                if field.name == "bytes" && field.type_id == -2 && field.is_array {
+                    let blen = usize::try_from(r.read_var_uint()?)
+                        .map_err(|_| "Kiwi blob byte array length overflow".to_owned())?;
+                    let end = r
+                        .pos
+                        .checked_add(blen)
+                        .ok_or_else(|| "Kiwi blob byte array overflow".to_owned())?;
+                    slice = r
+                        .buf
+                        .get(r.pos..end)
+                        .ok_or_else(|| "Truncated Kiwi blob byte array".to_owned())?;
+                    r.pos = end;
+                } else {
+                    skip_kiwi_field_value(
+                        r,
+                        defs,
+                        field.type_id,
+                        field.is_array,
+                        2,
+                        budget,
+                        active_structs,
+                    )?;
+                }
+            }
+            blobs.push(slice);
+        }
+    } else {
+        for _ in 0..len {
+            let val = decode_kiwi_scalar(r, defs, type_id, 2, budget, active_structs)?;
+            let slice = val
+                .as_obj()
+                .and_then(|bo| bo.get("bytes"))
+                .and_then(KiwiVal::as_bytes)
+                .unwrap_or(&[]);
+            blobs.push(slice);
+        }
+    }
+    Ok(blobs)
+}
+
+struct DecompressedKiwiContainer {
+    version: u32,
+    is_figjam: bool,
+    any_zstd: bool,
+    schema_chunk: Vec<u8>,
+    msg_chunk: Vec<u8>,
+}
+
+fn decompress_kiwi_container(bytes: &[u8]) -> Result<DecompressedKiwiContainer, String> {
     if bytes.len() < 20 {
         return Err("Figma Kiwi stream is shorter than 20-byte header".into());
     }
@@ -1450,7 +1815,7 @@ fn decode_fig_kiwi_stream(bytes: &[u8], default_name: &str) -> Result<FigmaDoc, 
     let version = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
 
     let mut pos = 12usize;
-    let mut chunks = Vec::new();
+    let mut chunks = Vec::with_capacity(2);
     let mut any_zstd = false;
     while pos + 4 <= bytes.len() && chunks.len() < 2 {
         let len = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]])
@@ -1474,713 +1839,1251 @@ fn decode_fig_kiwi_stream(bytes: &[u8], default_name: &str) -> Result<FigmaDoc, 
     if chunks.len() < 2 {
         return Err("Figma Kiwi stream requires at least schema and message chunks".into());
     }
+    let msg_chunk = chunks.pop().unwrap();
+    let schema_chunk = chunks.pop().unwrap();
+    Ok(DecompressedKiwiContainer {
+        version,
+        is_figjam,
+        any_zstd,
+        schema_chunk,
+        msg_chunk,
+    })
+}
 
-    let defs = parse_kiwi_schema(&chunks[0])?;
+fn scan_kiwi_message_pass1<'a>(
+    msg_buf: &'a [u8],
+    defs: &'a [KiwiDef],
+    default_name: &str,
+    want_blobs: bool,
+    want_refs: bool,
+) -> Result<ScannedKiwiStream<'a>, String> {
     let msg_def_idx = defs
         .iter()
         .position(|d| d.name == "Message" && d.kind == KiwiDefKind::Message)
         .or_else(|| defs.iter().rposition(|d| d.kind == KiwiDefKind::Message))
         .ok_or_else(|| "No root Message definition found in Kiwi schema".to_owned())?;
+    let msg_def = &defs[msg_def_idx];
 
-    let mut reader = KiwiReader::new(&chunks[1]);
+    let mut r = KiwiReader::new(msg_buf);
     let mut budget = MAX_KIWI_VALUES;
     let mut active_structs = Vec::new();
-    let root_val = decode_kiwi_scalar(
-        &mut reader,
-        &defs,
-        msg_def_idx as i32,
-        0,
-        &mut budget,
-        &mut active_structs,
-    )?;
-    let msg_obj = root_val
-        .as_obj()
-        .ok_or_else(|| "Decoded Kiwi root is not an object".to_owned())?;
 
-    let blob_base = msg_obj
-        .get("blobBaseIndex")
-        .and_then(KiwiVal::as_u64)
-        .unwrap_or(0);
-
-    let mut blobs: Vec<&[u8]> = Vec::new();
-    if let Some(blob_arr) = msg_obj.get("blobs").and_then(KiwiVal::as_array) {
-        blobs.reserve(blob_arr.len());
-        for b in blob_arr {
-            let bytes_slice = b
-                .as_obj()
-                .and_then(|bo| bo.get("bytes"))
-                .and_then(KiwiVal::as_bytes)
-                .unwrap_or(&[]);
-            blobs.push(bytes_slice);
-        }
-    }
-
-    let node_changes = msg_obj
-        .get("nodeChanges")
-        .and_then(KiwiVal::as_array)
-        .ok_or_else(|| "Kiwi Message does not contain nodeChanges".to_owned())?;
-    if node_changes.len() > MAX_FIGMA_NODES {
-        return Err(format!(
-            "Figma document exceeds maximum node count ({MAX_FIGMA_NODES})"
-        ));
-    }
-
-    struct RawEntry {
-        parent_id: Option<String>,
-        position: String,
-        node: FigmaNode,
-    }
-
-    let mut entries: HashMap<String, RawEntry> = HashMap::with_capacity(node_changes.len());
+    let mut blob_base = 0u64;
+    let mut blobs: Vec<&'a [u8]> = Vec::new();
+    let mut saw_node_changes = false;
+    let mut nc_def_idx = 0usize;
+    let mut nodes: Vec<ScannedKiwiNode<'a>> = Vec::new();
+    let mut idx_by_guid: HashMap<(u64, u64), usize> = HashMap::new();
+    let mut doc_idx: Option<usize> = None;
     let mut doc_name = default_name.to_owned();
-    let mut doc_guid: Option<String> = None;
 
-    for nc in node_changes {
-        let Some(obj) = nc.as_obj() else { continue };
-        if obj.get("phase").and_then(KiwiVal::as_str) == Some("REMOVED") {
-            continue;
+    loop {
+        let fid = r.read_var_uint()?;
+        if fid == 0 {
+            break;
         }
-        let Some(guid) = obj
-            .get("guid")
-            .and_then(KiwiVal::as_obj)
-            .and_then(guid_string)
-        else {
-            continue;
-        };
-        let node_type = obj
-            .get("type")
-            .and_then(KiwiVal::as_str)
-            .unwrap_or("FRAME")
-            .to_owned();
-
-        if is_non_visual_kiwi_node_type(&node_type) {
-            continue;
-        }
-
-        let name = obj
-            .get("name")
-            .and_then(KiwiVal::as_str)
-            .unwrap_or(&node_type)
-            .to_owned();
-
-        if node_type == "DOCUMENT" {
-            doc_guid = Some(guid.clone());
-            if (doc_name.is_empty() || doc_name == "Figma Import")
-                && !name.is_empty()
-                && name != "Document"
-                && name != "Doc"
-            {
-                doc_name = name.clone();
+        let fid_u32 =
+            u32::try_from(fid).map_err(|_| format!("Kiwi field tag {fid} out of u32 range"))?;
+        let mfield = msg_def
+            .field_by_tag(fid_u32)
+            .ok_or_else(|| format!("Unknown field tag {fid} on Kiwi message '{}'", msg_def.name))?;
+        match mfield.name.as_str() {
+            "blobBaseIndex" if !want_blobs => {
+                skip_kiwi_field_value(
+                    &mut r,
+                    defs,
+                    mfield.type_id,
+                    mfield.is_array,
+                    1,
+                    &mut budget,
+                    &mut active_structs,
+                )?;
             }
-        }
-
-        let (parent_id, position) =
-            if let Some(pi) = obj.get("parentIndex").and_then(KiwiVal::as_obj) {
-                let pid = pi
-                    .get("guid")
-                    .and_then(KiwiVal::as_obj)
-                    .and_then(guid_string);
-                let pos_str = pi
-                    .get("position")
-                    .and_then(KiwiVal::as_str)
-                    .unwrap_or("")
-                    .to_owned();
-                (pid, pos_str)
-            } else {
-                (None, String::new())
-            };
-
-        let visible = obj
-            .get("visible")
-            .and_then(KiwiVal::as_bool)
-            .unwrap_or(true);
-        let locked = obj
-            .get("locked")
-            .and_then(KiwiVal::as_bool)
-            .unwrap_or(false);
-        let internal_only = obj
-            .get("internalOnly")
-            .and_then(KiwiVal::as_bool)
-            .unwrap_or(false)
-            || node_type == "INTERNAL_ONLY_CANVAS"
-            || (node_type == "CANVAS" && name == "Internal Only Canvas");
-        let is_state_group = obj
-            .get("isStateGroup")
-            .and_then(KiwiVal::as_bool)
-            .unwrap_or(false)
-            || node_type == "COMPONENT_SET";
-
-        let opacity = obj
-            .get("opacity")
-            .and_then(KiwiVal::as_f64)
-            .unwrap_or(1.0)
-            .clamp(0.0, 1.0);
-        let blend_mode = obj
-            .get("blendMode")
-            .and_then(KiwiVal::as_str)
-            .unwrap_or("PASS_THROUGH")
-            .to_owned();
-
-        let (width, height) = if let Some(sz) = obj.get("size").and_then(KiwiVal::as_obj) {
-            (
-                sz.get("x")
-                    .and_then(KiwiVal::as_f64)
-                    .unwrap_or(100.0)
-                    .max(0.0),
-                sz.get("y")
-                    .and_then(KiwiVal::as_f64)
-                    .unwrap_or(100.0)
-                    .max(0.0),
-            )
-        } else {
-            (100.0, 100.0)
-        };
-
-        let is_clippable_container = matches!(
-            node_type.as_str(),
-            "FRAME" | "SYMBOL" | "COMPONENT" | "COMPONENT_SET" | "INSTANCE" | "SECTION"
-        );
-        let clips_content = obj
-            .get("clipsContent")
-            .and_then(KiwiVal::as_bool)
-            .unwrap_or_else(|| {
-                is_clippable_container
-                    && obj.get("frameMaskDisabled").and_then(KiwiVal::as_bool) == Some(false)
-            });
-        let is_mask = obj.get("mask").and_then(KiwiVal::as_bool).unwrap_or(false);
-        let mask_type = obj
-            .get("maskType")
-            .and_then(KiwiVal::as_str)
-            .unwrap_or("ALPHA")
-            .to_owned();
-
-        let (mut x, mut y) = (0.0, 0.0);
-        let relative_transform = if let Some(tr) = obj.get("transform").and_then(KiwiVal::as_obj) {
-            let m00 = tr.get("m00").and_then(KiwiVal::as_f64).unwrap_or(1.0);
-            let m01 = tr.get("m01").and_then(KiwiVal::as_f64).unwrap_or(0.0);
-            let m02 = tr.get("m02").and_then(KiwiVal::as_f64).unwrap_or(0.0);
-            let m10 = tr.get("m10").and_then(KiwiVal::as_f64).unwrap_or(0.0);
-            let m11 = tr.get("m11").and_then(KiwiVal::as_f64).unwrap_or(1.0);
-            let m12 = tr.get("m12").and_then(KiwiVal::as_f64).unwrap_or(0.0);
-            x = m02;
-            y = m12;
-            Some([m00, m10, m01, m11, m02, m12])
-        } else {
-            None
-        };
-
-        let uniform_r = obj
-            .get("cornerRadius")
-            .and_then(KiwiVal::as_f64)
-            .unwrap_or(0.0)
-            .max(0.0);
-        let independent_corners = obj
-            .get("rectangleCornerRadiiIndependent")
-            .and_then(KiwiVal::as_bool)
-            .unwrap_or(false);
-        let corner_radii = if independent_corners
-            || obj.get("rectangleTopLeftCornerRadius").is_some()
-            || obj.get("rectangleTopRightCornerRadius").is_some()
-            || obj.get("rectangleBottomRightCornerRadius").is_some()
-            || obj.get("rectangleBottomLeftCornerRadius").is_some()
-        {
-            let tl = obj
-                .get("rectangleTopLeftCornerRadius")
-                .and_then(KiwiVal::as_f64)
-                .unwrap_or(uniform_r)
-                .max(0.0);
-            let tr = obj
-                .get("rectangleTopRightCornerRadius")
-                .and_then(KiwiVal::as_f64)
-                .unwrap_or(uniform_r)
-                .max(0.0);
-            let br = obj
-                .get("rectangleBottomRightCornerRadius")
-                .and_then(KiwiVal::as_f64)
-                .unwrap_or(uniform_r)
-                .max(0.0);
-            let bl = obj
-                .get("rectangleBottomLeftCornerRadius")
-                .and_then(KiwiVal::as_f64)
-                .unwrap_or(uniform_r)
-                .max(0.0);
-            [tl, tr, br, bl]
-        } else {
-            [uniform_r; 4]
-        };
-
-        let arc_data = obj
-            .get("arcData")
-            .and_then(KiwiVal::as_obj)
-            .map(|ao| FigmaArcData {
-                start_angle_rad: ao
-                    .get("startingAngle")
-                    .and_then(KiwiVal::as_f64)
-                    .unwrap_or(0.0),
-                end_angle_rad: ao
-                    .get("endingAngle")
-                    .and_then(KiwiVal::as_f64)
-                    .unwrap_or(std::f64::consts::TAU),
-                inner_radius_ratio: ao
-                    .get("innerRadius")
-                    .and_then(KiwiVal::as_f64)
-                    .unwrap_or(0.0),
-            });
-
-        let point_count = obj
-            .get("count")
-            .and_then(KiwiVal::as_u64)
-            .and_then(|v| u32::try_from(v).ok());
-        let star_inner_radius = obj.get("starInnerScale").and_then(KiwiVal::as_f64);
-
-        let fills = obj
-            .get("fillPaints")
-            .and_then(KiwiVal::as_array)
-            .map(|a| parse_kiwi_paint_list(a, width, height))
-            .unwrap_or_default();
-
-        let background_color = if node_type == "CANVAS" {
-            let bg_enabled = obj
-                .get("backgroundEnabled")
-                .and_then(KiwiVal::as_bool)
-                .unwrap_or(true);
-            if bg_enabled {
-                obj.get("backgroundColor")
-                    .and_then(KiwiVal::as_obj)
-                    .map(|bg| kiwi_color_to_rgba(bg, 1.0))
-            } else {
-                None
+            "blobBaseIndex" => {
+                let val = decode_kiwi_field_value(
+                    &mut r,
+                    defs,
+                    mfield.type_id,
+                    mfield.is_array,
+                    1,
+                    &mut budget,
+                    &mut active_structs,
+                )?;
+                blob_base = val.as_u64().unwrap_or(0);
             }
-        } else {
-            None
-        };
+            "blobs" if !want_blobs => {
+                skip_kiwi_field_value(
+                    &mut r,
+                    defs,
+                    mfield.type_id,
+                    mfield.is_array,
+                    1,
+                    &mut budget,
+                    &mut active_structs,
+                )?;
+            }
+            "blobs" => {
+                blobs = scan_blobs_array(
+                    &mut r,
+                    defs,
+                    mfield.type_id,
+                    mfield.is_array,
+                    &mut budget,
+                    &mut active_structs,
+                )?;
+            }
+            "nodeChanges" => {
+                if !mfield.is_array || mfield.type_id < 0 {
+                    return Err("Kiwi nodeChanges field is not a message array".into());
+                }
+                nc_def_idx = mfield.type_id as usize;
+                let nc_def = defs
+                    .get(nc_def_idx)
+                    .ok_or_else(|| format!("Invalid NodeChange definition index {nc_def_idx}"))?;
+                if nc_def.kind != KiwiDefKind::Message {
+                    return Err("Kiwi NodeChange definition must be a Message".into());
+                }
+                let nc_len = usize::try_from(r.read_var_uint()?)
+                    .map_err(|_| "Kiwi nodeChanges length overflow".to_owned())?;
+                if nc_len > MAX_FIGMA_NODES {
+                    return Err(format!(
+                        "Figma document exceeds maximum node count ({MAX_FIGMA_NODES})"
+                    ));
+                }
+                saw_node_changes = true;
+                nodes.reserve(nc_len.min(65_536));
+                idx_by_guid.reserve(nc_len.min(65_536));
 
-        let strokes = obj
-            .get("strokePaints")
-            .and_then(KiwiVal::as_array)
-            .map(|a| parse_kiwi_paint_list(a, width, height))
-            .unwrap_or_default();
-        let stroke_weight = obj
-            .get("strokeWeight")
-            .and_then(KiwiVal::as_f64)
-            .unwrap_or(1.0)
-            .max(0.0);
+                for _ in 0..nc_len {
+                    budget = budget.checked_sub(1).ok_or_else(|| {
+                        "Kiwi stream exceeds decoded value safety budget".to_owned()
+                    })?;
+                    let slice_start = r.pos;
+                    let mut removed = false;
+                    let mut guid: Option<(u64, u64)> = None;
+                    let mut parent_guid: Option<(u64, u64)> = None;
+                    let mut position: Cow<'a, str> = Cow::Borrowed("");
+                    let mut node_type: Cow<'a, str> = Cow::Borrowed("FRAME");
+                    let mut has_name = false;
+                    let mut name: Cow<'a, str> = Cow::Borrowed("");
+                    let mut visible = true;
+                    let mut internal_only = false;
+                    let mut is_state_group = false;
+                    let mut ref_symbols: Vec<(u64, u64)> = Vec::new();
 
-        let border_indep = obj
-            .get("borderStrokeWeightsIndependent")
-            .and_then(KiwiVal::as_bool)
-            .unwrap_or(false);
-        let border_weights = if border_indep {
-            let bt = obj
-                .get("borderTopWeight")
-                .and_then(KiwiVal::as_f64)
-                .unwrap_or(stroke_weight)
-                .max(0.0);
-            let br = obj
-                .get("borderRightWeight")
-                .and_then(KiwiVal::as_f64)
-                .unwrap_or(stroke_weight)
-                .max(0.0);
-            let bb = obj
-                .get("borderBottomWeight")
-                .and_then(KiwiVal::as_f64)
-                .unwrap_or(stroke_weight)
-                .max(0.0);
-            let bl = obj
-                .get("borderLeftWeight")
-                .and_then(KiwiVal::as_f64)
-                .unwrap_or(stroke_weight)
-                .max(0.0);
-            Some([bt, br, bb, bl])
-        } else {
-            None
-        };
+                    loop {
+                        let nfid = r.read_var_uint()?;
+                        if nfid == 0 {
+                            break;
+                        }
+                        let nfid_u32 = u32::try_from(nfid)
+                            .map_err(|_| format!("Kiwi field tag {nfid} out of u32 range"))?;
+                        let field = nc_def.field_by_tag(nfid_u32).ok_or_else(|| {
+                            format!("Unknown field tag {nfid} on Kiwi message '{}'", nc_def.name)
+                        })?;
+                        match field.name.as_str() {
+                            "phase" => {
+                                if let Some(ph) = read_str_or_enum_fast(
+                                    &mut r,
+                                    defs,
+                                    field.type_id,
+                                    field.is_array,
+                                    2,
+                                    &mut budget,
+                                    &mut active_structs,
+                                )? && ph == "REMOVED"
+                                {
+                                    removed = true;
+                                }
+                            }
+                            "guid" => {
+                                guid = read_guid_value(
+                                    &mut r,
+                                    defs,
+                                    field.type_id,
+                                    field.is_array,
+                                    2,
+                                    &mut budget,
+                                    &mut active_structs,
+                                )?;
+                            }
+                            "parentIndex" => {
+                                let (pg, pos) = read_parent_index_value(
+                                    &mut r,
+                                    defs,
+                                    field.type_id,
+                                    field.is_array,
+                                    2,
+                                    &mut budget,
+                                    &mut active_structs,
+                                )?;
+                                parent_guid = pg;
+                                position = pos;
+                            }
+                            "type" => {
+                                if let Some(nt) = read_str_or_enum_fast(
+                                    &mut r,
+                                    defs,
+                                    field.type_id,
+                                    field.is_array,
+                                    2,
+                                    &mut budget,
+                                    &mut active_structs,
+                                )? {
+                                    node_type = nt;
+                                }
+                            }
+                            "name" => {
+                                if let Some(nm) = read_str_or_enum_fast(
+                                    &mut r,
+                                    defs,
+                                    field.type_id,
+                                    field.is_array,
+                                    2,
+                                    &mut budget,
+                                    &mut active_structs,
+                                )? {
+                                    has_name = true;
+                                    name = nm;
+                                }
+                            }
+                            "visible" if !field.is_array && field.type_id == -1 => {
+                                visible = r.read_byte()? != 0;
+                            }
+                            "visible" => {
+                                let v = decode_kiwi_field_value(
+                                    &mut r,
+                                    defs,
+                                    field.type_id,
+                                    field.is_array,
+                                    2,
+                                    &mut budget,
+                                    &mut active_structs,
+                                )?;
+                                visible = v.as_bool().unwrap_or(true);
+                            }
+                            "internalOnly" if !field.is_array && field.type_id == -1 => {
+                                internal_only = r.read_byte()? != 0;
+                            }
+                            "internalOnly" => {
+                                let v = decode_kiwi_field_value(
+                                    &mut r,
+                                    defs,
+                                    field.type_id,
+                                    field.is_array,
+                                    2,
+                                    &mut budget,
+                                    &mut active_structs,
+                                )?;
+                                internal_only = v.as_bool().unwrap_or(false);
+                            }
+                            "isStateGroup"
+                                if want_refs && !field.is_array && field.type_id == -1 =>
+                            {
+                                is_state_group = r.read_byte()? != 0;
+                            }
+                            "isStateGroup" if want_refs => {
+                                let v = decode_kiwi_field_value(
+                                    &mut r,
+                                    defs,
+                                    field.type_id,
+                                    field.is_array,
+                                    2,
+                                    &mut budget,
+                                    &mut active_structs,
+                                )?;
+                                is_state_group = v.as_bool().unwrap_or(false);
+                            }
+                            "overriddenSymbolID" if want_refs => {
+                                if let Some(g) = read_guid_value(
+                                    &mut r,
+                                    defs,
+                                    field.type_id,
+                                    field.is_array,
+                                    2,
+                                    &mut budget,
+                                    &mut active_structs,
+                                )? {
+                                    ref_symbols.push(g);
+                                }
+                            }
+                            "symbolData" if want_refs => {
+                                scan_symbol_data_refs(
+                                    &mut r,
+                                    defs,
+                                    field,
+                                    2,
+                                    &mut budget,
+                                    &mut active_structs,
+                                    &mut ref_symbols,
+                                )?;
+                            }
+                            _ => {
+                                skip_kiwi_field_value(
+                                    &mut r,
+                                    defs,
+                                    field.type_id,
+                                    field.is_array,
+                                    2,
+                                    &mut budget,
+                                    &mut active_structs,
+                                )?;
+                            }
+                        }
+                    }
 
-        let mut fill_paths: Vec<(Vec<PathCommand>, FillRule)> = Vec::new();
-        if let Some(garr) = obj.get("fillGeometry").and_then(KiwiVal::as_array) {
-            for g in garr {
-                let Some(go) = g.as_obj() else { continue };
-                let rule = match go.get("windingRule").and_then(KiwiVal::as_str) {
-                    Some("ODD" | "EVENODD") => FillRule::EvenOdd,
-                    _ => FillRule::NonZero,
-                };
-                if let Some(cb) = go.get("commandsBlob")
-                    && let Some(blob) = resolve_kiwi_blob(cb, &blobs, blob_base)
-                {
-                    let cmds = decode_figma_commands_blob(blob);
-                    if !cmds.is_empty() {
-                        fill_paths.push((cmds, rule));
+                    let slice_end = r.pos;
+                    if removed || is_non_visual_kiwi_node_type(&node_type) {
                         continue;
                     }
-                }
-                if let Some(svg_d) = go.get("commands").and_then(KiwiVal::as_str) {
-                    let cmds = crate::vector_fidelity::parse_svg_path_data(svg_d);
-                    if !cmds.is_empty() {
-                        fill_paths.push((cmds, rule));
+                    let Some(guid_pair) = guid else { continue };
+                    if !has_name {
+                        name = node_type.clone();
                     }
-                }
-            }
-        }
+                    internal_only = internal_only
+                        || node_type == "INTERNAL_ONLY_CANVAS"
+                        || (node_type == "CANVAS" && name == "Internal Only Canvas");
+                    is_state_group = is_state_group || node_type == "COMPONENT_SET";
 
-        let mut stroke_paths: Vec<Vec<PathCommand>> = Vec::new();
-        if let Some(garr) = obj.get("strokeGeometry").and_then(KiwiVal::as_array) {
-            for g in garr {
-                let Some(go) = g.as_obj() else { continue };
-                if let Some(cb) = go.get("commandsBlob")
-                    && let Some(blob) = resolve_kiwi_blob(cb, &blobs, blob_base)
-                {
-                    let cmds = decode_figma_commands_blob(blob);
-                    if !cmds.is_empty() {
-                        stroke_paths.push(cmds);
-                        continue;
+                    if node_type == "DOCUMENT"
+                        && (doc_name.is_empty() || doc_name == "Figma Import")
+                        && !name.is_empty()
+                        && name != "Document"
+                        && name != "Doc"
+                    {
+                        doc_name = name.clone().into_owned();
                     }
-                }
-                if let Some(svg_d) = go.get("commands").and_then(KiwiVal::as_str) {
-                    let cmds = crate::vector_fidelity::parse_svg_path_data(svg_d);
-                    if !cmds.is_empty() {
-                        stroke_paths.push(cmds);
-                    }
-                }
-            }
-        }
 
-        if (fill_paths.is_empty() || (stroke_paths.is_empty() && !strokes.is_empty()))
-            && let Some(vd) = obj.get("vectorData").and_then(KiwiVal::as_obj)
-            && let Some(vnb) = vd.get("vectorNetworkBlob")
-            && let Some(blob) = resolve_kiwi_blob(vnb, &blobs, blob_base)
-        {
-            let norm_size = vd
-                .get("normalizedSize")
-                .and_then(KiwiVal::as_obj)
-                .map(|ns| {
-                    (
-                        ns.get("x").and_then(KiwiVal::as_f64).unwrap_or(width),
-                        ns.get("y").and_then(KiwiVal::as_f64).unwrap_or(height),
-                    )
-                });
-            let (vn_fills, vn_strokes) =
-                decode_figma_vector_network_blob(blob, width, height, norm_size);
-            if fill_paths.is_empty() {
-                if !vn_fills.is_empty() {
-                    fill_paths = vn_fills;
-                } else if !fills.is_empty() && !vn_strokes.is_empty() {
-                    fill_paths = vn_strokes
-                        .iter()
-                        .cloned()
-                        .map(|c| (c, FillRule::NonZero))
-                        .collect();
-                }
-            }
-            if stroke_paths.is_empty() && !vn_strokes.is_empty() {
-                stroke_paths = vn_strokes;
-            }
-        }
-
-        let effects = parse_kiwi_effects(obj);
-
-        let text = if node_type == "TEXT" {
-            let td_obj = obj.get("textData").and_then(KiwiVal::as_obj);
-            let characters = td_obj
-                .and_then(|td| td.get("characters"))
-                .and_then(KiwiVal::as_str)
-                .unwrap_or("")
-                .to_owned();
-            let font_size = obj
-                .get("fontSize")
-                .and_then(KiwiVal::as_f64)
-                .unwrap_or(16.0)
-                .max(1.0);
-            let (font_family, bold, italic) =
-                if let Some(fn_obj) = obj.get("fontName").and_then(KiwiVal::as_obj) {
-                    let fam = fn_obj
-                        .get("family")
-                        .and_then(KiwiVal::as_str)
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or("Inter")
-                        .to_owned();
-                    let style = fn_obj
-                        .get("style")
-                        .and_then(KiwiVal::as_str)
-                        .unwrap_or("Regular")
-                        .to_ascii_lowercase();
-                    (
-                        fam,
-                        style.contains("bold")
-                            || style.contains("black")
-                            || style.contains("heavy")
-                            || style.contains("semibold")
-                            || style.contains("demibold"),
-                        style.contains("italic") || style.contains("oblique"),
-                    )
-                } else {
-                    ("Inter".into(), false, false)
-                };
-            let (align, justify) = match obj.get("textAlignHorizontal").and_then(KiwiVal::as_str) {
-                Some("CENTER") => (TextAlign::Center, false),
-                Some("RIGHT") => (TextAlign::Right, false),
-                Some("JUSTIFIED") => (TextAlign::Left, true),
-                _ => (TextAlign::Left, false),
-            };
-            let align_v = match obj.get("textAlignVertical").and_then(KiwiVal::as_str) {
-                Some("CENTER") => "middle",
-                Some("BOTTOM") => "bottom",
-                _ => "top",
-            }
-            .to_owned();
-            let text_dec = obj
-                .get("textDecoration")
-                .and_then(KiwiVal::as_str)
-                .unwrap_or("NONE");
-            let underline = text_dec == "UNDERLINE";
-            let strikethrough = text_dec == "STRIKETHROUGH";
-            let auto_resize = obj
-                .get("textAutoResize")
-                .and_then(KiwiVal::as_str)
-                .unwrap_or("NONE")
-                .to_owned();
-            let letter_spacing = parse_kiwi_number_px(obj.get("letterSpacing"), font_size)
-                .map(|(v, _)| v)
-                .unwrap_or(0.0);
-            let line_height =
-                parse_kiwi_number_px(obj.get("lineHeight"), font_size).and_then(|(v, units)| {
-                    if v <= 0.0 || (units == "PERCENT" && (v - font_size).abs() <= 0.05) {
-                        None
+                    let scanned = ScannedKiwiNode {
+                        guid: guid_pair,
+                        parent_guid,
+                        position,
+                        node_type,
+                        name,
+                        visible,
+                        internal_only,
+                        is_state_group,
+                        ref_symbols,
+                        raw_slice: &msg_buf[slice_start..slice_end],
+                    };
+                    let is_doc = scanned.node_type == "DOCUMENT";
+                    if let Some(&existing_idx) = idx_by_guid.get(&guid_pair) {
+                        nodes[existing_idx] = scanned;
+                        if is_doc {
+                            doc_idx = Some(existing_idx);
+                        }
                     } else {
-                        Some(v)
-                    }
-                });
-
-            let style_runs = if let Some(td) = td_obj {
-                let char_ids: Vec<u64> = td
-                    .get("characterStyleIDs")
-                    .and_then(KiwiVal::as_array)
-                    .map(|arr| arr.iter().map(|v| v.as_u64().unwrap_or(0)).collect())
-                    .unwrap_or_default();
-                let mut override_map = HashMap::new();
-                if !char_ids.is_empty()
-                    && let Some(sot) = td.get("styleOverrideTable").and_then(KiwiVal::as_array)
-                {
-                    for item in sot {
-                        if let Some(so) = item.as_obj()
-                            && let Some(sid) = so.get("styleID").and_then(KiwiVal::as_u64)
-                            && sid != 0
-                        {
-                            override_map.insert(sid, parse_kiwi_style_override(so, font_size));
+                        let new_idx = nodes.len();
+                        nodes.push(scanned);
+                        idx_by_guid.insert(guid_pair, new_idx);
+                        if is_doc {
+                            doc_idx = Some(new_idx);
                         }
                     }
                 }
-                build_text_style_runs(&characters, &char_ids, &override_map)
-            } else {
-                Vec::new()
-            };
+                if !want_blobs {
+                    break;
+                }
+            }
+            _ => {
+                skip_kiwi_field_value(
+                    &mut r,
+                    defs,
+                    mfield.type_id,
+                    mfield.is_array,
+                    1,
+                    &mut budget,
+                    &mut active_structs,
+                )?;
+            }
+        }
+    }
 
-            Some(FigmaTextData {
-                characters,
-                font_family,
-                font_size,
-                bold,
-                italic,
-                underline,
-                strikethrough,
-                align,
-                justify,
-                align_v,
-                letter_spacing,
-                line_height,
-                auto_resize,
-                style_runs,
-            })
+    if !saw_node_changes {
+        return Err("Kiwi Message does not contain nodeChanges".into());
+    }
+
+    Ok(ScannedKiwiStream {
+        blob_base,
+        blobs,
+        nc_def_idx,
+        nodes,
+        idx_by_guid,
+        doc_idx,
+        doc_name,
+    })
+}
+
+fn build_scanned_children_graph(scanned: &ScannedKiwiStream<'_>) -> (Vec<Vec<usize>>, Vec<usize>) {
+    let n = scanned.nodes.len();
+    let mut children_by_parent: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (idx, node) in scanned.nodes.iter().enumerate() {
+        if let Some(pg) = node.parent_guid
+            && let Some(&pidx) = scanned.idx_by_guid.get(&pg)
+            && pidx != idx
+        {
+            children_by_parent[pidx].push(idx);
+        }
+    }
+    for list in &mut children_by_parent {
+        if list.len() > 1 {
+            list.sort_by(|&a, &b| {
+                scanned.nodes[a]
+                    .position
+                    .as_ref()
+                    .cmp(scanned.nodes[b].position.as_ref())
+                    .then_with(|| scanned.nodes[a].guid.cmp(&scanned.nodes[b].guid))
+            });
+        }
+    }
+
+    let mut page_indices = Vec::new();
+    if let Some(didx) = scanned.doc_idx {
+        for &cidx in &children_by_parent[didx] {
+            let cn = &scanned.nodes[cidx];
+            if cn.node_type == "CANVAS" || cn.internal_only || !children_by_parent[cidx].is_empty()
+            {
+                page_indices.push(cidx);
+            }
+        }
+    }
+    if page_indices.is_empty() {
+        let mut canvas_list: Vec<usize> = (0..n)
+            .filter(|&i| scanned.nodes[i].node_type == "CANVAS")
+            .collect();
+        canvas_list.sort_by(|&a, &b| {
+            scanned.nodes[a]
+                .position
+                .as_ref()
+                .cmp(scanned.nodes[b].position.as_ref())
+                .then_with(|| scanned.nodes[a].guid.cmp(&scanned.nodes[b].guid))
+        });
+        page_indices = canvas_list;
+    }
+
+    (children_by_parent, page_indices)
+}
+
+fn count_scanned_subtree(idx: usize, children_by_parent: &[Vec<usize>], depth: usize) -> usize {
+    if depth > 128 {
+        return 0;
+    }
+    let mut total = 1usize;
+    for &cidx in &children_by_parent[idx] {
+        total = total.saturating_add(count_scanned_subtree(cidx, children_by_parent, depth + 1));
+    }
+    total
+}
+
+pub(super) fn inspect_fig_kiwi_canvas(
+    bytes: &[u8],
+    default_name: &str,
+) -> Result<FigmaDocumentSummary, ImportError> {
+    inspect_fig_kiwi_stream(bytes, default_name).map_err(ImportError::Container)
+}
+
+fn inspect_fig_kiwi_stream(
+    bytes: &[u8],
+    default_name: &str,
+) -> Result<FigmaDocumentSummary, String> {
+    let DecompressedKiwiContainer {
+        version,
+        is_figjam,
+        any_zstd,
+        schema_chunk,
+        msg_chunk,
+    } = decompress_kiwi_container(bytes)?;
+    let defs = parse_kiwi_schema(&schema_chunk)?;
+    let scanned = scan_kiwi_message_pass1(&msg_chunk, &defs, default_name, false, false)?;
+    let (children_by_parent, page_indices) = build_scanned_children_graph(&scanned);
+
+    let mut pages = Vec::new();
+    for pidx in page_indices {
+        let pnode = &scanned.nodes[pidx];
+        if pnode.internal_only {
+            continue;
+        }
+        let mut top_frame_count = 0usize;
+        let mut node_count = 0usize;
+        for &cidx in &children_by_parent[pidx] {
+            if is_top_frame_kiwi_type(&scanned.nodes[cidx].node_type) {
+                top_frame_count += 1;
+            }
+            node_count =
+                node_count.saturating_add(count_scanned_subtree(cidx, &children_by_parent, 1));
+        }
+        pages.push(FigmaPageSummary {
+            id: format_guid_pair(pnode.guid),
+            name: pnode.name.clone().into_owned(),
+            visible: pnode.visible,
+            top_frame_count,
+            node_count,
+        });
+    }
+
+    let prefix = if is_figjam { "fig-jam" } else { "fig-kiwi" };
+    let codec = if any_zstd { "zstd" } else { "deflate" };
+    let version_label = format!("{prefix} v{version} ({codec})");
+
+    Ok(FigmaDocumentSummary {
+        name: scanned.doc_name,
+        version_label,
+        pages,
+    })
+}
+
+pub(super) fn parse_fig_kiwi_canvas_with_options(
+    bytes: &[u8],
+    default_name: &str,
+    options: &FigmaImportOptions,
+) -> Result<FigmaDoc, ImportError> {
+    decode_fig_kiwi_stream(bytes, default_name, options).map_err(ImportError::Container)
+}
+
+fn decode_single_kiwi_node(
+    snode: &ScannedKiwiNode<'_>,
+    defs: &[KiwiDef],
+    nc_def_idx: usize,
+    blobs: &[&[u8]],
+    blob_base: u64,
+    budget: &mut usize,
+    active_structs: &mut Vec<usize>,
+) -> Result<FigmaNode, String> {
+    let mut r = KiwiReader::new(snode.raw_slice);
+    let val = decode_kiwi_scalar(&mut r, defs, nc_def_idx as i32, 1, budget, active_structs)?;
+    let obj = val
+        .as_obj()
+        .ok_or_else(|| "Decoded NodeChange is not an object".to_owned())?;
+
+    let guid = format_guid_pair(snode.guid);
+    let node_type = snode.node_type.clone().into_owned();
+    let name = snode.name.clone().into_owned();
+    let visible = snode.visible;
+    let internal_only = snode.internal_only;
+    let is_state_group = snode.is_state_group;
+    let locked = obj
+        .get("locked")
+        .and_then(KiwiVal::as_bool)
+        .unwrap_or(false);
+
+    let opacity = obj
+        .get("opacity")
+        .and_then(KiwiVal::as_f64)
+        .unwrap_or(1.0)
+        .clamp(0.0, 1.0);
+    let blend_mode = obj
+        .get("blendMode")
+        .and_then(KiwiVal::as_str)
+        .unwrap_or("PASS_THROUGH")
+        .to_owned();
+
+    let (width, height) = if let Some(sz) = obj.get("size").and_then(KiwiVal::as_obj) {
+        (
+            sz.get("x")
+                .and_then(KiwiVal::as_f64)
+                .unwrap_or(100.0)
+                .max(0.0),
+            sz.get("y")
+                .and_then(KiwiVal::as_f64)
+                .unwrap_or(100.0)
+                .max(0.0),
+        )
+    } else {
+        (100.0, 100.0)
+    };
+
+    let is_clippable_container = matches!(
+        node_type.as_str(),
+        "FRAME" | "SYMBOL" | "COMPONENT" | "COMPONENT_SET" | "INSTANCE" | "SECTION"
+    );
+    let clips_content = obj
+        .get("clipsContent")
+        .and_then(KiwiVal::as_bool)
+        .unwrap_or_else(|| {
+            is_clippable_container
+                && obj.get("frameMaskDisabled").and_then(KiwiVal::as_bool) == Some(false)
+        });
+    let is_mask = obj.get("mask").and_then(KiwiVal::as_bool).unwrap_or(false);
+    let mask_type = obj
+        .get("maskType")
+        .and_then(KiwiVal::as_str)
+        .unwrap_or("ALPHA")
+        .to_owned();
+
+    let (mut x, mut y) = (0.0, 0.0);
+    let relative_transform = if let Some(tr) = obj.get("transform").and_then(KiwiVal::as_obj) {
+        let m00 = tr.get("m00").and_then(KiwiVal::as_f64).unwrap_or(1.0);
+        let m01 = tr.get("m01").and_then(KiwiVal::as_f64).unwrap_or(0.0);
+        let m02 = tr.get("m02").and_then(KiwiVal::as_f64).unwrap_or(0.0);
+        let m10 = tr.get("m10").and_then(KiwiVal::as_f64).unwrap_or(0.0);
+        let m11 = tr.get("m11").and_then(KiwiVal::as_f64).unwrap_or(1.0);
+        let m12 = tr.get("m12").and_then(KiwiVal::as_f64).unwrap_or(0.0);
+        x = m02;
+        y = m12;
+        Some([m00, m10, m01, m11, m02, m12])
+    } else {
+        None
+    };
+
+    let uniform_r = obj
+        .get("cornerRadius")
+        .and_then(KiwiVal::as_f64)
+        .unwrap_or(0.0)
+        .max(0.0);
+    let independent_corners = obj
+        .get("rectangleCornerRadiiIndependent")
+        .and_then(KiwiVal::as_bool)
+        .unwrap_or(false);
+    let corner_radii = if independent_corners
+        || obj.get("rectangleTopLeftCornerRadius").is_some()
+        || obj.get("rectangleTopRightCornerRadius").is_some()
+        || obj.get("rectangleBottomRightCornerRadius").is_some()
+        || obj.get("rectangleBottomLeftCornerRadius").is_some()
+    {
+        let tl = obj
+            .get("rectangleTopLeftCornerRadius")
+            .and_then(KiwiVal::as_f64)
+            .unwrap_or(uniform_r)
+            .max(0.0);
+        let tr = obj
+            .get("rectangleTopRightCornerRadius")
+            .and_then(KiwiVal::as_f64)
+            .unwrap_or(uniform_r)
+            .max(0.0);
+        let br = obj
+            .get("rectangleBottomRightCornerRadius")
+            .and_then(KiwiVal::as_f64)
+            .unwrap_or(uniform_r)
+            .max(0.0);
+        let bl = obj
+            .get("rectangleBottomLeftCornerRadius")
+            .and_then(KiwiVal::as_f64)
+            .unwrap_or(uniform_r)
+            .max(0.0);
+        [tl, tr, br, bl]
+    } else {
+        [uniform_r; 4]
+    };
+
+    let arc_data = obj
+        .get("arcData")
+        .and_then(KiwiVal::as_obj)
+        .map(|ao| FigmaArcData {
+            start_angle_rad: ao
+                .get("startingAngle")
+                .and_then(KiwiVal::as_f64)
+                .unwrap_or(0.0),
+            end_angle_rad: ao
+                .get("endingAngle")
+                .and_then(KiwiVal::as_f64)
+                .unwrap_or(std::f64::consts::TAU),
+            inner_radius_ratio: ao
+                .get("innerRadius")
+                .and_then(KiwiVal::as_f64)
+                .unwrap_or(0.0),
+        });
+
+    let point_count = obj
+        .get("count")
+        .and_then(KiwiVal::as_u64)
+        .and_then(|v| u32::try_from(v).ok());
+    let star_inner_radius = obj.get("starInnerScale").and_then(KiwiVal::as_f64);
+
+    let fills = obj
+        .get("fillPaints")
+        .and_then(KiwiVal::as_array)
+        .map(|a| parse_kiwi_paint_list(a, width, height))
+        .unwrap_or_default();
+
+    let background_color = if node_type == "CANVAS" {
+        let bg_enabled = obj
+            .get("backgroundEnabled")
+            .and_then(KiwiVal::as_bool)
+            .unwrap_or(true);
+        if bg_enabled {
+            obj.get("backgroundColor")
+                .and_then(KiwiVal::as_obj)
+                .map(|bg| kiwi_color_to_rgba(bg, 1.0))
         } else {
             None
-        };
+        }
+    } else {
+        None
+    };
 
-        let mut symbol_overrides = Vec::new();
-        let component_id = if let Some(sd) = obj.get("symbolData").and_then(KiwiVal::as_obj) {
-            if let Some(ov_arr) = sd.get("symbolOverrides").and_then(KiwiVal::as_array) {
-                for ov_val in ov_arr {
-                    let Some(ov) = ov_val.as_obj() else { continue };
-                    let guid_path: Vec<String> = ov
-                        .get("guidPath")
-                        .and_then(|gp| {
-                            gp.as_obj()
-                                .and_then(|o| o.get("guids"))
-                                .and_then(KiwiVal::as_array)
-                                .or_else(|| gp.as_array())
-                        })
-                        .map(|garr| {
-                            garr.iter()
-                                .filter_map(|g| g.as_obj().and_then(guid_string))
-                                .collect()
-                        })
-                        .or_else(|| {
-                            ov.get("guid")
-                                .and_then(KiwiVal::as_obj)
-                                .and_then(guid_string)
-                                .map(|g| vec![g])
-                        })
-                        .unwrap_or_default();
-                    if guid_path.is_empty() {
-                        continue;
-                    }
-                    let ov_vis = ov.get("visible").and_then(KiwiVal::as_bool);
-                    let ov_op = ov
-                        .get("opacity")
-                        .and_then(KiwiVal::as_f64)
-                        .map(|v| v.clamp(0.0, 1.0));
-                    let ov_chars = ov
-                        .get("textData")
-                        .and_then(KiwiVal::as_obj)
-                        .and_then(|td| td.get("characters"))
-                        .and_then(KiwiVal::as_str)
-                        .map(str::to_owned);
-                    let ov_fills = ov
-                        .get("fillPaints")
-                        .and_then(KiwiVal::as_array)
-                        .map(|a| parse_kiwi_paint_list(a, width, height));
-                    let ov_strokes = ov
-                        .get("strokePaints")
-                        .and_then(KiwiVal::as_array)
-                        .map(|a| parse_kiwi_paint_list(a, width, height));
-                    let ov_sym = ov
-                        .get("overriddenSymbolID")
-                        .and_then(KiwiVal::as_obj)
-                        .and_then(guid_string);
-                    if ov_vis.is_some()
-                        || ov_op.is_some()
-                        || ov_chars.is_some()
-                        || ov_fills.is_some()
-                        || ov_strokes.is_some()
-                        || ov_sym.is_some()
+    let strokes = obj
+        .get("strokePaints")
+        .and_then(KiwiVal::as_array)
+        .map(|a| parse_kiwi_paint_list(a, width, height))
+        .unwrap_or_default();
+    let stroke_weight = obj
+        .get("strokeWeight")
+        .and_then(KiwiVal::as_f64)
+        .unwrap_or(1.0)
+        .max(0.0);
+
+    let border_indep = obj
+        .get("borderStrokeWeightsIndependent")
+        .and_then(KiwiVal::as_bool)
+        .unwrap_or(false);
+    let border_weights = if border_indep {
+        let bt = obj
+            .get("borderTopWeight")
+            .and_then(KiwiVal::as_f64)
+            .unwrap_or(stroke_weight)
+            .max(0.0);
+        let br = obj
+            .get("borderRightWeight")
+            .and_then(KiwiVal::as_f64)
+            .unwrap_or(stroke_weight)
+            .max(0.0);
+        let bb = obj
+            .get("borderBottomWeight")
+            .and_then(KiwiVal::as_f64)
+            .unwrap_or(stroke_weight)
+            .max(0.0);
+        let bl = obj
+            .get("borderLeftWeight")
+            .and_then(KiwiVal::as_f64)
+            .unwrap_or(stroke_weight)
+            .max(0.0);
+        Some([bt, br, bb, bl])
+    } else {
+        None
+    };
+
+    let mut fill_paths: Vec<(Vec<PathCommand>, FillRule)> = Vec::new();
+    if let Some(garr) = obj.get("fillGeometry").and_then(KiwiVal::as_array) {
+        for g in garr {
+            let Some(go) = g.as_obj() else { continue };
+            let rule = match go.get("windingRule").and_then(KiwiVal::as_str) {
+                Some("ODD" | "EVENODD") => FillRule::EvenOdd,
+                _ => FillRule::NonZero,
+            };
+            if let Some(cb) = go.get("commandsBlob")
+                && let Some(blob) = resolve_kiwi_blob(cb, blobs, blob_base)
+            {
+                let cmds = decode_figma_commands_blob(blob);
+                if !cmds.is_empty() {
+                    fill_paths.push((cmds, rule));
+                    continue;
+                }
+            }
+            if let Some(svg_d) = go.get("commands").and_then(KiwiVal::as_str) {
+                let cmds = crate::vector_fidelity::parse_svg_path_data(svg_d);
+                if !cmds.is_empty() {
+                    fill_paths.push((cmds, rule));
+                }
+            }
+        }
+    }
+
+    let mut stroke_paths: Vec<Vec<PathCommand>> = Vec::new();
+    if let Some(garr) = obj.get("strokeGeometry").and_then(KiwiVal::as_array) {
+        for g in garr {
+            let Some(go) = g.as_obj() else { continue };
+            if let Some(cb) = go.get("commandsBlob")
+                && let Some(blob) = resolve_kiwi_blob(cb, blobs, blob_base)
+            {
+                let cmds = decode_figma_commands_blob(blob);
+                if !cmds.is_empty() {
+                    stroke_paths.push(cmds);
+                    continue;
+                }
+            }
+            if let Some(svg_d) = go.get("commands").and_then(KiwiVal::as_str) {
+                let cmds = crate::vector_fidelity::parse_svg_path_data(svg_d);
+                if !cmds.is_empty() {
+                    stroke_paths.push(cmds);
+                }
+            }
+        }
+    }
+
+    if (fill_paths.is_empty() || (stroke_paths.is_empty() && !strokes.is_empty()))
+        && let Some(vd) = obj.get("vectorData").and_then(KiwiVal::as_obj)
+        && let Some(vnb) = vd.get("vectorNetworkBlob")
+        && let Some(blob) = resolve_kiwi_blob(vnb, blobs, blob_base)
+    {
+        let norm_size = vd
+            .get("normalizedSize")
+            .and_then(KiwiVal::as_obj)
+            .map(|ns| {
+                (
+                    ns.get("x").and_then(KiwiVal::as_f64).unwrap_or(width),
+                    ns.get("y").and_then(KiwiVal::as_f64).unwrap_or(height),
+                )
+            });
+        let (vn_fills, vn_strokes) =
+            decode_figma_vector_network_blob(blob, width, height, norm_size);
+        if fill_paths.is_empty() {
+            if !vn_fills.is_empty() {
+                fill_paths = vn_fills;
+            } else if !fills.is_empty() && !vn_strokes.is_empty() {
+                fill_paths = vn_strokes
+                    .iter()
+                    .cloned()
+                    .map(|c| (c, FillRule::NonZero))
+                    .collect();
+            }
+        }
+        if stroke_paths.is_empty() && !vn_strokes.is_empty() {
+            stroke_paths = vn_strokes;
+        }
+    }
+
+    let effects = parse_kiwi_effects(obj);
+
+    let text = if node_type == "TEXT" {
+        let td_obj = obj.get("textData").and_then(KiwiVal::as_obj);
+        let characters = td_obj
+            .and_then(|td| td.get("characters"))
+            .and_then(KiwiVal::as_str)
+            .unwrap_or("")
+            .to_owned();
+        let font_size = obj
+            .get("fontSize")
+            .and_then(KiwiVal::as_f64)
+            .unwrap_or(16.0)
+            .max(1.0);
+        let (font_family, bold, italic) =
+            if let Some(fn_obj) = obj.get("fontName").and_then(KiwiVal::as_obj) {
+                let fam = fn_obj
+                    .get("family")
+                    .and_then(KiwiVal::as_str)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("Inter")
+                    .to_owned();
+                let style = fn_obj
+                    .get("style")
+                    .and_then(KiwiVal::as_str)
+                    .unwrap_or("Regular")
+                    .to_ascii_lowercase();
+                (
+                    fam,
+                    style.contains("bold")
+                        || style.contains("black")
+                        || style.contains("heavy")
+                        || style.contains("semibold")
+                        || style.contains("demibold"),
+                    style.contains("italic") || style.contains("oblique"),
+                )
+            } else {
+                ("Inter".into(), false, false)
+            };
+        let (align, justify) = match obj.get("textAlignHorizontal").and_then(KiwiVal::as_str) {
+            Some("CENTER") => (TextAlign::Center, false),
+            Some("RIGHT") => (TextAlign::Right, false),
+            Some("JUSTIFIED") => (TextAlign::Left, true),
+            _ => (TextAlign::Left, false),
+        };
+        let align_v = match obj.get("textAlignVertical").and_then(KiwiVal::as_str) {
+            Some("CENTER") => "middle",
+            Some("BOTTOM") => "bottom",
+            _ => "top",
+        }
+        .to_owned();
+        let text_dec = obj
+            .get("textDecoration")
+            .and_then(KiwiVal::as_str)
+            .unwrap_or("NONE");
+        let underline = text_dec == "UNDERLINE";
+        let strikethrough = text_dec == "STRIKETHROUGH";
+        let auto_resize = obj
+            .get("textAutoResize")
+            .and_then(KiwiVal::as_str)
+            .unwrap_or("NONE")
+            .to_owned();
+        let letter_spacing = parse_kiwi_number_px(obj.get("letterSpacing"), font_size)
+            .map(|(v, _)| v)
+            .unwrap_or(0.0);
+        let line_height =
+            parse_kiwi_number_px(obj.get("lineHeight"), font_size).and_then(|(v, units)| {
+                if v <= 0.0 || (units == "PERCENT" && (v - font_size).abs() <= 0.05) {
+                    None
+                } else {
+                    Some(v)
+                }
+            });
+
+        let style_runs = if let Some(td) = td_obj {
+            let char_ids: Vec<u64> = td
+                .get("characterStyleIDs")
+                .and_then(KiwiVal::as_array)
+                .map(|arr| arr.iter().map(|v| v.as_u64().unwrap_or(0)).collect())
+                .unwrap_or_default();
+            let mut override_map = HashMap::new();
+            if !char_ids.is_empty()
+                && let Some(sot) = td.get("styleOverrideTable").and_then(KiwiVal::as_array)
+            {
+                for item in sot {
+                    if let Some(so) = item.as_obj()
+                        && let Some(sid) = so.get("styleID").and_then(KiwiVal::as_u64)
+                        && sid != 0
                     {
-                        symbol_overrides.push(FigmaSymbolOverride {
-                            guid_path,
-                            visible: ov_vis,
-                            opacity: ov_op,
-                            characters: ov_chars,
-                            fills: ov_fills,
-                            strokes: ov_strokes,
-                            overridden_symbol_id: ov_sym,
-                        });
+                        override_map.insert(sid, parse_kiwi_style_override(so, font_size));
                     }
                 }
             }
-            obj.get("overriddenSymbolID")
-                .and_then(KiwiVal::as_obj)
-                .and_then(guid_string)
-                .or_else(|| {
-                    sd.get("symbolID")
-                        .and_then(KiwiVal::as_obj)
-                        .and_then(guid_string)
-                })
+            build_text_style_runs(&characters, &char_ids, &override_map)
         } else {
-            obj.get("overriddenSymbolID")
-                .and_then(KiwiVal::as_obj)
-                .and_then(guid_string)
+            Vec::new()
         };
 
-        entries.insert(
-            guid.clone(),
-            RawEntry {
-                parent_id,
-                position,
-                node: FigmaNode {
-                    id: guid,
-                    name,
-                    node_type,
-                    visible,
-                    locked,
-                    internal_only,
-                    is_state_group,
-                    opacity,
-                    blend_mode,
-                    is_mask,
-                    mask_type,
-                    clips_content,
-                    x,
-                    y,
-                    width,
-                    height,
-                    rotation_deg: 0.0,
-                    relative_transform,
-                    corner_radii,
-                    arc_data,
-                    point_count,
-                    star_inner_radius,
-                    fills,
-                    strokes,
-                    stroke_weight,
-                    border_weights,
-                    fill_paths,
-                    stroke_paths,
-                    text,
-                    effects,
-                    component_id,
-                    symbol_overrides,
-                    background_color,
-                    children: Vec::new(),
-                },
-            },
+        Some(FigmaTextData {
+            characters,
+            font_family,
+            font_size,
+            bold,
+            italic,
+            underline,
+            strikethrough,
+            align,
+            justify,
+            align_v,
+            letter_spacing,
+            line_height,
+            auto_resize,
+            style_runs,
+        })
+    } else {
+        None
+    };
+
+    let mut symbol_overrides = Vec::new();
+    let component_id = if let Some(sd) = obj.get("symbolData").and_then(KiwiVal::as_obj) {
+        if let Some(ov_arr) = sd.get("symbolOverrides").and_then(KiwiVal::as_array) {
+            for ov_val in ov_arr {
+                let Some(ov) = ov_val.as_obj() else { continue };
+                let guid_path: Vec<String> = ov
+                    .get("guidPath")
+                    .and_then(|gp| {
+                        gp.as_obj()
+                            .and_then(|o| o.get("guids"))
+                            .and_then(KiwiVal::as_array)
+                            .or_else(|| gp.as_array())
+                    })
+                    .map(|garr| {
+                        garr.iter()
+                            .filter_map(|g| g.as_obj().and_then(guid_string))
+                            .collect()
+                    })
+                    .or_else(|| {
+                        ov.get("guid")
+                            .and_then(KiwiVal::as_obj)
+                            .and_then(guid_string)
+                            .map(|g| vec![g])
+                    })
+                    .unwrap_or_default();
+                if guid_path.is_empty() {
+                    continue;
+                }
+                let ov_vis = ov.get("visible").and_then(KiwiVal::as_bool);
+                let ov_op = ov
+                    .get("opacity")
+                    .and_then(KiwiVal::as_f64)
+                    .map(|v| v.clamp(0.0, 1.0));
+                let ov_chars = ov
+                    .get("textData")
+                    .and_then(KiwiVal::as_obj)
+                    .and_then(|td| td.get("characters"))
+                    .and_then(KiwiVal::as_str)
+                    .map(str::to_owned);
+                let ov_fills = ov
+                    .get("fillPaints")
+                    .and_then(KiwiVal::as_array)
+                    .map(|a| parse_kiwi_paint_list(a, width, height));
+                let ov_strokes = ov
+                    .get("strokePaints")
+                    .and_then(KiwiVal::as_array)
+                    .map(|a| parse_kiwi_paint_list(a, width, height));
+                let ov_sym = ov
+                    .get("overriddenSymbolID")
+                    .and_then(KiwiVal::as_obj)
+                    .and_then(guid_string);
+                if ov_vis.is_some()
+                    || ov_op.is_some()
+                    || ov_chars.is_some()
+                    || ov_fills.is_some()
+                    || ov_strokes.is_some()
+                    || ov_sym.is_some()
+                {
+                    symbol_overrides.push(FigmaSymbolOverride {
+                        guid_path,
+                        visible: ov_vis,
+                        opacity: ov_op,
+                        characters: ov_chars,
+                        fills: ov_fills,
+                        strokes: ov_strokes,
+                        overridden_symbol_id: ov_sym,
+                    });
+                }
+            }
+        }
+        obj.get("overriddenSymbolID")
+            .and_then(KiwiVal::as_obj)
+            .and_then(guid_string)
+            .or_else(|| {
+                sd.get("symbolID")
+                    .and_then(KiwiVal::as_obj)
+                    .and_then(guid_string)
+            })
+    } else {
+        obj.get("overriddenSymbolID")
+            .and_then(KiwiVal::as_obj)
+            .and_then(guid_string)
+    };
+
+    Ok(FigmaNode {
+        id: guid,
+        name,
+        node_type,
+        visible,
+        locked,
+        internal_only,
+        is_state_group,
+        opacity,
+        blend_mode,
+        is_mask,
+        mask_type,
+        clips_content,
+        x,
+        y,
+        width,
+        height,
+        rotation_deg: 0.0,
+        relative_transform,
+        corner_radii,
+        arc_data,
+        point_count,
+        star_inner_radius,
+        fills,
+        strokes,
+        stroke_weight,
+        border_weights,
+        fill_paths,
+        stroke_paths,
+        text,
+        effects,
+        component_id,
+        symbol_overrides,
+        background_color,
+        children: Vec::new(),
+    })
+}
+
+fn collect_ordered_master_indices(
+    idx: usize,
+    scanned: &ScannedKiwiStream<'_>,
+    children_by_parent: &[Vec<usize>],
+    out: &mut Vec<usize>,
+    depth: usize,
+) {
+    if depth > 64 {
+        return;
+    }
+    let node = &scanned.nodes[idx];
+    if matches!(node.node_type.as_ref(), "COMPONENT" | "SYMBOL") && !node.is_state_group {
+        out.push(idx);
+    }
+    for &cidx in &children_by_parent[idx] {
+        collect_ordered_master_indices(cidx, scanned, children_by_parent, out, depth + 1);
+    }
+}
+
+fn attach_decoded_children(
+    idx: usize,
+    decoded: &mut [Option<FigmaNode>],
+    children_by_parent: &[Vec<usize>],
+    depth: usize,
+) -> Option<FigmaNode> {
+    if depth > 128 {
+        return None;
+    }
+    let mut node = decoded[idx].take()?;
+    let cids = &children_by_parent[idx];
+    if !cids.is_empty() {
+        node.children.reserve(cids.len());
+        for &cidx in cids {
+            if let Some(child_node) =
+                attach_decoded_children(cidx, decoded, children_by_parent, depth + 1)
+            {
+                node.children.push(child_node);
+            }
+        }
+    }
+    Some(node)
+}
+
+fn decode_fig_kiwi_stream(
+    bytes: &[u8],
+    default_name: &str,
+    options: &FigmaImportOptions,
+) -> Result<FigmaDoc, String> {
+    let DecompressedKiwiContainer {
+        version,
+        is_figjam,
+        any_zstd,
+        schema_chunk,
+        msg_chunk,
+    } = decompress_kiwi_container(bytes)?;
+    let defs = parse_kiwi_schema(&schema_chunk)?;
+    let scanned = scan_kiwi_message_pass1(&msg_chunk, &defs, default_name, true, true)?;
+    let (children_by_parent, all_page_indices) = build_scanned_children_graph(&scanned);
+
+    let n = scanned.nodes.len();
+    let selective =
+        options.selected_page_ids.is_some() || options.page_mapping == FigmaPageMapping::Layers;
+
+    let non_internal_pages: Vec<usize> = {
+        let ni: Vec<usize> = all_page_indices
+            .iter()
+            .copied()
+            .filter(|&i| !scanned.nodes[i].internal_only)
+            .collect();
+        if ni.is_empty() {
+            all_page_indices.clone()
+        } else {
+            ni
+        }
+    };
+
+    let active_page_indices: Vec<usize> = if let Some(sel_ids) = &options.selected_page_ids {
+        let mut by_str: HashMap<String, usize> = HashMap::with_capacity(non_internal_pages.len());
+        for &pidx in &non_internal_pages {
+            by_str.insert(format_guid_pair(scanned.nodes[pidx].guid), pidx);
+        }
+        let mut matched = Vec::with_capacity(sel_ids.len());
+        for sid in sel_ids {
+            if let Some(&pidx) = by_str.get(sid)
+                && !matched.contains(&pidx)
+            {
+                matched.push(pidx);
+            }
+        }
+        matched
+    } else {
+        non_internal_pages.clone()
+    };
+
+    let mut ordered_masters = Vec::new();
+    for &pidx in &all_page_indices {
+        collect_ordered_master_indices(
+            pidx,
+            &scanned,
+            &children_by_parent,
+            &mut ordered_masters,
+            0,
         );
     }
-
-    let mut children_by_parent: HashMap<String, Vec<(String, String)>> = HashMap::new();
-    for (id, entry) in &entries {
-        if let Some(pid) = &entry.parent_id {
-            children_by_parent
-                .entry(pid.clone())
-                .or_default()
-                .push((entry.position.clone(), id.clone()));
-        }
-    }
-    for list in children_by_parent.values_mut() {
-        list.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    let mut masters_by_local: HashMap<u64, Vec<usize>> = HashMap::new();
+    for &midx in &ordered_masters {
+        masters_by_local
+            .entry(scanned.nodes[midx].guid.1)
+            .or_default()
+            .push(midx);
     }
 
-    fn attach_children(
-        id: &str,
-        entries: &mut HashMap<String, RawEntry>,
-        children_by_parent: &HashMap<String, Vec<(String, String)>>,
-        depth: usize,
-    ) -> Option<FigmaNode> {
-        if depth > 128 {
-            return None;
+    // Track reachability in two states (`0` = unvisited, `1` = page-context, `2` = master-context)
+    // so hidden descendants inside referenced master components are still decoded for overrides.
+    let mut reach_state = vec![0u8; n];
+    let mut queue: VecDeque<(usize, bool)> = VecDeque::new();
+    let enqueue = |idx: usize,
+                   in_master: bool,
+                   reach_state: &mut [u8],
+                   queue: &mut VecDeque<(usize, bool)>| {
+        let target = if in_master { 2u8 } else { 1u8 };
+        if reach_state[idx] < target {
+            reach_state[idx] = target;
+            queue.push_back((idx, in_master));
         }
-        let mut entry = entries.remove(id)?;
-        if let Some(child_ids) = children_by_parent.get(id) {
-            entry.node.children.reserve(child_ids.len());
-            for (_, cid) in child_ids {
-                if let Some(child_node) =
-                    attach_children(cid, entries, children_by_parent, depth + 1)
-                {
-                    entry.node.children.push(child_node);
+    };
+
+    for &pidx in &active_page_indices {
+        enqueue(pidx, false, &mut reach_state, &mut queue);
+    }
+    if !selective {
+        for &midx in ordered_masters.iter().take(1_500) {
+            enqueue(midx, true, &mut reach_state, &mut queue);
+        }
+    }
+
+    while let Some((uidx, in_master)) = queue.pop_front() {
+        let unode = &scanned.nodes[uidx];
+        let next_in_master = in_master
+            || (matches!(unode.node_type.as_ref(), "COMPONENT" | "SYMBOL")
+                && !unode.is_state_group);
+
+        for &cidx in &children_by_parent[uidx] {
+            let cnode = &scanned.nodes[cidx];
+            if cnode.visible || options.import_hidden_layers || next_in_master || !selective {
+                enqueue(cidx, next_in_master, &mut reach_state, &mut queue);
+            }
+        }
+
+        for &(rs, rl) in &unode.ref_symbols {
+            if let Some(&tidx) = scanned.idx_by_guid.get(&(rs, rl)) {
+                enqueue(tidx, true, &mut reach_state, &mut queue);
+            } else if let Some(cands) = masters_by_local.get(&rl) {
+                for &cidx in cands {
+                    if (rs == 0) != (scanned.nodes[cidx].guid.0 == 0) {
+                        enqueue(cidx, true, &mut reach_state, &mut queue);
+                    }
                 }
             }
         }
-        Some(entry.node)
+    }
+
+    let mut budget = MAX_KIWI_VALUES;
+    let mut active_structs = Vec::new();
+    let mut decoded_nodes: Vec<Option<FigmaNode>> = (0..n).map(|_| None).collect();
+    for idx in 0..n {
+        if reach_state[idx] == 0 {
+            continue;
+        }
+        let fnode = decode_single_kiwi_node(
+            &scanned.nodes[idx],
+            &defs,
+            scanned.nc_def_idx,
+            &scanned.blobs,
+            scanned.blob_base,
+            &mut budget,
+            &mut active_structs,
+        )?;
+        decoded_nodes[idx] = Some(fnode);
     }
 
     let mut pages = Vec::new();
-    if let Some(dguid) = &doc_guid
-        && let Some(doc_node) = attach_children(dguid, &mut entries, &children_by_parent, 0)
-    {
-        for child in doc_node.children {
-            if child.node_type == "CANVAS" || child.internal_only || !child.children.is_empty() {
-                pages.push(child);
-            }
+    for &pidx in &active_page_indices {
+        if let Some(pnode) =
+            attach_decoded_children(pidx, &mut decoded_nodes, &children_by_parent, 0)
+        {
+            pages.push(pnode);
         }
     }
-    if pages.is_empty() {
-        let mut canvas_ids: Vec<(String, String)> = entries
-            .iter()
-            .filter(|(_, e)| e.node.node_type == "CANVAS")
-            .map(|(k, e)| (e.position.clone(), k.clone()))
-            .collect();
-        canvas_ids.sort();
-        for (_, cid) in canvas_ids {
-            if let Some(cnode) = attach_children(&cid, &mut entries, &children_by_parent, 0) {
-                pages.push(cnode);
-            }
+
+    // Attach any reachable master `COMPONENT` / `SYMBOL` definitions from `Internal Only Canvas`,
+    // unselected pages, or skipped hidden containers under an internal-only library page so
+    // `convert.rs` resolves every referenced component without adding extra Stage pages.
+    let mut external_masters = Vec::new();
+    for &midx in &ordered_masters {
+        if decoded_nodes[midx].is_some()
+            && let Some(mnode) =
+                attach_decoded_children(midx, &mut decoded_nodes, &children_by_parent, 0)
+        {
+            external_masters.push(mnode);
         }
+    }
+    if !external_masters.is_empty() {
+        pages.push(FigmaNode {
+            id: "__internal_masters__".into(),
+            name: "Internal Only Canvas".into(),
+            node_type: "CANVAS".into(),
+            visible: false,
+            internal_only: true,
+            children: external_masters,
+            ..FigmaNode::default()
+        });
     }
 
     let prefix = if is_figjam { "fig-jam" } else { "fig-kiwi" };
@@ -2188,7 +3091,7 @@ fn decode_fig_kiwi_stream(bytes: &[u8], default_name: &str) -> Result<FigmaDoc, 
     let version_label = format!("{prefix} v{version} ({codec})");
 
     Ok(FigmaDoc {
-        name: doc_name,
+        name: scanned.doc_name,
         version_label,
         pages,
         inline_images: Default::default(),

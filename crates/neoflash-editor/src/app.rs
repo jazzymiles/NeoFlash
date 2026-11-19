@@ -1111,6 +1111,7 @@ impl Editor {
             || crate::bitmaps::has_bitmap_properties_dialog(ctx)
             || crate::panels::export_audio::has_export_audio_dialog(ctx)
             || crate::panels::export_image::has_export_image_dialog(ctx)
+            || crate::panels::figma_import::has_figma_import_dialog(ctx)
             || crate::panels::import_video::has_import_video_dialog(ctx)
             || crate::panels::stroke_style::has_stroke_style_dialog(ctx)
             || crate::panels::font_embedding::has_font_embedding_dialog(ctx)
@@ -1495,10 +1496,24 @@ impl Editor {
                     )
                     .pick_file()
                 {
-                    self.open_path(path, ctx)
+                    if self.session_for_open_path(&path).is_none()
+                        && crate::panels::figma_import::is_figma_file_path(&path)
+                    {
+                        self.open_figma_import_dialog_for_open(ctx, path);
+                    } else {
+                        self.open_path(path, ctx);
+                    }
                 }
             }
-            Pending::OpenPath(path) => self.open_path(path, ctx),
+            Pending::OpenPath(path) => {
+                if self.session_for_open_path(&path).is_none()
+                    && crate::panels::figma_import::is_figma_file_path(&path)
+                {
+                    self.open_figma_import_dialog_for_open(ctx, path);
+                } else {
+                    self.open_path(path, ctx);
+                }
+            }
             Pending::CloseSession(index) => self.finish_session_close(ctx, index),
             Pending::Close | Pending::CloseSessions => self.approve_quit_document(ctx),
         }
@@ -4200,6 +4215,7 @@ impl Editor {
         }
         self.export_audio_dialog(ctx);
         self.export_image_dialog(ctx);
+        self.figma_import_dialog(ctx);
         self.import_video_dialog(ctx);
         self.stroke_style_dialog(ctx);
         self.font_embedding_dialog(ctx);

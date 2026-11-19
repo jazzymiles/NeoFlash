@@ -177,12 +177,24 @@ impl Editor {
         if let Some(paths) = rfd::FileDialog::new()
             .add_filter("Graphics, Audio & Libraries", IMPORT_GRAPHICS_EXTENSIONS)
             .pick_files()
-            && let Err(error) = self.import_graphics_paths(&paths, None)
         {
-            self.notify_with_output(
-                neoflash_ui::components::ToastType::Error,
-                format!("Import failed: {error}"),
-            );
+            let (figma_paths, other_paths): (Vec<PathBuf>, Vec<PathBuf>) = paths
+                .into_iter()
+                .partition(|p| crate::panels::figma_import::is_figma_file_path(p));
+            if !other_paths.is_empty()
+                && let Err(error) = self.import_graphics_paths(&other_paths, None)
+            {
+                self.notify_with_output(
+                    neoflash_ui::components::ToastType::Error,
+                    format!("Import failed: {error}"),
+                );
+            }
+            if !figma_paths.is_empty() {
+                self.enqueue_figma_import_dialog(
+                    figma_paths,
+                    crate::panels::figma_import::FigmaImportTarget::Stage { point: None },
+                );
+            }
         }
     }
 
@@ -190,12 +202,24 @@ impl Editor {
         if let Some(paths) = rfd::FileDialog::new()
             .add_filter("Graphics, Audio & Libraries", IMPORT_GRAPHICS_EXTENSIONS)
             .pick_files()
-            && let Err(error) = self.import_graphics_to_library_paths(&paths)
         {
-            self.notify_with_output(
-                neoflash_ui::components::ToastType::Error,
-                format!("Library import failed: {error}"),
-            );
+            let (figma_paths, other_paths): (Vec<PathBuf>, Vec<PathBuf>) = paths
+                .into_iter()
+                .partition(|p| crate::panels::figma_import::is_figma_file_path(p));
+            if !other_paths.is_empty()
+                && let Err(error) = self.import_graphics_to_library_paths(&other_paths)
+            {
+                self.notify_with_output(
+                    neoflash_ui::components::ToastType::Error,
+                    format!("Library import failed: {error}"),
+                );
+            }
+            if !figma_paths.is_empty() {
+                self.enqueue_figma_import_dialog(
+                    figma_paths,
+                    crate::panels::figma_import::FigmaImportTarget::Library,
+                );
+            }
         }
     }
 
@@ -294,10 +318,22 @@ impl Editor {
             }
             return;
         }
-        if let Err(error) = self.import_graphics_paths(&paths, Some(point)) {
+        let (figma_paths, other_paths): (Vec<PathBuf>, Vec<PathBuf>) = paths
+            .into_iter()
+            .partition(|path| crate::panels::figma_import::is_figma_file_path(path));
+        if !other_paths.is_empty()
+            && let Err(error) = self.import_graphics_paths(&other_paths, Some(point))
+        {
             self.notify_with_output(
                 neoflash_ui::components::ToastType::Error,
                 format!("Import failed: {error}"),
+            );
+        }
+        if !figma_paths.is_empty() {
+            self.open_figma_import_dialog(
+                ctx,
+                figma_paths,
+                crate::panels::figma_import::FigmaImportTarget::Stage { point: Some(point) },
             );
         }
     }
@@ -1606,6 +1642,319 @@ impl Editor {
             stops_playback: true,
         })
     }
+
+    pub(crate) fn commit_figma_as_movie_clip_symbol(
+        &mut self,
+        path: &std::path::Path,
+        imported: Project,
+        report: &neoflash_import::ImportReport,
+        point: Option<[f64; 2]>,
+        place_on_stage: bool,
+    ) -> Result<(), String> {
+        let used = self
+            .project
+            .resources
+            .iter()
+            .try_fold(0usize, |total, r| total.checked_add(r.byte_len()))
+            .ok_or_else(|| "Project resource byte count overflowed.".to_owned())?;
+        let mut remaining = MAX_RESOURCE_TOTAL_BYTES.saturating_sub(used);
+        let item = prepare_imported_figma_project(path, imported, report, &mut remaining)?;
+        self.finish_edits();
+        let mut candidate = self.project.clone();
+        candidate.format_version = candidate.format_version.max(3);
+        let staged =
+            self.stage_prepared_import_graphics(&mut candidate, vec![item], point, place_on_stage)?;
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
+        candidate.validate().map_err(|e| e.to_string())?;
+        if staged.stops_playback {
+            self.set_playing(false);
+        }
+        let StagedGraphicPlacement {
+            layer,
+            selection,
+            library_selected,
+            message,
+            ..
+        } = staged;
+        let label = if place_on_stage {
+            "Import Figma"
+        } else {
+            "Import Figma to Library"
+        };
+        self.transact_named(label, |editor| {
+            editor.project = candidate;
+            if let Some(layer) = layer {
+                editor.layer = layer;
+            }
+            if let Some(selection) = selection {
+                editor.selection = selection;
+            }
+            if let Some(symbol) = library_selected {
+                editor.library_selected = Some(symbol);
+            }
+        });
+        if !place_on_stage {
+            self.show_panel(crate::workspace::PanelId::Library);
+        }
+        self.message(message);
+        Ok(())
+    }
+
+    pub(crate) fn commit_figma_pages_as_separate_library_symbols(
+        &mut self,
+        path: &std::path::Path,
+        imported: Project,
+        report: &neoflash_import::ImportReport,
+    ) -> Result<(), String> {
+        let used = self
+            .project
+            .resources
+            .iter()
+            .try_fold(0usize, |total, r| total.checked_add(r.byte_len()))
+            .ok_or_else(|| "Project resource byte count overflowed.".to_owned())?;
+        let mut remaining = MAX_RESOURCE_TOTAL_BYTES.saturating_sub(used);
+        let mut base_item = prepare_imported_figma_project(path, imported, report, &mut remaining)?;
+        let page_layers = base_item
+            .timeline_override
+            .take()
+            .map(|tl| tl.layers)
+            .unwrap_or_default();
+        if page_layers.is_empty() {
+            return Err("Selected Figma pages contained no layers to import.".into());
+        }
+
+        let mut items = Vec::with_capacity(page_layers.len());
+        let shared_resources = std::mem::take(&mut base_item.graphic.resources);
+        let shared_helpers = std::mem::take(&mut base_item.helper_symbols);
+        let shared_notice = base_item.graphic.notice.take();
+        let (w, h) = (base_item.graphic.width, base_item.graphic.height);
+
+        for (idx, page_layer) in page_layers.into_iter().enumerate() {
+            let sym_name = if page_layer.name.trim().is_empty() {
+                format!("{} Page {}", base_item.graphic.name, idx + 1)
+            } else {
+                page_layer.name.clone()
+            };
+            items.push(PreparedImportGraphic {
+                graphic: PreparedGraphic {
+                    name: sym_name,
+                    width: w,
+                    height: h,
+                    elements: Vec::new(),
+                    resources: shared_resources.clone(),
+                    notice: if idx == 0 {
+                        shared_notice.clone()
+                    } else {
+                        None
+                    },
+                },
+                timeline_override: Some(Timeline {
+                    frame_count: 1,
+                    layers: vec![page_layer],
+                    scripts: Vec::new(),
+                    guides: Vec::new(),
+                }),
+                symbol_kind: SymbolKind::MovieClip,
+                playback: InstancePlayback::Independent,
+                helper_symbols: if idx == 0 {
+                    shared_helpers.clone()
+                } else {
+                    Vec::new()
+                },
+            });
+        }
+
+        self.finish_edits();
+        let mut candidate = self.project.clone();
+        candidate.format_version = candidate.format_version.max(3);
+        let staged = self.stage_prepared_import_graphics(&mut candidate, items, None, false)?;
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
+        candidate.validate().map_err(|e| e.to_string())?;
+        let StagedGraphicPlacement {
+            library_selected,
+            message,
+            ..
+        } = staged;
+        self.transact_named("Import Figma to Library", |editor| {
+            editor.project = candidate;
+            if let Some(symbol) = library_selected {
+                editor.library_selected = Some(symbol);
+            }
+        });
+        self.show_panel(crate::workspace::PanelId::Library);
+        self.message(message);
+        Ok(())
+    }
+
+    pub(crate) fn commit_figma_pages_directly_as_layers(
+        &mut self,
+        path: &std::path::Path,
+        imported: Project,
+        report: &neoflash_import::ImportReport,
+        point: Option<[f64; 2]>,
+    ) -> Result<(), String> {
+        let used = self
+            .project
+            .resources
+            .iter()
+            .try_fold(0usize, |total, r| total.checked_add(r.byte_len()))
+            .ok_or_else(|| "Project resource byte count overflowed.".to_owned())?;
+        let mut remaining = MAX_RESOURCE_TOTAL_BYTES.saturating_sub(used);
+        let mut item = prepare_imported_figma_project(path, imported, report, &mut remaining)?;
+
+        self.finish_edits();
+        let mut candidate = self.project.clone();
+        candidate.format_version = candidate.format_version.max(3);
+        let folder = self.library_panel.selected_folder.clone();
+        candidate.add_library_folder(&folder)?;
+
+        merge_import_graphic_resources(&mut candidate, &mut item)?;
+        let mut notices = Vec::new();
+        for mut helper in item.helper_symbols.drain(..) {
+            helper.folder = folder.clone();
+            if let Some(link) = helper.linkage_id.as_deref()
+                && candidate
+                    .symbols
+                    .iter()
+                    .any(|s| s.linkage_id.as_deref() == Some(link))
+            {
+                notices.push(format!(
+                    "Cleared duplicate linkage identifier '{link}' on imported symbol '{}'.",
+                    helper.name
+                ));
+                helper.linkage_id = None;
+            }
+            if let Some(cls) = helper.class_name.as_deref()
+                && candidate
+                    .symbols
+                    .iter()
+                    .any(|s| s.class_name.as_deref() == Some(cls))
+            {
+                notices.push(format!(
+                    "Cleared duplicate class binding '{cls}' on imported symbol '{}'.",
+                    helper.name
+                ));
+                helper.class_name = None;
+            }
+            let base_name = helper.name.clone();
+            let mut suffix = 2;
+            while candidate
+                .symbols
+                .iter()
+                .any(|s| s.name == helper.name && s.folder == folder)
+            {
+                helper.name = format!("{base_name} {suffix}");
+                suffix += 1;
+            }
+            candidate.symbols.push(helper);
+        }
+        if let Some(n) = item.graphic.notice.take() {
+            notices.push(n);
+        }
+
+        let width = item.graphic.width.max(1.0);
+        let height = item.graphic.height.max(1.0);
+        let half = [width * 0.5, height * 0.5];
+        let page_min = if self.edit_context_is_isolated() {
+            [
+                -(candidate.width as f64) * 0.5,
+                -(candidate.height as f64) * 0.5,
+            ]
+        } else {
+            [0.0, 0.0]
+        };
+        let exact_position = point.is_some() || self.editing_in_place();
+        let requested = point.unwrap_or_else(|| self.paste_center());
+        let clamp_axis = |req: f64, pmin: f64, span: f64, h: f64| -> f64 {
+            if exact_position {
+                return req;
+            }
+            let lo = pmin + h;
+            let hi = pmin + span - h;
+            if lo <= hi {
+                req.clamp(lo, hi)
+            } else {
+                pmin + span * 0.5
+            }
+        };
+        let center_x = clamp_axis(requested[0], page_min[0], candidate.width as f64, half[0]);
+        let center_y = clamp_axis(requested[1], page_min[1], candidate.height as f64, half[1]);
+        let offset_x = center_x - half[0];
+        let offset_y = center_y - half[1];
+
+        let raw_layers = item
+            .timeline_override
+            .take()
+            .map(|tl| tl.layers)
+            .unwrap_or_default();
+        if raw_layers.is_empty() {
+            return Err("Selected Figma pages contained no layers to import.".into());
+        }
+
+        let symbol_id = self.symbol_id().to_owned();
+        let base_frame = self.frame;
+        let mut selection_targets = Vec::new();
+        let mut prepared_layers = Vec::with_capacity(raw_layers.len());
+
+        for mut page_layer in raw_layers {
+            let lid = page_layer.id.clone();
+            for kf in &mut page_layer.keyframes {
+                kf.frame = base_frame.saturating_add(kf.frame);
+                for el in &mut kf.elements {
+                    el.transform.x = (el.transform.x + offset_x).clamp(-100_000.0, 100_000.0);
+                    el.transform.y = (el.transform.y + offset_y).clamp(-100_000.0, 100_000.0);
+                    selection_targets.push(SelectionTarget {
+                        layer: lid.clone(),
+                        element: el.id.clone(),
+                    });
+                }
+            }
+            if base_frame > 0 && !page_layer.keyframes.iter().any(|k| k.frame == 0) {
+                page_layer.keyframes.insert(0, Keyframe::default());
+            }
+            page_layer.keyframes.sort_by_key(|k| k.frame);
+            prepared_layers.push(page_layer);
+        }
+
+        let imported_layer_count = prepared_layers.len();
+        let timeline = &mut candidate
+            .symbol_mut(&symbol_id)
+            .ok_or_else(|| "The current symbol was removed.".to_owned())?
+            .timeline;
+        timeline.frame_count = timeline.frame_count.max(base_frame.saturating_add(1));
+
+        if crate::panels::figma_import::active_timeline_is_single_blank_layer(timeline, base_frame)
+        {
+            timeline.layers = prepared_layers;
+        } else {
+            timeline.layers.extend(prepared_layers);
+        }
+        let target_layer_idx = timeline.layers.len().saturating_sub(1);
+
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
+        candidate.validate().map_err(|e| e.to_string())?;
+
+        self.set_playing(false);
+        let selection = Selection {
+            symbol: symbol_id,
+            targets: selection_targets,
+        };
+        self.transact_named("Import Figma", |editor| {
+            editor.project = candidate;
+            editor.layer = target_layer_idx;
+            editor.selection = selection;
+        });
+
+        let suffix = if notices.is_empty() {
+            String::new()
+        } else {
+            format!(" {}", notices.join(" "))
+        };
+        self.message(format!(
+            "Imported {imported_layer_count} Figma page layer(s) onto timeline.{suffix}"
+        ));
+        Ok(())
+    }
 }
 
 pub(crate) fn merge_graphic_resources(
@@ -1640,6 +1989,12 @@ fn remap_timeline_bitmap_resources(
                 && let Some(next_id) = ids.get(&video.resource)
             {
                 video.resource = next_id.clone();
+            }
+            for fill in &mut key.bitmap_fills {
+                fill.resource_id = ids
+                    .get(&fill.resource_id)
+                    .ok_or("Missing imported image bytes.")?
+                    .clone();
             }
             for element in &mut key.elements {
                 if let ElementKind::Bitmap { resource_id, .. } = &mut element.kind {
@@ -1917,14 +2272,13 @@ fn freshen_imported_project_ids(imported: &mut Project, prefix: &str) {
     imported.freshen_all_ids(false, |kind| new_id(&format!("{prefix}-{kind}")));
 }
 
-fn prepare_figma_graphic(
+fn prepare_imported_figma_project(
     path: &std::path::Path,
+    mut imported: Project,
+    report: &neoflash_import::ImportReport,
     remaining: &mut usize,
 ) -> Result<PreparedImportGraphic, String> {
     let display = path.display().to_string();
-    let (mut imported, report) =
-        neoflash_import::import_figma_path(path, &neoflash_import::FigmaImportOptions::default())
-            .map_err(|e| format!("{display} [figma-import]: {e}"))?;
     let resource_bytes = imported
         .resources
         .iter()
@@ -1968,13 +2322,24 @@ fn prepare_figma_graphic(
             height: (imported.height as f64).max(1.0),
             elements: Vec::new(),
             resources: std::mem::take(&mut imported.resources),
-            notice: format_import_diagnostics(&report),
+            notice: format_import_diagnostics(report),
         },
         timeline_override: Some(root_symbol.timeline),
         symbol_kind: SymbolKind::MovieClip,
         playback: InstancePlayback::SingleFrame(0),
         helper_symbols,
     })
+}
+
+fn prepare_figma_graphic(
+    path: &std::path::Path,
+    remaining: &mut usize,
+) -> Result<PreparedImportGraphic, String> {
+    let display = path.display().to_string();
+    let (imported, report) =
+        neoflash_import::import_figma_path(path, &neoflash_import::FigmaImportOptions::default())
+            .map_err(|e| format!("{display} [figma-import]: {e}"))?;
+    prepare_imported_figma_project(path, imported, &report, remaining)
 }
 
 fn prepare_swf_graphic(
