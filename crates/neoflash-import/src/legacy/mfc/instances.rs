@@ -63,7 +63,7 @@ impl Reader<'_> {
     pub(super) fn instance(&mut self, id: u32, class: Class) -> Result<()> {
         let mut value = TimelineInstance::default();
         let parsed = (|| {
-            let revision = self.revision(22, "CPicSymbol")?;
+            let revision = self.revision(23, "CPicSymbol")?;
             value.revision = Some(revision);
             value.matrix_words = Some(self.signed_words()?);
             value.first_frame = Some(self.word()?);
@@ -164,6 +164,12 @@ impl Reader<'_> {
                         .animation_frame_settings
                         .push([self.word()?, self.word()?]);
                 }
+            }
+            if revision >= 23 {
+                value.bitmap_render_mode = Some(self.word()?);
+                value.bitmap_bits_32 = Some(self.dword()?);
+                value.bitmap_background_rgba = Some(self.dword()?);
+                value.is_visible = Some(self.dword()?);
             }
             match class {
                 Class::Sprite => {
@@ -320,6 +326,19 @@ impl Reader<'_> {
             if present != 0 {
                 value.media_id = Some(self.word()?);
             }
+            Ok(())
+        })();
+        let index = self.object_index(id);
+        self.objects[index].payload = Some(TimelinePayload::Video(Box::new(value)));
+        parsed
+    }
+    /// CPicVideo linked-video placement (pinned JPEXS AuxiliaryObjectRecordDecoder.java).
+    pub(super) fn linked_video(&mut self, id: u32) -> Result<()> {
+        let mut value = TimelineVideo::default();
+        let parsed = (|| {
+            value.revision = Some(self.byte()?);
+            value.matrix_words = Some(self.signed_words()?);
+            value.media_id = Some(self.word()?);
             Ok(())
         })();
         let index = self.object_index(id);

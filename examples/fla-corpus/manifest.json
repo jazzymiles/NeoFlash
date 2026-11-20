@@ -516,8 +516,8 @@
       "path": "imported/ruffle-avm1-nested-button-text.nflash",
       "derived_from": "upstream/ruffle/avm1-nested-button-text/test.fla",
       "license": "MIT OR Apache-2.0",
-      "sha256": "1b77c75528323f11ceff402ed809df728d7b6616b1baa167082fc8cbbbf3c326",
-      "bytes": 79806
+      "sha256": "3b19d8588e3047ca49d07b864a37e870b2017540902cdf297d185477a8c001b4",
+      "bytes": 80215
     },
     {
       "path": "imported/flacomdoc-flash5-shapes.nflash",
@@ -629,9 +629,7 @@
       "expected": {
         "format": "legacy_binary_fla",
         "can_import": true,
-        "required_diagnostics": [
-          "fla_text_metrics"
-        ],
+        "required_diagnostics": [],
         "statistics": {
           "symbols": 1,
           "layers": 1,
@@ -741,9 +739,7 @@
       "expected": {
         "format": "legacy_binary_fla",
         "can_import": true,
-        "required_diagnostics": [
-          "fla_text_metrics"
-        ],
+        "required_diagnostics": [],
         "statistics": {
           "symbols": 3,
           "layers": 3,
@@ -986,8 +982,7 @@
         "can_import": true,
         "required_diagnostics": [
           "fla_contents_partial",
-          "fla_contents_record_unsupported",
-          "fla_text_metrics"
+          "fla_contents_record_unsupported"
         ],
         "statistics": {
           "symbols": 2,

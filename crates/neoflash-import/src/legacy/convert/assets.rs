@@ -1,8 +1,15 @@
 use super::*;
 use crate::legacy::contents::{BinaryContentsPrefix, ContentsDescriptorClass};
-use crate::legacy::media::{decode_binary_bitmap, decode_binary_sound};
+use crate::legacy::media::{
+    BinaryVideoPayload, decode_binary_bitmap, decode_binary_sound, decode_binary_video,
+};
+use image::{
+    ExtendedColorType, ImageEncoder,
+    codecs::jpeg::JpegEncoder,
+    codecs::png::{CompressionType, FilterType, PngEncoder},
+};
 use neoflash_core::{MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES, ResourceUnit, valid_library_folder};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Budget kept free for the provenance record within the project's resources.
 const PROVENANCE_RESERVE: usize = 512 * 1024;
@@ -16,10 +23,45 @@ pub(super) struct BitmapAsset {
     pub average_color: Color,
 }
 
+#[derive(Clone, Debug)]
+pub(super) struct SoundAsset {
+    pub resource_id: String,
+    pub duration_44: u32,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct VideoAsset {
+    pub resource_id: Option<String>,
+    pub width: f64,
+    pub height: f64,
+    pub sync_video: bool,
+    pub import_audio: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct CompiledClipAsset {
+    pub swf_resource_id: Option<String>,
+    pub icon_bitmap: Option<BitmapAsset>,
+    pub width: f64,
+    pub height: f64,
+}
+
+pub(super) struct ExtractedAssets {
+    pub resources: Vec<ResourceUnit>,
+    pub bitmaps: BTreeMap<u16, BitmapAsset>,
+    pub sounds: BTreeMap<u16, SoundAsset>,
+    pub videos: BTreeMap<u16, VideoAsset>,
+    pub compiled_clips: BTreeMap<u16, CompiledClipAsset>,
+    pub skipped_bitmaps: BTreeSet<u16>,
+}
+
 fn compact_duplicate_media_under_pressure(
     resources: &mut Vec<ResourceUnit>,
     bitmaps: &mut BTreeMap<u16, BitmapAsset>,
     sounds: &mut BTreeMap<u16, SoundAsset>,
+    videos: &mut BTreeMap<u16, VideoAsset>,
+    compiled_clips: &mut BTreeMap<u16, CompiledClipAsset>,
+    used_paths: &mut BTreeSet<String>,
     total: &mut usize,
 ) {
     let mut canonical: Vec<(String, String, std::sync::Arc<str>)> = Vec::new();
@@ -30,6 +72,7 @@ fn compact_duplicate_media_under_pressure(
             .find(|(_, mt, b64)| mt == &res.media_type && b64.as_ref() == res.data_base64.as_ref())
         {
             *total = total.saturating_sub(res.byte_len());
+            used_paths.remove(&res.path.to_ascii_lowercase());
             remap.insert(res.id.clone(), canon_id.clone());
             false
         } else {
@@ -52,6 +95,117 @@ fn compact_duplicate_media_under_pressure(
                 asset.resource_id = target.clone();
             }
         }
+        for asset in videos.values_mut() {
+            if let Some(res_id) = asset.resource_id.as_mut()
+                && let Some(target) = remap.get(res_id.as_str())
+            {
+                *res_id = target.clone();
+            }
+        }
+        for clip in compiled_clips.values_mut() {
+            if let Some(res_id) = clip.swf_resource_id.as_mut()
+                && let Some(target) = remap.get(res_id.as_str())
+            {
+                *res_id = target.clone();
+            }
+            if let Some(icon) = clip.icon_bitmap.as_mut()
+                && let Some(target) = remap.get(&icon.resource_id)
+            {
+                icon.resource_id = target.clone();
+            }
+        }
+    }
+}
+
+/// Only invoked when total decoded media exceeds the 64 MiB resource budget:
+/// re-encodes bloated opaque photographic PNGs into high-quality JPEG (or maximum-compression
+/// PNG when translucent) while keeping `ResourceUnit.id` and pixel dimensions unchanged.
+fn compact_bitmaps_under_pressure(
+    resources: &mut [ResourceUnit],
+    used_paths: &mut BTreeSet<String>,
+    total: &mut usize,
+    needed_bytes: usize,
+) {
+    let budget = MAX_RESOURCE_TOTAL_BYTES - PROVENANCE_RESERVE;
+    for res in resources.iter_mut() {
+        if total.checked_add(needed_bytes).is_some_and(|n| n <= budget) {
+            break;
+        }
+        let old_len = res.byte_len();
+        if res.media_type != "image/png" || old_len <= 128 * 1024 {
+            continue;
+        }
+        let Ok(decoded) = res.decode_image() else {
+            continue;
+        };
+        let is_opaque = decoded
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|px| px[3] == 255);
+        if is_opaque {
+            let mut rgb =
+                Vec::with_capacity((decoded.width as usize) * (decoded.height as usize) * 3);
+            for px in decoded.rgba.as_chunks::<4>().0 {
+                rgb.extend_from_slice(&px[..3]);
+            }
+            let mut jpg = Vec::new();
+            if JpegEncoder::new_with_quality(&mut jpg, 90)
+                .encode(&rgb, decoded.width, decoded.height, ExtendedColorType::Rgb8)
+                .is_ok()
+                && jpg.len() + 32 * 1024 < old_len
+            {
+                let old_lower = res.path.to_ascii_lowercase();
+                let candidate_jpg = res
+                    .path
+                    .strip_suffix(".png")
+                    .or_else(|| res.path.strip_suffix(".PNG"))
+                    .map(|stem| format!("{stem}.jpg"));
+                let new_path = match candidate_jpg {
+                    Some(cand) if !used_paths.contains(&cand.to_ascii_lowercase()) => cand,
+                    _ => res.path.clone(),
+                };
+                if let Ok(updated) =
+                    ResourceUnit::from_bytes(res.id.clone(), new_path.clone(), "image/jpeg", &jpg)
+                {
+                    used_paths.remove(&old_lower);
+                    used_paths.insert(new_path.to_ascii_lowercase());
+                    *total = total
+                        .saturating_sub(old_len)
+                        .saturating_add(updated.byte_len());
+                    *res = updated;
+                    continue;
+                }
+            }
+        } else {
+            let mut best_png = Vec::new();
+            if PngEncoder::new_with_quality(
+                &mut best_png,
+                CompressionType::Best,
+                FilterType::Adaptive,
+            )
+            .write_image(
+                &decoded.rgba,
+                decoded.width,
+                decoded.height,
+                ExtendedColorType::Rgba8,
+            )
+            .is_ok()
+                && best_png.len() + 16 * 1024 < old_len
+                && let Ok(updated) = ResourceUnit::from_bytes(
+                    res.id.clone(),
+                    res.path.clone(),
+                    "image/png",
+                    &best_png,
+                )
+            {
+                *total = total
+                    .saturating_sub(old_len)
+                    .saturating_add(updated.byte_len());
+                *res = updated;
+            }
+        }
     }
 }
 
@@ -67,10 +221,52 @@ fn find_identical_resource_id(
         .map(|r| r.id.clone())
 }
 
-#[derive(Clone, Debug)]
-pub(super) struct SoundAsset {
-    pub resource_id: String,
-    pub duration_44: u32,
+fn resolve_sound_linkage_id(
+    contents_bytes: &[u8],
+    descriptor: &ContentsDescriptor,
+    reserved_ids: &BTreeSet<String>,
+    used_ids: &mut BTreeSet<String>,
+) -> Option<String> {
+    let lnk = descriptor.linkage.as_ref().or_else(|| {
+        descriptor
+            .library_metadata
+            .as_ref()
+            .and_then(|m| m.linkage.as_ref())
+    })?;
+    let ident = super::read_string(contents_bytes, &lnk.identifier)
+        .ok()
+        .unwrap_or_default();
+    let cls = lnk
+        .class_name
+        .as_ref()
+        .and_then(|c| super::read_string(contents_bytes, c).ok())
+        .unwrap_or_default();
+    let export_enabled = (lnk.flags & 1) != 0
+        || lnk.export_flags.is_some_and(|f| (f & 1) != 0)
+        || !ident.trim().is_empty()
+        || !cls.trim().is_empty();
+    if !export_enabled {
+        return None;
+    }
+    let chosen = if !ident.trim().is_empty() {
+        ident.trim()
+    } else if !cls.trim().is_empty() {
+        cls.trim()
+    } else {
+        return None;
+    };
+    if chosen.is_empty()
+        || chosen.len() > 256
+        || chosen.chars().any(char::is_control)
+        || chosen == "root"
+        || chosen.starts_with("fla-")
+        || chosen.starts_with("legacy-")
+        || reserved_ids.contains(chosen)
+        || !used_ids.insert(chosen.to_owned())
+    {
+        return None;
+    }
+    Some(chosen.to_owned())
 }
 
 /// Rebuild library paths from archive identities, never filesystem paths.
@@ -146,7 +342,7 @@ pub(super) fn folders(contents: &BinaryContentsPrefix) -> Result<FolderPaths, St
         }
     }
     let paths: Vec<String> = paths.into_iter().map(Option::unwrap).collect();
-    let mut unique = std::collections::BTreeSet::new();
+    let mut unique = BTreeSet::new();
     if paths.iter().any(|path| !unique.insert(path)) {
         return Err("Distinct archive folders have the same NeoFlash path.".into());
     }
@@ -157,36 +353,37 @@ pub(super) fn folders(contents: &BinaryContentsPrefix) -> Result<FolderPaths, St
     Ok((paths, by_id))
 }
 
-pub(super) type ExtractedAssets = (
-    Vec<ResourceUnit>,
-    BTreeMap<u16, BitmapAsset>,
-    BTreeMap<u16, SoundAsset>,
-    std::collections::BTreeSet<u16>,
-);
-
 pub(super) fn resources(
     document: &BinaryTimelineDocument,
     folders: &BTreeMap<[u32; 2], String>,
+    reserved_ids: &BTreeSet<String>,
     report: &mut ImportReport,
 ) -> Result<ExtractedAssets, String> {
     let mut resources = Vec::new();
     let mut bitmaps = BTreeMap::new();
     let mut sounds = BTreeMap::new();
-    let mut skipped_bitmaps = std::collections::BTreeSet::new();
+    let mut videos = BTreeMap::new();
+    let mut compiled_clips = BTreeMap::new();
+    let mut skipped_bitmaps = BTreeSet::new();
+    let mut used_ids = BTreeSet::new();
+    let mut used_paths = BTreeSet::new();
     let mut total = 0usize;
     let mut streams = BTreeMap::new();
-    let mut decoded_streams = std::collections::BTreeSet::new();
+    let mut decoded_streams = BTreeSet::new();
+    let budget = MAX_RESOURCE_TOTAL_BYTES - PROVENANCE_RESERVE;
+
     for stream in &document.raw_streams {
         if streams.insert(stream.index, stream).is_some() {
             return Err("Raw archive streams have duplicate identities.".into());
         }
     }
+
     for descriptor in &document.contents.descriptors {
-        if descriptor.media_id.is_none() {
+        let Some(id) = descriptor.media_id else {
             continue;
-        }
-        let id = descriptor.media_id.unwrap();
+        };
         let location = format!("media {id}");
+
         if descriptor.class == ContentsDescriptorClass::Sound {
             let Some(settings) = descriptor.sound.as_ref() else {
                 report.warning(
@@ -250,12 +447,15 @@ pub(super) fn resources(
             let over_count = resources.len() >= MAX_RESOURCES - 2;
             let over_bytes = total
                 .checked_add(decoded.bytes.len())
-                .is_none_or(|n| n > MAX_RESOURCE_TOTAL_BYTES - PROVENANCE_RESERVE);
+                .is_none_or(|n| n > budget);
             if over_count || over_bytes {
                 compact_duplicate_media_under_pressure(
                     &mut resources,
                     &mut bitmaps,
                     &mut sounds,
+                    &mut videos,
+                    &mut compiled_clips,
+                    &mut used_paths,
                     &mut total,
                 );
                 if let Some(existing_id) =
@@ -282,6 +482,17 @@ pub(super) fn resources(
                     }
                     continue;
                 }
+                if total
+                    .checked_add(decoded.bytes.len())
+                    .is_none_or(|n| n > budget)
+                {
+                    compact_bitmaps_under_pressure(
+                        &mut resources,
+                        &mut used_paths,
+                        &mut total,
+                        decoded.bytes.len(),
+                    );
+                }
             }
             if resources.len() >= MAX_RESOURCES - 2 {
                 report.warning(
@@ -293,7 +504,7 @@ pub(super) fn resources(
             }
             match total
                 .checked_add(decoded.bytes.len())
-                .filter(|n| *n <= MAX_RESOURCE_TOTAL_BYTES - PROVENANCE_RESERVE)
+                .filter(|n| *n <= budget)
             {
                 Some(n) => total = n,
                 None => {
@@ -312,7 +523,17 @@ pub(super) fn resources(
                     "The sound stream ended before its declared length; the available complete audio frames were imported.",
                 );
             }
-            let resource_id = format!("legacy-sound-{id}");
+            let resource_id = resolve_sound_linkage_id(
+                &document.contents.original_bytes,
+                descriptor,
+                reserved_ids,
+                &mut used_ids,
+            )
+            .unwrap_or_else(|| {
+                let fallback_id = format!("legacy-sound-{id}");
+                used_ids.insert(fallback_id.clone());
+                fallback_id
+            });
             let ext = decoded.extension;
             let fallback = format!("legacy/sounds/{id}/sound.{ext}");
             let parent = descriptor
@@ -333,7 +554,7 @@ pub(super) fn resources(
             };
             let name = super::read_string(&document.contents.original_bytes, &descriptor.name).ok();
             let dot_ext = format!(".{ext}");
-            let path = name.as_deref().map(|name| {
+            let path = name.as_deref().and_then(|name| {
                 let name = if let Some(folder) = folder {
                     format!("{folder}/{name}")
                 } else {
@@ -344,7 +565,8 @@ pub(super) fn resources(
                 } else {
                     dot_ext.as_str()
                 };
-                format!("legacy/sounds/{id}/{name}{suffix}")
+                let candidate = format!("legacy/sounds/{id}/{name}{suffix}");
+                (!used_paths.contains(&candidate.to_ascii_lowercase())).then_some(candidate)
             });
             let resource = path.and_then(|path| {
                 ResourceUnit::from_bytes(&resource_id, path, decoded.media_type, &decoded.bytes)
@@ -367,6 +589,7 @@ pub(super) fn resources(
                     .map_err(|e| e.to_string())?
                 }
             };
+            used_paths.insert(resource.path.to_ascii_lowercase());
             if sounds
                 .insert(
                     id,
@@ -382,8 +605,363 @@ pub(super) fn resources(
             resources.push(resource);
             continue;
         }
+
+        if descriptor.class == ContentsDescriptorClass::LinkedVideo {
+            if let Some(index) = descriptor.stream_index {
+                decoded_streams.insert(index);
+            }
+            videos.insert(
+                id,
+                VideoAsset {
+                    resource_id: None,
+                    width: 160.0,
+                    height: 120.0,
+                    sync_video: true,
+                    import_audio: false,
+                },
+            );
+            continue;
+        }
+
+        if descriptor.class == ContentsDescriptorClass::Video {
+            let Some(stream) = descriptor.stream_index.and_then(|idx| streams.get(&idx)) else {
+                report.warning(
+                    "fla_media_not_imported",
+                    &location,
+                    "Video descriptor has no resolved media stream in the archive; it is not imported.",
+                );
+                continue;
+            };
+            if stream.role != crate::legacy::BinaryStreamRole::Media
+                || !stream
+                    .name
+                    .strip_prefix('/')
+                    .unwrap_or(&stream.name)
+                    .eq_ignore_ascii_case(&descriptor.stream_name)
+            {
+                report.warning(
+                    "fla_media_not_imported",
+                    &location,
+                    "Video descriptor and media stream do not match; this video remains in the embedded source.",
+                );
+                continue;
+            }
+            decoded_streams.insert(stream.index);
+            if stream.bytes.is_empty() {
+                videos.insert(
+                    id,
+                    VideoAsset {
+                        resource_id: None,
+                        width: 160.0,
+                        height: 120.0,
+                        sync_video: true,
+                        import_audio: false,
+                    },
+                );
+                continue;
+            }
+            let decoded = match decode_binary_video(&stream.bytes) {
+                Ok(v) => v,
+                Err(e) => {
+                    report.warning(
+                        "fla_media_not_imported",
+                        &location,
+                        format!(
+                            "Video library item could not be decoded ({e}); its bytes remain in the embedded source."
+                        ),
+                    );
+                    continue;
+                }
+            };
+            match decoded.payload {
+                BinaryVideoPayload::EmptyViewport => {
+                    if videos
+                        .insert(
+                            id,
+                            VideoAsset {
+                                resource_id: None,
+                                width: decoded.width,
+                                height: decoded.height,
+                                sync_video: decoded.sync_video,
+                                import_audio: decoded.import_audio,
+                            },
+                        )
+                        .is_some()
+                    {
+                        return Err("Video descriptors have duplicate media identifiers.".into());
+                    }
+                }
+                BinaryVideoPayload::UnsupportedCodec(reason) => {
+                    report.warning(
+                        "fla_media_not_imported",
+                        &location,
+                        format!(
+                            "Video library item uses an undecodable embedded codec ({reason}); a sized Video viewport is retained and original bytes remain in the embedded source."
+                        ),
+                    );
+                    videos.insert(
+                        id,
+                        VideoAsset {
+                            resource_id: None,
+                            width: decoded.width,
+                            height: decoded.height,
+                            sync_video: decoded.sync_video,
+                            import_audio: decoded.import_audio,
+                        },
+                    );
+                }
+                BinaryVideoPayload::Container {
+                    media_type,
+                    extension,
+                    bytes: video_bytes,
+                } => {
+                    let over_count = resources.len() >= MAX_RESOURCES - 2;
+                    let over_bytes = total
+                        .checked_add(video_bytes.len())
+                        .is_none_or(|n| n > budget);
+                    if over_count || over_bytes {
+                        compact_duplicate_media_under_pressure(
+                            &mut resources,
+                            &mut bitmaps,
+                            &mut sounds,
+                            &mut videos,
+                            &mut compiled_clips,
+                            &mut used_paths,
+                            &mut total,
+                        );
+                        if let Some(existing_id) =
+                            find_identical_resource_id(&resources, media_type, &video_bytes)
+                        {
+                            if videos
+                                .insert(
+                                    id,
+                                    VideoAsset {
+                                        resource_id: Some(existing_id),
+                                        width: decoded.width,
+                                        height: decoded.height,
+                                        sync_video: decoded.sync_video,
+                                        import_audio: decoded.import_audio,
+                                    },
+                                )
+                                .is_some()
+                            {
+                                return Err(
+                                    "Video descriptors have duplicate media identifiers.".into()
+                                );
+                            }
+                            continue;
+                        }
+                        if total
+                            .checked_add(video_bytes.len())
+                            .is_none_or(|n| n > budget)
+                        {
+                            compact_bitmaps_under_pressure(
+                                &mut resources,
+                                &mut used_paths,
+                                &mut total,
+                                video_bytes.len(),
+                            );
+                        }
+                    }
+                    if resources.len() >= MAX_RESOURCES - 2
+                        || total
+                            .checked_add(video_bytes.len())
+                            .is_none_or(|n| n > budget)
+                    {
+                        report.warning(
+                            "fla_media_not_imported",
+                            &location,
+                            "Embedded video exceeds the project's resource budget; a sized Video viewport is retained and original bytes remain in the embedded source.",
+                        );
+                        videos.insert(
+                            id,
+                            VideoAsset {
+                                resource_id: None,
+                                width: decoded.width,
+                                height: decoded.height,
+                                sync_video: decoded.sync_video,
+                                import_audio: decoded.import_audio,
+                            },
+                        );
+                        continue;
+                    }
+                    total += video_bytes.len();
+                    let resource_id = format!("legacy-video-{id}");
+                    used_ids.insert(resource_id.clone());
+                    let fallback = format!("legacy/videos/{id}/video.{extension}");
+                    let name =
+                        super::read_string(&document.contents.original_bytes, &descriptor.name)
+                            .ok();
+                    let dot_ext = format!(".{extension}");
+                    let path = name.as_deref().and_then(|n| {
+                        let suffix = if n.to_ascii_lowercase().ends_with(&dot_ext) {
+                            ""
+                        } else {
+                            dot_ext.as_str()
+                        };
+                        let cand = format!("legacy/videos/{id}/{n}{suffix}");
+                        (!used_paths.contains(&cand.to_ascii_lowercase())).then_some(cand)
+                    });
+                    let unit = path
+                        .and_then(|p| {
+                            ResourceUnit::from_bytes(&resource_id, p, media_type, &video_bytes).ok()
+                        })
+                        .map_or_else(
+                            || {
+                                ResourceUnit::from_bytes(
+                                    &resource_id,
+                                    fallback,
+                                    media_type,
+                                    &video_bytes,
+                                )
+                                .map_err(|e| e.to_string())
+                            },
+                            Ok,
+                        )?;
+                    used_paths.insert(unit.path.to_ascii_lowercase());
+                    if videos
+                        .insert(
+                            id,
+                            VideoAsset {
+                                resource_id: Some(resource_id),
+                                width: decoded.width,
+                                height: decoded.height,
+                                sync_video: decoded.sync_video,
+                                import_audio: decoded.import_audio,
+                            },
+                        )
+                        .is_some()
+                    {
+                        return Err("Video descriptors have duplicate media identifiers.".into());
+                    }
+                    resources.push(unit);
+                }
+            }
+            continue;
+        }
+
+        if descriptor.class == ContentsDescriptorClass::SwfPage {
+            if let Some(index) = descriptor.stream_index {
+                decoded_streams.insert(index);
+            }
+            let Some(cc) = descriptor.compiled_clip.as_ref() else {
+                report.warning(
+                    "fla_media_not_imported",
+                    &location,
+                    "Compiled-clip descriptor has no component payload; its bytes remain in the embedded source.",
+                );
+                continue;
+            };
+            let (width, height) = if let Some([right, left, bottom, top]) = cc.bounds_words {
+                let w = ((f64::from(right) - f64::from(left)) / 20.0).abs();
+                let h = ((f64::from(bottom) - f64::from(top)) / 20.0).abs();
+                (
+                    if w > 0.0 {
+                        w.clamp(10.0, 4096.0)
+                    } else {
+                        100.0
+                    },
+                    if h > 0.0 {
+                        h.clamp(10.0, 4096.0)
+                    } else {
+                        100.0
+                    },
+                )
+            } else {
+                (100.0, 100.0)
+            };
+            let swf_slice = cc
+                .primary_swf
+                .and_then(|sp| document.contents.original_bytes.get(sp.start..sp.end));
+            let Some(swf_bytes) =
+                swf_slice.filter(|b| b.len() >= 8 && matches!(&b[..3], b"FWS" | b"CWS" | b"ZWS"))
+            else {
+                report.warning(
+                    "fla_media_not_imported",
+                    &location,
+                    "Compiled-clip library item has no embedded SWF stream; a placeholder symbol keeps its placements.",
+                );
+                compiled_clips.insert(
+                    id,
+                    CompiledClipAsset {
+                        swf_resource_id: None,
+                        icon_bitmap: None,
+                        width,
+                        height,
+                    },
+                );
+                continue;
+            };
+            let mut swf_resource_id = None;
+            if swf_bytes.len() <= MAX_RESOURCE_BYTES
+                && resources.len() < MAX_RESOURCES - 2
+                && total
+                    .checked_add(swf_bytes.len())
+                    .is_some_and(|n| n <= budget)
+            {
+                let res_id = format!("legacy-swf-{id}");
+                let res_path = format!("legacy/compiled-clips/{id}/clip.swf");
+                if let Ok(unit) = ResourceUnit::from_bytes(
+                    &res_id,
+                    &res_path,
+                    "application/x-shockwave-flash",
+                    swf_bytes,
+                ) {
+                    total += swf_bytes.len();
+                    used_ids.insert(res_id.clone());
+                    used_paths.insert(res_path.to_ascii_lowercase());
+                    resources.push(unit);
+                    swf_resource_id = Some(res_id);
+                }
+            }
+            let mut icon_bitmap = None;
+            if let Some(icon_span) = cc.icon_bitmap
+                && let Some(icon_raw) = document
+                    .contents
+                    .original_bytes
+                    .get(icon_span.start..icon_span.end)
+                && let Ok(decoded_icon) = decode_binary_bitmap(icon_raw, cc.icon_encoded_byte_count)
+                && let Ok(png) = decoded_icon.png_bytes()
+                && png.len() <= MAX_RESOURCE_BYTES
+                && resources.len() < MAX_RESOURCES - 2
+                && total.checked_add(png.len()).is_some_and(|n| n <= budget)
+            {
+                let icon_id = format!("legacy-swf-icon-{id}");
+                let icon_path = format!("legacy/compiled-clips/{id}/icon.png");
+                if let Ok(unit) = ResourceUnit::from_bytes(&icon_id, &icon_path, "image/png", &png)
+                {
+                    let avg = crate::average_bitmap_color(&decoded_icon.rgba);
+                    total += png.len();
+                    used_ids.insert(icon_id.clone());
+                    used_paths.insert(icon_path.to_ascii_lowercase());
+                    resources.push(unit);
+                    icon_bitmap = Some(BitmapAsset {
+                        resource_id: icon_id,
+                        width: f64::from(decoded_icon.width),
+                        height: f64::from(decoded_icon.height),
+                        smoothing: false,
+                        average_color: avg,
+                    });
+                }
+            }
+            compiled_clips.insert(
+                id,
+                CompiledClipAsset {
+                    swf_resource_id,
+                    icon_bitmap,
+                    width,
+                    height,
+                },
+            );
+            continue;
+        }
+
         if descriptor.class != ContentsDescriptorClass::Bitmap {
-            report.warning("fla_media_not_imported",&location,"Video and compiled-clip library items are not imported yet; their bytes remain in the embedded source.");
+            report.warning(
+                "fla_media_not_imported",
+                &location,
+                "Auxiliary media library item is not imported; its bytes remain in the embedded source.",
+            );
             if let Some(index) = descriptor.stream_index {
                 decoded_streams.insert(index);
             }
@@ -454,14 +1032,15 @@ pub(super) fn resources(
             continue;
         }
         let over_count = resources.len() >= MAX_RESOURCES - 2;
-        let over_bytes = total
-            .checked_add(png.len())
-            .is_none_or(|n| n > MAX_RESOURCE_TOTAL_BYTES - PROVENANCE_RESERVE);
+        let over_bytes = total.checked_add(png.len()).is_none_or(|n| n > budget);
         if over_count || over_bytes {
             compact_duplicate_media_under_pressure(
                 &mut resources,
                 &mut bitmaps,
                 &mut sounds,
+                &mut videos,
+                &mut compiled_clips,
+                &mut used_paths,
                 &mut total,
             );
             if let Some(existing_id) = find_identical_resource_id(&resources, "image/png", &png) {
@@ -482,6 +1061,14 @@ pub(super) fn resources(
                 }
                 continue;
             }
+            if total.checked_add(png.len()).is_none_or(|n| n > budget) {
+                compact_bitmaps_under_pressure(
+                    &mut resources,
+                    &mut used_paths,
+                    &mut total,
+                    png.len(),
+                );
+            }
         }
         if resources.len() >= MAX_RESOURCES - 2 {
             report.warning("fla_bitmap_skipped",&location,"The project resource limit is reached; this bitmap becomes an unresolved placeholder.");
@@ -489,19 +1076,44 @@ pub(super) fn resources(
             continue;
         }
         // Keep room for the embedded original FLA and provenance.
-        match total
+        let (final_bytes, final_mime, final_ext) = if total
             .checked_add(png.len())
-            .filter(|n| *n <= MAX_RESOURCE_TOTAL_BYTES - PROVENANCE_RESERVE)
+            .is_some_and(|n| n <= budget)
         {
-            Some(n) => total = n,
-            None => {
+            total += png.len();
+            (png, "image/png", "png")
+        } else {
+            let is_opaque = decoded
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|px| px[3] == 255);
+            let mut jpg = Vec::new();
+            let encoded_jpg = if is_opaque {
+                let mut rgb =
+                    Vec::with_capacity((decoded.width as usize) * (decoded.height as usize) * 3);
+                for px in decoded.rgba.as_chunks::<4>().0 {
+                    rgb.extend_from_slice(&px[..3]);
+                }
+                JpegEncoder::new_with_quality(&mut jpg, 90)
+                    .encode(&rgb, decoded.width, decoded.height, ExtendedColorType::Rgb8)
+                    .is_ok()
+            } else {
+                false
+            };
+            if encoded_jpg && total.checked_add(jpg.len()).is_some_and(|n| n <= budget) {
+                total += jpg.len();
+                (jpg, "image/jpeg", "jpg")
+            } else {
                 report.warning("fla_bitmap_skipped",&location,"Decoded bitmaps exceed the project's resource budget (64 MiB including import provenance); this bitmap becomes an unresolved placeholder.");
                 skipped_bitmaps.insert(id);
                 continue;
             }
-        }
+        };
         let resource_id = format!("legacy-bitmap-{id}");
-        let fallback = format!("legacy/bitmaps/{id}/bitmap.png");
+        used_ids.insert(resource_id.clone());
+        let fallback = format!("legacy/bitmaps/{id}/bitmap.{final_ext}");
         let parent = descriptor
             .library_metadata
             .as_ref()
@@ -519,29 +1131,33 @@ pub(super) fn resources(
             other => other.flatten(),
         };
         let name = super::read_string(&document.contents.original_bytes, &descriptor.name).ok();
-        let path = name.as_deref().map(|name| {
+        let dot_ext = format!(".{final_ext}");
+        let path = name.as_deref().and_then(|name| {
             let name = if let Some(folder) = folder {
                 format!("{folder}/{name}")
             } else {
                 name.to_owned()
             };
-            let suffix = if name.to_ascii_lowercase().ends_with(".png") {
+            let suffix = if name.to_ascii_lowercase().ends_with(&dot_ext) {
                 ""
             } else {
-                ".png"
+                dot_ext.as_str()
             };
-            format!("legacy/bitmaps/{id}/{name}{suffix}")
+            let cand = format!("legacy/bitmaps/{id}/{name}{suffix}");
+            (!used_paths.contains(&cand.to_ascii_lowercase())).then_some(cand)
         });
-        let resource = path
-            .and_then(|path| ResourceUnit::from_bytes(&resource_id, path, "image/png", &png).ok());
+        let resource = path.and_then(|path| {
+            ResourceUnit::from_bytes(&resource_id, path, final_mime, &final_bytes).ok()
+        });
         let resource = match resource {
             Some(resource) => resource,
             None => {
                 report.warning("fla_bitmap_resource_name", format!("media {id}"), "The original bitmap name cannot be used as a portable resource path. A stable identity path is used; the original name remains in the embedded Contents provenance.");
-                ResourceUnit::from_bytes(&resource_id, fallback, "image/png", &png)
+                ResourceUnit::from_bytes(&resource_id, fallback, final_mime, &final_bytes)
                     .map_err(|e| e.to_string())?
             }
         };
+        used_paths.insert(resource.path.to_ascii_lowercase());
         if bitmaps
             .insert(
                 id,
@@ -565,7 +1181,14 @@ pub(super) fn resources(
     }) {
         report.warning("fla_media_unreferenced","Media streams","Some media streams have no library descriptor (typically deleted items); they remain only in the embedded source.");
     }
-    Ok((resources, bitmaps, sounds, skipped_bitmaps))
+    Ok(ExtractedAssets {
+        resources,
+        bitmaps,
+        sounds,
+        videos,
+        compiled_clips,
+        skipped_bitmaps,
+    })
 }
 
 #[cfg(test)]

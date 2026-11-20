@@ -1,8 +1,9 @@
 //! Versioned descriptor payload boundaries. All nested bytes remain in the
 //! enclosing descriptor span; interpreting their authoring semantics is separate.
 use super::{
-    ContentsBitmapSettings, ContentsByteSpan, ContentsDescriptor, ContentsDescriptorClass as Class,
-    ContentsLibraryMetadata, ContentsLinkage, ContentsSoundSettings, Reader, Result,
+    ContentsBitmapSettings, ContentsByteSpan, ContentsCompiledClipSettings, ContentsDescriptor,
+    ContentsDescriptorClass as Class, ContentsLibraryMetadata, ContentsLinkage,
+    ContentsSoundSettings, Reader, Result,
 };
 
 impl Reader<'_> {
@@ -34,6 +35,7 @@ impl Reader<'_> {
             linkage: None,
             bitmap: None,
             sound: None,
+            compiled_clip: None,
         };
         if page {
             if revision >= 2 {
@@ -84,7 +86,7 @@ impl Reader<'_> {
                 self.take(4)?;
             }
             if revision >= 18 {
-                self.component()?;
+                let _ = self.component()?;
             }
             if revision >= 20 {
                 self.string()?;
@@ -172,17 +174,18 @@ impl Reader<'_> {
                     result.sound = Some(sound);
                 }
                 Class::SwfPage => {
-                    // Compiled-clip media: component envelope, then its own
-                    // revision. The SWF payload stream itself is not read.
-                    self.component()?;
+                    // Compiled-clip media: component envelope, then its own revision.
+                    let (primary_swf, icon) = self.component()?;
                     let v = self.revision(5)?;
                     result.subtype_revision = Some(v);
                     if v >= 1 {
                         self.string()?; // source name
                     }
-                    if v >= 2 {
-                        self.take(16)?; // bounds words
-                    }
+                    let bounds_words = if v >= 2 {
+                        Some([self.i32()?, self.i32()?, self.i32()?, self.i32()?])
+                    } else {
+                        None
+                    };
                     if v >= 3 {
                         self.swf_metadata(0)?;
                     }
@@ -196,6 +199,15 @@ impl Reader<'_> {
                             self.string()?; // export name
                         }
                     }
+                    result.compiled_clip = Some(ContentsCompiledClipSettings {
+                        primary_swf,
+                        icon_bitmap: icon.map(|(span, _)| span),
+                        icon_encoded_byte_count: icon.map_or(0, |(_, enc)| enc),
+                        bounds_words,
+                    });
+                }
+                Class::LinkedVideo => {
+                    result.subtype_revision = Some(self.u8()?);
                 }
                 Class::Media | Class::Video => {}
                 Class::DocumentPage
@@ -279,28 +291,42 @@ impl Reader<'_> {
             base_class,
         })
     }
-    fn smart_movie(&mut self) -> Result<()> {
+    fn smart_movie(&mut self) -> Result<Option<ContentsByteSpan>> {
         let v = self.revision(3)?;
+        let mut span = None;
         if v >= 1 {
             self.string()?;
             let bytes = self.u32()? as usize;
+            let start = self.at;
             self.take(bytes)?;
+            if bytes > 0 {
+                span = Some(ContentsByteSpan {
+                    start,
+                    end: self.at,
+                });
+            }
         }
         if v >= 2 {
             self.take(4)?;
         }
-        Ok(())
+        Ok(span)
     }
     /// A component icon: an inline bitmap media record (no MFC envelope)
-    /// followed by its payload. Only the boundary is read; pixels stay in the
-    /// enclosing descriptor span and are neither inflated nor decoded.
-    fn embedded_bitmap(&mut self) -> Result<()> {
+    /// followed by its payload.
+    fn embedded_bitmap(&mut self) -> Result<(ContentsByteSpan, i32)> {
         let media = self.descriptor(0, Class::Bitmap, 1)?;
         let encoded = media.bitmap.map_or(0, |b| b.encoded_byte_count);
+        let payload_start = self.at;
         if encoded > 0 {
             self.take(encoded as usize)?;
             self.take(16)?; // bounds words
-            return Ok(());
+            return Ok((
+                ContentsByteSpan {
+                    start: payload_start,
+                    end: self.at,
+                },
+                encoded,
+            ));
         }
         let revision = self.revision(3)?;
         let format = self.u8()?;
@@ -328,12 +354,24 @@ impl Reader<'_> {
         if !compressed {
             // stride and height are 16-bit, so the product cannot overflow.
             self.take(stride * height)?;
-            return Ok(());
+            return Ok((
+                ContentsByteSpan {
+                    start: payload_start,
+                    end: self.at,
+                },
+                encoded,
+            ));
         }
         loop {
             let length = usize::from(self.u16()?);
             if length == 0 {
-                return Ok(());
+                return Ok((
+                    ContentsByteSpan {
+                        start: payload_start,
+                        end: self.at,
+                    },
+                    encoded,
+                ));
             }
             self.budget(1)?;
             self.take(length)?;
@@ -377,15 +415,16 @@ impl Reader<'_> {
         }
         Ok(())
     }
-    fn component(&mut self) -> Result<()> {
+    #[allow(clippy::type_complexity)]
+    fn component(&mut self) -> Result<(Option<ContentsByteSpan>, Option<(ContentsByteSpan, i32)>)> {
         let v = self.revision(8)?;
         self.take(4)?;
         self.string()?;
         self.take(12)?;
         self.string()?;
-        for _ in 0..3 {
-            self.smart_movie()?;
-        }
+        let primary_swf = self.smart_movie()?;
+        let _ = self.smart_movie()?;
+        let _ = self.smart_movie()?;
         if v >= 1 {
             self.string()?;
             self.properties()?;
@@ -402,9 +441,11 @@ impl Reader<'_> {
                 self.string()?;
             }
         }
-        if v >= 5 && self.u32()? != 0 {
-            self.embedded_bitmap()?;
-        }
+        let icon = if v >= 5 && self.u32()? != 0 {
+            Some(self.embedded_bitmap()?)
+        } else {
+            None
+        };
         if v >= 6 {
             self.take(4)?;
         }
@@ -414,9 +455,9 @@ impl Reader<'_> {
             self.take(8)?;
         }
         if v >= 8 {
-            self.smart_movie()?;
+            let _ = self.smart_movie()?;
         }
-        Ok(())
+        Ok((primary_swf, icon))
     }
     pub(super) fn persistent_data(&mut self) -> Result<()> {
         self.take(4)?;

@@ -6,6 +6,9 @@ use super::contents::ContentsSoundSettings;
 use image::{ExtendedColorType, ImageEncoder, ImageFormat, ImageReader, Limits};
 use std::io::Cursor;
 
+mod video;
+pub use video::{BinaryVideoPayload, decode_binary_video};
+
 const MAX_INPUT: usize = 64 * 1024 * 1024;
 const MAX_PIXELS: usize = 4096 * 4096;
 const MAX_BYTES: usize = MAX_PIXELS * 4;

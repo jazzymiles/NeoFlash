@@ -29,6 +29,7 @@ pub enum TimelineClass {
     Oval,
     CompiledClip,
     VideoStream,
+    LinkedVideo,
     Unknown,
 }
 impl TimelineClass {
@@ -40,7 +41,7 @@ impl TimelineClass {
             b"CPicShape" => Self::Shape,
             b"CPicBitmap" => Self::Bitmap,
             b"CPicText" => Self::Text,
-            b"CPicSymbol" => Self::Symbol,
+            b"CPicSymbol" | b"CPicShapeObj" => Self::Symbol,
             b"CPicSprite" => Self::Sprite,
             b"CPicButton" => Self::Button,
             b"CPicMorphShape" => Self::Morph,
@@ -51,6 +52,7 @@ impl TimelineClass {
             b"CPicOval" => Self::Oval,
             b"CPicSwf" => Self::CompiledClip,
             b"CPicVideoStream" => Self::VideoStream,
+            b"CPicVideo" => Self::LinkedVideo,
             _ => Self::Unknown,
         }
     }
@@ -73,6 +75,7 @@ impl TimelineClass {
             Self::Oval => "CPicOval",
             Self::CompiledClip => "CPicSwf",
             Self::VideoStream => "CPicVideoStream",
+            Self::LinkedVideo => "CPicVideo",
             Self::Unknown => "Unknown",
         }
     }
@@ -387,6 +390,14 @@ pub struct TimelineInstance {
     pub rotation_3d: Option<[f64; 3]>,
     pub center_point_3d: Option<[i32; 3]>,
     pub animation_frame_settings: Vec<[u16; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bitmap_render_mode: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bitmap_bits_32: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bitmap_background_rgba: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_visible: Option<u32>,
     pub extension_revision: Option<u8>,
     pub instance_name: Option<TimelineString>,
     pub actions: Option<TimelineActions>,

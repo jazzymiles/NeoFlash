@@ -504,6 +504,7 @@ impl<'a> Reader<'a> {
                     | Class::Oval
                     | Class::CompiledClip
                     | Class::VideoStream
+                    | Class::LinkedVideo
             ) {
                 // Unrecognized archive class names may be private; only
                 // known Flash class names appear in public diagnostics.
@@ -540,6 +541,7 @@ impl<'a> Reader<'a> {
                 }
                 Class::CompiledClip => self.compiled_clip(id)?,
                 Class::VideoStream => self.video(id)?,
+                Class::LinkedVideo => self.linked_video(id)?,
                 _ => unreachable!("class checked above"),
             }
             Ok(())

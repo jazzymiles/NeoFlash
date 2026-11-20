@@ -41,6 +41,7 @@ pub enum ContentsDescriptorClass {
     Bitmap,
     Sound,
     Video,
+    LinkedVideo,
     /// Compiled-clip (`CSwfPage`) media descriptor.
     SwfPage,
     Color,
@@ -101,6 +102,21 @@ pub struct ContentsDescriptor {
     pub bitmap: Option<ContentsBitmapSettings>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sound: Option<ContentsSoundSettings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compiled_clip: Option<ContentsCompiledClipSettings>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ContentsCompiledClipSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub primary_swf: Option<ContentsByteSpan>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_bitmap: Option<ContentsByteSpan>,
+    #[serde(default)]
+    pub icon_encoded_byte_count: i32,
+    /// `[right, left, bottom, top]` in twips when `CSwfPage` revision >= 2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounds_words: Option<[i32; 4]>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -612,6 +628,7 @@ impl Reader<'_> {
                 b"CMediaBits" => Some(ContentsDescriptorClass::Bitmap),
                 b"CMediaSound" => Some(ContentsDescriptorClass::Sound),
                 b"CMediaVideoStream" => Some(ContentsDescriptorClass::Video),
+                b"CMediaVideo" => Some(ContentsDescriptorClass::LinkedVideo),
                 b"CSwfPage" => Some(ContentsDescriptorClass::SwfPage),
                 b"CColorDef" => Some(ContentsDescriptorClass::Color),
                 b"CColorList" => Some(ContentsDescriptorClass::ColorList),

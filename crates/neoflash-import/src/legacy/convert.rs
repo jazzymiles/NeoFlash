@@ -1,9 +1,12 @@
 //! Native binary authoring import. Source records remain embedded verbatim;
 //! unsupported visual or executable records stop conversion with a location.
 mod assets;
+mod instance_props;
 mod shape;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_fidelity;
 #[cfg(test)]
 mod text;
 
@@ -517,23 +520,46 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
             (Vec::new(), BTreeMap::new())
         }
     };
-    let (mut resources, bitmaps, sounds, skipped_bitmaps) =
-        assets::resources(document, &folder_paths, report)?;
     let mut library = BTreeMap::new();
+    let mut library_kinds = BTreeMap::new();
+    let mut reserved_ids = std::collections::BTreeSet::from([
+        "root".to_owned(),
+        "fla-original".to_owned(),
+        "fla-provenance".to_owned(),
+        PLACEHOLDER.to_owned(),
+    ]);
+    for &sidx in &scene_indices {
+        reserved_ids.insert(sid(sidx));
+    }
     for d in &c.descriptors {
         if d.class != ContentsDescriptorClass::DocumentPage || c.scenes.contains(&d.object_id) {
             continue;
         }
+        let sym_kind = match d.symbol_type {
+            Some(0) => SymbolKind::Graphic,
+            Some(1) => SymbolKind::Button,
+            _ => SymbolKind::MovieClip,
+        };
         if let Some(id) = d.library_id {
             let sym_id = match d.stream_index {
                 Some(index) => sid(index),
                 None => format!("fla-symbol-missing-{}", d.object_id),
             };
+            reserved_ids.insert(sym_id.clone());
+            library_kinds.insert(id, sym_kind);
             if library.insert(id, sym_id).is_some() {
                 return Err("Duplicate library ID".into());
             }
         }
     }
+    let assets::ExtractedAssets {
+        mut resources,
+        bitmaps,
+        sounds,
+        videos,
+        compiled_clips,
+        skipped_bitmaps,
+    } = assets::resources(document, &folder_paths, &reserved_ids, report)?;
     let stream_stops: std::collections::BTreeSet<usize> = document
         .inspection
         .streams
@@ -544,8 +570,11 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
     let mut context = Context {
         report,
         library,
+        library_kinds,
         bitmaps,
         sounds,
+        videos,
+        compiled_clips,
         skipped_bitmaps,
         stream_stops,
         language,
@@ -939,8 +968,11 @@ const PLACEHOLDER: &str = "fla-unsupported-object";
 struct Context<'a> {
     report: &'a mut ImportReport,
     library: BTreeMap<u32, String>,
+    library_kinds: BTreeMap<u32, SymbolKind>,
     bitmaps: BTreeMap<u16, assets::BitmapAsset>,
     sounds: BTreeMap<u16, assets::SoundAsset>,
+    videos: BTreeMap<u16, assets::VideoAsset>,
+    compiled_clips: BTreeMap<u16, assets::CompiledClipAsset>,
     skipped_bitmaps: std::collections::BTreeSet<u16>,
     stream_stops: std::collections::BTreeSet<usize>,
     language: ScriptLanguage,
@@ -1529,6 +1561,26 @@ impl Context<'_> {
                     cursor + 1
                 );
                 let sound = self.frame_sound(s, f, &at);
+                let video = frame.children.iter().find_map(|&cid| {
+                    let Ok(co) = object(s, cid) else { return None };
+                    let Some(TimelinePayload::Video(v)) = &co.payload else {
+                        return None;
+                    };
+                    let mid = v.media_id?;
+                    let asset = self.videos.get(&mid)?;
+                    let res_id = asset.resource_id.as_ref()?;
+                    Some(TimelineVideoSpan {
+                        resource: res_id.clone(),
+                        sync: if asset.sync_video {
+                            VideoSyncMode::Stream
+                        } else {
+                            VideoSyncMode::Event
+                        },
+                        muted: !asset.import_audio,
+                        deployment: timeline_video::VideoDeploymentMode::Embedded,
+                        ..Default::default()
+                    })
+                });
                 if f.motion_xml
                     .as_ref()
                     .is_some_and(|v| v.data.end > v.data.start)
@@ -1633,8 +1685,21 @@ impl Context<'_> {
                     // An explicit classic tween may pair library symbols (MovieClip, Graphic,
                     // Button, including playback/first-frame transitions and symbol swaps),
                     // generated group symbols (with member placement transforms hoisted onto
-                    // the outer group instance), or primitive drawing objects. Unresolved
-                    // placeholders never establish a tween.
+                    // the outer group instance), primitive drawing objects, or an unambiguous
+                    // library symbol landing alongside newly-appearing end-keyframe elements.
+                    // Dormant tween flags adjacent to a blank keyframe hold their pose silently,
+                    // matching Flash SWF export. Unresolved placeholders never establish a tween.
+                    if previous.tween.is_some()
+                        && previous.tween_kind == TweenKind::Classic
+                        && (previous.elements.is_empty() || elements.is_empty())
+                    {
+                        previous.tween = None;
+                        previous.orient_to_path = false;
+                        previous.sync_symbols = false;
+                        previous.snap_to_guide = false;
+                        previous.classic_rotate_dir = ClassicRotateDirection::Auto;
+                        previous.classic_rotate_turns = 0;
+                    }
                     if previous.tween.is_some()
                         && previous.tween_kind == TweenKind::Classic
                         && previous.elements.len() == 1
@@ -1656,27 +1721,58 @@ impl Context<'_> {
                             || (sym_id.ends_with("-group")
                                 && self.generated.iter().any(|s| s.id == sym_id))
                     };
-                    let classic_tween_pair = previous.tween.is_some()
+                    if previous.tween.is_some()
                         && previous.tween_kind == TweenKind::Classic
                         && previous.elements.len() == 1
-                        && elements.len() == 1
-                        && !placement_matches(&previous.elements[0], &elements[0])
-                        && match (&previous.elements[0].kind, &elements[0].kind) {
-                            (
-                                ElementKind::Instance { symbol_id: a, .. },
-                                ElementKind::Instance { symbol_id: b, .. },
-                            ) => is_tweenable_symbol(a) && is_tweenable_symbol(b),
-                            (ElementKind::Rectangle { .. }, ElementKind::Rectangle { .. })
-                            | (ElementKind::Ellipse { .. }, ElementKind::Ellipse { .. })
-                            | (ElementKind::Bitmap { .. }, ElementKind::Bitmap { .. }) => true,
-                            _ => false,
-                        };
-                    for (a, b) in previous.elements.iter().zip(elements.iter_mut()) {
-                        if placement_matches(a, b) || classic_tween_pair {
-                            let source_id = std::mem::replace(&mut b.id, a.id.clone());
+                        && elements.len() > 1
+                        && let ElementKind::Instance {
+                            symbol_id: prev_sym,
+                            ..
+                        } = &previous.elements[0].kind
+                        && is_tweenable_symbol(prev_sym)
+                    {
+                        let mut matches = elements.iter().enumerate().filter_map(|(idx, cand)| {
+                            matches!(
+                                &cand.kind,
+                                ElementKind::Instance { symbol_id, .. } if symbol_id == prev_sym
+                            )
+                            .then_some(idx)
+                        });
+                        if let (Some(match_idx), None) = (matches.next(), matches.next()) {
+                            let target_id = previous.elements[0].id.clone();
+                            let source_id =
+                                std::mem::replace(&mut elements[match_idx].id, target_id);
                             for mapping in &mut self.provenance[provenance_start..] {
                                 if mapping["target"].as_str() == Some(source_id.as_str()) {
-                                    mapping["target"] = serde_json::json!(b.id);
+                                    mapping["target"] = serde_json::json!(elements[match_idx].id);
+                                }
+                            }
+                        }
+                    } else {
+                        let classic_tween_pair = previous.tween.is_some()
+                            && previous.tween_kind == TweenKind::Classic
+                            && previous.elements.len() == 1
+                            && elements.len() == 1
+                            && !placement_matches(&previous.elements[0], &elements[0])
+                            && match (&previous.elements[0].kind, &elements[0].kind) {
+                                (
+                                    ElementKind::Instance { symbol_id: a, .. },
+                                    ElementKind::Instance { symbol_id: b, .. },
+                                ) => is_tweenable_symbol(a) && is_tweenable_symbol(b),
+                                (ElementKind::Rectangle { .. }, ElementKind::Rectangle { .. })
+                                | (ElementKind::Ellipse { .. }, ElementKind::Ellipse { .. })
+                                | (ElementKind::Bitmap { .. }, ElementKind::Bitmap { .. })
+                                | (ElementKind::TextBox { .. }, ElementKind::TextBox { .. })
+                                | (ElementKind::Video { .. }, ElementKind::Video { .. }) => true,
+                                _ => false,
+                            };
+                        for (a, b) in previous.elements.iter().zip(elements.iter_mut()) {
+                            if placement_matches(a, b) || classic_tween_pair {
+                                let source_id = std::mem::replace(&mut b.id, a.id.clone());
+                                for mapping in &mut self.provenance[provenance_start..] {
+                                    if mapping["target"].as_str() == Some(source_id.as_str()) {
+                                        mapping["target"] = serde_json::json!(b.id);
+                                    }
                                 }
                             }
                         }
@@ -1684,8 +1780,7 @@ impl Context<'_> {
                     if previous.tween.is_some()
                         && previous.tween_kind == TweenKind::Classic
                         && (previous.elements.len() != 1
-                            || elements.len() != 1
-                            || previous.elements[0].id != elements[0].id)
+                            || !elements.iter().any(|e| e.id == previous.elements[0].id))
                     {
                         previous.tween = None;
                         previous.orient_to_path = false;
@@ -1717,6 +1812,7 @@ impl Context<'_> {
                     classic_rotate_dir,
                     classic_rotate_turns,
                     sound,
+                    video,
                     bitmap_fills,
                     appearances,
                     vector_effects,
@@ -1802,7 +1898,10 @@ impl Context<'_> {
                     }
                     LayerRole::Normal => {
                         let has_layer_published_payload = layer.keyframes.iter().any(|k| {
-                            !k.elements.is_empty() || !k.label.is_empty() || k.sound.is_some()
+                            !k.elements.is_empty()
+                                || !k.label.is_empty()
+                                || k.sound.is_some()
+                                || k.video.is_some()
                         });
                         if has_layer_published_payload {
                             layer.visible = true;
@@ -1915,8 +2014,20 @@ impl Context<'_> {
             Some(TimelinePayload::Instance(i)) => {
                 element.filters = convert_filters(&i.filters, &location, self.report);
                 element.blend_mode = convert_blend_mode(i.blend_mode, &location, self.report);
-                if !i.animation_frame_settings.is_empty()
-                    || i.property_count.is_some_and(|v| v != 0)
+                if i.is_visible == Some(0) {
+                    element.visible = false;
+                }
+                let (prop_script, prop_lossy) = instance_props::translate_component_properties(
+                    &s.original_bytes,
+                    i.properties.as_ref(),
+                    i.property_count,
+                    self.language,
+                );
+                if instance_props::has_nonredundant_animation_settings(
+                    &i.animation_frame_settings,
+                    i.loop_mode,
+                    i.first_frame,
+                ) || prop_lossy
                 {
                     self.report.warning("fla_instance_settings",&location,"Component parameters or per-instance animation settings are not imported; they remain in the embedded source.");
                 }
@@ -2026,11 +2137,22 @@ impl Context<'_> {
                     }
                     element.transform.color_transform = value;
                 }
+                let lib_id = i.library_id.ok_or("Missing library identity")?;
                 let symbol_id = self
                     .library
-                    .get(&i.library_id.ok_or("Missing library identity")?)
+                    .get(&lib_id)
                     .ok_or_else(|| format!("{location}: unresolved library reference"))?
                     .clone();
+                let inst_kind = match o.class {
+                    TimelineClass::Sprite => SymbolKind::MovieClip,
+                    TimelineClass::Button => SymbolKind::Button,
+                    _ => SymbolKind::Graphic,
+                };
+                if let Some(&lib_kind) = self.library_kinds.get(&lib_id)
+                    && inst_kind != lib_kind
+                {
+                    element.instance_behavior = Some(inst_kind);
+                }
                 let first = u32::from(i.first_frame.unwrap_or(0));
                 let playback =
                     if o.class == TimelineClass::Sprite || o.class == TimelineClass::Button {
@@ -2058,11 +2180,17 @@ impl Context<'_> {
                     symbol_id,
                     playback,
                 };
+                if let Some(ps) = prop_script {
+                    element.scripts.push(ps);
+                }
                 if let Some(script) = self.actions(s, i.actions.as_ref())? {
                     element.scripts.push(ObjectScript {
                         event: ObjectEvent::Load,
                         script,
                     });
+                }
+                if let Some(render_mode) = i.bitmap_render_mode {
+                    element.cache_as_bitmap = render_mode == 1;
                 }
                 let acc_role = if o.class == TimelineClass::Button {
                     AccessibleRole::Button
@@ -2255,8 +2383,9 @@ impl Context<'_> {
                 element.name = optional_text(&s.original_bytes, v.instance_name.as_ref())?;
                 let matrix = shape::matrix(v.matrix_words.ok_or("Missing video matrix")?);
                 element.transform = Transform::from_matrix(matrix).ok_or("Invalid video matrix")?;
-                let mut width = 160.0;
-                let mut height = 120.0;
+                let asset = v.media_id.and_then(|mid| self.videos.get(&mid));
+                let mut width = asset.map_or(160.0, |a| a.width);
+                let mut height = asset.map_or(120.0, |a| a.height);
                 if let Some([left, right, top, bottom]) = v.bounds_words
                     && left != i32::MIN
                 {
@@ -2285,12 +2414,21 @@ impl Context<'_> {
                     c.matrix_words.ok_or("Missing compiled clip matrix")?,
                 ))
                 .ok_or("Invalid compiled clip matrix")?;
-                if c.property_count.is_some_and(|v| v != 0) {
+                let (prop_script, prop_lossy) = instance_props::translate_component_properties(
+                    &s.original_bytes,
+                    c.properties.as_ref(),
+                    c.property_count,
+                    self.language,
+                );
+                if prop_lossy {
                     self.report.warning(
                         "fla_instance_settings",
                         &location,
                         "Component parameters or per-instance animation settings are not imported; they remain in the embedded source.",
                     );
+                }
+                if let Some(ps) = prop_script {
+                    element.scripts.push(ps);
                 }
                 if let Some(script) = self.actions(s, c.actions.as_ref())? {
                     element.scripts.push(ObjectScript {
@@ -2307,8 +2445,46 @@ impl Context<'_> {
                 let symbol_id = if let Some(media) = c.media_id {
                     let sym_id = format!("fla-compiled-clip-{media}");
                     if !self.generated.iter().any(|g| g.id == sym_id) {
+                        let members = if let Some(cc_asset) = self.compiled_clips.get(&media) {
+                            if let Some(icon) = &cc_asset.icon_bitmap {
+                                let mut tf = Transform::default();
+                                if icon.width > 0.0 && icon.height > 0.0 {
+                                    tf.scale_x = (cc_asset.width / icon.width).clamp(0.01, 1000.0);
+                                    tf.scale_y =
+                                        (cc_asset.height / icon.height).clamp(0.01, 1000.0);
+                                }
+                                vec![Element {
+                                    id: format!("{sym_id}-el"),
+                                    name: String::new(),
+                                    transform: tf,
+                                    kind: ElementKind::Bitmap {
+                                        resource_id: icon.resource_id.clone(),
+                                        width: icon.width as u32,
+                                        height: icon.height as u32,
+                                        smoothing: icon.smoothing,
+                                    },
+                                    ..Element::default()
+                                }]
+                            } else {
+                                vec![Element {
+                                    id: format!("{sym_id}-el"),
+                                    name: String::new(),
+                                    transform: Transform::default(),
+                                    kind: ElementKind::Rectangle {
+                                        width: cc_asset.width,
+                                        height: cc_asset.height,
+                                        fill: [180, 180, 180, 64],
+                                        stroke: [120, 120, 120, 160],
+                                        stroke_width: 1.0,
+                                    },
+                                    ..Element::default()
+                                }]
+                            }
+                        } else {
+                            vec![]
+                        };
                         let mut sym =
-                            group_symbol(&sym_id, format!("Compiled clip #{media}"), vec![]);
+                            group_symbol(&sym_id, format!("Compiled clip #{media}"), members);
                         sym.kind = SymbolKind::MovieClip;
                         self.generated.push(sym);
                     }
@@ -2403,7 +2579,11 @@ impl Context<'_> {
                 ));
             }
         }
-        if o.base
+        if !matches!(
+            &o.payload,
+            Some(TimelinePayload::Instance(i)) if i.bitmap_render_mode.is_some()
+        ) && o
+            .base
             .as_ref()
             .is_some_and(|b| b.cache_as_bitmap.unwrap_or(0) != 0)
         {
@@ -2449,19 +2629,23 @@ fn normalize_playback(symbols: &mut [Symbol], report: &mut ImportReport) {
                 };
                 continue;
             }
+            if let InstancePlayback::LoopFrom(f) = *playback
+                && f >= len
+            {
+                // Looping graphics wrap modulo symbol frame_count natively in Flash.
+                *playback = if f % len == 0 {
+                    InstancePlayback::Loop
+                } else {
+                    InstancePlayback::LoopFrom(f % len)
+                };
+                continue;
+            }
             let fixed = match *playback {
                 InstancePlayback::SingleFrame(f) if f >= len => {
                     InstancePlayback::SingleFrame(len - 1)
                 }
                 InstancePlayback::PlayOnceFrom(f) if f >= len => {
                     InstancePlayback::PlayOnceFrom(len - 1)
-                }
-                InstancePlayback::LoopFrom(f) if f >= len => {
-                    if f % len == 0 {
-                        InstancePlayback::Loop
-                    } else {
-                        InstancePlayback::LoopFrom(f % len)
-                    }
                 }
                 _ => continue,
             };
@@ -3445,7 +3629,11 @@ fn shed_audio_resources(project: &mut Project, report: &mut ImportReport, excess
         .resources
         .iter()
         .filter_map(|r| {
-            let suffix = r.id.strip_prefix("legacy-sound-")?;
+            let suffix = r.id.strip_prefix("legacy-sound-").or_else(|| {
+                r.path
+                    .strip_prefix("legacy/sounds/")
+                    .and_then(|s| s.split('/').next())
+            })?;
             let media_id = suffix.parse::<u16>().ok()?;
             Some((r.data_base64.len(), media_id, r.id.clone()))
         })
@@ -4684,6 +4872,7 @@ fn convert_accessibility(
 fn decode_cpic_text_style(
     stream: &BinaryTimelineStream,
     style: &TimelineTextStyle,
+    is_single_line: bool,
     lossy: &mut Vec<&'static str>,
 ) -> Result<(TextFormat, f64), String> {
     if style.revision < 2 {
@@ -4741,6 +4930,19 @@ fn decode_cpic_text_style(
             value.target = clean_bounded_text(&value.target, 256);
         }
         value.set_align_mode(Some(mode));
+    }
+    // Flash allows tight negative inter-line leading down to -360 pt and floors
+    // effective line advance above zero (and ignores leading on single-line text).
+    if value.size > 0.0
+        && value.size <= 9999.0
+        && (-9999.0..=9999.0).contains(&value.leading)
+        && value.size * 1.2 + value.leading <= 0.0
+    {
+        value.leading = if is_single_line {
+            0.0
+        } else {
+            (-value.size * 1.2 + 0.05).clamp(-9999.0, 9999.0)
+        };
     }
     if value.validate().is_err() {
         if value.font.trim().is_empty()
@@ -4810,6 +5012,7 @@ pub(super) fn convert_timeline_text(
     let flags = text.flags.unwrap_or(0);
     let is_dynamic_or_input = (flags & 0x0001) != 0;
     let is_input = is_dynamic_or_input && (flags & 0x0002) == 0;
+    let display_as_password = is_dynamic_or_input && (flags & 0x0004) != 0;
     let mut lossy = Vec::new();
     if (flags & !KNOWN_CPIC_TEXT_FLAGS) != 0 {
         lossy.push("unrecognized text flag bits remain in the embedded source");
@@ -4821,10 +5024,25 @@ pub(super) fn convert_timeline_text(
         .filter(|c| !c.is_control())
         .take(256)
         .collect();
-    if !is_dynamic_or_input && !raw_variable.is_empty() {
-        lossy.push("the field's variable binding is not connected");
-    }
     let instance_name = optional_text(&stream.original_bytes, text.instance_name.as_ref())?;
+
+    let bounds = text.bounds_words.ok_or("Text has no archived bounds")?;
+    let [left, right, top, bottom] = bounds.map(|value| f64::from(value) / 20.);
+    let dimensions = TextBoxSize {
+        width: right - left,
+        height: bottom - top,
+    };
+    dimensions.validate().map_err(|error| error.to_string())?;
+
+    let mut raw_run_strings = Vec::with_capacity(text.runs.len());
+    let mut has_raw_newlines = false;
+    for run in &text.runs {
+        let raw_chars = read_string(&stream.original_bytes, &run.characters)?;
+        if raw_chars.contains(['\r', '\n']) {
+            has_raw_newlines = true;
+        }
+        raw_run_strings.push(raw_chars);
+    }
 
     let style = text
         .runs
@@ -4832,19 +5050,28 @@ pub(super) fn convert_timeline_text(
         .map(|run| &run.style)
         .or(text.default_style.as_ref())
         .ok_or("Text has no run or default style")?;
-    let (mut format, alpha) = decode_cpic_text_style(stream, style, &mut lossy)?;
-    let normalize_runs_text = is_dynamic_or_input || text.runs.len() > 1 || (flags & 0x8000) != 0;
+    let prelim_size = f64::from(style.font_size_twips.unwrap_or(240)).max(20.0) / 20.0;
+    let prelim_multiline = has_raw_newlines
+        || (is_dynamic_or_input && !display_as_password && (flags & 0x0010) != 0)
+        || (!is_dynamic_or_input
+            && text.auto_expand.unwrap_or(0) == 0
+            && dimensions.height >= prelim_size * 1.8);
+    let is_single_line = !prelim_multiline;
+
+    let (mut format, alpha) = decode_cpic_text_style(stream, style, is_single_line, &mut lossy)?;
+    let html = is_dynamic_or_input && (flags & (0x8000 | 0x0080)) != 0;
+    let normalize_runs_text = is_dynamic_or_input || text.runs.len() > 1 || html;
     let mut characters = String::new();
     let mut format_runs: Vec<TextFormatRun> = Vec::new();
     let mut nonempty_styles: Vec<&TimelineTextStyle> = Vec::new();
     let mut utf16_cursor = 0u32;
     let mut prev_ended_cr = false;
-    for run in &text.runs {
-        let (run_format, run_alpha) = decode_cpic_text_style(stream, &run.style, &mut lossy)?;
+    for (run, raw_chars) in text.runs.iter().zip(raw_run_strings) {
+        let (run_format, run_alpha) =
+            decode_cpic_text_style(stream, &run.style, is_single_line, &mut lossy)?;
         if (run_alpha - alpha).abs() > 1e-4 {
             lossy.push("per-run alpha uses the first run's alpha");
         }
-        let raw_chars = read_string(&stream.original_bytes, &run.characters)?;
         let run_chars = if normalize_runs_text {
             let trimmed = if prev_ended_cr {
                 raw_chars.strip_prefix('\n').unwrap_or(&raw_chars)
@@ -4922,7 +5149,7 @@ pub(super) fn convert_timeline_text(
         && primary_style.bitmap_rendering.unwrap_or(0) == 0
         && let Some(aa_span) = primary_style.anti_alias
         && let Some(aa_bytes) = stream.original_bytes.get(aa_span.start..aa_span.end)
-        && aa_bytes.len() >= 10
+        && aa_bytes.len() >= 2
     {
         let rev = aa_bytes[0];
         let mode = aa_bytes[1];
@@ -4946,6 +5173,8 @@ pub(super) fn convert_timeline_text(
                 0.0
             };
             (true, s, t)
+        } else if mode == 1 && is_dynamic_or_input {
+            (true, 0.0, 0.0)
         } else {
             (false, 0.0, 0.0)
         }
@@ -4964,13 +5193,6 @@ pub(super) fn convert_timeline_text(
         name,
         AccessibleRole::Button,
     )?;
-    let bounds = text.bounds_words.ok_or("Text has no archived bounds")?;
-    let [left, right, top, bottom] = bounds.map(|value| f64::from(value) / 20.);
-    let dimensions = TextBoxSize {
-        width: right - left,
-        height: bottom - top,
-    };
-    dimensions.validate().map_err(|error| error.to_string())?;
     let words = text.matrix_words.ok_or("Text has no archived matrix")?;
     let [a, b, c, d] =
         [words[0], words[1], words[2], words[3]].map(|value| f64::from(value) / 65536.);
@@ -4988,29 +5210,27 @@ pub(super) fn convert_timeline_text(
     let location = if name.is_empty() { id } else { name };
     if !lossy.is_empty() {
         lossy.dedup();
-        let var_suffix = if !is_dynamic_or_input && !raw_variable.is_empty() {
-            format!(" (variable \"{raw_variable}\")")
-        } else {
-            String::new()
-        };
         report.warning(
             "fla_text_approximated",
             location,
             format!(
-                "Text imported with approximations: {}{var_suffix}. The original text record is retained in the embedded source.",
+                "Text imported with approximations: {}. The original text record is retained in the embedded source.",
                 lossy.join("; "),
             ),
         );
     }
-    if !report
-        .diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.code == "fla_text_metrics")
+    let localization_id = optional_text(&stream.original_bytes, text.localization_id.as_ref())?;
+    let has_bitmap_aa = (flags & 0x20000) == 0 && primary_style.bitmap_rendering.unwrap_or(0) != 0;
+    if (has_bitmap_aa || !localization_id.is_empty())
+        && !report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "fla_text_metrics")
     {
         report.warning(
             "fla_text_metrics",
             location,
-            "Text, font names, style, bounds and placement are retained. Shared text layout uses host font metrics and text-box padding, so static glyph placement/antialiasing may differ from Flash.",
+            "Bitmap-aliased text rendering or localization string IDs are not represented in the shared text engine; original text records remain in the embedded source.",
         );
     }
     if text
@@ -5027,14 +5247,18 @@ pub(super) fn convert_timeline_text(
 
     let filters = convert_filters(&text.filters, location, report);
     let has_newlines = characters.contains(['\r', '\n']);
-    let display_as_password = is_dynamic_or_input && (flags & 0x0004) != 0;
-    let multiline =
-        has_newlines || (is_dynamic_or_input && !display_as_password && (flags & 0x0010) != 0);
-    let word_wrap = is_dynamic_or_input && !display_as_password && (flags & 0x0008) != 0;
-    // Older Flash authoring records also used bit 0x0080 for HTML rendering.
-    // It remains the historical non-selectable bit as well, matching the
-    // independent binary-FLA reference converter.
-    let html = (flags & (0x8000 | 0x0080)) != 0;
+    let static_fixed_wrap = !is_dynamic_or_input
+        && text.auto_expand.unwrap_or(0) == 0
+        && !uniform_vertical
+        && (has_newlines || dimensions.height >= format.size * 1.8);
+    let multiline = has_newlines
+        || static_fixed_wrap
+        || (is_dynamic_or_input && !display_as_password && (flags & 0x0010) != 0);
+    let word_wrap = if is_dynamic_or_input {
+        !display_as_password && (flags & 0x0008) != 0
+    } else {
+        static_fixed_wrap
+    };
     let has_typography_opts = uniform_superscript
         || uniform_subscript
         || uniform_vertical

@@ -124,7 +124,11 @@
                         "bullet": false,
                         "tabStops": [],
                         "url": "",
-                        "target": ""
+                        "target": "",
+                        "fieldOptions": {
+                          "field_type": "dynamic",
+                          "anti_alias_type": "advanced"
+                        }
                       },
                       "word_wrap": false,
                       "multiline": false
@@ -168,7 +172,8 @@
                         "target": "",
                         "fieldOptions": {
                           "field_type": "dynamic",
-                          "variable": "_parent._parent.helloworld"
+                          "variable": "_parent._parent.helloworld",
+                          "anti_alias_type": "advanced"
                         }
                       },
                       "word_wrap": false,
@@ -308,7 +313,11 @@
                         "bullet": false,
                         "tabStops": [],
                         "url": "",
-                        "target": ""
+                        "target": "",
+                        "fieldOptions": {
+                          "field_type": "dynamic",
+                          "anti_alias_type": "advanced"
+                        }
                       },
                       "word_wrap": false,
                       "multiline": false
