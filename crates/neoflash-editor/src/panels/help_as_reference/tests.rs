@@ -543,7 +543,6 @@ fn t389_api_index_gives_every_actionscript_member_a_status_and_lists_missing_one
     let (working, partial, missing) = movie_clip.support_counts();
     assert_eq!(working + partial + missing, movie_clip.members.len());
 
-    // Missing declarations are listed with their status, never offered by the toolbox.
     let net_stream = api_index(LanguageScope::As1As2)
         .class("NetStream")
         .expect("NetStream");
@@ -552,8 +551,18 @@ fn t389_api_index_gives_every_actionscript_member_a_status_and_lists_missing_one
         .iter()
         .find(|m| m.name == "attachAudio")
         .expect("NetStream.attachAudio");
-    assert_eq!(attach.support, Some(Support::Missing));
+    assert_eq!(attach.support, Some(Support::Working));
     assert_eq!(attach.row_signature, "(theMicrophone:Microphone):Void");
+    // Missing declarations (e.g. out-of-target components/extensions) are listed with their status.
+    for scope in [LanguageScope::As1As2, LanguageScope::As3] {
+        assert!(
+            api_index(scope)
+                .classes
+                .values()
+                .flat_map(|class| &class.members)
+                .any(|m| m.support == Some(Support::Missing))
+        );
+    }
     // A partial declaration carries its catalogue note.
     assert!(
         api_index(LanguageScope::As3)
