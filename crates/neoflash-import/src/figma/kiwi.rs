@@ -1240,15 +1240,30 @@ fn parse_kiwi_paint_list(arr: &[KiwiVal<'_>], w: f64, h: f64) -> Vec<FigmaPaint>
                     }
                 }
                 if !hash_hex.is_empty() {
-                    let scale_mode = p
+                    let raw_scale_mode = p
                         .get("imageScaleMode")
                         .and_then(KiwiVal::as_str)
-                        .unwrap_or("FILL")
-                        .to_owned();
+                        .unwrap_or("FILL");
+                    let image_transform = p
+                        .get("transform")
+                        .and_then(KiwiVal::as_obj)
+                        .and_then(parse_kiwi_matrix6);
+                    let scale_mode = if raw_scale_mode.eq_ignore_ascii_case("STRETCH") {
+                        "CROP".to_owned()
+                    } else {
+                        raw_scale_mode.to_ascii_uppercase()
+                    };
+                    let scaling_factor = p
+                        .get("scale")
+                        .or_else(|| p.get("scalingFactor"))
+                        .and_then(KiwiVal::as_f64)
+                        .filter(|v| v.is_finite() && *v > 0.0);
                     out.push(FigmaPaint::Image {
                         image_ref: hash_hex,
                         scale_mode,
                         alpha: opacity,
+                        image_transform,
+                        scaling_factor,
                     });
                 }
             }
@@ -1323,8 +1338,12 @@ fn parse_kiwi_effects(obj: &KiwiObj<'_>) -> Vec<FigmaEffect> {
                     inner: etype == "INNER_SHADOW",
                 });
             }
-            "LAYER_BLUR" => effects.push(FigmaEffect::LayerBlur { radius }),
-            "BACKGROUND_BLUR" => effects.push(FigmaEffect::BackgroundBlur { radius }),
+            "LAYER_BLUR" if radius > 0.0 => {
+                effects.push(FigmaEffect::LayerBlur { radius });
+            }
+            "BACKGROUND_BLUR" if radius > 0.0 => {
+                effects.push(FigmaEffect::BackgroundBlur { radius });
+            }
             _ => {}
         }
     }

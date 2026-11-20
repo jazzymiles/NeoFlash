@@ -81,6 +81,29 @@ impl SwfBytecodePlayer {
         steps: &mut usize,
         depth: usize,
     ) -> Avm1Value {
+        let outer_scopes = vec![Avm1Value::MovieClip("_root".to_owned())];
+        self.run_avm2_method_with_outer_scopes(
+            abc_idx,
+            method_idx,
+            this_val,
+            outer_scopes,
+            args,
+            steps,
+            depth,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn run_avm2_method_with_outer_scopes(
+        &mut self,
+        abc_idx: usize,
+        method_idx: usize,
+        this_val: Avm1Value,
+        outer_scopes: Vec<Avm1Value>,
+        args: Vec<Avm1Value>,
+        steps: &mut usize,
+        depth: usize,
+    ) -> Avm1Value {
         if depth > MAX_CALL_DEPTH {
             self.record_unsupported_diagnostic(format!(
                 "AVM2 call depth exceeded bounded limit ({MAX_CALL_DEPTH})"
@@ -392,9 +415,17 @@ impl SwfBytecodePlayer {
                 0x40 => {
                     // newfunction
                     let Some(midx) = r.u30() else { break };
+                    let mut captured = outer_scopes.clone();
+                    captured.extend(scope_stack.iter().cloned());
+                    let cid = self.avm2_closures.len();
+                    self.avm2_closures.push(Avm2Closure {
+                        abc_idx,
+                        method_idx: midx,
+                        outer_scopes: captured,
+                    });
                     self.push_avm_stack(
                         &mut stack,
-                        Avm1Value::String(format!("__avm2_fn:{abc_idx}:{midx}")),
+                        Avm1Value::String(format!("__avm2_closure:{cid}:{abc_idx}:{midx}")),
                     );
                 }
                 0x41 => {
@@ -542,8 +573,44 @@ impl SwfBytecodePlayer {
                 }
                 0x57 => {
                     // newactivation
+                    let mut act_props = HashMap::new();
+                    if let Some(loaded) = self.abc_tags.get(abc_idx)
+                        && let Some(body) = loaded.abc.bodies_by_method.get(&method_idx)
+                    {
+                        for tr in &body.traits {
+                            if let AbcTraitData::Slot {
+                                type_name,
+                                vindex,
+                                vkind,
+                                ..
+                            } = tr.data
+                            {
+                                let (_, sname) = loaded.abc.split_qname(tr.name);
+                                if sname.is_empty() {
+                                    continue;
+                                }
+                                let init_val = if vindex != 0 || vkind != 0 {
+                                    abc_const_to_avm_value(&loaded.abc, vindex, vkind)
+                                } else {
+                                    let (_, ty) = loaded.abc.split_qname(type_name);
+                                    match ty.as_str() {
+                                        "int" | "uint" => Avm1Value::Number(0.0),
+                                        "Number" => Avm1Value::Number(f64::NAN),
+                                        "Boolean" => Avm1Value::Bool(false),
+                                        "*" | "" => Avm1Value::Undefined,
+                                        _ => Avm1Value::Null,
+                                    }
+                                };
+                                act_props.insert(sname, init_val);
+                            }
+                        }
+                    }
                     let obj_id = self.avm1_objects.len();
-                    self.avm1_objects.push(Avm1Object::default());
+                    self.avm1_objects.push(Avm1Object {
+                        props: act_props,
+                        avm2_activation_method: Some((abc_idx, method_idx)),
+                        ..Default::default()
+                    });
                     self.push_avm_stack(&mut stack, Avm1Value::Object(obj_id));
                 }
                 0x58 => {
@@ -566,7 +633,7 @@ impl SwfBytecodePlayer {
                     let Some(mn_idx) = r.u30() else { break };
                     let name = self.pop_avm2_multiname(abc_idx, mn_idx, &mut stack);
                     let mut resolved = None;
-                    for sc in scope_stack.iter().rev() {
+                    for sc in scope_stack.iter().rev().chain(outer_scopes.iter().rev()) {
                         if let Avm1Value::Object(oid) = sc
                             && self.avm2_object_has_prop(*oid, &name)
                         {
@@ -587,7 +654,7 @@ impl SwfBytecodePlayer {
                     let Some(mn_idx) = r.u30() else { break };
                     let (pkg, name) = self.abc_tags[abc_idx].abc.split_qname(mn_idx);
                     let mut val_opt = None;
-                    for sc in scope_stack.iter().rev() {
+                    for sc in scope_stack.iter().rev().chain(outer_scopes.iter().rev()) {
                         if let Avm1Value::Object(oid) = sc
                             && self.avm2_object_has_prop(*oid, &name)
                         {
@@ -671,8 +738,9 @@ impl SwfBytecodePlayer {
                 }
                 0x64 => {
                     // getglobalscope
-                    let gs = scope_stack
+                    let gs = outer_scopes
                         .first()
+                        .or_else(|| scope_stack.first())
                         .cloned()
                         .unwrap_or_else(|| Avm1Value::MovieClip("_root".into()));
                     self.push_avm_stack(&mut stack, gs);
@@ -696,8 +764,12 @@ impl SwfBytecodePlayer {
                 }
                 0x67 => {
                     // getouterscope
-                    let Some(_idx) = r.u30() else { break };
-                    self.push_avm_stack(&mut stack, Avm1Value::MovieClip("_root".into()));
+                    let Some(idx) = r.u30() else { break };
+                    let sc = outer_scopes
+                        .get(idx)
+                        .cloned()
+                        .unwrap_or_else(|| Avm1Value::MovieClip("_root".into()));
+                    self.push_avm_stack(&mut stack, sc);
                 }
                 0x6A => {
                     // deleteproperty
@@ -711,7 +783,7 @@ impl SwfBytecodePlayer {
                     // getslot
                     let Some(slot_idx) = r.u30() else { break };
                     let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let key = format!("__slot_{slot_idx}");
+                    let (key, _) = self.resolve_avm2_activation_or_slot_key(&obj, slot_idx);
                     let val = self.get_avm2_property_eval(&obj, &key, steps, depth);
                     self.push_avm_stack(&mut stack, val);
                 }
@@ -720,8 +792,15 @@ impl SwfBytecodePlayer {
                     let Some(slot_idx) = r.u30() else { break };
                     let val = stack.pop().unwrap_or(Avm1Value::Undefined);
                     let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let key = format!("__slot_{slot_idx}");
-                    self.set_avm2_property_eval(&obj, &key, val, steps, depth);
+                    let (key, coerce_ty) = self.resolve_avm2_activation_or_slot_key(&obj, slot_idx);
+                    let coerced = if let Some((t_abc, t_mn)) = coerce_ty
+                        && t_mn != 0
+                    {
+                        self.avm2_coerce_multiname(t_abc, t_mn, val)
+                    } else {
+                        val
+                    };
+                    self.set_avm2_property_eval(&obj, &key, coerced, steps, depth);
                 }
                 0x6E => {
                     // getglobalslot

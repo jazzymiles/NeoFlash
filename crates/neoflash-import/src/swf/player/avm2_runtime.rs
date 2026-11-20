@@ -652,6 +652,37 @@ impl SwfBytecodePlayer {
         Avm1Value::Object(obj_id)
     }
 
+    pub(super) fn resolve_avm2_activation_or_slot_key(
+        &self,
+        obj: &Avm1Value,
+        slot_idx: usize,
+    ) -> (String, Option<(usize, usize)>) {
+        if let Avm1Value::Object(oid) = obj
+            && let Some((a_idx, m_idx)) = self
+                .avm1_objects
+                .get(*oid)
+                .and_then(|o| o.avm2_activation_method)
+            && let Some(loaded) = self.abc_tags.get(a_idx)
+            && let Some(body) = loaded.abc.bodies_by_method.get(&m_idx)
+        {
+            for (ti, tr) in body.traits.iter().enumerate() {
+                if let AbcTraitData::Slot {
+                    slot_id, type_name, ..
+                } = tr.data
+                {
+                    let resolved_slot = if slot_id == 0 { ti + 1 } else { slot_id };
+                    if resolved_slot == slot_idx {
+                        let (_, sname) = loaded.abc.split_qname(tr.name);
+                        if !sname.is_empty() {
+                            return (sname, Some((a_idx, type_name)));
+                        }
+                    }
+                }
+            }
+        }
+        (format!("__slot_{slot_idx}"), None)
+    }
+
     pub(super) fn resolve_avm2_slot_name(
         &self,
         c_abc: usize,
@@ -890,6 +921,7 @@ impl SwfBytecodePlayer {
         match prop {
             "currentFrame" => Avm1Value::Number(f64::from(self.current_frame + 1)),
             "totalFrames" => Avm1Value::Number(f64::from(self.root_timeline.total_frames)),
+            "numChildren" => Avm1Value::Number(self.display_list.len() as f64),
             "Math" => Avm1Value::MovieClip("Math".into()),
             _ => {
                 if let Some((depth, slot)) = self.display_list.iter().find_map(|(depth, slot)| {
@@ -1080,6 +1112,25 @@ impl SwfBytecodePlayer {
         steps: &mut usize,
         depth: usize,
     ) -> Avm1Value {
+        if let Avm1Value::String(tok) = receiver
+            && is_avm2_fn_token(tok)
+            && (prop == "call" || prop == "apply")
+        {
+            let this_arg = args.first().cloned().unwrap_or(Avm1Value::Null);
+            let call_args = if prop == "call" {
+                args.into_iter().skip(1).collect()
+            } else if let Some(Avm1Value::Object(arr_id)) = args.get(1) {
+                self.avm1_objects
+                    .get(*arr_id)
+                    .and_then(|o| o.array_elements.clone())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            return self
+                .invoke_avm2_callable_with_this(receiver, this_arg, call_args, steps, depth);
+        }
+
         if let Avm1Value::Object(oid) = receiver {
             if let Some((c_abc, c_idx)) = self.avm1_objects.get(*oid).and_then(|o| o.avm2_class) {
                 let mut cur = Some((c_abc, c_idx));
@@ -1291,13 +1342,41 @@ impl SwfBytecodePlayer {
             "addFrameScript" => {
                 for pair in args.as_chunks::<2>().0 {
                     let f_idx = ecma_f64_to_i32(avm2_to_number(&pair[0])).max(0) as u32;
-                    if let Avm1Value::String(s) = &pair[1]
-                        && let Some((a_idx, m_idx)) = parse_avm2_fn_token(s)
-                    {
-                        self.avm2_frame_scripts.insert(f_idx, (a_idx, m_idx));
+                    match &pair[1] {
+                        Avm1Value::Null | Avm1Value::Undefined => {
+                            self.avm2_frame_scripts.remove(&f_idx);
+                        }
+                        Avm1Value::String(s) if is_avm2_fn_token(s) => {
+                            self.avm2_frame_scripts
+                                .insert(f_idx, Avm1Value::String(s.clone()));
+                        }
+                        _ => {}
                     }
                 }
                 return Avm1Value::Undefined;
+            }
+            "addChild" => {
+                if let Some(child_arg) = args.first() {
+                    return self.avm2_add_child_to_target("_root", child_arg);
+                }
+                return Avm1Value::Undefined;
+            }
+            "removeChild" => {
+                if let Some(child_arg) = args.first() {
+                    return self.avm2_remove_child_value(child_arg);
+                }
+                return Avm1Value::Undefined;
+            }
+            "getChildByName" => {
+                let want = args
+                    .first()
+                    .map_or_else(String::new, |v| avm2_convert_string(v, &self.avm1_objects));
+                if !want.is_empty()
+                    && let Some((d, slot)) = self.display_list.iter().find(|(_, s)| s.name == want)
+                {
+                    return Avm1Value::MovieClipIdentity(live_slot_segment(*d, slot));
+                }
+                return Avm1Value::Null;
             }
             "stop" => {
                 self.playing = false;
@@ -1416,6 +1495,95 @@ impl SwfBytecodePlayer {
         self.call_avm1_method(receiver, prop, args, &mut dummy_locals, steps, depth)
     }
 
+    pub(super) fn avm2_add_child_to_target(
+        &mut self,
+        parent_target: &str,
+        child_arg: &Avm1Value,
+    ) -> Avm1Value {
+        let next_script_depth = if parent_target == "_root" || parent_target.is_empty() {
+            self.display_list
+                .keys()
+                .copied()
+                .filter(|&d| d >= 16384)
+                .max()
+                .map_or(0, |max_d| i32::from(max_d) - 16384 + 1)
+        } else if let Some(pslot) = self.target_slot(parent_target) {
+            pslot
+                .children
+                .keys()
+                .copied()
+                .filter(|&d| d >= 16384)
+                .max()
+                .map_or(0, |max_d| i32::from(max_d) - 16384 + 1)
+        } else {
+            return Avm1Value::Undefined;
+        };
+        match child_arg {
+            Avm1Value::Object(oid) => {
+                let (name, x, y, alpha, visible, rotation) = self
+                    .avm1_objects
+                    .get(*oid)
+                    .map(|o| {
+                        let nm = o
+                            .props
+                            .get("name")
+                            .map(|v| avm2_convert_string(v, &self.avm1_objects))
+                            .unwrap_or_default();
+                        let px = o.props.get("x").map_or(0.0, avm2_to_number);
+                        let py = o.props.get("y").map_or(0.0, avm2_to_number);
+                        let pa = o.props.get("alpha").map_or(1.0, avm2_to_number) * 100.0;
+                        let pv = o.props.get("visible").is_none_or(|v| v.to_bool(9));
+                        let pr = o.props.get("rotation").map_or(0.0, avm2_to_number);
+                        (nm, px, py, pa, pv, pr)
+                    })
+                    .unwrap_or_else(|| (String::new(), 0.0, 0.0, 100.0, true, 0.0));
+                let created =
+                    self.create_empty_movie_clip_in_target(parent_target, &name, next_script_depth);
+                if let Avm1Value::MovieClipIdentity(ref new_id) = created {
+                    if let Some(slot) = self.target_slot_mut(new_id) {
+                        slot.x = if x.is_finite() { x } else { 0.0 };
+                        slot.y = if y.is_finite() { y } else { 0.0 };
+                        slot.alpha = if alpha.is_finite() { alpha } else { 100.0 };
+                        slot.visible = visible;
+                        slot.rotation = if rotation.is_finite() { rotation } else { 0.0 };
+                        slot.sync_matrix_from_props();
+                    }
+                    if let Some(obj) = self.avm1_objects.get_mut(*oid) {
+                        obj.props.insert(
+                            "__display_target__".to_owned(),
+                            Avm1Value::MovieClipIdentity(new_id.clone()),
+                        );
+                    }
+                }
+                created
+            }
+            Avm1Value::MovieClip(_) | Avm1Value::MovieClipIdentity(_) => child_arg.clone(),
+            _ => Avm1Value::Undefined,
+        }
+    }
+
+    pub(super) fn avm2_remove_child_value(&mut self, child_arg: &Avm1Value) -> Avm1Value {
+        let resolved = match child_arg {
+            Avm1Value::MovieClipIdentity(id) => id.clone(),
+            Avm1Value::MovieClip(mc) => self.canonical_movie_target(mc),
+            Avm1Value::Object(oid) => self
+                .avm1_objects
+                .get(*oid)
+                .and_then(|o| o.props.get("__display_target__"))
+                .and_then(|v| match v {
+                    Avm1Value::MovieClipIdentity(id) => Some(id.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default(),
+            _ => String::new(),
+        };
+        if !resolved.is_empty() && resolved != "_root" {
+            let _ = self.remove_display_child_with_tombstone(&resolved, true);
+            return child_arg.clone();
+        }
+        Avm1Value::Null
+    }
+
     pub(super) fn invoke_avm2_callable_with_this(
         &mut self,
         fn_val: &Avm1Value,
@@ -1425,6 +1593,29 @@ impl SwfBytecodePlayer {
         depth: usize,
     ) -> Avm1Value {
         if let Avm1Value::String(s) = fn_val {
+            if let Some((cid, a_idx, m_idx)) = parse_avm2_closure_token(s) {
+                let (exec_abc, exec_method, outer) = self
+                    .avm2_closures
+                    .get(cid)
+                    .map(|c| (c.abc_idx, c.method_idx, c.outer_scopes.clone()))
+                    .unwrap_or_else(|| {
+                        (a_idx, m_idx, vec![Avm1Value::MovieClip("_root".to_owned())])
+                    });
+                let this_arg = if matches!(receiver, Avm1Value::Undefined | Avm1Value::Null) {
+                    Avm1Value::MovieClip("_root".to_owned())
+                } else {
+                    receiver
+                };
+                return self.run_avm2_method_with_outer_scopes(
+                    exec_abc,
+                    exec_method,
+                    this_arg,
+                    outer,
+                    args,
+                    steps,
+                    depth + 1,
+                );
+            }
             if let Some((oid, a_idx, m_idx)) = parse_avm2_bound_token(s) {
                 return self.run_avm2_method_with_this(
                     a_idx,
@@ -1456,16 +1647,28 @@ impl SwfBytecodePlayer {
 }
 
 pub(super) fn is_avm2_fn_token(s: &str) -> bool {
-    s.starts_with("__avm2_fn:") || s.starts_with("__avm2_bound:")
+    s.starts_with("__avm2_fn:")
+        || s.starts_with("__avm2_bound:")
+        || s.starts_with("__avm2_closure:")
 }
 
 pub(super) fn parse_avm2_fn_token(s: &str) -> Option<(usize, usize)> {
+    if let Some((_, a, m)) = parse_avm2_closure_token(s) {
+        return Some((a, m));
+    }
     if let Some((_, a, m)) = parse_avm2_bound_token(s) {
         return Some((a, m));
     }
     let rest = s.strip_prefix("__avm2_fn:")?;
     let (a, m) = rest.split_once(':')?;
     Some((a.parse().ok()?, m.parse().ok()?))
+}
+
+pub(super) fn parse_avm2_closure_token(s: &str) -> Option<(usize, usize, usize)> {
+    let rest = s.strip_prefix("__avm2_closure:")?;
+    let (cid, rem) = rest.split_once(':')?;
+    let (a, m) = rem.split_once(':')?;
+    Some((cid.parse().ok()?, a.parse().ok()?, m.parse().ok()?))
 }
 
 pub(super) fn parse_avm2_bound_token(s: &str) -> Option<(usize, usize, usize)> {

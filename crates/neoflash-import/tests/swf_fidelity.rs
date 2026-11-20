@@ -2621,3 +2621,183 @@ fn swf_editable_fields_and_static_utf16_style_runs_preserve_authored_semantics()
     );
     assert!(matches!(input_element.kind, ElementKind::TextBox { .. }));
 }
+
+#[test]
+fn swf_player_backward_seek_step_and_restart_reset_dynamic_clips_tombstones_and_vm_state() {
+    // 1. AVM1 3-frame SWF:
+    //    - DoInitAction initializes `boot = 1`
+    //    - Frame 0 places `hero` (depth 1) and `badge` (depth 2), sets `runs = (runs || 0) + 1`
+    //    - Frame 1 duplicates `badge` -> `badge_dup` (dynamic), creates `spark` (dynamic),
+    //      and swaps + removes `hero` (`hero.swapDepths(30); hero.removeMovieClip()`), leaving a
+    //      removed-depth tombstone on timeline depth 1!
+    //    - Frame 2 has a timeline `PlaceObject2(Move)` on depth 1 (which MUST NOT resurrect
+    //      removed `hero` during forward playback!) and calls `stop()`.
+    let mut tags = Vec::new();
+    swf_tag(&mut tags, 2, &define_square_shape_tag(1, 16, [240, 80, 60]));
+    let mut sp = Vec::new();
+    sp.extend_from_slice(&2_u16.to_le_bytes());
+    sp.extend_from_slice(&1_u16.to_le_bytes());
+    let mut sp_po = vec![0x06];
+    sp_po.extend_from_slice(&1_u16.to_le_bytes());
+    sp_po.extend_from_slice(&1_u16.to_le_bytes());
+    sp_po.extend_from_slice(&swf_matrix_bytes(None, None, 0.0, 0.0));
+    swf_tag(&mut sp, 26, &sp_po);
+    swf_tag(&mut sp, 1, &[]);
+    swf_tag(&mut sp, 0, &[]);
+    swf_tag(&mut tags, 39, &sp);
+
+    // DoInitAction (tag 59): boot = (boot + 1) -> 1 on fresh run
+    let mut init_act = Vec::new();
+    init_act.extend_from_slice(&2_u16.to_le_bytes());
+    avm1_push_str(&mut init_act, "boot");
+    avm1_push_str(&mut init_act, "boot");
+    init_act.push(0x1C);
+    avm1_push_int(&mut init_act, 1);
+    init_act.extend_from_slice(&[0x47, 0x1D, 0x00]);
+    swf_tag(&mut tags, 59, &init_act);
+
+    for (d, nm, x) in [(1_u16, "hero", 12.0), (2_u16, "badge", 40.0)] {
+        let mut p = vec![0x26];
+        p.extend_from_slice(&d.to_le_bytes());
+        p.extend_from_slice(&2_u16.to_le_bytes());
+        p.extend_from_slice(&swf_matrix_bytes(None, None, x, 8.0));
+        p.extend_from_slice(nm.as_bytes());
+        p.push(0);
+        swf_tag(&mut tags, 26, &p);
+    }
+    // Frame 0 DoAction: count = (count + 10); trace("f0:" + boot + ":" + count)
+    let mut f0 = Vec::new();
+    avm1_push_str(&mut f0, "count");
+    avm1_push_str(&mut f0, "count");
+    f0.push(0x1C);
+    avm1_push_int(&mut f0, 10);
+    f0.extend_from_slice(&[0x47, 0x1D]);
+    avm1_push_str(&mut f0, "f0:");
+    avm1_push_str(&mut f0, "boot");
+    f0.extend_from_slice(&[0x1C, 0x47]);
+    avm1_push_str(&mut f0, ":");
+    f0.push(0x47);
+    avm1_push_str(&mut f0, "count");
+    f0.extend_from_slice(&[0x1C, 0x47, 0x26, 0x00]);
+    swf_tag(&mut tags, 12, &f0);
+    swf_tag(&mut tags, 1, &[]);
+
+    // Frame 1 DoAction:
+    //   badge.duplicateMovieClip("badge_dup", 5);
+    //   _root.createEmptyMovieClip("spark", 6);
+    //   hero.swapDepths(30);
+    //   hero.removeMovieClip();
+    //   count += 5; trace("f1:" + count);
+    let mut f1 = Vec::new();
+    avm1_push_int(&mut f1, 5);
+    avm1_push_str(&mut f1, "badge_dup");
+    avm1_push_int(&mut f1, 2);
+    avm1_push_str(&mut f1, "badge");
+    f1.push(0x1C);
+    avm1_push_str(&mut f1, "duplicateMovieClip");
+    f1.extend_from_slice(&[0x52, 0x17]);
+
+    avm1_push_int(&mut f1, 6);
+    avm1_push_str(&mut f1, "spark");
+    avm1_push_int(&mut f1, 2);
+    avm1_push_str(&mut f1, "_root");
+    f1.push(0x1C);
+    avm1_push_str(&mut f1, "createEmptyMovieClip");
+    f1.extend_from_slice(&[0x52, 0x17]);
+
+    avm1_push_int(&mut f1, 30);
+    avm1_push_int(&mut f1, 1);
+    avm1_push_str(&mut f1, "hero");
+    f1.push(0x1C);
+    avm1_push_str(&mut f1, "swapDepths");
+    f1.extend_from_slice(&[0x52, 0x17]);
+
+    avm1_push_int(&mut f1, 0);
+    avm1_push_str(&mut f1, "hero");
+    f1.push(0x1C);
+    avm1_push_str(&mut f1, "removeMovieClip");
+    f1.extend_from_slice(&[0x52, 0x17]);
+
+    avm1_push_str(&mut f1, "count");
+    avm1_push_str(&mut f1, "count");
+    f1.push(0x1C);
+    avm1_push_int(&mut f1, 5);
+    f1.extend_from_slice(&[0x47, 0x1D]);
+    avm1_push_str(&mut f1, "f1:");
+    avm1_push_str(&mut f1, "count");
+    f1.extend_from_slice(&[0x1C, 0x47, 0x26, 0x00]);
+    swf_tag(&mut tags, 12, &f1);
+    swf_tag(&mut tags, 1, &[]);
+
+    // Frame 2: timeline PlaceObject2(Move | HasCharacter | HasMatrix) on depth 1 (tombstoned!)
+    // + DoAction: count += 1; trace("f2:" + count); stop();
+    let mut move_d1 = vec![0x07]; // HasMatrix | HasCharacter | Move
+    move_d1.extend_from_slice(&1_u16.to_le_bytes());
+    move_d1.extend_from_slice(&2_u16.to_le_bytes());
+    move_d1.extend_from_slice(&swf_matrix_bytes(None, None, 99.0, 8.0));
+    swf_tag(&mut tags, 26, &move_d1);
+
+    let mut f2 = Vec::new();
+    avm1_push_str(&mut f2, "count");
+    avm1_push_str(&mut f2, "count");
+    f2.push(0x1C);
+    avm1_push_int(&mut f2, 1);
+    f2.extend_from_slice(&[0x47, 0x1D]);
+    avm1_push_str(&mut f2, "f2:");
+    avm1_push_str(&mut f2, "count");
+    f2.extend_from_slice(&[0x1C, 0x47, 0x26, 0x07, 0x00]);
+    swf_tag(&mut tags, 12, &f2);
+    swf_tag(&mut tags, 1, &[]);
+
+    let swf_bytes = wrap_swf(SwfCompression::Zlib, 8, 3, &tags);
+    let mut player = SwfBytecodePlayer::from_bytes(&swf_bytes).unwrap();
+
+    let s0 = player.step_frame();
+    assert_eq!(s0.traces, vec!["f0:1:10"]);
+    assert_eq!(
+        s0.display_list
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["hero", "badge"]
+    );
+
+    let s1 = player.step_frame();
+    assert_eq!(s1.traces, vec!["f1:15"]);
+    assert_eq!(
+        s1.display_list
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["badge", "badge_dup", "spark"]
+    );
+
+    let s2 = player.step_frame();
+    assert_eq!(s2.traces, vec!["f2:16"]);
+    assert!(
+        s2.display_list
+            .iter()
+            .all(|e| e.depth != 1 && e.name != "hero"),
+        "removed-depth tombstone on depth 1 must block Move resurrection on frame 2: {:?}",
+        s2.display_list
+    );
+
+    // Backward seek to frame 0: dynamic/duplicated clips (`badge_dup`, `spark`) and depth-1
+    // tombstone MUST be cleared so `hero` reappears at x=12 and `DoInitAction` + `count` reset!
+    let seek0 = player.seek_to_frame(0);
+    assert_eq!(seek0, s0);
+    // Stepping forward from seek0 must deterministically match s1 and s2:
+    assert_eq!(player.step_frame(), s1);
+    assert_eq!(player.step_frame(), s2);
+
+    // Backward seek to frame 1, then step forward to frame 2:
+    let seek1 = player.seek_to_frame(1);
+    assert_eq!(seek1, s1);
+    assert_eq!(player.step_frame(), s2);
+
+    // Explicit `restart()` from stopped frame 2 must reset all state and evaluate frame 0 cleanly:
+    let restarted = player.restart();
+    assert_eq!(restarted, s0);
+    assert_eq!(player.step_frame(), s1);
+    assert_eq!(player.step_frame(), s2);
+}

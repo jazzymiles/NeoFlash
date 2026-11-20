@@ -113,12 +113,14 @@ impl SwfBytecodePlayer {
             clip_depth: None,
             masked_by: None,
             is_dynamic: true,
+            origin_timeline_depth: None,
             ratio: None,
             cache_as_bitmap: false,
             current_frame: 0,
             total_frames: 1,
             playing: true,
             last_applied_frame: Some(0),
+            removed_timeline_depths: BTreeSet::new(),
             children: BTreeMap::new(),
             props: HashMap::new(),
             clip_handlers: Vec::new(),
@@ -187,12 +189,14 @@ impl SwfBytecodePlayer {
             clip_depth: None,
             masked_by: None,
             is_dynamic: true,
+            origin_timeline_depth: None,
             ratio: None,
             cache_as_bitmap: false,
             current_frame: 0,
             total_frames,
             playing: true,
             last_applied_frame: None,
+            removed_timeline_depths: BTreeSet::new(),
             children: BTreeMap::new(),
             props: HashMap::new(),
             clip_handlers: Vec::new(),
@@ -286,6 +290,7 @@ impl SwfBytecodePlayer {
             clip_depth: None,
             masked_by: None,
             is_dynamic: true,
+            origin_timeline_depth: None,
             ratio: src_slot.ratio,
             cache_as_bitmap: src_slot.cache_as_bitmap,
             current_frame: 0,
@@ -296,6 +301,7 @@ impl SwfBytecodePlayer {
             } else {
                 None
             },
+            removed_timeline_depths: BTreeSet::new(),
             children: BTreeMap::new(),
             props: HashMap::new(),
             clip_handlers: src_slot.clip_handlers.clone(),
@@ -365,8 +371,16 @@ impl SwfBytecodePlayer {
     }
 
     pub(super) fn remove_movie_clip_identity(&mut self, target: &str) {
+        let _ = self.remove_display_child_with_tombstone(target, false);
+    }
+
+    pub(super) fn remove_display_child_with_tombstone(
+        &mut self,
+        target: &str,
+        allow_timeline_depth: bool,
+    ) -> bool {
         if target.is_empty() || target == "_root" {
-            return;
+            return false;
         }
         let (parent_target, last_seg) = target
             .rsplit_once('/')
@@ -375,16 +389,19 @@ impl SwfBytecodePlayer {
             .strip_prefix("depth")
             .and_then(|d| d.parse::<u16>().ok())
         else {
-            return;
+            return false;
         };
         let mut unload_work = None;
         let removed = if parent_target == "_root" {
             if self
                 .display_list
                 .get(&depth)
-                .is_some_and(|s| s.is_dynamic || depth >= 16384)
+                .is_some_and(|s| allow_timeline_depth || s.is_dynamic || depth >= 16384)
             {
                 if let Some(slot) = self.display_list.remove(&depth) {
+                    if let Some(orig_d) = slot.origin_timeline_depth {
+                        self.removed_timeline_depths.insert(orig_d);
+                    }
                     unload_work = detached_unload_work(&slot, target);
                 }
                 true
@@ -395,9 +412,12 @@ impl SwfBytecodePlayer {
             if parent_slot
                 .children
                 .get(&depth)
-                .is_some_and(|s| s.is_dynamic || depth >= 16384)
+                .is_some_and(|s| allow_timeline_depth || s.is_dynamic || depth >= 16384)
             {
                 if let Some(slot) = parent_slot.children.remove(&depth) {
+                    if let Some(orig_d) = slot.origin_timeline_depth {
+                        parent_slot.removed_timeline_depths.insert(orig_d);
+                    }
                     unload_work = detached_unload_work(&slot, target);
                 }
                 true
@@ -413,6 +433,7 @@ impl SwfBytecodePlayer {
                 self.execute_avm1_work(w);
             }
         }
+        removed
     }
 
     pub(super) fn target_slot(&self, target: &str) -> Option<&LiveSlot> {
@@ -620,6 +641,15 @@ impl SwfBytecodePlayer {
                 return self.get_avm1_member(scope, name);
             }
         }
+        for &scope_id in self.avm1_scope_chain.iter().rev() {
+            if let Some(v) = self
+                .avm1_objects
+                .get(scope_id)
+                .and_then(|o| o.props.get(name))
+            {
+                return v.clone();
+            }
+        }
         if let Some(v) = locals.get(name) {
             return v.clone();
         }
@@ -699,6 +729,18 @@ impl SwfBytecodePlayer {
         for scope in self.avm1_with_scopes.clone().into_iter().rev() {
             if self.avm1_has_member(&scope, &name) {
                 self.set_avm1_member(&scope, &name, val);
+                return;
+            }
+        }
+        for &scope_id in self.avm1_scope_chain.iter().rev() {
+            if self
+                .avm1_objects
+                .get(scope_id)
+                .is_some_and(|o| o.props.contains_key(&name))
+            {
+                if let Some(o) = self.avm1_objects.get_mut(scope_id) {
+                    o.props.insert(name, val);
+                }
                 return;
             }
         }
@@ -1087,6 +1129,24 @@ impl SwfBytecodePlayer {
         } else {
             Avm1Value::MovieClipIdentity(target.clone())
         };
+        for scope in self.avm1_with_scopes.clone().into_iter().rev() {
+            if self.avm1_has_member(&scope, fn_name)
+                && let Avm1Value::Object(id) = self.get_avm1_member(&scope, fn_name)
+                && let Some(func) = self.avm1_objects.get(id).and_then(|o| o.function.clone())
+            {
+                return self.invoke_avm1_func_with_this(&func, scope, None, args, steps, depth);
+            }
+        }
+        for &scope_id in self.avm1_scope_chain.iter().rev() {
+            if let Some(Avm1Value::Object(id)) = self
+                .avm1_objects
+                .get(scope_id)
+                .and_then(|o| o.props.get(fn_name).cloned())
+                && let Some(func) = self.avm1_objects.get(id).and_then(|o| o.function.clone())
+            {
+                return self.invoke_avm1_func_with_this(&func, this_val, None, args, steps, depth);
+            }
+        }
         if let Some(Avm1Value::Object(id)) = caller_locals.get(fn_name).cloned()
             && let Some(func) = self.avm1_objects.get(id).and_then(|o| o.function.clone())
         {
@@ -1905,17 +1965,25 @@ impl SwfBytecodePlayer {
         if src_depth == dst_depth {
             return;
         }
-        let map = if parent_target == "_root" {
-            &mut self.display_list
+        let (map, tombstones) = if parent_target == "_root" {
+            (&mut self.display_list, &mut self.removed_timeline_depths)
         } else if let Some(slot) = self.target_slot_mut(parent_target) {
-            &mut slot.children
+            (&mut slot.children, &mut slot.removed_timeline_depths)
         } else {
             return;
         };
-        let Some(src_slot) = map.remove(&src_depth) else {
+        let Some(mut src_slot) = map.remove(&src_depth) else {
             return;
         };
-        if let Some(dst_slot) = map.remove(&dst_depth) {
+        src_slot.is_dynamic = true;
+        if let Some(orig_d) = src_slot.origin_timeline_depth {
+            tombstones.insert(orig_d);
+        }
+        if let Some(mut dst_slot) = map.remove(&dst_depth) {
+            dst_slot.is_dynamic = true;
+            if let Some(orig_d) = dst_slot.origin_timeline_depth {
+                tombstones.insert(orig_d);
+            }
             map.insert(src_depth, dst_slot);
         }
         map.insert(dst_depth, src_slot);
@@ -2062,10 +2130,27 @@ impl SwfBytecodePlayer {
             }
         }
 
+        let act_id = self.avm1_objects.len();
+        self.avm1_objects.push(Avm1Object {
+            props: fn_locals,
+            ..Default::default()
+        });
+        let saved_scopes =
+            std::mem::replace(&mut self.avm1_scope_chain, func.captured_scopes.clone());
+        self.avm1_scope_chain.push(act_id);
+
         let mut fn_stack = Vec::new();
+        let mut empty_locals = HashMap::new();
         let ret = self
-            .run_avm1_code(&func.body, &mut fn_stack, &mut fn_locals, steps, depth + 1)
+            .run_avm1_code(
+                &func.body,
+                &mut fn_stack,
+                &mut empty_locals,
+                steps,
+                depth + 1,
+            )
             .unwrap_or(Avm1Value::Undefined);
+        self.avm1_scope_chain = saved_scopes;
         self.avm1_constant_pool = saved_pool;
         self.avm1_registers = saved_regs;
         self.avm1_target = saved_target;

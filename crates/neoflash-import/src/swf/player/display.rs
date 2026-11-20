@@ -695,6 +695,8 @@ impl SwfBytecodePlayer {
                 }
             }
             self.display_list.clear();
+            self.removed_timeline_depths.clear();
+            self.last_applied_frame = None;
             self.execute_avm1_work_list(work);
             0
         } else {
@@ -720,7 +722,12 @@ impl SwfBytecodePlayer {
                     _ => {}
                 }
             }
+            let inter_depths: Vec<u16> = self.display_list.keys().copied().collect();
+            for d in inter_depths {
+                self.step_sprite_frame_actions(d, frame > start_frame);
+            }
         }
+        self.last_applied_frame = destination_frame.checked_sub(1);
     }
 
     pub(super) fn prune_dangling_masks(&mut self) {
@@ -808,6 +815,7 @@ impl SwfBytecodePlayer {
                             }
                         }
                         slot.children.clear();
+                        slot.removed_timeline_depths.clear();
                         0
                     }
                 };
@@ -817,7 +825,14 @@ impl SwfBytecodePlayer {
                         for tag in tags {
                             match tag.code {
                                 4 | 26 | 70 => {
-                                    if let Some(depth) = place_tag_depth(tag.code, &tag.payload)
+                                    let blocked = place_tag_blocked_by_tombstone(
+                                        tag.code,
+                                        &tag.payload,
+                                        &slot.removed_timeline_depths,
+                                        &slot.children,
+                                    );
+                                    if !blocked
+                                        && let Some(depth) = place_tag_depth(tag.code, &tag.payload)
                                         && let Some(child) = slot.children.get(&depth)
                                         && place_tag_replaces_slot(tag.code, &tag.payload)
                                     {
@@ -833,6 +848,7 @@ impl SwfBytecodePlayer {
                                     }
                                     let (load_actions, unmodeled_filter) = apply_place_tag_to_map(
                                         &mut slot.children,
+                                        &mut slot.removed_timeline_depths,
                                         sprites,
                                         swf_version,
                                         tag.code,
@@ -859,6 +875,7 @@ impl SwfBytecodePlayer {
                                 5 | 28 => {
                                     if let Some(depth) = remove_tag_depth(tag.code, &tag.payload)
                                         && let Some(child) = slot.children.get(&depth)
+                                        && !child.is_dynamic
                                     {
                                         let removed_target = join_target_path(
                                             target_path,
@@ -872,6 +889,7 @@ impl SwfBytecodePlayer {
                                     }
                                     let _ = apply_remove_tag_to_map(
                                         &mut slot.children,
+                                        &mut slot.removed_timeline_depths,
                                         tag.code,
                                         &tag.payload,
                                     );
@@ -912,7 +930,13 @@ impl SwfBytecodePlayer {
         payload: &[u8],
     ) -> Vec<PendingAvm1Work> {
         let mut work = Vec::new();
-        let replaced = place_tag_replaces_slot(tag_code, payload);
+        let blocked = place_tag_blocked_by_tombstone(
+            tag_code,
+            payload,
+            &self.removed_timeline_depths,
+            &self.display_list,
+        );
+        let replaced = !blocked && place_tag_replaces_slot(tag_code, payload);
         if let Some(depth) = place_tag_depth(tag_code, payload)
             && let Some(slot) = self.display_list.get(&depth)
             && replaced
@@ -922,6 +946,7 @@ impl SwfBytecodePlayer {
         }
         let (load_scripts, unmodeled_filter) = apply_place_tag_to_map(
             &mut self.display_list,
+            &mut self.removed_timeline_depths,
             &self.sprites,
             self.swf_version,
             tag_code,
@@ -958,13 +983,19 @@ impl SwfBytecodePlayer {
         let mut work = Vec::new();
         if let Some(depth) = remove_tag_depth(tag_code, payload)
             && let Some(slot) = self.display_list.get(&depth)
+            && !slot.is_dynamic
         {
             let target = live_slot_segment(depth, slot);
             if let Some(unload) = detached_unload_work(slot, &target) {
                 work.push(unload);
             }
         }
-        let _ = apply_remove_tag_to_map(&mut self.display_list, tag_code, payload);
+        let _ = apply_remove_tag_to_map(
+            &mut self.display_list,
+            &mut self.removed_timeline_depths,
+            tag_code,
+            payload,
+        );
         self.prune_dangling_masks();
         work
     }
@@ -1145,6 +1176,29 @@ pub(super) fn place_tag_replaces_slot(tag_code: u16, payload: &[u8]) -> bool {
     payload.first().is_some_and(|flags| (flags & 0x02) != 0)
 }
 
+pub(super) fn place_tag_blocked_by_tombstone(
+    tag_code: u16,
+    payload: &[u8],
+    removed_timeline_depths: &BTreeSet<u16>,
+    display_list: &BTreeMap<u16, LiveSlot>,
+) -> bool {
+    if tag_code == 4 {
+        return false;
+    }
+    let Some(&flags1) = payload.first() else {
+        return false;
+    };
+    let is_move = (flags1 & 0x01) != 0;
+    if !is_move {
+        return false;
+    }
+    let Some(depth) = place_tag_depth(tag_code, payload) else {
+        return false;
+    };
+    removed_timeline_depths.contains(&depth)
+        || display_list.get(&depth).is_some_and(|s| s.is_dynamic)
+}
+
 pub(super) fn push_ordered_clip_lifecycle_scripts(
     handlers: &[ClipEventHandler],
     load_scripts: &mut Vec<Vec<u8>>,
@@ -1160,6 +1214,7 @@ pub(super) fn push_ordered_clip_lifecycle_scripts(
 
 pub(super) fn apply_place_tag_to_map(
     display_list: &mut BTreeMap<u16, LiveSlot>,
+    removed_timeline_depths: &mut BTreeSet<u16>,
     sprites: &HashMap<u16, TimelineDef>,
     swf_version: u8,
     tag_code: u16,
@@ -1189,6 +1244,7 @@ pub(super) fn apply_place_tag_to_map(
         let sprite_total = sprites
             .get(&character_id)
             .map_or(1, |s| s.total_frames.max(1));
+        removed_timeline_depths.remove(&depth);
         display_list.insert(
             depth,
             LiveSlot {
@@ -1209,12 +1265,14 @@ pub(super) fn apply_place_tag_to_map(
                 clip_depth: None,
                 masked_by: None,
                 is_dynamic: false,
+                origin_timeline_depth: Some(depth),
                 ratio: None,
                 cache_as_bitmap: false,
                 current_frame: 0,
                 total_frames: sprite_total,
                 playing: true,
                 last_applied_frame: None,
+                removed_timeline_depths: BTreeSet::new(),
                 children: BTreeMap::new(),
                 props: HashMap::new(),
                 clip_handlers: Vec::new(),
@@ -1286,6 +1344,16 @@ pub(super) fn apply_place_tag_to_map(
         Vec::new()
     };
 
+    if is_move {
+        if removed_timeline_depths.contains(&depth)
+            || display_list.get(&depth).is_some_and(|s| s.is_dynamic)
+        {
+            return (load_scripts, unmodeled_filter);
+        }
+    } else if has_character {
+        removed_timeline_depths.remove(&depth);
+    }
+
     if is_move && let Some(slot) = display_list.get_mut(&depth) {
         if let Some(character_id) = new_char {
             push_ordered_clip_lifecycle_scripts(&new_handlers, &mut load_scripts);
@@ -1314,6 +1382,7 @@ pub(super) fn apply_place_tag_to_map(
                     .unwrap_or(slot.clip_depth),
                 masked_by: slot.masked_by.clone(),
                 is_dynamic: false,
+                origin_timeline_depth: Some(depth),
                 ratio: new_ratio.or(slot.ratio),
                 cache_as_bitmap: new_cache_as_bitmap.unwrap_or(slot.cache_as_bitmap),
                 current_frame: 0,
@@ -1322,6 +1391,7 @@ pub(super) fn apply_place_tag_to_map(
                     .map_or(1, |sprite| sprite.total_frames.max(1)),
                 playing: true,
                 last_applied_frame: None,
+                removed_timeline_depths: BTreeSet::new(),
                 children: BTreeMap::new(),
                 props: HashMap::new(),
                 clip_handlers: new_handlers,
@@ -1407,12 +1477,14 @@ pub(super) fn apply_place_tag_to_map(
             clip_depth: new_clip_depth.filter(|&cd| cd > 0),
             masked_by: None,
             is_dynamic: false,
+            origin_timeline_depth: Some(depth),
             ratio: new_ratio,
             cache_as_bitmap: new_cache_as_bitmap.unwrap_or(false),
             current_frame: 0,
             total_frames: sprite_total,
             playing: true,
             last_applied_frame: None,
+            removed_timeline_depths: BTreeSet::new(),
             children: BTreeMap::new(),
             props: HashMap::new(),
             clip_handlers: new_handlers,
@@ -1423,6 +1495,7 @@ pub(super) fn apply_place_tag_to_map(
 
 pub(super) fn apply_remove_tag_to_map(
     display_list: &mut BTreeMap<u16, LiveSlot>,
+    removed_timeline_depths: &mut BTreeSet<u16>,
     tag_code: u16,
     payload: &[u8],
 ) -> Vec<Vec<u8>> {
@@ -1434,12 +1507,15 @@ pub(super) fn apply_remove_tag_to_map(
         r.u16()
     };
     let mut unload_scripts = Vec::new();
-    if let Some(d) = depth
-        && let Some(removed) = display_list.remove(&d)
-    {
-        for h in removed.clip_handlers {
-            if (h.event_flags & CLIP_EVENT_UNLOAD) != 0 {
-                unload_scripts.push(h.actions);
+    if let Some(d) = depth {
+        removed_timeline_depths.remove(&d);
+        if display_list.get(&d).is_some_and(|s| !s.is_dynamic)
+            && let Some(removed) = display_list.remove(&d)
+        {
+            for h in removed.clip_handlers {
+                if (h.event_flags & CLIP_EVENT_UNLOAD) != 0 {
+                    unload_scripts.push(h.actions);
+                }
             }
         }
     }

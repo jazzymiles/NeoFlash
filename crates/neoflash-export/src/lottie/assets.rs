@@ -224,16 +224,75 @@ impl<'a> LottieBuilder<'a> {
             return Ok(None);
         };
 
-        let w = if img.width > 0 {
+        let orig_w = if img.width > 0 {
             img.width
         } else {
             fallback_w.max(1)
         };
-        let h = if img.height > 0 {
+        let orig_h = if img.height > 0 {
             img.height
         } else {
             fallback_h.max(1)
         };
+        let max_dim = self
+            .options
+            .max_image_dimension
+            .filter(|&d| d > 0)
+            .map_or(neoflash_core::MAX_BITMAP_DIMENSION, |d| {
+                d.min(neoflash_core::MAX_BITMAP_DIMENSION)
+            });
+
+        let (working_img, w, h, downscaled) = if (orig_w > max_dim || orig_h > max_dim)
+            && img.width > 0
+            && img.height > 0
+            && let Some(src_rgba) =
+                image::RgbaImage::from_raw(img.width, img.height, img.rgba.to_vec())
+        {
+            self.check_cancelled()?;
+            let ratio = f64::from(max_dim) / f64::from(orig_w.max(orig_h));
+            let out_w = ((f64::from(orig_w) * ratio).round() as u32).clamp(1, max_dim);
+            let out_h = ((f64::from(orig_h) * ratio).round() as u32).clamp(1, max_dim);
+            let resized = image::imageops::resize(
+                &src_rgba,
+                out_w,
+                out_h,
+                image::imageops::FilterType::Lanczos3,
+            );
+            self.check_cancelled()?;
+            self.add_note_coded(
+                LottieNoteKind::Approximated,
+                Some("LOTTIE_BITMAP_DOWNSCALED"),
+                format!("Resource '{}'", unit.id),
+                format!(
+                    "Bitmap '{}' ({orig_w}x{orig_h}) was downscaled to {out_w}x{out_h} (max_image_dimension = {max_dim}px).",
+                    unit.path
+                ),
+                symbol_id.map(str::to_owned),
+                layer_id.map(str::to_owned),
+                frame,
+            );
+            (
+                std::sync::Arc::new(neoflash_core::DecodedImage {
+                    width: out_w,
+                    height: out_h,
+                    rgba: resized.into_raw().into(),
+                }),
+                out_w,
+                out_h,
+                true,
+            )
+        } else {
+            (img, orig_w, orig_h, false)
+        };
+
+        self.image_scale_by_resource.insert(
+            resource_id.to_owned(),
+            [
+                f64::from(orig_w) / f64::from(w.max(1)),
+                f64::from(orig_h) / f64::from(h.max(1)),
+            ],
+        );
+
         let detected = raw_bytes
             .as_deref()
             .map_or(DetectedRaster::Other, detect_raster_magic);
@@ -249,7 +308,7 @@ impl<'a> LottieBuilder<'a> {
                     match settings.compression {
                         BitmapCompression::PhotoJpeg => {
                             let (bytes, has_alpha) = encode_jpeg_composited(
-                                &img,
+                                &working_img,
                                 self.project.background,
                                 settings.jpeg_quality,
                             )?;
@@ -270,20 +329,37 @@ impl<'a> LottieBuilder<'a> {
                             ("jpg", "image/jpeg", bytes)
                         }
                         BitmapCompression::LosslessPng => {
-                            let bytes = if detected == DetectedRaster::Png {
+                            let bytes = if !downscaled && detected == DetectedRaster::Png {
                                 raw_bytes.unwrap()
                             } else {
-                                encode_png_rgba(&img)?
+                                encode_png_rgba(&working_img)?
                             };
                             ("png", "image/png", bytes)
                         }
                         BitmapCompression::Webp => {
-                            let bytes = if detected == DetectedRaster::Webp {
+                            let bytes = if !downscaled && detected == DetectedRaster::Webp {
                                 raw_bytes.unwrap()
                             } else {
-                                encode_webp_rgba(&img)?
+                                encode_webp_rgba(&working_img)?
                             };
                             ("webp", "image/webp", bytes)
+                        }
+                    }
+                } else if downscaled {
+                    match detected {
+                        DetectedRaster::Jpeg => {
+                            let (jpg, _) = encode_jpeg_composited(
+                                &working_img,
+                                self.project.background,
+                                default_jpeg_quality,
+                            )?;
+                            ("jpg", "image/jpeg", jpg)
+                        }
+                        DetectedRaster::Webp => {
+                            ("webp", "image/webp", encode_webp_rgba(&working_img)?)
+                        }
+                        DetectedRaster::Png | DetectedRaster::Gif | DetectedRaster::Other => {
+                            ("png", "image/png", encode_png_rgba(&working_img)?)
                         }
                     }
                 } else {
@@ -293,7 +369,7 @@ impl<'a> LottieBuilder<'a> {
                         DetectedRaster::Webp => ("webp", "image/webp", raw_bytes.unwrap()),
                         DetectedRaster::Gif => ("gif", "image/gif", raw_bytes.unwrap()),
                         DetectedRaster::Other => {
-                            let png = encode_png_rgba(&img)?;
+                            let png = encode_png_rgba(&working_img)?;
                             self.add_note_coded(
                                 LottieNoteKind::Approximated,
                                 Some("LOTTIE_BITMAP_TRANSCODED"),
@@ -312,19 +388,19 @@ impl<'a> LottieBuilder<'a> {
                 }
             }
             LottieImageFormat::Png => {
-                let bytes = if detected == DetectedRaster::Png {
+                let bytes = if !downscaled && detected == DetectedRaster::Png {
                     raw_bytes.unwrap()
                 } else {
-                    encode_png_rgba(&img)?
+                    encode_png_rgba(&working_img)?
                 };
                 ("png", "image/png", bytes)
             }
             LottieImageFormat::Jpeg => {
-                let bytes = if detected == DetectedRaster::Jpeg {
+                let bytes = if !downscaled && detected == DetectedRaster::Jpeg {
                     raw_bytes.unwrap()
                 } else {
                     let (jpg, has_alpha) = encode_jpeg_composited(
-                        &img,
+                        &working_img,
                         self.project.background,
                         default_jpeg_quality,
                     )?;
@@ -347,10 +423,10 @@ impl<'a> LottieBuilder<'a> {
                 ("jpg", "image/jpeg", bytes)
             }
             LottieImageFormat::Webp => {
-                let bytes = if detected == DetectedRaster::Webp {
+                let bytes = if !downscaled && detected == DetectedRaster::Webp {
                     raw_bytes.unwrap()
                 } else {
-                    encode_webp_rgba(&img)?
+                    encode_webp_rgba(&working_img)?
                 };
                 ("webp", "image/webp", bytes)
             }

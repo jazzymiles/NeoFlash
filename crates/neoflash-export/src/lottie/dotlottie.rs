@@ -46,7 +46,9 @@ where
     } else {
         serde_json::to_string(&value)?
     };
-    let zip_bytes = build_dotlottie_zip(json.as_bytes(), &external_images, Some(cancel))?;
+    let meta = DotLottieManifestMeta::from_project(project, &dot_opts, report.frame_count);
+    let zip_bytes =
+        build_dotlottie_zip_with_meta(json.as_bytes(), &external_images, &meta, Some(cancel))?;
     validate_dotlottie_bytes(&zip_bytes)?;
     report.bytes = zip_bytes.len();
     if cancel.load(Ordering::Relaxed)
@@ -98,21 +100,88 @@ pub(super) fn validate_zip_entry_path(name: &str) -> Result<(), ExportError> {
     Ok(())
 }
 
-pub(super) fn build_dotlottie_zip(
+#[derive(Clone, Debug)]
+pub(super) struct DotLottieManifestMeta {
+    pub(super) theme: &'static str,
+    pub(super) theme_color: String,
+    pub(super) background: String,
+    pub(super) loop_playback: bool,
+    pub(super) speed: f64,
+}
+
+impl DotLottieManifestMeta {
+    pub(super) fn from_project(
+        project: &Project,
+        options: &LottieOptions,
+        _frame_count: u32,
+    ) -> Self {
+        let [r, g, b, a] = project.background;
+        let theme_color = format!("#{r:02x}{g:02x}{b:02x}");
+        let luma = 0.2126 * f64::from(r) + 0.7152 * f64::from(g) + 0.0722 * f64::from(b);
+        let theme = if luma < 128.0 { "dark" } else { "light" };
+        let background = if options.include_background && a > 0 {
+            if a == 255 {
+                theme_color.clone()
+            } else {
+                format!("#{r:02x}{g:02x}{b:02x}{a:02x}")
+            }
+        } else {
+            "transparent".to_owned()
+        };
+        Self {
+            theme,
+            theme_color,
+            background,
+            loop_playback: true,
+            speed: 1.0,
+        }
+    }
+}
+
+pub(super) fn build_dotlottie_zip_with_meta(
     animation_json: &[u8],
     external_images: &[ExternalImageFile],
+    meta: &DotLottieManifestMeta,
     cancel: Option<&AtomicBool>,
 ) -> Result<Vec<u8>, ExportError> {
     check_cancel_flag(cancel)?;
-    let manifest = json!({
+    let speed_val = if (meta.speed - meta.speed.round()).abs() <= 1e-6 {
+        json!(meta.speed.round() as i64)
+    } else {
+        json!(meta.speed)
+    };
+    let mut manifest = json!({
         "version": "1.0",
         "generator": "NeoFlash",
+        "themes": [{
+            "id": meta.theme,
+            "animations": ["animation"]
+        }],
         "animations": [{
             "id": "animation",
-            "speed": 1,
-            "loop": true
+            "theme": meta.theme,
+            "themeColor": meta.theme_color,
+            "background": meta.background,
+            "speed": speed_val,
+            "direction": 1,
+            "playMode": "normal",
+            "loop": meta.loop_playback
         }]
     });
+    if !external_images.is_empty()
+        && let Some(obj) = manifest.as_object_mut()
+    {
+        let resources: Vec<Value> = external_images
+            .iter()
+            .map(|img| {
+                json!({
+                    "path": img.relative_path,
+                    "bytes": img.bytes.len()
+                })
+            })
+            .collect();
+        obj.insert("resources".into(), Value::Array(resources));
+    }
     let manifest_bytes = serde_json::to_vec_pretty(&manifest)?;
     let deflate_opts = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);

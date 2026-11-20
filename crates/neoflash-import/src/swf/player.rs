@@ -18,7 +18,7 @@ use neoflash_core::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fs::File,
     io::Read,
     path::Path,
@@ -202,12 +202,14 @@ struct LiveSlot {
     clip_depth: Option<u16>,
     masked_by: Option<String>,
     is_dynamic: bool,
+    origin_timeline_depth: Option<u16>,
     ratio: Option<u16>,
     cache_as_bitmap: bool,
     current_frame: u32,
     total_frames: u32,
     playing: bool,
     last_applied_frame: Option<u32>,
+    removed_timeline_depths: BTreeSet<u16>,
     children: BTreeMap<u16, LiveSlot>,
     props: HashMap<String, Avm1Value>,
     clip_handlers: Vec<ClipEventHandler>,
@@ -367,6 +369,14 @@ struct Avm1Object {
     function: Option<Avm1Function>,
     interfaces: Vec<usize>,
     avm2_class: Option<(usize, usize)>,
+    avm2_activation_method: Option<(usize, usize)>,
+}
+
+#[derive(Clone, Debug)]
+struct Avm2Closure {
+    abc_idx: usize,
+    method_idx: usize,
+    outer_scopes: Vec<Avm1Value>,
 }
 
 #[derive(Clone, Debug)]
@@ -379,6 +389,7 @@ struct Avm1Function {
     constant_pool: Vec<String>,
     base_target: String,
     self_obj_id: Option<usize>,
+    captured_scopes: Vec<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -435,6 +446,7 @@ pub struct SwfBytecodePlayer {
     root_loop_rewind_pending: bool,
     root_props: RootClipProps,
     display_list: BTreeMap<u16, LiveSlot>,
+    removed_timeline_depths: BTreeSet<u16>,
     trace_output: Vec<String>,
     frame_traces: Vec<String>,
     audio_events: Vec<SwfAudioEvent>,
@@ -445,6 +457,7 @@ pub struct SwfBytecodePlayer {
     stop_all_sounds_pending: bool,
 
     // AVM1 state
+    avm1_init_actions_executed: bool,
     avm1_globals: HashMap<String, Avm1Value>,
     avm1_global_obj: HashMap<String, Avm1Value>,
     avm1_functions: HashMap<String, Avm1Function>,
@@ -453,6 +466,7 @@ pub struct SwfBytecodePlayer {
     avm1_constant_pool: Vec<String>,
     avm1_target: String,
     avm1_detached_target: Option<(String, LiveSlot)>,
+    avm1_scope_chain: Vec<usize>,
     avm1_with_scopes: Vec<Avm1Value>,
     avm1_thrown: Option<Avm1Value>,
     drag_target: Option<String>,
@@ -461,7 +475,8 @@ pub struct SwfBytecodePlayer {
     // AVM2 state
     avm2_initialized: bool,
     avm2_globals: HashMap<String, Avm1Value>,
-    avm2_frame_scripts: HashMap<u32, (usize, usize)>, // frame_idx -> (abc_idx, method_idx)
+    avm2_frame_scripts: HashMap<u32, Avm1Value>, // frame_idx -> callable token
+    avm2_closures: Vec<Avm2Closure>,
 }
 
 impl SwfBytecodePlayer {
@@ -670,6 +685,7 @@ impl SwfBytecodePlayer {
             root_loop_rewind_pending: false,
             root_props: RootClipProps::default(),
             display_list: BTreeMap::new(),
+            removed_timeline_depths: BTreeSet::new(),
             trace_output: Vec::new(),
             frame_traces: Vec::new(),
             audio_events: Vec::new(),
@@ -678,6 +694,7 @@ impl SwfBytecodePlayer {
             frame_unsupported_diagnostics: Vec::new(),
             stream_sound_active: false,
             stop_all_sounds_pending: false,
+            avm1_init_actions_executed: false,
             avm1_globals: HashMap::new(),
             avm1_global_obj: HashMap::new(),
             avm1_functions: HashMap::new(),
@@ -686,6 +703,7 @@ impl SwfBytecodePlayer {
             avm1_constant_pool: Vec::new(),
             avm1_target: String::new(),
             avm1_detached_target: None,
+            avm1_scope_chain: Vec::new(),
             avm1_with_scopes: Vec::new(),
             avm1_thrown: None,
             drag_target: None,
@@ -693,6 +711,7 @@ impl SwfBytecodePlayer {
             avm2_initialized: false,
             avm2_globals: HashMap::new(),
             avm2_frame_scripts: HashMap::new(),
+            avm2_closures: Vec::new(),
         })
     }
 
@@ -750,6 +769,7 @@ impl SwfBytecodePlayer {
         self.root_loop_rewind_pending = false;
         self.root_props = RootClipProps::default();
         self.display_list.clear();
+        self.removed_timeline_depths.clear();
         self.trace_output.clear();
         self.frame_traces.clear();
         self.audio_events.clear();
@@ -758,6 +778,7 @@ impl SwfBytecodePlayer {
         self.frame_unsupported_diagnostics.clear();
         self.stream_sound_active = false;
         self.stop_all_sounds_pending = false;
+        self.avm1_init_actions_executed = false;
         self.avm1_globals.clear();
         self.avm1_global_obj.clear();
         self.avm1_functions.clear();
@@ -766,6 +787,7 @@ impl SwfBytecodePlayer {
         self.avm1_constant_pool.clear();
         self.avm1_target.clear();
         self.avm1_detached_target = None;
+        self.avm1_scope_chain.clear();
         self.avm1_with_scopes.clear();
         self.avm1_thrown = None;
         self.drag_target = None;
@@ -773,6 +795,13 @@ impl SwfBytecodePlayer {
         self.avm2_initialized = false;
         self.avm2_globals.clear();
         self.avm2_frame_scripts.clear();
+        self.avm2_closures.clear();
+    }
+
+    /// Reset all runtime display-list, tombstone, and VM state and evaluate frame 0 cleanly.
+    pub fn restart(&mut self) -> SwfFrameState {
+        self.reset();
+        self.step_frame()
     }
 
     /// Deterministically replay the SWF timeline from frame 0 through `target_frame` (inclusive),
@@ -866,11 +895,17 @@ impl SwfBytecodePlayer {
             let destination_frame = self.current_frame;
             if destination_frame != source_frame {
                 self.prepare_root_display_list_jump(source_frame, destination_frame);
-                self.last_applied_frame = None;
             }
+        } else if let Some(prev_applied) = self.last_applied_frame
+            && (self.current_frame < prev_applied
+                || self.current_frame > prev_applied.saturating_add(1))
+        {
+            let destination_frame = self.current_frame;
+            self.prepare_root_display_list_jump(prev_applied, destination_frame);
         }
 
-        if self.executed_frames == 0 {
+        if !self.avm1_init_actions_executed {
+            self.avm1_init_actions_executed = true;
             // Run DoInitAction blocks on frame 0 before frame tags
             let init_blocks = self.init_actions.clone();
             for (_, code) in init_blocks {
@@ -951,9 +986,16 @@ impl SwfBytecodePlayer {
             }
             // 4. Execute AVM2 addFrameScript callback if registered for this frame
             if self.vm_kind == SwfVmKind::Avm2
-                && let Some(&(abc_idx, method_idx)) = self.avm2_frame_scripts.get(&entering_frame)
+                && let Some(callable) = self.avm2_frame_scripts.get(&entering_frame).cloned()
             {
-                self.execute_avm2_method(abc_idx, method_idx, Vec::new());
+                let mut steps = 0usize;
+                let _ = self.invoke_avm2_callable_with_this(
+                    &callable,
+                    Avm1Value::MovieClip("_root".to_owned()),
+                    Vec::new(),
+                    &mut steps,
+                    0,
+                );
             }
         }
 

@@ -530,6 +530,16 @@ impl SwfBytecodePlayer {
                         }
                     }
                     if !deleted {
+                        for &scope_id in self.avm1_scope_chain.iter().rev() {
+                            if let Some(o) = self.avm1_objects.get_mut(scope_id)
+                                && o.props.remove(&name).is_some()
+                            {
+                                deleted = true;
+                                break;
+                            }
+                        }
+                    }
+                    if !deleted {
                         deleted |= locals.remove(&name).is_some();
                         let cur = self.current_target_path();
                         if cur != "_root"
@@ -550,13 +560,19 @@ impl SwfBytecodePlayer {
                         .pop()
                         .unwrap_or(Avm1Value::Undefined)
                         .to_trace_string(self.swf_version, &self.avm1_objects);
-                    locals.insert(name.clone(), val.clone());
-                    if depth == 0 {
-                        let cur = self.current_target_path();
-                        if cur == "_root" {
-                            self.avm1_globals.insert(name, val);
-                        } else if let Some(slot) = self.target_slot_mut(&cur) {
-                            slot.props.insert(name, val);
+                    if let Some(&act_id) = self.avm1_scope_chain.last() {
+                        if let Some(act_obj) = self.avm1_objects.get_mut(act_id) {
+                            act_obj.props.insert(name, val);
+                        }
+                    } else {
+                        locals.insert(name.clone(), val.clone());
+                        if depth == 0 {
+                            let cur = self.current_target_path();
+                            if cur == "_root" {
+                                self.avm1_globals.insert(name, val);
+                            } else if let Some(slot) = self.target_slot_mut(&cur) {
+                                slot.props.insert(name, val);
+                            }
                         }
                     }
                 }
@@ -616,15 +632,21 @@ impl SwfBytecodePlayer {
                         .pop()
                         .unwrap_or(Avm1Value::Undefined)
                         .to_trace_string(self.swf_version, &self.avm1_objects);
-                    locals.entry(name.clone()).or_insert(Avm1Value::Undefined);
-                    if depth == 0 {
-                        let cur = self.current_target_path();
-                        if cur == "_root" {
-                            self.avm1_globals
-                                .entry(name)
-                                .or_insert(Avm1Value::Undefined);
-                        } else if let Some(slot) = self.target_slot_mut(&cur) {
-                            slot.props.entry(name).or_insert(Avm1Value::Undefined);
+                    if let Some(&act_id) = self.avm1_scope_chain.last() {
+                        if let Some(act_obj) = self.avm1_objects.get_mut(act_id) {
+                            act_obj.props.entry(name).or_insert(Avm1Value::Undefined);
+                        }
+                    } else {
+                        locals.entry(name.clone()).or_insert(Avm1Value::Undefined);
+                        if depth == 0 {
+                            let cur = self.current_target_path();
+                            if cur == "_root" {
+                                self.avm1_globals
+                                    .entry(name)
+                                    .or_insert(Avm1Value::Undefined);
+                            } else if let Some(slot) = self.target_slot_mut(&cur) {
+                                slot.props.entry(name).or_insert(Avm1Value::Undefined);
+                            }
                         }
                     }
                 }
@@ -1142,9 +1164,15 @@ impl SwfBytecodePlayer {
                             } else if let Some(var_name) = catch_var
                                 && !var_name.is_empty()
                             {
-                                locals.insert(var_name.clone(), thrown_val.clone());
-                                if depth == 0 {
-                                    self.avm1_globals.insert(var_name, thrown_val);
+                                if let Some(&act_id) = self.avm1_scope_chain.last() {
+                                    if let Some(act_obj) = self.avm1_objects.get_mut(act_id) {
+                                        act_obj.props.insert(var_name, thrown_val);
+                                    }
+                                } else {
+                                    locals.insert(var_name.clone(), thrown_val.clone());
+                                    if depth == 0 {
+                                        self.avm1_globals.insert(var_name, thrown_val);
+                                    }
                                 }
                             }
                             ret = self.run_avm1_code(&catch_bytes, stack, locals, steps, depth);
@@ -1466,6 +1494,7 @@ impl SwfBytecodePlayer {
             constant_pool: self.avm1_constant_pool.clone(),
             base_target: self.avm1_target.clone(),
             self_obj_id: Some(fn_obj_id),
+            captured_scopes: self.avm1_scope_chain.clone(),
         };
         let mut fn_props = HashMap::new();
         fn_props.insert("prototype".to_owned(), Avm1Value::Object(proto_id));
@@ -1480,11 +1509,15 @@ impl SwfBytecodePlayer {
                 .insert("constructor".to_owned(), Avm1Value::Object(fn_obj_id));
         }
         if !fn_name.is_empty() {
-            self.avm1_functions.insert(fn_name.to_owned(), func);
             let fn_val = Avm1Value::Object(fn_obj_id);
-            if depth > 0 {
+            if let Some(&act_id) = self.avm1_scope_chain.last() {
+                if let Some(act_obj) = self.avm1_objects.get_mut(act_id) {
+                    act_obj.props.insert(fn_name.to_owned(), fn_val);
+                }
+            } else if depth > 0 {
                 locals.insert(fn_name.to_owned(), fn_val);
             } else {
+                self.avm1_functions.insert(fn_name.to_owned(), func);
                 let cur = self.current_target_path();
                 if cur != "_root"
                     && let Some(slot) = self.target_slot_mut(&cur)

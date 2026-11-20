@@ -976,32 +976,14 @@ fn avm1_function_values_run_on_call_and_unsupported_closures_block() {
         (
             ScriptLanguage::ActionScript2,
             SwfPublishProfile::FlashPlayer8Avm1,
-            "var f = function named() { trace('deferred'); };",
-            "named function expressions",
-        ),
-        (
-            ScriptLanguage::ActionScript2,
-            SwfPublishProfile::FlashPlayer8Avm1,
-            "function make(x) { return function() { return x; }; } var f = make(7);",
-            "nested function expressions",
-        ),
-        (
-            ScriptLanguage::ActionScript2,
-            SwfPublishProfile::FlashPlayer8Avm1,
-            "var f = function() { var x = 7; function g() { return x; } return g; };",
-            "nested function declarations",
-        ),
-        (
-            ScriptLanguage::ActionScript2,
-            SwfPublishProfile::FlashPlayer8Avm1,
             "var f = function() { onClipEvent(load) { trace('invalid'); } };",
             "object event handler syntax",
         ),
         (
-            ScriptLanguage::ActionScript3,
-            SwfPublishProfile::FlashPlayer10Avm2,
-            "var f = function() { trace('deferred'); };",
-            "AS3 function expressions",
+            ScriptLanguage::ActionScript2,
+            SwfPublishProfile::FlashPlayer8Avm1,
+            "var f = () => { on(release) { trace('invalid'); } };",
+            "object event handler syntax",
         ),
     ] {
         project.script_language = Some(language);
@@ -1021,6 +1003,297 @@ fn avm1_function_values_run_on_call_and_unsupported_closures_block() {
         );
         assert!(publish_swf_bytes(&project, &options).is_err());
     }
+}
+
+#[test]
+fn avm1_and_avm2_nested_lexical_closures_named_fn_exprs_and_arrows_execute_and_roundtrip() {
+    let temp = TempDirGuard::new("closures-avm1-avm2");
+
+    // 1. AVM1 (SWF 8): DefineFunction2 with mixed captured & uncaptured parameters (no register
+    //    clobbering), shared mutable outer local across sibling closures, named recursive function
+    //    expression, arrow functions, and 3-level curried closures.
+    let mut avm1_proj = Project::blank();
+    avm1_proj.script_language = Some(ScriptLanguage::ActionScript2);
+    avm1_proj.symbols[0].timeline.frame_count = 1;
+    avm1_proj.symbols[0].timeline.scripts = vec![FrameScript {
+        layer: None,
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: r#"
+                function makeCounter(seed, uncapturedScale) {
+                    var count = seed * uncapturedScale;
+                    var calls = 0;
+                    function bump(delta, localBonus) {
+                        count += delta + localBonus;
+                        calls++;
+                        return count;
+                    }
+                    var snap = () => count * 100 + calls;
+                    return { bump: bump, snap: snap };
+                }
+                var c1 = makeCounter(3, 10);
+                var c2 = makeCounter(1, 5);
+                trace(c1.bump(4, 1));
+                trace(c1.bump(2, 0));
+                trace(c1.snap());
+                trace(c2.snap());
+
+                var fact = function selfFact(n) {
+                    if (n <= 1) {
+                        return 1;
+                    }
+                    return n * selfFact(n - 1);
+                };
+                trace(fact(5));
+
+                var triple = a => b => c => a + b + c;
+                trace(triple(100)(20)(3));
+                stop();
+            "#
+            .to_owned(),
+        },
+    }];
+    avm1_proj.upgrade_format_for_features();
+    avm1_proj.validate().unwrap();
+    let avm1_opts = SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer8Avm1);
+    let (avm1_bytes, avm1_rep) = publish_swf_bytes(&avm1_proj, &avm1_opts).unwrap();
+    assert!(avm1_rep.can_proceed(), "{avm1_rep:?}");
+    let avm1_play = play_swf_bytes(&avm1_bytes, 4).unwrap();
+    assert!(
+        avm1_play.unsupported_diagnostics.is_empty(),
+        "unexpected AVM1 diagnostics: {:?}",
+        avm1_play.unsupported_diagnostics
+    );
+    assert_eq!(
+        avm1_play.trace_output,
+        vec!["35", "37", "3702", "500", "120", "123"]
+    );
+    let avm1_swf_path = temp.0.join("closures_avm1.swf");
+    std::fs::write(&avm1_swf_path, &avm1_bytes).unwrap();
+    let avm1_reimported = neoflash_import::import_project(&avm1_swf_path).unwrap();
+    avm1_reimported.validate().unwrap();
+
+    // 2. AVM2 (SWF 10 / DoABC2): newactivation + Trait_Slot + getscopeobject / getouterscope +
+    //    getslot / setslot for shared mutable outer locals/params, named function expressions,
+    //    arrow functions, and multi-level nested closures.
+    let mut avm2_proj = Project::blank();
+    avm2_proj.script_language = Some(ScriptLanguage::ActionScript3);
+    avm2_proj.symbols[0].timeline.frame_count = 1;
+    avm2_proj.symbols[0].timeline.scripts = vec![FrameScript {
+        layer: None,
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript3,
+            source: r#"
+                function makeAcc(seed:int, scale:int):Object {
+                    var total:int = seed * scale;
+                    var steps:int = 0;
+                    var add:Function = function(delta:int, bonus:int):int {
+                        total += delta + bonus;
+                        steps++;
+                        return total;
+                    };
+                    var read:Function = ():int => total * 100 + steps;
+                    return { add: add, read: read };
+                }
+                var a1:Object = makeAcc(4, 10);
+                var a2:Object = makeAcc(2, 3);
+                trace(a1.add(5, 2));
+                trace(a1.add(3, 0));
+                trace(a1.read());
+                trace(a2.read());
+
+                var fib:Function = function selfFib(n:int):int {
+                    if (n <= 1) {
+                        return n;
+                    }
+                    return selfFib(n - 1) + selfFib(n - 2);
+                };
+                trace(fib(7));
+
+                var curried:Function = (x:int):Function => (y:int):Function => (z:int):int => x + y + z;
+                trace(curried(200)(30)(4));
+                stop();
+            "#
+            .to_owned(),
+        },
+    }];
+    avm2_proj.upgrade_format_for_features();
+    avm2_proj.validate().unwrap();
+    let avm2_opts = SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer10Avm2);
+    let (avm2_bytes, avm2_rep) = publish_swf_bytes(&avm2_proj, &avm2_opts).unwrap();
+    assert!(avm2_rep.can_proceed(), "{avm2_rep:?}");
+    let avm2_play = play_swf_bytes(&avm2_bytes, 4).unwrap();
+    assert!(
+        avm2_play.unsupported_diagnostics.is_empty(),
+        "unexpected AVM2 diagnostics: {:?}",
+        avm2_play.unsupported_diagnostics
+    );
+    assert_eq!(
+        avm2_play.trace_output,
+        vec!["47", "50", "5002", "600", "13", "234"]
+    );
+    let avm2_swf_path = temp.0.join("closures_avm2.swf");
+    std::fs::write(&avm2_swf_path, &avm2_bytes).unwrap();
+    let avm2_reimported = neoflash_import::import_project(&avm2_swf_path).unwrap();
+    avm2_reimported.validate().unwrap();
+
+    // 3. AVM2 multi-frame seek/step/restart determinism with dynamic addChild, removeChild
+    //    timeline tombstone, addFrameScript(1, null) frame-execution flag, and closure state:
+    let mut det_avm2 = Project::blank();
+    det_avm2.script_language = Some(ScriptLanguage::ActionScript3);
+    det_avm2.symbols.push(neoflash_core::Symbol {
+        id: "hero-sym".to_owned(),
+        name: "HeroSym".to_owned(),
+        kind: neoflash_core::SymbolKind::MovieClip,
+        folder: String::new(),
+        class_name: None,
+        linkage_id: None,
+        timeline: neoflash_core::Timeline {
+            frame_count: 1,
+            layers: vec![neoflash_core::Layer {
+                id: "hero-l0".to_owned(),
+                name: "Layer 1".to_owned(),
+                visible: true,
+                locked: false,
+                keyframes: vec![neoflash_core::Keyframe {
+                    frame: 0,
+                    elements: vec![neoflash_core::Element {
+                        id: "hero-rect".to_owned(),
+                        name: String::new(),
+                        visible: true,
+                        kind: ElementKind::Rectangle {
+                            width: 20.0,
+                            height: 20.0,
+                            fill: [220, 60, 40, 255],
+                            stroke: [0, 0, 0, 0],
+                            stroke_width: 0.0,
+                        },
+                        ..neoflash_core::Element::default()
+                    }],
+                    ..neoflash_core::Keyframe::default()
+                }],
+                properties: neoflash_core::LayerProperties::default(),
+            }],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+    });
+    let root = &mut det_avm2.symbols[0];
+    root.timeline.frame_count = 3;
+    root.timeline.layers[0].keyframes = vec![
+        neoflash_core::Keyframe {
+            frame: 0,
+            tween: Some(neoflash_core::Easing::Linear),
+            elements: vec![neoflash_core::Element {
+                id: "hero-inst".to_owned(),
+                name: "hero".to_owned(),
+                visible: true,
+                kind: neoflash_core::ElementKind::Instance {
+                    symbol_id: "hero-sym".to_owned(),
+                    playback: neoflash_core::InstancePlayback::Loop,
+                },
+                transform: neoflash_core::Transform {
+                    x: 15.0,
+                    y: 20.0,
+                    ..neoflash_core::Transform::default()
+                },
+                ..neoflash_core::Element::default()
+            }],
+            ..neoflash_core::Keyframe::default()
+        },
+        neoflash_core::Keyframe {
+            frame: 2,
+            elements: vec![neoflash_core::Element {
+                id: "hero-inst".to_owned(),
+                name: "hero".to_owned(),
+                visible: true,
+                kind: neoflash_core::ElementKind::Instance {
+                    symbol_id: "hero-sym".to_owned(),
+                    playback: neoflash_core::InstancePlayback::Loop,
+                },
+                transform: neoflash_core::Transform {
+                    x: 85.0,
+                    y: 20.0,
+                    ..neoflash_core::Transform::default()
+                },
+                ..neoflash_core::Element::default()
+            }],
+            ..neoflash_core::Keyframe::default()
+        },
+    ];
+    root.timeline.scripts = vec![
+        FrameScript {
+            layer: None,
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: r#"
+                    var seq:int = 1;
+                    this.nextSeq = ():int => {
+                        seq += 10;
+                        return seq;
+                    };
+                    trace("avm2_f0:" + this.nextSeq() + ":" + numChildren);
+                "#
+                .to_owned(),
+            },
+        },
+        FrameScript {
+            layer: None,
+            frame: 1,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: r#"
+                    var dynSp:Sprite = new Sprite();
+                    dynSp.name = "dynSp";
+                    addChild(dynSp);
+                    removeChild(hero);
+                    addFrameScript(1, null);
+                    trace("avm2_f1:" + this.nextSeq() + ":" + numChildren);
+                "#
+                .to_owned(),
+            },
+        },
+        FrameScript {
+            layer: None,
+            frame: 2,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: r#"
+                    trace("avm2_f2:" + this.nextSeq() + ":" + numChildren);
+                    stop();
+                "#
+                .to_owned(),
+            },
+        },
+    ];
+    det_avm2.upgrade_format_for_features();
+    det_avm2.validate().unwrap();
+    let (det_bytes, det_rep) = publish_swf_bytes(&det_avm2, &avm2_opts).unwrap();
+    assert!(det_rep.can_proceed(), "{det_rep:?}");
+
+    let mut det_player = neoflash_import::SwfBytecodePlayer::from_bytes(&det_bytes).unwrap();
+    let d0 = det_player.step_frame();
+    let d1 = det_player.step_frame();
+    let d2 = det_player.step_frame();
+    assert_eq!(d0.traces, vec!["avm2_f0:11:1"]);
+    assert_eq!(d1.traces, vec!["avm2_f1:21:1"]); // +dynSp, -hero -> 1 child (`dynSp`)
+    assert_eq!(d2.traces, vec!["avm2_f2:31:1"]); // hero tombstoned on frame 2 Move!
+    assert_eq!(d2.display_list.len(), 1);
+    assert_eq!(d2.display_list[0].name, "dynSp");
+
+    // Backward seek to 0 & 1 and restart() must reset `dynSp`, `hero` tombstone, `addFrameScript`,
+    // and the captured `seq` closure slot cleanly:
+    assert_eq!(det_player.seek_to_frame(0), d0);
+    assert_eq!(det_player.step_frame(), d1);
+    assert_eq!(det_player.step_frame(), d2);
+    assert_eq!(det_player.seek_to_frame(1), d1);
+    assert_eq!(det_player.step_frame(), d2);
+    assert_eq!(det_player.restart(), d0);
+    assert_eq!(det_player.step_frame(), d1);
+    assert_eq!(det_player.step_frame(), d2);
 }
 
 #[test]

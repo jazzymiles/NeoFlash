@@ -2632,3 +2632,255 @@ fn figma_page_limits_locate_partial_and_skipped_pages_for_both_mappings() {
         );
     }
 }
+
+#[test]
+fn figma_image_crop_transform_inverts_uv_matrix_to_exact_bitmap_fill() {
+    let img = image::RgbaImage::from_pixel(200, 100, image::Rgba([40, 160, 240, 255]));
+    let mut png_bytes = Vec::new();
+    img.write_to(&mut Cursor::new(&mut png_bytes), image::ImageFormat::Png)
+        .unwrap();
+    let png_b64 = BASE64.encode(&png_bytes);
+
+    let uv_t = [0.5_f64, 0.1, 0.25, -0.1, 0.5, 0.2];
+    let file = serde_json::json!({
+        "name": "Image Crop Fidelity",
+        "images": { "img_crop": png_b64 },
+        "document": {
+            "id": "0:0",
+            "type": "DOCUMENT",
+            "children": [{
+                "id": "0:1",
+                "type": "CANVAS",
+                "name": "Page 1",
+                "children": [
+                    {
+                        "id": "1:1",
+                        "name": "Cropped Photo",
+                        "type": "RECTANGLE",
+                        "absoluteBoundingBox": { "x": 20.0, "y": 30.0, "width": 100.0, "height": 50.0 },
+                        "fills": [{
+                            "type": "IMAGE",
+                            "imageRef": "img_crop",
+                            "scaleMode": "CROP",
+                            "imageTransform": [
+                                [uv_t[0], uv_t[1], uv_t[2]],
+                                [uv_t[3], uv_t[4], uv_t[5]]
+                            ]
+                        }]
+                    },
+                    {
+                        "id": "1:2",
+                        "name": "Retina Tile",
+                        "type": "RECTANGLE",
+                        "absoluteBoundingBox": { "x": 140.0, "y": 30.0, "width": 100.0, "height": 50.0 },
+                        "fills": [{
+                            "type": "IMAGE",
+                            "imageRef": "img_crop",
+                            "scaleMode": "TILE",
+                            "scalingFactor": 0.5
+                        }]
+                    }
+                ]
+            }]
+        }
+    })
+    .to_string();
+
+    let (project, report) =
+        import_figma_json_str(&file, "Crop Test", &FigmaImportOptions::default()).unwrap();
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != crate::Severity::Error),
+        "diagnostics: {:?}",
+        report.diagnostics
+    );
+    project.validate().expect("valid cropped project");
+
+    let root = project.symbol(&project.root).unwrap();
+    let crop_layer = root
+        .timeline
+        .layers
+        .iter()
+        .find(|l| l.name == "Cropped Photo")
+        .expect("Cropped Photo layer");
+    let crop_kf = &crop_layer.keyframes[0];
+    assert_eq!(crop_kf.elements.len(), 1);
+    assert!(
+        matches!(crop_kf.elements[0].kind, ElementKind::Path { .. }),
+        "cropped rectangle must use clipped Path + AuthoredBitmapFill instead of uncropped Bitmap"
+    );
+    assert_eq!(crop_kf.bitmap_fills.len(), 1);
+    let bf = &crop_kf.bitmap_fills[0];
+    assert_eq!(bf.element_id, crop_kf.elements[0].id);
+    assert!(!bf.repeat);
+
+    let [a, b, c, d, tx, ty] = bf.matrix;
+    for (lx, ly) in [(0.0, 0.0), (100.0, 0.0), (0.0, 50.0), (73.5, 29.25)] {
+        let xn = lx / 100.0;
+        let yn = ly / 50.0;
+        let u = uv_t[0] * xn + uv_t[1] * yn + uv_t[2];
+        let v = uv_t[3] * xn + uv_t[4] * yn + uv_t[5];
+        let px = u * 200.0;
+        let py = v * 100.0;
+        let rx = a * px + c * py + tx;
+        let ry = b * px + d * py + ty;
+        assert!(
+            (rx - lx).abs() < 1e-6 && (ry - ly).abs() < 1e-6,
+            "expected ({lx}, {ly}), got ({rx}, {ry})"
+        );
+    }
+
+    let tile_layer = root
+        .timeline
+        .layers
+        .iter()
+        .find(|l| l.name == "Retina Tile")
+        .expect("Retina Tile layer");
+    let tile_bf = &tile_layer.keyframes[0].bitmap_fills[0];
+    assert!(tile_bf.repeat);
+    assert!((tile_bf.matrix[0] - 0.5).abs() < 1e-6);
+    assert!((tile_bf.matrix[3] - 0.5).abs() < 1e-6);
+}
+
+#[test]
+fn figma_layer_and_background_blur_preserve_editable_blur_filters_and_skip_zero_or_hidden() {
+    let file = serde_json::json!({
+        "name": "Blur Fidelity",
+        "document": {
+            "id": "0:0",
+            "type": "DOCUMENT",
+            "children": [{
+                "id": "0:1",
+                "type": "CANVAS",
+                "name": "Page 1",
+                "children": [
+                    {
+                        "id": "1:1",
+                        "name": "Soft Badge",
+                        "type": "RECTANGLE",
+                        "absoluteBoundingBox": { "x": 10.0, "y": 10.0, "width": 80.0, "height": 40.0 },
+                        "fills": [{ "type": "SOLID", "color": { "r": 0.2, "g": 0.6, "b": 1.0, "a": 1.0 } }],
+                        "effects": [{ "type": "LAYER_BLUR", "visible": true, "radius": 12.5 }]
+                    },
+                    {
+                        "id": "1:2",
+                        "name": "Glass Card",
+                        "type": "FRAME",
+                        "absoluteBoundingBox": { "x": 110.0, "y": 10.0, "width": 160.0, "height": 90.0 },
+                        "fills": [{ "type": "SOLID", "opacity": 0.35, "color": { "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0 } }],
+                        "effects": [{ "type": "BACKGROUND_BLUR", "visible": true, "radius": 18.0 }],
+                        "children": [{
+                            "id": "1:3",
+                            "name": "Inner Pill",
+                            "type": "RECTANGLE",
+                            "absoluteBoundingBox": { "x": 126.0, "y": 26.0, "width": 60.0, "height": 24.0 },
+                            "fills": [{ "type": "SOLID", "color": { "r": 0.9, "g": 0.3, "b": 0.4, "a": 1.0 } }]
+                        }]
+                    },
+                    {
+                        "id": "1:4",
+                        "name": "Empty Backdrop Overlay",
+                        "type": "RECTANGLE",
+                        "absoluteBoundingBox": { "x": 10.0, "y": 120.0, "width": 120.0, "height": 60.0 },
+                        "fills": [],
+                        "strokes": [],
+                        "effects": [{ "type": "BACKGROUND_BLUR", "visible": true, "radius": 8.0 }]
+                    },
+                    {
+                        "id": "1:5",
+                        "name": "Inactive Blurs",
+                        "type": "RECTANGLE",
+                        "absoluteBoundingBox": { "x": 150.0, "y": 120.0, "width": 80.0, "height": 40.0 },
+                        "fills": [{ "type": "SOLID", "color": { "r": 0.4, "g": 0.8, "b": 0.4, "a": 1.0 } }],
+                        "effects": [
+                            { "type": "LAYER_BLUR", "visible": false, "radius": 20.0 },
+                            { "type": "BACKGROUND_BLUR", "visible": true, "radius": 0.0 }
+                        ]
+                    }
+                ]
+            }]
+        }
+    })
+    .to_string();
+
+    for layer_mapping in [
+        FigmaLayerMapping::TimelineLayers,
+        FigmaLayerMapping::MovieClipSymbols,
+    ] {
+        let opts = FigmaImportOptions {
+            layer_mapping,
+            ..FigmaImportOptions::default()
+        };
+        let (project, report) = import_figma_json_str(&file, "Blur Test", &opts).unwrap();
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .all(|d| d.severity != crate::Severity::Error)
+        );
+        project.validate().expect("valid blur project");
+
+        let root = project.symbol(&project.root).unwrap();
+        let find_el = |name: &str| -> &Element {
+            let layer = root
+                .timeline
+                .layers
+                .iter()
+                .find(|l| l.name == name)
+                .unwrap_or_else(|| panic!("missing layer {name}"));
+            &layer.keyframes[0].elements[0]
+        };
+
+        let badge = find_el("Soft Badge");
+        assert!(badge.cache_as_bitmap);
+        assert_eq!(
+            badge.filters,
+            vec![FilterSpec::Blur {
+                blur_x: 12.5,
+                blur_y: 12.5,
+                quality: 2,
+            }]
+        );
+
+        let glass = find_el("Glass Card");
+        assert!(matches!(glass.kind, ElementKind::Instance { .. }));
+        assert!(glass.cache_as_bitmap);
+        assert_eq!(
+            glass.filters,
+            vec![FilterSpec::Blur {
+                blur_x: 18.0,
+                blur_y: 18.0,
+                quality: 2,
+            }]
+        );
+
+        let overlay = find_el("Empty Backdrop Overlay");
+        assert!(overlay.cache_as_bitmap);
+        assert_eq!(
+            overlay.filters,
+            vec![FilterSpec::Blur {
+                blur_x: 8.0,
+                blur_y: 8.0,
+                quality: 2,
+            }]
+        );
+
+        let inactive = find_el("Inactive Blurs");
+        assert!(inactive.filters.is_empty());
+        assert!(!inactive.cache_as_bitmap);
+
+        let bg_warnings: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == "figma-background-blur-approximated")
+            .collect();
+        assert_eq!(
+            bg_warnings.len(),
+            2,
+            "expected warnings only for the two active radius>0 BACKGROUND_BLUR nodes"
+        );
+        assert!(bg_warnings[0].message.contains("backdrop"));
+    }
+}

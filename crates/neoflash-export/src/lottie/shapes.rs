@@ -310,8 +310,12 @@ impl<'a> LottieBuilder<'a> {
 
         let mut items: Vec<Value> = Vec::new();
         for c_idx in 0..contour_count {
+            self.check_cancelled()?;
             let mut kfs = Vec::new();
             for (idx, s) in samples_per_frame.iter().enumerate() {
+                if idx & 15 == 0 {
+                    self.check_cancelled()?;
+                }
                 let bez = s.contours[c_idx].to_json();
                 if idx + 1 < samples_per_frame.len() {
                     kfs.push(json!({
@@ -580,7 +584,7 @@ impl<'a> LottieBuilder<'a> {
             origin_offset,
             force_dense_ks,
             orient_auto,
-        );
+        )?;
         let ind = *next_ind;
         *next_ind += 1;
         let [r, g, b, _] = representative.transform.color_transform.apply(color);
@@ -688,7 +692,7 @@ impl<'a> LottieBuilder<'a> {
             origin_offset,
             force_dense_ks,
             orient_auto,
-        );
+        )?;
         let ind = *next_ind;
         *next_ind += 1;
         let fmt_rgba = [
@@ -805,7 +809,8 @@ impl<'a> LottieBuilder<'a> {
         force_dense: bool,
         dash_override: Option<&NativeDashStroke>,
         symbol_id: &str,
-    ) -> Option<Value> {
+    ) -> Result<Option<Value>, ExportError> {
+        self.check_cancelled()?;
         let first_el = &samples[0].1;
         let first_f = samples[0].0;
         let shape_static = dash_override.is_some()
@@ -821,7 +826,7 @@ impl<'a> LottieBuilder<'a> {
             });
 
         if shape_static {
-            return self.element_to_shape_group(
+            return Ok(self.element_to_shape_group(
                 first_el,
                 [0.0, 0.0],
                 false,
@@ -829,7 +834,7 @@ impl<'a> LottieBuilder<'a> {
                 Some(symbol_id),
                 Some(&layer.id),
                 Some(first_f),
-            );
+            ));
         }
 
         let key_samples: Vec<(u32, &Element, Option<Easing>)> = if force_dense {
@@ -863,6 +868,7 @@ impl<'a> LottieBuilder<'a> {
 
         let mut per_key = Vec::with_capacity(key_samples.len());
         for (f, el, ease) in &key_samples {
+            self.check_cancelled()?;
             let resolved = resolve_parametric_stroke_element(el);
             let target = resolved.as_ref().unwrap_or(el);
             if matches!(
@@ -875,7 +881,7 @@ impl<'a> LottieBuilder<'a> {
                     ..
                 }
             ) {
-                return self.element_to_shape_group(
+                return Ok(self.element_to_shape_group(
                     first_el,
                     [0.0, 0.0],
                     false,
@@ -883,12 +889,14 @@ impl<'a> LottieBuilder<'a> {
                     Some(symbol_id),
                     Some(&layer.id),
                     Some(first_f),
-                );
+                ));
             }
-            let (cmds, fill_rule) = target.to_path_commands()?;
+            let Some((cmds, fill_rule)) = target.to_path_commands() else {
+                return Ok(None);
+            };
             let contours = path_commands_to_lottie_beziers(&cmds);
             if contours.is_empty() {
-                return None;
+                return Ok(None);
             }
             let (raw_fill, raw_stroke, sw) = extract_element_paint(target);
             let ct = el.transform.color_transform;
@@ -907,7 +915,7 @@ impl<'a> LottieBuilder<'a> {
                     .all(|(c, &expected)| c.v.len() == expected)
         });
         if !compatible {
-            return self.element_to_shape_group(
+            return Ok(self.element_to_shape_group(
                 first_el,
                 [0.0, 0.0],
                 false,
@@ -915,11 +923,12 @@ impl<'a> LottieBuilder<'a> {
                 Some(symbol_id),
                 Some(&layer.id),
                 Some(first_f),
-            );
+            ));
         }
 
         let mut items: Vec<Value> = Vec::new();
         for c_idx in 0..c_count {
+            self.check_cancelled()?;
             let first_json = per_key[0].2[c_idx].to_json();
             let dir = per_key[0].2[c_idx].lottie_direction();
             let geom_varies = per_key
@@ -928,6 +937,9 @@ impl<'a> LottieBuilder<'a> {
             if geom_varies && per_key.len() > 1 {
                 let mut kfs = Vec::with_capacity(per_key.len());
                 for (idx, (f, ease, cs, _, _, _, _)) in per_key.iter().enumerate() {
+                    if idx & 15 == 0 {
+                        self.check_cancelled()?;
+                    }
                     let bez = cs[c_idx].to_json();
                     if idx + 1 < per_key.len() {
                         if let Some(e) = ease {
@@ -1130,12 +1142,12 @@ impl<'a> LottieBuilder<'a> {
         }
 
         items.push(identity_group_tr());
-        Some(json!({
+        Ok(Some(json!({
             "ty": "gr",
             "nm": if first_el.name.is_empty() { "Vector Shape" } else { &first_el.name },
             "it": items,
             "bm": 0
-        }))
+        })))
     }
 
     #[allow(clippy::too_many_arguments)]

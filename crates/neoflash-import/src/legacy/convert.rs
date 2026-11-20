@@ -1554,14 +1554,19 @@ impl Context<'_> {
                     self.provenance.push(serde_json::json!({"stream":s.index,"object":child,"layer":layer.id,"frame":cursor,"slot":slot}));
                 }
                 if let Some(index) = frame.shape_index {
+                    let frame_is_shape_tween = matches!(ease(f), Ok((Some(_), TweenKind::Shape)))
+                        || layer.keyframes.last().is_some_and(|prev| {
+                            prev.tween.is_some() && prev.tween_kind == TweenKind::Shape
+                        });
                     let shape_id = format!("fla-{}-{}-shape-{frame_id}", s.index, id);
                     let shape_record = &s.shapes[index].record;
-                    match shape::convert_shape_with_effects(
+                    match shape::convert_shape_with_effects_opts(
                         shape_record,
                         &shape_id,
                         &self.bitmaps,
                         self.report,
                         &format!("stream #{} frame {cursor}", s.index),
+                        !frame_is_shape_tween,
                     ) {
                         Ok(converted) => {
                             elements.extend(converted.elements);
@@ -1625,34 +1630,49 @@ impl Context<'_> {
                     (ClassicRotateDirection::Auto, 0)
                 };
                 if let Some(previous) = layer.keyframes.last_mut() {
-                    // An explicit classic tween may end on a different library symbol
-                    // or instance name. The shared evaluator keeps the starting artwork
-                    // while interpolating its pose, then uses the endpoint as authored;
-                    // the player resets child state when the symbol changes. Do not
-                    // infer this continuity for ordinary keys, parent-clock Graphics,
-                    // generated groups or unresolved placeholders. Graphics need a
-                    // separate first-frame/lifetime rule; groups may bake transforms.
-                    let classic_library_pair = previous.tween.is_some()
+                    // An explicit classic tween may pair library symbols (MovieClip, Graphic,
+                    // Button, including playback/first-frame transitions and symbol swaps),
+                    // generated group symbols (with member placement transforms hoisted onto
+                    // the outer group instance), or primitive drawing objects. Unresolved
+                    // placeholders never establish a tween.
+                    if previous.tween.is_some()
+                        && previous.tween_kind == TweenKind::Classic
+                        && previous.elements.len() == 1
+                        && elements.len() == 1
+                    {
+                        hoist_generated_group_transform(
+                            &mut self.generated,
+                            &mut previous.elements[0],
+                        );
+                        hoist_generated_group_transform(&mut self.generated, &mut elements[0]);
+                        deduplicate_tweened_group_endpoint(
+                            &mut self.generated,
+                            &previous.elements[0],
+                            &mut elements[0],
+                        );
+                    }
+                    let is_tweenable_symbol = |sym_id: &str| {
+                        self.library.values().any(|id| id == sym_id)
+                            || (sym_id.ends_with("-group")
+                                && self.generated.iter().any(|s| s.id == sym_id))
+                    };
+                    let classic_tween_pair = previous.tween.is_some()
                         && previous.tween_kind == TweenKind::Classic
                         && previous.elements.len() == 1
                         && elements.len() == 1
                         && !placement_matches(&previous.elements[0], &elements[0])
-                        && matches!(
-                            (&previous.elements[0].kind, &elements[0].kind),
+                        && match (&previous.elements[0].kind, &elements[0].kind) {
                             (
-                                ElementKind::Instance {
-                                    symbol_id: a,
-                                    playback: InstancePlayback::Independent,
-                                },
-                                ElementKind::Instance {
-                                    symbol_id: b,
-                                    playback: InstancePlayback::Independent,
-                                }
-                            ) if self.library.values().any(|id| id == a)
-                                && self.library.values().any(|id| id == b)
-                        );
+                                ElementKind::Instance { symbol_id: a, .. },
+                                ElementKind::Instance { symbol_id: b, .. },
+                            ) => is_tweenable_symbol(a) && is_tweenable_symbol(b),
+                            (ElementKind::Rectangle { .. }, ElementKind::Rectangle { .. })
+                            | (ElementKind::Ellipse { .. }, ElementKind::Ellipse { .. })
+                            | (ElementKind::Bitmap { .. }, ElementKind::Bitmap { .. }) => true,
+                            _ => false,
+                        };
                     for (a, b) in previous.elements.iter().zip(elements.iter_mut()) {
-                        if placement_matches(a, b) || classic_library_pair {
+                        if placement_matches(a, b) || classic_tween_pair {
                             let source_id = std::mem::replace(&mut b.id, a.id.clone());
                             for mapping in &mut self.provenance[provenance_start..] {
                                 if mapping["target"].as_str() == Some(source_id.as_str()) {
@@ -2653,6 +2673,183 @@ fn group_symbol_with_effects(
         linkage_id: None,
     }
 }
+fn invert_affine_2d(m: [f64; 6]) -> Option<[f64; 6]> {
+    let det = m[0] * m[3] - m[1] * m[2];
+    if !det.is_finite() || det.abs() <= 1e-8 {
+        return None;
+    }
+    let inv_det = 1.0 / det;
+    let a = m[3] * inv_det;
+    let b = -m[1] * inv_det;
+    let c = -m[2] * inv_det;
+    let d = m[0] * inv_det;
+    let tx = -(a * m[4] + c * m[5]);
+    let ty = -(b * m[4] + d * m[5]);
+    let inv = [a, b, c, d, tx, ty];
+    inv.iter()
+        .all(|v| v.is_finite() && v.abs() <= 1e9)
+        .then_some(inv)
+}
+
+fn hoist_generated_group_transform(generated: &mut [Symbol], el: &mut Element) {
+    let ElementKind::Instance { symbol_id, .. } = &el.kind else {
+        return;
+    };
+    if !symbol_id.ends_with("-group") {
+        return;
+    }
+    let Some(sym) = generated.iter_mut().find(|s| s.id == *symbol_id) else {
+        return;
+    };
+    if sym.timeline.layers.len() != 1 || sym.timeline.layers[0].keyframes.len() != 1 {
+        return;
+    }
+    let kf = &mut sym.timeline.layers[0].keyframes[0];
+    let Some(first) = kf.elements.first() else {
+        return;
+    };
+    let geom = Transform {
+        x: first.transform.x,
+        y: first.transform.y,
+        scale_x: first.transform.scale_x,
+        scale_y: first.transform.scale_y,
+        rotation: first.transform.rotation,
+        skew: first.transform.skew,
+        ..Transform::default()
+    };
+    if geom == Transform::default() {
+        return;
+    }
+    let g_mat = neoflash_core::transform_matrix(geom);
+    let Some(inv_g) = invert_affine_2d(g_mat) else {
+        return;
+    };
+    let outer_mat =
+        neoflash_core::affine_multiply(neoflash_core::transform_matrix(el.transform), g_mat);
+    let Some(new_outer) = Transform::from_matrix(outer_mat) else {
+        return;
+    };
+    let mut updated_members = Vec::with_capacity(kf.elements.len());
+    for member in &kf.elements {
+        let rel_mat = neoflash_core::affine_multiply(
+            inv_g,
+            neoflash_core::transform_matrix(member.transform),
+        );
+        let Some(rel_tf) = Transform::from_matrix(rel_mat) else {
+            return;
+        };
+        updated_members.push(rel_tf);
+    }
+    for (member, rel_tf) in kf.elements.iter_mut().zip(updated_members) {
+        member.transform.x = rel_tf.x;
+        member.transform.y = rel_tf.y;
+        member.transform.scale_x = rel_tf.scale_x;
+        member.transform.scale_y = rel_tf.scale_y;
+        member.transform.rotation = rel_tf.rotation;
+        member.transform.skew = rel_tf.skew;
+    }
+    el.transform.x = new_outer.x;
+    el.transform.y = new_outer.y;
+    el.transform.scale_x = new_outer.scale_x;
+    el.transform.scale_y = new_outer.scale_y;
+    el.transform.rotation = new_outer.rotation;
+    el.transform.skew = new_outer.skew;
+}
+
+fn group_keyframes_structurally_equal(a: &Keyframe, b: &Keyframe) -> bool {
+    if a.elements.len() != b.elements.len()
+        || a.bitmap_fills.len() != b.bitmap_fills.len()
+        || a.appearances.len() != b.appearances.len()
+        || a.vector_effects.len() != b.vector_effects.len()
+    {
+        return false;
+    }
+    for (ea, eb) in a.elements.iter().zip(&b.elements) {
+        if ea.name != eb.name
+            || ea.transform != eb.transform
+            || ea.kind != eb.kind
+            || ea.visible != eb.visible
+            || ea.blend_mode != eb.blend_mode
+            || ea.filters != eb.filters
+        {
+            return false;
+        }
+    }
+    for (bfa, bfb) in a.bitmap_fills.iter().zip(&b.bitmap_fills) {
+        if bfa.resource_id != bfb.resource_id
+            || bfa.matrix != bfb.matrix
+            || bfa.repeat != bfb.repeat
+            || bfa.smoothing != bfb.smoothing
+        {
+            return false;
+        }
+    }
+    for (apa, apb) in a.appearances.iter().zip(&b.appearances) {
+        if apa.entries != apb.entries {
+            return false;
+        }
+    }
+    for (va, vb) in a.vector_effects.iter().zip(&b.vector_effects) {
+        if va.procedural_effects != vb.procedural_effects
+            || va.freeform_gradient != vb.freeform_gradient
+            || va.gradient_mesh != vb.gradient_mesh
+            || va.envelope_warp != vb.envelope_warp
+            || va.vector_blend != vb.vector_blend
+        {
+            return false;
+        }
+    }
+    true
+}
+
+fn deduplicate_tweened_group_endpoint(
+    generated: &mut Vec<Symbol>,
+    prev_el: &Element,
+    curr_el: &mut Element,
+) {
+    let (
+        ElementKind::Instance {
+            symbol_id: a_id, ..
+        },
+        ElementKind::Instance {
+            symbol_id: b_id,
+            playback,
+        },
+    ) = (&prev_el.kind, &curr_el.kind)
+    else {
+        return;
+    };
+    if a_id == b_id || !a_id.ends_with("-group") || !b_id.ends_with("-group") {
+        return;
+    }
+    let Some(sym_a) = generated.iter().find(|s| s.id == *a_id) else {
+        return;
+    };
+    let Some(sym_b) = generated.iter().find(|s| s.id == *b_id) else {
+        return;
+    };
+    if sym_a.timeline.layers.len() == 1
+        && sym_b.timeline.layers.len() == 1
+        && sym_a.timeline.layers[0].keyframes.len() == 1
+        && sym_b.timeline.layers[0].keyframes.len() == 1
+        && group_keyframes_structurally_equal(
+            &sym_a.timeline.layers[0].keyframes[0],
+            &sym_b.timeline.layers[0].keyframes[0],
+        )
+    {
+        let old_b = b_id.clone();
+        let reused_a = a_id.clone();
+        let pb = *playback;
+        if generated.last().is_some_and(|s| s.id == old_b) {
+            generated.pop();
+        }
+        curr_el.kind = ElementKind::Instance {
+            symbol_id: reused_a,
+            playback: pb,
+        };
+    }
+}
+
 fn placement_matches(a: &Element, b: &Element) -> bool {
     a.name == b.name
         && match (&a.kind, &b.kind) {

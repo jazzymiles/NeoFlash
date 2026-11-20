@@ -24,7 +24,7 @@ pub use dotlottie::{
 
 use self::{
     assets::ExternalImageFile,
-    dotlottie::{build_dotlottie_zip, validate_zip_entry_path},
+    dotlottie::{DotLottieManifestMeta, build_dotlottie_zip_with_meta, validate_zip_entry_path},
     preview::build_lottie_html_preview,
 };
 use crate::ExportError;
@@ -237,8 +237,12 @@ pub struct LottieOptions {
     pub text_mode: LottieTextMode,
     /// Embed bitmaps as base64 Data-URIs (`Embed`) or write external files into `images/` (`Folder`).
     pub image_mode: LottieImageMode,
-    /// Keep original bitmap encoding or transcode (`Original`, `Png`, `Jpeg`).
+    /// Keep original bitmap encoding or transcode (`Original`, `Png`, `Jpeg`, `Webp`).
     pub image_format: LottieImageFormat,
+    /// Optional maximum pixel dimension (`width` or `height`) for exported raster assets.
+    /// Bitmaps exceeding this limit are proportionally downscaled while preserving stage layout.
+    #[serde(default)]
+    pub max_image_dimension: Option<u32>,
     /// Format the JSON output with indentation (`!pretty` = `Minify` switch in UI).
     pub pretty: bool,
     /// Coordinate rounding precision in decimal places (`0..=4`, default `4`).
@@ -267,6 +271,7 @@ impl Default for LottieOptions {
             text_mode: LottieTextMode::TextLayers,
             image_mode: LottieImageMode::Embed,
             image_format: LottieImageFormat::Original,
+            max_image_dimension: None,
             pretty: false,
             precision: 4,
             player: LottieTargetPlayer::LottieWeb,
@@ -311,6 +316,7 @@ struct LottieBuilder<'a> {
     precomp_id_by_symbol: BTreeMap<String, Option<String>>,
     precomp_bounds: BTreeMap<String, ([f64; 2], [u32; 2])>,
     image_id_by_resource: BTreeMap<String, Option<String>>,
+    image_scale_by_resource: BTreeMap<String, [f64; 2]>,
     audio_ids: BTreeMap<String, String>,
     matte_precomps: BTreeMap<String, Option<String>>,
     used_asset_ids: BTreeSet<String>,
@@ -597,11 +603,14 @@ where
 
     check_cancel_flag(cancel)?;
     let video_layer_count = crate::video_frames::prepare(&mut working_project, None)?;
+    check_cancel_flag(cancel)?;
     let image_fill_count =
         crate::image_fill_layers::prepare_image_fill_layers(&mut working_project)?;
+    check_cancel_flag(cancel)?;
     let mut text_outlined_count = 0usize;
     if options.text_mode == LottieTextMode::Shapes {
         text_outlined_count = crate::fonts::convert_project_text_to_outlines(&mut working_project);
+        check_cancel_flag(cancel)?;
     }
 
     if !on_progress(&LottieProgress {
@@ -630,6 +639,19 @@ where
 
     let package_external_images =
         options.format == LottieFormat::DotLottie || options.image_mode == LottieImageMode::Folder;
+    let mut precomp_bounds = BTreeMap::new();
+    for symbol in &working_project.symbols {
+        check_cancel_flag(cancel)?;
+        let (min_origin, size) =
+            crate::aep::compute_symbol_precomp_bounds(&working_project, symbol);
+        let origin = [
+            min_origin[0].max(f64::from(working_project.width)),
+            min_origin[1].max(f64::from(working_project.height)),
+        ];
+        let width = (size[0] + (origin[0] - min_origin[0]) as u32).max(working_project.width * 2);
+        let height = (size[1] + (origin[1] - min_origin[1]) as u32).max(working_project.height * 2);
+        precomp_bounds.insert(symbol.id.clone(), (origin, [width, height]));
+    }
     let mut builder = LottieBuilder {
         project: &working_project,
         options,
@@ -642,24 +664,9 @@ where
         assets: Vec::new(),
         external_images: Vec::new(),
         precomp_id_by_symbol: BTreeMap::new(),
-        precomp_bounds: working_project
-            .symbols
-            .iter()
-            .map(|symbol| {
-                let (min_origin, size) =
-                    crate::aep::compute_symbol_precomp_bounds(&working_project, symbol);
-                let origin = [
-                    min_origin[0].max(f64::from(working_project.width)),
-                    min_origin[1].max(f64::from(working_project.height)),
-                ];
-                let width =
-                    (size[0] + (origin[0] - min_origin[0]) as u32).max(working_project.width * 2);
-                let height =
-                    (size[1] + (origin[1] - min_origin[1]) as u32).max(working_project.height * 2);
-                (symbol.id.clone(), (origin, [width, height]))
-            })
-            .collect(),
+        precomp_bounds,
         image_id_by_resource: BTreeMap::new(),
+        image_scale_by_resource: BTreeMap::new(),
         audio_ids: BTreeMap::new(),
         matte_precomps: BTreeMap::new(),
         used_asset_ids: BTreeSet::new(),
@@ -846,7 +853,7 @@ where
 
     let precision = options.precision.min(4);
     if precision < 4 {
-        round_json_numbers(&mut root, precision);
+        round_json_numbers(&mut root, precision, cancel)?;
     }
 
     check_cancel_flag(cancel)?;
@@ -893,7 +900,11 @@ where
     Ok((root, report, builder.external_images))
 }
 
-fn round_json_numbers(val: &mut Value, decimals: u8) {
+fn round_json_numbers(
+    val: &mut Value,
+    decimals: u8,
+    cancel: Option<&AtomicBool>,
+) -> Result<(), ExportError> {
     let factor = 10_f64.powi(i32::from(decimals));
     match val {
         Value::Number(n) => {
@@ -908,17 +919,20 @@ fn round_json_numbers(val: &mut Value, decimals: u8) {
             }
         }
         Value::Array(arr) => {
+            check_cancel_flag(cancel)?;
             for item in arr {
-                round_json_numbers(item, decimals);
+                round_json_numbers(item, decimals, cancel)?;
             }
         }
         Value::Object(map) => {
+            check_cancel_flag(cancel)?;
             for (_, v) in map.iter_mut() {
-                round_json_numbers(v, decimals);
+                round_json_numbers(v, decimals, cancel)?;
             }
         }
         _ => {}
     }
+    Ok(())
 }
 
 /// Serialize `project` into a Lottie JSON string along with [`LottieExportReport`].
@@ -964,10 +978,13 @@ where
     };
     check_cancel_flag(Some(cancel))?;
     if options.format == LottieFormat::DotLottie {
-        let zip_bytes = build_dotlottie_zip(json.as_bytes(), &external_images, Some(cancel))?;
+        let meta = DotLottieManifestMeta::from_project(project, options, report.frame_count);
+        let zip_bytes =
+            build_dotlottie_zip_with_meta(json.as_bytes(), &external_images, &meta, Some(cancel))?;
         report.bytes = zip_bytes.len();
     } else {
-        report.bytes = json.len();
+        let external_bytes: usize = external_images.iter().map(|img| img.bytes.len()).sum();
+        report.bytes = json.len().saturating_add(external_bytes);
     }
     if cancel.load(Ordering::Relaxed)
         || !on_progress(&LottieProgress {
@@ -1056,13 +1073,17 @@ where
     let mut staged = StagedFileBatch::new();
 
     if is_dotlottie {
-        let zip_bytes = build_dotlottie_zip(json.as_bytes(), &external_images, Some(cancel))?;
+        let meta =
+            DotLottieManifestMeta::from_project(project, &effective_options, report.frame_count);
+        let zip_bytes =
+            build_dotlottie_zip_with_meta(json.as_bytes(), &external_images, &meta, Some(cancel))?;
         validate_dotlottie_bytes(&zip_bytes)?;
         staged.stage_file(output_file, &zip_bytes, Some(cancel))?;
         report.bytes = zip_bytes.len();
     } else {
         staged.stage_file(output_file, json.as_bytes(), Some(cancel))?;
-        report.bytes = json.len();
+        let external_bytes: usize = external_images.iter().map(|img| img.bytes.len()).sum();
+        report.bytes = json.len().saturating_add(external_bytes);
     }
 
     let write_external_folder_images = !external_images.is_empty()

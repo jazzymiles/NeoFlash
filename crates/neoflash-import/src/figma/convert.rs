@@ -154,25 +154,29 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                     });
                 }
                 FigmaEffect::LayerBlur { radius } => {
-                    out.push(FilterSpec::Blur {
-                        blur_x: (*radius).clamp(0.0, 255.0),
-                        blur_y: (*radius).clamp(0.0, 255.0),
-                        quality: 2,
-                    });
+                    if radius.is_finite() && *radius > 0.0 {
+                        out.push(FilterSpec::Blur {
+                            blur_x: (*radius).clamp(0.0, 255.0),
+                            blur_y: (*radius).clamp(0.0, 255.0),
+                            quality: 2,
+                        });
+                    }
                 }
                 FigmaEffect::BackgroundBlur { radius } => {
-                    self.report.warning(
-                        "figma-background-blur-approximated",
-                        location.to_owned(),
-                        format!(
-                            "Figma BACKGROUND_BLUR ({radius:.1}px) approximated as layer Blur filter."
-                        ),
-                    );
-                    out.push(FilterSpec::Blur {
-                        blur_x: (*radius).clamp(0.0, 255.0),
-                        blur_y: (*radius).clamp(0.0, 255.0),
-                        quality: 2,
-                    });
+                    if radius.is_finite() && *radius > 0.0 {
+                        self.report.warning(
+                            "figma-background-blur-approximated",
+                            location.to_owned(),
+                            format!(
+                                "Figma BACKGROUND_BLUR ({radius:.1}px) approximated as editable layer Blur filter (backdrop-only compositing is not isolated from underlying layers)."
+                            ),
+                        );
+                        out.push(FilterSpec::Blur {
+                            blur_x: (*radius).clamp(0.0, 255.0),
+                            blur_y: (*radius).clamp(0.0, 255.0),
+                            quality: 2,
+                        });
+                    }
                 }
             }
         }
@@ -1054,10 +1058,13 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                     image_ref,
                     scale_mode,
                     alpha,
+                    image_transform,
+                    scaling_factor,
                 } => {
                     if let Some((res_id, iw, ih)) = self.lookup_image(image_ref, location) {
                         // Direct crisp `Bitmap` for non-rounded rectangular fills without explicit path
-                        if node.uses_bitmap_instance(scale_mode) {
+                        // or custom crop/tile/fit matrix.
+                        if node.uses_bitmap_instance(scale_mode, *image_transform) {
                             let mut img_tf = base_tf;
                             if iw > 0 && ih > 0 && node.width > 0.0 && node.height > 0.0 {
                                 img_tf.scale_x *= node.width / f64::from(iw);
@@ -1109,7 +1116,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                                 self.report.statistics.elements += 1;
                             }
                         } else if let Some((cmds, rule)) = paths_to_fill.first() {
-                            // Rounded-rect / ellipse / vector shape with bitmap fill -> `Path` + `AuthoredBitmapFill`!
+                            // Cropped / tiled / fitted / rounded / vector shape with bitmap fill -> `Path` + `AuthoredBitmapFill`!
                             let el_id = new_id("el");
                             let mut shp_tf = base_tf;
                             shp_tf.alpha = (shp_tf.alpha * alpha).clamp(0.0, 1.0);
@@ -1119,6 +1126,8 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                                 node.width,
                                 node.height,
                                 scale_mode,
+                                *image_transform,
+                                *scaling_factor,
                             );
                             bitmap_fills.push(AuthoredBitmapFill {
                                 element_id: el_id.clone(),
@@ -1348,6 +1357,38 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             self.authored_elements += added;
             self.report.statistics.elements += added;
             out.extend(borders);
+        }
+
+        if out.is_empty() && !filters.is_empty() && self.authored_elements < MAX_AUTHORED_ELEMENTS {
+            let filter_geom = paths_to_fill
+                .first()
+                .map(|(c, r)| (c.clone(), *r))
+                .or_else(|| {
+                    validate_path_commands(&fallback_cmds)
+                        .ok()
+                        .map(|()| (fallback_cmds.clone(), FillRule::NonZero))
+                });
+            if let Some((cmds, rule)) = filter_geom {
+                out.push(Element {
+                    id: new_id("el"),
+                    name: sanitize_element_name(&node.name),
+                    transform: base_tf,
+                    kind: ElementKind::Path {
+                        commands: cmds,
+                        fill_rule: rule,
+                        fill: [0, 0, 0, 0],
+                        stroke: [0, 0, 0, 0],
+                        stroke_width: 0.0,
+                    },
+                    visible: node.visible,
+                    cache_as_bitmap: true,
+                    blend_mode,
+                    filters: filters.to_vec(),
+                    ..Element::default()
+                });
+                self.authored_elements += 1;
+                self.report.statistics.elements += 1;
+            }
         }
 
         out
@@ -1603,7 +1644,10 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                 && self.project.symbols.len() < MAX_PROJECT_SYMBOLS
             {
                 let sym_id = new_id("figmc");
-                let inner_el = elements.remove(0);
+                let mut inner_el = elements.remove(0);
+                let outer_filters = std::mem::take(&mut inner_el.filters);
+                let outer_cache = !outer_filters.is_empty() || inner_el.cache_as_bitmap;
+                inner_el.cache_as_bitmap = false;
                 let inner_bfs = std::mem::take(&mut bfs);
                 self.project.symbols.push(Symbol {
                     id: sym_id.clone(),
@@ -1640,6 +1684,8 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                         symbol_id: sym_id,
                         playback: InstancePlayback::Independent,
                     },
+                    cache_as_bitmap: outer_cache,
+                    filters: outer_filters,
                     ..Element::default()
                 });
                 max_depth = max_depth.max(2);
@@ -2348,12 +2394,22 @@ impl FigmaNode {
         )
     }
 
-    fn uses_bitmap_instance(&self, scale_mode: &str) -> bool {
+    fn uses_bitmap_instance(&self, scale_mode: &str, image_transform: Option<[f64; 6]>) -> bool {
         self.is_rectangular()
             && self.fill_paths.is_empty()
             && self.corner_radii.iter().all(|&r| r <= 0.0)
-            && scale_mode != "TILE"
+            && !matches!(scale_mode, "TILE" | "CROP" | "STRETCH" | "FIT")
+            && image_transform.is_none_or(is_identity_uv_matrix)
     }
+}
+
+fn is_identity_uv_matrix(m: [f64; 6]) -> bool {
+    (m[0] - 1.0).abs() <= 1e-6
+        && m[1].abs() <= 1e-6
+        && m[2].abs() <= 1e-6
+        && m[3].abs() <= 1e-6
+        && (m[4] - 1.0).abs() <= 1e-6
+        && m[5].abs() <= 1e-6
 }
 
 #[derive(Default)]
@@ -2391,10 +2447,14 @@ fn collect_referenced_image_keys(
         if let FigmaPaint::Image {
             image_ref,
             scale_mode,
+            image_transform,
             ..
         } = p
         {
-            refs.record(image_ref, node.uses_bitmap_instance(scale_mode));
+            refs.record(
+                image_ref,
+                node.uses_bitmap_instance(scale_mode, *image_transform),
+            );
         }
     }
     for p in &node.strokes {
@@ -2818,13 +2878,46 @@ fn compute_bitmap_fill_matrix(
     shape_w: f64,
     shape_h: f64,
     scale_mode: &str,
+    image_transform: Option<[f64; 6]>,
+    scaling_factor: Option<f64>,
 ) -> ([f64; 6], bool) {
     let bw = f64::from(iw.max(1));
     let bh = f64::from(ih.max(1));
     let sw = shape_w.max(1.0);
     let sh = shape_h.max(1.0);
+    let repeat = scale_mode == "TILE";
+
+    if let Some([m00, m01, m02, m10, m11, m12]) = image_transform {
+        let det = m00 * m11 - m01 * m10;
+        if det.is_finite() && det.abs() > 1e-9 {
+            let inv00 = m11 / det;
+            let inv01 = -m01 / det;
+            let inv10 = -m10 / det;
+            let inv11 = m00 / det;
+            let tile_scale = if repeat {
+                scaling_factor.unwrap_or(1.0).clamp(1e-4, 1e4)
+            } else {
+                1.0
+            };
+            let mat = [
+                (sw * inv00 / bw) * tile_scale,
+                (sh * inv10 / bw) * tile_scale,
+                (sw * inv01 / bh) * tile_scale,
+                (sh * inv11 / bh) * tile_scale,
+                sw * (-inv00 * m02 - inv01 * m12),
+                sh * (-inv10 * m02 - inv11 * m12),
+            ];
+            if mat.iter().all(|v| v.is_finite() && v.abs() <= 1e8) {
+                return (mat, repeat);
+            }
+        }
+    }
+
     match scale_mode {
-        "TILE" => ([1.0, 0.0, 0.0, 1.0, 0.0, 0.0], true),
+        "TILE" => {
+            let s = scaling_factor.unwrap_or(1.0).clamp(1e-4, 1e4);
+            ([s, 0.0, 0.0, s, 0.0, 0.0], true)
+        }
         "FIT" => {
             let s = (sw / bw).min(sh / bh).clamp(1e-6, 1e6);
             let tx = (sw - bw * s) * 0.5;
@@ -2957,11 +3050,15 @@ fn hash_instance_overrides(comp_id: &str, instance: &FigmaNode) -> u64 {
                         FigmaPaint::Image {
                             image_ref,
                             scale_mode,
+                            image_transform,
+                            scaling_factor,
                             ..
                         } => {
                             3u8.hash(&mut h);
                             image_ref.hash(&mut h);
                             scale_mode.hash(&mut h);
+                            image_transform.map(|m| m.map(f64::to_bits)).hash(&mut h);
+                            scaling_factor.map(f64::to_bits).hash(&mut h);
                         }
                     }
                 }

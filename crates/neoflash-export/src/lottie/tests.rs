@@ -1966,3 +1966,241 @@ fn midnight_express_multi_scene_cartoon_stress_test() {
         "Shape tween with changing fill alpha must animate Lottie fill opacity (Bug D)"
     );
 }
+
+#[test]
+fn lottie_raster_transcoding_downscaling_and_dotlottie_manifest_metadata() {
+    use image::codecs::png::PngEncoder;
+    use image::{ExtendedColorType, ImageEncoder as _};
+    use neoflash_core::{Element, ElementKind, Project, ResourceUnit, Transform};
+    use std::io::Read as _;
+
+    let mut project = Project::blank();
+    project.background = [18, 24, 38, 255];
+
+    let orig_w = 160u32;
+    let orig_h = 80u32;
+    let mut rgba = Vec::with_capacity((orig_w * orig_h * 4) as usize);
+    for y in 0..orig_h {
+        for x in 0..orig_w {
+            rgba.push(((x * 255) / orig_w) as u8);
+            rgba.push(((y * 255) / orig_h) as u8);
+            rgba.push(180);
+            rgba.push(if x < 40 { 128 } else { 255 });
+        }
+    }
+    let mut png_bytes = Vec::new();
+    PngEncoder::new(&mut png_bytes)
+        .write_image(&rgba, orig_w, orig_h, ExtendedColorType::Rgba8)
+        .unwrap();
+
+    project
+        .resources
+        .push(ResourceUnit::from_bytes("hero_bmp", "hero.png", "image/png", &png_bytes).unwrap());
+    let root_id = project.root.clone();
+    project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "hero_el".into(),
+            name: "Hero".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Bitmap {
+                resource_id: "hero_bmp".into(),
+                width: orig_w,
+                height: orig_h,
+                smoothing: true,
+            },
+            ..Element::default()
+        });
+    project.format_version = 3;
+    project.validate().unwrap();
+
+    // 1. Folder mode + WebP transcoding + max_image_dimension = 64 -> 64x32 asset, compensated 250% scale,
+    // and report.bytes accurately includes both JSON bytes and external WebP file bytes.
+    let out_dir = TestOutputDir::new("lottie-transcode-meta");
+    let json_out = out_dir.0.join("hero.json");
+    let folder_opts = LottieOptions {
+        format: LottieFormat::Json,
+        image_mode: LottieImageMode::Folder,
+        image_format: LottieImageFormat::Webp,
+        max_image_dimension: Some(64),
+        ..LottieOptions::default()
+    };
+    let (est_json, est_report) = export_lottie_json(&project, &folder_opts).unwrap();
+    let disk_report = export_project_lottie(&project, &json_out, &folder_opts).unwrap();
+    let webp_path = out_dir.0.join("images/img_hero_bmp.webp");
+    let webp_bytes = fs::read(&webp_path).expect("transcoded WebP written");
+    assert!(webp_bytes.starts_with(b"RIFF") && &webp_bytes[8..12] == b"WEBP");
+    let decoded_webp = image::load_from_memory(&webp_bytes).unwrap();
+    assert_eq!((decoded_webp.width(), decoded_webp.height()), (64, 32));
+    assert_eq!(est_report.bytes, est_json.len() + webp_bytes.len());
+    assert_eq!(disk_report.bytes, est_report.bytes);
+    assert!(
+        est_report
+            .notes
+            .iter()
+            .any(|n| n.code.as_deref() == Some("LOTTIE_BITMAP_DOWNSCALED"))
+    );
+
+    let parsed: Value = serde_json::from_str(&est_json).unwrap();
+    let img_asset = &parsed["assets"][0];
+    assert_eq!(
+        (img_asset["w"].as_u64(), img_asset["h"].as_u64()),
+        (Some(64), Some(32))
+    );
+    let img_layer = parsed["layers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|l| l["ty"] == 2)
+        .expect("image layer");
+    assert_eq!(
+        img_layer["ks"]["s"]["k"],
+        serde_json::json!([250.0, 250.0, 100.0])
+    );
+
+    // 2. dotLottie (.lottie) with JPEG alpha-composited transcoding + complete manifest.json metadata.
+    let dot_opts = LottieOptions {
+        format: LottieFormat::DotLottie,
+        image_format: LottieImageFormat::Jpeg,
+        max_image_dimension: Some(80),
+        ..LottieOptions::default()
+    };
+    let (zip_bytes, dot_report) = export_dotlottie_bytes(&project, &dot_opts).unwrap();
+    assert_eq!(dot_report.bytes, zip_bytes.len());
+    assert!(
+        dot_report
+            .notes
+            .iter()
+            .any(|n| n.code.as_deref() == Some("LOTTIE_JPEG_ALPHA_COMPOSITED"))
+    );
+    validate_dotlottie_bytes(&zip_bytes).expect("valid dotLottie container");
+
+    let mut za = zip::ZipArchive::new(std::io::Cursor::new(&zip_bytes)).unwrap();
+    let mut manifest_str = String::new();
+    za.by_name("manifest.json")
+        .unwrap()
+        .read_to_string(&mut manifest_str)
+        .unwrap();
+    let manifest: Value = serde_json::from_str(&manifest_str).unwrap();
+    assert_eq!(manifest["version"], "1.0");
+    assert_eq!(manifest["generator"], "NeoFlash");
+    let anim = &manifest["animations"][0];
+    assert_eq!(anim["id"], "animation");
+    assert_eq!(anim["theme"], "dark");
+    assert_eq!(anim["themeColor"], "#121826");
+    assert_eq!(anim["background"], "#121826");
+    assert_eq!(anim["loop"], true);
+    assert_eq!(anim["speed"], 1);
+    assert_eq!(manifest["resources"][0]["path"], "images/img_hero_bmp.jpg");
+
+    let mut jpg_bytes = Vec::new();
+    za.by_name("images/img_hero_bmp.jpg")
+        .unwrap()
+        .read_to_end(&mut jpg_bytes)
+        .unwrap();
+    assert!(jpg_bytes.starts_with(b"\xFF\xD8\xFF"));
+    let decoded_jpg = image::load_from_memory(&jpg_bytes).unwrap();
+    assert_eq!((decoded_jpg.width(), decoded_jpg.height()), (80, 40));
+}
+
+#[test]
+fn lottie_cooperative_cancellation_aborts_heavy_multi_hundred_frame_export_promptly() {
+    use neoflash_core::{Easing, Element, ElementKind, FillRule, Keyframe, PathCommand, Project};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    let mut project = Project::blank();
+    let root_id = project.root.clone();
+    {
+        let timeline = &mut project.symbol_mut(&root_id).unwrap().timeline;
+        timeline.frame_count = 600;
+        let layer = &mut timeline.layers[0];
+        layer.keyframes = vec![
+            Keyframe {
+                frame: 0,
+                tween: Some(Easing::EaseInOut),
+                tween_kind: neoflash_core::TweenKind::Shape,
+                elements: (0..12)
+                    .map(|i| Element {
+                        id: format!("morph-{i}"),
+                        name: format!("Morph {i}"),
+                        kind: ElementKind::Path {
+                            commands: vec![
+                                PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                                PathCommand::LineTo {
+                                    x: 40.0 + f64::from(i),
+                                    y: 10.0,
+                                },
+                                PathCommand::LineTo { x: 20.0, y: 50.0 },
+                                PathCommand::Close,
+                            ],
+                            fill_rule: FillRule::NonZero,
+                            fill: [240, 80, 60, 255],
+                            stroke: [20, 20, 20, 255],
+                            stroke_width: 2.0,
+                        },
+                        ..Element::default()
+                    })
+                    .collect(),
+                ..Keyframe::default()
+            },
+            Keyframe {
+                frame: 599,
+                elements: (0..12)
+                    .map(|i| Element {
+                        id: format!("morph-{i}"),
+                        name: format!("Morph {i}"),
+                        kind: ElementKind::Path {
+                            commands: vec![
+                                PathCommand::MoveTo { x: 100.0, y: 80.0 },
+                                PathCommand::LineTo {
+                                    x: 220.0 + f64::from(i),
+                                    y: 90.0,
+                                },
+                                PathCommand::LineTo { x: 160.0, y: 210.0 },
+                                PathCommand::Close,
+                            ],
+                            fill_rule: FillRule::NonZero,
+                            fill: [60, 180, 240, 255],
+                            stroke: [255, 255, 255, 255],
+                            stroke_width: 4.0,
+                        },
+                        ..Element::default()
+                    })
+                    .collect(),
+                ..Keyframe::default()
+            },
+        ];
+    }
+    project.format_version = 6;
+    project.validate().unwrap();
+
+    let cancel = Arc::new(AtomicBool::new(false));
+    let cancel_for_cb = Arc::clone(&cancel);
+    let mut step1_seen = false;
+    let err = export_lottie_json_with_cancel(
+        &project,
+        &LottieOptions {
+            precision: 2,
+            ..LottieOptions::default()
+        },
+        &cancel,
+        |prog| {
+            if prog.completed_steps == 1 {
+                step1_seen = true;
+                // Flip the cooperative cancel token right as the 600-frame track/shape emission begins.
+                cancel_for_cb.store(true, Ordering::Relaxed);
+            }
+            assert!(
+                prog.completed_steps < 2,
+                "600-frame shape emission must abort inside frame loop before reaching step 2"
+            );
+            true
+        },
+    )
+    .unwrap_err();
+    assert!(step1_seen);
+    assert!(err.to_string().contains("cancelled"), "{err}");
+}

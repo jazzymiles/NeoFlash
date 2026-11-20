@@ -25,7 +25,7 @@ pub use neoflash_import::{
     SwfPlaybackResult, SwfTagCounts, SwfVmKind, play_swf_bytes, play_swf_path,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::Write;
 use std::path::Path;
 
@@ -3982,7 +3982,9 @@ enum SwfExpr {
     Str(String),
     Ident(String),
     ArrayLit(Vec<SwfExpr>),
+    ObjectLit(Vec<(String, SwfExpr)>),
     Function {
+        name: Option<String>,
         params: Vec<String>,
         body: Vec<SwfStmt>,
     },
@@ -4076,6 +4078,7 @@ enum SwfToken {
     PlusPlus,
     MinusMinus,
     Assign,
+    FatArrow,
     PlusAssign,
     MinusAssign,
     StarAssign,
@@ -4249,6 +4252,9 @@ fn tokenize_swf_script(source: &str) -> Result<Vec<SwfToken>, String> {
             i += 3;
         } else if rem.starts_with("==") {
             tokens.push(SwfToken::Eq);
+            i += 2;
+        } else if rem.starts_with("=>") {
+            tokens.push(SwfToken::FatArrow);
             i += 2;
         } else if rem.starts_with("!=") {
             tokens.push(SwfToken::Ne);
@@ -4616,12 +4622,6 @@ impl SwfParser {
                     Ok(())
                 }
                 "function" => {
-                    if self.in_function_expression {
-                        return Err(
-                            "nested function declarations inside function expressions require unsupported lexical closure support"
-                                .to_owned(),
-                        );
-                    }
                     self.pos += 1;
                     let name = self.expect_ident()?;
                     self.expect(&SwfToken::LParen)?;
@@ -4647,6 +4647,12 @@ impl SwfParser {
                     let body = self.parse_stmt_list(true)?;
                     self.function_depth -= 1;
                     self.expect(&SwfToken::RBrace)?;
+                    if self.in_function_expression && find_event_handler_in_stmts(&body).is_some() {
+                        return Err(
+                            "AVM1 object event handler syntax is not allowed inside a function expression"
+                                .to_owned(),
+                        );
+                    }
                     out.push(SwfStmt::FunctionDecl { name, params, body });
                     Ok(())
                 }
@@ -5016,6 +5022,74 @@ impl SwfParser {
         Ok(expr)
     }
 
+    fn parse_arrow_body(&mut self) -> Result<Vec<SwfStmt>, String> {
+        let prev_in_fn_expr = self.in_function_expression;
+        self.function_depth += 1;
+        self.in_function_expression = true;
+        let body_res: Result<Vec<SwfStmt>, String> = if self.eat(&SwfToken::LBrace) {
+            let stmts = self.parse_stmt_list(true)?;
+            self.expect(&SwfToken::RBrace)?;
+            Ok(stmts)
+        } else {
+            let expr = self.parse_expr()?;
+            Ok(vec![SwfStmt::Return(Some(expr))])
+        };
+        self.in_function_expression = prev_in_fn_expr;
+        self.function_depth -= 1;
+        let body = body_res?;
+        if find_event_handler_in_stmts(&body).is_some() {
+            return Err(
+                "AVM1 object event handler syntax is not allowed inside a function expression"
+                    .to_owned(),
+            );
+        }
+        Ok(body)
+    }
+
+    fn try_parse_arrow_after_lparen(&mut self) -> Result<Option<SwfExpr>, String> {
+        let saved_pos = self.pos;
+        let mut params = Vec::new();
+        if !self.eat(&SwfToken::RParen) {
+            loop {
+                let Some(SwfToken::Ident(pname)) = self.next() else {
+                    self.pos = saved_pos;
+                    return Ok(None);
+                };
+                if self.skip_type_annotation().is_err() {
+                    self.pos = saved_pos;
+                    return Ok(None);
+                }
+                if self.eat(&SwfToken::Assign) && self.parse_expr().is_err() {
+                    self.pos = saved_pos;
+                    return Ok(None);
+                }
+                params.push(pname);
+                if self.eat(&SwfToken::Comma) {
+                    continue;
+                }
+                if !self.eat(&SwfToken::RParen) {
+                    self.pos = saved_pos;
+                    return Ok(None);
+                }
+                break;
+            }
+        }
+        if self.peek() == Some(&SwfToken::Colon) && self.skip_type_annotation().is_err() {
+            self.pos = saved_pos;
+            return Ok(None);
+        }
+        if !self.eat(&SwfToken::FatArrow) {
+            self.pos = saved_pos;
+            return Ok(None);
+        }
+        let body = self.parse_arrow_body()?;
+        Ok(Some(SwfExpr::Function {
+            name: None,
+            params,
+            body,
+        }))
+    }
+
     fn parse_primary(&mut self) -> Result<SwfExpr, String> {
         match self.next() {
             Some(SwfToken::Int(v)) => Ok(SwfExpr::Int(v)),
@@ -5027,30 +5101,20 @@ impl SwfParser {
                 "null" => Ok(SwfExpr::Null),
                 "undefined" => Ok(SwfExpr::Undefined),
                 "function" => {
-                    if self.is_avm2 {
-                        return Err(
-                            "AS3 function expressions are not supported by the bounded SWF compiler"
-                                .to_owned(),
-                        );
-                    }
-                    if self.function_depth != 0 {
-                        return Err(
-                            "nested function expressions requiring lexical closure support are not supported by the bounded SWF compiler"
-                                .to_owned(),
-                        );
-                    }
-                    if matches!(self.peek(), Some(SwfToken::Ident(_))) {
-                        return Err(
-                            "named function expressions are not supported by the bounded SWF compiler"
-                                .to_owned(),
-                        );
-                    }
+                    let fn_name = if matches!(self.peek(), Some(SwfToken::Ident(_))) {
+                        Some(self.expect_ident()?)
+                    } else {
+                        None
+                    };
                     self.expect(&SwfToken::LParen)?;
                     let mut params = Vec::new();
                     if !self.eat(&SwfToken::RParen) {
                         loop {
                             params.push(self.expect_ident()?);
                             self.skip_type_annotation()?;
+                            if self.eat(&SwfToken::Assign) {
+                                let _ = self.parse_expr()?;
+                            }
                             if self.eat(&SwfToken::Comma) {
                                 continue;
                             }
@@ -5060,11 +5124,13 @@ impl SwfParser {
                     }
                     self.skip_type_annotation()?;
                     self.expect(&SwfToken::LBrace)?;
+                    let prev_in_fn_expr = self.in_function_expression;
                     self.function_depth += 1;
                     self.in_function_expression = true;
-                    let body = self.parse_stmt_list(true)?;
-                    self.in_function_expression = false;
+                    let body_res = self.parse_stmt_list(true);
+                    self.in_function_expression = prev_in_fn_expr;
                     self.function_depth -= 1;
+                    let body = body_res?;
                     self.expect(&SwfToken::RBrace)?;
                     if find_event_handler_in_stmts(&body).is_some() {
                         return Err(
@@ -5072,14 +5138,60 @@ impl SwfParser {
                                 .to_owned(),
                         );
                     }
-                    Ok(SwfExpr::Function { params, body })
+                    Ok(SwfExpr::Function {
+                        name: fn_name,
+                        params,
+                        body,
+                    })
                 }
-                _ => Ok(SwfExpr::Ident(s)),
+                _ => {
+                    if self.eat(&SwfToken::FatArrow) {
+                        let body = self.parse_arrow_body()?;
+                        Ok(SwfExpr::Function {
+                            name: None,
+                            params: vec![s],
+                            body,
+                        })
+                    } else {
+                        Ok(SwfExpr::Ident(s))
+                    }
+                }
             },
             Some(SwfToken::LParen) => {
+                if let Some(arrow) = self.try_parse_arrow_after_lparen()? {
+                    return Ok(arrow);
+                }
                 let e = self.parse_expr()?;
                 self.expect(&SwfToken::RParen)?;
                 Ok(e)
+            }
+            Some(SwfToken::LBrace) => {
+                let mut props = Vec::new();
+                if !self.eat(&SwfToken::RBrace) {
+                    loop {
+                        let key = match self.next() {
+                            Some(SwfToken::Ident(k)) | Some(SwfToken::Str(k)) => k,
+                            Some(SwfToken::Int(k)) => k.to_string(),
+                            other => {
+                                return Err(format!(
+                                    "expected object property key, found {other:?} in bounded SWF compiler"
+                                ));
+                            }
+                        };
+                        self.expect(&SwfToken::Colon)?;
+                        let val = self.parse_expr()?;
+                        props.push((key, val));
+                        if self.eat(&SwfToken::Comma) {
+                            if self.eat(&SwfToken::RBrace) {
+                                break;
+                            }
+                            continue;
+                        }
+                        self.expect(&SwfToken::RBrace)?;
+                        break;
+                    }
+                }
+                Ok(SwfExpr::ObjectLit(props))
             }
             Some(SwfToken::LBracket) => {
                 let mut elems = Vec::new();
@@ -5205,6 +5317,251 @@ fn avm1_push_bool(out: &mut Vec<u8>, v: bool) {
     out.push(u8::from(v));
 }
 
+fn avm1_push_register(out: &mut Vec<u8>, reg: u8) {
+    out.push(0x96); // ActionPush
+    out.extend_from_slice(&2u16.to_le_bytes());
+    out.push(0x04); // type 4 = Register
+    out.push(reg);
+}
+
+fn collect_direct_decls_in_stmts(
+    stmts: &[SwfStmt],
+    vars: &mut Vec<String>,
+    funcs: &mut Vec<String>,
+) {
+    for stmt in stmts {
+        match stmt {
+            SwfStmt::VarDecl { name, .. } => {
+                if !vars.contains(name) {
+                    vars.push(name.clone());
+                }
+            }
+            SwfStmt::FunctionDecl { name, .. } => {
+                if !funcs.contains(name) {
+                    funcs.push(name.clone());
+                }
+            }
+            SwfStmt::Block(inner) | SwfStmt::While { body: inner, .. } => {
+                collect_direct_decls_in_stmts(inner, vars, funcs);
+            }
+            SwfStmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                collect_direct_decls_in_stmts(then_branch, vars, funcs);
+                if let Some(eb) = else_branch {
+                    collect_direct_decls_in_stmts(eb, vars, funcs);
+                }
+            }
+            SwfStmt::For {
+                init, update, body, ..
+            } => {
+                if let Some(i) = init {
+                    collect_direct_decls_in_stmts(std::slice::from_ref(i.as_ref()), vars, funcs);
+                }
+                if let Some(u) = update {
+                    collect_direct_decls_in_stmts(std::slice::from_ref(u.as_ref()), vars, funcs);
+                }
+                collect_direct_decls_in_stmts(body, vars, funcs);
+            }
+            SwfStmt::EventHandler { body, .. } => {
+                collect_direct_decls_in_stmts(body, vars, funcs);
+            }
+            SwfStmt::Assign { .. }
+            | SwfStmt::IncDec { .. }
+            | SwfStmt::Expr(_)
+            | SwfStmt::Return(_) => {}
+        }
+    }
+}
+
+fn collect_refs_and_child_free_in_expr(
+    expr: &SwfExpr,
+    direct_refs: &mut HashSet<String>,
+    child_free: &mut HashSet<String>,
+) {
+    match expr {
+        SwfExpr::Null
+        | SwfExpr::Undefined
+        | SwfExpr::Bool(_)
+        | SwfExpr::Int(_)
+        | SwfExpr::Float(_)
+        | SwfExpr::Str(_) => {}
+        SwfExpr::Ident(name) => {
+            direct_refs.insert(name.clone());
+        }
+        SwfExpr::ArrayLit(elems) => {
+            for el in elems {
+                collect_refs_and_child_free_in_expr(el, direct_refs, child_free);
+            }
+        }
+        SwfExpr::ObjectLit(props) => {
+            for (_, val) in props {
+                collect_refs_and_child_free_in_expr(val, direct_refs, child_free);
+            }
+        }
+        SwfExpr::Function { name, params, body } => {
+            collect_free_vars_of_function(name.as_deref(), params, body, child_free);
+        }
+        SwfExpr::Member(obj, _) => {
+            collect_refs_and_child_free_in_expr(obj, direct_refs, child_free);
+        }
+        SwfExpr::Index(obj, idx) => {
+            collect_refs_and_child_free_in_expr(obj, direct_refs, child_free);
+            collect_refs_and_child_free_in_expr(idx, direct_refs, child_free);
+        }
+        SwfExpr::Unary { expr, .. } => {
+            collect_refs_and_child_free_in_expr(expr, direct_refs, child_free);
+        }
+        SwfExpr::Binary { lhs, rhs, .. } => {
+            collect_refs_and_child_free_in_expr(lhs, direct_refs, child_free);
+            collect_refs_and_child_free_in_expr(rhs, direct_refs, child_free);
+        }
+        SwfExpr::Call { callee, args } | SwfExpr::New { callee, args } => {
+            collect_refs_and_child_free_in_expr(callee, direct_refs, child_free);
+            for a in args {
+                collect_refs_and_child_free_in_expr(a, direct_refs, child_free);
+            }
+        }
+    }
+}
+
+fn collect_refs_and_child_free_in_lvalue(
+    target: &SwfLValue,
+    direct_refs: &mut HashSet<String>,
+    child_free: &mut HashSet<String>,
+) {
+    match target {
+        SwfLValue::Ident(name) => {
+            direct_refs.insert(name.clone());
+        }
+        SwfLValue::Member(obj, _) => {
+            collect_refs_and_child_free_in_expr(obj, direct_refs, child_free);
+        }
+        SwfLValue::Index(obj, idx) => {
+            collect_refs_and_child_free_in_expr(obj, direct_refs, child_free);
+            collect_refs_and_child_free_in_expr(idx, direct_refs, child_free);
+        }
+    }
+}
+
+fn collect_refs_and_child_free_in_stmts(
+    stmts: &[SwfStmt],
+    direct_refs: &mut HashSet<String>,
+    child_free: &mut HashSet<String>,
+) {
+    for stmt in stmts {
+        match stmt {
+            SwfStmt::VarDecl { name, init } => {
+                direct_refs.insert(name.clone());
+                if let Some(rhs) = init {
+                    collect_refs_and_child_free_in_expr(rhs, direct_refs, child_free);
+                }
+            }
+            SwfStmt::Assign { target, value, .. } => {
+                collect_refs_and_child_free_in_lvalue(target, direct_refs, child_free);
+                collect_refs_and_child_free_in_expr(value, direct_refs, child_free);
+            }
+            SwfStmt::IncDec { target, .. } => {
+                collect_refs_and_child_free_in_lvalue(target, direct_refs, child_free);
+            }
+            SwfStmt::Expr(expr) => {
+                collect_refs_and_child_free_in_expr(expr, direct_refs, child_free);
+            }
+            SwfStmt::Block(inner) => {
+                collect_refs_and_child_free_in_stmts(inner, direct_refs, child_free);
+            }
+            SwfStmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                collect_refs_and_child_free_in_expr(cond, direct_refs, child_free);
+                collect_refs_and_child_free_in_stmts(then_branch, direct_refs, child_free);
+                if let Some(eb) = else_branch {
+                    collect_refs_and_child_free_in_stmts(eb, direct_refs, child_free);
+                }
+            }
+            SwfStmt::While { cond, body } => {
+                collect_refs_and_child_free_in_expr(cond, direct_refs, child_free);
+                collect_refs_and_child_free_in_stmts(body, direct_refs, child_free);
+            }
+            SwfStmt::For {
+                init,
+                cond,
+                update,
+                body,
+            } => {
+                if let Some(i) = init {
+                    collect_refs_and_child_free_in_stmts(
+                        std::slice::from_ref(i.as_ref()),
+                        direct_refs,
+                        child_free,
+                    );
+                }
+                if let Some(c) = cond {
+                    collect_refs_and_child_free_in_expr(c, direct_refs, child_free);
+                }
+                if let Some(u) = update {
+                    collect_refs_and_child_free_in_stmts(
+                        std::slice::from_ref(u.as_ref()),
+                        direct_refs,
+                        child_free,
+                    );
+                }
+                collect_refs_and_child_free_in_stmts(body, direct_refs, child_free);
+            }
+            SwfStmt::FunctionDecl { name, params, body } => {
+                direct_refs.insert(name.clone());
+                collect_free_vars_of_function(Some(name.as_str()), params, body, child_free);
+            }
+            SwfStmt::Return(Some(expr)) => {
+                collect_refs_and_child_free_in_expr(expr, direct_refs, child_free);
+            }
+            SwfStmt::Return(None) => {}
+            SwfStmt::EventHandler { body, .. } => {
+                collect_refs_and_child_free_in_stmts(body, direct_refs, child_free);
+            }
+        }
+    }
+}
+
+fn collect_free_vars_of_function(
+    self_name: Option<&str>,
+    params: &[String],
+    body: &[SwfStmt],
+    out_free: &mut HashSet<String>,
+) {
+    let mut own_vars = Vec::new();
+    let mut own_funcs = Vec::new();
+    collect_direct_decls_in_stmts(body, &mut own_vars, &mut own_funcs);
+    let mut direct_refs = HashSet::new();
+    let mut child_free = HashSet::new();
+    collect_refs_and_child_free_in_stmts(body, &mut direct_refs, &mut child_free);
+
+    let mut own_bound: HashSet<&str> = HashSet::new();
+    if let Some(sn) = self_name
+        && !sn.is_empty()
+    {
+        own_bound.insert(sn);
+    }
+    for p in params {
+        own_bound.insert(p.as_str());
+    }
+    for v in &own_vars {
+        own_bound.insert(v.as_str());
+    }
+    for f in &own_funcs {
+        own_bound.insert(f.as_str());
+    }
+    for r in direct_refs.into_iter().chain(child_free) {
+        if !own_bound.contains(r.as_str()) {
+            out_free.insert(r);
+        }
+    }
+}
+
 fn is_avm1_mc_builtin_prop(name: &str) -> bool {
     matches!(
         name,
@@ -5212,7 +5569,11 @@ fn is_avm1_mc_builtin_prop(name: &str) -> bool {
     )
 }
 
-fn avm1_compile_expr(out: &mut Vec<u8>, expr: &SwfExpr) -> Result<(), String> {
+fn avm1_compile_expr(
+    out: &mut Vec<u8>,
+    expr: &SwfExpr,
+    reg_map: &HashMap<String, u8>,
+) -> Result<(), String> {
     match expr {
         SwfExpr::Null => {
             out.push(0x96);
@@ -5229,20 +5590,33 @@ fn avm1_compile_expr(out: &mut Vec<u8>, expr: &SwfExpr) -> Result<(), String> {
         SwfExpr::Float(fv) => avm1_push_double(out, *fv),
         SwfExpr::Str(s) => avm1_push_string(out, s)?,
         SwfExpr::Ident(name) => {
-            avm1_push_string(out, name)?;
-            out.push(0x1c); // ActionGetVariable
+            if let Some(&reg) = reg_map.get(name) {
+                avm1_push_register(out, reg);
+            } else {
+                avm1_push_string(out, name)?;
+                out.push(0x1c); // ActionGetVariable
+            }
         }
         SwfExpr::ArrayLit(elems) => {
             for el in elems.iter().rev() {
-                avm1_compile_expr(out, el)?;
+                avm1_compile_expr(out, el, reg_map)?;
             }
             avm1_push_int(out, elems.len() as i32);
             out.push(0x42); // ActionInitArray
         }
-        SwfExpr::Function { params, body } => {
-            // An unnamed ActionDefineFunction pushes the function value. Assignment then
-            // stores that value; its body runs only when called or dispatched as a handler.
-            avm1_compile_function(out, "", params, body)?;
+        SwfExpr::ObjectLit(props) => {
+            for (key, val) in props {
+                avm1_push_string(out, key)?;
+                avm1_compile_expr(out, val, reg_map)?;
+            }
+            avm1_push_int(out, props.len() as i32);
+            out.push(0x43); // ActionInitObject
+        }
+        SwfExpr::Function { name, params, body } => {
+            // An unnamed ActionDefineFunction2 pushes the function value onto the stack;
+            // if a function-expression self-name is present (`function fact(n)`), bind it
+            // inside the function's own local activation scope via `arguments.callee`.
+            avm1_compile_function(out, "", name.as_deref(), params, body)?;
         }
         SwfExpr::Member(obj, prop) => {
             if matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "this")
@@ -5251,40 +5625,40 @@ fn avm1_compile_expr(out: &mut Vec<u8>, expr: &SwfExpr) -> Result<(), String> {
                 avm1_push_string(out, prop)?;
                 out.push(0x1c); // ActionGetVariable
             } else {
-                avm1_compile_expr(out, obj)?;
+                avm1_compile_expr(out, obj, reg_map)?;
                 avm1_push_string(out, prop)?;
                 out.push(0x4e); // ActionGetMember
             }
         }
         SwfExpr::Index(obj, idx) => {
-            avm1_compile_expr(out, obj)?;
-            avm1_compile_expr(out, idx)?;
+            avm1_compile_expr(out, obj, reg_map)?;
+            avm1_compile_expr(out, idx, reg_map)?;
             out.push(0x4e); // ActionGetMember
         }
         SwfExpr::Unary { op, expr } => match op {
             SwfUnaryOp::Not => {
-                avm1_compile_expr(out, expr)?;
+                avm1_compile_expr(out, expr, reg_map)?;
                 out.push(0x12); // ActionNot
             }
             SwfUnaryOp::Neg => {
                 avm1_push_int(out, 0);
-                avm1_compile_expr(out, expr)?;
+                avm1_compile_expr(out, expr, reg_map)?;
                 out.push(0x0b); // ActionSubtract
             }
             SwfUnaryOp::Pos => {
-                avm1_compile_expr(out, expr)?;
+                avm1_compile_expr(out, expr, reg_map)?;
                 out.push(0x4a); // ActionToNumber
             }
         },
         SwfExpr::Binary { op, lhs, rhs } => {
             if matches!(op, SwfBinaryOp::And | SwfBinaryOp::Or) {
-                avm1_compile_expr(out, lhs)?;
+                avm1_compile_expr(out, lhs, reg_map)?;
                 out.push(0x4c); // ActionPushDuplicate
                 if *op == SwfBinaryOp::And {
                     out.push(0x12); // ActionNot: branch when lhs is false
                 }
                 let mut rhs_bytes = Vec::new();
-                avm1_compile_expr(&mut rhs_bytes, rhs)?;
+                avm1_compile_expr(&mut rhs_bytes, rhs, reg_map)?;
                 let skip_rhs = rhs_bytes
                     .len()
                     .checked_add(1)
@@ -5297,8 +5671,8 @@ fn avm1_compile_expr(out: &mut Vec<u8>, expr: &SwfExpr) -> Result<(), String> {
                 out.extend_from_slice(&rhs_bytes);
                 return Ok(());
             }
-            avm1_compile_expr(out, lhs)?;
-            avm1_compile_expr(out, rhs)?;
+            avm1_compile_expr(out, lhs, reg_map)?;
+            avm1_compile_expr(out, rhs, reg_map)?;
             match op {
                 SwfBinaryOp::Add => out.push(0x47), // ActionAdd2
                 SwfBinaryOp::Sub => out.push(0x0b), // ActionSubtract
@@ -5335,15 +5709,25 @@ fn avm1_compile_expr(out: &mut Vec<u8>, expr: &SwfExpr) -> Result<(), String> {
             }
         }
         SwfExpr::Call { callee, args } => {
-            avm1_compile_call(out, callee, args, false)?;
+            avm1_compile_call(out, callee, args, false, reg_map)?;
         }
         SwfExpr::New { callee, args } => {
             for a in args.iter().rev() {
-                avm1_compile_expr(out, a)?;
+                avm1_compile_expr(out, a, reg_map)?;
             }
             avm1_push_int(out, args.len() as i32);
             match callee.as_ref() {
-                SwfExpr::Ident(name) => avm1_push_string(out, name)?,
+                SwfExpr::Ident(name) => {
+                    if let Some(&reg) = reg_map.get(name) {
+                        avm1_push_register(out, reg);
+                        out.push(0x96);
+                        out.extend_from_slice(&1u16.to_le_bytes());
+                        out.push(0x03); // Undefined method name
+                        out.push(0x53); // ActionNewMethod
+                        return Ok(());
+                    }
+                    avm1_push_string(out, name)?;
+                }
                 SwfExpr::Member(_, prop) => avm1_push_string(out, prop)?,
                 _ => return Err("unsupported 'new' constructor expression in AVM1".to_owned()),
             }
@@ -5358,7 +5742,26 @@ fn avm1_compile_call(
     callee: &SwfExpr,
     args: &[SwfExpr],
     discard_result: bool,
+    reg_map: &HashMap<String, u8>,
 ) -> Result<(), String> {
+    if let SwfExpr::Ident(name) = callee
+        && let Some(&reg) = reg_map.get(name)
+    {
+        for a in args.iter().rev() {
+            avm1_compile_expr(out, a, reg_map)?;
+        }
+        avm1_push_int(out, args.len() as i32);
+        avm1_push_register(out, reg);
+        out.push(0x96);
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.push(0x03); // Undefined method name -> invoke function object directly
+        out.push(0x52); // ActionCallMethod
+        if discard_result {
+            out.push(0x17); // ActionPop
+        }
+        return Ok(());
+    }
+
     let direct_fn = match callee {
         SwfExpr::Ident(name) => Some(name.as_str()),
         SwfExpr::Member(recv, prop) if matches!(recv.as_ref(), SwfExpr::Ident(id) if id == "this") => {
@@ -5465,7 +5868,7 @@ fn avm1_compile_call(
                         ));
                     }
                     other => {
-                        avm1_compile_expr(out, other)?;
+                        avm1_compile_expr(out, other, reg_map)?;
                         out.push(0x9f); // ActionGotoFrame2
                         out.extend_from_slice(&1u16.to_le_bytes());
                         out.push(u8::from(is_play));
@@ -5475,7 +5878,7 @@ fn avm1_compile_call(
             }
             "trace" if discard_result => {
                 if let Some(first) = args.first() {
-                    avm1_compile_expr(out, first)?;
+                    avm1_compile_expr(out, first, reg_map)?;
                 } else {
                     avm1_push_string(out, "")?;
                 }
@@ -5484,7 +5887,7 @@ fn avm1_compile_call(
             }
             _ => {
                 for a in args.iter().rev() {
-                    avm1_compile_expr(out, a)?;
+                    avm1_compile_expr(out, a, reg_map)?;
                 }
                 avm1_push_int(out, args.len() as i32);
                 avm1_push_string(out, short_fn)?;
@@ -5499,10 +5902,10 @@ fn avm1_compile_call(
 
     if let SwfExpr::Member(recv, method_name) = callee {
         for a in args.iter().rev() {
-            avm1_compile_expr(out, a)?;
+            avm1_compile_expr(out, a, reg_map)?;
         }
         avm1_push_int(out, args.len() as i32);
-        avm1_compile_expr(out, recv)?;
+        avm1_compile_expr(out, recv, reg_map)?;
         avm1_push_string(out, method_name)?;
         out.push(0x52); // ActionCallMethod
         if discard_result {
@@ -5511,14 +5914,35 @@ fn avm1_compile_call(
         return Ok(());
     }
 
-    Err("unsupported function call target in AVM1 compiler".to_owned())
+    // Arbitrary callable expression (e.g. `makeAdder(10)(5)`, `(x => x * 2)(4)`, `fns[0](3)`):
+    for a in args.iter().rev() {
+        avm1_compile_expr(out, a, reg_map)?;
+    }
+    avm1_push_int(out, args.len() as i32);
+    avm1_compile_expr(out, callee, reg_map)?;
+    out.push(0x96);
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.push(0x03); // Undefined method name -> call function value directly
+    out.push(0x52); // ActionCallMethod
+    if discard_result {
+        out.push(0x17); // ActionPop
+    }
+    Ok(())
 }
 
-fn avm1_load_lvalue(out: &mut Vec<u8>, target: &SwfLValue) -> Result<(), String> {
+fn avm1_load_lvalue(
+    out: &mut Vec<u8>,
+    target: &SwfLValue,
+    reg_map: &HashMap<String, u8>,
+) -> Result<(), String> {
     match target {
         SwfLValue::Ident(name) => {
-            avm1_push_string(out, name)?;
-            out.push(0x1c); // ActionGetVariable
+            if let Some(&reg) = reg_map.get(name) {
+                avm1_push_register(out, reg);
+            } else {
+                avm1_push_string(out, name)?;
+                out.push(0x1c); // ActionGetVariable
+            }
         }
         SwfLValue::Member(obj, prop) => {
             if matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "this")
@@ -5527,14 +5951,14 @@ fn avm1_load_lvalue(out: &mut Vec<u8>, target: &SwfLValue) -> Result<(), String>
                 avm1_push_string(out, prop)?;
                 out.push(0x1c); // ActionGetVariable
             } else {
-                avm1_compile_expr(out, obj)?;
+                avm1_compile_expr(out, obj, reg_map)?;
                 avm1_push_string(out, prop)?;
                 out.push(0x4e); // ActionGetMember
             }
         }
         SwfLValue::Index(obj, idx) => {
-            avm1_compile_expr(out, obj)?;
-            avm1_compile_expr(out, idx)?;
+            avm1_compile_expr(out, obj, reg_map)?;
+            avm1_compile_expr(out, idx, reg_map)?;
             out.push(0x4e); // ActionGetMember
         }
     }
@@ -5544,6 +5968,7 @@ fn avm1_load_lvalue(out: &mut Vec<u8>, target: &SwfLValue) -> Result<(), String>
 fn avm1_store_lvalue_with_rhs<F>(
     out: &mut Vec<u8>,
     target: &SwfLValue,
+    reg_map: &HashMap<String, u8>,
     emit_rhs: F,
 ) -> Result<(), String>
 where
@@ -5551,16 +5976,24 @@ where
 {
     match target {
         SwfLValue::Ident(name) => {
-            avm1_push_string(out, name)?;
-            emit_rhs(out)?;
-            out.push(0x1d); // ActionSetVariable
-            if is_avm1_mc_builtin_prop(name) {
-                avm1_push_string(out, "this")?;
-                out.push(0x1c); // ActionGetVariable
+            if let Some(&reg) = reg_map.get(name) {
+                emit_rhs(out)?;
+                out.push(0x87); // ActionStoreRegister
+                out.extend_from_slice(&1u16.to_le_bytes());
+                out.push(reg);
+                out.push(0x17); // ActionPop
+            } else {
                 avm1_push_string(out, name)?;
-                avm1_push_string(out, name)?;
-                out.push(0x1c); // ActionGetVariable
-                out.push(0x4f); // ActionSetMember
+                emit_rhs(out)?;
+                out.push(0x1d); // ActionSetVariable
+                if is_avm1_mc_builtin_prop(name) {
+                    avm1_push_string(out, "this")?;
+                    out.push(0x1c); // ActionGetVariable
+                    avm1_push_string(out, name)?;
+                    avm1_push_string(out, name)?;
+                    out.push(0x1c); // ActionGetVariable
+                    out.push(0x4f); // ActionSetMember
+                }
             }
         }
         SwfLValue::Member(obj, prop) => {
@@ -5577,15 +6010,15 @@ where
                 out.push(0x1c); // ActionGetVariable
                 out.push(0x4f); // ActionSetMember
             } else {
-                avm1_compile_expr(out, obj)?;
+                avm1_compile_expr(out, obj, reg_map)?;
                 avm1_push_string(out, prop)?;
                 emit_rhs(out)?;
                 out.push(0x4f); // ActionSetMember
             }
         }
         SwfLValue::Index(obj, idx) => {
-            avm1_compile_expr(out, obj)?;
-            avm1_compile_expr(out, idx)?;
+            avm1_compile_expr(out, obj, reg_map)?;
+            avm1_compile_expr(out, idx, reg_map)?;
             emit_rhs(out)?;
             out.push(0x4f); // ActionSetMember
         }
@@ -5596,27 +6029,85 @@ where
 fn avm1_compile_function(
     out: &mut Vec<u8>,
     name: &str,
+    self_expr_name: Option<&str>,
     params: &[String],
     body: &[SwfStmt],
 ) -> Result<(), String> {
+    let mut own_vars = Vec::new();
+    let mut own_funcs = Vec::new();
+    collect_direct_decls_in_stmts(body, &mut own_vars, &mut own_funcs);
+    let mut direct_refs = HashSet::new();
+    let mut child_free = HashSet::new();
+    collect_refs_and_child_free_in_stmts(body, &mut direct_refs, &mut child_free);
+
+    let needs_self_binding = self_expr_name.is_some_and(|sn| {
+        !sn.is_empty()
+            && !params.iter().any(|p| p == sn)
+            && (direct_refs.contains(sn) || child_free.contains(sn))
+    });
+    let mut flags = 0u16;
+    if !needs_self_binding
+        && !direct_refs.contains("arguments")
+        && !child_free.contains("arguments")
+    {
+        flags |= 0x0008; // suppress_arguments
+    }
+    if !direct_refs.contains("super") && !child_free.contains("super") {
+        flags |= 0x0020; // suppress_super
+    }
+
+    let mut fn_reg_map = HashMap::new();
+    let mut next_reg = 1u8;
+    let mut param_specs: Vec<(u8, &str)> = Vec::with_capacity(params.len());
+    let mut seen_params = HashSet::new();
+    for param in params {
+        // Any parameter captured by a nested closure, shadowed by `var`/`function`, or duplicated
+        // MUST use `reg = 0` so AVM1 binds it on the activation scope chain instead of a register!
+        let must_use_activation = child_free.contains(param)
+            || own_vars.contains(param)
+            || own_funcs.contains(param)
+            || !seen_params.insert(param.as_str())
+            || next_reg >= 250;
+        if must_use_activation {
+            param_specs.push((0, param.as_str()));
+        } else {
+            let reg = next_reg;
+            next_reg += 1;
+            fn_reg_map.insert(param.clone(), reg);
+            param_specs.push((reg, param.as_str()));
+        }
+    }
+
     let mut body_bytes = Vec::new();
-    avm1_compile_stmt_list(&mut body_bytes, body, true)?;
+    if needs_self_binding && let Some(self_name) = self_expr_name {
+        avm1_push_string(&mut body_bytes, self_name)?;
+        avm1_push_string(&mut body_bytes, "arguments")?;
+        body_bytes.push(0x1c); // ActionGetVariable
+        avm1_push_string(&mut body_bytes, "callee")?;
+        body_bytes.push(0x4e); // ActionGetMember
+        body_bytes.push(0x3c); // ActionDefineLocal
+    }
+    avm1_compile_stmt_list(&mut body_bytes, body, true, &fn_reg_map)?;
     let code_size = u16::try_from(body_bytes.len())
         .map_err(|_| "AVM1 function body exceeds 65535 bytes".to_owned())?;
+
     let mut header = Vec::new();
     header.extend(name.bytes().filter(|&b| b != 0));
     header.push(0);
-    let num_params = u16::try_from(params.len())
+    let num_params = u16::try_from(param_specs.len())
         .map_err(|_| "AVM1 function has too many parameters".to_owned())?;
     header.extend_from_slice(&num_params.to_le_bytes());
-    for param in params {
-        header.extend(param.bytes().filter(|&b| b != 0));
+    header.push(next_reg); // register_count
+    header.extend_from_slice(&flags.to_le_bytes());
+    for (reg, pname) in param_specs {
+        header.push(reg);
+        header.extend(pname.bytes().filter(|&b| b != 0));
         header.push(0);
     }
     header.extend_from_slice(&code_size.to_le_bytes());
     let header_len = u16::try_from(header.len())
         .map_err(|_| "AVM1 function header exceeds 65535 bytes".to_owned())?;
-    out.push(0x9b); // ActionDefineFunction
+    out.push(0x8e); // ActionDefineFunction2
     out.extend_from_slice(&header_len.to_le_bytes());
     out.extend_from_slice(&header);
     out.extend_from_slice(&body_bytes);
@@ -5627,19 +6118,33 @@ fn avm1_compile_stmt_list(
     out: &mut Vec<u8>,
     stmts: &[SwfStmt],
     in_function: bool,
+    reg_map: &HashMap<String, u8>,
 ) -> Result<(), String> {
     for stmt in stmts {
-        avm1_compile_stmt(out, stmt, in_function)?;
+        if let SwfStmt::FunctionDecl { name, params, body } = stmt {
+            avm1_compile_function(out, name, None, params, body)?;
+        }
+    }
+    for stmt in stmts {
+        if matches!(stmt, SwfStmt::FunctionDecl { .. }) {
+            continue;
+        }
+        avm1_compile_stmt(out, stmt, in_function, reg_map)?;
     }
     Ok(())
 }
 
-fn avm1_compile_stmt(out: &mut Vec<u8>, stmt: &SwfStmt, in_function: bool) -> Result<(), String> {
+fn avm1_compile_stmt(
+    out: &mut Vec<u8>,
+    stmt: &SwfStmt,
+    in_function: bool,
+    reg_map: &HashMap<String, u8>,
+) -> Result<(), String> {
     match stmt {
         SwfStmt::VarDecl { name, init } => {
             if let Some(rhs) = init {
                 avm1_push_string(out, name)?;
-                avm1_compile_expr(out, rhs)?;
+                avm1_compile_expr(out, rhs, reg_map)?;
                 out.push(if in_function { 0x3c } else { 0x1d });
             } else if in_function {
                 avm1_push_string(out, name)?;
@@ -5653,12 +6158,12 @@ fn avm1_compile_stmt(out: &mut Vec<u8>, stmt: &SwfStmt, in_function: bool) -> Re
             }
         }
         SwfStmt::Assign { target, op, value } => {
-            avm1_store_lvalue_with_rhs(out, target, |buf| {
+            avm1_store_lvalue_with_rhs(out, target, reg_map, |buf| {
                 if *op == SwfAssignOp::Assign {
-                    avm1_compile_expr(buf, value)
+                    avm1_compile_expr(buf, value, reg_map)
                 } else {
-                    avm1_load_lvalue(buf, target)?;
-                    avm1_compile_expr(buf, value)?;
+                    avm1_load_lvalue(buf, target, reg_map)?;
+                    avm1_compile_expr(buf, value, reg_map)?;
                     buf.push(match op {
                         SwfAssignOp::AddAssign => 0x47,
                         SwfAssignOp::SubAssign => 0x0b,
@@ -5672,36 +6177,36 @@ fn avm1_compile_stmt(out: &mut Vec<u8>, stmt: &SwfStmt, in_function: bool) -> Re
             })?;
         }
         SwfStmt::IncDec { target, increment } => {
-            avm1_store_lvalue_with_rhs(out, target, |buf| {
-                avm1_load_lvalue(buf, target)?;
+            avm1_store_lvalue_with_rhs(out, target, reg_map, |buf| {
+                avm1_load_lvalue(buf, target, reg_map)?;
                 buf.push(if *increment { 0x50 } else { 0x51 }); // ActionIncrement / ActionDecrement
                 Ok(())
             })?;
         }
         SwfStmt::Expr(SwfExpr::Call { callee, args }) => {
-            avm1_compile_call(out, callee, args, true)?;
+            avm1_compile_call(out, callee, args, true, reg_map)?;
         }
         SwfStmt::Expr(expr) => {
-            avm1_compile_expr(out, expr)?;
+            avm1_compile_expr(out, expr, reg_map)?;
             out.push(0x17); // ActionPop
         }
         SwfStmt::Block(inner) => {
-            avm1_compile_stmt_list(out, inner, in_function)?;
+            avm1_compile_stmt_list(out, inner, in_function, reg_map)?;
         }
         SwfStmt::If {
             cond,
             then_branch,
             else_branch,
         } => {
-            avm1_compile_expr(out, cond)?;
+            avm1_compile_expr(out, cond, reg_map)?;
             out.push(0x12); // ActionNot: jump if cond is false
             let mut then_bytes = Vec::new();
-            avm1_compile_stmt_list(&mut then_bytes, then_branch, in_function)?;
+            avm1_compile_stmt_list(&mut then_bytes, then_branch, in_function, reg_map)?;
             if let Some(else_stmts) = else_branch
                 && !else_stmts.is_empty()
             {
                 let mut else_bytes = Vec::new();
-                avm1_compile_stmt_list(&mut else_bytes, else_stmts, in_function)?;
+                avm1_compile_stmt_list(&mut else_bytes, else_stmts, in_function, reg_map)?;
                 let else_off = i16::try_from(else_bytes.len())
                     .map_err(|_| "AVM1 else branch exceeds i16 jump offset limit".to_owned())?;
                 then_bytes.push(0x99); // ActionJump
@@ -5726,10 +6231,10 @@ fn avm1_compile_stmt(out: &mut Vec<u8>, stmt: &SwfStmt, in_function: bool) -> Re
         }
         SwfStmt::While { cond, body } => {
             let loop_start = out.len();
-            avm1_compile_expr(out, cond)?;
+            avm1_compile_expr(out, cond, reg_map)?;
             out.push(0x12); // ActionNot
             let mut body_bytes = Vec::new();
-            avm1_compile_stmt_list(&mut body_bytes, body, in_function)?;
+            avm1_compile_stmt_list(&mut body_bytes, body, in_function, reg_map)?;
             let skip_off = i16::try_from(body_bytes.len() + 5)
                 .map_err(|_| "AVM1 while loop body exceeds i16 jump offset limit".to_owned())?;
             out.push(0x9d); // ActionIf
@@ -5749,7 +6254,7 @@ fn avm1_compile_stmt(out: &mut Vec<u8>, stmt: &SwfStmt, in_function: bool) -> Re
             body,
         } => {
             if let Some(init_stmt) = init {
-                avm1_compile_stmt(out, init_stmt, in_function)?;
+                avm1_compile_stmt(out, init_stmt, in_function, reg_map)?;
             }
             let loop_cond = cond.clone().unwrap_or(SwfExpr::Bool(true));
             let mut combined_body = body.clone();
@@ -5760,14 +6265,14 @@ fn avm1_compile_stmt(out: &mut Vec<u8>, stmt: &SwfStmt, in_function: bool) -> Re
                 cond: loop_cond,
                 body: combined_body,
             };
-            avm1_compile_stmt(out, &while_stmt, in_function)?;
+            avm1_compile_stmt(out, &while_stmt, in_function, reg_map)?;
         }
         SwfStmt::FunctionDecl { name, params, body } => {
-            avm1_compile_function(out, name, params, body)?;
+            avm1_compile_function(out, name, None, params, body)?;
         }
         SwfStmt::Return(expr_opt) => {
             if let Some(expr) = expr_opt {
-                avm1_compile_expr(out, expr)?;
+                avm1_compile_expr(out, expr, reg_map)?;
             } else {
                 out.push(0x96);
                 out.extend_from_slice(&1u16.to_le_bytes());
@@ -5776,28 +6281,74 @@ fn avm1_compile_stmt(out: &mut Vec<u8>, stmt: &SwfStmt, in_function: bool) -> Re
             out.push(0x3e); // ActionReturn
         }
         SwfStmt::EventHandler { body, .. } => {
-            avm1_compile_stmt_list(out, body, in_function)?;
+            avm1_compile_stmt_list(out, body, in_function, reg_map)?;
         }
     }
     Ok(())
+}
+
+fn find_event_handler_in_expr(expr: &SwfExpr) -> Option<&SwfStmt> {
+    match expr {
+        SwfExpr::Function { body, .. } => find_event_handler_in_stmts(body),
+        SwfExpr::ArrayLit(elems) => elems.iter().find_map(find_event_handler_in_expr),
+        SwfExpr::ObjectLit(props) => props
+            .iter()
+            .find_map(|(_, v)| find_event_handler_in_expr(v)),
+        SwfExpr::Member(obj, _) => find_event_handler_in_expr(obj),
+        SwfExpr::Index(obj, idx) => {
+            find_event_handler_in_expr(obj).or_else(|| find_event_handler_in_expr(idx))
+        }
+        SwfExpr::Unary { expr, .. } => find_event_handler_in_expr(expr),
+        SwfExpr::Binary { lhs, rhs, .. } => {
+            find_event_handler_in_expr(lhs).or_else(|| find_event_handler_in_expr(rhs))
+        }
+        SwfExpr::Call { callee, args } | SwfExpr::New { callee, args } => {
+            find_event_handler_in_expr(callee)
+                .or_else(|| args.iter().find_map(find_event_handler_in_expr))
+        }
+        SwfExpr::Null
+        | SwfExpr::Undefined
+        | SwfExpr::Bool(_)
+        | SwfExpr::Int(_)
+        | SwfExpr::Float(_)
+        | SwfExpr::Str(_)
+        | SwfExpr::Ident(_) => None,
+    }
 }
 
 fn find_event_handler_in_stmts(stmts: &[SwfStmt]) -> Option<&SwfStmt> {
     for stmt in stmts {
         match stmt {
             SwfStmt::EventHandler { .. } => return Some(stmt),
-            SwfStmt::Block(body)
-            | SwfStmt::While { body, .. }
-            | SwfStmt::FunctionDecl { body, .. } => {
+            SwfStmt::VarDecl { init: Some(e), .. }
+            | SwfStmt::Assign { value: e, .. }
+            | SwfStmt::Expr(e)
+            | SwfStmt::Return(Some(e)) => {
+                if let Some(found) = find_event_handler_in_expr(e) {
+                    return Some(found);
+                }
+            }
+            SwfStmt::Block(body) | SwfStmt::FunctionDecl { body, .. } => {
+                if let Some(found) = find_event_handler_in_stmts(body) {
+                    return Some(found);
+                }
+            }
+            SwfStmt::While { cond, body } => {
+                if let Some(found) = find_event_handler_in_expr(cond) {
+                    return Some(found);
+                }
                 if let Some(found) = find_event_handler_in_stmts(body) {
                     return Some(found);
                 }
             }
             SwfStmt::If {
+                cond,
                 then_branch,
                 else_branch,
-                ..
             } => {
+                if let Some(found) = find_event_handler_in_expr(cond) {
+                    return Some(found);
+                }
                 if let Some(found) = find_event_handler_in_stmts(then_branch) {
                     return Some(found);
                 }
@@ -5808,11 +6359,19 @@ fn find_event_handler_in_stmts(stmts: &[SwfStmt]) -> Option<&SwfStmt> {
                 }
             }
             SwfStmt::For {
-                init, update, body, ..
+                init,
+                cond,
+                update,
+                body,
             } => {
                 if let Some(i) = init
                     && let Some(found) =
                         find_event_handler_in_stmts(std::slice::from_ref(i.as_ref()))
+                {
+                    return Some(found);
+                }
+                if let Some(c) = cond
+                    && let Some(found) = find_event_handler_in_expr(c)
                 {
                     return Some(found);
                 }
@@ -5841,7 +6400,8 @@ fn compile_avm1_actions_mode(source: &str, allow_event_handlers: bool) -> Result
         );
     }
     let mut out = Vec::new();
-    avm1_compile_stmt_list(&mut out, &stmts, false)?;
+    let empty_regs = HashMap::new();
+    avm1_compile_stmt_list(&mut out, &stmts, false, &empty_regs)?;
     out.push(0x00); // ActionEndFlag
     Ok(out)
 }
@@ -6476,37 +7036,270 @@ fn parse_as3_source_to_spec_strict(
     })
 }
 
+struct AbcMethodSpec {
+    param_names: Vec<u32>,
+    needs_activation: bool,
+}
+
+struct AbcMethodBodySpec {
+    method_idx: u32,
+    max_stack: u32,
+    local_count: u32,
+    init_scope_depth: u32,
+    max_scope_depth: u32,
+    code: Vec<u8>,
+    activation_traits: Vec<(u32, u32)>,
+}
+
+#[derive(Default)]
+struct Avm2CompilerState {
+    methods: Vec<AbcMethodSpec>,
+    bodies: Vec<AbcMethodBodySpec>,
+}
+
+impl Avm2CompilerState {
+    fn alloc_method(&mut self, param_names: Vec<u32>) -> u32 {
+        let idx = self.methods.len() as u32;
+        self.methods.push(AbcMethodSpec {
+            param_names,
+            needs_activation: false,
+        });
+        idx
+    }
+}
+
+struct Avm2LexicalEnv {
+    init_scope_depth: u32,
+    needs_activation: bool,
+    local_regs: HashMap<String, u32>,
+    own_slots: HashMap<String, u32>,
+    outer_slots: HashMap<String, (u32, u32)>,
+    activation_traits: Vec<(u32, u32)>,
+}
+
+fn expr_has_direct_self_named_fn(expr: &SwfExpr) -> bool {
+    match expr {
+        SwfExpr::Function {
+            name: Some(sn),
+            params,
+            body,
+        } => {
+            if !sn.is_empty() && !params.iter().any(|p| p == sn) {
+                let mut d_refs = HashSet::new();
+                let mut c_free = HashSet::new();
+                collect_refs_and_child_free_in_stmts(body, &mut d_refs, &mut c_free);
+                if d_refs.contains(sn) || c_free.contains(sn) {
+                    return true;
+                }
+            }
+            false
+        }
+        SwfExpr::Function { name: None, .. } => false,
+        SwfExpr::ArrayLit(elems) => elems.iter().any(expr_has_direct_self_named_fn),
+        SwfExpr::ObjectLit(props) => props.iter().any(|(_, v)| expr_has_direct_self_named_fn(v)),
+        SwfExpr::Member(obj, _) => expr_has_direct_self_named_fn(obj),
+        SwfExpr::Index(obj, idx) => {
+            expr_has_direct_self_named_fn(obj) || expr_has_direct_self_named_fn(idx)
+        }
+        SwfExpr::Unary { expr, .. } => expr_has_direct_self_named_fn(expr),
+        SwfExpr::Binary { lhs, rhs, .. } => {
+            expr_has_direct_self_named_fn(lhs) || expr_has_direct_self_named_fn(rhs)
+        }
+        SwfExpr::Call { callee, args } | SwfExpr::New { callee, args } => {
+            expr_has_direct_self_named_fn(callee) || args.iter().any(expr_has_direct_self_named_fn)
+        }
+        SwfExpr::Null
+        | SwfExpr::Undefined
+        | SwfExpr::Bool(_)
+        | SwfExpr::Int(_)
+        | SwfExpr::Float(_)
+        | SwfExpr::Str(_)
+        | SwfExpr::Ident(_) => false,
+    }
+}
+
+fn stmts_have_direct_self_named_fn(stmts: &[SwfStmt]) -> bool {
+    stmts.iter().any(|stmt| match stmt {
+        SwfStmt::VarDecl { init: Some(e), .. }
+        | SwfStmt::Assign { value: e, .. }
+        | SwfStmt::Expr(e)
+        | SwfStmt::Return(Some(e)) => expr_has_direct_self_named_fn(e),
+        SwfStmt::Block(inner) => stmts_have_direct_self_named_fn(inner),
+        SwfStmt::While { cond, body } => {
+            expr_has_direct_self_named_fn(cond) || stmts_have_direct_self_named_fn(body)
+        }
+        SwfStmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            expr_has_direct_self_named_fn(cond)
+                || stmts_have_direct_self_named_fn(then_branch)
+                || else_branch
+                    .as_ref()
+                    .is_some_and(|eb| stmts_have_direct_self_named_fn(eb))
+        }
+        SwfStmt::For {
+            init,
+            cond,
+            update,
+            body,
+        } => {
+            init.as_ref()
+                .is_some_and(|i| stmts_have_direct_self_named_fn(std::slice::from_ref(i)))
+                || cond.as_ref().is_some_and(expr_has_direct_self_named_fn)
+                || update
+                    .as_ref()
+                    .is_some_and(|u| stmts_have_direct_self_named_fn(std::slice::from_ref(u)))
+                || stmts_have_direct_self_named_fn(body)
+        }
+        _ => false,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compile_avm2_scoped_unit<F>(
+    pool: &mut AbcPoolBuilder,
+    state: &mut Avm2CompilerState,
+    method_idx: u32,
+    params: &[String],
+    stmts: &[SwfStmt],
+    outer_slots: &HashMap<String, (u32, u32)>,
+    init_scope_depth: u32,
+    is_function_scope: bool,
+    emit_after_this_scope: F,
+) -> Result<(), String>
+where
+    F: FnOnce(&mut AbcPoolBuilder, &mut SwfBitWriter) -> Result<(), String>,
+{
+    let mut own_vars = Vec::new();
+    let mut own_funcs = Vec::new();
+    collect_direct_decls_in_stmts(stmts, &mut own_vars, &mut own_funcs);
+    let mut direct_refs = HashSet::new();
+    let mut child_free = HashSet::new();
+    collect_refs_and_child_free_in_stmts(stmts, &mut direct_refs, &mut child_free);
+
+    let mut local_regs = HashMap::new();
+    let mut own_slots = HashMap::new();
+    let mut activation_traits = Vec::new();
+    let mut captured_param_copies: Vec<(u32, u32)> = Vec::new();
+    let mut next_reg = (params.len() as u32) + 1;
+    let mut seen_decls = HashSet::new();
+
+    for (idx, pname) in params.iter().enumerate() {
+        let p_reg = (idx + 1) as u32;
+        if !seen_decls.insert(pname.clone()) {
+            continue;
+        }
+        if child_free.contains(pname) {
+            let slot_id = (activation_traits.len() + 1) as u32;
+            let qn = pool.add_qname("", pname);
+            activation_traits.push((qn, slot_id));
+            own_slots.insert(pname.clone(), slot_id);
+            captured_param_copies.push((p_reg, slot_id));
+        } else {
+            local_regs.insert(pname.clone(), p_reg);
+        }
+    }
+
+    for decl_name in own_funcs.into_iter().chain(own_vars) {
+        if !seen_decls.insert(decl_name.clone()) {
+            continue;
+        }
+        if is_function_scope && child_free.contains(&decl_name) {
+            let slot_id = (activation_traits.len() + 1) as u32;
+            let qn = pool.add_qname("", &decl_name);
+            activation_traits.push((qn, slot_id));
+            own_slots.insert(decl_name, slot_id);
+        } else if is_function_scope {
+            let reg = next_reg;
+            next_reg += 1;
+            local_regs.insert(decl_name, reg);
+        }
+    }
+
+    let needs_activation = !activation_traits.is_empty() || stmts_have_direct_self_named_fn(stmts);
+    let mut code = SwfBitWriter::new();
+    code.u8(0xD0); // getlocal_0
+    code.u8(0x30); // pushscope (local scope 0 = this)
+    emit_after_this_scope(pool, &mut code)?;
+
+    if needs_activation {
+        let act_reg = next_reg;
+        next_reg += 1;
+        code.u8(0x57); // newactivation
+        code.u8(0x2A); // dup
+        emit_avm2_setlocal(&mut code, act_reg);
+        code.u8(0x30); // pushscope (local scope 1 = activation)
+        for (p_reg, slot_id) in captured_param_copies {
+            code.u8(0x65); // getscopeobject 1
+            code.u8(0x01);
+            emit_avm2_getlocal(&mut code, p_reg);
+            code.u8(0x6D); // setslot
+            code.u32_v(slot_id);
+        }
+    }
+
+    let mut env = Avm2LexicalEnv {
+        init_scope_depth,
+        needs_activation,
+        local_regs,
+        own_slots,
+        outer_slots: outer_slots.clone(),
+        activation_traits,
+    };
+
+    compile_avm2_stmt_list(pool, stmts, &mut code, state, &mut env)?;
+    code.u8(0x47); // returnvoid
+
+    let (max_stack, computed_locals) = compute_avm2_method_metrics(&code.buf, params.len() as u32);
+    let local_count = computed_locals.max(next_reg).max(1);
+    let pushed_scopes = if env.needs_activation { 2 } else { 1 };
+    if let Some(mspec) = state.methods.get_mut(method_idx as usize) {
+        mspec.needs_activation = env.needs_activation;
+    }
+    state.bodies.push(AbcMethodBodySpec {
+        method_idx,
+        max_stack,
+        local_count,
+        init_scope_depth,
+        max_scope_depth: init_scope_depth + pushed_scopes,
+        code: code.buf,
+        activation_traits: env.activation_traits,
+    });
+    Ok(())
+}
+
 fn try_compile_avm2_source(source: &str, external_source: bool) -> Result<AbcClassSpec, String> {
     let spec = parse_as3_source_to_spec_strict(source, "Main", external_source)?;
     let mut pool = AbcPoolBuilder::default();
-    let mut code = SwfBitWriter::new();
-    let mut method_count = 1u32;
-    let mut method_params = vec![Vec::new()];
-    let mut method_bodies = Vec::new();
-    let empty_locals = HashMap::new();
-    compile_avm2_stmt_list(
+    let mut state = Avm2CompilerState::default();
+    let empty_outer = HashMap::new();
+    let ctor_m = state.alloc_method(Vec::new());
+    compile_avm2_scoped_unit(
         &mut pool,
+        &mut state,
+        ctor_m,
+        &[],
         &spec.ctor_statements,
-        &mut code,
-        &mut method_count,
-        &mut method_params,
-        &mut method_bodies,
-        &empty_locals,
+        &empty_outer,
+        1,
+        false,
+        |_, _| Ok(()),
     )?;
     for (_, m_params, m_stmts) in &spec.extra_methods {
-        let mut m_code = SwfBitWriter::new();
-        let mut fn_locals = HashMap::new();
-        for (idx, param_name) in m_params.iter().enumerate() {
-            fn_locals.insert(param_name.clone(), (idx + 1) as u32);
-        }
-        compile_avm2_stmt_list(
+        let p_indices: Vec<u32> = m_params.iter().map(|p| pool.add_string(p)).collect();
+        let m_idx = state.alloc_method(p_indices);
+        compile_avm2_scoped_unit(
             &mut pool,
+            &mut state,
+            m_idx,
+            m_params,
             m_stmts,
-            &mut m_code,
-            &mut method_count,
-            &mut method_params,
-            &mut method_bodies,
-            &fn_locals,
+            &empty_outer,
+            1,
+            true,
+            |_, _| Ok(()),
         )?;
     }
     Ok(spec)
@@ -6574,10 +7367,14 @@ fn compute_avm2_method_metrics(code: &[u8], param_count: u32) -> (u32, u32) {
             0x1D | 0x47 => {
                 // popscope / returnvoid
             }
-            0x20 | 0x21 | 0x26 | 0x27 | 0x2A => {
-                // pushnull / pushundefined / pushtrue / pushfalse / dup
+            0x20 | 0x21 | 0x26 | 0x27 | 0x2A | 0x57 => {
+                // pushnull / pushundefined / pushtrue / pushfalse / dup / newactivation
                 cur_stack += 1;
                 max_stack = max_stack.max(cur_stack);
+            }
+            0x2B => {
+                // swap
+                max_stack = max_stack.max(cur_stack.max(1));
             }
             0x24 | 0x65 => {
                 // pushbyte u8 / getscopeobject u8
@@ -6585,8 +7382,8 @@ fn compute_avm2_method_metrics(code: &[u8], param_count: u32) -> (u32, u32) {
                 cur_stack += 1;
                 max_stack = max_stack.max(cur_stack);
             }
-            0x25 | 0x2C | 0x2D | 0x2E | 0x2F | 0x40 | 0x5D | 0x60 => {
-                // pushshort / pushstring / pushint / pushuint / pushdouble / newfunction / findpropstrict / getlex
+            0x25 | 0x2C | 0x2D | 0x2E | 0x2F | 0x40 | 0x5D | 0x60 | 0x67 => {
+                // pushshort / pushstring / pushint / pushuint / pushdouble / newfunction / findpropstrict / getlex / getouterscope
                 let _ = read_abc_u30(code, &mut pos);
                 cur_stack += 1;
                 max_stack = max_stack.max(cur_stack);
@@ -6616,19 +7413,25 @@ fn compute_avm2_method_metrics(code: &[u8], param_count: u32) -> (u32, u32) {
                 let argc = read_abc_u30(code, &mut pos) as i32;
                 cur_stack = (cur_stack - argc - 1).max(0);
             }
+            0x55 => {
+                // newobject (u30 pair_count)
+                let pairs = read_abc_u30(code, &mut pos) as i32;
+                cur_stack = (cur_stack - 2 * pairs + 1).max(1);
+                max_stack = max_stack.max(cur_stack);
+            }
             0x56 => {
                 // newarray (u30 argc)
                 let argc = read_abc_u30(code, &mut pos) as i32;
                 cur_stack = (cur_stack - argc + 1).max(1);
                 max_stack = max_stack.max(cur_stack);
             }
-            0x58 | 0x66 => {
-                // newclass / getproperty (u30)
+            0x58 | 0x66 | 0x6C => {
+                // newclass / getproperty / getslot (u30)
                 let _ = read_abc_u30(code, &mut pos);
                 max_stack = max_stack.max(cur_stack.max(1));
             }
-            0x61 | 0x68 => {
-                // setproperty / initproperty (u30)
+            0x61 | 0x68 | 0x6D => {
+                // setproperty / initproperty / setslot (u30)
                 let _ = read_abc_u30(code, &mut pos);
                 cur_stack = (cur_stack - 2).max(0);
             }
@@ -6670,23 +7473,106 @@ fn compute_avm2_method_metrics(code: &[u8], param_count: u32) -> (u32, u32) {
     (max_stack.max(1) as u32, max_local.saturating_add(1).max(1))
 }
 
-type AbcMethodBodyRecord = (u32, u32, u32, u32, u32, Vec<u8>);
+fn compile_avm2_closure_value(
+    pool: &mut AbcPoolBuilder,
+    self_name: Option<&str>,
+    params: &[String],
+    body: &[SwfStmt],
+    code: &mut SwfBitWriter,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
+) -> Result<(), String> {
+    let param_name_indices: Vec<u32> = params.iter().map(|p| pool.add_string(p)).collect();
+    let m_idx = state.alloc_method(param_name_indices);
 
-#[allow(clippy::too_many_arguments)]
+    let mut child_outer = env.outer_slots.clone();
+    if env.needs_activation {
+        let own_outer_idx = env.init_scope_depth + 1;
+        for (vname, &slot_id) in &env.own_slots {
+            child_outer.insert(vname.clone(), (own_outer_idx, slot_id));
+        }
+    }
+
+    let mut self_slot_to_bind = None;
+    if let Some(sn) = self_name
+        && !sn.is_empty()
+        && !params.iter().any(|p| p == sn)
+    {
+        let mut d_refs = HashSet::new();
+        let mut c_free = HashSet::new();
+        collect_refs_and_child_free_in_stmts(body, &mut d_refs, &mut c_free);
+        if d_refs.contains(sn) || c_free.contains(sn) {
+            let slot_id = (env.activation_traits.len() + 1) as u32;
+            let qn = pool.add_qname("", sn);
+            env.activation_traits.push((qn, slot_id));
+            child_outer.insert(sn.to_owned(), (env.init_scope_depth + 1, slot_id));
+            self_slot_to_bind = Some(slot_id);
+        }
+    }
+
+    let child_init_scope = env.init_scope_depth + if env.needs_activation { 2 } else { 1 };
+    compile_avm2_scoped_unit(
+        pool,
+        state,
+        m_idx,
+        params,
+        body,
+        &child_outer,
+        child_init_scope,
+        true,
+        |_, _| Ok(()),
+    )?;
+
+    code.u8(0x40); // newfunction
+    code.u32_v(m_idx);
+    if let Some(slot_id) = self_slot_to_bind {
+        code.u8(0x2A); // dup
+        code.u8(0x65); // getscopeobject 1
+        code.u8(0x01);
+        code.u8(0x2B); // swap
+        code.u8(0x6D); // setslot
+        code.u32_v(slot_id);
+    }
+    Ok(())
+}
+
+fn emit_avm2_load_ident(
+    pool: &mut AbcPoolBuilder,
+    name: &str,
+    code: &mut SwfBitWriter,
+    env: &Avm2LexicalEnv,
+) {
+    if name == "this" || name == "_root" {
+        code.u8(0xD0); // getlocal_0
+    } else if let Some(&reg) = env.local_regs.get(name) {
+        emit_avm2_getlocal(code, reg);
+    } else if let Some(&slot_id) = env.own_slots.get(name) {
+        code.u8(0x65); // getscopeobject 1
+        code.u8(0x01);
+        code.u8(0x6C); // getslot
+        code.u32_v(slot_id);
+    } else if let Some(&(outer_idx, slot_id)) = env.outer_slots.get(name) {
+        code.u8(0x67); // getouterscope
+        code.u32_v(outer_idx);
+        code.u8(0x6C); // getslot
+        code.u32_v(slot_id);
+    } else {
+        let mn = pool.add_qname("", name);
+        code.u8(0x60); // getlex
+        code.u32_v(mn);
+    }
+}
+
 fn compile_avm2_expr(
     pool: &mut AbcPoolBuilder,
     expr: &SwfExpr,
     code: &mut SwfBitWriter,
-    method_count: &mut u32,
-    method_params: &mut Vec<Vec<u32>>,
-    method_bodies: &mut Vec<AbcMethodBodyRecord>,
-    local_regs: &HashMap<String, u32>,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
 ) -> Result<(), String> {
     match expr {
-        SwfExpr::Function { .. } => {
-            return Err(
-                "AS3 function expressions are not supported by the bounded SWF compiler".to_owned(),
-            );
+        SwfExpr::Function { name, params, body } => {
+            compile_avm2_closure_value(pool, name.as_deref(), params, body, code, state, env)?;
         }
         SwfExpr::Null => code.u8(0x20),        // pushnull
         SwfExpr::Undefined => code.u8(0x21),   // pushundefined
@@ -6704,69 +7590,39 @@ fn compile_avm2_expr(
             code.u32_v(s_idx);
         }
         SwfExpr::Ident(name) => {
-            if name == "this" || name == "_root" {
-                code.u8(0xD0); // getlocal_0
-            } else if let Some(&reg) = local_regs.get(name) {
-                emit_avm2_getlocal(code, reg);
-            } else {
-                let mn = pool.add_qname("", name);
-                code.u8(0x60); // getlex
-                code.u32_v(mn);
-            }
+            emit_avm2_load_ident(pool, name, code, env);
         }
         SwfExpr::ArrayLit(elems) => {
             for el in elems {
-                compile_avm2_expr(
-                    pool,
-                    el,
-                    code,
-                    method_count,
-                    method_params,
-                    method_bodies,
-                    local_regs,
-                )?;
+                compile_avm2_expr(pool, el, code, state, env)?;
             }
             code.u8(0x56); // newarray
             code.u32_v(elems.len() as u32);
         }
+        SwfExpr::ObjectLit(props) => {
+            for (key, val) in props {
+                let k_idx = pool.add_string(key);
+                code.u8(0x2C); // pushstring
+                code.u32_v(k_idx);
+                compile_avm2_expr(pool, val, code, state, env)?;
+            }
+            code.u8(0x55); // newobject
+            code.u32_v(props.len() as u32);
+        }
         SwfExpr::Member(obj, prop) => {
-            compile_avm2_expr(
-                pool,
-                obj,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
+            compile_avm2_expr(pool, obj, code, state, env)?;
             let mn = pool.add_qname("", prop);
             code.u8(0x66); // getproperty
             code.u32_v(mn);
         }
         SwfExpr::Index(obj, idx) => {
             if let SwfExpr::Int(iv) = idx.as_ref() {
-                compile_avm2_expr(
-                    pool,
-                    obj,
-                    code,
-                    method_count,
-                    method_params,
-                    method_bodies,
-                    local_regs,
-                )?;
+                compile_avm2_expr(pool, obj, code, state, env)?;
                 let mn = pool.add_qname("", &iv.to_string());
                 code.u8(0x66); // getproperty
                 code.u32_v(mn);
             } else if let SwfExpr::Str(s) = idx.as_ref() {
-                compile_avm2_expr(
-                    pool,
-                    obj,
-                    code,
-                    method_count,
-                    method_params,
-                    method_bodies,
-                    local_regs,
-                )?;
+                compile_avm2_expr(pool, obj, code, state, env)?;
                 let mn = pool.add_qname("", s);
                 code.u8(0x66); // getproperty
                 code.u32_v(mn);
@@ -6778,15 +7634,7 @@ fn compile_avm2_expr(
             }
         }
         SwfExpr::Unary { op, expr } => {
-            compile_avm2_expr(
-                pool,
-                expr,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
+            compile_avm2_expr(pool, expr, code, state, env)?;
             match op {
                 SwfUnaryOp::Not => code.u8(0x96), // not
                 SwfUnaryOp::Neg => code.u8(0x90), // negate
@@ -6795,27 +7643,11 @@ fn compile_avm2_expr(
         }
         SwfExpr::Binary { op, lhs, rhs } => {
             if matches!(op, SwfBinaryOp::And | SwfBinaryOp::Or) {
-                compile_avm2_expr(
-                    pool,
-                    lhs,
-                    code,
-                    method_count,
-                    method_params,
-                    method_bodies,
-                    local_regs,
-                )?;
+                compile_avm2_expr(pool, lhs, code, state, env)?;
                 code.u8(0x2A); // dup: branch consumes one value and leaves the short-circuit value
                 let mut rhs_code = SwfBitWriter::new();
                 rhs_code.u8(0x29); // pop the non-short-circuit LHS
-                compile_avm2_expr(
-                    pool,
-                    rhs,
-                    &mut rhs_code,
-                    method_count,
-                    method_params,
-                    method_bodies,
-                    local_regs,
-                )?;
+                compile_avm2_expr(pool, rhs, &mut rhs_code, state, env)?;
                 let skip_rhs = i32::try_from(rhs_code.buf.len())
                     .map_err(|_| "AVM2 logical RHS is too large".to_owned())?;
                 code.u8(if *op == SwfBinaryOp::And {
@@ -6827,24 +7659,8 @@ fn compile_avm2_expr(
                 code.bytes(&rhs_code.buf);
                 return Ok(());
             }
-            compile_avm2_expr(
-                pool,
-                lhs,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
-            compile_avm2_expr(
-                pool,
-                rhs,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
+            compile_avm2_expr(pool, lhs, code, state, env)?;
+            compile_avm2_expr(pool, rhs, code, state, env)?;
             match op {
                 SwfBinaryOp::Add => code.u8(0xA0),    // add
                 SwfBinaryOp::Sub => code.u8(0xA1),    // subtract
@@ -6875,17 +7691,7 @@ fn compile_avm2_expr(
             }
         }
         SwfExpr::Call { callee, args } => {
-            compile_avm2_call(
-                pool,
-                callee,
-                args,
-                false,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
+            compile_avm2_call(pool, callee, args, false, code, state, env)?;
         }
         SwfExpr::New { callee, args } => {
             let cls_name = match callee.as_ref() {
@@ -6897,15 +7703,7 @@ fn compile_avm2_expr(
             code.u8(0x5D); // findpropstrict
             code.u32_v(mn);
             for a in args {
-                compile_avm2_expr(
-                    pool,
-                    a,
-                    code,
-                    method_count,
-                    method_params,
-                    method_bodies,
-                    local_regs,
-                )?;
+                compile_avm2_expr(pool, a, code, state, env)?;
             }
             code.u8(0x4A); // constructprop
             code.u32_v(mn);
@@ -6915,18 +7713,33 @@ fn compile_avm2_expr(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn compile_avm2_call(
     pool: &mut AbcPoolBuilder,
     callee: &SwfExpr,
     args: &[SwfExpr],
     discard_result: bool,
     code: &mut SwfBitWriter,
-    method_count: &mut u32,
-    method_params: &mut Vec<Vec<u32>>,
-    method_bodies: &mut Vec<AbcMethodBodyRecord>,
-    local_regs: &HashMap<String, u32>,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
 ) -> Result<(), String> {
+    if let SwfExpr::Ident(name) = callee
+        && (env.local_regs.contains_key(name)
+            || env.own_slots.contains_key(name)
+            || env.outer_slots.contains_key(name))
+    {
+        emit_avm2_load_ident(pool, name, code, env);
+        code.u8(0xD0); // getlocal_0 (receiver)
+        for a in args {
+            compile_avm2_expr(pool, a, code, state, env)?;
+        }
+        code.u8(0x41); // call
+        code.u32_v(args.len() as u32);
+        if discard_result {
+            code.u8(0x29); // pop
+        }
+        return Ok(());
+    }
+
     let direct_fn = match callee {
         SwfExpr::Ident(name) => Some(name.as_str()),
         SwfExpr::Member(recv, prop) if matches!(recv.as_ref(), SwfExpr::Ident(id) if id == "this" || id == "_root") => {
@@ -6945,6 +7758,10 @@ fn compile_avm2_call(
                 | "stopAllSounds"
                 | "gotoAndStop"
                 | "gotoAndPlay"
+                | "addFrameScript"
+                | "addChild"
+                | "removeChild"
+                | "getChildByName"
                 | "trace"
                 | "int"
                 | "uint"
@@ -6965,15 +7782,7 @@ fn compile_avm2_call(
                     args
                 };
             for a in effective_args {
-                compile_avm2_expr(
-                    pool,
-                    a,
-                    code,
-                    method_count,
-                    method_params,
-                    method_bodies,
-                    local_regs,
-                )?;
+                compile_avm2_expr(pool, a, code, state, env)?;
             }
             code.u8(if discard_result { 0x4F } else { 0x46 }); // callpropvoid / callproperty
             code.u32_v(fn_mn);
@@ -6987,15 +7796,7 @@ fn compile_avm2_call(
         code.u32_v(fn_mn);
         code.u8(0xD0); // getlocal_0 (receiver)
         for a in args {
-            compile_avm2_expr(
-                pool,
-                a,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
+            compile_avm2_expr(pool, a, code, state, env)?;
         }
         code.u8(0x41); // call
         code.u32_v(args.len() as u32);
@@ -7006,25 +7807,9 @@ fn compile_avm2_call(
     }
 
     if let SwfExpr::Member(recv, method_name) = callee {
-        compile_avm2_expr(
-            pool,
-            recv,
-            code,
-            method_count,
-            method_params,
-            method_bodies,
-            local_regs,
-        )?;
+        compile_avm2_expr(pool, recv, code, state, env)?;
         for a in args {
-            compile_avm2_expr(
-                pool,
-                a,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
+            compile_avm2_expr(pool, a, code, state, env)?;
         }
         let mn = pool.add_qname("", method_name);
         code.u8(if discard_result { 0x4F } else { 0x46 }); // callpropvoid / callproperty
@@ -7033,104 +7818,90 @@ fn compile_avm2_call(
         return Ok(());
     }
 
-    Err("unsupported function call target in AVM2 compiler".to_owned())
+    // Arbitrary callable expression (e.g. `makeAdder(10)(5)`, `((x:int) => x * 2)(6)`, `fns[0](3)`):
+    compile_avm2_expr(pool, callee, code, state, env)?;
+    code.u8(0xD0); // getlocal_0 (receiver)
+    for a in args {
+        compile_avm2_expr(pool, a, code, state, env)?;
+    }
+    code.u8(0x41); // call
+    code.u32_v(args.len() as u32);
+    if discard_result {
+        code.u8(0x29); // pop
+    }
+    Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn compile_avm2_load_lvalue(
     pool: &mut AbcPoolBuilder,
     target: &SwfLValue,
     code: &mut SwfBitWriter,
-    method_count: &mut u32,
-    method_params: &mut Vec<Vec<u32>>,
-    method_bodies: &mut Vec<AbcMethodBodyRecord>,
-    local_regs: &HashMap<String, u32>,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
 ) -> Result<(), String> {
     match target {
         SwfLValue::Ident(name) => {
-            if let Some(&reg) = local_regs.get(name) {
-                emit_avm2_getlocal(code, reg);
-            } else {
-                let mn = pool.add_qname("", name);
-                code.u8(0x60); // getlex
-                code.u32_v(mn);
-            }
+            emit_avm2_load_ident(pool, name, code, env);
         }
         SwfLValue::Member(obj, prop) => {
-            compile_avm2_expr(
-                pool,
-                obj,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
+            compile_avm2_expr(pool, obj, code, state, env)?;
             let mn = pool.add_qname("", prop);
             code.u8(0x66); // getproperty
             code.u32_v(mn);
         }
         SwfLValue::Index(obj, idx) => {
             let expr = SwfExpr::Index(obj.clone(), idx.clone());
-            compile_avm2_expr(
-                pool,
-                &expr,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
+            compile_avm2_expr(pool, &expr, code, state, env)?;
         }
     }
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn compile_avm2_store_lvalue_with_rhs<F>(
     pool: &mut AbcPoolBuilder,
     target: &SwfLValue,
     code: &mut SwfBitWriter,
-    method_count: &mut u32,
-    method_params: &mut Vec<Vec<u32>>,
-    method_bodies: &mut Vec<AbcMethodBodyRecord>,
-    local_regs: &HashMap<String, u32>,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
     emit_rhs: F,
 ) -> Result<(), String>
 where
     F: FnOnce(
         &mut AbcPoolBuilder,
         &mut SwfBitWriter,
-        &mut u32,
-        &mut Vec<Vec<u32>>,
-        &mut Vec<AbcMethodBodyRecord>,
+        &mut Avm2CompilerState,
+        &mut Avm2LexicalEnv,
     ) -> Result<(), String>,
 {
     match target {
         SwfLValue::Ident(name) => {
-            if let Some(&reg) = local_regs.get(name) {
-                emit_rhs(pool, code, method_count, method_params, method_bodies)?;
+            if let Some(&reg) = env.local_regs.get(name) {
+                emit_rhs(pool, code, state, env)?;
                 emit_avm2_setlocal(code, reg);
+            } else if let Some(&slot_id) = env.own_slots.get(name) {
+                code.u8(0x65); // getscopeobject 1
+                code.u8(0x01);
+                emit_rhs(pool, code, state, env)?;
+                code.u8(0x6D); // setslot
+                code.u32_v(slot_id);
+            } else if let Some(&(outer_idx, slot_id)) = env.outer_slots.get(name) {
+                code.u8(0x67); // getouterscope
+                code.u32_v(outer_idx);
+                emit_rhs(pool, code, state, env)?;
+                code.u8(0x6D); // setslot
+                code.u32_v(slot_id);
             } else {
                 let prop_mn = pool.add_qname("", name);
                 code.u8(0xD0); // getlocal_0
-                emit_rhs(pool, code, method_count, method_params, method_bodies)?;
+                emit_rhs(pool, code, state, env)?;
                 code.u8(0x61); // setproperty
                 code.u32_v(prop_mn);
             }
         }
         SwfLValue::Member(obj, prop) => {
             let prop_mn = pool.add_qname("", prop);
-            compile_avm2_expr(
-                pool,
-                obj,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
-            emit_rhs(pool, code, method_count, method_params, method_bodies)?;
+            compile_avm2_expr(pool, obj, code, state, env)?;
+            emit_rhs(pool, code, state, env)?;
             code.u8(0x61); // setproperty
             code.u32_v(prop_mn);
         }
@@ -7146,19 +7917,39 @@ where
                 }
             };
             let prop_mn = pool.add_qname("", &prop_name);
-            compile_avm2_expr(
-                pool,
-                obj,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
-            emit_rhs(pool, code, method_count, method_params, method_bodies)?;
+            compile_avm2_expr(pool, obj, code, state, env)?;
+            emit_rhs(pool, code, state, env)?;
             code.u8(0x61); // setproperty
             code.u32_v(prop_mn);
         }
+    }
+    Ok(())
+}
+
+fn compile_avm2_function_decl_binding(
+    pool: &mut AbcPoolBuilder,
+    name: &str,
+    params: &[String],
+    body: &[SwfStmt],
+    code: &mut SwfBitWriter,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
+) -> Result<(), String> {
+    if let Some(&reg) = env.local_regs.get(name) {
+        compile_avm2_closure_value(pool, None, params, body, code, state, env)?;
+        emit_avm2_setlocal(code, reg);
+    } else if let Some(&slot_id) = env.own_slots.get(name) {
+        code.u8(0x65); // getscopeobject 1
+        code.u8(0x01);
+        compile_avm2_closure_value(pool, None, params, body, code, state, env)?;
+        code.u8(0x6D); // setslot
+        code.u32_v(slot_id);
+    } else {
+        let fn_mn = pool.add_qname("", name);
+        code.u8(0xD0); // getlocal_0
+        compile_avm2_closure_value(pool, None, params, body, code, state, env)?;
+        code.u8(0x61); // setproperty
+        code.u32_v(fn_mn);
     }
     Ok(())
 }
@@ -7167,21 +7958,19 @@ fn compile_avm2_stmt_list(
     pool: &mut AbcPoolBuilder,
     stmts: &[SwfStmt],
     code: &mut SwfBitWriter,
-    method_count: &mut u32,
-    method_params: &mut Vec<Vec<u32>>,
-    method_bodies: &mut Vec<AbcMethodBodyRecord>,
-    local_regs: &HashMap<String, u32>,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
 ) -> Result<(), String> {
     for stmt in stmts {
-        compile_avm2_stmt(
-            pool,
-            stmt,
-            code,
-            method_count,
-            method_params,
-            method_bodies,
-            local_regs,
-        )?;
+        if let SwfStmt::FunctionDecl { name, params, body } = stmt {
+            compile_avm2_function_decl_binding(pool, name, params, body, code, state, env)?;
+        }
+    }
+    for stmt in stmts {
+        if matches!(stmt, SwfStmt::FunctionDecl { .. }) {
+            continue;
+        }
+        compile_avm2_stmt(pool, stmt, code, state, env)?;
     }
     Ok(())
 }
@@ -7190,41 +7979,33 @@ fn compile_avm2_stmt(
     pool: &mut AbcPoolBuilder,
     stmt: &SwfStmt,
     code: &mut SwfBitWriter,
-    method_count: &mut u32,
-    method_params: &mut Vec<Vec<u32>>,
-    method_bodies: &mut Vec<AbcMethodBodyRecord>,
-    local_regs: &HashMap<String, u32>,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
 ) -> Result<(), String> {
     match stmt {
         SwfStmt::VarDecl { name, init } => {
-            if let Some(&reg) = local_regs.get(name) {
+            if let Some(&reg) = env.local_regs.get(name) {
                 if let Some(rhs) = init {
-                    compile_avm2_expr(
-                        pool,
-                        rhs,
-                        code,
-                        method_count,
-                        method_params,
-                        method_bodies,
-                        local_regs,
-                    )?;
+                    compile_avm2_expr(pool, rhs, code, state, env)?;
                 } else {
                     code.u8(0x21); // pushundefined
                 }
                 emit_avm2_setlocal(code, reg);
+            } else if let Some(&slot_id) = env.own_slots.get(name) {
+                code.u8(0x65); // getscopeobject 1
+                code.u8(0x01);
+                if let Some(rhs) = init {
+                    compile_avm2_expr(pool, rhs, code, state, env)?;
+                } else {
+                    code.u8(0x21); // pushundefined
+                }
+                code.u8(0x6D); // setslot
+                code.u32_v(slot_id);
             } else {
                 let prop_mn = pool.add_qname("", name);
                 code.u8(0xD0); // getlocal_0
                 if let Some(rhs) = init {
-                    compile_avm2_expr(
-                        pool,
-                        rhs,
-                        code,
-                        method_count,
-                        method_params,
-                        method_bodies,
-                        local_regs,
-                    )?;
+                    compile_avm2_expr(pool, rhs, code, state, env)?;
                 } else {
                     code.u8(0x21); // pushundefined
                 }
@@ -7233,122 +8014,54 @@ fn compile_avm2_stmt(
             }
         }
         SwfStmt::Assign { target, op, value } => {
-            compile_avm2_store_lvalue_with_rhs(
-                pool,
-                target,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-                |p, c, mc, mp, mb| {
-                    if *op == SwfAssignOp::Assign {
-                        compile_avm2_expr(p, value, c, mc, mp, mb, local_regs)
-                    } else {
-                        compile_avm2_load_lvalue(p, target, c, mc, mp, mb, local_regs)?;
-                        compile_avm2_expr(p, value, c, mc, mp, mb, local_regs)?;
-                        c.u8(match op {
-                            SwfAssignOp::AddAssign => 0xA0, // add
-                            SwfAssignOp::SubAssign => 0xA1, // subtract
-                            SwfAssignOp::MulAssign => 0xA2, // multiply
-                            SwfAssignOp::DivAssign => 0xA3, // divide
-                            SwfAssignOp::ModAssign => 0xA4, // modulo
-                            SwfAssignOp::Assign => unreachable!(),
-                        });
-                        Ok(())
-                    }
-                },
-            )?;
+            compile_avm2_store_lvalue_with_rhs(pool, target, code, state, env, |p, c, st, ev| {
+                if *op == SwfAssignOp::Assign {
+                    compile_avm2_expr(p, value, c, st, ev)
+                } else {
+                    compile_avm2_load_lvalue(p, target, c, st, ev)?;
+                    compile_avm2_expr(p, value, c, st, ev)?;
+                    c.u8(match op {
+                        SwfAssignOp::AddAssign => 0xA0, // add
+                        SwfAssignOp::SubAssign => 0xA1, // subtract
+                        SwfAssignOp::MulAssign => 0xA2, // multiply
+                        SwfAssignOp::DivAssign => 0xA3, // divide
+                        SwfAssignOp::ModAssign => 0xA4, // modulo
+                        SwfAssignOp::Assign => unreachable!(),
+                    });
+                    Ok(())
+                }
+            })?;
         }
         SwfStmt::IncDec { target, increment } => {
-            compile_avm2_store_lvalue_with_rhs(
-                pool,
-                target,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-                |p, c, mc, mp, mb| {
-                    compile_avm2_load_lvalue(p, target, c, mc, mp, mb, local_regs)?;
-                    c.u8(if *increment { 0x91 } else { 0x93 }); // increment / decrement
-                    Ok(())
-                },
-            )?;
+            compile_avm2_store_lvalue_with_rhs(pool, target, code, state, env, |p, c, st, ev| {
+                compile_avm2_load_lvalue(p, target, c, st, ev)?;
+                c.u8(if *increment { 0x91 } else { 0x93 }); // increment / decrement
+                Ok(())
+            })?;
         }
         SwfStmt::Expr(SwfExpr::Call { callee, args }) => {
-            compile_avm2_call(
-                pool,
-                callee,
-                args,
-                true,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
+            compile_avm2_call(pool, callee, args, true, code, state, env)?;
         }
         SwfStmt::Expr(expr) => {
-            compile_avm2_expr(
-                pool,
-                expr,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
+            compile_avm2_expr(pool, expr, code, state, env)?;
             code.u8(0x29); // pop
         }
         SwfStmt::Block(inner) => {
-            compile_avm2_stmt_list(
-                pool,
-                inner,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
+            compile_avm2_stmt_list(pool, inner, code, state, env)?;
         }
         SwfStmt::If {
             cond,
             then_branch,
             else_branch,
         } => {
-            compile_avm2_expr(
-                pool,
-                cond,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
+            compile_avm2_expr(pool, cond, code, state, env)?;
             let mut then_writer = SwfBitWriter::new();
-            compile_avm2_stmt_list(
-                pool,
-                then_branch,
-                &mut then_writer,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
+            compile_avm2_stmt_list(pool, then_branch, &mut then_writer, state, env)?;
             if let Some(else_stmts) = else_branch
                 && !else_stmts.is_empty()
             {
                 let mut else_writer = SwfBitWriter::new();
-                compile_avm2_stmt_list(
-                    pool,
-                    else_stmts,
-                    &mut else_writer,
-                    method_count,
-                    method_params,
-                    method_bodies,
-                    local_regs,
-                )?;
+                compile_avm2_stmt_list(pool, else_stmts, &mut else_writer, state, env)?;
                 let else_len = i32::try_from(else_writer.buf.len())
                     .map_err(|_| "AVM2 else branch is too large".to_owned())?;
                 then_writer.u8(0x10); // jump
@@ -7371,25 +8084,9 @@ fn compile_avm2_stmt(
         SwfStmt::While { cond, body } => {
             // Standard ASC while loop layout: `jump +body_len`, `L_body: ...`, `L_cond: ... iftrue L_body`
             let mut body_writer = SwfBitWriter::new();
-            compile_avm2_stmt_list(
-                pool,
-                body,
-                &mut body_writer,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
+            compile_avm2_stmt_list(pool, body, &mut body_writer, state, env)?;
             let mut cond_writer = SwfBitWriter::new();
-            compile_avm2_expr(
-                pool,
-                cond,
-                &mut cond_writer,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
+            compile_avm2_expr(pool, cond, &mut cond_writer, state, env)?;
             let body_len = i32::try_from(body_writer.buf.len())
                 .map_err(|_| "AVM2 while loop body is too large".to_owned())?;
             let cond_len = i32::try_from(cond_writer.buf.len())
@@ -7408,15 +8105,7 @@ fn compile_avm2_stmt(
             body,
         } => {
             if let Some(init_stmt) = init {
-                compile_avm2_stmt(
-                    pool,
-                    init_stmt,
-                    code,
-                    method_count,
-                    method_params,
-                    method_bodies,
-                    local_regs,
-                )?;
+                compile_avm2_stmt(pool, init_stmt, code, state, env)?;
             }
             let loop_cond = cond.clone().unwrap_or(SwfExpr::Bool(true));
             let mut combined_body = body.clone();
@@ -7427,60 +8116,14 @@ fn compile_avm2_stmt(
                 cond: loop_cond,
                 body: combined_body,
             };
-            compile_avm2_stmt(
-                pool,
-                &while_stmt,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
+            compile_avm2_stmt(pool, &while_stmt, code, state, env)?;
         }
         SwfStmt::FunctionDecl { name, params, body } => {
-            let m_idx = *method_count;
-            *method_count += 1;
-            let param_name_indices: Vec<u32> = params.iter().map(|p| pool.add_string(p)).collect();
-            method_params.push(param_name_indices);
-            let mut fn_locals = HashMap::new();
-            for (idx, param_name) in params.iter().enumerate() {
-                fn_locals.insert(param_name.clone(), (idx + 1) as u32);
-            }
-            let mut fn_code = SwfBitWriter::new();
-            fn_code.u8(0xD0); // getlocal_0
-            fn_code.u8(0x30); // pushscope
-            compile_avm2_stmt_list(
-                pool,
-                body,
-                &mut fn_code,
-                method_count,
-                method_params,
-                method_bodies,
-                &fn_locals,
-            )?;
-            fn_code.u8(0x47); // returnvoid
-            let (max_stack, local_count) =
-                compute_avm2_method_metrics(&fn_code.buf, params.len() as u32);
-            method_bodies.push((m_idx, max_stack, local_count, 1, 2, fn_code.buf));
-
-            let fn_mn = pool.add_qname("", name);
-            code.u8(0xD0); // getlocal_0
-            code.u8(0x40); // newfunction
-            code.u32_v(m_idx);
-            code.u8(0x61); // setproperty
-            code.u32_v(fn_mn);
+            compile_avm2_function_decl_binding(pool, name, params, body, code, state, env)?;
         }
         SwfStmt::Return(expr_opt) => {
             if let Some(expr) = expr_opt {
-                compile_avm2_expr(
-                    pool,
-                    expr,
-                    code,
-                    method_count,
-                    method_params,
-                    method_bodies,
-                    local_regs,
-                )?;
+                compile_avm2_expr(pool, expr, code, state, env)?;
                 code.u8(0x48); // returnvalue
             } else {
                 code.u8(0x47); // returnvoid
@@ -7509,25 +8152,29 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, ExportError> {
         trait_methods: Vec<(u32, u32)>,
     }
 
-    let mut method_count = 0u32;
-    let mut method_params: Vec<Vec<u32>> = Vec::new();
-    let mut method_bodies: Vec<(u32, u32, u32, u32, u32, Vec<u8>)> = Vec::new();
+    let mut state = Avm2CompilerState::default();
     let mut compiled_classes = Vec::with_capacity(classes.len());
-    let empty_locals = HashMap::new();
+    let empty_outer = HashMap::new();
 
     for cls in classes {
         let class_mn = pool.add_qname(&cls.pkg, &cls.class_name);
         let super_mn = pool.add_qname(&cls.super_pkg, &cls.super_name);
 
         // 1. cinit
-        let cinit_method = method_count;
-        method_count += 1;
-        method_params.push(Vec::new());
+        let cinit_method = state.alloc_method(Vec::new());
         let mut cinit_code = SwfBitWriter::new();
         cinit_code.u8(0xD0); // getlocal_0
         cinit_code.u8(0x30); // pushscope
         cinit_code.u8(0x47); // returnvoid
-        method_bodies.push((cinit_method, 1, 1, 1, 2, cinit_code.buf));
+        state.bodies.push(AbcMethodBodySpec {
+            method_idx: cinit_method,
+            max_stack: 1,
+            local_count: 1,
+            init_scope_depth: 1,
+            max_scope_depth: 2,
+            code: cinit_code.buf,
+            activation_traits: Vec::new(),
+        });
 
         // 2. Instance methods (frame scripts + extra methods)
         let mut trait_methods = Vec::new();
@@ -7536,13 +8183,8 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, ExportError> {
         for (frame_idx, script_src) in &cls.frame_scripts {
             let fn_name = format!("frame{}", frame_idx + 1);
             let fn_mn = pool.add_qname("", &fn_name);
-            let m_idx = method_count;
-            method_count += 1;
-            method_params.push(Vec::new());
+            let m_idx = state.alloc_method(Vec::new());
 
-            let mut m_code = SwfBitWriter::new();
-            m_code.u8(0xD0); // getlocal_0
-            m_code.u8(0x30); // pushscope
             let stmts = parse_swf_statements_strict(script_src, true).map_err(|err| {
                 ExportError::Options(format!(
                     "AVM2 frame script on class '{}' frame {} failed to parse: {err}",
@@ -7550,14 +8192,16 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, ExportError> {
                     frame_idx + 1
                 ))
             })?;
-            compile_avm2_stmt_list(
+            compile_avm2_scoped_unit(
                 &mut pool,
+                &mut state,
+                m_idx,
+                &[],
                 &stmts,
-                &mut m_code,
-                &mut method_count,
-                &mut method_params,
-                &mut method_bodies,
-                &empty_locals,
+                &empty_outer,
+                1,
+                false,
+                |_, _| Ok(()),
             )
             .map_err(|err| {
                 ExportError::Options(format!(
@@ -7566,9 +8210,6 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, ExportError> {
                     frame_idx + 1
                 ))
             })?;
-            m_code.u8(0x47); // returnvoid
-            let (max_stack, local_count) = compute_avm2_method_metrics(&m_code.buf, 0);
-            method_bodies.push((m_idx, max_stack, local_count, 1, 2, m_code.buf));
 
             trait_methods.push((fn_mn, m_idx));
             frame_bindings.push((*frame_idx, fn_mn));
@@ -7576,76 +8217,61 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, ExportError> {
 
         for (m_name, m_params, m_stmts) in &cls.extra_methods {
             let fn_mn = pool.add_qname("", m_name);
-            let m_idx = method_count;
-            method_count += 1;
             let param_name_indices: Vec<u32> =
                 m_params.iter().map(|p| pool.add_string(p)).collect();
-            method_params.push(param_name_indices);
+            let m_idx = state.alloc_method(param_name_indices);
 
-            let mut fn_locals = HashMap::new();
-            for (idx, param_name) in m_params.iter().enumerate() {
-                fn_locals.insert(param_name.clone(), (idx + 1) as u32);
-            }
-
-            let mut m_code = SwfBitWriter::new();
-            m_code.u8(0xD0); // getlocal_0
-            m_code.u8(0x30); // pushscope
-            compile_avm2_stmt_list(
+            compile_avm2_scoped_unit(
                 &mut pool,
+                &mut state,
+                m_idx,
+                m_params,
                 m_stmts,
-                &mut m_code,
-                &mut method_count,
-                &mut method_params,
-                &mut method_bodies,
-                &fn_locals,
+                &empty_outer,
+                1,
+                true,
+                |_, _| Ok(()),
             )
             .expect("AVM2 class methods are validated by SWF preflight");
-            m_code.u8(0x47); // returnvoid
-            let (max_stack, local_count) =
-                compute_avm2_method_metrics(&m_code.buf, m_params.len() as u32);
-            method_bodies.push((m_idx, max_stack, local_count, 1, 2, m_code.buf));
             trait_methods.push((fn_mn, m_idx));
         }
 
         // 3. iinit (constructor)
-        let iinit_method = method_count;
-        method_count += 1;
-        method_params.push(Vec::new());
-        let mut iinit_code = SwfBitWriter::new();
-        iinit_code.u8(0xD0); // getlocal_0
-        iinit_code.u8(0x30); // pushscope
-        iinit_code.u8(0xD0); // getlocal_0
-        iinit_code.u8(0x49); // constructsuper
-        iinit_code.u32_v(0);
-        if !frame_bindings.is_empty() {
-            iinit_code.u8(0x5D); // findpropstrict
-            iinit_code.u32_v(add_frame_script_mn);
-            for (frame_idx, fn_mn) in &frame_bindings {
-                emit_avm2_int(
-                    &mut pool,
-                    &mut iinit_code,
-                    i32::try_from(*frame_idx).expect("SWF preflight bounds AVM2 frame indexes"),
-                );
-                iinit_code.u8(0x60); // getlex
-                iinit_code.u32_v(*fn_mn);
-            }
-            iinit_code.u8(0x4F); // callpropvoid
-            iinit_code.u32_v(add_frame_script_mn);
-            iinit_code.u32_v((frame_bindings.len() * 2) as u32);
-        }
-        compile_avm2_stmt_list(
+        let iinit_method = state.alloc_method(Vec::new());
+        compile_avm2_scoped_unit(
             &mut pool,
+            &mut state,
+            iinit_method,
+            &[],
             &cls.ctor_statements,
-            &mut iinit_code,
-            &mut method_count,
-            &mut method_params,
-            &mut method_bodies,
-            &empty_locals,
+            &empty_outer,
+            1,
+            false,
+            |p, iinit_code| {
+                iinit_code.u8(0xD0); // getlocal_0
+                iinit_code.u8(0x49); // constructsuper
+                iinit_code.u32_v(0);
+                if !frame_bindings.is_empty() {
+                    iinit_code.u8(0x5D); // findpropstrict
+                    iinit_code.u32_v(add_frame_script_mn);
+                    for (frame_idx, fn_mn) in &frame_bindings {
+                        emit_avm2_int(
+                            p,
+                            iinit_code,
+                            i32::try_from(*frame_idx)
+                                .expect("SWF preflight bounds AVM2 frame indexes"),
+                        );
+                        iinit_code.u8(0x60); // getlex
+                        iinit_code.u32_v(*fn_mn);
+                    }
+                    iinit_code.u8(0x4F); // callpropvoid
+                    iinit_code.u32_v(add_frame_script_mn);
+                    iinit_code.u32_v((frame_bindings.len() * 2) as u32);
+                }
+                Ok(())
+            },
         )
         .expect("AVM2 constructor statements are validated by SWF preflight");
-        iinit_code.u8(0x47); // returnvoid
-        let (max_stack, local_count) = compute_avm2_method_metrics(&iinit_code.buf, 0);
-        method_bodies.push((iinit_method, max_stack, local_count, 1, 2, iinit_code.buf));
 
         compiled_classes.push(CompiledClass {
             class_mn,
@@ -7657,9 +8283,7 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, ExportError> {
     }
 
     // Script init method
-    let sinit_method = method_count;
-    method_count += 1;
-    method_params.push(Vec::new());
+    let sinit_method = state.alloc_method(Vec::new());
     let mut sinit_code = SwfBitWriter::new();
     sinit_code.u8(0xD0); // getlocal_0
     sinit_code.u8(0x30); // pushscope
@@ -7682,7 +8306,15 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, ExportError> {
         sinit_code.u32_v(cls.class_mn);
     }
     sinit_code.u8(0x47); // returnvoid
-    method_bodies.push((sinit_method, 4, 1, 1, 4, sinit_code.buf));
+    state.bodies.push(AbcMethodBodySpec {
+        method_idx: sinit_method,
+        max_stack: 4,
+        local_count: 1,
+        init_scope_depth: 1,
+        max_scope_depth: 4,
+        code: sinit_code.buf,
+        activation_traits: Vec::new(),
+    });
 
     // Serialize ABC 46.16 stream
     let mut w = SwfBitWriter::new();
@@ -7733,23 +8365,25 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, ExportError> {
     }
 
     // Methods
-    w.u32_v(method_count);
-    for m_idx in 0..method_count {
-        let p_names = method_params
-            .get(m_idx as usize)
-            .map_or(&[][..], Vec::as_slice);
-        let p_count = p_names.len() as u32;
+    w.u32_v(state.methods.len() as u32);
+    for m in &state.methods {
+        let p_count = m.param_names.len() as u32;
         w.u32_v(p_count);
         w.u32_v(0); // return_type = *
         for _ in 0..p_count {
             w.u32_v(0); // param_type = *
         }
         w.u32_v(0); // name = ""
-        if p_names.is_empty() {
-            w.u8(0); // flags = 0
-        } else {
-            w.u8(0x80); // HAS_PARAM_NAMES
-            for &pn_idx in p_names {
+        let mut flags = 0u8;
+        if m.needs_activation {
+            flags |= 0x02; // NEED_ACTIVATION
+        }
+        if !m.param_names.is_empty() {
+            flags |= 0x80; // HAS_PARAM_NAMES
+        }
+        w.u8(flags);
+        if !m.param_names.is_empty() {
+            for &pn_idx in &m.param_names {
                 w.u32_v(pn_idx);
             }
         }
@@ -7793,17 +8427,24 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, ExportError> {
     }
 
     // Method bodies
-    w.u32_v(method_bodies.len() as u32);
-    for (m_idx, max_stack, local_count, init_scope, max_scope, code) in method_bodies {
-        w.u32_v(m_idx);
-        w.u32_v(max_stack);
-        w.u32_v(local_count);
-        w.u32_v(init_scope);
-        w.u32_v(max_scope);
-        w.u32_v(code.len() as u32);
-        w.bytes(&code);
+    w.u32_v(state.bodies.len() as u32);
+    for body in state.bodies {
+        w.u32_v(body.method_idx);
+        w.u32_v(body.max_stack);
+        w.u32_v(body.local_count);
+        w.u32_v(body.init_scope_depth);
+        w.u32_v(body.max_scope_depth);
+        w.u32_v(body.code.len() as u32);
+        w.bytes(&body.code);
         w.u32_v(0); // exception_count = 0
-        w.u32_v(0); // trait_count = 0
+        w.u32_v(body.activation_traits.len() as u32);
+        for (qname_mn, slot_id) in body.activation_traits {
+            w.u32_v(qname_mn);
+            w.u8(0x00); // Trait_Slot
+            w.u32_v(slot_id);
+            w.u32_v(0); // type_name = *
+            w.u32_v(0); // vindex = 0
+        }
     }
 
     Ok(w.buf)
@@ -10375,6 +11016,7 @@ mod dictionary_capacity_tests {
                 lhs: Box::new(SwfExpr::Bool(false)),
                 rhs: Box::new(SwfExpr::Int(7)),
             },
+            &HashMap::new(),
         )
         .unwrap();
         assert!(avm1_and.contains(&0x9d), "AVM1 && uses ActionIf");
@@ -10388,6 +11030,7 @@ mod dictionary_capacity_tests {
                 lhs: Box::new(SwfExpr::Bool(true)),
                 rhs: Box::new(SwfExpr::Int(7)),
             },
+            &HashMap::new(),
         )
         .unwrap();
         assert!(avm1_or.contains(&0x9d), "AVM1 || uses ActionIf");
@@ -10396,9 +11039,15 @@ mod dictionary_capacity_tests {
         fn compile(op: SwfBinaryOp, lhs: bool) -> Vec<u8> {
             let mut pool = AbcPoolBuilder::default();
             let mut code = SwfBitWriter::new();
-            let mut method_count = 0;
-            let mut method_params = Vec::new();
-            let mut method_bodies = Vec::new();
+            let mut state = Avm2CompilerState::default();
+            let mut env = Avm2LexicalEnv {
+                init_scope_depth: 1,
+                needs_activation: false,
+                local_regs: HashMap::new(),
+                own_slots: HashMap::new(),
+                outer_slots: HashMap::new(),
+                activation_traits: Vec::new(),
+            };
             compile_avm2_expr(
                 &mut pool,
                 &SwfExpr::Binary {
@@ -10407,10 +11056,8 @@ mod dictionary_capacity_tests {
                     rhs: Box::new(SwfExpr::Int(7)),
                 },
                 &mut code,
-                &mut method_count,
-                &mut method_params,
-                &mut method_bodies,
-                &HashMap::new(),
+                &mut state,
+                &mut env,
             )
             .unwrap();
             code.buf

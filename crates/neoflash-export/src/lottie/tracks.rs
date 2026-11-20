@@ -1,7 +1,7 @@
 //! Timeline layer spans, element tracks, keyframe interpolation, easing, and transform (`ks`) builders.
 
 use super::{
-    LOTTIE_VERSION, LottieBuilder, LottieMovieClipMode, LottieNoteKind, round4,
+    LOTTIE_VERSION, LottieBuilder, LottieMovieClipMode, LottieNoteKind, check_cancel_flag, round4,
     shapes::resolve_native_dash_stroke,
 };
 use crate::ExportError;
@@ -234,7 +234,7 @@ impl<'a> LottieBuilder<'a> {
                 .as_deref()
                 .and_then(|id| mask_layers.get(id).copied());
 
-            let spans = collect_layer_spans(layer, layer_end);
+            let spans = collect_layer_spans(layer, layer_end, self.cancel)?;
             for span in spans.into_iter().rev() {
                 self.check_cancelled()?;
                 let emitted = self.emit_span_layers(
@@ -726,7 +726,7 @@ impl<'a> LottieBuilder<'a> {
                     origin_offset,
                     force_dense_ks,
                     orient_auto,
-                );
+                )?;
                 let ind = *next_ind;
                 *next_ind += 1;
                 let target_sym = self.project.symbol(child_symbol_id);
@@ -780,7 +780,7 @@ impl<'a> LottieBuilder<'a> {
                     layer_synced,
                     first_frame,
                     last_frame,
-                ) {
+                )? {
                     obj.as_object_mut().unwrap().insert("tm".into(), tm);
                 }
                 let wrapped = self.attach_mask_or_matte(
@@ -833,15 +833,36 @@ impl<'a> LottieBuilder<'a> {
                         Some(first_frame),
                     );
                 }
+                let [sx_comp, sy_comp] = self
+                    .image_scale_by_resource
+                    .get(resource_id)
+                    .copied()
+                    .unwrap_or([1.0, 1.0]);
+                let compensated_samples: std::borrow::Cow<'_, [(u32, Element)]> =
+                    if (sx_comp - 1.0).abs() > 1e-6 || (sy_comp - 1.0).abs() > 1e-6 {
+                        std::borrow::Cow::Owned(
+                            samples
+                                .iter()
+                                .cloned()
+                                .map(|(f, mut e)| {
+                                    e.transform.scale_x *= sx_comp;
+                                    e.transform.scale_y *= sy_comp;
+                                    (f, e)
+                                })
+                                .collect(),
+                        )
+                    } else {
+                        std::borrow::Cow::Borrowed(&samples)
+                    };
                 let ks = self.build_animated_ks(
                     timeline,
                     layer,
-                    &samples,
+                    &compensated_samples,
                     [0.0, 0.0],
                     origin_offset,
                     force_dense_ks,
                     orient_auto,
-                );
+                )?;
                 let ind = *next_ind;
                 *next_ind += 1;
                 let obj = json!({
@@ -956,7 +977,8 @@ impl<'a> LottieBuilder<'a> {
                     force_dense_ks,
                     dash_override.as_ref(),
                     symbol_id,
-                ) else {
+                )?
+                else {
                     return Ok(Vec::new());
                 };
                 let ks = self.build_animated_ks(
@@ -967,7 +989,7 @@ impl<'a> LottieBuilder<'a> {
                     origin_offset,
                     force_dense_ks,
                     orient_auto,
-                );
+                )?;
                 let ind = *next_ind;
                 *next_ind += 1;
                 let obj = json!({
@@ -1014,8 +1036,11 @@ impl<'a> LottieBuilder<'a> {
         layer_synced: bool,
         first_frame: u32,
         last_frame: u32,
-    ) -> Option<Value> {
-        let child_sym = self.project.symbol(symbol_id)?;
+    ) -> Result<Option<Value>, ExportError> {
+        self.check_cancelled()?;
+        let Some(child_sym) = self.project.symbol(symbol_id) else {
+            return Ok(None);
+        };
         let child_len = if is_button {
             1
         } else {
@@ -1023,12 +1048,12 @@ impl<'a> LottieBuilder<'a> {
         };
         if child_len <= 1 {
             if last_frame > first_frame + 1 {
-                return Some(json!({
+                return Ok(Some(json!({
                     "a": 0,
                     "k": 0.0
-                }));
+                })));
             }
-            return None;
+            return Ok(None);
         }
         let span_start = placement_start(layer, first_frame, element_id);
         let child_frame_at = |parent_frame: u32| -> u32 {
@@ -1056,28 +1081,29 @@ impl<'a> LottieBuilder<'a> {
         };
 
         if let InstancePlayback::SingleFrame(f) = playback {
-            return Some(json!({
+            return Ok(Some(json!({
                 "a": 0,
                 "k": round4(f.min(child_len - 1) as f64 / self.fps)
-            }));
+            })));
         }
 
         let _ = timeline;
         let matches_default =
             (first_frame..last_frame).all(|f| child_frame_at(f) == f.saturating_sub(first_frame));
         if matches_default {
-            return None;
+            return Ok(None);
         }
 
         if last_frame <= first_frame + 1 {
-            return Some(json!({
+            return Ok(Some(json!({
                 "a": 0,
                 "k": round4(child_frame_at(first_frame) as f64 / self.fps)
-            }));
+            })));
         }
 
         let mut kfs = Vec::with_capacity((last_frame - first_frame) as usize);
         for f in first_frame..last_frame {
+            self.check_cancelled()?;
             let cf = child_frame_at(f);
             let sec = round4(cf as f64 / self.fps);
             kfs.push(json!({
@@ -1086,10 +1112,10 @@ impl<'a> LottieBuilder<'a> {
                 "h": 1
             }));
         }
-        Some(json!({
+        Ok(Some(json!({
             "a": 1,
             "k": kfs
-        }))
+        })))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1102,7 +1128,8 @@ impl<'a> LottieBuilder<'a> {
         origin_offset: [f64; 2],
         force_dense: bool,
         orient_auto: bool,
-    ) -> Value {
+    ) -> Result<Value, ExportError> {
+        self.check_cancelled()?;
         let first_t = samples[0].1.transform;
         let element_id = samples[0].1.id.as_str();
         let first_f = samples[0].0;
@@ -1122,7 +1149,7 @@ impl<'a> LottieBuilder<'a> {
                 .iter()
                 .all(|(_, e)| transforms_approx_eq(e.transform, first_t));
         if is_static {
-            return static_ks(first_t, anchor, origin_offset);
+            return Ok(static_ks(first_t, anchor, origin_offset));
         }
 
         let dense = force_dense
@@ -1156,6 +1183,7 @@ impl<'a> LottieBuilder<'a> {
         } else {
             collect_transform_keyframes(timeline, layer, samples, element_id)
         };
+        self.check_cancelled()?;
 
         let unwrapped_rotations = compute_unwrapped_rotations(layer, &key_frames, dense);
         let auto_orient_offsets = if orient_auto {
@@ -1179,6 +1207,7 @@ impl<'a> LottieBuilder<'a> {
                 ease,
             )
         });
+        self.check_cancelled()?;
         let s_kfs = build_vec3_keyframes(&key_frames, |t, f| {
             let hold_scale = !dense
                 && motion_span(layer, f).is_none()
@@ -1222,6 +1251,7 @@ impl<'a> LottieBuilder<'a> {
             };
             (round4(effective_opacity_percent(t.1)), ease)
         });
+        self.check_cancelled()?;
 
         let mut ks = Map::new();
         ks.insert("o".into(), o_kfs);
@@ -1244,7 +1274,7 @@ impl<'a> LottieBuilder<'a> {
             ks.insert("sk".into(), sk_kfs);
             ks.insert("sa".into(), json!({"a": 0, "k": 0.0}));
         }
-        Value::Object(ks)
+        Ok(Value::Object(ks))
     }
 }
 
@@ -1428,10 +1458,17 @@ pub(super) struct LayerSpan {
     pub(super) end_frame: u32,
 }
 
-fn collect_layer_spans(layer: &Layer, layer_end: u32) -> Vec<LayerSpan> {
+fn collect_layer_spans(
+    layer: &Layer,
+    layer_end: u32,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<Vec<LayerSpan>, ExportError> {
     let mut spans = Vec::new();
     let mut current_start: Option<u32> = None;
     for f in 0..layer_end {
+        if f & 63 == 0 {
+            check_cancel_flag(cancel)?;
+        }
         let non_empty = layer.key_at(f).is_some_and(|k| !k.elements.is_empty());
         match (current_start, non_empty) {
             (None, true) => current_start = Some(f),
@@ -1451,7 +1488,7 @@ fn collect_layer_spans(layer: &Layer, layer_end: u32) -> Vec<LayerSpan> {
             end_frame: layer_end,
         });
     }
-    spans
+    Ok(spans)
 }
 
 fn collect_transform_keyframes(

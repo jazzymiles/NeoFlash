@@ -65,23 +65,35 @@ fn json_color_to_rgba(c: &Value, extra_opacity: f64) -> Color {
 }
 
 fn parse_json_matrix2x3(val: &Value) -> Option<[f64; 6]> {
-    let rows = val.as_array()?;
-    if rows.len() < 2 {
-        return None;
+    if let Some(rows) = val.as_array() {
+        if rows.len() < 2 {
+            return None;
+        }
+        let r0 = rows[0].as_array()?;
+        let r1 = rows[1].as_array()?;
+        if r0.len() < 3 || r1.len() < 3 {
+            return None;
+        }
+        let mat = [
+            r0[0].as_f64()?,
+            r0[1].as_f64().unwrap_or(0.0),
+            r0[2].as_f64().unwrap_or(0.0),
+            r1[0].as_f64().unwrap_or(0.0),
+            r1[1].as_f64()?,
+            r1[2].as_f64().unwrap_or(0.0),
+        ];
+        return mat.iter().all(|v| v.is_finite()).then_some(mat);
     }
-    let r0 = rows[0].as_array()?;
-    let r1 = rows[1].as_array()?;
-    if r0.len() < 3 || r1.len() < 3 {
-        return None;
-    }
-    Some([
-        r0[0].as_f64().unwrap_or(1.0),
-        r0[1].as_f64().unwrap_or(0.0),
-        r0[2].as_f64().unwrap_or(0.0),
-        r1[0].as_f64().unwrap_or(0.0),
-        r1[1].as_f64().unwrap_or(1.0),
-        r1[2].as_f64().unwrap_or(0.0),
-    ])
+    let obj = val.as_object()?;
+    let mat = [
+        obj.get("m00")?.as_f64()?,
+        obj.get("m01").and_then(Value::as_f64).unwrap_or(0.0),
+        obj.get("m02").and_then(Value::as_f64).unwrap_or(0.0),
+        obj.get("m10").and_then(Value::as_f64).unwrap_or(0.0),
+        obj.get("m11")?.as_f64()?,
+        obj.get("m12").and_then(Value::as_f64).unwrap_or(0.0),
+    ];
+    mat.iter().all(|v| v.is_finite()).then_some(mat)
 }
 
 fn parse_json_paints(arr: &[Value], w: f64, h: f64) -> Vec<FigmaPaint> {
@@ -183,15 +195,31 @@ fn parse_json_paints(arr: &[Value], w: f64, h: f64) -> Vec<FigmaPaint> {
                     .and_then(Value::as_str)
                     .filter(|s| !s.is_empty())
                 {
-                    let scale_mode = p
+                    let raw_scale_mode = p
                         .get("scaleMode")
+                        .or_else(|| p.get("imageScaleMode"))
                         .and_then(Value::as_str)
-                        .unwrap_or("FILL")
-                        .to_owned();
+                        .unwrap_or("FILL");
+                    let image_transform = p
+                        .get("imageTransform")
+                        .or_else(|| p.get("transform"))
+                        .and_then(parse_json_matrix2x3);
+                    let scale_mode = if raw_scale_mode.eq_ignore_ascii_case("STRETCH") {
+                        "CROP".to_owned()
+                    } else {
+                        raw_scale_mode.to_ascii_uppercase()
+                    };
+                    let scaling_factor = p
+                        .get("scalingFactor")
+                        .or_else(|| p.get("scale"))
+                        .and_then(Value::as_f64)
+                        .filter(|v| v.is_finite() && *v > 0.0);
                     out.push(FigmaPaint::Image {
                         image_ref: iref.to_owned(),
                         scale_mode,
                         alpha: opacity,
+                        image_transform,
+                        scaling_factor,
                     });
                 }
             }
@@ -736,8 +764,12 @@ fn parse_json_node(
                         inner: etype == "INNER_SHADOW",
                     });
                 }
-                "LAYER_BLUR" => effects.push(FigmaEffect::LayerBlur { radius }),
-                "BACKGROUND_BLUR" => effects.push(FigmaEffect::BackgroundBlur { radius }),
+                "LAYER_BLUR" if radius > 0.0 => {
+                    effects.push(FigmaEffect::LayerBlur { radius });
+                }
+                "BACKGROUND_BLUR" if radius > 0.0 => {
+                    effects.push(FigmaEffect::BackgroundBlur { radius });
+                }
                 _ => {}
             }
         }

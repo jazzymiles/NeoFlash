@@ -1293,6 +1293,7 @@ struct BodyContext<'a> {
     declared_locals: BTreeSet<usize>,
     param_count: usize,
     activation_slots: HashMap<usize, String>,
+    outer_scope_slots: Vec<HashMap<usize, String>>,
     imports: &'a mut BTreeSet<String>,
     frame_scripts: &'a mut Vec<(u32, String)>,
     unrecognized: &'a mut usize,
@@ -1320,6 +1321,37 @@ fn decompile_method_body(
     body: &AbcMethodBody,
     class_name: &str,
     is_ctor: bool,
+    imports: &mut BTreeSet<String>,
+    frame_scripts: &mut Vec<(u32, String)>,
+    unrecognized: &mut usize,
+    unrecognized_sites: &mut Vec<(String, usize, usize, u8)>,
+    visited_methods: &mut BTreeSet<usize>,
+    depth: usize,
+) -> Vec<String> {
+    decompile_method_body_with_outer_slots(
+        abc,
+        method_idx,
+        body,
+        class_name,
+        is_ctor,
+        &[],
+        imports,
+        frame_scripts,
+        unrecognized,
+        unrecognized_sites,
+        visited_methods,
+        depth,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn decompile_method_body_with_outer_slots(
+    abc: &AbcFile,
+    method_idx: usize,
+    body: &AbcMethodBody,
+    class_name: &str,
+    is_ctor: bool,
+    outer_scope_slots: &[HashMap<usize, String>],
     imports: &mut BTreeSet<String>,
     frame_scripts: &mut Vec<(u32, String)>,
     unrecognized: &mut usize,
@@ -1394,6 +1426,7 @@ fn decompile_method_body(
         declared_locals: BTreeSet::new(),
         param_count,
         activation_slots,
+        outer_scope_slots: outer_scope_slots.to_vec(),
         imports,
         frame_scripts,
         unrecognized,
@@ -1928,13 +1961,26 @@ fn step_abc_insn(
                 .replacen("function (", "function(", 1);
             let closure_lines = if let Some(cbody) = ctx.abc.bodies_by_method.get(&midx) {
                 ctx.visited_methods.insert(midx);
+                let mut child_outer = if ctx.outer_scope_slots.is_empty() {
+                    vec![HashMap::new()]
+                } else {
+                    ctx.outer_scope_slots.clone()
+                };
+                for sc in scope_stack.iter() {
+                    if sc == "__activation__" {
+                        child_outer.push(ctx.activation_slots.clone());
+                    } else {
+                        child_outer.push(HashMap::new());
+                    }
+                }
                 let mut dummy = Vec::new();
-                decompile_method_body(
+                decompile_method_body_with_outer_slots(
                     ctx.abc,
                     midx,
                     cbody,
                     ctx.class_name,
                     false,
+                    &child_outer,
                     ctx.imports,
                     &mut dummy,
                     ctx.unrecognized,
@@ -2062,7 +2108,9 @@ fn step_abc_insn(
         }
         0x57 => {
             // newactivation: push activation marker so activation slot accesses resolve directly to variable names.
-            stack.push(AbcVal::find_target());
+            let mut v = AbcVal::expr("__activation__");
+            v.is_this_or_find = true;
+            stack.push(v);
         }
         0x5B..=0x5F => {
             let (has_ns, has_name) = ctx.abc.runtime_multiname_parts(insn.arg1);
@@ -2101,7 +2149,7 @@ fn step_abc_insn(
             store_local(ctx, insn.arg1, stack, lines);
         }
         0x64 => stack.push(AbcVal::find_target()),
-        0x65 | 0x67 => {
+        0x65 => {
             let sc = scope_stack
                 .get(insn.arg1)
                 .cloned()
@@ -2110,12 +2158,23 @@ fn step_abc_insn(
             v.is_this_or_find = true;
             stack.push(v);
         }
+        0x67 => {
+            let mut v = AbcVal::expr(format!("__outerscope_{}__", insn.arg1));
+            v.is_this_or_find = true;
+            stack.push(v);
+        }
         0x66 => {
             let (is_bracket, prop) = resolve_prop_name(ctx, insn.arg1, stack);
             let obj = pop_val(stack);
-            let access = format_receiver_member(&obj, &prop, is_bracket);
+            let obj_norm = if obj.code == "__activation__" || obj.code.starts_with("__outerscope_")
+            {
+                AbcVal::find_target()
+            } else {
+                obj
+            };
+            let access = format_receiver_member(&obj_norm, &prop, is_bracket);
             let mut v = AbcVal::expr(access);
-            if obj.code == "this" && !is_bracket {
+            if obj_norm.code == "this" && !is_bracket {
                 v.method_ref = Some(prop);
             }
             stack.push(v);
@@ -2127,25 +2186,78 @@ fn step_abc_insn(
             stack.push(AbcVal::expr(format!("delete {access}")));
         }
         0x6C => {
-            let _obj = pop_val(stack);
-            let sname = ctx
-                .activation_slots
-                .get(&insn.arg1)
-                .cloned()
-                .unwrap_or_else(|| format!("_slot{}", insn.arg1));
+            let obj = pop_val(stack);
+            let outer_idx = obj
+                .code
+                .strip_prefix("__outerscope_")
+                .and_then(|s| s.strip_suffix("__"))
+                .and_then(|s| s.parse::<usize>().ok());
+            let sname = if let Some(idx) = outer_idx {
+                ctx.outer_scope_slots
+                    .get(idx)
+                    .and_then(|m| m.get(&insn.arg1).cloned())
+                    .or_else(|| {
+                        ctx.outer_scope_slots
+                            .iter()
+                            .rev()
+                            .find_map(|m| m.get(&insn.arg1).cloned())
+                    })
+                    .unwrap_or_else(|| format!("_slot{}", insn.arg1))
+            } else {
+                ctx.activation_slots
+                    .get(&insn.arg1)
+                    .cloned()
+                    .or_else(|| {
+                        ctx.outer_scope_slots
+                            .iter()
+                            .rev()
+                            .find_map(|m| m.get(&insn.arg1).cloned())
+                    })
+                    .unwrap_or_else(|| format!("_slot{}", insn.arg1))
+            };
             stack.push(AbcVal::expr(sname));
         }
         0x6D => {
             let val = pop_val(stack);
-            let _obj = pop_val(stack);
+            let obj = pop_val(stack);
             if val.code == "undefined" {
+                return;
+            }
+            let outer_idx = obj
+                .code
+                .strip_prefix("__outerscope_")
+                .and_then(|s| s.strip_suffix("__"))
+                .and_then(|s| s.parse::<usize>().ok());
+            if let Some(idx) = outer_idx {
+                let sname = ctx
+                    .outer_scope_slots
+                    .get(idx)
+                    .and_then(|m| m.get(&insn.arg1).cloned())
+                    .or_else(|| {
+                        ctx.outer_scope_slots
+                            .iter()
+                            .rev()
+                            .find_map(|m| m.get(&insn.arg1).cloned())
+                    })
+                    .unwrap_or_else(|| format!("_slot{}", insn.arg1));
+                lines.push(format!("{sname} = {};", val.code));
                 return;
             }
             let sname = ctx
                 .activation_slots
                 .get(&insn.arg1)
                 .cloned()
+                .or_else(|| {
+                    ctx.outer_scope_slots
+                        .iter()
+                        .rev()
+                        .find_map(|m| m.get(&insn.arg1).cloned())
+                })
                 .unwrap_or_else(|| format!("_slot{}", insn.arg1));
+            if val.code == sname {
+                ctx.declared_locals.insert(10_000 + insn.arg1);
+                return;
+            }
             if ctx.activation_slots.contains_key(&insn.arg1)
                 && ctx.declared_locals.insert(10_000 + insn.arg1)
             {

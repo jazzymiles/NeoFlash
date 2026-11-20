@@ -343,6 +343,8 @@ pub(super) enum FigmaPaint {
         image_ref: String,
         scale_mode: String,
         alpha: f64,
+        image_transform: Option<[f64; 6]>,
+        scaling_factor: Option<f64>,
     },
 }
 

@@ -1986,8 +1986,8 @@ fn t241_avm2_raw_bytecode_short_circuit_register_params_method_metrics_and_scene
             // combinePair(leftVal, rightVal): must read local registers 1 and 2 (0xD1, 0xD2)
             saw_two_param_fn = true;
             assert_eq!(
-                local_count, 3,
-                "2-param function must declare local_count == 3 (this + 2 param registers), got {local_count}"
+                local_count, 4,
+                "2-param function with 1 local var must declare local_count == 4 (this + 2 param registers + sum), got {local_count}"
             );
             assert!(
                 code.contains(&0xD1) && code.contains(&0xD2),

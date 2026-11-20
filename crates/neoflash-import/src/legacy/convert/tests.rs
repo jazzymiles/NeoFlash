@@ -2397,3 +2397,399 @@ fn luminance_inverted_mask_demotion_and_deep_mask_vector_budget_stay_valid() {
     deep.validate()
         .expect("deep mask fallback element passes validate()");
 }
+
+#[test]
+fn binary_fla_stroke_caps_joins_and_scale_modes_convert_without_rendering_warnings() {
+    // 1. Open L-corner stroke with Square caps (`cap_style = 2`) and Miter join (`join_style = 0`, limit = 4.0).
+    let miter_shape = BinaryShapeRecord {
+        shape_revision: 3,
+        matrix_words: [65536, 0, 0, 65536, 0, 0],
+        data_revision: 3,
+        metadata: 0,
+        fills: vec![],
+        strokes: vec![BinaryStroke {
+            color_word: u32::from_le_bytes([220, 40, 60, 255]),
+            width_word: 10 * 20, // 10px stroke -> half_w = 5px
+            style_words: [0, 0],
+            extension: Some(BinaryStrokeExtension {
+                pixel_hinting: 0,
+                scale_mode: 0, // Normal
+                cap_style: 2,  // Square
+                join_style: 0, // Miter
+                miter_limit_word: 4 * 256,
+                paint: BinaryFill {
+                    packed_value: u32::from_le_bytes([220, 40, 60, 255]),
+                    encoding: BinaryFillEncoding::Legacy { word: 0 },
+                },
+            }),
+        }],
+        edges: vec![
+            BinaryEdge {
+                encoding_flags: 0,
+                styles: BinaryContourStyles {
+                    stroke: 1,
+                    fill_0: 0,
+                    fill_1: 0,
+                },
+                start_delta: [0, 0],
+                control_delta: [0, 0],
+                end_delta: [40 * 5120, 0],
+                start: [0, 0],
+                control: None,
+                end: [40 * 5120, 0],
+                line_flags: None,
+            },
+            BinaryEdge {
+                encoding_flags: 0,
+                styles: BinaryContourStyles {
+                    stroke: 1,
+                    fill_0: 0,
+                    fill_1: 0,
+                },
+                start_delta: [0, 0],
+                control_delta: [0, 0],
+                end_delta: [0, -40 * 5120],
+                start: [40 * 5120, 0],
+                control: None,
+                end: [40 * 5120, -40 * 5120],
+                line_flags: None,
+            },
+        ],
+        auxiliary: vec![],
+        original_bytes: vec![],
+    };
+
+    let mut rep = report();
+    let converted = shape::convert_shape(&miter_shape, "miter", &mut rep, "synthetic").unwrap();
+    assert!(
+        rep.diagnostics
+            .iter()
+            .all(|d| d.code != "fla_stroke_rendering"),
+        "unexpected stroke warning: {:?}",
+        rep.diagnostics
+    );
+    assert_eq!(converted.len(), 1);
+    let ElementKind::PaintedPath {
+        commands,
+        fill,
+        stroke_width,
+        ..
+    } = &converted[0].kind
+    else {
+        panic!("expected expanded PaintedPath");
+    };
+    assert_eq!(*fill, [220, 40, 60, 255]);
+    assert_eq!(*stroke_width, 0.0);
+    // Square cap at (0,0) extends left to x = -5.0; outer miter at (40,0) extends right to x = 45.0, y = 5.0.
+    let xs: Vec<f64> = commands
+        .iter()
+        .filter_map(|c| match *c {
+            PathCommand::MoveTo { x, .. } | PathCommand::LineTo { x, .. } => Some(x),
+            _ => None,
+        })
+        .collect();
+    let min_x = xs.iter().copied().fold(f64::INFINITY, f64::min);
+    let max_x = xs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    assert!((min_x - (-5.0)).abs() < 1e-4, "min_x={min_x}");
+    assert!((max_x - 45.0).abs() < 1e-4, "max_x={max_x}");
+
+    // 2. Non-uniform shape matrix (sx = 3.0, sy = 0.5) with Vertical scaleMode (`scale_mode = 2`) and Round caps.
+    let vscale_shape = BinaryShapeRecord {
+        shape_revision: 3,
+        matrix_words: [3 * 65536, 0, 0, 32768, 10 * 20, 20 * 20],
+        data_revision: 3,
+        metadata: 0,
+        fills: vec![],
+        strokes: vec![BinaryStroke {
+            color_word: u32::from_le_bytes([40, 120, 220, 255]),
+            width_word: 8 * 20, // 8px * sy(0.5) = 4.0px
+            style_words: [0, 0],
+            extension: Some(BinaryStrokeExtension {
+                pixel_hinting: 0,
+                scale_mode: 2, // Vertical
+                cap_style: 1,
+                join_style: 1,
+                miter_limit_word: 3 * 256,
+                paint: BinaryFill {
+                    packed_value: u32::from_le_bytes([40, 120, 220, 255]),
+                    encoding: BinaryFillEncoding::Legacy { word: 0 },
+                },
+            }),
+        }],
+        edges: vec![BinaryEdge {
+            encoding_flags: 0,
+            styles: BinaryContourStyles {
+                stroke: 1,
+                fill_0: 0,
+                fill_1: 0,
+            },
+            start_delta: [0, 0],
+            control_delta: [0, 0],
+            end_delta: [20 * 5120, 0],
+            start: [0, 0],
+            control: None,
+            end: [20 * 5120, 0],
+            line_flags: None,
+        }],
+        auxiliary: vec![],
+        original_bytes: vec![],
+    };
+    let mut rep2 = report();
+    let v_els = shape::convert_shape(&vscale_shape, "vscale", &mut rep2, "synthetic").unwrap();
+    assert!(
+        rep2.diagnostics
+            .iter()
+            .all(|d| d.code != "fla_stroke_rendering")
+    );
+    assert_eq!(v_els[0].transform, Transform::default());
+    let ElementKind::PaintedPath { stroke_width, .. } = &v_els[0].kind else {
+        panic!("expected PaintedPath");
+    };
+    assert!(
+        (*stroke_width - 4.0).abs() < 1e-4,
+        "expected 4.0px vertical-scaled width, got {stroke_width}"
+    );
+}
+
+#[test]
+fn binary_fla_graphic_replacement_and_generated_group_classic_tweens_interpolate() {
+    let box_edges = vec![
+        BinaryEdge {
+            encoding_flags: 0,
+            styles: BinaryContourStyles {
+                stroke: 0,
+                fill_0: 0,
+                fill_1: 1,
+            },
+            start_delta: [0, 0],
+            control_delta: [0, 0],
+            end_delta: [20 * 5120, 0],
+            start: [0, 0],
+            control: None,
+            end: [20 * 5120, 0],
+            line_flags: None,
+        },
+        BinaryEdge {
+            encoding_flags: 0,
+            styles: BinaryContourStyles {
+                stroke: 0,
+                fill_0: 0,
+                fill_1: 1,
+            },
+            start_delta: [0, 0],
+            control_delta: [0, 0],
+            end_delta: [0, 20 * 5120],
+            start: [20 * 5120, 0],
+            control: None,
+            end: [20 * 5120, 20 * 5120],
+            line_flags: None,
+        },
+        BinaryEdge {
+            encoding_flags: 0,
+            styles: BinaryContourStyles {
+                stroke: 0,
+                fill_0: 0,
+                fill_1: 1,
+            },
+            start_delta: [0, 0],
+            control_delta: [0, 0],
+            end_delta: [-20 * 5120, 0],
+            start: [20 * 5120, 20 * 5120],
+            control: None,
+            end: [0, 20 * 5120],
+            line_flags: None,
+        },
+        BinaryEdge {
+            encoding_flags: 0,
+            styles: BinaryContourStyles {
+                stroke: 0,
+                fill_0: 0,
+                fill_1: 1,
+            },
+            start_delta: [0, 0],
+            control_delta: [0, 0],
+            end_delta: [0, -20 * 5120],
+            start: [0, 20 * 5120],
+            control: None,
+            end: [0, 0],
+            line_flags: None,
+        },
+    ];
+    let make_group_shape = |tx_px: i32, ty_px: i32| LocatedBinaryShape {
+        offset: 0,
+        record: BinaryShapeRecord {
+            shape_revision: 2,
+            matrix_words: [65536, 0, 0, 65536, tx_px * 20, ty_px * 20],
+            data_revision: 2,
+            metadata: 0,
+            fills: vec![BinaryFill {
+                packed_value: u32::from_le_bytes([80, 200, 120, 255]),
+                encoding: BinaryFillEncoding::Legacy { word: 0 },
+            }],
+            strokes: vec![],
+            edges: box_edges.clone(),
+            auxiliary: vec![],
+            original_bytes: vec![],
+        },
+    };
+
+    let mut group_obj_0 = record(30, TimelineClass::Shape, TimelinePayload::Shape, &[]);
+    group_obj_0.shape_index = Some(0);
+    let mut group_obj_1 = record(31, TimelineClass::Shape, TimelinePayload::Shape, &[]);
+    group_obj_1.shape_index = Some(1);
+
+    let stream = BinaryTimelineStream {
+        index: 7,
+        stream_kind: Some(1),
+        root: Some(1),
+        references: vec![],
+        pointers: vec![],
+        objects: vec![
+            record(
+                1,
+                TimelineClass::Page,
+                TimelinePayload::Page(TimelinePage::default()),
+                &[2, 3],
+            ),
+            // Layer 2: Graphic symbol replacement tween (library 100 Loop -> library 101 SingleFrame(2)).
+            record(
+                2,
+                TimelineClass::Layer,
+                TimelinePayload::Layer(TimelineLayer::default()),
+                &[10, 11],
+            ),
+            // Layer 3: Generated-group classic tween (x=10 -> x=90 over 4 frames).
+            record(
+                3,
+                TimelineClass::Layer,
+                TimelinePayload::Layer(TimelineLayer::default()),
+                &[12, 13],
+            ),
+            record(
+                10,
+                TimelineClass::Frame,
+                TimelinePayload::Frame(Box::new(TimelineFrame {
+                    duration: Some(4),
+                    key_mode: Some(1),
+                    ..Default::default()
+                })),
+                &[20],
+            ),
+            record(
+                11,
+                TimelineClass::Frame,
+                TimelinePayload::Frame(Box::new(TimelineFrame {
+                    duration: Some(1),
+                    key_mode: Some(0),
+                    ..Default::default()
+                })),
+                &[21],
+            ),
+            record(
+                12,
+                TimelineClass::Frame,
+                TimelinePayload::Frame(Box::new(TimelineFrame {
+                    duration: Some(4),
+                    key_mode: Some(1),
+                    ..Default::default()
+                })),
+                &[30],
+            ),
+            record(
+                13,
+                TimelineClass::Frame,
+                TimelinePayload::Frame(Box::new(TimelineFrame {
+                    duration: Some(1),
+                    key_mode: Some(0),
+                    ..Default::default()
+                })),
+                &[31],
+            ),
+            record(
+                20,
+                TimelineClass::Symbol,
+                TimelinePayload::Instance(Box::new(TimelineInstance {
+                    matrix_words: Some([65536, 0, 0, 65536, 0, 0]),
+                    library_id: Some(100),
+                    loop_mode: Some(0),
+                    first_frame: Some(0),
+                    ..Default::default()
+                })),
+                &[],
+            ),
+            record(
+                21,
+                TimelineClass::Symbol,
+                TimelinePayload::Instance(Box::new(TimelineInstance {
+                    matrix_words: Some([65536, 0, 0, 65536, 120 * 20, 0]),
+                    library_id: Some(101),
+                    loop_mode: Some(2),
+                    first_frame: Some(2),
+                    ..Default::default()
+                })),
+                &[],
+            ),
+            group_obj_0,
+            group_obj_1,
+        ],
+        shapes: vec![make_group_shape(10, 20), make_group_shape(90, 60)],
+        original_bytes: vec![],
+    };
+
+    let mut rep = report();
+    let mut ctx = Context {
+        report: &mut rep,
+        library: BTreeMap::from([(100, "graphic-a".into()), (101, "graphic-b".into())]),
+        bitmaps: BTreeMap::new(),
+        sounds: BTreeMap::new(),
+        skipped_bitmaps: std::collections::BTreeSet::new(),
+        stream_stops: std::collections::BTreeSet::new(),
+        language: ScriptLanguage::ActionScript2,
+        include_hidden: true,
+        contents_revision: None,
+        generated: vec![],
+        provenance: vec![],
+        missing_bitmaps: BTreeMap::new(),
+    };
+    let timeline = ctx.timeline(&stream).unwrap();
+    let generated_count = ctx.generated.len();
+    assert!(
+        rep.diagnostics
+            .iter()
+            .all(|d| d.code != "fla_tween_dropped"),
+        "unexpected dropped tween diagnostic: {:?}",
+        rep.diagnostics
+    );
+
+    // Graphic replacement layer (`layers.last()` because binary FLA layers reverse top->bottom):
+    // check both layers by their element kinds!
+    let graphic_layer = timeline
+        .layers
+        .iter()
+        .find(|l| matches!(&l.keyframes[0].elements[0].kind, ElementKind::Instance { symbol_id, .. } if symbol_id == "graphic-a"))
+        .expect("graphic replacement layer");
+    assert!(graphic_layer.keyframes[0].tween.is_some());
+    assert!((sample_layer(graphic_layer, 2)[0].transform.x - 60.0).abs() < 1e-4);
+    assert!(matches!(
+        &sample_layer(graphic_layer, 4)[0].kind,
+        ElementKind::Instance {
+            symbol_id,
+            playback: InstancePlayback::SingleFrame(2)
+        } if symbol_id == "graphic-b"
+    ));
+
+    let group_layer = timeline
+        .layers
+        .iter()
+        .find(|l| matches!(&l.keyframes[0].elements[0].kind, ElementKind::Instance { symbol_id, .. } if symbol_id.ends_with("-group")))
+        .expect("generated group tween layer");
+    assert!(group_layer.keyframes[0].tween.is_some());
+    assert_eq!(
+        generated_count, 1,
+        "identical group endpoints deduplicate to one group symbol"
+    );
+    assert!((sample_layer(group_layer, 0)[0].transform.x - 10.0).abs() < 1e-4);
+    assert!((sample_layer(group_layer, 2)[0].transform.x - 50.0).abs() < 1e-4);
+    assert!((sample_layer(group_layer, 2)[0].transform.y - 40.0).abs() < 1e-4);
+    assert!((sample_layer(group_layer, 4)[0].transform.x - 90.0).abs() < 1e-4);
+}
