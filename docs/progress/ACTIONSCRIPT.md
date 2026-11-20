@@ -13,15 +13,15 @@ Both languages are counted against the same eight Flash Player areas. Areas 1–
 | Flash Player area | Entries | Working | Partial | Missing | Needs review | Working | Working or partial |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1. Mathematics and 2D geometry | 155 | 155 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 2. Objects, language and collections | 582 | 576 | 5 | 1 | 0 | 99.0% | 99.8% |
+| 2. Objects, language and collections | 582 | 580 | 1 | 1 | 0 | 99.7% | 99.8% |
 | 3. MovieClip and timeline | 37 | 37 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 4. Display, events and basic input | 678 | 663 | 1 | 14 | 0 | 97.8% | 97.9% |
-| 5. Graphics, bitmaps and filters | 313 | 299 | 1 | 13 | 0 | 95.5% | 95.8% |
-| 6. Text and fonts | 174 | 159 | 2 | 13 | 0 | 91.4% | 92.5% |
-| 7. File audio and video playback | 91 | 89 | 2 | 0 | 0 | 97.8% | 100.0% |
+| 4. Display, events and basic input | 678 | 677 | 1 | 0 | 0 | 99.9% | 100.0% |
+| 5. Graphics, bitmaps and filters | 313 | 312 | 0 | 1 | 0 | 99.7% | 99.7% |
+| 6. Text and fonts | 174 | 174 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 7. File audio and video playback | 91 | 91 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 8. Services and advanced Player APIs | 2,134 | 1,691 | 443 | 0 | 0 | 79.2% | 100.0% |
-| **Now: areas 1–6** | 1,939 | 1,889 | 9 | 41 | 0 | 97.4% | 97.9% |
-| **All Flash Player areas** | 4,164 | 3,669 | 454 | 41 | 0 | 88.1% | 99.0% |
+| **Now: areas 1–6** | 1,939 | 1,935 | 2 | 2 | 0 | 99.8% | 99.9% |
+| **All Flash Player areas** | 4,164 | 3,717 | 445 | 2 | 0 | 89.3% | <100% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
@@ -32,13 +32,13 @@ Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, compo
 | 1. Mathematics and 2D geometry | 128 | 128 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 2. Objects, language and collections | 281 | 281 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 3. MovieClip and timeline | 123 | 123 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 4. Display, events and basic input | 130 | 129 | 0 | 1 | 0 | 99.2% | 99.2% |
+| 4. Display, events and basic input | 130 | 130 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 5. Graphics, bitmaps and filters | 145 | 145 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 6. Text and fonts | 118 | 114 | 0 | 4 | 0 | 96.6% | 96.6% |
-| 7. File audio and video playback | 83 | 78 | 1 | 4 | 0 | 94.0% | 95.2% |
+| 6. Text and fonts | 118 | 118 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 7. File audio and video playback | 83 | 79 | 0 | 4 | 0 | 95.2% | 95.2% |
 | 8. Services and advanced Player APIs | 230 | 196 | 34 | 0 | 0 | 85.2% | 100.0% |
-| **Now: areas 1–6** | 925 | 920 | 0 | 5 | 0 | 99.5% | 99.5% |
-| **All Flash Player areas** | 1,238 | 1,194 | 35 | 9 | 0 | 96.4% | 99.3% |
+| **Now: areas 1–6** | 925 | 925 | 0 | 0 | 0 | 100.0% | 100.0% |
+| **All Flash Player areas** | 1,238 | 1,200 | 34 | 4 | 0 | 96.9% | 99.7% |
 
 Outside the target and never in a percentage: AS2 UI components 1,044 · Other libraries and extensions 25.
 
@@ -53,13 +53,13 @@ Every documented declaration, including AIR, Flex and components, for provenance
 | AS2 | framework | 15 | 0 | 15 | 0 | 0 |
 | AS2 | language | 185 | 184 | 1 | 0 | 0 |
 | AS2 | platform_extension | 10 | 0 | 0 | 10 | 0 |
-| AS2 | runtime | 908 | 865 | 34 | 9 | 0 |
+| AS2 | runtime | 908 | 871 | 33 | 4 | 0 |
 | AS3 | component | 2,039 | 0 | 124 | 1,915 | 0 |
-| AS3 | core | 376 | 373 | 3 | 0 | 0 |
+| AS3 | core | 376 | 375 | 1 | 0 | 0 |
 | AS3 | framework | 35,790 | 0 | 0 | 35,790 | 0 |
 | AS3 | language | 124 | 123 | 0 | 1 | 0 |
 | AS3 | platform_extension | 161 | 0 | 0 | 161 | 0 |
-| AS3 | runtime | 5,250 | 4,046 | 1,038 | 166 | 0 |
+| AS3 | runtime | 5,250 | 4,092 | 1,031 | 127 | 0 |
 
 Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:00, baseline `f05cd2e35a34`) set the starting statuses; later reviews below change them.
 
@@ -67,6 +67,8 @@ Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:0
 
 | Review | Date | Commit | Changed entries |
 | --- | --- | --- | --- |
+| `AS3-AREAS2TO7-20261120` | 2026-11-20 | `9c04b667c695` | 48 → working |
+| `AS2-AREAS4TO7-20261120` | 2026-11-20 | `9c04b667c695` | 6 → working |
 | `AS3-AREAS2TO5-20261120` | 2026-11-20 | `28c229a86f1c` | 10 → working |
 | `AS2-AREAS2TO5-20261120` | 2026-11-20 | `28c229a86f1c` | 5 → working |
 | `AS3-AMF-SOL-20261115` | 2026-11-15 | `bb6a850a0484` | 2 → partial |
@@ -13082,17 +13084,6 @@ Partial entries name their missing behavior; working entries are covered by the 
 
 Evidence: [web/tests/as3-media-events.test.cjs](../../web/tests/as3-media-events.test.cjs)
 
-### AS3-AMF-SOL-20261115 — AMF XML and sparse arrays with explicit complex-type limits
-
-Native SOL exchange now has independent fixtures and browser file/reload coverage. ByteArray object records support XML and sparse indices, but Vector, Dictionary and IExternalizable remain unsupported; readObject/writeObject are corrected to Partial rather than implying complete AMF type coverage.
-
-Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
-
-- `AS3:method:flash/utils/ByteArray.html#readObject()` — **partial**: Reads bounded AMF0/AMF3 graphs with aliases, shared/cyclic references, sparse indices, Date, ByteArray and XML/XMLDocument. AMF3 Vector, Dictionary and IExternalizable payloads remain unsupported.
-- `AS3:method:flash/utils/ByteArray.html#writeObject()` — **partial**: Writes bounded AMF0/AMF3 graphs with aliases, shared/cyclic references, sparse indices, Date, ByteArray and XML/XMLDocument. AMF3 Vector, Dictionary and IExternalizable serialization remain unsupported.
-
-Evidence: [crates/neoflash-core/tests/amf.rs](../../crates/neoflash-core/tests/amf.rs), [crates/neoflash-core/tests/sol.rs](../../crates/neoflash-core/tests/sol.rs), [web/tests/amf-sol.test.cjs](../../web/tests/amf-sol.test.cjs), [web/tests/publish-parity-polish.test.cjs](../../web/tests/publish-parity-polish.test.cjs), [crates/neoflash-script/tests/saved-game.mjs](../../crates/neoflash-script/tests/saved-game.mjs)
-
 ### AS2-AREAS2TO5-20261120 — Close AS2 Areas 2-5 Boolean, Selection, ContextMenu, setMask and showRedrawRegions gaps
 
 Supports boxed new Boolean(v) alongside primitive Boolean(v), string and relative target paths in Selection.setFocus() and MovieClip.setMask() with cached soft alpha masking, all eight ContextMenuBuiltInItems flags with live loop/quality/zoom actions, and Canvas/DOM dirty-bounds outlines for showRedrawRegions().
@@ -13125,3 +13116,75 @@ Partial entries name their missing behavior; working entries are covered by the 
 - `AS3:method:flash/display/BitmapData.html#drawWithQuality()` — **working**: Applies StageQuality supersampling (LOW through HIGH_16X16), StageQuality child-bitmap smoothing rules, and premultiplied linearGamma box downsampling for both DisplayObject and BitmapData sources, rejecting BlendMode.SHADER with ArgumentError.
 
 Evidence: [crates/neoflash-script/tests/collections-fixtures.mjs](../../crates/neoflash-script/tests/collections-fixtures.mjs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [crates/neoflash-script/tests/typed-collections.mjs](../../crates/neoflash-script/tests/typed-collections.mjs), [crates/neoflash-script/tests/xml-catalog.mjs](../../crates/neoflash-script/tests/xml-catalog.mjs), [crates/neoflash-script/tests/bitmap-pixels.mjs](../../crates/neoflash-script/tests/bitmap-pixels.mjs), [web/tests/display-family.test.cjs](../../web/tests/display-family.test.cjs)
+
+### AS2-AREAS4TO7-20261120 — Close AS2 Areas 4-6 Stage.wmodeGPU and TextRenderer plus Area 7 NetStream.getInfo
+
+Wires Stage.wmodeGPU across Rust ScriptAS2Stage and GPU layer promotion, exposes flash.text.TextRenderer (displayMode, maxLevel, setAdvancedAntialiasingTable) with continuous stroke modulation, and upgrades NetStream.getInfo() with rolling/peak byte rates, channel/data byte counts, buffer lengths, and dropped-frame snapshots.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `as2:Stage.html#wmodeGPU` — **working**: Read-only Boolean property on Stage backed by ScriptAS2Stage configure_gpu: returns false on 2D Canvas/DOM and true when GPU/WebGL wmode compositing is active.
+- `as2:flash/text/TextRenderer.html#class` — **working**: Exposes flash.text.TextRenderer in AS2 publications and _global.flash.text.TextRenderer backed by shared Rust TextRendererState and CSM interpolation.
+- `as2:flash/text/TextRenderer.html#displayMode` — **working**: Reads and sets static TextRenderer.displayMode ('default', 'lcd', 'crt') validated by Rust TextRendererState and drives LCD RGB subpixel and CRT bloom text rendering.
+- `as2:flash/text/TextRenderer.html#maxLevel` — **working**: Reads and sets static TextRenderer.maxLevel clamped to 0..64 (default 4), disabling stroke smoothing at 0 and scaling antialiasing passes with higher levels.
+- `as2:flash/text/TextRenderer.html#setAdvancedAntialiasingTable()` — **working**: Stores per-font/style/colorType (dark or light) CSM cutoff tables in Rust and interpolates insideCutoff/outsideCutoff by font size and text luminance when rendering advanced TextFields.
+- `as2:NetStream.html#getInfo()` — **working**: Returns live ScriptAS2Stream playback snapshots including rolling and peak bytes/sec, playbackBytesPerSecond, audio/video/data byte counts and buffer lengths, droppedFrames, srtt, uri, resourceName, and isLive.
+
+Evidence: [crates/neoflash-core/src/as2_stage.rs](../../crates/neoflash-core/src/as2_stage.rs), [crates/neoflash-core/src/as2_text.rs](../../crates/neoflash-core/src/as2_text.rs), [crates/neoflash-core/src/as2_media.rs](../../crates/neoflash-core/src/as2_media.rs), [crates/neoflash-script/tests/as2-project-input.mjs](../../crates/neoflash-script/tests/as2-project-input.mjs), [web/tests/text-graphemes-ime.test.cjs](../../web/tests/text-graphemes-ime.test.cjs), [web/tests/media-netstream.test.cjs](../../web/tests/media-netstream.test.cjs)
+
+### AS3-AREAS2TO7-20261120 — Close AS3 Areas 2, 4, 5, 6 and 7 AMF3, RegExp, Stage, Mouse, Bitmap, Text and NetStream gaps
+
+Adds AMF3 Vector, Dictionary, and IExternalizable codecs, PCRE RegExp named groups/conditionals/inline flags, Stage quality/wmodeGPU/colorCorrection/mouseLock, areInaccessibleObjectsUnderPoint, MouseCursorData PNG cursors, BitmapData JPEG-XR encode and lock/unlock, Font.hasGlyphs, TextRenderer/CSMSettings, and NetStream progressive bytesLoaded and play aggregation.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `AS3:method:flash/utils/ByteArray.html#readObject()` — **working**: Decodes AMF0 and AMF3 graphs including Vector.<int|uint|Number|*|Object> and typed Vectors (preserving fixed and object references), Dictionary (weakKeys and object/primitive keys), and IExternalizable.readExternal via registerClassAlias.
+- `AS3:method:flash/utils/ByteArray.html#writeObject()` — **working**: Encodes AMF0 and AMF3 graphs including Vector.<int|uint|Number|*|Object> and typed Vectors, Dictionary (weakKeys and object/primitive keys), and IExternalizable.writeExternal across ByteArray and SharedObject .sol persistence.
+- `AS3:class:RegExp.html#` — **working**: Supports g/i/m/s/x flags, PCRE named groups (?P<name>...) and (?<name>...), named backreferences and $<name> replacements, inline (?imsx-imsx) modifiers, (?#...) comments, conditionals (?(1)a|b)/(?(name)a|b)/(?(?=...)a|b), and \a/\e/\A/\Z/\z/\x{...} escapes.
+- `AS3:constructor:RegExp.html#RegExp()` — **working**: RegExp(re) returns the same RegExp instance when no flags are supplied, whereas new RegExp(re, flags) clones or overrides flags with lastIndex reset to 0 and PCRE-compatible pattern translation.
+- `AS3:property:flash/display/Stage.html#quality` — **working**: Validates StageQuality constants, updates Canvas 2D imageSmoothingEnabled/imageSmoothingQuality and CSS imageRendering on Stage redraws, and rejects invalid values with ArgumentError.
+- `AS3:property:flash/display/Stage.html#wmodeGPU` — **working**: Read-only Boolean reflecting active GPU/WebGL wmode acceleration (false on 2D Canvas/DOM, true when wmode is 'gpu' or gpu_web_gl compositing is active).
+- `AS3:property:flash/display/Stage.html#colorCorrection` — **working**: Validates ColorCorrection.DEFAULT/ON/OFF, updates DOM/CSS color-interpolation and stage color-correction attributes, triggers Stage redraws, and throws ArgumentError on invalid strings.
+- `AS3:property:flash/display/Stage.html#colorCorrectionSupport` — **working**: Reports ColorCorrectionSupport based on host Canvas 2D colorSpace and CSS color-gamut media queries ('defaultOn' on color-managed sRGB/Display-P3 surfaces, 'unsupported' when unconfigured in headless VMs).
+- `AS3:property:flash/display/Stage.html#mouseLock` — **working**: Enforces fullscreen-only IllegalOperationError contract, requests and exits browser Pointer Lock on the Stage surface, syncs with pointerlockchange, and delivers relative movementX/movementY MouseEvent deltas.
+- `AS3:method:flash/display/DisplayObjectContainer.html#areInaccessibleObjectsUnderPoint()` — **working**: Returns true when cross-sandbox display leaves without Security.allowDomain permission intersect the stage point (and filters them from getObjectsUnderPoint), returning false once access is granted.
+- `AS3:property:flash/ui/Mouse.html#supportsNativeCursor` — **working**: Reports true when attached to an interactive DOM/Canvas cursor surface capable of rendering custom PNG MouseCursorData cursors and false on headless surfaces.
+- `AS3:method:flash/ui/Mouse.html#registerCursor()` — **working**: Validates MouseCursorData frames and encodes RGBA BitmapData frames into RFC-2083 PNG data-URI CSS cursors with hotSpot coordinates and frameRate-driven multi-frame cursor animation.
+- `AS3:method:flash/ui/Mouse.html#unregisterCursor()` — **working**: Removes registered custom cursor definitions, stops active cursor frame timers, and resets the active cursor to MouseCursor.AUTO when unregistered.
+- `AS3:class:flash/ui/MouseCursorData.html#` — **working**: Final cursor descriptor class holding Vector.<BitmapData> frames, Point hotSpot, and Number frameRate for Mouse.registerCursor.
+- `AS3:constructor:flash/ui/MouseCursorData.html#MouseCursorData()` — **working**: Constructs a MouseCursorData instance initialized with data = null, hotSpot = (0, 0), and frameRate = 0.
+- `AS3:property:flash/ui/MouseCursorData.html#data` — **working**: Reads and validates Vector.<BitmapData> cursor frames for custom native cursor encoding.
+- `AS3:property:flash/ui/MouseCursorData.html#frameRate` — **working**: Reads and validates nonnegative finite cursor animation frame rate in frames per second.
+- `AS3:property:flash/ui/MouseCursorData.html#hotSpot` — **working**: Reads and clones the cursor registration Point hotSpot applied to CSS url(...) x y cursor coordinates.
+- `AS3:method:flash/display/BitmapData.html#encode()` — **working**: Encodes bounded sub-rectangles into ByteArray using PNGEncoderOptions, JPEGEncoderOptions, or JPEGXREncoderOptions (ITU-T T.832 .jxr container honoring quantization, colorSpace, and trimFlexBits).
+- `AS3:method:flash/display/BitmapData.html#lock()` — **working**: Supports nested lock reference counting that freezes cached display uploads and defers display invalidations while direct pixel mutations proceed on the BitmapData.
+- `AS3:method:flash/display/BitmapData.html#unlock()` — **working**: Balances nested lock() calls, coalesces optional Rectangle changeRect regions, updates partial or full display pixels, and triggers a single display invalidation flush when the outer lock releases.
+- `AS3:class:flash/display/JPEGXREncoderOptions.html#` — **working**: Options class configuring ITU-T T.832 JPEG-XR quantization, chroma subsampling colorSpace, and flex-bits trimming for BitmapData.encode.
+- `AS3:constructor:flash/display/JPEGXREncoderOptions.html#JPEGXREncoderOptions()` — **working**: Constructs JPEGXREncoderOptions with defaults quantization = 20, colorSpace = BitmapEncodingColorSpace.COLORSPACE_AUTO, and trimFlexBits = 0.
+- `AS3:property:flash/display/JPEGXREncoderOptions.html#colorSpace` — **working**: Selects BitmapEncodingColorSpace ('auto', '4:4:4', '4:2:2', '4:2:0') for JPEG-XR chroma subsampling and validates on BitmapData.encode.
+- `AS3:property:flash/display/JPEGXREncoderOptions.html#quantization` — **working**: Controls JPEG-XR lossy quantization step size (0 for lossless YCoCg-R encoding, higher values increasing compression).
+- `AS3:property:flash/display/JPEGXREncoderOptions.html#trimFlexBits` — **working**: Controls JPEG-XR high-frequency flexbits trimming (0..15) during frequency-band serialization.
+- `AS3:class:flash/display/BitmapEncodingColorSpace.html#` — **working**: Constant enumeration class defining chroma subsampling modes for JPEGXREncoderOptions.
+- `AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_0` — **working**: Constant '4:2:0' selecting 2x2 chroma subsampling in BitmapData.encode with JPEGXREncoderOptions.
+- `AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_2` — **working**: Constant '4:2:2' selecting 2x1 horizontal chroma subsampling in BitmapData.encode with JPEGXREncoderOptions.
+- `AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_4_4` — **working**: Constant '4:4:4' selecting full-resolution chroma channels in BitmapData.encode with JPEGXREncoderOptions.
+- `AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_AUTO` — **working**: Constant 'auto' selecting automatic chroma format in BitmapData.encode with JPEGXREncoderOptions.
+- `AS3:method:flash/text/Font.html#hasGlyphs()` — **working**: Checks exact SFNT cmap Format 4/12 and TTC glyph coverage for embedded fonts, and verifies installed face availability plus Canvas .notdef tofu glyph raster comparison for device fonts.
+- `AS3:event:flash/text/TextField.html#event:textInteractionModeChange` — **working**: Dispatches non-bubbling Event('textInteractionModeChange') when user touch-selection, Alt-pointer, or context-menu interaction switches TextField.textInteractionMode between 'normal' and 'selection'.
+- `AS3:class:flash/text/CSMSettings.html#` — **working**: Continuous Stroke Modulation table entry class consumed by TextRenderer.setAdvancedAntiAliasingTable.
+- `AS3:constructor:flash/text/CSMSettings.html#CSMSettings()` — **working**: Constructs CSMSettings(fontSize, insideCutoff, outsideCutoff) with validated numeric fields.
+- `AS3:property:flash/text/CSMSettings.html#fontSize` — **working**: Reads and writes the target pixel fontSize key for CSM cutoff interpolation.
+- `AS3:property:flash/text/CSMSettings.html#insideCutoff` — **working**: Reads and writes the CSM insideCutoff threshold modulating stroke weight on advanced-antialiased text.
+- `AS3:property:flash/text/CSMSettings.html#outsideCutoff` — **working**: Reads and writes the CSM outsideCutoff threshold modulating edge contrast and sharpness on advanced-antialiased text.
+- `AS3:class:flash/text/TextDisplayMode.html#` — **working**: Enumeration class supplying subpixel display mode constants for TextRenderer.displayMode.
+- `AS3:constant:flash/text/TextDisplayMode.html#CRT` — **working**: Constant 'crt' enabling phosphor-bloom CRT antialiasing in TextRenderer.
+- `AS3:constant:flash/text/TextDisplayMode.html#DEFAULT` — **working**: Constant 'default' selecting standard grayscale antialiasing in TextRenderer.
+- `AS3:constant:flash/text/TextDisplayMode.html#LCD` — **working**: Constant 'lcd' enabling RGB subpixel antialiasing passes in TextRenderer.
+- `AS3:class:flash/text/TextRenderer.html#` — **working**: Static advanced-antialiasing controller driving CSM stroke/contrast interpolation, subpixel display modes, and antialiasing quality levels across Canvas text rendering.
+- `AS3:property:flash/text/TextRenderer.html#displayMode` — **working**: Reads and sets TextDisplayMode ('default', 'lcd', 'crt'), throwing ArgumentError on invalid strings and updating Canvas text subpixel/CRT rendering.
+- `AS3:property:flash/text/TextRenderer.html#maxLevel` — **working**: Reads and sets static antialiasing quality level clamped to 0..64 (default 4), controlling stroke smoothing intensity.
+- `AS3:method:flash/text/TextRenderer.html#setAdvancedAntiAliasingTable()` — **working**: Registers CSMSettings arrays per fontName, FontStyle, and TextColorType ('dark'/'light') and interpolates cutoffs by font size and luminance during AntiAliasType.ADVANCED rendering.
+- `AS3:method:flash/net/NetStream.html#play()` — **working**: Supports local/HTTP(S) media (with negative start playing from 0 and RTMP URLs reporting StreamNotFound), HLS/DASH live streams (duration = Infinity), start/len clipping, single-frame len = 0, play(false), play(null) data generation, and reset modes 0/1/2/3 with playlist status-message aggregation.
+- `AS3:property:flash/net/NetStream.html#bytesLoaded` — **working**: Reports exact embedded/appendBytes counts and real observed HTTP progressive transfer bytes from streaming Fetch chunks, 206 Range probes, and PerformanceResourceTiming (falling back to buffered estimation only on opaque cross-origin media).
+
+Evidence: [crates/neoflash-core/src/amf.rs](../../crates/neoflash-core/src/amf.rs), [crates/neoflash-core/src/pixels/pipeline.rs](../../crates/neoflash-core/src/pixels/pipeline.rs), [crates/neoflash-script/tests/strings-fixtures.mjs](../../crates/neoflash-script/tests/strings-fixtures.mjs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [crates/neoflash-script/tests/typed-collections.mjs](../../crates/neoflash-script/tests/typed-collections.mjs), [crates/neoflash-script/tests/bitmap-pixels.mjs](../../crates/neoflash-script/tests/bitmap-pixels.mjs), [web/tests/amf-sol.test.cjs](../../web/tests/amf-sol.test.cjs), [web/tests/stage.test.cjs](../../web/tests/stage.test.cjs), [web/tests/display-family.test.cjs](../../web/tests/display-family.test.cjs), [web/tests/text-graphemes-ime.test.cjs](../../web/tests/text-graphemes-ime.test.cjs), [web/tests/media-netstream.test.cjs](../../web/tests/media-netstream.test.cjs)

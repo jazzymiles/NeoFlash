@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+- Closed 54 ActionScript 2 and ActionScript 3 **Areas 1–7** conformance gaps (`T-401`), bringing **AS2 Areas 1–6 to 100.0%
+  (`925 / 925` Working)**, **AS3 Area 6 (`Text and fonts`) to 100.0% (`174 / 174` Working)**, and **AS3 Area 7 (`File audio
+  and video playback`) to 100.0% (`91 / 91` Working)**: AS2 `Stage.wmodeGPU`, `flash.text.TextRenderer` (`displayMode`,
+  `maxLevel`, `setAdvancedAntialiasingTable`) and `NetStream.getInfo()`; AS3 `ByteArray.readObject()` / `writeObject()` and
+  `.sol` AMF3 round-trip for `Vector.<int|uint|Number|*|T>`, `Dictionary` (`weakKeys` + object/primitive keys) and
+  `IExternalizable`, PCRE `RegExp` named groups/inline modifiers/comments/identity vs clone semantics, `Stage` (`quality`,
+  `wmodeGPU`, `colorCorrection`, `colorCorrectionSupport`, `mouseLock`), `DisplayObjectContainer.areInaccessibleObjectsUnderPoint()`,
+  `Mouse` (`supportsNativeCursor`, `registerCursor`, `unregisterCursor`) and `MouseCursorData` animated PNG data-URI cursors,
+  `BitmapData` (`encode` with ITU-T T.832 `.jxr` `JPEGXREncoderOptions` & `BitmapEncodingColorSpace`, plus nested
+  `lock`/`unlock(changeRect)` coalescing), `Font.hasGlyphs()` SFNT/TTC `cmap` + tofu check, `TextField`
+  `textInteractionModeChange`, `CSMSettings`, `TextDisplayMode`, `TextRenderer`, and `NetStream` (`play` live/reset modes &
+  progressive `bytesLoaded`).
+- Hardened **Timeline**, **Stage Solo**, **Edit Envelope** and **Tween filter** authoring (`T-402`): blocked click/marquee
+  selection, `Select All` and drawing/erasing/pen/paste mutations on `Solo`-hidden layers while pruning active selections when
+  `Solo` is toggled; made folder **Hide others** and **Lock others** (`⌥`-click eye/lock and context menu) preserve both
+  recursive folder/mask/guide descendants and ancestor folders up to root; preserved scene-local `Graphic` (`Loop` / `Play once`
+  / `Single frame`) and `sync_timeline` playback phases across multi-scene flattened HTML5 exports; rendered decoded stereo L/R
+  audio waveforms (replacing synthetic placeholder bars) and interactive `in`/`out` trim handles inside **Edit Envelope** with
+  3-argument Web Audio `source.start(when, offset, duration)` and single-step Undo; and added Classic & Motion tween
+  dummy-filter synthesis and LCS pairing across all 8 `FilterSpec` variants so single-sided keyframe filters smoothly fade in or
+  out.
+- Deepened **SWF**, **Legacy Binary FLA**, **Lottie / dotLottie** and **Figma** interchange (`T-403`): added nested lexical
+  closures, function expressions and arrow functions to AVM1 (`DefineFunction2` activation scope chain) and AVM2
+  (`newactivation` / `getscopeobject` / `getouterscope` slot capture) SWF publishing plus deterministic backward `seek` /
+  `step` / `restart` display-list, depth-tombstone and VM state resets in `SwfBytecodePlayer`; expanded binary FLA non-round
+  stroke `cap`/`join`/`scaleMode` contours and normalized `Graphic` symbol replacement & generated-group classic tweens; added
+  real `PNG`/`WebP`/`JPEG` raster transcoding and max-dimension downscaling, full `.lottie` `manifest.json` metadata and
+  cooperative cancellation to Lottie export; and preserved exact inverse 2×3 UV `imageTransform` crops plus editable
+  `BlurFilter` conversion for Figma `LAYER_BLUR` and `BACKGROUND_BLUR` effects.
+- Added live **Watch expressions** in the connected Chromium **Test Movie Debugger** and owner-aware ActionScript API
+  diagnostics (`T-404`): wired CDP `Debugger.evaluateOnCallFrame` live AS1/AS2/AS3 and JS/TS watch evaluation in **Window ▸
+  Panels ▸ Debugger** (synced with the **Actions** drawer and re-evaluated automatically on pause and call-frame switching), and
+  extended AST receiver-type inference in `neoflash-script` to report actionable `Warning` diagnostics with Flash replacement
+  hints on unknown/unsupported members and invalid callbacks across built-in non-dynamic Flash classes.
+
 - Added **Scripting Reference** class & member descriptions across all indexed ActionScript 2 (`125` classes / `1,627`
   members), ActionScript 3 (`563` classes / `5,267` members), and JavaScript / TypeScript (`6` categories / `38` entries)
   declarations — including documented constant values, read-only flags, AS2 operator labels and implemented interfaces —

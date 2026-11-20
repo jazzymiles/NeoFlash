@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "2bd37ac2ebfde4551d82b782df6c88a9bc96d791dc25679cccc912da26dbadcc",
+  "catalogSha256": "cd8550dc03ab64033cc8738c9f2974085c1773bde7ece9498bdd7a939b48ee22",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -35366,6 +35366,60 @@
             "evidenceKind": "test_backed_review"
           }
         ]
+      },
+      {
+        "id": "AS3-AMF-SOL-20261115",
+        "title": "AMF XML and sparse arrays with explicit complex-type limits",
+        "reason": "Native SOL exchange now has independent fixtures and browser file/reload coverage. ByteArray object records support XML and sparse indices, but Vector, Dictionary and IExternalizable remain unsupported; readObject/writeObject are corrected to Partial rather than implying complete AMF type coverage.",
+        "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+        "evidence": [
+          {
+            "path": "crates/neoflash-core/tests/amf.rs",
+            "sha256": "1805e2a7edf118c65c5b48515f5c3b0c955d2b29f9d820a75060775defb97941"
+          },
+          {
+            "path": "crates/neoflash-core/tests/sol.rs",
+            "sha256": "b9b6ab2208faae3f28e9ed8f2068c3f2a130e472869ae16643f01309e35867b9"
+          },
+          {
+            "path": "web/tests/amf-sol.test.cjs",
+            "sha256": "c45b69ef98437e86c1bfaac41316a9831a232ea6d2cedbeb6e2f5a95aba030ba"
+          },
+          {
+            "path": "web/tests/publish-parity-polish.test.cjs",
+            "sha256": "16c9a906920e4dda6007187735c65126149a8342a5c92dc6e677329603246828"
+          },
+          {
+            "path": "crates/neoflash-script/tests/saved-game.mjs",
+            "sha256": "52cfb9cb1f5b7d43e72615e741bc2d6364b67f47567797cb137d037cb1d8cd76"
+          }
+        ],
+        "reviewedEntries": [
+          {
+            "catalogId": "AS3:method:flash/utils/ByteArray.html#readObject()",
+            "status": "partial",
+            "scopeNote": "Reads bounded AMF0/AMF3 graphs with aliases, shared/cyclic references, sparse indices, Date, ByteArray and XML/XMLDocument. AMF3 Vector, Dictionary and IExternalizable payloads remain unsupported."
+          },
+          {
+            "catalogId": "AS3:method:flash/utils/ByteArray.html#writeObject()",
+            "status": "partial",
+            "scopeNote": "Writes bounded AMF0/AMF3 graphs with aliases, shared/cyclic references, sparse indices, Date, ByteArray and XML/XMLDocument. AMF3 Vector, Dictionary and IExternalizable serialization remain unsupported."
+          }
+        ],
+        "previousEntries": [
+          {
+            "catalogId": "AS3:method:flash/utils/ByteArray.html#readObject()",
+            "status": "implemented_subset",
+            "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+            "evidenceKind": "test_backed_review"
+          },
+          {
+            "catalogId": "AS3:method:flash/utils/ByteArray.html#writeObject()",
+            "status": "implemented_subset",
+            "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+            "evidenceKind": "test_backed_review"
+          }
+        ]
       }
     ],
     "normalizedReviewInputs": [
@@ -35805,6 +35859,22 @@
         "reviewIds": [
           "AS3-AREAS2TO5-20261120"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-20-as2-areas4to7.json",
+        "sha256": "9c7da8ced797b14feed2319988ef111c8771c589239a5227aeaa5a5edb907ded",
+        "baseCatalogSha256": "2bd37ac2ebfde4551d82b782df6c88a9bc96d791dc25679cccc912da26dbadcc",
+        "reviewIds": [
+          "AS2-AREAS4TO7-20261120"
+        ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-20-as3-areas2to7.json",
+        "sha256": "2ca1b752549237ca8daec3ba6b7fbbfd95cf336f6eedf90d41dac98026ae1f0c",
+        "baseCatalogSha256": "0acb93d05ed4e345b23bd643ecd5cd5795bb1c63469941d6102e5f9f93b4130e",
+        "reviewIds": [
+          "AS3-AREAS2TO7-20261120"
+        ]
       }
     ],
     "statusReviews": [
@@ -36209,29 +36279,47 @@
         "changes": {
           "working": 10
         }
+      },
+      {
+        "id": "AS2-AREAS4TO7-20261120",
+        "date": "2026-11-20",
+        "commit": "9c04b667c695a45aaaa5503f0256a36598fa061a",
+        "path": "docs/progress/reviews/2026-11-20-as2-areas4to7.json",
+        "changes": {
+          "working": 6
+        }
+      },
+      {
+        "id": "AS3-AREAS2TO7-20261120",
+        "date": "2026-11-20",
+        "commit": "9c04b667c695a45aaaa5503f0256a36598fa061a",
+        "path": "docs/progress/reviews/2026-11-20-as3-areas2to7.json",
+        "changes": {
+          "working": 48
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 5736,
-      "partial": 1631,
-      "missing": 38680,
+      "implemented_subset": 5790,
+      "partial": 1621,
+      "missing": 38636,
       "needs_review": 0,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
-        "implemented_subset": 1194,
-        "partial": 466,
-        "missing": 647,
+        "implemented_subset": 1200,
+        "partial": 465,
+        "missing": 642,
         "needs_review": 0,
         "total": 2307
       },
       "AS3": {
-        "implemented_subset": 4542,
-        "partial": 1165,
-        "missing": 38033,
+        "implemented_subset": 4590,
+        "partial": 1156,
+        "missing": 37994,
         "needs_review": 0,
         "total": 43740
       }
@@ -36245,8 +36333,8 @@
         "total": 3083
       },
       "core": {
-        "implemented_subset": 518,
-        "partial": 3,
+        "implemented_subset": 520,
+        "partial": 1,
         "missing": 0,
         "needs_review": 0,
         "total": 521
@@ -36273,9 +36361,9 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 4911,
-        "partial": 1072,
-        "missing": 175,
+        "implemented_subset": 4963,
+        "partial": 1064,
+        "missing": 131,
         "needs_review": 0,
         "total": 6158
       }
@@ -36318,9 +36406,9 @@
           "total": 10
         },
         "runtime": {
-          "implemented_subset": 865,
-          "partial": 34,
-          "missing": 9,
+          "implemented_subset": 871,
+          "partial": 33,
+          "missing": 4,
           "needs_review": 0,
           "total": 908
         }
@@ -36334,8 +36422,8 @@
           "total": 2039
         },
         "core": {
-          "implemented_subset": 373,
-          "partial": 3,
+          "implemented_subset": 375,
+          "partial": 1,
           "missing": 0,
           "needs_review": 0,
           "total": 376
@@ -36362,9 +36450,9 @@
           "total": 161
         },
         "runtime": {
-          "implemented_subset": 4046,
-          "partial": 1038,
-          "missing": 166,
+          "implemented_subset": 4092,
+          "partial": 1031,
+          "missing": 127,
           "needs_review": 0,
           "total": 5250
         }
@@ -176377,60 +176465,6 @@
       ]
     },
     {
-      "id": "AS3-AMF-SOL-20261115",
-      "title": "AMF XML and sparse arrays with explicit complex-type limits",
-      "reason": "Native SOL exchange now has independent fixtures and browser file/reload coverage. ByteArray object records support XML and sparse indices, but Vector, Dictionary and IExternalizable remain unsupported; readObject/writeObject are corrected to Partial rather than implying complete AMF type coverage.",
-      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
-      "evidence": [
-        {
-          "path": "crates/neoflash-core/tests/amf.rs",
-          "sha256": "1805e2a7edf118c65c5b48515f5c3b0c955d2b29f9d820a75060775defb97941"
-        },
-        {
-          "path": "crates/neoflash-core/tests/sol.rs",
-          "sha256": "b9b6ab2208faae3f28e9ed8f2068c3f2a130e472869ae16643f01309e35867b9"
-        },
-        {
-          "path": "web/tests/amf-sol.test.cjs",
-          "sha256": "c45b69ef98437e86c1bfaac41316a9831a232ea6d2cedbeb6e2f5a95aba030ba"
-        },
-        {
-          "path": "web/tests/publish-parity-polish.test.cjs",
-          "sha256": "16c9a906920e4dda6007187735c65126149a8342a5c92dc6e677329603246828"
-        },
-        {
-          "path": "crates/neoflash-script/tests/saved-game.mjs",
-          "sha256": "52cfb9cb1f5b7d43e72615e741bc2d6364b67f47567797cb137d037cb1d8cd76"
-        }
-      ],
-      "reviewedEntries": [
-        {
-          "catalogId": "AS3:method:flash/utils/ByteArray.html#readObject()",
-          "status": "partial",
-          "scopeNote": "Reads bounded AMF0/AMF3 graphs with aliases, shared/cyclic references, sparse indices, Date, ByteArray and XML/XMLDocument. AMF3 Vector, Dictionary and IExternalizable payloads remain unsupported."
-        },
-        {
-          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeObject()",
-          "status": "partial",
-          "scopeNote": "Writes bounded AMF0/AMF3 graphs with aliases, shared/cyclic references, sparse indices, Date, ByteArray and XML/XMLDocument. AMF3 Vector, Dictionary and IExternalizable serialization remain unsupported."
-        }
-      ],
-      "previousEntries": [
-        {
-          "catalogId": "AS3:method:flash/utils/ByteArray.html#readObject()",
-          "status": "implemented_subset",
-          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
-          "evidenceKind": "test_backed_review"
-        },
-        {
-          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeObject()",
-          "status": "implemented_subset",
-          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
-          "evidenceKind": "test_backed_review"
-        }
-      ]
-    },
-    {
       "id": "AS2-AREAS2TO5-20261120",
       "title": "Close AS2 Areas 2-5 Boolean, Selection, ContextMenu, setMask and showRedrawRegions gaps",
       "reason": "Supports boxed new Boolean(v) alongside primitive Boolean(v), string and relative target paths in Selection.setFocus() and MovieClip.setMask() with cached soft alpha masking, all eight ContextMenuBuiltInItems flags with live loop/quality/zoom actions, and Canvas/DOM dirty-bounds outlines for showRedrawRegions().",
@@ -176655,6 +176689,692 @@
           "catalogId": "AS3:method:flash/display/BitmapData.html#drawWithQuality()",
           "status": "partial",
           "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS2-AREAS4TO7-20261120",
+      "title": "Close AS2 Areas 4-6 Stage.wmodeGPU and TextRenderer plus Area 7 NetStream.getInfo",
+      "reason": "Wires Stage.wmodeGPU across Rust ScriptAS2Stage and GPU layer promotion, exposes flash.text.TextRenderer (displayMode, maxLevel, setAdvancedAntialiasingTable) with continuous stroke modulation, and upgrades NetStream.getInfo() with rolling/peak byte rates, channel/data byte counts, buffer lengths, and dropped-frame snapshots.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as2_stage.rs",
+          "sha256": "c47a155a2e03cc4414396781852d8aa637369f8ee2ef82ac779ffe2738b367d5"
+        },
+        {
+          "path": "crates/neoflash-core/src/as2_text.rs",
+          "sha256": "282869eb1363c167dd497da73acbd28a3596af6bf9665c538df0a5ad8e45fc03"
+        },
+        {
+          "path": "crates/neoflash-core/src/as2_media.rs",
+          "sha256": "ad8233712f4754b571efc8e11552d1e216aab56d9f03adb7e262c49ad2461748"
+        },
+        {
+          "path": "crates/neoflash-script/tests/as2-project-input.mjs",
+          "sha256": "935b1da443faa967abdc126a38fe135fab7ff9131aa458324439fab4d8e7cbd3"
+        },
+        {
+          "path": "web/tests/text-graphemes-ime.test.cjs",
+          "sha256": "a40488f6e3b9cd4625bd0cdf75bef5e09e542e1811ef44deb3b40055dd1bdd90"
+        },
+        {
+          "path": "web/tests/media-netstream.test.cjs",
+          "sha256": "272cce64b638f2b1c31d2d2ace1868dc02ab47f928b1f1a1a928513aac7f8c09"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:Stage.html#wmodeGPU",
+          "status": "implemented_subset",
+          "scopeNote": "Read-only Boolean property on Stage backed by ScriptAS2Stage configure_gpu: returns false on 2D Canvas/DOM and true when GPU/WebGL wmode compositing is active."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#class",
+          "status": "implemented_subset",
+          "scopeNote": "Exposes flash.text.TextRenderer in AS2 publications and _global.flash.text.TextRenderer backed by shared Rust TextRendererState and CSM interpolation."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#displayMode",
+          "status": "implemented_subset",
+          "scopeNote": "Reads and sets static TextRenderer.displayMode ('default', 'lcd', 'crt') validated by Rust TextRendererState and drives LCD RGB subpixel and CRT bloom text rendering."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#maxLevel",
+          "status": "implemented_subset",
+          "scopeNote": "Reads and sets static TextRenderer.maxLevel clamped to 0..64 (default 4), disabling stroke smoothing at 0 and scaling antialiasing passes with higher levels."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#setAdvancedAntialiasingTable()",
+          "status": "implemented_subset",
+          "scopeNote": "Stores per-font/style/colorType (dark or light) CSM cutoff tables in Rust and interpolates insideCutoff/outsideCutoff by font size and text luminance when rendering advanced TextFields."
+        },
+        {
+          "catalogId": "as2:NetStream.html#getInfo()",
+          "status": "implemented_subset",
+          "scopeNote": "Returns live ScriptAS2Stream playback snapshots including rolling and peak bytes/sec, playbackBytesPerSecond, audio/video/data byte counts and buffer lengths, droppedFrames, srtt, uri, resourceName, and isLive."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "as2:Stage.html#wmodeGPU",
+          "status": "missing",
+          "ruleId": "AS2-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#class",
+          "status": "missing",
+          "ruleId": "AS2-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#displayMode",
+          "status": "missing",
+          "ruleId": "AS2-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#maxLevel",
+          "status": "missing",
+          "ruleId": "AS2-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#setAdvancedAntialiasingTable()",
+          "status": "missing",
+          "ruleId": "AS2-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#getInfo()",
+          "status": "partial",
+          "ruleId": "AS2-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS3-AREAS2TO7-20261120",
+      "title": "Close AS3 Areas 2, 4, 5, 6 and 7 AMF3, RegExp, Stage, Mouse, Bitmap, Text and NetStream gaps",
+      "reason": "Adds AMF3 Vector, Dictionary, and IExternalizable codecs, PCRE RegExp named groups/conditionals/inline flags, Stage quality/wmodeGPU/colorCorrection/mouseLock, areInaccessibleObjectsUnderPoint, MouseCursorData PNG cursors, BitmapData JPEG-XR encode and lock/unlock, Font.hasGlyphs, TextRenderer/CSMSettings, and NetStream progressive bytesLoaded and play aggregation.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/amf.rs",
+          "sha256": "a9a37f9efd3e3eeb335356d4e2a608b1160116db47a153a09b59f4f865784918"
+        },
+        {
+          "path": "crates/neoflash-core/src/pixels/pipeline.rs",
+          "sha256": "b5e6c297bfab64b17d0e229303a586c185e54978467bc8677539370d7d5d396d"
+        },
+        {
+          "path": "crates/neoflash-script/tests/strings-fixtures.mjs",
+          "sha256": "7f10c0db75ee50e44522d8d15274ddbc77bf24b4e6df87a995f413ccb1447018"
+        },
+        {
+          "path": "crates/neoflash-script/tests/execute.mjs",
+          "sha256": "4e5725806cb769055b704d21cc3f022a95db5d5e155de0bb9092620912c654d4"
+        },
+        {
+          "path": "crates/neoflash-script/tests/typed-collections.mjs",
+          "sha256": "fb80cab4ae6513a3948feb3a2c40da8f6180ff0ec26863dc271ad76f9b69bb13"
+        },
+        {
+          "path": "crates/neoflash-script/tests/bitmap-pixels.mjs",
+          "sha256": "4bb71f8532c04ebe5269f5a730e062ee25416a3959150ccf4ebb7476111d9dbe"
+        },
+        {
+          "path": "web/tests/amf-sol.test.cjs",
+          "sha256": "5a45606204b894971652b0bd463d33999acc058d46dc9407b10172e10f100fe8"
+        },
+        {
+          "path": "web/tests/stage.test.cjs",
+          "sha256": "e8cdbe75d6f731da39f6ff37fdb3cbf1f1f150399030c0dd143c2c06d9eacf60"
+        },
+        {
+          "path": "web/tests/display-family.test.cjs",
+          "sha256": "1e0b0a944776856d18818fda8c728dbc24278bb7eed88c7464f83b6c29862510"
+        },
+        {
+          "path": "web/tests/text-graphemes-ime.test.cjs",
+          "sha256": "a40488f6e3b9cd4625bd0cdf75bef5e09e542e1811ef44deb3b40055dd1bdd90"
+        },
+        {
+          "path": "web/tests/media-netstream.test.cjs",
+          "sha256": "272cce64b638f2b1c31d2d2ace1868dc02ab47f928b1f1a1a928513aac7f8c09"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readObject()",
+          "status": "implemented_subset",
+          "scopeNote": "Decodes AMF0 and AMF3 graphs including Vector.<int|uint|Number|*|Object> and typed Vectors (preserving fixed and object references), Dictionary (weakKeys and object/primitive keys), and IExternalizable.readExternal via registerClassAlias."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeObject()",
+          "status": "implemented_subset",
+          "scopeNote": "Encodes AMF0 and AMF3 graphs including Vector.<int|uint|Number|*|Object> and typed Vectors, Dictionary (weakKeys and object/primitive keys), and IExternalizable.writeExternal across ByteArray and SharedObject .sol persistence."
+        },
+        {
+          "catalogId": "AS3:class:RegExp.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Supports g/i/m/s/x flags, PCRE named groups (?P<name>...) and (?<name>...), named backreferences and $<name> replacements, inline (?imsx-imsx) modifiers, (?#...) comments, conditionals (?(1)a|b)/(?(name)a|b)/(?(?=...)a|b), and \\a/\\e/\\A/\\Z/\\z/\\x{...} escapes."
+        },
+        {
+          "catalogId": "AS3:constructor:RegExp.html#RegExp()",
+          "status": "implemented_subset",
+          "scopeNote": "RegExp(re) returns the same RegExp instance when no flags are supplied, whereas new RegExp(re, flags) clones or overrides flags with lastIndex reset to 0 and PCRE-compatible pattern translation."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#quality",
+          "status": "implemented_subset",
+          "scopeNote": "Validates StageQuality constants, updates Canvas 2D imageSmoothingEnabled/imageSmoothingQuality and CSS imageRendering on Stage redraws, and rejects invalid values with ArgumentError."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#wmodeGPU",
+          "status": "implemented_subset",
+          "scopeNote": "Read-only Boolean reflecting active GPU/WebGL wmode acceleration (false on 2D Canvas/DOM, true when wmode is 'gpu' or gpu_web_gl compositing is active)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#colorCorrection",
+          "status": "implemented_subset",
+          "scopeNote": "Validates ColorCorrection.DEFAULT/ON/OFF, updates DOM/CSS color-interpolation and stage color-correction attributes, triggers Stage redraws, and throws ArgumentError on invalid strings."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#colorCorrectionSupport",
+          "status": "implemented_subset",
+          "scopeNote": "Reports ColorCorrectionSupport based on host Canvas 2D colorSpace and CSS color-gamut media queries ('defaultOn' on color-managed sRGB/Display-P3 surfaces, 'unsupported' when unconfigured in headless VMs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#mouseLock",
+          "status": "implemented_subset",
+          "scopeNote": "Enforces fullscreen-only IllegalOperationError contract, requests and exits browser Pointer Lock on the Stage surface, syncs with pointerlockchange, and delivers relative movementX/movementY MouseEvent deltas."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#areInaccessibleObjectsUnderPoint()",
+          "status": "implemented_subset",
+          "scopeNote": "Returns true when cross-sandbox display leaves without Security.allowDomain permission intersect the stage point (and filters them from getObjectsUnderPoint), returning false once access is granted."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Mouse.html#supportsNativeCursor",
+          "status": "implemented_subset",
+          "scopeNote": "Reports true when attached to an interactive DOM/Canvas cursor surface capable of rendering custom PNG MouseCursorData cursors and false on headless surfaces."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#registerCursor()",
+          "status": "implemented_subset",
+          "scopeNote": "Validates MouseCursorData frames and encodes RGBA BitmapData frames into RFC-2083 PNG data-URI CSS cursors with hotSpot coordinates and frameRate-driven multi-frame cursor animation."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#unregisterCursor()",
+          "status": "implemented_subset",
+          "scopeNote": "Removes registered custom cursor definitions, stops active cursor frame timers, and resets the active cursor to MouseCursor.AUTO when unregistered."
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/MouseCursorData.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Final cursor descriptor class holding Vector.<BitmapData> frames, Point hotSpot, and Number frameRate for Mouse.registerCursor."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/ui/MouseCursorData.html#MouseCursorData()",
+          "status": "implemented_subset",
+          "scopeNote": "Constructs a MouseCursorData instance initialized with data = null, hotSpot = (0, 0), and frameRate = 0."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#data",
+          "status": "implemented_subset",
+          "scopeNote": "Reads and validates Vector.<BitmapData> cursor frames for custom native cursor encoding."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#frameRate",
+          "status": "implemented_subset",
+          "scopeNote": "Reads and validates nonnegative finite cursor animation frame rate in frames per second."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#hotSpot",
+          "status": "implemented_subset",
+          "scopeNote": "Reads and clones the cursor registration Point hotSpot applied to CSS url(...) x y cursor coordinates."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#encode()",
+          "status": "implemented_subset",
+          "scopeNote": "Encodes bounded sub-rectangles into ByteArray using PNGEncoderOptions, JPEGEncoderOptions, or JPEGXREncoderOptions (ITU-T T.832 .jxr container honoring quantization, colorSpace, and trimFlexBits)."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#lock()",
+          "status": "implemented_subset",
+          "scopeNote": "Supports nested lock reference counting that freezes cached display uploads and defers display invalidations while direct pixel mutations proceed on the BitmapData."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#unlock()",
+          "status": "implemented_subset",
+          "scopeNote": "Balances nested lock() calls, coalesces optional Rectangle changeRect regions, updates partial or full display pixels, and triggers a single display invalidation flush when the outer lock releases."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/JPEGXREncoderOptions.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Options class configuring ITU-T T.832 JPEG-XR quantization, chroma subsampling colorSpace, and flex-bits trimming for BitmapData.encode."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/JPEGXREncoderOptions.html#JPEGXREncoderOptions()",
+          "status": "implemented_subset",
+          "scopeNote": "Constructs JPEGXREncoderOptions with defaults quantization = 20, colorSpace = BitmapEncodingColorSpace.COLORSPACE_AUTO, and trimFlexBits = 0."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#colorSpace",
+          "status": "implemented_subset",
+          "scopeNote": "Selects BitmapEncodingColorSpace ('auto', '4:4:4', '4:2:2', '4:2:0') for JPEG-XR chroma subsampling and validates on BitmapData.encode."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#quantization",
+          "status": "implemented_subset",
+          "scopeNote": "Controls JPEG-XR lossy quantization step size (0 for lossless YCoCg-R encoding, higher values increasing compression)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#trimFlexBits",
+          "status": "implemented_subset",
+          "scopeNote": "Controls JPEG-XR high-frequency flexbits trimming (0..15) during frequency-band serialization."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/BitmapEncodingColorSpace.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Constant enumeration class defining chroma subsampling modes for JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_0",
+          "status": "implemented_subset",
+          "scopeNote": "Constant '4:2:0' selecting 2x2 chroma subsampling in BitmapData.encode with JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_2",
+          "status": "implemented_subset",
+          "scopeNote": "Constant '4:2:2' selecting 2x1 horizontal chroma subsampling in BitmapData.encode with JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_4_4",
+          "status": "implemented_subset",
+          "scopeNote": "Constant '4:4:4' selecting full-resolution chroma channels in BitmapData.encode with JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_AUTO",
+          "status": "implemented_subset",
+          "scopeNote": "Constant 'auto' selecting automatic chroma format in BitmapData.encode with JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/Font.html#hasGlyphs()",
+          "status": "implemented_subset",
+          "scopeNote": "Checks exact SFNT cmap Format 4/12 and TTC glyph coverage for embedded fonts, and verifies installed face availability plus Canvas .notdef tofu glyph raster comparison for device fonts."
+        },
+        {
+          "catalogId": "AS3:event:flash/text/TextField.html#event:textInteractionModeChange",
+          "status": "implemented_subset",
+          "scopeNote": "Dispatches non-bubbling Event('textInteractionModeChange') when user touch-selection, Alt-pointer, or context-menu interaction switches TextField.textInteractionMode between 'normal' and 'selection'."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/CSMSettings.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Continuous Stroke Modulation table entry class consumed by TextRenderer.setAdvancedAntiAliasingTable."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/CSMSettings.html#CSMSettings()",
+          "status": "implemented_subset",
+          "scopeNote": "Constructs CSMSettings(fontSize, insideCutoff, outsideCutoff) with validated numeric fields."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#fontSize",
+          "status": "implemented_subset",
+          "scopeNote": "Reads and writes the target pixel fontSize key for CSM cutoff interpolation."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#insideCutoff",
+          "status": "implemented_subset",
+          "scopeNote": "Reads and writes the CSM insideCutoff threshold modulating stroke weight on advanced-antialiased text."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#outsideCutoff",
+          "status": "implemented_subset",
+          "scopeNote": "Reads and writes the CSM outsideCutoff threshold modulating edge contrast and sharpness on advanced-antialiased text."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextDisplayMode.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Enumeration class supplying subpixel display mode constants for TextRenderer.displayMode."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#CRT",
+          "status": "implemented_subset",
+          "scopeNote": "Constant 'crt' enabling phosphor-bloom CRT antialiasing in TextRenderer."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#DEFAULT",
+          "status": "implemented_subset",
+          "scopeNote": "Constant 'default' selecting standard grayscale antialiasing in TextRenderer."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#LCD",
+          "status": "implemented_subset",
+          "scopeNote": "Constant 'lcd' enabling RGB subpixel antialiasing passes in TextRenderer."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextRenderer.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Static advanced-antialiasing controller driving CSM stroke/contrast interpolation, subpixel display modes, and antialiasing quality levels across Canvas text rendering."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextRenderer.html#displayMode",
+          "status": "implemented_subset",
+          "scopeNote": "Reads and sets TextDisplayMode ('default', 'lcd', 'crt'), throwing ArgumentError on invalid strings and updating Canvas text subpixel/CRT rendering."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextRenderer.html#maxLevel",
+          "status": "implemented_subset",
+          "scopeNote": "Reads and sets static antialiasing quality level clamped to 0..64 (default 4), controlling stroke smoothing intensity."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextRenderer.html#setAdvancedAntiAliasingTable()",
+          "status": "implemented_subset",
+          "scopeNote": "Registers CSMSettings arrays per fontName, FontStyle, and TextColorType ('dark'/'light') and interpolates cutoffs by font size and luminance during AntiAliasType.ADVANCED rendering."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#play()",
+          "status": "implemented_subset",
+          "scopeNote": "Supports local/HTTP(S) media (with negative start playing from 0 and RTMP URLs reporting StreamNotFound), HLS/DASH live streams (duration = Infinity), start/len clipping, single-frame len = 0, play(false), play(null) data generation, and reset modes 0/1/2/3 with playlist status-message aggregation."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#bytesLoaded",
+          "status": "implemented_subset",
+          "scopeNote": "Reports exact embedded/appendBytes counts and real observed HTTP progressive transfer bytes from streaming Fetch chunks, 206 Range probes, and PerformanceResourceTiming (falling back to buffered estimation only on opaque cross-origin media)."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readObject()",
+          "status": "partial",
+          "ruleId": "AS3-AMF-SOL-20261115",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeObject()",
+          "status": "partial",
+          "ruleId": "AS3-AMF-SOL-20261115",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:RegExp.html#",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:RegExp.html#RegExp()",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#quality",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#wmodeGPU",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#colorCorrection",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#colorCorrectionSupport",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#mouseLock",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#areInaccessibleObjectsUnderPoint()",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Mouse.html#supportsNativeCursor",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#registerCursor()",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#unregisterCursor()",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/MouseCursorData.html#",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/ui/MouseCursorData.html#MouseCursorData()",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#data",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#frameRate",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#hotSpot",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#encode()",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#lock()",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#unlock()",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/JPEGXREncoderOptions.html#",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/JPEGXREncoderOptions.html#JPEGXREncoderOptions()",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#colorSpace",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#quantization",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#trimFlexBits",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/BitmapEncodingColorSpace.html#",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_0",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_2",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_4_4",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_AUTO",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/Font.html#hasGlyphs()",
+          "status": "partial",
+          "ruleId": "AS3-T333-CONTRACT-CORRECTIONS-20261115",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/text/TextField.html#event:textInteractionModeChange",
+          "status": "partial",
+          "ruleId": "AS3-T333-CONTRACT-CORRECTIONS-20261115",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/CSMSettings.html#",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/CSMSettings.html#CSMSettings()",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#fontSize",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#insideCutoff",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#outsideCutoff",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextDisplayMode.html#",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#CRT",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#DEFAULT",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#LCD",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextRenderer.html#",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextRenderer.html#displayMode",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextRenderer.html#maxLevel",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextRenderer.html#setAdvancedAntiAliasingTable()",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#play()",
+          "status": "partial",
+          "ruleId": "AS3-T333-CONTRACT-CORRECTIONS-20261115",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#bytesLoaded",
+          "status": "partial",
+          "ruleId": "AS3-T333-CONTRACT-CORRECTIONS-20261115",
           "evidenceKind": "test_backed_review"
         }
       ]

@@ -5,7 +5,7 @@
     {
       "id": "AS3-AREAS2TO7-20261120",
       "date": "2026-11-20",
-      "commit": "a578880b117bc7ea1c5e43d3bd825900ab48b6e2",
+      "commit": "9c04b667c695a45aaaa5503f0256a36598fa061a",
       "title": "Close AS3 Areas 2, 4, 5, 6 and 7 AMF3, RegExp, Stage, Mouse, Bitmap, Text and NetStream gaps",
       "summary": "Adds AMF3 Vector, Dictionary, and IExternalizable codecs, PCRE RegExp named groups/conditionals/inline flags, Stage quality/wmodeGPU/colorCorrection/mouseLock, areInaccessibleObjectsUnderPoint, MouseCursorData PNG cursors, BitmapData JPEG-XR encode and lock/unlock, Font.hasGlyphs, TextRenderer/CSMSettings, and NetStream progressive bytesLoaded and play aggregation.",
       "tests": [

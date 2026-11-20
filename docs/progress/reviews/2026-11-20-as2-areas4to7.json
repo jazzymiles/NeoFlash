@@ -5,7 +5,7 @@
     {
       "id": "AS2-AREAS4TO7-20261120",
       "date": "2026-11-20",
-      "commit": "a578880b117bc7ea1c5e43d3bd825900ab48b6e2",
+      "commit": "9c04b667c695a45aaaa5503f0256a36598fa061a",
       "title": "Close AS2 Areas 4-6 Stage.wmodeGPU and TextRenderer plus Area 7 NetStream.getInfo",
       "summary": "Wires Stage.wmodeGPU across Rust ScriptAS2Stage and GPU layer promotion, exposes flash.text.TextRenderer (displayMode, maxLevel, setAdvancedAntialiasingTable) with continuous stroke modulation, and upgrades NetStream.getInfo() with rolling/peak byte rates, channel/data byte counts, buffer lengths, and dropped-frame snapshots.",
       "tests": [
