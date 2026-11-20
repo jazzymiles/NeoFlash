@@ -425,7 +425,59 @@ test('AMF3 & SOL: Vector.<int|uint|Number|*|Object>, Dictionary (weakKeys & obje
     assert.deepEqual(reloaded.data.bundle.ext.values, [-10, 2048, 99999]);
     assert.equal(reloaded.data.bundle.ext, reloaded.data.bundle.extAgain);
 
-    // 3. Unregistered externalizable alias fails cleanly instead of corrupting stream position
+    // 3. decodeSol global.NeoFlashWasm.sol_decode_ext fallback, decodeSolExt-only, and custom decode/decodeSol override preservation
+    const solWireBytes = h.amf.encodeSol('amf3-ext-vectors', { bundle: payload }, 3);
+    const hadGlobalWasm = Object.hasOwn(globalThis, 'NeoFlashWasm');
+    const prevGlobalWasm = globalThis.NeoFlashWasm;
+    try {
+      globalThis.NeoFlashWasm = h.wasm;
+      const globalFallbackAmf = AMF.create({
+        binary: h.binary,
+        encode: h.wasm.amf_encode,
+        decode: h.wasm.amf_decode,
+        getXML: () => h.xml,
+        getProgram: () => mockProgram,
+      });
+      globalFallbackAmf.registerClassAlias('app.Item', Item);
+      globalFallbackAmf.registerClassAlias('net.Packet', Packet);
+      const fromGlobalSol = globalFallbackAmf.decodeSol(solWireBytes);
+      assert.ok(fromGlobalSol.value.bundle.ext instanceof Packet, 'decodeSol falls back to global.NeoFlashWasm.sol_decode_ext when options.decodeSol is omitted');
+      assert.deepEqual(fromGlobalSol.value.bundle.ext.values, [-10, 2048, 99999]);
+
+      let customDecodeSolCalls = 0;
+      let customDecodeCalls = 0;
+      const plainSolBytes = h.amf.encodeSol('plain-custom', { marker: 42 }, 3);
+      const plainAmfBytes = h.amf.encode({ marker: 99 }, 3);
+      const customOverrideAmf = AMF.create({
+        binary: h.binary,
+        encode: h.wasm.amf_encode,
+        decode: (mode, bytes) => { customDecodeCalls++; return h.wasm.amf_decode(mode, bytes); },
+        decodeSol: bytes => { customDecodeSolCalls++; return h.wasm.sol_decode(bytes); },
+        getXML: () => h.xml,
+      });
+      assert.equal(customOverrideAmf.decodeSol(plainSolBytes).value.marker, 42);
+      assert.equal(customDecodeSolCalls, 1, 'custom options.decodeSol is not hijacked by global.NeoFlashWasm.sol_decode_ext');
+      assert.equal(customOverrideAmf.decode(plainAmfBytes, 3).value.marker, 99);
+      assert.equal(customDecodeCalls, 1, 'custom options.decode is not hijacked by global.NeoFlashWasm.amf_decode_ext');
+
+      delete globalThis.NeoFlashWasm;
+      const extOnlySolAmf = AMF.create({
+        binary: h.binary,
+        encode: h.wasm.amf_encode,
+        decode: h.wasm.amf_decode,
+        decodeSolExt: h.wasm.sol_decode_ext,
+        getXML: () => h.xml,
+        getProgram: () => mockProgram,
+      });
+      extOnlySolAmf.registerClassAlias('app.Item', Item);
+      extOnlySolAmf.registerClassAlias('net.Packet', Packet);
+      assert.ok(extOnlySolAmf.decodeSol(solWireBytes).value.bundle.ext instanceof Packet, 'decodeSol works with options.decodeSolExt alone when global.NeoFlashWasm is unset');
+    } finally {
+      if (hadGlobalWasm) globalThis.NeoFlashWasm = prevGlobalWasm;
+      else delete globalThis.NeoFlashWasm;
+    }
+
+    // 4. Unregistered externalizable alias fails cleanly instead of corrupting stream position
     const badH = await harness({}, { getProgram: () => mockProgram });
     try {
       const extOnlyBa = new h.binary.ByteArray();

@@ -544,7 +544,7 @@
       if(!ArrayBuffer.isView(bytes)||bytes.BYTES_PER_ELEMENT!==1||bytes.byteLength>MAX_BYTES)throw new RangeError('AMF decode requires a byte view no larger than 16 MiB.');
       const mode=format(encoding),extInstances=[];
       let capturedError=null;
-      const nativeDecodeExt=options.decodeExt||global.NeoFlashWasm?.amf_decode_ext;
+      const nativeDecodeExt=options.decodeExt||((options.decode===undefined||options.decode===global.NeoFlashWasm?.amf_decode)?global.NeoFlashWasm?.amf_decode_ext:undefined);
       const rawJson=typeof nativeDecodeExt==='function'
         ?codecCall(()=>nativeDecodeExt(mode,bytes,makeExtReader(mode,requirements,extInstances,e=>{capturedError=e;})),()=>capturedError)
         :codecCall(()=>options.decode(mode,bytes));
@@ -578,11 +578,11 @@
       if(!ArrayBuffer.isView(bytes)||bytes.BYTES_PER_ELEMENT!==1||bytes.byteLength>MAX_BYTES)throw new RangeError('SOL decode requires a byte view no larger than 16 MiB.');
       const u8=new Uint8Array(bytes.buffer,bytes.byteOffset,bytes.byteLength);
       const nativeDecodeSol=options.decodeSol||global.NeoFlashWasm?.sol_decode;
-      const nativeDecodeSolExt=options.decodeSolExt||global.NeoFlashWasm?.sol_decode_ext;
+      const nativeDecodeSolExt=options.decodeSolExt||((options.decodeSol===undefined||options.decodeSol===global.NeoFlashWasm?.sol_decode)?global.NeoFlashWasm?.sol_decode_ext:undefined);
       if(typeof nativeDecodeSol!=='function'&&typeof nativeDecodeSolExt!=='function')throw new Error('Native SOL decoding is unavailable. Rebuild the shared WASM runtime and re-export this project.');
       const extInstances=[];
       let capturedError=null;
-      const rawJson=(typeof nativeDecodeSolExt==='function'&&options.decodeSol!==undefined)
+      const rawJson=typeof nativeDecodeSolExt==='function'
         ?codecCall(()=>nativeDecodeSolExt(u8,makeExtReader(3,requirements,extInstances,e=>{capturedError=e;})),()=>capturedError)
         :codecCall(()=>nativeDecodeSol(u8));
       const parsed=JSON.parse(rawJson),name=solName(parsed.name),mode=format(parsed.format),decoded=parsed.decoded;
