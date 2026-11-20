@@ -2,7 +2,8 @@
 use crate::app::{Editor, ScriptTarget};
 use crate::debugger_protocol::{
     AuthoredBreakpoint, AuthoredLocation, DebugCommand, DebugOutputKind, DebugProtocol,
-    DebugSnapshot, DebugSource, DebugState,
+    DebugSnapshot, DebugSource, DebugState, DebugWatchResult, WatchRequest,
+    compile_watch_expression,
 };
 use crate::debugger_sources::{ScriptOrigin, read_export_sources};
 use crate::debugger_transport::{BrowserPipe, browser_executable, file_url, private_directory};
@@ -53,6 +54,7 @@ impl DebuggerStartupStatus {
 
 struct DebugSession {
     snapshot: Arc<Mutex<DebugSnapshot>>,
+    watch_results: Arc<Mutex<Vec<DebugWatchResult>>>,
     commands: mpsc::SyncSender<DebugCommand>,
     stop: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
@@ -65,6 +67,7 @@ impl DebugSession {
         index: &Path,
         sources: Vec<DebugSource>,
         breakpoints: Vec<AuthoredBreakpoint>,
+        watches: Vec<WatchRequest>,
         ctx: egui::Context,
     ) -> Result<Self, String> {
         let mut protocol = DebugProtocol::new(
@@ -72,12 +75,15 @@ impl DebugSession {
             sources,
             breakpoints,
         );
+        protocol.set_watches(watches);
         protocol.set_pause_on_start(true);
         // Publish Connecting before the worker can be observed by the UI.
         // The queued handshake is sent only after its private pipe is ready.
         protocol.start();
         let snapshot = Arc::new(Mutex::new(protocol.snapshot()));
         let shared = Arc::clone(&snapshot);
+        let watch_results = Arc::new(Mutex::new(protocol.watch_results()));
+        let shared_watches = Arc::clone(&watch_results);
         let stop = Arc::new(AtomicBool::new(false));
         let stopping = Arc::clone(&stop);
         let (commands, receiver) = mpsc::sync_channel(64);
@@ -121,12 +127,23 @@ impl DebugSession {
                             );
                         }
                         let next = protocol.snapshot();
+                        let next_watches = protocol.watch_results();
                         let terminal =
                             matches!(next.state, DebugState::Disconnected | DebugState::Failed);
+                        let mut changed = false;
+                        if let Ok(mut watches) = shared_watches.lock()
+                            && *watches != next_watches
+                        {
+                            *watches = next_watches;
+                            changed = true;
+                        }
                         if let Ok(mut snapshot) = shared.lock()
                             && *snapshot != next
                         {
                             *snapshot = next;
+                            changed = true;
+                        }
+                        if changed {
                             ctx.request_repaint();
                         }
                         if terminal {
@@ -143,6 +160,9 @@ impl DebugSession {
                 ) {
                     protocol.disconnect("Debug session stopped");
                 }
+                if let Ok(mut watches) = shared_watches.lock() {
+                    *watches = protocol.watch_results();
+                }
                 if let Ok(mut snapshot) = shared.lock() {
                     *snapshot = protocol.snapshot();
                 }
@@ -151,6 +171,7 @@ impl DebugSession {
             .map_err(|e| e.to_string())?;
         Ok(Self {
             snapshot,
+            watch_results,
             commands,
             stop,
             worker: Some(worker),
@@ -176,6 +197,21 @@ impl Debugger {
             .lock()
             .ok()
             .map(|s| s.clone())
+    }
+    pub(crate) fn watch_results(&self) -> Vec<DebugWatchResult> {
+        self.session
+            .as_ref()
+            .and_then(|session| session.watch_results.lock().ok())
+            .map(|w| w.clone())
+            .unwrap_or_default()
+    }
+    #[cfg(test)]
+    pub(crate) fn set_test_watch_results(&self, results: Vec<DebugWatchResult>) {
+        if let Some(session) = &self.session
+            && let Ok(mut watches) = session.watch_results.lock()
+        {
+            *watches = results;
+        }
     }
     #[cfg(test)]
     pub(crate) fn active(&self) -> bool {
@@ -208,6 +244,7 @@ impl Debugger {
         self.scripts = scripts;
         self.session = Some(DebugSession {
             snapshot,
+            watch_results: Arc::new(Mutex::new(Vec::new())),
             commands,
             stop: Arc::new(AtomicBool::new(false)),
             worker: None,
@@ -290,12 +327,14 @@ impl Editor {
             let (sources, scripts) =
                 read_export_sources(&index).map_err(DebuggerStartupStatus::Failed)?;
             self.debugger.scripts = scripts;
+            let initial_watches = self.build_debug_watch_requests();
             self.debugger.session = Some(
                 DebugSession::launch(
                     executable,
                     &index,
                     sources,
                     self.debugger.breakpoints.clone(),
+                    initial_watches,
                     ctx.clone(),
                 )
                 .map_err(DebuggerStartupStatus::Failed)?,
@@ -468,7 +507,12 @@ impl Editor {
                     );
                 }
                 if snapshot.state == DebugState::Paused {
-                    self.refresh_debugger_watches();
+                    self.refresh_debugger_watches_local();
+                    let raw_watches = self.raw_debugger_watch_expressions();
+                    let cdp_watches = self.debugger.watch_results();
+                    if !raw_watches.is_empty() && cdp_watches.len() != raw_watches.len() {
+                        self.sync_debug_watches();
+                    }
                     if !snapshot.command_pending
                         && let Some(loc) = snapshot
                             .selected_frame
@@ -482,6 +526,10 @@ impl Editor {
                         auto_resumed = true;
                     }
                 }
+            }
+            if snapshot.state == DebugState::Paused {
+                let cdp_watches = self.debugger.watch_results();
+                self.sync_watch_values_from_cdp(&cdp_watches);
             }
             // Protocol notes and browser console/exception events can arrive without changing
             // Paused/Running. Drain strictly by monotonic `seq` when populated by `DebugProtocol`
@@ -633,9 +681,11 @@ impl Editor {
         }
     }
 
-    pub(crate) fn debug_source_is_actionscript(&self, source: &str) -> bool {
-        let language = self
-            .debugger
+    pub(crate) fn debug_source_language(
+        &self,
+        source: &str,
+    ) -> Option<neoflash_core::ScriptLanguage> {
+        self.debugger
             .scripts
             .iter()
             .find(|script| script.location == source)
@@ -646,15 +696,64 @@ impl Editor {
                     .iter()
                     .find(|unit| unit.path == source)
                     .map(|unit| unit.language)
-            });
+            })
+    }
+
+    pub(crate) fn debug_source_is_actionscript(&self, source: &str) -> bool {
         matches!(
-            language,
+            self.debug_source_language(source),
             Some(
                 neoflash_core::ScriptLanguage::ActionScript1
                     | neoflash_core::ScriptLanguage::ActionScript2
                     | neoflash_core::ScriptLanguage::ActionScript3
             )
         )
+    }
+
+    pub(crate) fn active_debug_watch_language(&self) -> neoflash_core::ScriptLanguage {
+        if let Some(snapshot) = self.debugger.snapshot()
+            && let Some(frame) = snapshot
+                .selected_frame
+                .and_then(|idx| snapshot.frames.get(idx))
+                .or_else(|| snapshot.frames.first())
+            && let Some(loc) = frame.location.as_ref()
+            && let Some(lang) = self.debug_source_language(&loc.source)
+        {
+            return lang;
+        }
+        self.project.effective_script_language()
+    }
+
+    pub(crate) fn build_debug_watch_requests(&self) -> Vec<WatchRequest> {
+        let language = self.active_debug_watch_language();
+        self.raw_debugger_watch_expressions()
+            .into_iter()
+            .map(|expr| compile_watch_expression(&expr, language))
+            .collect()
+    }
+
+    pub(crate) fn sync_debug_watches(&mut self) {
+        if self.debugger.commandable() {
+            let requests = self.build_debug_watch_requests();
+            let _ = self.debug_command(DebugCommand::SetWatches(requests));
+        }
+    }
+
+    pub(crate) fn evaluate_active_debug_watches(&mut self) {
+        if self.debugger.commandable() {
+            let requests = self.build_debug_watch_requests();
+            let cdp_watches = self.debugger.watch_results();
+            let matches_current = cdp_watches.len() == requests.len()
+                && cdp_watches
+                    .iter()
+                    .zip(&requests)
+                    .all(|(cur, req)| cur.expression == req.expression);
+            if matches_current {
+                let _ = self.debug_command(DebugCommand::EvaluateWatches);
+            } else {
+                let _ = self.debug_command(DebugCommand::SetWatches(requests));
+            }
+        }
     }
 
     fn debug_source_at_caret(&self, ctx: &egui::Context) -> Option<AuthoredBreakpoint> {
@@ -895,6 +994,7 @@ mod tests {
             let (commands, receiver) = mpsc::sync_channel(4);
             editor.debugger.session = Some(DebugSession {
                 snapshot: Arc::new(Mutex::new(snapshot)),
+                watch_results: Arc::new(Mutex::new(vec![])),
                 commands,
                 stop: Arc::new(AtomicBool::new(false)),
                 worker: None,
@@ -935,6 +1035,7 @@ mod tests {
         let (commands, receiver) = mpsc::sync_channel(4);
         editor.debugger.session = Some(DebugSession {
             snapshot: Arc::new(Mutex::new(snapshot)),
+            watch_results: Arc::new(Mutex::new(vec![])),
             commands,
             stop: Arc::new(AtomicBool::new(false)),
             worker: None,
@@ -1002,6 +1103,7 @@ mod tests {
             let (commands, receiver) = mpsc::sync_channel(4);
             editor.debugger.session = Some(DebugSession {
                 snapshot: shared.clone(),
+                watch_results: Arc::new(Mutex::new(vec![])),
                 commands,
                 stop: Arc::new(AtomicBool::new(false)),
                 worker: None,
@@ -1099,16 +1201,26 @@ mod tests {
                             .all(|section| section.format.color == expected)
                     );
                 }
-                assert!(texts.iter().any(|text| {
+                assert!(!texts.iter().any(|text| {
                     text.galley
                         .job
                         .text
                         .starts_with("Watch expressions are not available yet.")
                 }));
                 assert!(
-                    !texts
+                    texts
                         .iter()
                         .any(|text| text.galley.job.text == "Expression")
+                );
+                assert!(
+                    nodes
+                        .iter()
+                        .any(|(_, node)| node.label() == Some("Add watch"))
+                );
+                assert!(
+                    nodes
+                        .iter()
+                        .any(|(_, node)| node.label() == Some("Evaluate watches"))
                 );
                 assert_eq!(
                     texts
@@ -1290,12 +1402,17 @@ mod tests {
                         .iter()
                         .all(|section| section.format.color == color)
                 );
-                assert!(texts.iter().any(|text| {
+                assert!(!texts.iter().any(|text| {
                     text.galley
                         .job
                         .text
                         .starts_with("Watch expressions are not available yet.")
                 }));
+                assert!(
+                    texts
+                        .iter()
+                        .any(|text| text.galley.job.text == "Expression")
+                );
                 editor.debugger.stop();
                 editor.poll_debugger(&ctx);
                 assert!(!editor.debugger.has_presentation());
@@ -1347,6 +1464,7 @@ mod tests {
             snapshot: Arc::new(Mutex::new(
                 DebugProtocol::new("file:///fixture.html".into(), vec![], vec![]).snapshot(),
             )),
+            watch_results: Arc::new(Mutex::new(vec![])),
             commands,
             stop: Arc::new(AtomicBool::new(false)),
             worker: None,
@@ -1386,8 +1504,9 @@ mod tests {
         )
         .unwrap();
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
-        editor.debugger.session =
-            Some(DebugSession::launch(executable, &index, vec![], vec![], ctx.clone()).unwrap());
+        editor.debugger.session = Some(
+            DebugSession::launch(executable, &index, vec![], vec![], vec![], ctx.clone()).unwrap(),
+        );
         assert_eq!(
             editor.debugger.snapshot().unwrap().state,
             DebugState::Connecting
@@ -1579,6 +1698,7 @@ mod tests {
         let (commands, _receiver) = mpsc::sync_channel(4);
         editor.debugger.session = Some(DebugSession {
             snapshot: shared.clone(),
+            watch_results: Arc::new(Mutex::new(vec![])),
             commands,
             stop: Arc::new(AtomicBool::new(false)),
             worker: None,
@@ -1651,5 +1771,238 @@ mod tests {
 
         editor.debugger.stop();
         assert!(editor.workspace.is_panel_visible(PanelId::Debugger));
+    }
+
+    #[test]
+    fn t404_debugger_watch_panel_syncs_with_actions_and_fits_all_densities() {
+        use crate::debugger_protocol::{DebugFrame, DebugWatchResult};
+        use crate::sources::{DebuggerScope, DebuggerVariable};
+        use neoflash_core::ScriptLanguage;
+
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut project = Project::blank();
+        project.script_language = Some(ScriptLanguage::ActionScript2);
+        let mut editor = Editor::from_project(&ctx, project);
+
+        // 1. AuthoredPlayback fallback when no connected CDP session is active.
+        editor.set_paused_debugger_scopes(vec![DebuggerScope {
+            name: "Local".into(),
+            variables: vec![DebuggerVariable::scalar("score", "20", "Number")],
+        }]);
+        editor.add_debugger_watch("score + 5");
+        assert_eq!(editor.debugger_watches().len(), 1);
+        assert_eq!(editor.debugger_watches()[0].last_value, "25");
+
+        // 2. Connect a paused CDP session: adding/removing/evaluating watches dispatches SetWatches
+        //    with AS2-translated JS expressions, and live CDP values sync back to both Debugger & Actions.
+        let mut snapshot =
+            DebugProtocol::new("file:///fixture.html".into(), vec![], vec![]).snapshot();
+        snapshot.state = DebugState::Paused;
+        snapshot.frames.push(DebugFrame {
+            function_name: "onEnterFrame".into(),
+            location: Some(AuthoredLocation {
+                source: "Scene 1 / frame 1".into(),
+                line: 1,
+                column: 1,
+            }),
+            generated_url: "bundle.js".into(),
+            generated_line: 1,
+            generated_column: 1,
+        });
+        snapshot.selected_frame = Some(0);
+        let shared = Arc::new(Mutex::new(snapshot));
+        let (commands, receiver) = mpsc::sync_channel(16);
+        editor.debugger.install_test_session(
+            editor.project.clone(),
+            shared.clone(),
+            commands,
+            vec![ScriptOrigin {
+                language: ScriptLanguage::ActionScript2,
+                source: "var score = 100;".into(),
+                location: "Scene 1 / frame 1".into(),
+            }],
+        );
+        editor
+            .debugger
+            .set_test_watch_results(vec![DebugWatchResult {
+                expression: "score + 5".into(),
+                value: "105".into(),
+                is_error: false,
+            }]);
+        editor.poll_debugger(&ctx);
+        assert_eq!(editor.debugger_watches()[0].last_value, "105");
+
+        // Render across all 3 NF3 densities in a narrow 620 pt Debugger pane and verify zero overflow.
+        for density in neoflash_ui::metrics::Density::ALL {
+            neoflash_ui::metrics::set_density(density);
+            let panel_width = 620.0;
+            let out = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(panel_width, 320.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::NONE)
+                        .show(ctx, |ui| {
+                            let _ = editor.debugger_contents(ui);
+                        });
+                },
+            );
+            let nodes = &out.platform_output.accesskit_update.as_ref().unwrap().nodes;
+            for label in ["Add watch", "Evaluate watches", "Remove watch"] {
+                let bounds = nodes
+                    .iter()
+                    .find(|(_, node)| node.label() == Some(label))
+                    .unwrap_or_else(|| panic!("missing `{label}` in {density:?}"))
+                    .1
+                    .bounds()
+                    .unwrap();
+                assert!(
+                    bounds.x1 <= f64::from(panel_width) + 0.5,
+                    "`{label}` overflowed narrow pane in {density:?}: x1={} > {panel_width}",
+                    bounds.x1
+                );
+            }
+        }
+        neoflash_ui::metrics::set_density(neoflash_ui::metrics::Density::Comfortable);
+
+        // Add a second watch via draft + clicking "Add watch" in panels/debugger.rs.
+        editor.set_debugger_watch_draft("hero._x");
+        let render_panel = |ed: &mut Editor, events: Vec<egui::Event>| -> egui::FullOutput {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1200.0, 420.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        let _ = ed.debugger_contents(ui);
+                    });
+                },
+            )
+        };
+        let out = render_panel(&mut editor, vec![]);
+        let add_bounds = out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|(_, node)| node.label() == Some("Add watch"))
+            .unwrap()
+            .1
+            .bounds()
+            .unwrap();
+        let add_pos = egui::pos2(
+            ((add_bounds.x0 + add_bounds.x1) * 0.5) as f32,
+            ((add_bounds.y0 + add_bounds.y1) * 0.5) as f32,
+        );
+        let _ = render_panel(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(add_pos),
+                egui::Event::PointerButton {
+                    pos: add_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let _ = render_panel(
+            &mut editor,
+            vec![egui::Event::PointerButton {
+                pos: add_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert_eq!(editor.debugger_watches().len(), 2);
+        assert_eq!(editor.debugger_watches()[1].expression, "hero._x");
+        assert!(editor.debugger_watch_draft().is_empty());
+
+        let mut last_watches = None;
+        while let Ok(cmd) = receiver.try_recv() {
+            if let DebugCommand::SetWatches(reqs) = cmd {
+                last_watches = Some(reqs);
+            }
+        }
+        let sent = last_watches.expect("adding watch must send SetWatches to CDP session");
+        assert_eq!(sent.len(), 2);
+        assert_eq!(sent[1].expression, "hero._x");
+        assert!(sent[1].js_expression.contains("__nfWatchProp"));
+
+        // Clicking "Evaluate watches" sends EvaluateWatches when watch expressions already match.
+        editor.debugger.set_test_watch_results(vec![
+            DebugWatchResult {
+                expression: "score + 5".into(),
+                value: "105".into(),
+                is_error: false,
+            },
+            DebugWatchResult {
+                expression: "hero._x".into(),
+                value: "240".into(),
+                is_error: false,
+            },
+        ]);
+        let out = render_panel(&mut editor, vec![]);
+        let eval_bounds = out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|(_, node)| node.label() == Some("Evaluate watches"))
+            .unwrap()
+            .1
+            .bounds()
+            .unwrap();
+        let eval_pos = egui::pos2(
+            ((eval_bounds.x0 + eval_bounds.x1) * 0.5) as f32,
+            ((eval_bounds.y0 + eval_bounds.y1) * 0.5) as f32,
+        );
+        let _ = render_panel(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(eval_pos),
+                egui::Event::PointerButton {
+                    pos: eval_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let _ = render_panel(
+            &mut editor,
+            vec![egui::Event::PointerButton {
+                pos: eval_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert!(matches!(
+            receiver.try_recv(),
+            Ok(DebugCommand::EvaluateWatches)
+        ));
+        assert_eq!(editor.debugger_watches()[1].last_value, "240");
+
+        // Stopping the connected CDP session falls back cleanly to AuthoredPlayback watch values.
+        editor.debugger.stop();
+        editor.refresh_debugger_watches();
+        assert_eq!(editor.debugger_watches()[0].last_value, "25");
     }
 }

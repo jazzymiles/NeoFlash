@@ -1,7 +1,8 @@
 //! Pure CDP state machine for the editor's privately owned Test Movie target.
 //!
 //! Protocol references: ChromeDevTools/devtools-protocol json/{js,browser}_protocol.json.
-//! No expression evaluation, getter invocation, socket discovery or unrelated-target attachment.
+//! No implicit scope getter invocation, socket discovery or unrelated-target attachment.
+use neoflash_core::ScriptLanguage;
 use neoflash_script::RuntimeSourceLocation;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -9,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 const MAX_PENDING: usize = 256;
 const MAX_SCRIPTS: usize = 512;
 const MAX_BREAKPOINTS: usize = 128;
+const MAX_WATCHES: usize = 64;
 const MAX_FRAMES: usize = 64;
 const MAX_SCOPES: usize = 8;
 const MAX_GENERATED_STEPS: usize = 64;
@@ -16,6 +18,28 @@ const MAX_LOCALS: usize = 256;
 const MAX_TEXT: usize = 1_024;
 const MAX_OUTPUT_EVENTS: usize = 128;
 const MAX_SOURCE_BYTES: usize = 16 * 1024 * 1024;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct WatchRequest {
+    pub expression: String,
+    pub js_expression: String,
+}
+
+impl WatchRequest {
+    pub fn new(expression: impl Into<String>, js_expression: impl Into<String>) -> Self {
+        Self {
+            expression: expression.into(),
+            js_expression: js_expression.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DebugWatchResult {
+    pub expression: String,
+    pub value: String,
+    pub is_error: bool,
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct DebugSource {
@@ -56,6 +80,8 @@ pub(crate) enum DebugCommand {
     StepOut,
     Restart,
     SetBreakpoints(Vec<AuthoredBreakpoint>),
+    SetWatches(Vec<WatchRequest>),
+    EvaluateWatches,
     SelectFrame(usize),
 }
 
@@ -150,12 +176,20 @@ enum Pending {
         frame: usize,
         scope: String,
     },
+    Watch {
+        pause: u64,
+        watch_gen: u64,
+        frame: usize,
+        index: usize,
+    },
 }
 
 pub(crate) struct DebugProtocol {
     page_url: String,
     sources: Vec<DebugSource>,
     desired: Vec<AuthoredBreakpoint>,
+    watches: Vec<WatchRequest>,
+    watch_results: Vec<DebugWatchResult>,
     snapshot: DebugSnapshot,
     target: Option<String>,
     session: Option<String>,
@@ -165,10 +199,12 @@ pub(crate) struct DebugProtocol {
     enable_remaining: usize,
     scripts: BTreeMap<String, ParsedScript>,
     scopes: Vec<Vec<Scope>>,
+    call_frame_ids: Vec<String>,
     breakpoint_ids: BTreeMap<String, (String, Option<AuthoredBreakpoint>)>,
     installed: BTreeSet<(String, usize, usize, u64)>,
     breakpoint_generation: u64,
     pause_generation: u64,
+    watch_generation: u64,
     gate: Option<String>,
     pause_on_start: bool,
     first_pause: bool,
@@ -186,6 +222,8 @@ impl DebugProtocol {
             page_url,
             sources,
             desired: Vec::new(),
+            watches: Vec::new(),
+            watch_results: Vec::new(),
             snapshot: DebugSnapshot {
                 epoch: 1,
                 state: DebugState::Disconnected,
@@ -208,10 +246,12 @@ impl DebugProtocol {
             enable_remaining: 0,
             scripts: BTreeMap::new(),
             scopes: Vec::new(),
+            call_frame_ids: Vec::new(),
             breakpoint_ids: BTreeMap::new(),
             installed: BTreeSet::new(),
             breakpoint_generation: 1,
             pause_generation: 0,
+            watch_generation: 0,
             gate: None,
             pause_on_start: false,
             first_pause: false,
@@ -220,6 +260,14 @@ impl DebugProtocol {
         };
         result.replace_desired(breakpoints);
         result
+    }
+
+    pub fn set_watches(&mut self, watches: Vec<WatchRequest>) {
+        self.replace_watches(watches);
+    }
+
+    pub fn watch_results(&self) -> Vec<DebugWatchResult> {
+        self.watch_results.clone()
     }
 
     pub fn epoch(&self) -> u64 {
@@ -320,12 +368,42 @@ impl DebugProtocol {
                 }
                 return Ok(());
             }
+            DebugCommand::SetWatches(watches) => {
+                if matches!(
+                    self.snapshot.state,
+                    DebugState::Disconnected | DebugState::Failed
+                ) {
+                    return Err("Start Test Movie debugging before changing active watches.".into());
+                }
+                self.replace_watches(watches);
+                if self.snapshot.state == DebugState::Paused
+                    && let Some(index) = self.snapshot.selected_frame
+                {
+                    self.request_watches(index);
+                }
+                return Ok(());
+            }
+            DebugCommand::EvaluateWatches => {
+                if matches!(
+                    self.snapshot.state,
+                    DebugState::Disconnected | DebugState::Failed
+                ) {
+                    return Err("Start Test Movie debugging before evaluating watches.".into());
+                }
+                if self.snapshot.state == DebugState::Paused
+                    && let Some(index) = self.snapshot.selected_frame
+                {
+                    self.request_watches(index);
+                }
+                return Ok(());
+            }
             DebugCommand::SelectFrame(index) => {
                 if self.snapshot.state != DebugState::Paused || index >= self.scopes.len() {
                     return Err("Select a call frame while the debugger is paused.".into());
                 }
                 self.snapshot.selected_frame = Some(index);
                 self.request_locals(index);
+                self.request_watches(index);
                 return Ok(());
             }
             _ => {}
@@ -649,6 +727,36 @@ impl DebugProtocol {
                     }
                 }
             }
+            Pending::Watch {
+                pause,
+                watch_gen,
+                frame,
+                index,
+            } => {
+                if self.snapshot.state != DebugState::Paused
+                    || pause != self.pause_generation
+                    || watch_gen != self.watch_generation
+                    || self.snapshot.selected_frame != Some(frame)
+                {
+                    return;
+                }
+                let Some(slot) = self.watch_results.get_mut(index) else {
+                    return;
+                };
+                if let Some(details) = result.get("exceptionDetails") {
+                    slot.value = format_watch_exception(details, result.get("result"));
+                    slot.is_error = true;
+                    return;
+                }
+                let remote = result.get("result").unwrap_or(&Value::Null);
+                if remote.is_null() {
+                    slot.value = "<unavailable>".into();
+                    slot.is_error = true;
+                } else {
+                    slot.value = remote_summary(remote);
+                    slot.is_error = false;
+                }
+            }
             Pending::Remove => {}
         }
     }
@@ -911,6 +1019,8 @@ impl DebugProtocol {
                 })
                 .take(MAX_SCOPES)
                 .collect();
+            self.call_frame_ids
+                .push(id_string(frame.get("callFrameId")).unwrap_or_default());
             self.scopes.push(scopes);
         }
         if reason == "step"
@@ -945,6 +1055,7 @@ impl DebugProtocol {
         self.snapshot.selected_frame = selected;
         if let Some(index) = selected {
             self.request_locals(index);
+            self.request_watches(index);
         }
         let temporary: Vec<_> = self
             .breakpoint_ids
@@ -1017,6 +1128,94 @@ impl DebugProtocol {
         }
     }
 
+    fn request_watches(&mut self, frame: usize) {
+        self.watch_generation = self.watch_generation.saturating_add(1);
+        if self.watches.is_empty() {
+            self.watch_results.clear();
+            return;
+        }
+        let call_frame_id = self.call_frame_ids.get(frame).cloned().unwrap_or_default();
+        self.watch_results = self
+            .watches
+            .iter()
+            .map(|watch| DebugWatchResult {
+                expression: watch.expression.clone(),
+                value: if call_frame_id.is_empty() {
+                    "<unavailable>".into()
+                } else {
+                    "…".into()
+                },
+                is_error: call_frame_id.is_empty(),
+            })
+            .collect();
+        if call_frame_id.is_empty() {
+            return;
+        }
+        let pause = self.pause_generation;
+        let watch_gen = self.watch_generation;
+        let requests: Vec<(usize, String)> = self
+            .watches
+            .iter()
+            .enumerate()
+            .map(|(index, watch)| (index, watch.js_expression.clone()))
+            .collect();
+        for (index, expression) in requests {
+            if !self.queue(
+                "Debugger.evaluateOnCallFrame",
+                json!({
+                    "callFrameId": call_frame_id,
+                    "expression": expression,
+                    "silent": true,
+                    "returnByValue": false,
+                    "generatePreview": true
+                }),
+                Pending::Watch {
+                    pause,
+                    watch_gen,
+                    frame,
+                    index,
+                },
+                true,
+            ) && let Some(slot) = self.watch_results.get_mut(index)
+            {
+                slot.value = "<unavailable>".into();
+                slot.is_error = true;
+            }
+        }
+    }
+
+    fn replace_watches(&mut self, watches: Vec<WatchRequest>) {
+        self.watches = watches
+            .into_iter()
+            .filter_map(|watch| {
+                let expression = bounded(watch.expression.trim(), MAX_TEXT);
+                let js_expression = watch.js_expression.trim().to_owned();
+                (!expression.is_empty()
+                    && !js_expression.is_empty()
+                    && js_expression.len() <= 16_384)
+                    .then_some(WatchRequest {
+                        expression,
+                        js_expression,
+                    })
+            })
+            .take(MAX_WATCHES)
+            .collect();
+        self.refresh_watches();
+    }
+
+    fn refresh_watches(&mut self) {
+        self.watch_generation = self.watch_generation.saturating_add(1);
+        self.watch_results = self
+            .watches
+            .iter()
+            .map(|watch| DebugWatchResult {
+                expression: watch.expression.clone(),
+                value: "<not paused>".into(),
+                is_error: false,
+            })
+            .collect();
+    }
+
     fn replace_desired(&mut self, mut points: Vec<AuthoredBreakpoint>) {
         points.retain(|point| {
             point.line > 0 && point.source.len() <= 4_096 && point.column != Some(0)
@@ -1043,7 +1242,9 @@ impl DebugProtocol {
         self.snapshot.frames.clear();
         self.snapshot.locals.clear();
         self.scopes.clear();
+        self.call_frame_ids.clear();
         self.snapshot.selected_frame = None;
+        self.refresh_watches();
     }
     fn clear_session(&mut self) {
         self.clear_pause();
@@ -1251,9 +1452,720 @@ impl DebugProtocol {
                 self.generated_steps = None;
                 self.note(message);
             }
+            Pending::Watch {
+                pause,
+                watch_gen,
+                frame,
+                index,
+            } => {
+                if self.snapshot.state == DebugState::Paused
+                    && pause == self.pause_generation
+                    && watch_gen == self.watch_generation
+                    && self.snapshot.selected_frame == Some(frame)
+                    && let Some(slot) = self.watch_results.get_mut(index)
+                {
+                    let trimmed = message.trim();
+                    slot.value = if trimmed.is_empty() {
+                        "<unavailable>".into()
+                    } else {
+                        format!("<{}>", bounded(trimmed, 240))
+                    };
+                    slot.is_error = true;
+                }
+            }
             _ => self.note(message),
         }
     }
+}
+
+fn format_watch_exception(details: &Value, remote: Option<&Value>) -> String {
+    if let Some(desc) = details
+        .get("exception")
+        .and_then(|ex| ex.get("description"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            remote
+                .and_then(|r| r.get("description"))
+                .and_then(Value::as_str)
+        })
+        .and_then(|d| d.lines().next())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return format!("<{}>", bounded(desc, 240));
+    }
+    if let Some(ex) = details.get("exception")
+        && ex.get("value").is_some()
+    {
+        return format!("<Uncaught {}>", bounded(&remote_summary(ex), 220));
+    }
+    if let Some(text) = details
+        .get("text")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return format!("<{}>", bounded(text, 240));
+    }
+    "<unavailable>".into()
+}
+
+/// Build a `WatchRequest` carrying both the authored expression and its CDP `callFrameId` JS form.
+pub(crate) fn compile_watch_expression(expression: &str, language: ScriptLanguage) -> WatchRequest {
+    let authored = expression.trim().to_owned();
+    let js_expression =
+        match language {
+            ScriptLanguage::JavaScript | ScriptLanguage::TypeScript => authored.clone(),
+            ScriptLanguage::ActionScript1 => translate_actionscript_watch(&authored, false, true)
+                .unwrap_or_else(|| authored.clone()),
+            ScriptLanguage::ActionScript2 => translate_actionscript_watch(&authored, false, false)
+                .unwrap_or_else(|| authored.clone()),
+            ScriptLanguage::ActionScript3 => translate_actionscript_watch(&authored, true, false)
+                .unwrap_or_else(|| authored.clone()),
+        };
+    WatchRequest::new(authored, js_expression)
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum WatchToken {
+    Ident(String),
+    Number(String),
+    Str(String),
+    Punct(&'static str),
+}
+
+enum WatchAst {
+    Literal(String),
+    This,
+    Ident(String),
+    Member(Box<WatchAst>, String),
+    Index(Box<WatchAst>, Box<WatchAst>),
+    Call(Box<WatchAst>, Vec<WatchAst>),
+    MethodCall(Box<WatchAst>, String, Vec<WatchAst>),
+    Unary(&'static str, Box<WatchAst>),
+    TypeofIdent(String),
+    Binary(&'static str, Box<WatchAst>, Box<WatchAst>),
+    TypeCast(&'static str, Box<WatchAst>),
+    AsType(Box<WatchAst>, String),
+    IsType(Box<WatchAst>, String),
+    Ternary(Box<WatchAst>, Box<WatchAst>, Box<WatchAst>),
+    Array(Vec<WatchAst>),
+    Object(Vec<(String, WatchAst)>),
+    Group(Box<WatchAst>),
+}
+
+fn lex_watch_tokens(src: &str, allow_diamond_ne: bool) -> Option<Vec<WatchToken>> {
+    let mut out = Vec::new();
+    let mut offset = 0usize;
+    while offset < src.len() {
+        let rest = &src[offset..];
+        if let Some(ch) = rest.chars().next()
+            && ch.is_whitespace()
+        {
+            offset += ch.len_utf8();
+            continue;
+        }
+        let ch = rest.chars().next()?;
+        if ch.is_alphabetic() || ch == '_' || ch == '$' {
+            let mut end = offset + ch.len_utf8();
+            while let Some(next) = src[end..].chars().next() {
+                if next.is_alphanumeric() || next == '_' || next == '$' {
+                    end += next.len_utf8();
+                } else {
+                    break;
+                }
+            }
+            out.push(WatchToken::Ident(src[offset..end].to_owned()));
+            offset = end;
+        } else if ch.is_ascii_digit()
+            || (ch == '.' && rest[1..].chars().next().is_some_and(|d| d.is_ascii_digit()))
+        {
+            let start = offset;
+            offset += 1;
+            if ch == '0' && src[offset..].starts_with(['x', 'X']) {
+                offset += 1;
+                let hex_start = offset;
+                while src[offset..]
+                    .chars()
+                    .next()
+                    .is_some_and(|d| d.is_ascii_hexdigit())
+                {
+                    offset += 1;
+                }
+                if offset == hex_start {
+                    return None;
+                }
+            } else {
+                while src[offset..]
+                    .chars()
+                    .next()
+                    .is_some_and(|d| d.is_ascii_digit())
+                {
+                    offset += 1;
+                }
+                if ch != '.' && src[offset..].starts_with('.') {
+                    offset += 1;
+                    while src[offset..]
+                        .chars()
+                        .next()
+                        .is_some_and(|d| d.is_ascii_digit())
+                    {
+                        offset += 1;
+                    }
+                }
+                if src[offset..].starts_with(['e', 'E']) {
+                    offset += 1;
+                    if src[offset..].starts_with(['+', '-']) {
+                        offset += 1;
+                    }
+                    let exp_start = offset;
+                    while src[offset..]
+                        .chars()
+                        .next()
+                        .is_some_and(|d| d.is_ascii_digit())
+                    {
+                        offset += 1;
+                    }
+                    if offset == exp_start {
+                        return None;
+                    }
+                }
+            }
+            if src[offset..]
+                .chars()
+                .next()
+                .is_some_and(|d| d.is_alphabetic() || d == '_')
+            {
+                return None;
+            }
+            out.push(WatchToken::Number(src[start..offset].to_owned()));
+        } else if ch == '\'' || ch == '"' {
+            let start = offset;
+            offset += 1;
+            let mut closed = false;
+            while let Some(next) = src[offset..].chars().next() {
+                offset += next.len_utf8();
+                if next == ch {
+                    closed = true;
+                    break;
+                }
+                if matches!(next, '\n' | '\r') {
+                    return None;
+                }
+                if next == '\\' {
+                    let esc = src[offset..].chars().next()?;
+                    offset += esc.len_utf8();
+                }
+            }
+            if !closed {
+                return None;
+            }
+            out.push(WatchToken::Str(src[start..offset].to_owned()));
+        } else {
+            // Side-effecting assignment / update tokens fall back to V8 syntax/reference reporting.
+            const FORBIDDEN: &[&str] = &[
+                ">>>=", "<<=", ">>=", "&&=", "||=", "++", "--", "+=", "-=", "*=", "/=", "%=", "&=",
+                "|=", "^=",
+            ];
+            if FORBIDDEN.iter().any(|op| rest.starts_with(op)) {
+                return None;
+            }
+            const OPS: &[&str] = &[
+                "===", "!==", ">>>", "==", "!=", "<=", ">=", "&&", "||", "<<", ">>", "<>", "(",
+                ")", "[", "]", "{", "}", ".", ",", "?", ":", "+", "-", "*", "/", "%", "!", "~",
+                "&", "|", "^", "<", ">",
+            ];
+            let op = *OPS
+                .iter()
+                .find(|&&op| rest.starts_with(op) && (op != "<>" || allow_diamond_ne))?;
+            out.push(WatchToken::Punct(op));
+            offset += op.len();
+        }
+        if out.len() > 512 {
+            return None;
+        }
+    }
+    Some(out)
+}
+
+struct WatchParser {
+    tokens: Vec<WatchToken>,
+    pos: usize,
+    as3: bool,
+}
+
+impl WatchParser {
+    fn peek(&self) -> Option<&WatchToken> {
+        self.tokens.get(self.pos)
+    }
+    fn eat_punct(&mut self, wanted: &str) -> bool {
+        if matches!(self.peek(), Some(WatchToken::Punct(p)) if *p == wanted) {
+            self.pos += 1;
+            true
+        } else {
+            false
+        }
+    }
+    fn eat_word(&mut self, wanted: &str) -> bool {
+        if matches!(self.peek(), Some(WatchToken::Ident(w)) if w == wanted) {
+            self.pos += 1;
+            true
+        } else {
+            false
+        }
+    }
+    fn ident(&mut self) -> Option<String> {
+        match self.peek() {
+            Some(WatchToken::Ident(name)) => {
+                let n = name.clone();
+                self.pos += 1;
+                Some(n)
+            }
+            _ => None,
+        }
+    }
+    fn qualified_type(&mut self) -> Option<String> {
+        let mut out = self.ident()?;
+        while self.eat_punct(".") {
+            out.push('.');
+            out.push_str(&self.ident()?);
+        }
+        Some(out)
+    }
+    fn parse_expr(&mut self, depth: usize) -> Option<WatchAst> {
+        if depth > 48 {
+            return None;
+        }
+        let cond = self.parse_or(depth + 1)?;
+        if self.eat_punct("?") {
+            let yes = self.parse_expr(depth + 1)?;
+            if !self.eat_punct(":") {
+                return None;
+            }
+            let no = self.parse_expr(depth + 1)?;
+            Some(WatchAst::Ternary(
+                Box::new(cond),
+                Box::new(yes),
+                Box::new(no),
+            ))
+        } else {
+            Some(cond)
+        }
+    }
+    fn parse_or(&mut self, depth: usize) -> Option<WatchAst> {
+        let mut lhs = self.parse_and(depth + 1)?;
+        while self.eat_punct("||") || (!self.as3 && self.eat_word("or")) {
+            let rhs = self.parse_and(depth + 1)?;
+            lhs = WatchAst::Binary("||", Box::new(lhs), Box::new(rhs));
+        }
+        Some(lhs)
+    }
+    fn parse_and(&mut self, depth: usize) -> Option<WatchAst> {
+        let mut lhs = self.parse_bitor(depth + 1)?;
+        while self.eat_punct("&&") || (!self.as3 && self.eat_word("and")) {
+            let rhs = self.parse_bitor(depth + 1)?;
+            lhs = WatchAst::Binary("&&", Box::new(lhs), Box::new(rhs));
+        }
+        Some(lhs)
+    }
+    fn parse_bitor(&mut self, depth: usize) -> Option<WatchAst> {
+        let mut lhs = self.parse_bitxor(depth + 1)?;
+        while self.eat_punct("|") {
+            let rhs = self.parse_bitxor(depth + 1)?;
+            lhs = WatchAst::Binary("|", Box::new(lhs), Box::new(rhs));
+        }
+        Some(lhs)
+    }
+    fn parse_bitxor(&mut self, depth: usize) -> Option<WatchAst> {
+        let mut lhs = self.parse_bitand(depth + 1)?;
+        while self.eat_punct("^") {
+            let rhs = self.parse_bitand(depth + 1)?;
+            lhs = WatchAst::Binary("^", Box::new(lhs), Box::new(rhs));
+        }
+        Some(lhs)
+    }
+    fn parse_bitand(&mut self, depth: usize) -> Option<WatchAst> {
+        let mut lhs = self.parse_equality(depth + 1)?;
+        while self.eat_punct("&") {
+            let rhs = self.parse_equality(depth + 1)?;
+            lhs = WatchAst::Binary("&", Box::new(lhs), Box::new(rhs));
+        }
+        Some(lhs)
+    }
+    fn parse_equality(&mut self, depth: usize) -> Option<WatchAst> {
+        let mut lhs = self.parse_relational(depth + 1)?;
+        loop {
+            let op = if self.eat_punct("===") {
+                "==="
+            } else if self.eat_punct("!==") {
+                "!=="
+            } else if self.eat_punct("==") || (!self.as3 && self.eat_word("eq")) {
+                "=="
+            } else if self.eat_punct("!=")
+                || self.eat_punct("<>")
+                || (!self.as3 && self.eat_word("ne"))
+            {
+                "!="
+            } else {
+                break;
+            };
+            let rhs = self.parse_relational(depth + 1)?;
+            lhs = WatchAst::Binary(op, Box::new(lhs), Box::new(rhs));
+        }
+        Some(lhs)
+    }
+    fn parse_relational(&mut self, depth: usize) -> Option<WatchAst> {
+        let mut lhs = self.parse_shift(depth + 1)?;
+        loop {
+            if self.as3 && self.eat_word("as") {
+                let ty = self.qualified_type()?;
+                lhs = WatchAst::AsType(Box::new(lhs), ty);
+                continue;
+            }
+            if self.as3 && self.eat_word("is") {
+                let ty = self.qualified_type()?;
+                lhs = WatchAst::IsType(Box::new(lhs), ty);
+                continue;
+            }
+            let op = if self.eat_punct("<=") || (!self.as3 && self.eat_word("le")) {
+                "<="
+            } else if self.eat_punct(">=") || (!self.as3 && self.eat_word("ge")) {
+                ">="
+            } else if self.eat_punct("<") || (!self.as3 && self.eat_word("lt")) {
+                "<"
+            } else if self.eat_punct(">") || (!self.as3 && self.eat_word("gt")) {
+                ">"
+            } else if self.eat_word("in") {
+                "in"
+            } else if self.eat_word("instanceof") {
+                "instanceof"
+            } else {
+                break;
+            };
+            let rhs = self.parse_shift(depth + 1)?;
+            lhs = WatchAst::Binary(op, Box::new(lhs), Box::new(rhs));
+        }
+        Some(lhs)
+    }
+    fn parse_shift(&mut self, depth: usize) -> Option<WatchAst> {
+        let mut lhs = self.parse_additive(depth + 1)?;
+        loop {
+            let op = if self.eat_punct(">>>") {
+                ">>>"
+            } else if self.eat_punct("<<") {
+                "<<"
+            } else if self.eat_punct(">>") {
+                ">>"
+            } else {
+                break;
+            };
+            let rhs = self.parse_additive(depth + 1)?;
+            lhs = WatchAst::Binary(op, Box::new(lhs), Box::new(rhs));
+        }
+        Some(lhs)
+    }
+    fn parse_additive(&mut self, depth: usize) -> Option<WatchAst> {
+        let mut lhs = self.parse_multiplicative(depth + 1)?;
+        loop {
+            let op = if self.eat_punct("+") || (!self.as3 && self.eat_word("add")) {
+                "+"
+            } else if self.eat_punct("-") {
+                "-"
+            } else {
+                break;
+            };
+            let rhs = self.parse_multiplicative(depth + 1)?;
+            lhs = WatchAst::Binary(op, Box::new(lhs), Box::new(rhs));
+        }
+        Some(lhs)
+    }
+    fn parse_multiplicative(&mut self, depth: usize) -> Option<WatchAst> {
+        let mut lhs = self.parse_unary(depth + 1)?;
+        loop {
+            let op = if self.eat_punct("*") {
+                "*"
+            } else if self.eat_punct("/") {
+                "/"
+            } else if self.eat_punct("%") {
+                "%"
+            } else {
+                break;
+            };
+            let rhs = self.parse_unary(depth + 1)?;
+            lhs = WatchAst::Binary(op, Box::new(lhs), Box::new(rhs));
+        }
+        Some(lhs)
+    }
+    fn parse_unary(&mut self, depth: usize) -> Option<WatchAst> {
+        if depth > 64 {
+            return None;
+        }
+        if self.eat_punct("!") || (!self.as3 && self.eat_word("not")) {
+            return Some(WatchAst::Unary("!", Box::new(self.parse_unary(depth + 1)?)));
+        }
+        if self.eat_punct("+") {
+            return Some(WatchAst::Unary("+", Box::new(self.parse_unary(depth + 1)?)));
+        }
+        if self.eat_punct("-") {
+            return Some(WatchAst::Unary("-", Box::new(self.parse_unary(depth + 1)?)));
+        }
+        if self.eat_punct("~") {
+            return Some(WatchAst::Unary("~", Box::new(self.parse_unary(depth + 1)?)));
+        }
+        if self.eat_word("void") {
+            return Some(WatchAst::Unary(
+                "void ",
+                Box::new(self.parse_unary(depth + 1)?),
+            ));
+        }
+        if self.eat_word("typeof") {
+            let inner = self.parse_unary(depth + 1)?;
+            return Some(match inner {
+                WatchAst::Ident(name) => WatchAst::TypeofIdent(name),
+                other => WatchAst::Unary("typeof ", Box::new(other)),
+            });
+        }
+        self.parse_postfix(depth + 1)
+    }
+    fn parse_args(&mut self, depth: usize) -> Option<Vec<WatchAst>> {
+        let mut args = Vec::new();
+        if !self.eat_punct(")") {
+            loop {
+                args.push(self.parse_expr(depth + 1)?);
+                if self.eat_punct(")") {
+                    break;
+                }
+                if !self.eat_punct(",") {
+                    return None;
+                }
+            }
+        }
+        Some(args)
+    }
+    fn parse_postfix(&mut self, depth: usize) -> Option<WatchAst> {
+        let mut lhs = self.parse_primary(depth + 1)?;
+        loop {
+            if self.eat_punct(".") {
+                let prop = self.ident()?;
+                if self.eat_punct("(") {
+                    let args = self.parse_args(depth + 1)?;
+                    lhs = WatchAst::MethodCall(Box::new(lhs), prop, args);
+                } else {
+                    lhs = WatchAst::Member(Box::new(lhs), prop);
+                }
+            } else if self.eat_punct("[") {
+                let idx = self.parse_expr(depth + 1)?;
+                if !self.eat_punct("]") {
+                    return None;
+                }
+                lhs = WatchAst::Index(Box::new(lhs), Box::new(idx));
+            } else if self.eat_punct("(") {
+                let args = self.parse_args(depth + 1)?;
+                if let WatchAst::Ident(ref name) = lhs
+                    && (name == "int" || (self.as3 && name == "uint"))
+                    && args.len() == 1
+                {
+                    let op = if name == "int" { "| 0" } else { ">>> 0" };
+                    let arg = args.into_iter().next().unwrap();
+                    lhs = WatchAst::TypeCast(op, Box::new(arg));
+                } else {
+                    lhs = WatchAst::Call(Box::new(lhs), args);
+                }
+            } else {
+                break;
+            }
+        }
+        Some(lhs)
+    }
+    fn parse_primary(&mut self, depth: usize) -> Option<WatchAst> {
+        if self.eat_punct("(") {
+            let inner = self.parse_expr(depth + 1)?;
+            if !self.eat_punct(")") {
+                return None;
+            }
+            return Some(WatchAst::Group(Box::new(inner)));
+        }
+        if self.eat_punct("[") {
+            let mut items = Vec::new();
+            if !self.eat_punct("]") {
+                loop {
+                    items.push(self.parse_expr(depth + 1)?);
+                    if self.eat_punct("]") {
+                        break;
+                    }
+                    if !self.eat_punct(",") {
+                        return None;
+                    }
+                }
+            }
+            return Some(WatchAst::Array(items));
+        }
+        if self.eat_punct("{") {
+            let mut entries = Vec::new();
+            if !self.eat_punct("}") {
+                loop {
+                    let key = match self.peek()? {
+                        WatchToken::Ident(k) | WatchToken::Str(k) | WatchToken::Number(k) => {
+                            let k = k.clone();
+                            self.pos += 1;
+                            k
+                        }
+                        _ => return None,
+                    };
+                    if !self.eat_punct(":") {
+                        return None;
+                    }
+                    let val = self.parse_expr(depth + 1)?;
+                    entries.push((key, val));
+                    if self.eat_punct("}") {
+                        break;
+                    }
+                    if !self.eat_punct(",") {
+                        return None;
+                    }
+                }
+            }
+            return Some(WatchAst::Object(entries));
+        }
+        match self.peek()?.clone() {
+            WatchToken::Number(n) | WatchToken::Str(n) => {
+                self.pos += 1;
+                Some(WatchAst::Literal(n))
+            }
+            WatchToken::Ident(w) => {
+                self.pos += 1;
+                match w.as_str() {
+                    "true" | "false" | "null" | "undefined" | "NaN" | "Infinity" => {
+                        Some(WatchAst::Literal(w))
+                    }
+                    "this" => Some(WatchAst::This),
+                    "break" | "case" | "catch" | "class" | "const" | "continue" | "debugger"
+                    | "default" | "delete" | "do" | "else" | "enum" | "export" | "extends"
+                    | "finally" | "for" | "function" | "if" | "import" | "let" | "new"
+                    | "return" | "super" | "switch" | "throw" | "try" | "var" | "while"
+                    | "with" | "yield" | "await" => None,
+                    _ => Some(WatchAst::Ident(w)),
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+fn emit_watch_ast(ast: &WatchAst) -> String {
+    match ast {
+        WatchAst::Literal(v) => v.clone(),
+        WatchAst::This => "__nfWatchThis".into(),
+        WatchAst::Ident(name) => {
+            format!("__nfWatchId({name:?}, () => typeof {name} !== \"undefined\", () => {name})")
+        }
+        WatchAst::Member(base, prop) => {
+            format!("__nfWatchProp({}, {prop:?})", emit_watch_ast(base))
+        }
+        WatchAst::Index(base, idx) => format!(
+            "__nfWatchProp({}, {})",
+            emit_watch_ast(base),
+            emit_watch_ast(idx)
+        ),
+        WatchAst::MethodCall(base, prop, args) => format!(
+            "__nfWatchCall({}, {prop:?}, [{}])",
+            emit_watch_ast(base),
+            args.iter()
+                .map(emit_watch_ast)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        WatchAst::Call(callee, args) => format!(
+            "({})({})",
+            emit_watch_ast(callee),
+            args.iter()
+                .map(emit_watch_ast)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        WatchAst::Unary(op, inner) => format!("({op}{})", emit_watch_ast(inner)),
+        WatchAst::TypeofIdent(name) => format!(
+            "__nfWatchTypeof({name:?}, () => typeof {name} !== \"undefined\", () => {name})"
+        ),
+        WatchAst::Binary(op, lhs, rhs) if *op == "in" || *op == "instanceof" => {
+            format!("({} {op} {})", emit_watch_ast(lhs), emit_watch_ast(rhs))
+        }
+        WatchAst::Binary(op, lhs, rhs) => {
+            format!("({} {op} {})", emit_watch_ast(lhs), emit_watch_ast(rhs))
+        }
+        WatchAst::TypeCast(op, inner) => format!("(Number({}) {op})", emit_watch_ast(inner)),
+        WatchAst::AsType(inner, ty) => format!("__nfWatchAs({}, {ty:?})", emit_watch_ast(inner)),
+        WatchAst::IsType(inner, ty) => format!("__nfWatchIs({}, {ty:?})", emit_watch_ast(inner)),
+        WatchAst::Ternary(c, y, n) => format!(
+            "({} ? {} : {})",
+            emit_watch_ast(c),
+            emit_watch_ast(y),
+            emit_watch_ast(n)
+        ),
+        WatchAst::Array(items) => format!(
+            "[{}]",
+            items
+                .iter()
+                .map(emit_watch_ast)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        WatchAst::Object(entries) => format!(
+            "({{{}}})",
+            entries
+                .iter()
+                .map(|(k, v)| format!("{k}: {}", emit_watch_ast(v)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        WatchAst::Group(inner) => format!("({})", emit_watch_ast(inner)),
+    }
+}
+
+fn translate_actionscript_watch(expr: &str, as3: bool, legacy_case: bool) -> Option<String> {
+    if expr.is_empty() || expr.len() > 2_048 {
+        return None;
+    }
+    let tokens = lex_watch_tokens(expr, !as3)?;
+    if tokens.is_empty() {
+        return None;
+    }
+    let mut parser = WatchParser {
+        tokens,
+        pos: 0,
+        as3,
+    };
+    let ast = parser.parse_expr(0)?;
+    if parser.pos != parser.tokens.len() {
+        return None;
+    }
+    let body = emit_watch_ast(&ast);
+    Some(format!(
+        "(() => {{ \
+const __nfWAs3 = {as3}, __nfWLegacy = {legacy_case}; \
+const __nfWatchThis = (typeof __nfFrame !== \"undefined\" && __nfFrame !== null) ? __nfFrame : ((typeof this !== \"undefined\" && (typeof globalThis === \"undefined\" || this !== globalThis)) ? this : null); \
+const __nfWatchHas = (o, k) => {{ if (o == null || (typeof o !== \"object\" && typeof o !== \"function\")) return false; if (typeof __nfContainerRef === \"function\") {{ try {{ return Boolean(__nfContainerRef(o, k, __nfWAs3, undefined, __nfWLegacy).has()); }} catch (_) {{}} }} return k in o; }}; \
+const __nfWatchProp = (o, k) => {{ if (typeof __nfFamilyPropertyValue === \"function\") return __nfFamilyPropertyValue(o, k, __nfWAs3, undefined, __nfWLegacy); return o[k]; }}; \
+const __nfWatchCall = (o, k, a) => {{ if (typeof __nfContainerMethod === \"function\") return __nfContainerMethod(o, k, __nfWAs3, undefined, __nfWLegacy)(...a); return o[k](...a); }}; \
+const __nfWatchId = (n, hasLex, getLex) => {{ \
+const onGlobal = typeof globalThis !== \"undefined\" && (n in globalThis); \
+if (hasLex()) {{ const v = getLex(); if (!onGlobal || v !== globalThis[n] || !__nfWatchHas(__nfWatchThis, n)) return v; }} \
+if (__nfWatchThis !== null && __nfWatchHas(__nfWatchThis, n)) return __nfWatchProp(__nfWatchThis, n); \
+if (!__nfWAs3 && typeof __nfLegacy !== \"undefined\" && __nfLegacy !== null) {{ \
+if (/^_level\\d+$/.test(n) && typeof __nfLegacy.level === \"function\") return __nfLegacy.level(Number(n.slice(6))); \
+if (typeof __nfLegacy.globalPropRef === \"function\" && (n === \"_quality\" || n === \"_focusrect\" || n === \"_soundbuftime\" || n === \"_highquality\")) return __nfLegacy.globalPropRef(n).get(); \
+if (n in __nfLegacy) return __nfLegacy[n]; \
+if (__nfLegacy._global && (n in __nfLegacy._global)) return __nfLegacy._global[n]; \
+}} \
+if (typeof __nfProgram !== \"undefined\" && __nfProgram !== null && typeof __nfProgram.type === \"function\") {{ try {{ const t = __nfProgram.type(n); if (t !== undefined) return t; }} catch (_) {{}} }} \
+return getLex(); \
+}}; \
+const __nfWatchTypeof = (n, hasLex, getLex) => {{ try {{ return typeof __nfWatchId(n, hasLex, getLex); }} catch (_) {{ return \"undefined\"; }} }}; \
+const __nfWatchIs = (v, t) => {{ if (typeof __nfCatchType === \"function\" && (t === \"Number\" || t === \"String\" || t === \"Boolean\" || t === \"int\" || t === \"uint\" || t === \"Object\" || t === \"Array\" || t === \"Function\")) return Boolean(__nfCatchType(v, t)); if (typeof __nfProgram !== \"undefined\" && __nfProgram !== null && typeof __nfProgram.is === \"function\") {{ try {{ return Boolean(__nfProgram.is(v, t)); }} catch (_) {{}} }} return false; }}; \
+const __nfWatchAs = (v, t) => (__nfWatchIs(v, t) ? v : null); \
+return ({body}); \
+}})()"
+    ))
 }
 
 // Retain the browser's actionable lifecycle explanation without dumping authored data.
@@ -2144,5 +3056,244 @@ mod tests {
         assert_eq!(snap.locals[0].value, "[[0, 1, 0], [1, 1, 1]]");
         assert_eq!(snap.locals[1].value, "Map(1) { \"hp\" => 100 }");
         assert_eq!(snap.locals[2].value, "<proxy>");
+    }
+
+    #[test]
+    fn t404_watch_evaluate_on_call_frame_roundtrip_frame_switch_and_error_formatting() {
+        let mut protocol = connect();
+        let request = parsed(&mut protocol);
+        reply(
+            &mut protocol,
+            &request,
+            json!({"scriptSource": wrapped(&source())}),
+        );
+        let commands = protocol.drain_commands();
+        reply(&mut protocol, &commands[0], json!({}));
+        let breakpoint = commands.last().unwrap().clone();
+        reply(
+            &mut protocol,
+            &breakpoint,
+            json!({"breakpointId":"authored-bp","actualLocation":breakpoint["params"]["location"]}),
+        );
+
+        let w_js = compile_watch_expression("score + 1", ScriptLanguage::JavaScript);
+        assert_eq!(w_js.expression, "score + 1");
+        assert_eq!(w_js.js_expression, "score + 1");
+
+        let w_as2 =
+            compile_watch_expression("hero._x + _root.score", ScriptLanguage::ActionScript2);
+        assert_eq!(w_as2.expression, "hero._x + _root.score");
+        assert!(w_as2.js_expression.contains("__nfWatchProp"));
+        assert!(w_as2.js_expression.contains("\"_x\""));
+        assert!(w_as2.js_expression.contains("\"_root\""));
+
+        let w_as3 = compile_watch_expression("items.length", ScriptLanguage::ActionScript3);
+        assert!(w_as3.js_expression.contains("__nfWAs3 = true"));
+        assert!(w_as3.js_expression.contains("\"length\""));
+
+        // Register watches while Running before pause.
+        protocol
+            .command(DebugCommand::SetWatches(vec![
+                w_js.clone(),
+                WatchRequest::new("items", "items"),
+                WatchRequest::new("missingVar", "missingVar"),
+            ]))
+            .unwrap();
+        assert_eq!(protocol.watch_results().len(), 3);
+        assert_eq!(protocol.watch_results()[0].value, "<not paused>");
+        assert!(protocol.drain_commands().is_empty());
+
+        // Pause with two call frames (frame-top & frame-caller).
+        event(
+            &mut protocol,
+            "Debugger.paused",
+            json!({
+                "reason": "other",
+                "callFrames": [
+                    {
+                        "callFrameId": "frame-top",
+                        "functionName": "inner",
+                        "location": {"scriptId": "script-1", "lineNumber": 5, "columnNumber": 0},
+                        "scopeChain": [{"type": "local", "object": {"type": "object", "objectId": "scope-top"}}]
+                    },
+                    {
+                        "callFrameId": "frame-caller",
+                        "functionName": "outer",
+                        "location": {"scriptId": "script-1", "lineNumber": 6, "columnNumber": 0},
+                        "scopeChain": [{"type": "local", "object": {"type": "object", "objectId": "scope-caller"}}]
+                    }
+                ]
+            }),
+        );
+
+        let batch = protocol.drain_commands();
+        assert_eq!(batch.len(), 4);
+        assert_eq!(batch[0]["method"], "Runtime.getProperties");
+        for (idx, expected_expr) in ["score + 1", "items", "missingVar"].iter().enumerate() {
+            let cmd = &batch[idx + 1];
+            assert_eq!(cmd["method"], "Debugger.evaluateOnCallFrame");
+            assert_eq!(cmd["params"]["callFrameId"], "frame-top");
+            assert_eq!(cmd["params"]["expression"], *expected_expr);
+            assert_eq!(cmd["params"]["silent"], true);
+            assert_eq!(cmd["params"]["returnByValue"], false);
+            assert_eq!(cmd["params"]["generatePreview"], true);
+        }
+
+        reply(&mut protocol, &batch[0], json!({"result": []}));
+        reply(
+            &mut protocol,
+            &batch[1],
+            json!({"result": {"type": "number", "value": 43}}),
+        );
+        reply(
+            &mut protocol,
+            &batch[2],
+            json!({
+                "result": {
+                    "type": "object",
+                    "subtype": "array",
+                    "description": "Array(2)",
+                    "preview": {
+                        "type": "object",
+                        "subtype": "array",
+                        "description": "Array(2)",
+                        "overflow": false,
+                        "properties": [
+                            {"name": "0", "type": "number", "value": "10"},
+                            {"name": "1", "type": "number", "value": "20"}
+                        ]
+                    }
+                }
+            }),
+        );
+        reply(
+            &mut protocol,
+            &batch[3],
+            json!({
+                "result": {
+                    "type": "object",
+                    "subtype": "error",
+                    "description": "ReferenceError: missingVar is not defined\n    at eval"
+                },
+                "exceptionDetails": {
+                    "text": "Uncaught",
+                    "exception": {
+                        "type": "object",
+                        "subtype": "error",
+                        "description": "ReferenceError: missingVar is not defined\n    at eval"
+                    }
+                }
+            }),
+        );
+
+        let watches = protocol.watch_results();
+        assert_eq!(watches[0].value, "43");
+        assert!(!watches[0].is_error);
+        assert_eq!(watches[1].value, "[10, 20]");
+        assert!(!watches[1].is_error);
+        assert_eq!(
+            watches[2].value,
+            "<ReferenceError: missingVar is not defined>"
+        );
+        assert!(watches[2].is_error);
+
+        // SelectFrame(1) re-evaluates all watches on frame-caller and ignores stale replies.
+        protocol.command(DebugCommand::SelectFrame(1)).unwrap();
+        let frame_switch_cmds = protocol.drain_commands();
+        assert_eq!(frame_switch_cmds.len(), 4);
+        assert_eq!(
+            frame_switch_cmds[1]["method"],
+            "Debugger.evaluateOnCallFrame"
+        );
+        assert_eq!(
+            frame_switch_cmds[1]["params"]["callFrameId"],
+            "frame-caller"
+        );
+        reply(
+            &mut protocol,
+            &frame_switch_cmds[1],
+            json!({"result": {"type": "number", "value": 101}}),
+        );
+        // Simulate protocol error on frame_switch_cmds[2]
+        protocol.receive(
+            protocol.epoch(),
+            json!({
+                "id": frame_switch_cmds[2]["id"],
+                "error": {"message": "Cannot find context with specified id"}
+            }),
+        );
+        let snap_after = protocol.snapshot();
+        let watches_after = protocol.watch_results();
+        assert_eq!(snap_after.selected_frame, Some(1));
+        assert_eq!(watches_after[0].value, "101");
+        assert!(!watches_after[0].is_error);
+        assert_eq!(
+            watches_after[1].value,
+            "<Cannot find context with specified id>"
+        );
+        assert!(watches_after[1].is_error);
+
+        // EvaluateWatches re-runs evaluation on the active selected frame without clearing locals.
+        reply(
+            &mut protocol,
+            &frame_switch_cmds[0],
+            json!({"result": [{"name": "callerLocal", "value": {"type": "number", "value": 9}}]}),
+        );
+        assert_eq!(protocol.snapshot().locals.len(), 1);
+        protocol.command(DebugCommand::EvaluateWatches).unwrap();
+        assert_eq!(protocol.snapshot().locals.len(), 1);
+        let eval_cmds = protocol.drain_commands();
+        assert_eq!(eval_cmds.len(), 3);
+        assert_eq!(eval_cmds[0]["params"]["callFrameId"], "frame-caller");
+    }
+
+    #[test]
+    fn t404_actionscript_watch_js_translation_resolves_locals_timeline_and_root() {
+        let as2_x = compile_watch_expression("_x + bonus", ScriptLanguage::ActionScript2);
+        let as2_root =
+            compile_watch_expression("hero._x + _root.score", ScriptLanguage::ActionScript2);
+        let as2_ops =
+            compile_watch_expression("bonus <> 0 and bonus >= 5", ScriptLanguage::ActionScript2);
+        let as3_cast =
+            compile_watch_expression("int(items.length + 2.9)", ScriptLanguage::ActionScript3);
+        let as3_missing =
+            compile_watch_expression("missingWatchSymbol", ScriptLanguage::ActionScript3);
+
+        if let Ok(output) = std::process::Command::new("node")
+            .arg("-e")
+            .arg(format!(
+                r#"
+"use strict";
+globalThis.name = "";
+const _root = {{ score: 300 }};
+const __nfFrame = {{ _x: 40, name: "clip_mc", hero: {{ _x: 120 }}, items: [10, 20, 30] }};
+const __nfContainerRef = (o, k) => ({{ has: () => o != null && (k in o), get: () => o[k] }});
+const __nfFamilyPropertyValue = (o, k) => o[k];
+function pausedCallFrame(bonus) {{
+  const r1 = {e1};
+  const r2 = {e2};
+  const r3 = {e3};
+  const r4 = {e4};
+  const rName = {e_name};
+  let threwRef = false;
+  try {{ void ({e_miss}); }} catch (err) {{ threwRef = err instanceof ReferenceError; }}
+  console.log(JSON.stringify([r1, r2, r3, r4, rName, threwRef]));
+}}
+pausedCallFrame(5);
+"#,
+                e1 = as2_x.js_expression,
+                e2 = as2_root.js_expression,
+                e3 = as2_ops.js_expression,
+                e4 = as3_cast.js_expression,
+                e_name =
+                    compile_watch_expression("name", ScriptLanguage::ActionScript3).js_expression,
+                e_miss = as3_missing.js_expression,
+            ))
+            .output()
+            && output.status.success()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert_eq!(stdout.trim(), r#"[45,420,true,5,"clip_mc",true]"#);
+        }
     }
 }

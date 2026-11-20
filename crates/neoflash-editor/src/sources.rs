@@ -4823,8 +4823,58 @@ impl Editor {
         evaluator.eval(expr).map(|v| v.format_display())
     }
 
+    pub(crate) fn raw_debugger_watch_expressions(&self) -> Vec<String> {
+        self.with_authoring_state(|state| {
+            state
+                .debugger_watches
+                .iter()
+                .map(|w| w.expression.clone())
+                .collect()
+        })
+    }
+
+    pub(crate) fn debugger_watch_draft(&self) -> String {
+        self.with_authoring_state(|state| state.watch_draft.clone())
+    }
+
+    pub(crate) fn sync_watch_values_from_cdp(
+        &mut self,
+        results: &[crate::debugger_protocol::DebugWatchResult],
+    ) {
+        if results.is_empty() {
+            return;
+        }
+        self.with_authoring_state_mut(|state| {
+            for watch in &mut state.debugger_watches {
+                if let Some(cdp) = results.iter().find(|r| r.expression == watch.expression)
+                    && cdp.value != "<not paused>"
+                    && cdp.value != "…"
+                {
+                    watch.last_value = cdp.value.clone();
+                    watch.is_error = cdp.is_error;
+                }
+            }
+        });
+    }
+
     pub fn debugger_watches(&self) -> Vec<WatchExpression> {
-        self.with_authoring_state(|state| state.debugger_watches.clone())
+        let mut watches = self.with_authoring_state(|state| state.debugger_watches.clone());
+        if let Some(snapshot) = self.debugger.snapshot()
+            && snapshot.state == crate::debugger_protocol::DebugState::Paused
+        {
+            let cdp_watches = self.debugger.watch_results();
+            for watch in &mut watches {
+                if let Some(cdp) = cdp_watches
+                    .iter()
+                    .find(|r| r.expression == watch.expression)
+                    && cdp.value != "<not paused>"
+                {
+                    watch.last_value = cdp.value.clone();
+                    watch.is_error = cdp.is_error;
+                }
+            }
+        }
+        watches
     }
 
     pub fn add_debugger_watch(&mut self, expr: impl Into<String>) -> usize {
@@ -4834,7 +4884,7 @@ impl Editor {
             Ok(val) => (val, false),
             Err(err) => (err, true),
         };
-        self.with_authoring_state_mut(|state| {
+        let idx = self.with_authoring_state_mut(|state| {
             let idx = state.debugger_watches.len();
             state.debugger_watches.push(WatchExpression {
                 expression,
@@ -4842,28 +4892,28 @@ impl Editor {
                 is_error,
             });
             idx
-        })
+        });
+        self.sync_debug_watches();
+        idx
     }
 
     pub fn remove_debugger_watch(&mut self, index: usize) -> bool {
-        self.with_authoring_state_mut(|state| {
+        let removed = self.with_authoring_state_mut(|state| {
             if index < state.debugger_watches.len() {
                 state.debugger_watches.remove(index);
                 true
             } else {
                 false
             }
-        })
+        });
+        if removed {
+            self.sync_debug_watches();
+        }
+        removed
     }
 
-    pub fn refresh_debugger_watches(&mut self) {
-        let expressions: Vec<String> = self.with_authoring_state(|state| {
-            state
-                .debugger_watches
-                .iter()
-                .map(|w| w.expression.clone())
-                .collect()
-        });
+    pub(crate) fn refresh_debugger_watches_local(&mut self) {
+        let expressions: Vec<String> = self.raw_debugger_watch_expressions();
         let evaluated: Vec<(String, bool)> = expressions
             .iter()
             .map(|expr| match self.evaluate_debugger_expression(expr) {
@@ -4877,6 +4927,17 @@ impl Editor {
                 watch.is_error = is_err;
             }
         });
+        if let Some(snapshot) = self.debugger.snapshot()
+            && snapshot.state == crate::debugger_protocol::DebugState::Paused
+        {
+            let cdp_watches = self.debugger.watch_results();
+            self.sync_watch_values_from_cdp(&cdp_watches);
+        }
+    }
+
+    pub fn refresh_debugger_watches(&mut self) {
+        self.refresh_debugger_watches_local();
+        self.evaluate_active_debug_watches();
     }
 
     #[allow(dead_code)]
@@ -5022,7 +5083,7 @@ impl Editor {
                     });
 
                 // 2. Watch expressions (add / remove / evaluate)
-                let mut watch_draft = self.with_authoring_state(|state| state.watch_draft.clone());
+                let mut watch_draft = self.debugger_watch_draft();
                 let watches = self.debugger_watches();
                 nf::SectionHeader::new("Watch")
                     .id_salt(("actions-dbg-watch", &session, tab_key))
@@ -5030,18 +5091,43 @@ impl Editor {
                         let mut add_watch_now = false;
                         let mut refresh_now = false;
                         ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = space::s2();
+                            let gap = space::s2();
+                            let control = neoflash_ui::metrics::control();
+                            ui.spacing_mut().item_spacing.x = gap;
+                            let add_label_w = ui
+                                .painter()
+                                .layout_no_wrap(
+                                    "Add watch".to_owned(),
+                                    neoflash_ui::typography::font(neoflash_ui::TextStyle::Body),
+                                    egui::Color32::PLACEHOLDER,
+                                )
+                                .size()
+                                .x;
+                            let add_btn_w = nf::button::button_padding()
+                                + nf::button::button_padding()
+                                + neoflash_ui::metrics::ICON_UI
+                                + gap
+                                + add_label_w;
+                            let max_expr_w =
+                                (ui.available_width() - add_btn_w - control - gap - gap).max(0.0);
+                            let expr_w = max_expr_w.min(neoflash_ui::metrics::field_m());
                             let tf = ui.add(
                                 nf::TextField::new(&mut watch_draft, "Watch expression")
                                     .prefix("Expr")
                                     .hint("Expression")
                                     .mono()
-                                    .width(neoflash_ui::metrics::field_m()),
+                                    .width(expr_w),
                             );
                             if tf.changed() {
-                                self.with_authoring_state_mut(|state| {
-                                    state.watch_draft = watch_draft.clone();
-                                });
+                                self.set_debugger_watch_draft(watch_draft.clone());
+                            }
+                            let mut tf_edit = tf.clone();
+                            tf_edit.id = nf::TextField::edit_id(tf.id);
+                            if (tf_edit.has_focus() || tf_edit.lost_focus())
+                                && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                                && !watch_draft.trim().is_empty()
+                            {
+                                add_watch_now = true;
                             }
                             if ui
                                 .add_enabled(
@@ -5063,7 +5149,7 @@ impl Editor {
                             let expr = watch_draft.trim().to_owned();
                             if !expr.is_empty() {
                                 self.add_debugger_watch(expr);
-                                self.with_authoring_state_mut(|state| state.watch_draft.clear());
+                                self.set_debugger_watch_draft(String::new());
                             }
                         }
                         if refresh_now {
@@ -5071,16 +5157,29 @@ impl Editor {
                         }
                         let mut remove_watch_idx = None;
                         let cols = &[0.0, 0.45];
+                        let row_h = neoflash_ui::metrics::row();
+                        let row_gap = space::s2();
                         for (idx, watch) in watches.iter().enumerate() {
                             ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::s2();
-                                ui.add(nf::TableRow {
-                                    cells: &[&watch.expression, &watch.last_value],
-                                    kind: nf::TableRowKind::Row,
-                                    columns: cols,
-                                });
+                                ui.set_height(row_h);
+                                ui.spacing_mut().item_spacing.x = row_gap;
+                                let table_w = (ui.available_width() - row_h - row_gap).max(0.0);
+                                ui.allocate_ui_with_layout(
+                                    egui::vec2(table_w, row_h),
+                                    egui::Layout::left_to_right(egui::Align::Center),
+                                    |ui| {
+                                        ui.set_width(table_w);
+                                        ui.add(nf::TableRow {
+                                            cells: &[&watch.expression, &watch.last_value],
+                                            kind: nf::TableRowKind::Row,
+                                            columns: cols,
+                                        });
+                                    },
+                                );
                                 if ui
-                                    .add(nf::IconButton::new(i16::TRASH, "Remove watch"))
+                                    .add(
+                                        nf::IconButton::new(i16::TRASH, "Remove watch").side(row_h),
+                                    )
                                     .clicked()
                                 {
                                     remove_watch_idx = Some(idx);

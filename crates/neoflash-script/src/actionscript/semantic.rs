@@ -416,6 +416,7 @@ pub(crate) fn analyze(context: &HintContext<'_>, source: &str) -> SemanticAnalys
     let Some((body, tokens)) = parsed else {
         return output;
     };
+    let class_source = !context.analyze(source).classes().is_empty();
     let mut engine = Engine {
         context,
         script: &script,
@@ -425,10 +426,15 @@ pub(crate) fn analyze(context: &HintContext<'_>, source: &str) -> SemanticAnalys
         snapshots: true,
         fact_budget: 4_194_304,
         inference_depth: 0,
+        token_cursor: 0,
         imports: context.analyze(source).imports(),
         package: context.analyze(source).package_name(),
-        class_source: !context.analyze(source).classes().is_empty(),
+        class_source,
+        class_fields: BTreeMap::new(),
     };
+    if class_source {
+        engine.collect_class_fields(&body);
+    }
     let mut state = engine.initial(&body, &State::new());
     for (name, ty) in &context.instances {
         state.entry(name.clone()).or_insert(Binding {
@@ -456,16 +462,95 @@ struct Engine<'a, 'b> {
     snapshots: bool,
     fact_budget: usize,
     inference_depth: usize,
+    token_cursor: usize,
     imports: Vec<String>,
     package: String,
     class_source: bool,
+    class_fields: BTreeMap<String, String>,
 }
+
+#[derive(Clone, Copy)]
+enum MemberUse<'a> {
+    Read,
+    Assign { op: &'a str, rhs: &'a Value },
+    Call,
+}
+
 impl Engine<'_, '_> {
     fn ty(&self, ty: &str) -> Option<String> {
         resolve_type(self.context, ty, &self.imports, &self.package, false)
     }
     fn signature_type(&self, member: &Member, ty: &str) -> Option<String> {
         member_type(self.context, member, ty)
+    }
+    fn collect_class_fields(&mut self, body: &[Stmt]) {
+        for stmt in body {
+            if let Stmt::Var(vars) = stmt.unlocated() {
+                for (name, declared, init) in vars {
+                    let resolved = declared
+                        .as_deref()
+                        .and_then(|ty| self.ty(ty))
+                        .or_else(|| init.as_ref().and_then(|expr| self.simple_expr_type(expr)));
+                    if let Some(ty) = resolved {
+                        self.class_fields.insert(name.clone(), ty);
+                    }
+                }
+            }
+        }
+    }
+    fn simple_expr_type(&self, expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::NewClass(name, ..)
+            | Expr::NewBuiltin(name, ..)
+            | Expr::NewValue(name, ..)
+            | Expr::NewVector(name, ..)
+            | Expr::NewError(name, ..) => self.ty(name),
+            Expr::XmlLiteral(..) => Some("XML".into()),
+            Expr::RegExpLiteral(..) => Some("RegExp".into()),
+            Expr::Array(..) => Some("Array".into()),
+            Expr::Object(..) => Some("Object".into()),
+            _ => None,
+        }
+    }
+    fn sync_token_cursor(&mut self, byte_offset: usize) {
+        self.token_cursor = self.tokens.partition_point(|t| t.offset < byte_offset);
+    }
+    fn next_member_span(&mut self, name: &str, fallback_at: usize) -> (usize, usize) {
+        let mut idx = self.token_cursor;
+        while idx + 1 < self.tokens.len() {
+            if matches!(self.tokens[idx].kind, Kind::Punct("."))
+                && let Kind::Ident(ref ident) = self.tokens[idx + 1].kind
+                && ident == name
+            {
+                let span = (self.tokens[idx + 1].offset, self.tokens[idx + 1].end);
+                self.token_cursor = idx + 2;
+                return span;
+            }
+            idx += 1;
+        }
+        (fallback_at, fallback_at)
+    }
+    fn advance_chain_spans(&mut self, expr: &Expr, fallback_at: usize) {
+        if let Expr::Member(base, seg) = expr {
+            self.advance_chain_spans(base, fallback_at);
+            let _ = self.next_member_span(seg, fallback_at);
+        }
+    }
+    fn qualified_class_chain(&mut self, expr: &Expr, state: &State, at: usize) -> Option<String> {
+        if !matches!(expr, Expr::Member(..)) {
+            return None;
+        }
+        let (root, full) = raw_member_chain(expr)?;
+        if matches!(root, "this" | "super")
+            || state.contains_key(root)
+            || self.class_fields.contains_key(root)
+            || self.context.instances.iter().any(|(n, _)| n == root)
+        {
+            return None;
+        }
+        let resolved = self.ty(&full)?;
+        self.advance_chain_spans(expr, at);
+        Some(resolved)
     }
     fn new_scope(&mut self, range: Range<usize>, state: &State) -> usize {
         if !self.snapshots {
@@ -533,6 +618,7 @@ impl Engine<'_, '_> {
                             b.declared
                                 .as_ref()
                                 .and_then(|ty| self.ty(ty))
+                                .or_else(|| self.class_fields.get(name).cloned())
                                 .map_or(Value::Unknown, Value::Type)
                         },
                     },
@@ -545,6 +631,11 @@ impl Engine<'_, '_> {
             let value = ty
                 .as_deref()
                 .and_then(|ty| self.ty(ty))
+                .or_else(|| {
+                    (self.class_source && outer.is_empty())
+                        .then(|| self.class_fields.get(&name).cloned())
+                        .flatten()
+                })
                 .map_or(Value::Unknown, Value::Type);
             state.insert(
                 name,
@@ -703,6 +794,9 @@ impl Engine<'_, '_> {
         returns: Option<&str>,
     ) -> Vec<Value> {
         let at = located(stmt);
+        if matches!(stmt, Stmt::Located(..)) {
+            self.sync_token_cursor(at);
+        }
         let mut values = Vec::new();
         match stmt.unlocated() {
             Stmt::Var(vars) => {
@@ -749,18 +843,22 @@ impl Engine<'_, '_> {
                 };
             }
             Stmt::While(condition, body) => {
+                let cond_cursor = self.token_cursor;
                 self.expr(condition, state, captured, at);
                 self.widen_loop(body, state);
                 let before = state.clone();
                 let mut iteration = state.clone();
                 values.extend(self.statement(body, &mut iteration, scope, captured, returns));
+                self.token_cursor = cond_cursor;
                 self.expr(condition, &mut iteration, captured, at);
                 *state = self.join_states(&before, &iteration);
             }
             Stmt::DoWhile(body, condition) => {
+                let body_cursor = self.token_cursor;
                 self.widen_loop(body, state);
                 let before = state.clone();
                 let mut iteration = state.clone();
+                self.token_cursor = body_cursor;
                 values.extend(self.statement(body, &mut iteration, scope, captured, returns));
                 self.expr(condition, &mut iteration, captured, at);
                 *state = self.join_states(&before, &iteration);
@@ -770,6 +868,7 @@ impl Engine<'_, '_> {
                 if let Some(condition) = condition {
                     self.expr(condition, state, captured, at);
                 }
+                let update_cursor = self.token_cursor;
                 self.widen_loop(body, state);
                 if let Some(update) = update {
                     let mut names = BTreeSet::new();
@@ -780,6 +879,7 @@ impl Engine<'_, '_> {
                 let mut iteration = state.clone();
                 values.extend(self.statement(body, &mut iteration, scope, captured, returns));
                 if let Some(update) = update {
+                    self.token_cursor = update_cursor;
                     self.expr(update, &mut iteration, captured, at);
                 }
                 *state = self.join_states(&before, &iteration);
@@ -994,17 +1094,12 @@ impl Engine<'_, '_> {
             }
             Expr::RegExpLiteral(..) => Value::Type("RegExp".into()),
             Expr::Member(base, name) => {
-                let base = self.expr(base, state, captured, at);
-                let (class, statics) = match base {
-                    Value::Type(ty) => (ty, false),
-                    Value::Class(ty) => (ty, true),
-                    _ => return Value::Unknown,
-                };
-                self.context
-                    .members(&class, statics)
-                    .into_iter()
-                    .find(|m| &m.name == name)
-                    .map_or(Value::Unknown, |member| self.member_value(&member))
+                if let Some(qualified) = self.qualified_class_chain(expr, state, at) {
+                    return Value::Class(qualified);
+                }
+                let base_val = self.expr(base, state, captured, at);
+                let span = self.next_member_span(name, at);
+                self.resolve_and_check_member(&base_val, name, MemberUse::Read, span)
             }
             Expr::Index(base, index) => {
                 let value = self.expr(base, state, captured, at);
@@ -1020,10 +1115,27 @@ impl Engine<'_, '_> {
                     .map_or(Value::Unknown, Value::Type)
             }
             Expr::Assign(op, target, expr) => {
-                if !matches!(target.as_ref(), Expr::Name(_)) {
-                    self.expr(target, state, captured, at);
-                }
+                let member_target = match target.as_ref() {
+                    Expr::Name(_) => None,
+                    Expr::Member(base, name) => {
+                        let base_val = self.expr(base, state, captured, at);
+                        let span = self.next_member_span(name, at);
+                        Some((base_val, name.as_str(), span))
+                    }
+                    _ => {
+                        self.expr(target, state, captured, at);
+                        None
+                    }
+                };
                 let value = self.expr(expr, state, captured, at);
+                if let Some((base_val, name, span)) = member_target {
+                    let _ = self.resolve_and_check_member(
+                        &base_val,
+                        name,
+                        MemberUse::Assign { op, rhs: &value },
+                        span,
+                    );
+                }
                 let value = if op == "=" { value } else { Value::Unknown };
                 if let Expr::Name(name) = target.as_ref() {
                     let declared = state.get(name).and_then(|b| b.declared.clone());
@@ -1032,8 +1144,25 @@ impl Engine<'_, '_> {
                 value
             }
             Expr::Update(_, target, _) => {
-                if !matches!(target.as_ref(), Expr::Name(_)) {
-                    self.expr(target, state, captured, at);
+                match target.as_ref() {
+                    Expr::Name(_) => {}
+                    Expr::Member(base, name) => {
+                        let base_val = self.expr(base, state, captured, at);
+                        let span = self.next_member_span(name, at);
+                        let num = Value::Type("Number".into());
+                        let _ = self.resolve_and_check_member(
+                            &base_val,
+                            name,
+                            MemberUse::Assign {
+                                op: "+=",
+                                rhs: &num,
+                            },
+                            span,
+                        );
+                    }
+                    _ => {
+                        self.expr(target, state, captured, at);
+                    }
                 }
                 if let Expr::Name(name) = target.as_ref() {
                     let declared = state.get(name).and_then(|b| b.declared.clone());
@@ -1048,7 +1177,19 @@ impl Engine<'_, '_> {
                 Value::Type("Number".into())
             }
             Expr::Call(callee, args, offset) => {
-                let callee_value = self.expr(callee, state, captured, *offset);
+                let callee_value = match callee.as_ref() {
+                    Expr::Member(base, name) => {
+                        if let Some(qualified) = self.qualified_class_chain(callee, state, *offset)
+                        {
+                            Value::Class(qualified)
+                        } else {
+                            let base_val = self.expr(base, state, captured, *offset);
+                            let span = self.next_member_span(name, *offset);
+                            self.resolve_and_check_member(&base_val, name, MemberUse::Call, span)
+                        }
+                    }
+                    _ => self.expr(callee, state, captured, *offset),
+                };
                 let arguments: Vec<_> = args
                     .iter()
                     .map(|arg| self.expr(arg, state, captured, *offset))
@@ -1073,6 +1214,7 @@ impl Engine<'_, '_> {
                     Value::Class(ty) => Value::Type(ty),
                     _ => Value::Unknown,
                 };
+                self.infer_create_text_field_binding(callee, args, state);
                 invalidate(captured, state, self.script.language);
                 result
             }
@@ -1195,6 +1337,11 @@ impl Engine<'_, '_> {
                 .and_then(|ty| self.ty(ty))
                 .filter(|ty| ty != "Function")
                 .map_or(value.clone(), Value::Type)
+        } else if value == Value::Unknown {
+            declared
+                .and_then(|ty| self.ty(ty))
+                .filter(|ty| ty != "Function")
+                .map_or(Value::Unknown, Value::Type)
         } else {
             value
         };
@@ -1206,6 +1353,325 @@ impl Engine<'_, '_> {
                 value,
             },
         );
+    }
+    fn infer_create_text_field_binding(&self, callee: &Expr, args: &[Expr], state: &mut State) {
+        if self.script.language == ScriptLanguage::ActionScript3 {
+            return;
+        }
+        let is_this_create_tf = match callee {
+            Expr::Name(name) => name == "createTextField",
+            Expr::Member(base, name) => {
+                name == "createTextField" && matches!(base.as_ref(), Expr::Name(b) if b == "this")
+            }
+            _ => false,
+        };
+        if !is_this_create_tf {
+            return;
+        }
+        let Some(Expr::Literal(raw)) = args.first() else {
+            return;
+        };
+        if raw.len() < 3 || !raw.starts_with(['\'', '"']) {
+            return;
+        }
+        let inst = &raw[1..raw.len() - 1];
+        if inst.is_empty()
+            || !inst
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$')
+            || !inst
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+        {
+            return;
+        }
+        if let Some(tf_ty) = self.ty("TextField")
+            && state.get(inst).is_none_or(|b| b.value == Value::Unknown)
+        {
+            state.insert(
+                inst.to_owned(),
+                Binding {
+                    method: false,
+                    declared: Some(tf_ty.clone()),
+                    value: Value::Type(tf_ty),
+                },
+            );
+        }
+    }
+    fn resolve_and_check_member(
+        &mut self,
+        base: &Value,
+        name: &str,
+        access: MemberUse<'_>,
+        span: (usize, usize),
+    ) -> Value {
+        let (class, statics) = match base {
+            Value::Type(ty) => (ty.as_str(), false),
+            Value::Class(ty) => (ty.as_str(), true),
+            _ => return Value::Unknown,
+        };
+        if name == "prototype" {
+            return Value::Type("Object".into());
+        }
+        let as3 = self.script.language == ScriptLanguage::ActionScript3;
+        if !statics && class == self.context.this_class {
+            if let Some(field_ty) = self.class_fields.get(name) {
+                return Value::Type(field_ty.clone());
+            }
+            if let Some((_, inst_ty)) = self.context.instances.iter().find(|(n, _)| n == name) {
+                return Value::Type(inst_ty.clone());
+            }
+        }
+        let members = self.context.members(class, statics);
+        if let Some(member) = members.iter().find(|m| m.name == name) {
+            if !as3
+                && !statics
+                && short_name(class) == "TextField"
+                && name == "html"
+                && matches!(access, MemberUse::Assign { op: "=", rhs } if rhs.ty().as_deref() == Some("String"))
+            {
+                self.emit_owner_warning(
+                    "owner-property-type",
+                    span,
+                    "'TextField.html' is a Boolean flag in ActionScript 2; set 'html = true' and assign HTML markup to 'htmlText' instead.",
+                );
+            } else if matches!(access, MemberUse::Call)
+                && self.is_checked_builtin_owner(class)
+                && !member.callable()
+                && member.kind == "property"
+                && !member.ty.is_empty()
+                && !matches!(member.ty.as_str(), "*" | "Object" | "Function")
+            {
+                let short = short_name(class);
+                self.emit_owner_warning(
+                    "owner-property-type",
+                    span,
+                    format!(
+                        "'{short}.{name}' is a '{0}' property, not a method; read or assign '{name}' without '()'.",
+                        member.ty
+                    ),
+                );
+            }
+            return self.member_value(member);
+        }
+        if statics
+            && matches!(
+                name,
+                "length" | "name" | "toString" | "valueOf" | "call" | "apply"
+            )
+        {
+            return Value::Unknown;
+        }
+        if !statics
+            && (matches!(
+                name,
+                "__proto__"
+                    | "constructor"
+                    | "toString"
+                    | "valueOf"
+                    | "hasOwnProperty"
+                    | "isPrototypeOf"
+                    | "propertyIsEnumerable"
+                    | "toLocaleString"
+            ) || (!as3 && matches!(name, "watch" | "unwatch" | "addProperty" | "__resolve")))
+        {
+            return Value::Unknown;
+        }
+        if !self.is_checked_builtin_owner(class) {
+            return Value::Unknown;
+        }
+        // In AS3 E4X, reading or writing arbitrary child tag names on XML/XMLList is valid, except
+        // known AS2 DOM/callback properties; method calls on XML/XMLList must still be real methods.
+        if as3
+            && !statics
+            && matches!(class, "XML" | "XMLList")
+            && !matches!(access, MemberUse::Call)
+            && !is_as2_legacy_xml_property(name)
+        {
+            return Value::Type("XMLList".into());
+        }
+        let lineage = self.context.flow_lineage(class);
+        if let Some(missing) = self
+            .context
+            .api
+            .missing
+            .iter()
+            .find(|m| m.is_static == statics && m.name == name && lineage.contains(&m.owner))
+        {
+            let short = short_name(class);
+            let guidance = unsupported_member_guidance(short, &missing.name, as3);
+            self.emit_owner_warning(
+                "owner-unsupported-member",
+                span,
+                format!("'{short}.{name}' is not supported in NeoFlash yet; {guidance}"),
+            );
+            return Value::Unknown;
+        }
+        let (code, message) =
+            self.describe_invalid_owner_member(class, statics, name, access, &members);
+        self.emit_owner_warning(code, span, message);
+        Value::Unknown
+    }
+    fn is_checked_builtin_owner(&self, class: &str) -> bool {
+        if !self.context.api.classes.contains_key(class) {
+            return false;
+        }
+        let short = short_name(class);
+        if matches!(
+            short,
+            "" | "*"
+                | "Object"
+                | "MovieClip"
+                | "Array"
+                | "Function"
+                | "Class"
+                | "Dictionary"
+                | "LoadVars"
+                | "NetConnection"
+                | "Proxy"
+        ) || short.ends_with("Error")
+        {
+            return false;
+        }
+        matches!(
+            short,
+            "TextField"
+                | "TextFormat"
+                | "StyleSheet"
+                | "Stage"
+                | "Sound"
+                | "SoundChannel"
+                | "SoundTransform"
+                | "NetStream"
+                | "BitmapData"
+                | "Bitmap"
+                | "Graphics"
+                | "Button"
+                | "SimpleButton"
+                | "ContextMenu"
+                | "ContextMenuItem"
+                | "SharedObject"
+                | "XML"
+                | "XMLNode"
+                | "XMLList"
+                | "Sprite"
+                | "Shape"
+        )
+    }
+    fn describe_invalid_owner_member(
+        &self,
+        class: &str,
+        statics: bool,
+        name: &str,
+        access: MemberUse<'_>,
+        members: &[Member],
+    ) -> (&'static str, String) {
+        let as3 = self.script.language == ScriptLanguage::ActionScript3;
+        let short = short_name(class);
+        if as3 && statics && short == "Stage" {
+            let inst_replacement = match name {
+                "width" => Some("stageWidth"),
+                "height" => Some("stageHeight"),
+                "addListener" => Some("addEventListener(...)"),
+                "removeListener" => Some("removeEventListener(...)"),
+                other
+                    if self
+                        .context
+                        .members(class, false)
+                        .iter()
+                        .any(|m| m.name == other) =>
+                {
+                    Some(other)
+                }
+                _ => None,
+            };
+            if let Some(rep) = inst_replacement {
+                return (
+                    "owner-unknown-member",
+                    format!(
+                        "'Stage.{name}' is not a static member in ActionScript 3; access 'stage.{rep}' on a DisplayObject's 'stage' instance instead."
+                    ),
+                );
+            }
+        }
+        if !statics && is_on_callback_name(name) {
+            if as3 {
+                if short == "NetStream"
+                    && matches!(
+                        name,
+                        "onMetaData"
+                            | "onCuePoint"
+                            | "onPlayStatus"
+                            | "onTextData"
+                            | "onXMPData"
+                            | "onImageData"
+                    )
+                {
+                    return (
+                        "owner-invalid-callback",
+                        format!(
+                            "'NetStream.{name}' is not a direct property in ActionScript 3; assign a callback object to 'client' (e.g. 'ns.client = {{ {name}: handler }}') instead."
+                        ),
+                    );
+                }
+                let replacement = as3_event_replacement(short, name);
+                return (
+                    "owner-invalid-callback",
+                    format!(
+                        "'{short}' does not support ActionScript 2 '{name}' callbacks in ActionScript 3; use '{replacement}' instead."
+                    ),
+                );
+            } else {
+                let events: Vec<&str> = members
+                    .iter()
+                    .filter(|m| m.kind == "event")
+                    .map(|m| m.name.as_str())
+                    .collect();
+                let specific = as2_callback_hint(short, name, &events);
+                return (
+                    "owner-invalid-callback",
+                    format!(
+                        "'{short}' has no callback slot '{name}' in ActionScript 2; {specific}"
+                    ),
+                );
+            }
+        }
+        if let Some(curated) = curated_owner_member_hint(short, statics, name, as3) {
+            return ("owner-unknown-member", curated);
+        }
+        let kind_word = if matches!(access, MemberUse::Call) {
+            "method"
+        } else if statics {
+            "static member"
+        } else {
+            "member"
+        };
+        if let Some(suggestion) = closest_member_name(name, members) {
+            return (
+                "owner-unknown-member",
+                format!("'{short}' has no {kind_word} '{name}'; did you mean '{suggestion}'?"),
+            );
+        }
+        let examples = fallback_owner_examples(short, statics, as3);
+        (
+            "owner-unknown-member",
+            format!("'{short}' has no {kind_word} '{name}'; {examples}"),
+        )
+    }
+    fn emit_owner_warning(&mut self, code: &str, span: (usize, usize), message: impl Into<String>) {
+        if !self.diagnose || self.output.diagnostics.len() >= 128 {
+            return;
+        }
+        let mut diagnostic = if span.1 > span.0 {
+            Diagnostic::at_span(self.script, span, message)
+        } else {
+            Diagnostic::at(self.script, span.0, message)
+        };
+        diagnostic.code = Some(code.into());
+        diagnostic.severity = DiagnosticSeverity::Warning;
+        diagnostic.fixes.clear();
+        self.output.diagnostics.push(diagnostic);
     }
     fn mismatch(&mut self, code: &str, at: usize, actual: &str, expected: &str, label: &str) {
         if !self.diagnose
@@ -1301,6 +1767,387 @@ impl Engine<'_, '_> {
         let mut writes = BTreeSet::new();
         statement_writes(body, &mut writes);
         invalidate(&writes, state, self.script.language);
+    }
+}
+
+fn raw_member_chain(expr: &Expr) -> Option<(&str, String)> {
+    match expr {
+        Expr::Name(root) => Some((root.as_str(), root.clone())),
+        Expr::Member(base, seg) => {
+            let (root, mut prefix) = raw_member_chain(base)?;
+            prefix.push('.');
+            prefix.push_str(seg);
+            Some((root, prefix))
+        }
+        _ => None,
+    }
+}
+
+fn is_on_callback_name(name: &str) -> bool {
+    name.len() > 2
+        && name.starts_with("on")
+        && name[2..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_uppercase())
+}
+
+fn is_as2_legacy_xml_property(name: &str) -> bool {
+    matches!(
+        name,
+        "onLoad"
+            | "onData"
+            | "onHTTPStatus"
+            | "ignoreWhite"
+            | "firstChild"
+            | "lastChild"
+            | "childNodes"
+            | "nextSibling"
+            | "previousSibling"
+            | "nodeName"
+            | "nodeValue"
+            | "nodeType"
+            | "loaded"
+            | "status"
+            | "contentType"
+            | "docTypeDecl"
+            | "xmlDecl"
+    )
+}
+
+fn unsupported_member_guidance(short: &str, name: &str, as3: bool) -> &'static str {
+    match (short, name) {
+        ("BitmapData", "lock" | "unlock") => {
+            "pixel updates apply directly in NeoFlash without 'lock()' or 'unlock()'."
+        }
+        ("NetStream", "attachAudio" | "attachVideo" | "attachCamera" | "publish") => {
+            "use 'NetStream.play(url)' for local/HTTP media playback."
+        }
+        ("Stage", "quality" | "colorCorrection" | "wmodeGPU" | "mouseLock") => {
+            if as3 {
+                "use supported Stage properties such as 'scaleMode', 'align', 'stageWidth', or 'stageHeight'."
+            } else {
+                "use supported Stage properties such as 'Stage.scaleMode', 'Stage.align', 'Stage.width', or 'Stage.height'."
+            }
+        }
+        _ => "check the Scripting Reference for supported Flash APIs on this class.",
+    }
+}
+
+fn as3_event_replacement(short: &str, name: &str) -> &'static str {
+    if short == "XML" && matches!(name, "onLoad" | "onData" | "onHTTPStatus") {
+        return "URLLoader with addEventListener(Event.COMPLETE, handler)";
+    }
+    match name {
+        "onChanged" | "onChange" => "addEventListener(Event.CHANGE, handler)",
+        "onScroller" | "onScroll" => "addEventListener(Event.SCROLL, handler)",
+        "onSetFocus" => "addEventListener(FocusEvent.FOCUS_IN, handler)",
+        "onKillFocus" => "addEventListener(FocusEvent.FOCUS_OUT, handler)",
+        "onRelease" | "onClick" => "addEventListener(MouseEvent.CLICK, handler)",
+        "onPress" | "onMouseDown" => "addEventListener(MouseEvent.MOUSE_DOWN, handler)",
+        "onMouseUp" | "onReleaseOutside" => "addEventListener(MouseEvent.MOUSE_UP, handler)",
+        "onRollOver" => "addEventListener(MouseEvent.ROLL_OVER, handler)",
+        "onRollOut" => "addEventListener(MouseEvent.ROLL_OUT, handler)",
+        "onEnterFrame" => "addEventListener(Event.ENTER_FRAME, handler)",
+        "onResize" => "addEventListener(Event.RESIZE, handler)",
+        "onFullScreen" => "addEventListener(FullScreenEvent.FULL_SCREEN, handler)",
+        "onSoundComplete" | "onComplete" if short == "Sound" => {
+            "SoundChannel.addEventListener(Event.SOUND_COMPLETE, handler)"
+        }
+        "onID3" => "addEventListener(Event.ID3, handler)",
+        "onSync" => "addEventListener(SyncEvent.SYNC, handler)",
+        "onStatus" => "addEventListener(NetStatusEvent.NET_STATUS, handler)",
+        "onSelect" => "addEventListener(ContextMenuEvent.MENU_SELECT, handler)",
+        "onLoad" | "onData" => "addEventListener(Event.COMPLETE, handler)",
+        _ => "addEventListener(eventType, handler)",
+    }
+}
+
+fn as2_callback_hint(short: &str, name: &str, valid_events: &[&str]) -> String {
+    let direct = match (short, name) {
+        ("TextField", "onChange" | "onInput") => Some("use 'onChanged' instead."),
+        ("Button", "onClick") => Some("use 'onRelease' or 'onPress' instead."),
+        ("Sound", "onComplete" | "onEnded") => Some("use 'onSoundComplete' or 'onLoad' instead."),
+        ("XML", "onComplete") => Some("use 'onLoad' or 'onData' instead."),
+        ("SharedObject", "onChange") => Some("use 'onSync' or 'onStatus' instead."),
+        _ => None,
+    };
+    if let Some(msg) = direct {
+        return msg.to_owned();
+    }
+    if valid_events.is_empty() {
+        return format!(
+            "'{short}' does not dispatch 'on*' callback properties; use supported {short} methods instead."
+        );
+    }
+    let listed = valid_events
+        .iter()
+        .take(4)
+        .map(|ev| format!("'{ev}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("use supported {short} callback slots such as {listed}.")
+}
+
+fn curated_owner_member_hint(short: &str, statics: bool, name: &str, as3: bool) -> Option<String> {
+    if !as3 && matches!(name, "addEventListener" | "removeEventListener") {
+        let alt = match short {
+            "Stage" => "'Stage.addListener(listener)'",
+            "TextField" => {
+                "'onChanged', 'onScroller', 'onSetFocus', or 'TextField.addListener(listener)'"
+            }
+            "Button" => "'onRelease', 'onPress', 'onRollOver', or 'onRollOut'",
+            "Sound" => "'onSoundComplete', 'onLoad', or 'onID3'",
+            "NetStream" => "'onStatus' or 'onMetaData'",
+            "SharedObject" => "'onSync' or 'onStatus'",
+            "ContextMenu" => "'onSelect'",
+            "XML" => "'onLoad' or 'onData'",
+            _ => "ActionScript 2 callback properties",
+        };
+        return Some(format!(
+            "'{short}.{name}' is an ActionScript 3 EventDispatcher method; in ActionScript 2 use {alt} instead."
+        ));
+    }
+    if statics {
+        return None;
+    }
+    if as3
+        && matches!(
+            short,
+            "TextField" | "Stage" | "SimpleButton" | "Bitmap" | "Sprite" | "Shape"
+        )
+        && let Some(as3_prop) = match name {
+            "_x" => Some("x"),
+            "_y" => Some("y"),
+            "_width" => Some("width"),
+            "_height" => Some("height"),
+            "_alpha" => Some("alpha (0.0..1.0)"),
+            "_visible" => Some("visible"),
+            "_xscale" => Some("scaleX (0.0..1.0)"),
+            "_yscale" => Some("scaleY (0.0..1.0)"),
+            "_rotation" => Some("rotation"),
+            "_name" => Some("name"),
+            "_parent" => Some("parent"),
+            "_xmouse" => Some("mouseX"),
+            "_ymouse" => Some("mouseY"),
+            _ => None,
+        }
+    {
+        return Some(format!(
+            "'{short}' has no ActionScript 2 property '{name}' in ActionScript 3; use '{as3_prop}' instead."
+        ));
+    }
+    if !as3
+        && matches!(short, "TextField" | "Button")
+        && let Some(as2_prop) = match name {
+            "x" => Some("_x"),
+            "y" => Some("_y"),
+            "width" => Some("_width"),
+            "height" => Some("_height"),
+            "alpha" => Some("_alpha (0..100)"),
+            "visible" => Some("_visible"),
+            "scaleX" => Some("_xscale"),
+            "scaleY" => Some("_yscale"),
+            "rotation" => Some("_rotation"),
+            "name" => Some("_name"),
+            "parent" => Some("_parent"),
+            _ => None,
+        }
+    {
+        return Some(format!(
+            "'{short}' uses ActionScript 2 underscore property '{as2_prop}' instead of '{name}'."
+        ));
+    }
+    match (short, name) {
+        ("TextField", "innerHTML") => Some(
+            "'TextField' has no DOM 'innerHTML' property; use 'htmlText' instead.".into(),
+        ),
+        ("TextField", "innerText" | "textContent" | "value") => Some(format!(
+            "'TextField' has no DOM '{name}' property; use 'text' instead."
+        )),
+        ("TextField", "html") if as3 => Some(
+            "'TextField' has no 'html' flag in ActionScript 3; assign HTML markup directly to 'htmlText'.".into(),
+        ),
+        ("TextField", "variable") if as3 => Some(
+            "'TextField.variable' was removed in ActionScript 3; read and assign 'text' directly.".into(),
+        ),
+        ("TextField", "appendText") if !as3 => Some(
+            "'TextField.appendText' is ActionScript 3 only; in ActionScript 2 use 'tf.text += ...' or 'replaceSel(...)'.".into(),
+        ),
+        ("Graphics", "fillRect") => Some(
+            "'Graphics' has no 'fillRect' method; use 'beginFill(color, alpha)', 'drawRect(x, y, width, height)', and 'endFill()' (or 'BitmapData.fillRect' for pixel buffers).".into(),
+        ),
+        ("Graphics", "strokeRect") => Some(
+            "'Graphics' has no 'strokeRect' method; use 'lineStyle(thickness, color, alpha)' and 'drawRect(x, y, width, height)' instead.".into(),
+        ),
+        ("Graphics", "clearRect") => Some(
+            "'Graphics' has no 'clearRect' method; use 'clear()' to reset vector commands.".into(),
+        ),
+        ("Graphics", "arc") => Some(
+            "'Graphics' has no Canvas 'arc' method; use 'drawCircle(x, y, radius)' or 'curveTo(...)' instead.".into(),
+        ),
+        ("Graphics", "fillStyle" | "fillColor") => Some(format!(
+            "'Graphics' has no '{name}' property; call 'beginFill(color, alpha)' before drawing."
+        )),
+        ("Graphics", "strokeStyle" | "lineWidth") => Some(format!(
+            "'Graphics' has no '{name}' property; call 'lineStyle(thickness, color, alpha)' instead."
+        )),
+        ("Graphics", "beginPath") => Some(
+            "'Graphics' has no 'beginPath' method; call 'moveTo(x, y)' or 'beginFill(color, alpha)' directly.".into(),
+        ),
+        ("Graphics", "closePath") => Some(
+            "'Graphics' has no 'closePath' method; call 'endFill()' to close a filled shape.".into(),
+        ),
+        ("BitmapData", "clear") => Some(
+            "'BitmapData' has no 'clear' method; call 'fillRect(bmp.rect, 0x00000000)' instead.".into(),
+        ),
+        ("BitmapData", "putPixel") => Some(
+            "'BitmapData' has no 'putPixel' method; use 'setPixel(x, y, color)' or 'setPixel32(x, y, color)' instead.".into(),
+        ),
+        ("BitmapData", "drawRect") => Some(
+            "'BitmapData' has no 'drawRect' method; use 'fillRect(new Rectangle(x, y, width, height), color)' instead.".into(),
+        ),
+        ("BitmapData", "getContext" | "toDataURL") => Some(format!(
+            "'BitmapData' has no HTML5 Canvas '{name}' method; use Flash BitmapData APIs such as 'draw()', 'fillRect()', 'getPixel32()', or 'setPixel32()'."
+        )),
+        ("Sound", "start") if as3 => Some(
+            "'Sound.start' is ActionScript 2 only; in ActionScript 3 call 'play(startTime, loops, sndTransform)' instead.".into(),
+        ),
+        ("Sound", "stop") if as3 => Some(
+            "'Sound.stop' is ActionScript 2 only; in ActionScript 3 call 'stop()' on the 'SoundChannel' returned by 'Sound.play()', or 'SoundMixer.stopAll()'.".into(),
+        ),
+        ("Sound", "setVolume" | "getVolume" | "volume") if as3 => Some(format!(
+            "'Sound.{name}' is not available on ActionScript 3 'Sound'; adjust 'SoundChannel.soundTransform = new SoundTransform(volume)' instead."
+        )),
+        ("Sound", "attachSound") if as3 => Some(
+            "'Sound.attachSound' is ActionScript 2 only; in ActionScript 3 instantiate the exported Sound linkage class with 'new'.".into(),
+        ),
+        ("Sound", "loadSound") if as3 => Some(
+            "'Sound.loadSound' is ActionScript 2 only; in ActionScript 3 call 'load(new URLRequest(url))' instead.".into(),
+        ),
+        ("Sound", "play") if !as3 => Some(
+            "'Sound.play' is ActionScript 3 only; in ActionScript 2 call 'start(secondOffset, loops)' instead.".into(),
+        ),
+        ("Sound", "volume") if !as3 => Some(
+            "'Sound' has no 'volume' property in ActionScript 2; use 'setVolume(value)' and 'getVolume()' instead.".into(),
+        ),
+        ("SharedObject", "setItem" | "getItem" | "removeItem") => Some(format!(
+            "'SharedObject' has no Web Storage '{name}' method; read/write properties on 'data' (e.g. 'so.data.key = value') and call 'flush()'."
+        )),
+        ("SharedObject", "save") => Some(
+            "'SharedObject' has no 'save' method; call 'flush()' to persist 'data'.".into(),
+        ),
+        ("NetStream", "setBufferTime") if as3 => Some(
+            "'NetStream.setBufferTime' was replaced in ActionScript 3 by assigning 'bufferTime = seconds'.".into(),
+        ),
+        ("NetStream", "resume" | "togglePause") if !as3 => Some(format!(
+            "'NetStream.{name}' is ActionScript 3 only; in ActionScript 2 call 'pause(false)' or 'pause()' instead."
+        )),
+        ("XML", "load" | "sendAndLoad") if as3 => Some(format!(
+            "'XML.{name}' is ActionScript 2 only; in ActionScript 3 load text with 'URLLoader' + 'URLRequest' and parse via 'new XML(loader.data)'."
+        )),
+        ("XML", "parseXML") if as3 => Some(
+            "'XML.parseXML' is ActionScript 2 only; in ActionScript 3 construct 'new XML(markup)' directly.".into(),
+        ),
+        ("XML", "ignoreWhite") if as3 => Some(
+            "'XML.ignoreWhite' is ActionScript 2 only; in ActionScript 3 set static 'XML.ignoreWhitespace = true'.".into(),
+        ),
+        ("XML", "firstChild" | "lastChild" | "childNodes" | "nextSibling" | "previousSibling" | "nodeName" | "nodeValue" | "nodeType") if as3 => Some(format!(
+            "'XML.{name}' is an ActionScript 2 DOM property; in ActionScript 3 use E4X methods such as 'children()', 'elements()', 'name()', or 'text()' (or 'flash.xml.XMLDocument')."
+        )),
+        ("XML" | "XMLNode", "children" | "elements" | "toXMLString") if !as3 => Some(format!(
+            "'{short}.{name}' is an ActionScript 3 E4X method; in ActionScript 2 use 'childNodes', 'firstChild', or 'toString()'."
+        )),
+        _ => None,
+    }
+}
+
+fn closest_member_name(target: &str, members: &[Member]) -> Option<String> {
+    if target.len() < 3 {
+        return None;
+    }
+    if let Some(case_match) = members
+        .iter()
+        .find(|m| m.name.eq_ignore_ascii_case(target) && m.name != target)
+    {
+        return Some(case_match.name.clone());
+    }
+    let max_dist = if target.len() >= 7 { 2 } else { 1 };
+    members
+        .iter()
+        .filter_map(|m| {
+            let d = crate::levenshtein_distance(target, &m.name);
+            (d > 0 && d <= max_dist).then_some((d, &m.name))
+        })
+        .min_by_key(|(d, name)| (*d, name.len()))
+        .map(|(_, name)| name.clone())
+}
+
+fn fallback_owner_examples(short: &str, statics: bool, as3: bool) -> &'static str {
+    if statics {
+        return match (short, as3) {
+            ("SharedObject", _) => {
+                "use 'SharedObject.getLocal(name)' or 'SharedObject.getRemote(...)'."
+            }
+            ("BitmapData", false) => {
+                "use 'BitmapData.loadBitmap(id)' or construct 'new BitmapData(width, height)'."
+            }
+            ("Stage", false) => {
+                "use 'Stage.scaleMode', 'Stage.align', 'Stage.width', 'Stage.height', or 'Stage.addListener(listener)'."
+            }
+            ("XML", true) => {
+                "use 'XML.ignoreWhitespace', 'XML.prettyPrinting', or 'XML.settings()'."
+            }
+            _ => "check the Scripting Reference for supported static members on this class.",
+        };
+    }
+    match (short, as3) {
+        ("TextField", true) => {
+            "use supported TextField APIs such as 'text', 'htmlText', 'defaultTextFormat', or 'setTextFormat()'."
+        }
+        ("TextField", false) => {
+            "use supported TextField APIs such as 'text', 'html', 'htmlText', or 'setTextFormat()'."
+        }
+        ("Graphics", _) => {
+            "use supported Graphics APIs such as 'beginFill()', 'lineStyle()', 'drawRect()', 'drawCircle()', 'moveTo()', 'lineTo()', and 'endFill()'."
+        }
+        ("BitmapData", _) => {
+            "use supported BitmapData APIs such as 'fillRect()', 'draw()', 'copyPixels()', 'getPixel32()', or 'setPixel32()'."
+        }
+        ("Sound", true) => {
+            "use supported Sound APIs such as 'load()', 'play()', 'close()', or 'addEventListener()'."
+        }
+        ("Sound", false) => {
+            "use supported Sound APIs such as 'attachSound()', 'loadSound()', 'start()', 'stop()', or 'setVolume()'."
+        }
+        ("Stage", true) => {
+            "use supported Stage APIs such as 'scaleMode', 'align', 'stageWidth', 'stageHeight', or 'addEventListener()'."
+        }
+        ("Stage", false) => {
+            "use supported Stage APIs such as 'Stage.scaleMode', 'Stage.align', 'Stage.width', 'Stage.height', or 'Stage.addListener()'."
+        }
+        ("NetStream", _) => {
+            "use supported NetStream APIs such as 'play()', 'pause()', 'seek()', 'close()', or 'time'."
+        }
+        ("SimpleButton", _) => {
+            "use supported SimpleButton APIs such as 'upState', 'overState', 'downState', 'hitTestState', 'enabled', or 'addEventListener()'."
+        }
+        ("Button", _) => {
+            "use supported Button APIs such as 'enabled', 'useHandCursor', '_visible', 'onRelease', or 'onPress'."
+        }
+        ("ContextMenu", _) => {
+            "use supported ContextMenu APIs such as 'customItems', 'builtInItems', or 'hideBuiltInItems()'."
+        }
+        ("SharedObject", _) => {
+            "use supported SharedObject APIs such as 'data', 'flush()', 'clear()', or 'size'."
+        }
+        ("XML" | "XMLList", true) => {
+            "use supported E4X methods such as 'children()', 'elements()', 'attribute()', 'appendChild()', or 'toXMLString()'."
+        }
+        ("XML" | "XMLNode", false) => {
+            "use supported XML APIs such as 'load()', 'parseXML()', 'firstChild', 'childNodes', 'attributes', or 'appendChild()'."
+        }
+        _ => "check the Scripting Reference for supported Flash APIs on this class.",
     }
 }
 fn numeric(ty: &str) -> bool {

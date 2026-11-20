@@ -318,7 +318,9 @@ impl Editor {
                                 frame.function_name, frame.generated_url, frame.generated_line
                             )
                         });
-                    let selected = snapshot.as_ref().is_some_and(|snapshot| snapshot.selected_frame == Some(index));
+                    let selected = snapshot
+                        .as_ref()
+                        .is_some_and(|snapshot| snapshot.selected_frame == Some(index));
                     let icon = if selected {
                         i16::EXEC_ARROW
                     } else {
@@ -372,15 +374,114 @@ impl Editor {
                 }
             });
             column(ui, "Watch", watch_width, |ui| {
+                let mut watch_draft = self.debugger_watch_draft();
+                let watches = self.debugger_watches();
+                let mut add_watch_now = false;
+                let mut refresh_now = false;
+                let control = neoflash_ui::metrics::control();
+                let row_h = neoflash_ui::metrics::row();
+                let pad = space::s3();
+                ui.add_space(space::s1());
                 ui.horizontal(|ui| {
-                    ui.add_space(space::s3());
-                    ui.add(
-                        c::InlineMessage::info(
-                            "Watch expressions are not available yet. Inspect read-only values in Variables while paused.",
-                        )
-                        .width(ui.available_width() - space::s3()),
+                    ui.set_height(control);
+                    ui.spacing_mut().item_spacing.x = gap;
+                    ui.add_space(pad);
+                    let expr_width =
+                        (ui.available_width() - pad - control - control - gap - gap).max(0.0);
+                    let tf = ui.add(
+                        c::TextField::new(&mut watch_draft, "Watch expression")
+                            .prefix("Expr")
+                            .hint("Expression")
+                            .mono()
+                            .width(expr_width),
                     );
+                    if tf.changed() {
+                        self.set_debugger_watch_draft(watch_draft.clone());
+                    }
+                    let mut tf_edit = tf.clone();
+                    tf_edit.id = c::TextField::edit_id(tf.id);
+                    if (tf_edit.has_focus() || tf_edit.lost_focus())
+                        && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                        && !watch_draft.trim().is_empty()
+                    {
+                        add_watch_now = true;
+                    }
+                    if ui
+                        .add_enabled_semantic(
+                            !watch_draft.trim().is_empty(),
+                            c::IconButton::new(i16::PLUS, "Add watch"),
+                        )
+                        .clicked()
+                    {
+                        add_watch_now = true;
+                    }
+                    if ui
+                        .add(c::IconButton::new(i16::REFRESH, "Evaluate watches"))
+                        .clicked()
+                    {
+                        refresh_now = true;
+                    }
                 });
+                if add_watch_now {
+                    let expr = watch_draft.trim().to_owned();
+                    if !expr.is_empty() {
+                        self.add_debugger_watch(expr);
+                        self.set_debugger_watch_draft(String::new());
+                    }
+                }
+                if refresh_now {
+                    self.refresh_debugger_watches();
+                }
+                ui.add_space(space::s2());
+                let full_table_w = ui.available_width();
+                let header_cols = &[0.0, 0.45];
+                ui.add(c::TableRow {
+                    cells: &["Name", "Value"],
+                    kind: c::TableRowKind::Header,
+                    columns: header_cols,
+                });
+                let mut remove_watch_idx = None;
+                let row_gap = space::s1();
+                let row_pad = space::s2();
+                for (idx, watch) in watches.iter().enumerate() {
+                    let display_value = if snapshot.is_some() && !has_paused_frame {
+                        "<not paused>"
+                    } else {
+                        watch.last_value.as_str()
+                    };
+                    ui.horizontal(|ui| {
+                        ui.set_height(row_h);
+                        ui.spacing_mut().item_spacing.x = row_gap;
+                        let table_w = (ui.available_width() - row_h - row_gap - row_pad).max(0.0);
+                        let value_col = if table_w > 0.0 {
+                            (0.45 * full_table_w / table_w).min(0.85)
+                        } else {
+                            0.45
+                        };
+                        let row_cols = [0.0, value_col];
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(table_w, row_h),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                ui.set_width(table_w);
+                                ui.add(c::TableRow {
+                                    cells: &[&watch.expression, display_value],
+                                    kind: c::TableRowKind::Row,
+                                    columns: &row_cols,
+                                });
+                            },
+                        );
+                        if ui
+                            .add(c::IconButton::new(i16::TRASH, "Remove watch").side(row_h))
+                            .clicked()
+                        {
+                            remove_watch_idx = Some(idx);
+                        }
+                    });
+                }
+                if let Some(idx) = remove_watch_idx {
+                    self.remove_debugger_watch(idx);
+                }
                 column_title(ui, "Breakpoints");
                 let requested_breakpoints: Vec<crate::debugger_protocol::AuthoredBreakpoint> =
                     if let Some(snapshot) = &snapshot {
@@ -396,20 +497,25 @@ impl Editor {
                     let label = format!("{} · line {}", requested.source, requested.line);
                     // One `row()` per breakpoint.
                     let row = egui::vec2(ui.available_width(), neoflash_ui::metrics::row());
-                    ui.allocate_ui_with_layout(row, egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = space::s2();
-                        ui.add_space(space::s3());
-                        icons::show(ui, i16::BREAKPOINT, nf.syntax_breakpoint);
-                        let mut enabled = true;
-                        if ui.add(c::Checkbox::new(&mut enabled, &label)).changed() && !enabled {
-                            self.remove_session_breakpoint(&requested.source, requested.line);
-                            if snapshot.is_some() {
-                                self.debug_command(DebugCommand::SetBreakpoints(
-                                    self.debugger.breakpoints.clone(),
-                                ));
+                    ui.allocate_ui_with_layout(
+                        row,
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.spacing_mut().item_spacing.x = space::s2();
+                            ui.add_space(space::s3());
+                            icons::show(ui, i16::BREAKPOINT, nf.syntax_breakpoint);
+                            let mut enabled = true;
+                            if ui.add(c::Checkbox::new(&mut enabled, &label)).changed() && !enabled
+                            {
+                                self.remove_session_breakpoint(&requested.source, requested.line);
+                                if snapshot.is_some() {
+                                    self.debug_command(DebugCommand::SetBreakpoints(
+                                        self.debugger.breakpoints.clone(),
+                                    ));
+                                }
                             }
-                        }
-                    });
+                        },
+                    );
                 }
             });
         });
