@@ -9,6 +9,119 @@ use neoflash_core::{ClipboardPayload, Id, ObjectEvent, evaluate, new_id};
 #[path = "clipboard_native.rs"]
 mod native;
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct StageClipboardFlavors {
+    pub(crate) generation: Option<u64>,
+    pub(crate) plain_text: Option<String>,
+    pub(crate) html: Option<String>,
+    pub(crate) svg: Option<String>,
+    pub(crate) png: Option<Vec<u8>>,
+}
+
+#[cfg(test)]
+pub(crate) fn set_test_stage_clipboard_flavors(
+    ctx: &egui::Context,
+    flavors: Option<StageClipboardFlavors>,
+) {
+    ctx.data_mut(|data| {
+        let key = egui::Id::new("test-stage-clipboard-flavors");
+        if let Some(f) = flavors {
+            data.insert_temp(key, f);
+        } else {
+            data.remove::<StageClipboardFlavors>(key);
+        }
+    });
+}
+
+fn read_stage_flavors_for_paste_event(
+    ctx: &egui::Context,
+    generation: Option<u64>,
+) -> Option<StageClipboardFlavors> {
+    #[cfg(test)]
+    {
+        ctx.data(|data| {
+            data.get_temp::<StageClipboardFlavors>(egui::Id::new("test-stage-clipboard-flavors"))
+                .filter(|f| generation.is_none() || f.generation == generation)
+        })
+    }
+    #[cfg(not(test))]
+    {
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        if native_rich_clipboard_enabled(ctx) {
+            return native::read_stage_flavors(generation);
+        }
+        let _ = (ctx, generation);
+        let mut cb = arboard::Clipboard::new().ok()?;
+        let html = cb
+            .get()
+            .html()
+            .ok()
+            .filter(|h| !h.is_empty() && neoflash_import::contains_figma_clipboard_marker(h))?;
+        let png = encode_arboard_image_png(&mut cb);
+        Some(StageClipboardFlavors {
+            generation,
+            plain_text: None,
+            html: Some(html),
+            svg: None,
+            png,
+        })
+    }
+}
+
+#[cfg(not(test))]
+fn encode_arboard_image_png(cb: &mut arboard::Clipboard) -> Option<Vec<u8>> {
+    let img = cb.get_image().ok()?;
+    let rgba =
+        image::RgbaImage::from_raw(img.width as u32, img.height as u32, img.bytes.into_owned())?;
+    let mut cursor = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(rgba)
+        .write_to(&mut cursor, image::ImageFormat::Png)
+        .ok()?;
+    Some(cursor.into_inner())
+}
+
+#[cfg(not(test))]
+fn read_os_stage_clipboard_flavors(ctx: &egui::Context) -> Result<StageClipboardFlavors, String> {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    if native_rich_clipboard_enabled(ctx)
+        && let Some(mut flavors) = native::read_stage_flavors(None)
+    {
+        if flavors.png.is_none()
+            && (flavors
+                .html
+                .as_deref()
+                .is_some_and(neoflash_import::contains_figma_clipboard_marker)
+                || (flavors
+                    .plain_text
+                    .as_deref()
+                    .is_none_or(|t| t.trim().is_empty())
+                    && flavors.svg.is_none()))
+            && let Ok(mut cb) = arboard::Clipboard::new()
+        {
+            flavors.png = encode_arboard_image_png(&mut cb);
+        }
+        return Ok(flavors);
+    }
+    let _ = ctx;
+    let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    let plain_text = cb.get_text().ok().filter(|t| !t.is_empty());
+    let html = cb.get().html().ok().filter(|h| !h.is_empty());
+    let wants_png = html
+        .as_deref()
+        .is_some_and(neoflash_import::contains_figma_clipboard_marker)
+        || plain_text.as_deref().is_none_or(|t| t.trim().is_empty());
+    let png = wants_png
+        .then(|| encode_arboard_image_png(&mut cb))
+        .flatten();
+    Ok(StageClipboardFlavors {
+        generation: clipboard_generation(ctx),
+        plain_text,
+        html,
+        svg: None,
+        png,
+    })
+}
+
 // This belongs to the GUI context, not a document tab. Headless editors retain
 // their injected clipboard path and never access the user's native clipboard.
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -442,6 +555,10 @@ impl Editor {
             Err(error) => self.message(format!("Copy failed: {error}")),
         }
     }
+    pub(crate) fn is_stage_inline_text_editing(&mut self) -> bool {
+        self.sync_stage_text_edit();
+        self.stage_text_edit.is_active(self)
+    }
     pub(crate) fn paste_objects(&mut self, ctx: &egui::Context, text: &str, in_place: bool) {
         self.paste_objects_with_generation(ctx, text, in_place, clipboard_generation(ctx));
     }
@@ -452,6 +569,32 @@ impl Editor {
         in_place: bool,
         generation: Option<u64>,
     ) {
+        let stage_flavors = if !self.has_document()
+            || self.confirm.is_some()
+            || self.is_stage_inline_text_editing()
+            || matches!(ClipboardPayload::from_text(text), Ok(Some(_)) | Err(_))
+            || neoflash_import::contains_figma_clipboard_marker(text)
+        {
+            None
+        } else {
+            read_stage_flavors_for_paste_event(ctx, generation)
+        };
+        self.paste_objects_with_stage_flavors(
+            ctx,
+            text,
+            in_place,
+            generation,
+            stage_flavors.as_ref(),
+        );
+    }
+    pub(crate) fn paste_objects_with_stage_flavors(
+        &mut self,
+        ctx: &egui::Context,
+        text: &str,
+        in_place: bool,
+        generation: Option<u64>,
+        stage_flavors: Option<&StageClipboardFlavors>,
+    ) {
         // Preferences ▸ Clipboard ▸ Default paste = In place: plain Paste keeps the position too.
         let in_place = in_place || self.workspace.paste_in_place;
         if !self.has_document() || self.confirm.is_some() {
@@ -460,8 +603,47 @@ impl Editor {
         let payload = match ClipboardPayload::from_text(text) {
             Ok(Some(payload)) => payload,
             Ok(None) => {
+                // Active inline Stage TextBox editing never intercepts Figma HTML or SVG as Stage graphics.
+                if self.is_stage_inline_text_editing() {
+                    if !self.paste_plain_text_into_selected_text(text, generation) {
+                        self.message("The clipboard does not contain NeoFlash objects.");
+                    }
+                    return;
+                }
+                // Priority 1: Native Figma scene (`<!--(figma)...(/figma)-->` in HTML flavor or `text`).
+                if neoflash_import::contains_figma_clipboard_marker(text) {
+                    let fallback_png = stage_flavors.and_then(|f| f.png.as_deref());
+                    match neoflash_import::import_figma_clipboard(text, fallback_png) {
+                        Ok(output) => {
+                            self.paste_figma_clipboard_output(ctx, output, in_place);
+                        }
+                        Err(error) => self.message(format!("Paste failed: {error}")),
+                    }
+                    return;
+                }
+                if let Some(flavors) = stage_flavors {
+                    if let Some(html) = flavors
+                        .html
+                        .as_deref()
+                        .filter(|h| neoflash_import::contains_figma_clipboard_marker(h))
+                    {
+                        match neoflash_import::import_figma_clipboard(html, flavors.png.as_deref())
+                        {
+                            Ok(output) => {
+                                self.paste_figma_clipboard_output(ctx, output, in_place);
+                            }
+                            Err(error) => self.message(format!("Paste failed: {error}")),
+                        }
+                        return;
+                    }
+                    if let Some(svg) = flavors.svg.as_deref().filter(|s| is_svg_clipboard_text(s)) {
+                        self.paste_svg(ctx, svg, in_place);
+                        return;
+                    }
+                }
+                // Priority 2: SVG vector clipboard (`Copy as SVG` in Figma / Illustrator / Browser).
                 if is_svg_clipboard_text(text) {
-                    self.paste_svg(text, in_place);
+                    self.paste_svg(ctx, text, in_place);
                 } else if let Some((media_type, bytes)) = parse_image_data_url(text) {
                     self.paste_image_bytes(ctx, &bytes, &media_type, in_place);
                 } else if !self.paste_plain_text_into_selected_text(text, generation) {
@@ -652,7 +834,94 @@ impl Editor {
         self.message("Pasted text.");
         true
     }
-    fn paste_svg(&mut self, text: &str, in_place: bool) {
+    pub(crate) fn paste_figma_clipboard_output(
+        &mut self,
+        ctx: &egui::Context,
+        output: neoflash_import::ImportOutput,
+        in_place: bool,
+    ) -> bool {
+        let in_place = in_place || self.workspace.paste_in_place;
+        self.finish_edits();
+        if !self.layer_editable() {
+            self.message("Paste failed: destination layer is locked or hidden.");
+            return false;
+        }
+        let symbol_id = self.symbol_id().to_owned();
+        if self.frame >= self.symbol().timeline.frame_count {
+            self.message("Paste failed: destination frame is outside the timeline.");
+            return false;
+        }
+
+        let sw = f64::from(self.project.width);
+        let sh = f64::from(self.project.height);
+        let offset = match (in_place, output.figma_bounds, output.local_bounds) {
+            (false, _, Some(lb)) => {
+                let target_center = if self.editing_scene() {
+                    [sw * 0.5, sh * 0.5]
+                } else {
+                    [0.0, 0.0]
+                };
+                let src_cx = (lb.x_min + lb.x_max) * 0.5;
+                let src_cy = (lb.y_min + lb.y_max) * 0.5;
+                [target_center[0] - src_cx, target_center[1] - src_cy]
+            }
+            (true, Some(fb), Some(lb)) => {
+                let near_stage = fb.x_min >= -sw
+                    && fb.x_min <= 2.0 * sw
+                    && fb.y_min >= -sh
+                    && fb.y_min <= 2.0 * sh
+                    && fb.x_max >= -sw
+                    && fb.y_max >= -sh;
+                let desired_top_left = if near_stage {
+                    [fb.x_min, fb.y_min]
+                } else {
+                    [0.0, 0.0]
+                };
+                [
+                    desired_top_left[0] - lb.x_min,
+                    desired_top_left[1] - lb.y_min,
+                ]
+            }
+            _ => [0.0, 0.0],
+        };
+
+        let mut candidate = self.project.clone();
+        let (layer_id, element_ids) = match merge_imported_clipboard_project(
+            &mut candidate,
+            output.project,
+            &symbol_id,
+            self.layer,
+            self.frame,
+            offset,
+            self.workspace.timeline_prefs.auto_keyframe,
+        ) {
+            Ok(res) => res,
+            Err(error) => {
+                self.message(format!("Paste failed: {error}"));
+                return false;
+            }
+        };
+
+        let count = element_ids.len();
+        self.set_playing(false);
+        let tx_label = if in_place { "Paste in place" } else { "Paste" };
+        self.transact_named(tx_label, |editor| {
+            editor.project = candidate;
+            editor.set_selection(
+                element_ids
+                    .into_iter()
+                    .map(|element| SelectionTarget {
+                        layer: layer_id.clone(),
+                        element,
+                    })
+                    .collect(),
+            );
+        });
+        self.load_project_fonts(ctx);
+        self.message(format!("Pasted {count} object(s) from Figma."));
+        true
+    }
+    fn paste_svg(&mut self, ctx: &egui::Context, text: &str, in_place: bool) {
         self.finish_edits();
         if !self.layer_editable() {
             self.message("Paste failed: destination layer is locked or hidden.");
@@ -663,6 +932,86 @@ impl Editor {
             self.message("Paste failed: destination frame is outside the timeline.");
             return;
         }
+
+        if self.workspace.clipboard_prefs.editable_vector_paste {
+            if let Err(error) = validate_static_svg_clipboard(text) {
+                self.message(format!("Paste failed: {error}"));
+                return;
+            }
+            let trimmed = text.trim_start_matches('\u{feff}');
+            let svg_opts = neoflash_import::VectorImportOptions {
+                layer_mapping: neoflash_import::VectorLayerMapping::FlattenToSingleLayer,
+                text_handling: neoflash_import::VectorTextHandling::EditableText,
+                mask_handling: neoflash_import::VectorMaskHandling::FlattenClip,
+                transform_handling:
+                    neoflash_import::VectorTransformHandling::BakeTransformsIntoPaths,
+                resize_stage_to_viewbox: true,
+            };
+            if let Ok((imported_svg, svg_report)) =
+                neoflash_import::import_svg_with_options(trimmed, "clipboard.svg", &svg_opts)
+            {
+                let has_unsupported = svg_report
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.code == "svg-unsupported-element");
+                let has_elements = !has_unsupported
+                    && imported_svg.symbol(&imported_svg.root).is_some_and(|s| {
+                        s.timeline
+                            .layers
+                            .iter()
+                            .flat_map(|l| &l.keyframes)
+                            .any(|k| !k.elements.is_empty())
+                    });
+                if has_elements {
+                    let (svg_w, svg_h) = parse_svg_intrinsic_size(trimmed).unwrap_or((
+                        f64::from(imported_svg.width),
+                        f64::from(imported_svg.height),
+                    ));
+                    let offset = if in_place {
+                        [0.0, 0.0]
+                    } else {
+                        let center = self.paste_center();
+                        [center[0] - svg_w * 0.5, center[1] - svg_h * 0.5]
+                    };
+                    let mut candidate = self.project.clone();
+                    match merge_imported_clipboard_project(
+                        &mut candidate,
+                        imported_svg,
+                        &symbol_id,
+                        self.layer,
+                        self.frame,
+                        offset,
+                        self.workspace.timeline_prefs.auto_keyframe,
+                    ) {
+                        Ok((layer_id, element_ids)) => {
+                            let count = element_ids.len();
+                            self.playing = false;
+                            let tx_label = if in_place { "Paste in place" } else { "Paste" };
+                            self.transact_named(tx_label, |editor| {
+                                editor.project = candidate;
+                                editor.set_selection(
+                                    element_ids
+                                        .into_iter()
+                                        .map(|element| SelectionTarget {
+                                            layer: layer_id.clone(),
+                                            element,
+                                        })
+                                        .collect(),
+                                );
+                            });
+                            self.load_project_fonts(ctx);
+                            self.message(format!("Pasted {count} object(s)."));
+                            return;
+                        }
+                        Err(error) => {
+                            self.message(format!("Paste failed: {error}"));
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
         let mut graphic = match crate::svg_graphics::prepare_svg_clipboard(
             text,
             self.workspace.clipboard_prefs.editable_vector_paste,
@@ -692,8 +1041,10 @@ impl Editor {
                 center[1] - graphic.height / 2.,
             ]
         };
+        let mut occupied_ids = collect_occupied_project_ids(&candidate);
         let mut element_ids = Vec::with_capacity(graphic.elements.len());
         for element in &mut graphic.elements {
+            element.id = alloc_unique_id("object", &mut occupied_ids);
             element.transform.x += offset[0];
             element.transform.y += offset[1];
             element_ids.push(element.id.clone());
@@ -737,7 +1088,8 @@ impl Editor {
         }
         let count = element_ids.len();
         self.playing = false;
-        self.transact_named("Paste", |editor| {
+        let tx_label = if in_place { "Paste in place" } else { "Paste" };
+        self.transact_named(tx_label, |editor| {
             editor.project = candidate;
             editor.set_selection(
                 element_ids
@@ -894,6 +1246,7 @@ impl Editor {
             ),
             "headless Paste reached the OS clipboard; inject request_clipboard_with instead"
         );
+        #[cfg(not(test))]
         if matches!(
             command,
             ClipboardCommand::Paste | ClipboardCommand::PasteInPlace
@@ -905,29 +1258,11 @@ impl Editor {
                 .filter(|target| target.viewport == ctx.viewport_id())
                 .cloned()
                 .unwrap_or_else(|| self.clipboard_target(ctx));
-            if !target.is_text()
-                && let Ok(mut cb) = arboard::Clipboard::new()
-                && cb.get_text().map_or(true, |t| t.trim().is_empty())
-                && let Ok(img) = cb.get_image()
-                && let Some(rgba) = image::RgbaImage::from_raw(
-                    img.width as u32,
-                    img.height as u32,
-                    img.bytes.into_owned(),
-                )
-            {
-                let mut cursor = std::io::Cursor::new(Vec::new());
-                if image::DynamicImage::ImageRgba8(rgba)
-                    .write_to(&mut cursor, image::ImageFormat::Png)
-                    .is_ok()
-                {
-                    self.paste_image_bytes(
-                        ctx,
-                        &cursor.into_inner(),
-                        "image/png",
-                        command == ClipboardCommand::PasteInPlace,
-                    );
-                    return;
-                }
+            if !target.is_text() && !self.is_stage_inline_text_editing() {
+                self.request_stage_clipboard_with(ctx, command, || {
+                    read_os_stage_clipboard_flavors(ctx)
+                });
+                return;
             }
         }
         self.request_clipboard_with(ctx, command, || {
@@ -935,6 +1270,144 @@ impl Editor {
                 .and_then(|mut clipboard| clipboard.get_text())
                 .map_err(|error| error.to_string())
         });
+    }
+    pub(crate) fn request_stage_clipboard_with(
+        &mut self,
+        ctx: &egui::Context,
+        command: ClipboardCommand,
+        read_flavors: impl FnOnce() -> Result<StageClipboardFlavors, String>,
+    ) {
+        let target = self
+            .clipboard
+            .menu_target
+            .as_ref()
+            .filter(|target| target.viewport == ctx.viewport_id())
+            .cloned()
+            .unwrap_or_else(|| self.clipboard_target(ctx));
+        if !target.matches(self) {
+            self.message("Clipboard command canceled: the editing target changed.");
+            return;
+        }
+        if !target.is_text() && matches!(command, ClipboardCommand::Copy | ClipboardCommand::Cut) {
+            self.copy_selection(ctx, command == ClipboardCommand::Cut);
+            return;
+        }
+        if target.is_text() {
+            if command == ClipboardCommand::PasteInPlace {
+                return;
+            }
+            self.request_clipboard_with(ctx, command, || {
+                read_flavors().map(|f| f.plain_text.unwrap_or_default())
+            });
+            return;
+        }
+        if self.is_stage_inline_text_editing() {
+            if command == ClipboardCommand::PasteInPlace {
+                return;
+            }
+            let flavors = match read_flavors() {
+                Ok(flavors) => flavors,
+                Err(error) => {
+                    self.message(format!("Cannot read clipboard: {error}"));
+                    return;
+                }
+            };
+            if let Some(plain) = flavors.plain_text.filter(|t| !t.is_empty()) {
+                self.paste_objects_with_stage_flavors(
+                    ctx,
+                    &plain.replace("\r\n", "\n"),
+                    false,
+                    flavors.generation,
+                    None,
+                );
+            }
+            return;
+        }
+
+        let flavors = match read_flavors() {
+            Ok(flavors) => flavors,
+            Err(error) => {
+                self.message(format!("Cannot read clipboard: {error}"));
+                return;
+            }
+        };
+        let in_place = command == ClipboardCommand::PasteInPlace;
+
+        // Priority 0: Internal NeoFlash clipboard payload.
+        if let Some(ref text) = flavors.plain_text
+            && matches!(ClipboardPayload::from_text(text), Ok(Some(_)) | Err(_))
+        {
+            self.paste_objects_with_stage_flavors(
+                ctx,
+                &text.replace("\r\n", "\n"),
+                in_place,
+                flavors.generation,
+                None,
+            );
+            return;
+        }
+
+        // Priority 1: Native Figma scene (`<!--(figma)...(/figma)-->` in HTML or plain text).
+        if let Some(figma_html) = flavors
+            .html
+            .as_deref()
+            .filter(|h| neoflash_import::contains_figma_clipboard_marker(h))
+            .or_else(|| {
+                flavors
+                    .plain_text
+                    .as_deref()
+                    .filter(|t| neoflash_import::contains_figma_clipboard_marker(t))
+            })
+        {
+            match neoflash_import::import_figma_clipboard(figma_html, flavors.png.as_deref()) {
+                Ok(output) => {
+                    self.paste_figma_clipboard_output(ctx, output, in_place);
+                }
+                Err(error) => {
+                    self.message(format!("Paste failed: {error}"));
+                }
+            }
+            return;
+        }
+
+        // Priority 2: SVG vector clipboard (`public.svg-image` / `image/svg+xml` or `<svg...>` text).
+        if let Some(svg) = flavors
+            .svg
+            .as_deref()
+            .filter(|s| is_svg_clipboard_text(s))
+            .or_else(|| {
+                flavors
+                    .plain_text
+                    .as_deref()
+                    .filter(|t| is_svg_clipboard_text(t))
+            })
+        {
+            self.paste_svg(ctx, svg, in_place);
+            return;
+        }
+
+        // Priority 3: Non-empty plain text (`data:image/...` or selected Stage text replacement).
+        if let Some(ref plain) = flavors.plain_text
+            && !plain.trim().is_empty()
+        {
+            self.paste_objects_with_stage_flavors(
+                ctx,
+                &plain.replace("\r\n", "\n"),
+                in_place,
+                flavors.generation,
+                Some(&flavors),
+            );
+            return;
+        }
+
+        // Priority 4: Raster bitmap fallback when no structured vector/Figma/text flavor exists.
+        if let Some(ref png) = flavors.png {
+            self.paste_image_bytes(ctx, png, "image/png", in_place);
+            return;
+        }
+        if self.has_document() && self.confirm.is_none() {
+            self.message("The clipboard does not contain NeoFlash objects.");
+        }
     }
     pub(crate) fn request_clipboard_with(
         &mut self,
@@ -1119,6 +1592,353 @@ fn is_svg_clipboard_text(text: &str) -> bool {
             || lower.starts_with("<!doctype")
             || lower.starts_with("<!--"))
             && lower.contains("<svg"))
+}
+
+fn validate_static_svg_clipboard(text: &str) -> Result<(), String> {
+    let trimmed = text.trim_start_matches('\u{feff}');
+    let xml =
+        resvg::usvg::roxmltree::Document::parse(trimmed).map_err(|e| format!("SVG XML: {e}"))?;
+    if xml.root_element().tag_name().name() != "svg" {
+        return Err("The file has no SVG root element.".into());
+    }
+    for node in xml.descendants().filter(|node| node.is_element()) {
+        let tag = node.tag_name().name();
+        if matches!(
+            tag,
+            "script" | "animate" | "animateMotion" | "animateTransform" | "set" | "foreignObject"
+        ) {
+            return Err(format!(
+                "SVG <{tag}> is not static artwork. Export a static SVG without scripts, animation or embedded HTML."
+            ));
+        }
+        for attribute in node.attributes() {
+            if attribute.name().starts_with("on") {
+                return Err("SVG event scripts cannot be imported as static artwork.".into());
+            }
+            if matches!(attribute.name(), "href" | "xlink:href")
+                && !attribute.value().starts_with('#')
+                && !attribute.value().starts_with("data:")
+            {
+                return Err(
+                    "SVG references an external file. Embed linked images in the SVG before importing."
+                        .into(),
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn parse_svg_intrinsic_size(text: &str) -> Option<(f64, f64)> {
+    let xml = resvg::usvg::roxmltree::Document::parse(text).ok()?;
+    let root = xml.root_element();
+    let parse_len = |raw: &str| -> Option<f64> {
+        raw.trim()
+            .trim_end_matches("px")
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|v| v.is_finite() && *v > 0.0 && *v <= 1_000_000.0)
+    };
+    let mut w = root.attribute("width").and_then(parse_len);
+    let mut h = root.attribute("height").and_then(parse_len);
+    if (w.is_none() || h.is_none())
+        && let Some(vb) = root.attribute("viewBox")
+    {
+        let nums: Vec<f64> = vb
+            .split(|c: char| c == ',' || c.is_ascii_whitespace())
+            .filter(|s| !s.is_empty())
+            .filter_map(|s| s.parse::<f64>().ok())
+            .collect();
+        if nums.len() == 4 && nums[2] > 0.0 && nums[3] > 0.0 {
+            w = w.or(Some(nums[2]));
+            h = h.or(Some(nums[3]));
+        }
+    }
+    Some((w?, h?))
+}
+
+fn merge_imported_clipboard_project(
+    candidate: &mut neoflash_core::Project,
+    mut imported: neoflash_core::Project,
+    symbol_id: &str,
+    layer_idx: usize,
+    frame: u32,
+    offset: [f64; 2],
+    auto_keyframe: bool,
+) -> Result<(Id, Vec<Id>), String> {
+    use std::collections::{BTreeMap, HashSet};
+
+    if !offset.iter().all(|v| v.is_finite()) {
+        return Err("Paste offset is not finite.".into());
+    }
+    let mut occupied_ids = collect_occupied_project_ids(candidate);
+
+    let donor_fonts = read_embedded_font_entries(&imported.resources);
+    let old_res_ids: Vec<Id> = imported.resources.iter().map(|r| r.id.clone()).collect();
+    imported.freshen_all_ids(true, |kind| {
+        alloc_unique_id(&format!("clip-{kind}"), &mut occupied_ids)
+    });
+    let res_id_map: BTreeMap<Id, Id> = old_res_ids
+        .into_iter()
+        .zip(imported.resources.iter().map(|r| r.id.clone()))
+        .collect();
+
+    let mut occupied_paths: HashSet<String> = candidate
+        .resources
+        .iter()
+        .map(|r| r.path.to_ascii_lowercase())
+        .collect();
+
+    for mut res in imported.resources {
+        if is_internal_registry_resource_path(&res.path) {
+            continue;
+        }
+        if candidate.resources.len() >= neoflash_core::MAX_RESOURCES {
+            return Err(format!(
+                "The project supports at most {} resource files.",
+                neoflash_core::MAX_RESOURCES
+            ));
+        }
+        if !occupied_paths.insert(res.path.to_ascii_lowercase()) {
+            let (stem, ext) = match res.path.rsplit_once('.') {
+                Some((s, e)) => (s, format!(".{e}")),
+                None => (res.path.as_str(), String::new()),
+            };
+            let mut n = 2usize;
+            res.path = loop {
+                let cand_path = format!("{stem}-{n}{ext}");
+                if occupied_paths.insert(cand_path.to_ascii_lowercase()) {
+                    break cand_path;
+                }
+                n += 1;
+            };
+        }
+        candidate.resources.push(res);
+        candidate.format_version = candidate.format_version.max(3);
+    }
+
+    if !donor_fonts.is_empty() {
+        let mut local_fonts = read_embedded_font_entries(&candidate.resources);
+        let mut changed_fonts = false;
+        for mut donor_entry in donor_fonts {
+            let Some(mapped_id) = res_id_map.get(&donor_entry.id) else {
+                continue;
+            };
+            if local_fonts.iter().any(|e| &e.id == mapped_id) {
+                continue;
+            }
+            donor_entry.id = mapped_id.clone();
+            if local_fonts
+                .iter()
+                .any(|e| e.name.eq_ignore_ascii_case(&donor_entry.name))
+            {
+                let base = donor_entry.name.clone();
+                let mut n = 2usize;
+                while local_fonts
+                    .iter()
+                    .any(|e| e.name.eq_ignore_ascii_case(&donor_entry.name))
+                {
+                    donor_entry.name = format!("{base} {n}");
+                    n += 1;
+                }
+            }
+            if !donor_entry.class_name.is_empty()
+                && local_fonts
+                    .iter()
+                    .any(|e| e.class_name == donor_entry.class_name)
+            {
+                let base = donor_entry.class_name.clone();
+                let mut n = 2usize;
+                while local_fonts
+                    .iter()
+                    .any(|e| e.class_name == donor_entry.class_name)
+                {
+                    donor_entry.class_name = format!("{base}_{n}");
+                    n += 1;
+                }
+            }
+            local_fonts.push(donor_entry);
+            changed_fonts = true;
+        }
+        if changed_fonts {
+            write_embedded_font_entries(candidate, &local_fonts, &mut occupied_ids);
+        }
+    }
+
+    let imported_root_id = imported.root.clone();
+    let imported_scene_ids: HashSet<Id> = imported.scenes.iter().cloned().collect();
+    let mut root_symbol_opt = None;
+
+    for mut sym in imported.symbols {
+        if sym.id == imported_root_id {
+            root_symbol_opt = Some(sym);
+            continue;
+        }
+        if imported_scene_ids.contains(&sym.id) {
+            continue;
+        }
+        if candidate
+            .symbols
+            .iter()
+            .any(|s| s.name.eq_ignore_ascii_case(&sym.name))
+        {
+            let base = sym.name.clone();
+            let mut n = 2usize;
+            while candidate
+                .symbols
+                .iter()
+                .any(|s| s.name.eq_ignore_ascii_case(&sym.name))
+            {
+                sym.name = format!("{base} {n}");
+                n += 1;
+            }
+        }
+        if let Some(dl) = sym.linkage_id.clone()
+            && candidate
+                .symbols
+                .iter()
+                .any(|s| s.linkage_id.as_deref() == Some(dl.as_str()))
+        {
+            let mut n = 2usize;
+            sym.linkage_id = Some(loop {
+                let cand = format!("{dl}_{n}");
+                if !candidate
+                    .symbols
+                    .iter()
+                    .any(|s| s.linkage_id.as_deref() == Some(cand.as_str()))
+                {
+                    break cand;
+                }
+                n += 1;
+            });
+        }
+        if let Some(dc) = sym.class_name.clone() {
+            let class_taken = |c: &str| {
+                candidate.document_class.as_deref() == Some(c)
+                    || candidate
+                        .symbols
+                        .iter()
+                        .any(|s| s.class_name.as_deref() == Some(c))
+            };
+            if class_taken(&dc) {
+                let mut n = 2usize;
+                sym.class_name = Some(loop {
+                    let cand = format!("{dc}_{n}");
+                    if !class_taken(&cand) {
+                        break cand;
+                    }
+                    n += 1;
+                });
+            }
+        }
+        if !sym.folder.is_empty() {
+            candidate.add_library_folder(&sym.folder)?;
+        }
+        candidate.symbols.push(sym);
+    }
+
+    let root_symbol = root_symbol_opt
+        .ok_or_else(|| "Imported clipboard project has no root symbol.".to_owned())?;
+    let mut top_elements = Vec::new();
+    let mut top_bitmap_fills = Vec::new();
+    let mut top_appearances = Vec::new();
+    for layer in root_symbol.timeline.layers {
+        if let Some(kf) = layer.keyframes.into_iter().find(|k| k.frame == 0) {
+            top_elements.extend(kf.elements);
+            top_bitmap_fills.extend(kf.bitmap_fills);
+            top_appearances.extend(kf.appearances);
+        }
+    }
+    if top_elements.is_empty() {
+        return Err("Clipboard contains no visual elements to paste.".into());
+    }
+
+    let mut element_ids = Vec::with_capacity(top_elements.len());
+    for element in &mut top_elements {
+        element.transform.x = (element.transform.x + offset[0]).clamp(-100_000.0, 100_000.0);
+        element.transform.y = (element.transform.y + offset[1]).clamp(-100_000.0, 100_000.0);
+        element_ids.push(element.id.clone());
+    }
+
+    let fps = f64::from(candidate.fps);
+    let layer_id = {
+        let timeline = &mut candidate
+            .symbol_mut(symbol_id)
+            .ok_or_else(|| "Destination symbol does not exist.".to_owned())?
+            .timeline;
+        let frame_count = timeline.frame_count;
+        if frame >= frame_count {
+            return Err("Destination frame is outside the timeline.".into());
+        }
+        if layer_idx >= timeline.layers.len() {
+            return Err("Destination layer does not exist.".into());
+        }
+        let layer_end = timeline.layers[layer_idx]
+            .properties
+            .end_frame
+            .unwrap_or(frame_count);
+        let need_key = auto_keyframe
+            || frame >= layer_end
+            || timeline.layers[layer_idx]
+                .key_at(frame)
+                .is_none_or(|k| k.tween.is_some())
+            || neoflash_core::motion_span(&timeline.layers[layer_idx], frame).is_some();
+        if need_key
+            && !timeline.layers[layer_idx]
+                .keyframes
+                .iter()
+                .any(|k| k.frame == frame)
+        {
+            let sampled_els = neoflash_core::sample_layer_in_at_fps(
+                timeline,
+                &timeline.layers[layer_idx],
+                frame,
+                fps,
+            );
+            let layer = &mut timeline.layers[layer_idx];
+            let active = layer.key_at(frame);
+            let tween = active.and_then(|k| k.tween);
+            let tween_kind = active.map_or(neoflash_core::TweenKind::Classic, |k| k.tween_kind);
+            let orient_to_path = active.is_some_and(|k| k.orient_to_path);
+            let inherited_bfs = active.map(|k| k.bitmap_fills.clone()).unwrap_or_default();
+            let inherited_apps = active.map(|k| k.appearances.clone()).unwrap_or_default();
+            layer.keyframes.push(neoflash_core::Keyframe {
+                frame,
+                elements: sampled_els,
+                bitmap_fills: inherited_bfs,
+                appearances: inherited_apps,
+                tween,
+                tween_kind,
+                orient_to_path,
+                label: String::new(),
+                ..Default::default()
+            });
+            layer.keyframes.sort_by_key(|k| k.frame);
+        }
+        let layer = &mut timeline.layers[layer_idx];
+        let layer_id = layer.id.clone();
+        let dest_key = layer
+            .key_at_mut(frame)
+            .ok_or_else(|| "Could not locate destination keyframe.".to_owned())?;
+        dest_key.elements.extend(top_elements);
+        for bf in top_bitmap_fills {
+            dest_key.set_bitmap_fill(bf);
+        }
+        for app in top_appearances {
+            dest_key.set_appearance(app);
+        }
+        layer.normalize_motion_keys();
+        layer_id
+    };
+
+    candidate.prune_authoring_groups();
+    crate::timeline_commands::upgrade_all_format_versions(candidate);
+    if let Err(err) = candidate.validate() {
+        return Err(format!("Pasted document failed validation: {err}"));
+    }
+
+    Ok((layer_id, element_ids))
 }
 
 fn parse_image_data_url(text: &str) -> Option<(String, Vec<u8>)> {

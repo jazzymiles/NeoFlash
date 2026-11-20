@@ -2687,3 +2687,975 @@ fn rich_clipboard_stage_copy_after_paste_snapshot_keeps_payload_style_and_skips_
     assert_eq!(editor.project, before);
     assert!(!editor.history.can_undo());
 }
+
+#[allow(clippy::too_many_lines)]
+fn build_editor_figma_clipboard_html(
+    origin_x: f32,
+    origin_y: f32,
+    escaped: bool,
+) -> (String, Vec<u8>) {
+    fn deflate_stored(raw: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let chunks: Vec<&[u8]> = if raw.is_empty() {
+            vec![&[]]
+        } else {
+            raw.chunks(65_535).collect()
+        };
+        for (idx, chunk) in chunks.iter().enumerate() {
+            let is_last = idx + 1 == chunks.len();
+            out.push(u8::from(is_last));
+            let len = chunk.len() as u16;
+            out.extend_from_slice(&len.to_le_bytes());
+            out.extend_from_slice(&(!len).to_le_bytes());
+            out.extend_from_slice(chunk);
+        }
+        out
+    }
+    fn zstd_raw_frame(raw: &[u8]) -> Vec<u8> {
+        let mut out = vec![0x28, 0xB5, 0x2F, 0xFD, 0x00, 0x40];
+        let chunks: Vec<&[u8]> = if raw.is_empty() {
+            vec![&[]]
+        } else {
+            raw.chunks(131_071).collect()
+        };
+        for (idx, chunk) in chunks.iter().enumerate() {
+            let is_last = u32::from(idx + 1 == chunks.len());
+            let hdr = ((chunk.len() as u32) << 3) | is_last;
+            out.extend_from_slice(&hdr.to_le_bytes()[..3]);
+            out.extend_from_slice(chunk);
+        }
+        out
+    }
+    fn b64_encode(bytes: &[u8]) -> String {
+        ResourceUnit::from_bytes("tmp", "tmp.bin", "application/octet-stream", bytes)
+            .unwrap()
+            .data_base64
+            .to_string()
+    }
+
+    fn wu(out: &mut Vec<u8>, mut v: u64) {
+        loop {
+            let mut b = (v & 0x7F) as u8;
+            v >>= 7;
+            if v != 0 {
+                b |= 0x80;
+            }
+            out.push(b);
+            if v == 0 {
+                break;
+            }
+        }
+    }
+    fn wi(out: &mut Vec<u8>, v: i64) {
+        wu(out, ((v << 1) ^ (v >> 63)) as u64);
+    }
+    fn wf(out: &mut Vec<u8>, f: f32) {
+        if f == 0.0 {
+            out.push(0);
+        } else {
+            out.extend_from_slice(&f.to_bits().rotate_left(9).to_le_bytes());
+        }
+    }
+    fn ws(out: &mut Vec<u8>, s: &str) {
+        out.extend_from_slice(s.as_bytes());
+        out.push(0);
+    }
+
+    // Schema: 0=GUID, 1=ParentIndex, 2=Vector, 3=Matrix, 4=Color, 5=ColorStop, 6=Paint,
+    // 7=Path, 8=FontName, 9=TextData, 10=SymbolOverride, 11=SymbolData, 12=Effect, 13=NodeChange, 14=Blob, 15=Message
+    let mut schema = Vec::new();
+    wu(&mut schema, 16);
+    ws(&mut schema, "GUID");
+    schema.push(1);
+    wu(&mut schema, 2);
+    for (i, n) in ["sessionID", "localID"].iter().enumerate() {
+        ws(&mut schema, n);
+        wi(&mut schema, -4);
+        schema.push(0);
+        wu(&mut schema, (i + 1) as u64);
+    }
+    ws(&mut schema, "ParentIndex");
+    schema.push(1);
+    wu(&mut schema, 2);
+    ws(&mut schema, "guid");
+    wi(&mut schema, 0);
+    schema.push(0);
+    wu(&mut schema, 1);
+    ws(&mut schema, "position");
+    wi(&mut schema, -6);
+    schema.push(0);
+    wu(&mut schema, 2);
+    ws(&mut schema, "Vector");
+    schema.push(1);
+    wu(&mut schema, 2);
+    for (i, n) in ["x", "y"].iter().enumerate() {
+        ws(&mut schema, n);
+        wi(&mut schema, -5);
+        schema.push(0);
+        wu(&mut schema, (i + 1) as u64);
+    }
+    ws(&mut schema, "Matrix");
+    schema.push(1);
+    wu(&mut schema, 6);
+    for (i, n) in ["m00", "m01", "m02", "m10", "m11", "m12"]
+        .iter()
+        .enumerate()
+    {
+        ws(&mut schema, n);
+        wi(&mut schema, -5);
+        schema.push(0);
+        wu(&mut schema, (i + 1) as u64);
+    }
+    ws(&mut schema, "Color");
+    schema.push(1);
+    wu(&mut schema, 4);
+    for (i, n) in ["r", "g", "b", "a"].iter().enumerate() {
+        ws(&mut schema, n);
+        wi(&mut schema, -5);
+        schema.push(0);
+        wu(&mut schema, (i + 1) as u64);
+    }
+    ws(&mut schema, "ColorStop");
+    schema.push(1);
+    wu(&mut schema, 2);
+    ws(&mut schema, "color");
+    wi(&mut schema, 4);
+    schema.push(0);
+    wu(&mut schema, 1);
+    ws(&mut schema, "position");
+    wi(&mut schema, -5);
+    schema.push(0);
+    wu(&mut schema, 2);
+    ws(&mut schema, "Paint");
+    schema.push(2);
+    wu(&mut schema, 3);
+    ws(&mut schema, "type");
+    wi(&mut schema, -6);
+    schema.push(0);
+    wu(&mut schema, 1);
+    ws(&mut schema, "color");
+    wi(&mut schema, 4);
+    schema.push(0);
+    wu(&mut schema, 2);
+    ws(&mut schema, "stops");
+    wi(&mut schema, 5);
+    schema.push(1);
+    wu(&mut schema, 3);
+    ws(&mut schema, "Path");
+    schema.push(2);
+    wu(&mut schema, 2);
+    ws(&mut schema, "windingRule");
+    wi(&mut schema, -6);
+    schema.push(0);
+    wu(&mut schema, 1);
+    ws(&mut schema, "commandsBlob");
+    wi(&mut schema, -4);
+    schema.push(0);
+    wu(&mut schema, 2);
+    ws(&mut schema, "FontName");
+    schema.push(1);
+    wu(&mut schema, 2);
+    for (i, n) in ["family", "style"].iter().enumerate() {
+        ws(&mut schema, n);
+        wi(&mut schema, -6);
+        schema.push(0);
+        wu(&mut schema, (i + 1) as u64);
+    }
+    ws(&mut schema, "TextData");
+    schema.push(2);
+    wu(&mut schema, 1);
+    ws(&mut schema, "characters");
+    wi(&mut schema, -6);
+    schema.push(0);
+    wu(&mut schema, 1);
+    ws(&mut schema, "SymbolOverride");
+    schema.push(2);
+    wu(&mut schema, 2);
+    ws(&mut schema, "guidPath");
+    wi(&mut schema, 0);
+    schema.push(1);
+    wu(&mut schema, 1);
+    ws(&mut schema, "textData");
+    wi(&mut schema, 9);
+    schema.push(0);
+    wu(&mut schema, 2);
+    ws(&mut schema, "SymbolData");
+    schema.push(2);
+    wu(&mut schema, 2);
+    ws(&mut schema, "symbolID");
+    wi(&mut schema, 0);
+    schema.push(0);
+    wu(&mut schema, 1);
+    ws(&mut schema, "symbolOverrides");
+    wi(&mut schema, 10);
+    schema.push(1);
+    wu(&mut schema, 2);
+    ws(&mut schema, "Effect");
+    schema.push(2);
+    wu(&mut schema, 3);
+    ws(&mut schema, "type");
+    wi(&mut schema, -6);
+    schema.push(0);
+    wu(&mut schema, 1);
+    ws(&mut schema, "visible");
+    wi(&mut schema, -1);
+    schema.push(0);
+    wu(&mut schema, 2);
+    ws(&mut schema, "radius");
+    wi(&mut schema, -5);
+    schema.push(0);
+    wu(&mut schema, 3);
+    ws(&mut schema, "NodeChange");
+    schema.push(2);
+    let nc = [
+        (1u64, "guid", 0i64, 0u8),
+        (2, "parentIndex", 1, 0),
+        (3, "type", -6, 0),
+        (4, "name", -6, 0),
+        (5, "internalOnly", -1, 0),
+        (6, "size", 2, 0),
+        (7, "transform", 3, 0),
+        (8, "fillPaints", 6, 1),
+        (9, "strokePaints", 6, 1),
+        (10, "strokeWeight", -5, 0),
+        (11, "fillGeometry", 7, 1),
+        (12, "cornerRadius", -5, 0),
+        (13, "effects", 12, 1),
+        (14, "textData", 9, 0),
+        (15, "fontName", 8, 0),
+        (16, "fontSize", -5, 0),
+        (17, "symbolData", 11, 0),
+    ];
+    wu(&mut schema, nc.len() as u64);
+    for (tag, n, tid, arr) in nc {
+        ws(&mut schema, n);
+        wi(&mut schema, tid);
+        schema.push(arr);
+        wu(&mut schema, tag);
+    }
+    ws(&mut schema, "Blob");
+    schema.push(2);
+    wu(&mut schema, 1);
+    ws(&mut schema, "bytes");
+    wi(&mut schema, -2);
+    schema.push(1);
+    wu(&mut schema, 1);
+    ws(&mut schema, "Message");
+    schema.push(2);
+    wu(&mut schema, 2);
+    ws(&mut schema, "nodeChanges");
+    wi(&mut schema, 13);
+    schema.push(1);
+    wu(&mut schema, 1);
+    ws(&mut schema, "blobs");
+    wi(&mut schema, 14);
+    schema.push(1);
+    wu(&mut schema, 2);
+
+    // Bezier vector blob: 0..100 x 0..60
+    let mut cmd_blob = Vec::new();
+    cmd_blob.push(1);
+    for f in [0.0f32, 0.0] {
+        cmd_blob.extend_from_slice(&f.to_le_bytes());
+    }
+    cmd_blob.push(2);
+    for f in [100.0f32, 0.0] {
+        cmd_blob.extend_from_slice(&f.to_le_bytes());
+    }
+    cmd_blob.push(4);
+    for f in [100.0f32, 40.0, 60.0, 60.0, 0.0, 60.0] {
+        cmd_blob.extend_from_slice(&f.to_le_bytes());
+    }
+    cmd_blob.push(0);
+
+    let write_solid = |m: &mut Vec<u8>, tag: u64, rgba: [f32; 4]| {
+        wu(m, tag);
+        wu(m, 1);
+        wu(m, 1);
+        ws(m, "SOLID");
+        wu(m, 2);
+        for c in rgba {
+            wf(m, c);
+        }
+        wu(m, 0);
+    };
+    let write_matrix = |m: &mut Vec<u8>, tx: f32, ty: f32| {
+        wu(m, 7);
+        for v in [1.0f32, 0.0, tx, 0.0, 1.0, ty] {
+            wf(m, v);
+        }
+    };
+
+    // Total selection bounding box in Figma space:
+    // x: origin_x .. origin_x + 240.0 (width = 240.0)
+    // y: origin_y .. origin_y + 120.0 (height = 120.0)
+    // Center in Figma space: (origin_x + 120.0, origin_y + 60.0)
+    let mut msg = Vec::new();
+    wu(&mut msg, 1);
+    wu(&mut msg, 9);
+
+    // 0: DOCUMENT 0:0
+    wu(&mut msg, 1);
+    wu(&mut msg, 0);
+    wu(&mut msg, 0);
+    wu(&mut msg, 3);
+    ws(&mut msg, "DOCUMENT");
+    wu(&mut msg, 4);
+    ws(&mut msg, "Doc");
+    wu(&mut msg, 0);
+
+    // 1: Internal Only Canvas 0:99
+    wu(&mut msg, 1);
+    wu(&mut msg, 0);
+    wu(&mut msg, 99);
+    wu(&mut msg, 2);
+    wu(&mut msg, 0);
+    wu(&mut msg, 0);
+    ws(&mut msg, "!");
+    wu(&mut msg, 3);
+    ws(&mut msg, "CANVAS");
+    wu(&mut msg, 4);
+    ws(&mut msg, "Internal Only Canvas");
+    wu(&mut msg, 5);
+    msg.push(1);
+    wu(&mut msg, 0);
+
+    // 2: Master COMPONENT 9:1 ("BadgeComp", 120x40)
+    wu(&mut msg, 1);
+    wu(&mut msg, 9);
+    wu(&mut msg, 1);
+    wu(&mut msg, 2);
+    wu(&mut msg, 0);
+    wu(&mut msg, 99);
+    ws(&mut msg, "a");
+    wu(&mut msg, 3);
+    ws(&mut msg, "COMPONENT");
+    wu(&mut msg, 4);
+    ws(&mut msg, "BadgeComp");
+    wu(&mut msg, 6);
+    wf(&mut msg, 120.0);
+    wf(&mut msg, 40.0);
+    write_matrix(&mut msg, 0.0, 0.0);
+    write_solid(&mut msg, 8, [0.1, 0.2, 0.4, 1.0]);
+    wu(&mut msg, 0);
+
+    // 3: Master child TEXT 9:2 ("Default")
+    wu(&mut msg, 1);
+    wu(&mut msg, 9);
+    wu(&mut msg, 2);
+    wu(&mut msg, 2);
+    wu(&mut msg, 9);
+    wu(&mut msg, 1);
+    ws(&mut msg, "a");
+    wu(&mut msg, 3);
+    ws(&mut msg, "TEXT");
+    wu(&mut msg, 4);
+    ws(&mut msg, "BadgeText");
+    wu(&mut msg, 6);
+    wf(&mut msg, 100.0);
+    wf(&mut msg, 24.0);
+    write_matrix(&mut msg, 10.0, 8.0);
+    write_solid(&mut msg, 8, [1.0, 1.0, 1.0, 1.0]);
+    wu(&mut msg, 14);
+    wu(&mut msg, 1);
+    ws(&mut msg, "Default");
+    wu(&mut msg, 0);
+    wu(&mut msg, 15);
+    ws(&mut msg, "Inter");
+    ws(&mut msg, "Bold");
+    wu(&mut msg, 16);
+    wf(&mut msg, 14.0);
+    wu(&mut msg, 0);
+
+    // 4: User CANVAS 0:1
+    wu(&mut msg, 1);
+    wu(&mut msg, 0);
+    wu(&mut msg, 1);
+    wu(&mut msg, 2);
+    wu(&mut msg, 0);
+    wu(&mut msg, 0);
+    ws(&mut msg, "a");
+    wu(&mut msg, 3);
+    ws(&mut msg, "CANVAS");
+    wu(&mut msg, 4);
+    ws(&mut msg, "Page 1");
+    wu(&mut msg, 0);
+
+    // 5: VECTOR 1:1 at (origin_x, origin_y), 100x60, linear gradient + 2.5px stroke
+    wu(&mut msg, 1);
+    wu(&mut msg, 1);
+    wu(&mut msg, 1);
+    wu(&mut msg, 2);
+    wu(&mut msg, 0);
+    wu(&mut msg, 1);
+    ws(&mut msg, "a");
+    wu(&mut msg, 3);
+    ws(&mut msg, "VECTOR");
+    wu(&mut msg, 4);
+    ws(&mut msg, "GradPath");
+    wu(&mut msg, 6);
+    wf(&mut msg, 100.0);
+    wf(&mut msg, 60.0);
+    write_matrix(&mut msg, origin_x, origin_y);
+    wu(&mut msg, 8);
+    wu(&mut msg, 1);
+    wu(&mut msg, 1);
+    ws(&mut msg, "GRADIENT_LINEAR");
+    wu(&mut msg, 3);
+    wu(&mut msg, 2);
+    for (rgba, pos) in [
+        ([1.0f32, 0.3, 0.2, 1.0], 0.0f32),
+        ([0.2, 0.5, 1.0, 1.0], 1.0),
+    ] {
+        for c in rgba {
+            wf(&mut msg, c);
+        }
+        wf(&mut msg, pos);
+    }
+    wu(&mut msg, 0);
+    write_solid(&mut msg, 9, [1.0, 1.0, 1.0, 1.0]);
+    wu(&mut msg, 10);
+    wf(&mut msg, 2.5);
+    wu(&mut msg, 11);
+    wu(&mut msg, 1);
+    wu(&mut msg, 1);
+    ws(&mut msg, "NONZERO");
+    wu(&mut msg, 2);
+    wu(&mut msg, 0);
+    wu(&mut msg, 0);
+    wu(&mut msg, 0);
+
+    // 6: RECTANGLE 1:2 at (origin_x + 120, origin_y), 120x60, cornerRadius=14 + LAYER_BLUR(9.0)
+    wu(&mut msg, 1);
+    wu(&mut msg, 1);
+    wu(&mut msg, 2);
+    wu(&mut msg, 2);
+    wu(&mut msg, 0);
+    wu(&mut msg, 1);
+    ws(&mut msg, "b");
+    wu(&mut msg, 3);
+    ws(&mut msg, "RECTANGLE");
+    wu(&mut msg, 4);
+    ws(&mut msg, "BlurPill");
+    wu(&mut msg, 6);
+    wf(&mut msg, 120.0);
+    wf(&mut msg, 60.0);
+    write_matrix(&mut msg, origin_x + 120.0, origin_y);
+    write_solid(&mut msg, 8, [0.2, 0.8, 0.5, 1.0]);
+    wu(&mut msg, 12);
+    wf(&mut msg, 14.0);
+    wu(&mut msg, 13);
+    wu(&mut msg, 1);
+    wu(&mut msg, 1);
+    ws(&mut msg, "LAYER_BLUR");
+    wu(&mut msg, 2);
+    msg.push(1);
+    wu(&mut msg, 3);
+    wf(&mut msg, 9.0);
+    wu(&mut msg, 0);
+    wu(&mut msg, 0);
+
+    // 7: TEXT 1:3 at (origin_x, origin_y + 80), 110x40, "Hero Title" Inter Bold Italic 22px
+    wu(&mut msg, 1);
+    wu(&mut msg, 1);
+    wu(&mut msg, 3);
+    wu(&mut msg, 2);
+    wu(&mut msg, 0);
+    wu(&mut msg, 1);
+    ws(&mut msg, "c");
+    wu(&mut msg, 3);
+    ws(&mut msg, "TEXT");
+    wu(&mut msg, 4);
+    ws(&mut msg, "TitleNode");
+    wu(&mut msg, 6);
+    wf(&mut msg, 110.0);
+    wf(&mut msg, 40.0);
+    write_matrix(&mut msg, origin_x, origin_y + 80.0);
+    write_solid(&mut msg, 8, [0.95, 0.85, 0.25, 1.0]);
+    wu(&mut msg, 14);
+    wu(&mut msg, 1);
+    ws(&mut msg, "Hero Title");
+    wu(&mut msg, 0);
+    wu(&mut msg, 15);
+    ws(&mut msg, "Inter");
+    ws(&mut msg, "Bold Italic");
+    wu(&mut msg, 16);
+    wf(&mut msg, 22.0);
+    wu(&mut msg, 0);
+
+    // 8: INSTANCE 1:4 at (origin_x + 120, origin_y + 80), 120x40 referencing 9:1 with override "VIP"
+    wu(&mut msg, 1);
+    wu(&mut msg, 1);
+    wu(&mut msg, 4);
+    wu(&mut msg, 2);
+    wu(&mut msg, 0);
+    wu(&mut msg, 1);
+    ws(&mut msg, "d");
+    wu(&mut msg, 3);
+    ws(&mut msg, "INSTANCE");
+    wu(&mut msg, 4);
+    ws(&mut msg, "BadgeInst");
+    wu(&mut msg, 6);
+    wf(&mut msg, 120.0);
+    wf(&mut msg, 40.0);
+    write_matrix(&mut msg, origin_x + 120.0, origin_y + 80.0);
+    wu(&mut msg, 17);
+    wu(&mut msg, 1);
+    wu(&mut msg, 9);
+    wu(&mut msg, 1);
+    wu(&mut msg, 2);
+    wu(&mut msg, 1);
+    wu(&mut msg, 1);
+    wu(&mut msg, 1);
+    wu(&mut msg, 9);
+    wu(&mut msg, 2);
+    wu(&mut msg, 2);
+    wu(&mut msg, 1);
+    ws(&mut msg, "VIP");
+    wu(&mut msg, 0);
+    wu(&mut msg, 0);
+    wu(&mut msg, 0);
+    wu(&mut msg, 0);
+
+    // blobs = [cmd_blob]
+    wu(&mut msg, 2);
+    wu(&mut msg, 1);
+    wu(&mut msg, 1);
+    wu(&mut msg, cmd_blob.len() as u64);
+    msg.extend_from_slice(&cmd_blob);
+    wu(&mut msg, 0);
+    wu(&mut msg, 0);
+
+    let c0 = deflate_stored(&schema);
+    let c1 = if escaped {
+        zstd_raw_frame(&msg)
+    } else {
+        deflate_stored(&msg)
+    };
+    let mut kiwi = Vec::new();
+    kiwi.extend_from_slice(b"fig-kiwi");
+    kiwi.extend_from_slice(&106u32.to_le_bytes());
+    kiwi.extend_from_slice(&(c0.len() as u32).to_le_bytes());
+    kiwi.extend_from_slice(&c0);
+    kiwi.extend_from_slice(&(c1.len() as u32).to_le_bytes());
+    kiwi.extend_from_slice(&c1);
+
+    let meta_b64 = b64_encode(br#"{"fileKey":"EditorPaste","pasteID":"p-413","dataType":"scene"}"#);
+    let kiwi_b64 = b64_encode(&kiwi);
+    let html = if escaped {
+        format!(
+            "<meta charset=\"utf-8\"><span data-metadata=\"&lt;!--(figmeta){meta_b64}(/figmeta)--&gt;\"></span><span data-buffer=\"&lt;!--(figma){kiwi_b64}(/figma)--&gt;\"></span>"
+        )
+    } else {
+        format!(
+            "<meta charset=\"utf-8\"><span data-metadata=\"<!--(figmeta){meta_b64}(/figmeta)-->\"></span><span data-buffer=\"<!--(figma){kiwi_b64}(/figma)-->\"></span>"
+        )
+    };
+
+    let img = image::RgbaImage::from_pixel(4, 4, image::Rgba([200, 50, 50, 255]));
+    let mut flat_png = Vec::new();
+    img.write_to(
+        &mut std::io::Cursor::new(&mut flat_png),
+        image::ImageFormat::Png,
+    )
+    .unwrap();
+    (html, flat_png)
+}
+
+#[test]
+fn t413_figma_clipboard_paste_centre_and_in_place_near_and_infinite_canvas_double_paste_and_undo() {
+    use crate::clipboard::{StageClipboardFlavors, set_test_stage_clipboard_flavors};
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    // Default Project::blank() is 960 x 600 -> center is (480.0, 300.0).
+    let before = editor.project.clone();
+
+    // 1. Copy from Figma near origin `(100, 70)` (bbox `240 x 120`, center `(220, 130)`) with BOTH
+    //    `public.html` AND plain-text `"Hero Title"` AND flat preview PNG on the pasteboard!
+    let (near_html, flat_png) = build_editor_figma_clipboard_html(100.0, 70.0, false);
+    set_test_stage_clipboard_flavors(
+        &ctx,
+        Some(StageClipboardFlavors {
+            generation: Some(0),
+            plain_text: Some("Hero Title".into()),
+            html: Some(near_html.clone()),
+            svg: None,
+            png: Some(flat_png.clone()),
+        }),
+    );
+
+    // 1a. `⌘V` (`Paste in centre`): translates top-level elements rigidly by `(480 - 220, 300 - 130) = (260, 170)`
+    //     so GradPath lands at `(360, 240)` at exact `1:1` scale!
+    frame(
+        &mut editor,
+        &ctx,
+        1.0,
+        vec![
+            key(Key::V, true, Modifiers::COMMAND),
+            Event::Paste("Hero Title".into()),
+        ],
+        Modifiers::COMMAND,
+        None,
+    );
+    editor.project.validate().unwrap();
+    assert_eq!(
+        editor.history.undo_len(),
+        1,
+        "Figma paste is 1 single Undo step"
+    );
+    assert!(
+        editor.project.resources.is_empty(),
+        "must NOT paste the flat preview PNG screenshot"
+    );
+    assert_eq!(
+        editor.selection.targets.len(),
+        4,
+        "all 4 top-level pasted Figma objects selected"
+    );
+
+    let first_paste_el_ids: Vec<Id> = editor.symbol().timeline.layers[0].keyframes[0]
+        .elements
+        .iter()
+        .map(|e| e.id.clone())
+        .collect();
+    let first_paste_sym_ids: Vec<Id> = editor
+        .project
+        .symbols
+        .iter()
+        .filter(|s| s.id != editor.project.root)
+        .map(|s| s.id.clone())
+        .collect();
+    assert!(
+        !first_paste_sym_ids.is_empty(),
+        "nested BadgeComp variant symbol imported"
+    );
+
+    {
+        let els = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+        assert_eq!(els.len(), 4);
+        let grad_path = els.iter().find(|e| e.name == "GradPath").unwrap();
+        assert!((grad_path.transform.x - 360.0).abs() < 1e-6);
+        assert!((grad_path.transform.y - 240.0).abs() < 1e-6);
+        assert!((grad_path.transform.scale_x - 1.0).abs() < 1e-6);
+        assert!((grad_path.transform.scale_y - 1.0).abs() < 1e-6);
+        assert!(matches!(
+            grad_path.kind,
+            ElementKind::PaintedPath {
+                stroke_width,
+                fill_gradient: Some(_),
+                ..
+            } if (stroke_width - 2.5).abs() < 1e-6
+        ));
+
+        let blur_pill = els.iter().find(|e| e.name == "BlurPill").unwrap();
+        assert!((blur_pill.transform.x - 480.0).abs() < 1e-6);
+        assert!((blur_pill.transform.y - 240.0).abs() < 1e-6);
+        assert!(matches!(
+            blur_pill.kind,
+            ElementKind::Rectangle { width, height, .. } if (width - 120.0).abs() < 1e-6 && (height - 60.0).abs() < 1e-6
+        ));
+        assert!(matches!(
+            blur_pill.transform.primitive,
+            Some(PrimitiveOptions::Rectangle(RectangleOptions {
+                corner_radii: [14.0, 14.0, 14.0, 14.0],
+                ..
+            }))
+        ));
+        assert_eq!(
+            blur_pill.filters,
+            vec![FilterSpec::Blur {
+                blur_x: 9.0,
+                blur_y: 9.0,
+                quality: 2,
+            }]
+        );
+
+        let title_node = els.iter().find(|e| e.name == "TitleNode").unwrap();
+        assert!(matches!(
+            &title_node.kind,
+            ElementKind::TextBox { text, format, .. }
+                if text == "Hero Title" && format.font == "Inter" && format.bold && format.italic && (format.size - 22.0).abs() < 1e-6
+        ));
+
+        let badge_inst = els.iter().find(|e| e.name == "BadgeInst").unwrap();
+        assert!(matches!(badge_inst.kind, ElementKind::Instance { .. }));
+    }
+
+    // 1b. Paste the EXACT SAME Figma clipboard payload a SECOND time in a row:
+    //     produces distinct non-colliding `Element` & `Symbol` IDs and passes `validate()`!
+    frame(
+        &mut editor,
+        &ctx,
+        1.2,
+        vec![
+            key(Key::V, true, Modifiers::COMMAND),
+            Event::Paste("Hero Title".into()),
+        ],
+        Modifiers::COMMAND,
+        None,
+    );
+    editor.project.validate().unwrap();
+    assert_eq!(editor.history.undo_len(), 2);
+    {
+        let els = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+        assert_eq!(els.len(), 8);
+        let second_el_ids: Vec<&Id> = els[4..].iter().map(|e| &e.id).collect();
+        for eid in second_el_ids {
+            assert!(
+                !first_paste_el_ids.contains(eid),
+                "second paste Element ID {eid} must not collide with first paste"
+            );
+        }
+        let all_non_root_syms: Vec<&Id> = editor
+            .project
+            .symbols
+            .iter()
+            .filter(|s| s.id != editor.project.root)
+            .map(|s| &s.id)
+            .collect();
+        assert_eq!(
+            all_non_root_syms.len(),
+            first_paste_sym_ids.len() * 2,
+            "second paste must allocate distinct non-colliding Symbol IDs"
+        );
+        let unique_syms: std::collections::HashSet<&&Id> = all_non_root_syms.iter().collect();
+        assert_eq!(unique_syms.len(), all_non_root_syms.len());
+    }
+
+    // Two single-step `⌘Z` Undos restore exact `before`!
+    editor.undo();
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .len(),
+        4
+    );
+    editor.undo();
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+
+    // 2. `⌘⇧V` (`Paste in place`) near-origin `(100, 70)` preserves exact `(100, 70)`!
+    frame(
+        &mut editor,
+        &ctx,
+        1.5,
+        vec![
+            key(Key::V, true, Modifiers::COMMAND | Modifiers::SHIFT),
+            Event::Paste("Hero Title".into()),
+        ],
+        Modifiers::COMMAND | Modifiers::SHIFT,
+        None,
+    );
+    editor.project.validate().unwrap();
+    {
+        let els = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+        let grad_path = els.iter().find(|e| e.name == "GradPath").unwrap();
+        assert!((grad_path.transform.x - 100.0).abs() < 1e-6);
+        assert!((grad_path.transform.y - 70.0).abs() < 1e-6);
+    }
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // 3. `⌘⇧V` (`Paste in place`) from far out on Figma's infinite canvas `(15000, -8000)`
+    //    (HTML-escaped `&lt;!--(figma)...(/figma)--&gt;` AND NO plain-text flavor via `request_stage_clipboard_with`!)
+    //    normalizes top-left to `(0, 0)` while keeping `1:1` relative layout!
+    let (far_html, far_png) = build_editor_figma_clipboard_html(15_000.0, -8_000.0, true);
+    set_test_stage_clipboard_flavors(&ctx, None);
+    editor.request_stage_clipboard_with(&ctx, ClipboardCommand::PasteInPlace, || {
+        Ok(StageClipboardFlavors {
+            generation: Some(9),
+            plain_text: None,
+            html: Some(far_html),
+            svg: None,
+            png: Some(far_png),
+        })
+    });
+    editor.project.validate().unwrap();
+    {
+        let els = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+        let grad_path = els.iter().find(|e| e.name == "GradPath").unwrap();
+        let blur_pill = els.iter().find(|e| e.name == "BlurPill").unwrap();
+        assert!(grad_path.transform.x.abs() < 1e-6);
+        assert!(grad_path.transform.y.abs() < 1e-6);
+        assert!((blur_pill.transform.x - 120.0).abs() < 1e-6);
+        assert!(blur_pill.transform.y.abs() < 1e-6);
+    }
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
+
+#[test]
+fn t413_locked_and_solo_hidden_layers_block_figma_and_svg_paste_and_svg_respects_text_focus() {
+    use crate::clipboard::{StageClipboardFlavors, set_test_stage_clipboard_flavors};
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.symbol_mut().timeline.layers.push(Layer {
+        id: new_id("layer"),
+        name: "Solo Peer".into(),
+        visible: true,
+        locked: false,
+        keyframes: vec![Keyframe::default()],
+        properties: Default::default(),
+    });
+    editor.layer = 0;
+    editor.history.clear();
+    let before = editor.project.clone();
+
+    let (figma_html, flat_png) = build_editor_figma_clipboard_html(40.0, 50.0, false);
+    let copy_as_svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><path fill="#ff5533" stroke="#112233" stroke-width="2" d="M0 0L120 0L100 80L0 80Z"/></svg>"##;
+
+    // 1. Locked layer blocks both Figma paste and SVG paste with zero mutation or Undo steps.
+    editor.symbol_mut().timeline.layers[0].locked = true;
+    let locked_baseline = editor.project.clone();
+    editor.request_stage_clipboard_with(&ctx, ClipboardCommand::Paste, || {
+        Ok(StageClipboardFlavors {
+            generation: Some(1),
+            plain_text: None,
+            html: Some(figma_html.clone()),
+            svg: None,
+            png: Some(flat_png.clone()),
+        })
+    });
+    assert_eq!(editor.project, locked_baseline);
+    assert!(!editor.history.can_undo());
+    frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![Event::Paste(copy_as_svg.to_owned())],
+        Modifiers::COMMAND,
+        None,
+    );
+    assert_eq!(editor.project, locked_baseline);
+    assert!(!editor.history.can_undo());
+    editor.symbol_mut().timeline.layers[0].locked = false;
+    assert_eq!(editor.project, before);
+
+    // 2. Solo-hidden layer (`layer 1` is soloed while `editor.layer == 0`) blocks Figma & SVG paste cleanly!
+    assert!(editor.toggle_layer_solo(1, true));
+    assert!(!editor.layer_editable());
+    editor.request_stage_clipboard_with(&ctx, ClipboardCommand::Paste, || {
+        Ok(StageClipboardFlavors {
+            generation: Some(2),
+            plain_text: Some("Hero Title".into()),
+            html: Some(figma_html.clone()),
+            svg: None,
+            png: Some(flat_png.clone()),
+        })
+    });
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+    frame(
+        &mut editor,
+        &ctx,
+        0.4,
+        vec![Event::Paste(copy_as_svg.to_owned())],
+        Modifiers::COMMAND,
+        None,
+    );
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+    editor.clear_all_solo_layers();
+    assert!(editor.layer_editable());
+
+    // 3. `"Copy as SVG"` on editable Stage layer pastes editable vector `Path` (preserving stroke_width=2, even with stroke at x=0!)
+    //    instead of a `<svg>` TextBox or raster bitmap!
+    frame(
+        &mut editor,
+        &ctx,
+        0.6,
+        vec![
+            key(Key::V, true, Modifiers::COMMAND),
+            Event::Paste(copy_as_svg.to_owned()),
+        ],
+        Modifiers::COMMAND,
+        None,
+    );
+    editor.project.validate().unwrap();
+    assert!(
+        editor.project.resources.is_empty(),
+        "must remain pure vector, not raster PNG"
+    );
+    let pasted_svg = editor
+        .selected_element()
+        .expect("pasted SVG vector selected");
+    assert!(matches!(
+        pasted_svg.kind,
+        ElementKind::Path { stroke_width, .. } if (stroke_width - 2.0).abs() < 1e-6
+    ));
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // 4. Pasting `<svg>` (even while Figma HTML is on the pasteboard!) inside `Actions` / focused text field
+    //    inserts literal `<svg...>` text without touching Stage!
+    set_test_stage_clipboard_flavors(
+        &ctx,
+        Some(StageClipboardFlavors {
+            generation: Some(0),
+            plain_text: Some(copy_as_svg.to_owned()),
+            html: Some(figma_html.clone()),
+            svg: Some(copy_as_svg.to_owned()),
+            png: None,
+        }),
+    );
+    let mut actions_code = String::new();
+    focus_and_select_text(&mut editor, &ctx, &mut actions_code);
+    frame(
+        &mut editor,
+        &ctx,
+        0.8,
+        vec![
+            key(Key::V, true, Modifiers::COMMAND),
+            Event::Paste(copy_as_svg.to_owned()),
+        ],
+        Modifiers::COMMAND,
+        Some(&mut actions_code),
+    );
+    assert_eq!(actions_code, copy_as_svg);
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+    ctx.memory_mut(|m| m.surrender_focus(field_id()));
+
+    // 5. Pasting `<svg>` while actively inline-editing a Stage `TextBox` inserts `<svg...>` as text!
+    editor.add_element(
+        ElementKind::TextBox {
+            text: "Code: ".into(),
+            width: 320.0,
+            height: 80.0,
+            format: TextFormat::default(),
+            word_wrap: true,
+            multiline: true,
+        },
+        40.0,
+        40.0,
+    );
+    assert!(editor.place_stage_text_caret_utf16(6));
+    assert!(editor.is_stage_inline_text_editing());
+    let elements_before = editor.symbol().timeline.layers[0].keyframes[0]
+        .elements
+        .len();
+    frame(
+        &mut editor,
+        &ctx,
+        1.0,
+        vec![
+            key(Key::V, true, Modifiers::COMMAND),
+            Event::Paste(copy_as_svg.to_owned()),
+        ],
+        Modifiers::COMMAND,
+        None,
+    );
+    editor.project.validate().unwrap();
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .len(),
+        elements_before,
+        "inline Stage TextBox edit must NOT spawn new vector shapes on Stage"
+    );
+    let state = TextFieldState::from_kind(&editor.selected_sampled().unwrap().kind).unwrap();
+    assert_eq!(state.text, format!("Code: {copy_as_svg}"));
+    set_test_stage_clipboard_flavors(&ctx, None);
+}

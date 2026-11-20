@@ -4,7 +4,7 @@
 //! `commandsBlob` and `vectorNetworkBlob` geometry decoders (`T-249`, `T-312`).
 
 use std::borrow::Cow;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::Read;
 
 use flate2::read::DeflateDecoder;
@@ -1141,7 +1141,94 @@ fn parse_kiwi_matrix6(obj: &KiwiObj<'_>) -> Option<[f64; 6]> {
     Some([m00, m01, m02, m10, m11, m12])
 }
 
-fn parse_kiwi_paint_list(arr: &[KiwiVal<'_>], w: f64, h: f64) -> Vec<FigmaPaint> {
+pub(super) fn sha1_hex(data: &[u8]) -> String {
+    let mut h0: u32 = 0x6745_2301;
+    let mut h1: u32 = 0xEFCD_AB89;
+    let mut h2: u32 = 0x98BA_DCFE;
+    let mut h3: u32 = 0x1032_5476;
+    let mut h4: u32 = 0xC3D2_E1F0;
+
+    let process_block =
+        |block: &[u8; 64], h0: &mut u32, h1: &mut u32, h2: &mut u32, h3: &mut u32, h4: &mut u32| {
+            let mut w = [0u32; 80];
+            for (i, &chunk) in block.as_chunks::<4>().0.iter().enumerate() {
+                w[i] = u32::from_be_bytes(chunk);
+            }
+            for i in 16..80 {
+                w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
+            }
+            let (mut a, mut b, mut c, mut d, mut e) = (*h0, *h1, *h2, *h3, *h4);
+            for (i, &wi) in w.iter().enumerate() {
+                let (f, k) = match i {
+                    0..=19 => ((b & c) | ((!b) & d), 0x5A82_7999),
+                    20..=39 => (b ^ c ^ d, 0x6ED9_EBA1),
+                    40..=59 => ((b & c) | (b & d) | (c & d), 0x8F1B_BCDC),
+                    _ => (b ^ c ^ d, 0xCA62_C1D6),
+                };
+                let temp = a
+                    .rotate_left(5)
+                    .wrapping_add(f)
+                    .wrapping_add(e)
+                    .wrapping_add(k)
+                    .wrapping_add(wi);
+                e = d;
+                d = c;
+                c = b.rotate_left(30);
+                b = a;
+                a = temp;
+            }
+            *h0 = h0.wrapping_add(a);
+            *h1 = h1.wrapping_add(b);
+            *h2 = h2.wrapping_add(c);
+            *h3 = h3.wrapping_add(d);
+            *h4 = h4.wrapping_add(e);
+        };
+
+    let (chunks, rem) = data.as_chunks::<64>();
+    for block in chunks {
+        process_block(block, &mut h0, &mut h1, &mut h2, &mut h3, &mut h4);
+    }
+    let mut tail = [0u8; 128];
+    tail[..rem.len()].copy_from_slice(rem);
+    tail[rem.len()] = 0x80;
+    let total_bits = (data.len() as u64).wrapping_mul(8);
+    if rem.len() >= 56 {
+        tail[120..128].copy_from_slice(&total_bits.to_be_bytes());
+        let mut b0 = [0u8; 64];
+        b0.copy_from_slice(&tail[..64]);
+        process_block(&b0, &mut h0, &mut h1, &mut h2, &mut h3, &mut h4);
+        let mut b1 = [0u8; 64];
+        b1.copy_from_slice(&tail[64..128]);
+        process_block(&b1, &mut h0, &mut h1, &mut h2, &mut h3, &mut h4);
+    } else {
+        tail[56..64].copy_from_slice(&total_bits.to_be_bytes());
+        let mut b0 = [0u8; 64];
+        b0.copy_from_slice(&tail[..64]);
+        process_block(&b0, &mut h0, &mut h1, &mut h2, &mut h3, &mut h4);
+    }
+
+    format!("{h0:08x}{h1:08x}{h2:08x}{h3:08x}{h4:08x}")
+}
+
+pub(super) fn looks_like_raster_image_blob(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+        || bytes.starts_with(b"\xff\xd8\xff")
+        || (bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP")
+        || bytes.starts_with(b"GIF87a")
+        || bytes.starts_with(b"GIF89a")
+        || bytes.starts_with(b"BM")
+        || bytes.starts_with(b"II*\x00")
+        || bytes.starts_with(b"MM\x00*")
+}
+
+fn parse_kiwi_paint_list(
+    arr: &[KiwiVal<'_>],
+    w: f64,
+    h: f64,
+    blobs: &[&[u8]],
+    blob_base: u64,
+    mut inline_images: Option<&mut BTreeMap<String, Vec<u8>>>,
+) -> Vec<FigmaPaint> {
     let mut out = Vec::new();
     for item in arr {
         let Some(p) = item.as_obj() else { continue };
@@ -1222,6 +1309,7 @@ fn parse_kiwi_paint_list(arr: &[KiwiVal<'_>], w: f64, h: f64) -> Vec<FigmaPaint>
                 let img_obj = p
                     .get("image")
                     .or_else(|| p.get("imageThumbnail"))
+                    .or_else(|| p.get("animatedImage"))
                     .and_then(KiwiVal::as_obj);
                 let mut hash_hex = String::new();
                 if let Some(img) = img_obj
@@ -1237,6 +1325,21 @@ fn parse_kiwi_paint_list(arr: &[KiwiVal<'_>], w: f64, h: f64) -> Vec<FigmaPaint>
                             .collect();
                     } else if let Some(s) = hv.as_str() {
                         hash_hex = s.to_ascii_lowercase();
+                    }
+                }
+                let resolved_blob = img_obj
+                    .and_then(|img| img.get("dataBlob").or_else(|| img.get("bytes")))
+                    .or_else(|| p.get("dataBlob"))
+                    .and_then(|bv| resolve_kiwi_blob(bv, blobs, blob_base))
+                    .filter(|b| !b.is_empty());
+                if let Some(blob_bytes) = resolved_blob {
+                    if hash_hex.is_empty() {
+                        hash_hex = sha1_hex(blob_bytes);
+                    }
+                    if let Some(store) = inline_images.as_deref_mut() {
+                        store
+                            .entry(hash_hex.clone())
+                            .or_insert_with(|| blob_bytes.to_vec());
                     }
                 }
                 if !hash_hex.is_empty() {
@@ -1385,7 +1488,7 @@ fn parse_kiwi_style_override(so: &KiwiObj<'_>, base_font_size: f64) -> FigmaText
         out.strikethrough = Some(dec == "STRIKETHROUGH");
     }
     if let Some(fp_arr) = so.get("fillPaints").and_then(KiwiVal::as_array) {
-        for p in parse_kiwi_paint_list(fp_arr, 100.0, 20.0) {
+        for p in parse_kiwi_paint_list(fp_arr, 100.0, 20.0, &[], 0, None) {
             if let FigmaPaint::Solid { color } = p {
                 out.fill_color = Some(color);
                 break;
@@ -2528,6 +2631,7 @@ fn decode_single_kiwi_node(
     defs: &[KiwiDef],
     scanned: &ScannedKiwiStream<'_>,
     targets: &mut KiwiBindingTargets,
+    inline_images: &mut BTreeMap<String, Vec<u8>>,
     budget: &mut usize,
     active_structs: &mut Vec<usize>,
 ) -> Result<FigmaNode, String> {
@@ -2666,7 +2770,7 @@ fn decode_single_kiwi_node(
     let fills = obj
         .get("fillPaints")
         .and_then(KiwiVal::as_array)
-        .map(|a| parse_kiwi_paint_list(a, width, height))
+        .map(|a| parse_kiwi_paint_list(a, width, height, blobs, blob_base, Some(inline_images)))
         .unwrap_or_default();
 
     let background_color = if node_type == "CANVAS" {
@@ -2688,7 +2792,7 @@ fn decode_single_kiwi_node(
     let strokes = obj
         .get("strokePaints")
         .and_then(KiwiVal::as_array)
-        .map(|a| parse_kiwi_paint_list(a, width, height))
+        .map(|a| parse_kiwi_paint_list(a, width, height, blobs, blob_base, Some(inline_images)))
         .unwrap_or_default();
     let stroke_weight = obj
         .get("strokeWeight")
@@ -2989,14 +3093,12 @@ fn decode_single_kiwi_node(
                     .and_then(|td| td.get("characters"))
                     .and_then(KiwiVal::as_str)
                     .map(str::to_owned);
-                let ov_fills = ov
-                    .get("fillPaints")
-                    .and_then(KiwiVal::as_array)
-                    .map(|a| parse_kiwi_paint_list(a, width, height));
-                let ov_strokes = ov
-                    .get("strokePaints")
-                    .and_then(KiwiVal::as_array)
-                    .map(|a| parse_kiwi_paint_list(a, width, height));
+                let ov_fills = ov.get("fillPaints").and_then(KiwiVal::as_array).map(|a| {
+                    parse_kiwi_paint_list(a, width, height, blobs, blob_base, Some(inline_images))
+                });
+                let ov_strokes = ov.get("strokePaints").and_then(KiwiVal::as_array).map(|a| {
+                    parse_kiwi_paint_list(a, width, height, blobs, blob_base, Some(inline_images))
+                });
                 let ov_sym = ov
                     .get("overriddenSymbolID")
                     .and_then(KiwiVal::as_obj)
@@ -3335,6 +3437,7 @@ fn decode_fig_kiwi_stream(
     }
 
     let mut binding_targets = KiwiBindingTargets::new();
+    let mut inline_images = BTreeMap::new();
     let mut decoded_nodes: Vec<Option<FigmaNode>> = (0..n).map(|_| None).collect();
     for idx in 0..n {
         if reach_state[idx] == 0 {
@@ -3345,10 +3448,20 @@ fn decode_fig_kiwi_stream(
             &defs,
             &scanned,
             &mut binding_targets,
+            &mut inline_images,
             &mut budget,
             &mut active_structs,
         )?;
         decoded_nodes[idx] = Some(fnode);
+    }
+
+    // Hydrate any raw PNG/JPEG/WebP/GIF/BMP/TIFF image payloads embedded in `Message.blobs`
+    // (such as Figma clipboard `fig-kiwi` streams keyed by 20-byte SHA-1 `Paint.image.hash`).
+    for &blob in &scanned.blobs {
+        if looks_like_raster_image_blob(blob) && blob.len() <= super::MAX_ZIP_IMAGE_ENTRY_BYTES {
+            let digest = sha1_hex(blob);
+            inline_images.entry(digest).or_insert_with(|| blob.to_vec());
+        }
     }
 
     apply_component_properties(&mut decoded_nodes, assignments, &binding_targets)?;
@@ -3393,6 +3506,6 @@ fn decode_fig_kiwi_stream(
         name: scanned.doc_name,
         version_label,
         pages,
-        inline_images: Default::default(),
+        inline_images,
     })
 }

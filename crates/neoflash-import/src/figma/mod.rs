@@ -478,6 +478,7 @@ pub fn is_figma_bytes(bytes: &[u8]) -> bool {
     json_doc::looks_like_figma_json(bytes)
 }
 
+pub mod clipboard;
 mod convert;
 mod json_doc;
 mod kiwi;
@@ -485,6 +486,8 @@ mod page_layout;
 #[cfg(test)]
 mod tests;
 pub(crate) mod zstd;
+
+pub use clipboard::*;
 
 use convert::build_project_from_figma_doc;
 use json_doc::{inspect_figma_json_doc, parse_figma_json_doc};
@@ -759,8 +762,8 @@ fn import_from_zip_payload(
         if let Some(mtitle) = payload.meta_name {
             doc.name = mtitle;
         }
-        let mut images =
-            FigmaImageArchive::from_zip(zip_reader, payload.zip_image_index, BTreeMap::new());
+        let inline = std::mem::take(&mut doc.inline_images);
+        let mut images = FigmaImageArchive::from_zip(zip_reader, payload.zip_image_index, inline);
         return build_project_from_figma_doc(doc, &mut images, options, source_name);
     }
     if let Some(jb) = payload.json_bytes {
@@ -795,8 +798,9 @@ pub fn import_figma_bytes(
         )));
     }
     if bytes.starts_with(b"fig-kiwi") || bytes.starts_with(b"fig-jam.") {
-        let doc = parse_fig_kiwi_canvas_with_options(bytes, source_name, options)?;
-        let mut images = FigmaImageArchive::from_inline(BTreeMap::new());
+        let mut doc = parse_fig_kiwi_canvas_with_options(bytes, source_name, options)?;
+        let inline = std::mem::take(&mut doc.inline_images);
+        let mut images = FigmaImageArchive::from_inline(inline);
         return build_project_from_figma_doc(doc, &mut images, options, source_name);
     }
     if bytes.starts_with(b"PK\x03\x04") {

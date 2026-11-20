@@ -2320,6 +2320,28 @@ pub(super) fn build_project_from_figma_doc(
         }
     }
 
+    finalize_figma_project_format(&mut project);
+    project.validate().map_err(|e| {
+        ImportError::Blocked(format!("Imported Figma composition failed validation: {e}"))
+    })?;
+    report.statistics.symbols = project.symbols.len();
+    report.diagnostics.push(Diagnostic {
+        severity: Severity::Info,
+        code: "figma-composition-imported".into(),
+        location: source_label.to_owned(),
+        message: format!(
+            "Imported Figma composition '{}' into {} layer(s), {} symbol(s) and {} element(s).",
+            project.name,
+            report.statistics.layers,
+            report.statistics.symbols,
+            report.statistics.elements
+        ),
+    });
+    report.can_import = true;
+    Ok((project, report))
+}
+
+fn finalize_figma_project_format(project: &mut Project) {
     if !project.resources.is_empty() {
         project.format_version = project.format_version.max(3);
     }
@@ -2345,24 +2367,447 @@ pub(super) fn build_project_from_figma_doc(
         project.format_version = project.format_version.max(5);
     }
     project.upgrade_format_for_features();
+}
+
+fn clipboard_node_local_matrix(node: &FigmaNode) -> [f64; 6] {
+    node.relative_transform
+        .filter(|matrix| matrix.iter().all(|v| v.is_finite()))
+        .unwrap_or_else(|| {
+            let (sin, cos) = node.rotation_deg.to_radians().sin_cos();
+            [cos, sin, -sin, cos, node.x, node.y]
+        })
+}
+
+fn include_transformed_rect(
+    bounds: &mut Option<neoflash_core::PathBounds>,
+    matrix: [f64; 6],
+    x0: f64,
+    y0: f64,
+    x1: f64,
+    y1: f64,
+) {
+    let [a, b, c, d, tx, ty] = matrix;
+    for (u, v) in [(x0, y0), (x1, y0), (x1, y1), (x0, y1)] {
+        let px = a * u + c * v + tx;
+        let py = b * u + d * v + ty;
+        if px.is_finite() && py.is_finite() {
+            let bb = bounds.get_or_insert(neoflash_core::PathBounds {
+                x_min: px,
+                x_max: px,
+                y_min: py,
+                y_max: py,
+            });
+            bb.x_min = bb.x_min.min(px);
+            bb.y_min = bb.y_min.min(py);
+            bb.x_max = bb.x_max.max(px);
+            bb.y_max = bb.y_max.max(py);
+        }
+    }
+}
+
+fn measure_clipboard_node_bounds(
+    bounds: &mut Option<neoflash_core::PathBounds>,
+    node: &FigmaNode,
+    parent: [f64; 6],
+    include_hidden: bool,
+    top: bool,
+    depth: usize,
+) {
+    if depth > 64 || (!node.visible && !include_hidden) {
+        return;
+    }
+    let matrix = neoflash_core::affine_multiply(parent, clipboard_node_local_matrix(node));
+    let mut used_vector_paths = false;
+    if node.children.is_empty()
+        && matches!(
+            node.node_type.as_str(),
+            "VECTOR" | "BOOLEAN_OPERATION" | "LINE" | "STAR" | "REGULAR_POLYGON"
+        )
+        && (!node.fill_paths.is_empty() || !node.stroke_paths.is_empty())
+    {
+        let mut local_path_bb: Option<neoflash_core::PathBounds> = None;
+        for (cmds, _) in &node.fill_paths {
+            if let Ok(Some(pb)) = neoflash_core::path_bounds(cmds) {
+                let dst = local_path_bb.get_or_insert(pb);
+                dst.x_min = dst.x_min.min(pb.x_min);
+                dst.y_min = dst.y_min.min(pb.y_min);
+                dst.x_max = dst.x_max.max(pb.x_max);
+                dst.y_max = dst.y_max.max(pb.y_max);
+            }
+        }
+        for cmds in &node.stroke_paths {
+            if let Ok(Some(pb)) = neoflash_core::path_bounds(cmds) {
+                let dst = local_path_bb.get_or_insert(pb);
+                dst.x_min = dst.x_min.min(pb.x_min);
+                dst.y_min = dst.y_min.min(pb.y_min);
+                dst.x_max = dst.x_max.max(pb.x_max);
+                dst.y_max = dst.y_max.max(pb.y_max);
+            }
+        }
+        if let Some(pb) = local_path_bb {
+            include_transformed_rect(bounds, matrix, pb.x_min, pb.y_min, pb.x_max, pb.y_max);
+            used_vector_paths = true;
+        }
+    }
+
+    if !used_vector_paths {
+        let is_group_without_paint = node.node_type == "GROUP"
+            && !node.children.is_empty()
+            && node.fills.is_empty()
+            && node.strokes.is_empty()
+            && node.effects.is_empty();
+        let visible_bounds = !is_group_without_paint
+            && (top
+                || node.clips_content
+                || node.children.is_empty()
+                || !node.fills.is_empty()
+                || !node.strokes.is_empty()
+                || !node.effects.is_empty());
+        if visible_bounds {
+            include_transformed_rect(
+                bounds,
+                matrix,
+                0.0,
+                0.0,
+                node.width.max(0.0),
+                node.height.max(0.0),
+            );
+        }
+    }
+
+    if !node.clips_content {
+        for child in &node.children {
+            measure_clipboard_node_bounds(bounds, child, matrix, include_hidden, false, depth + 1);
+        }
+    }
+}
+
+pub(super) fn collect_unresolved_image_refs(
+    doc: &FigmaDoc,
+    existing: &BTreeMap<String, Vec<u8>>,
+) -> Vec<String> {
+    let user_pages: Vec<&FigmaNode> = {
+        let non_internal: Vec<&FigmaNode> = doc.pages.iter().filter(|p| !p.internal_only).collect();
+        if non_internal.is_empty() {
+            doc.pages.iter().collect()
+        } else {
+            non_internal
+        }
+    };
+    let mut master_nodes: HashMap<String, &FigmaNode> = HashMap::new();
+    let mut ordered_master_ids: Vec<String> = Vec::new();
+    for page in &doc.pages {
+        collect_master_nodes(page, &mut master_nodes, &mut ordered_master_ids, 0);
+    }
+    let mut refs = ReferencedImages::default();
+    let mut visited_masters = HashSet::new();
+    let mut ref_masters = Vec::new();
+    for &page in &user_pages {
+        collect_referenced_image_keys(page, true, true, &mut refs);
+        collect_transitively_referenced_masters(
+            page,
+            true,
+            false,
+            &master_nodes,
+            &mut visited_masters,
+            &mut ref_masters,
+        );
+    }
+    for mnode in ref_masters {
+        collect_referenced_image_keys(mnode, true, true, &mut refs);
+    }
+    refs.ordered
+        .into_iter()
+        .filter(|key| {
+            let low = key.to_ascii_lowercase();
+            !existing.contains_key(key) && !existing.contains_key(&low)
+        })
+        .collect()
+}
+
+pub(super) type FigmaClipboardProjectResult = (
+    Project,
+    ImportReport,
+    Option<neoflash_core::PathBounds>,
+    Option<neoflash_core::PathBounds>,
+);
+
+/// Build a 1:1 (`scale = 1.0`) NeoFlash [`Project`] from a Figma clipboard `fig-kiwi` document
+/// without auto-downscaling or artboard-dissolving, preserving exact editable vectors, strokes,
+/// gradients, corner radii, editable text, filters, clipping masks, and `Internal Only Canvas`
+/// component symbols.
+pub(super) fn build_clipboard_project_from_figma_doc(
+    doc: FigmaDoc,
+    images: &mut FigmaImageArchive<'_>,
+    source_label: &str,
+) -> Result<FigmaClipboardProjectResult, ImportError> {
+    let options = FigmaImportOptions {
+        layer_mapping: FigmaLayerMapping::TimelineLayers,
+        import_hidden_layers: true,
+        preserve_masks: true,
+        preserve_blend_modes: true,
+        resize_stage_to_artboard: false,
+        selected_page_ids: None,
+        page_mapping: FigmaPageMapping::Layers,
+    };
+
+    let mut project = Project::blank();
+    project.name = sanitize_symbol_name(&doc.name);
+    let root = project.root.clone();
+    if let Some(scene) = project.symbol_mut(&root) {
+        scene.timeline.frame_count = 1;
+    }
+
+    let mut report = ImportReport {
+        source: source_label.to_owned(),
+        format: ImportFormat::Figma,
+        version: Some(if doc.version_label.is_empty() {
+            "Figma Clipboard".into()
+        } else {
+            doc.version_label.clone()
+        }),
+        can_import: false,
+        statistics: Statistics::default(),
+        diagnostics: Vec::new(),
+        binary_fla: None,
+        swf: None,
+        swc: None,
+    };
+
+    if doc.pages.is_empty() {
+        return Err(ImportError::Blocked(
+            "Figma clipboard payload contains no pages or nodes.".into(),
+        ));
+    }
+
+    let user_pages: Vec<&FigmaNode> = {
+        let non_internal: Vec<&FigmaNode> = doc.pages.iter().filter(|p| !p.internal_only).collect();
+        if non_internal.is_empty() {
+            doc.pages.iter().collect()
+        } else {
+            non_internal
+        }
+    };
+
+    let any_visible_top = user_pages
+        .iter()
+        .flat_map(|p| &p.children)
+        .any(|c| c.visible);
+    let include_hidden_top = !any_visible_top;
+
+    let mut figma_bounds: Option<neoflash_core::PathBounds> = None;
+    let identity = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+    for &page in &user_pages {
+        for child in &page.children {
+            if !child.visible && !include_hidden_top {
+                continue;
+            }
+            measure_clipboard_node_bounds(&mut figma_bounds, child, identity, true, true, 0);
+        }
+    }
+
+    // Keep exact Figma canvas coordinates directly whenever within [-50_000, 50_000];
+    // if copied from far out beyond 50_000 on Figma's infinite canvas, rebase by `x_min, y_min`
+    // so `node_transform` never clamps extreme offsets while preserving exact 1:1 relative geometry.
+    let coord_offset = match figma_bounds {
+        Some(bb)
+            if bb.x_min.abs() <= 50_000.0
+                && bb.x_max.abs() <= 50_000.0
+                && bb.y_min.abs() <= 50_000.0
+                && bb.y_max.abs() <= 50_000.0 =>
+        {
+            [0.0, 0.0]
+        }
+        Some(bb) => [bb.x_min, bb.y_min],
+        None => [0.0, 0.0],
+    };
+
+    if let Some(bb) = figma_bounds {
+        project.width = bb.width().ceil().clamp(1.0, 8192.0) as u32;
+        project.height = bb.height().ceil().clamp(1.0, 8192.0) as u32;
+    }
+
+    let mut master_nodes: HashMap<String, &FigmaNode> = HashMap::new();
+    let mut ordered_master_ids: Vec<String> = Vec::new();
+    for page in &doc.pages {
+        collect_master_nodes(page, &mut master_nodes, &mut ordered_master_ids, 0);
+    }
+
+    let mut ctx = FigmaBuildCtx {
+        options: &options,
+        master_nodes,
+        component_symbols: HashMap::new(),
+        building_components: HashSet::new(),
+        variant_cache: HashMap::new(),
+        image_resources: HashMap::new(),
+        project: &mut project,
+        report: &mut report,
+        authored_elements: 0,
+        page_truncated: false,
+        warned_element_budget: false,
+        warned_expanded_budget: false,
+        warned_symbol_budget: false,
+        warned_override_budget: false,
+    };
+
+    prepare_referenced_images(
+        &doc,
+        &user_pages,
+        &ordered_master_ids,
+        true,
+        images,
+        &mut ctx,
+    );
+
+    let mut all_elements = Vec::new();
+    let mut all_bfs = Vec::new();
+    let mut expanded_used = 1usize;
+
+    for &page in &user_pages {
+        let top_children: Vec<&FigmaNode> = page
+            .children
+            .iter()
+            .filter(|n| n.visible || include_hidden_top)
+            .collect();
+        if top_children.is_empty() {
+            continue;
+        }
+        let page_name = if page.name.trim().is_empty() {
+            "Figma Paste"
+        } else {
+            page.name.as_str()
+        };
+        let has_canvas_root_mask = top_children.iter().any(|child| child.is_mask);
+        if has_canvas_root_mask && ctx.project.symbols.len() < MAX_PROJECT_SYMBOLS {
+            let mut page_bb = None;
+            for &child in &top_children {
+                measure_clipboard_node_bounds(&mut page_bb, child, identity, true, true, 0);
+            }
+            let raw_origin = page_bb.map_or([0.0, 0.0], |bb| [bb.x_min, bb.y_min]);
+            let rem = MAX_EXPANDED_SCENE_NODES.saturating_sub(expanded_used);
+            let (sub_layers, exp, _) = ctx.build_layers_for_children(
+                &page.children,
+                raw_origin[0],
+                raw_origin[1],
+                None,
+                page_name,
+                rem,
+                2,
+            );
+            if !sub_layers.is_empty() {
+                let sym_id = new_id("figclip");
+                ctx.project.symbols.push(Symbol {
+                    id: sym_id.clone(),
+                    name: sanitize_symbol_name(page_name),
+                    folder: "Figma Layers".into(),
+                    kind: SymbolKind::MovieClip,
+                    timeline: Timeline {
+                        frame_count: 1,
+                        layers: sub_layers,
+                        scripts: Vec::new(),
+                        guides: Vec::new(),
+                    },
+                    class_name: None,
+                    linkage_id: None,
+                });
+                ctx.report.statistics.symbols = ctx.project.symbols.len();
+                all_elements.push(Element {
+                    id: new_id("el"),
+                    name: sanitize_instance_name(page_name),
+                    transform: Transform {
+                        x: raw_origin[0] - coord_offset[0],
+                        y: raw_origin[1] - coord_offset[1],
+                        ..Transform::default()
+                    },
+                    kind: ElementKind::Instance {
+                        symbol_id: sym_id,
+                        playback: InstancePlayback::Independent,
+                    },
+                    ..Element::default()
+                });
+                ctx.authored_elements += 1;
+                ctx.report.statistics.elements += 1;
+                expanded_used = expanded_used.saturating_add(exp);
+            }
+        } else {
+            for child in top_children {
+                if ctx.authored_elements >= MAX_AUTHORED_ELEMENTS {
+                    break;
+                }
+                let rem = MAX_EXPANDED_SCENE_NODES.saturating_sub(expanded_used);
+                if rem == 0 {
+                    break;
+                }
+                let loc = format!("{page_name} / {}", child.name);
+                let (mut els, c_exp, _) = ctx.convert_leaf_to_elements(
+                    child,
+                    coord_offset[0],
+                    coord_offset[1],
+                    &loc,
+                    rem,
+                    2,
+                    &mut all_bfs,
+                );
+                if include_hidden_top && !child.visible {
+                    for el in &mut els {
+                        el.visible = true;
+                    }
+                }
+                expanded_used = expanded_used.saturating_add(c_exp);
+                all_elements.extend(els);
+            }
+        }
+    }
+
+    if all_elements.is_empty() {
+        return Err(ImportError::Blocked(
+            "Figma clipboard selection contains no supported visual elements.".into(),
+        ));
+    }
+
+    let root_id = project.root.clone();
+    if let Some(root_sym) = project.symbol_mut(&root_id) {
+        root_sym.timeline.layers = vec![Layer {
+            id: new_id("layer"),
+            name: "Figma Clipboard".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: all_elements,
+                bitmap_fills: all_bfs,
+                ..Keyframe::default()
+            }],
+            properties: LayerProperties::default(),
+        }];
+    }
+    report.statistics.layers += 1;
+    report.statistics.keyframes += 1;
+
+    finalize_figma_project_format(&mut project);
     project.validate().map_err(|e| {
-        ImportError::Blocked(format!("Imported Figma composition failed validation: {e}"))
+        ImportError::Blocked(format!("Imported Figma clipboard failed validation: {e}"))
     })?;
     report.statistics.symbols = project.symbols.len();
     report.diagnostics.push(Diagnostic {
         severity: Severity::Info,
-        code: "figma-composition-imported".into(),
+        code: "figma-clipboard-imported".into(),
         location: source_label.to_owned(),
         message: format!(
-            "Imported Figma composition '{}' into {} layer(s), {} symbol(s) and {} element(s).",
-            project.name,
-            report.statistics.layers,
-            report.statistics.symbols,
-            report.statistics.elements
+            "Imported Figma clipboard '{}' at 1:1 scale ({} symbol(s), {} element(s)).",
+            project.name, report.statistics.symbols, report.statistics.elements
         ),
     });
     report.can_import = true;
-    Ok((project, report))
+
+    let local_bounds = figma_bounds.map(|bb| neoflash_core::PathBounds {
+        x_min: bb.x_min - coord_offset[0],
+        x_max: bb.x_max - coord_offset[0],
+        y_min: bb.y_min - coord_offset[1],
+        y_max: bb.y_max - coord_offset[1],
+    });
+
+    Ok((project, report, figma_bounds, local_bounds))
 }
 
 fn collect_master_nodes<'b>(

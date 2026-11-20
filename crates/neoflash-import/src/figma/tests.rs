@@ -2884,3 +2884,824 @@ fn figma_layer_and_background_blur_preserve_editable_blur_filters_and_skip_zero_
         assert!(bg_warnings[0].message.contains("backdrop"));
     }
 }
+
+#[allow(clippy::too_many_lines)]
+fn build_rich_figma_clipboard_kiwi_fixture(
+    use_zstd: bool,
+    origin_x: f32,
+    origin_y: f32,
+    embed_image_in_blob: bool,
+) -> (Vec<u8>, Vec<u8>) {
+    // Rich binary `fig-kiwi` schema covering:
+    // 0: GUID, 1: ParentIndex, 2: Vector, 3: Matrix, 4: Color, 5: ColorStop,
+    // 6: Image (hash + dataBlob), 7: Paint (SOLID / GRADIENT_LINEAR / IMAGE + transform),
+    // 8: Path (windingRule + commandsBlob), 9: FontName, 10: Number (value + units),
+    // 11: TextData (characters), 12: SymbolOverride, 13: SymbolData, 14: Effect,
+    // 15: NodeChange, 16: Blob, 17: Message.
+    let mut schema = Vec::new();
+    write_var_uint(&mut schema, 18);
+
+    // 0: GUID (STRUCT)
+    write_cstr(&mut schema, "GUID");
+    schema.push(1);
+    write_var_uint(&mut schema, 2);
+    for (i, n) in ["sessionID", "localID"].iter().enumerate() {
+        write_cstr(&mut schema, n);
+        write_var_int(&mut schema, -4);
+        schema.push(0);
+        write_var_uint(&mut schema, (i + 1) as u64);
+    }
+    // 1: ParentIndex (STRUCT)
+    write_cstr(&mut schema, "ParentIndex");
+    schema.push(1);
+    write_var_uint(&mut schema, 2);
+    write_cstr(&mut schema, "guid");
+    write_var_int(&mut schema, 0);
+    schema.push(0);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "position");
+    write_var_int(&mut schema, -6);
+    schema.push(0);
+    write_var_uint(&mut schema, 2);
+    // 2: Vector (STRUCT)
+    write_cstr(&mut schema, "Vector");
+    schema.push(1);
+    write_var_uint(&mut schema, 2);
+    for (i, n) in ["x", "y"].iter().enumerate() {
+        write_cstr(&mut schema, n);
+        write_var_int(&mut schema, -5);
+        schema.push(0);
+        write_var_uint(&mut schema, (i + 1) as u64);
+    }
+    // 3: Matrix (STRUCT)
+    write_cstr(&mut schema, "Matrix");
+    schema.push(1);
+    write_var_uint(&mut schema, 6);
+    for (i, n) in ["m00", "m01", "m02", "m10", "m11", "m12"]
+        .iter()
+        .enumerate()
+    {
+        write_cstr(&mut schema, n);
+        write_var_int(&mut schema, -5);
+        schema.push(0);
+        write_var_uint(&mut schema, (i + 1) as u64);
+    }
+    // 4: Color (STRUCT)
+    write_cstr(&mut schema, "Color");
+    schema.push(1);
+    write_var_uint(&mut schema, 4);
+    for (i, n) in ["r", "g", "b", "a"].iter().enumerate() {
+        write_cstr(&mut schema, n);
+        write_var_int(&mut schema, -5);
+        schema.push(0);
+        write_var_uint(&mut schema, (i + 1) as u64);
+    }
+    // 5: ColorStop (STRUCT: color Color, position float)
+    write_cstr(&mut schema, "ColorStop");
+    schema.push(1);
+    write_var_uint(&mut schema, 2);
+    write_cstr(&mut schema, "color");
+    write_var_int(&mut schema, 4);
+    schema.push(0);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "position");
+    write_var_int(&mut schema, -5);
+    schema.push(0);
+    write_var_uint(&mut schema, 2);
+    // 6: Image (MESSAGE: 1=hash byte[], 2=dataBlob uint)
+    write_cstr(&mut schema, "Image");
+    schema.push(2);
+    write_var_uint(&mut schema, 2);
+    write_cstr(&mut schema, "hash");
+    write_var_int(&mut schema, -2);
+    schema.push(1);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "dataBlob");
+    write_var_int(&mut schema, -4);
+    schema.push(0);
+    write_var_uint(&mut schema, 2);
+    // 7: Paint (MESSAGE: 1=type, 2=color, 3=stops ColorStop[], 4=transform Matrix, 5=image Image, 6=imageScaleMode, 7=opacity)
+    write_cstr(&mut schema, "Paint");
+    schema.push(2);
+    write_var_uint(&mut schema, 7);
+    for (tag, n, tid, arr) in [
+        (1u64, "type", -6i64, 0u8),
+        (2, "color", 4, 0),
+        (3, "stops", 5, 1),
+        (4, "transform", 3, 0),
+        (5, "image", 6, 0),
+        (6, "imageScaleMode", -6, 0),
+        (7, "opacity", -5, 0),
+    ] {
+        write_cstr(&mut schema, n);
+        write_var_int(&mut schema, tid);
+        schema.push(arr);
+        write_var_uint(&mut schema, tag);
+    }
+    // 8: Path (MESSAGE: 1=windingRule, 2=commandsBlob)
+    write_cstr(&mut schema, "Path");
+    schema.push(2);
+    write_var_uint(&mut schema, 2);
+    write_cstr(&mut schema, "windingRule");
+    write_var_int(&mut schema, -6);
+    schema.push(0);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "commandsBlob");
+    write_var_int(&mut schema, -4);
+    schema.push(0);
+    write_var_uint(&mut schema, 2);
+    // 9: FontName (STRUCT: family, style)
+    write_cstr(&mut schema, "FontName");
+    schema.push(1);
+    write_var_uint(&mut schema, 2);
+    for (i, n) in ["family", "style"].iter().enumerate() {
+        write_cstr(&mut schema, n);
+        write_var_int(&mut schema, -6);
+        schema.push(0);
+        write_var_uint(&mut schema, (i + 1) as u64);
+    }
+    // 10: Number (STRUCT: value float, units string)
+    write_cstr(&mut schema, "Number");
+    schema.push(1);
+    write_var_uint(&mut schema, 2);
+    write_cstr(&mut schema, "value");
+    write_var_int(&mut schema, -5);
+    schema.push(0);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "units");
+    write_var_int(&mut schema, -6);
+    schema.push(0);
+    write_var_uint(&mut schema, 2);
+    // 11: TextData (MESSAGE: 1=characters)
+    write_cstr(&mut schema, "TextData");
+    schema.push(2);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "characters");
+    write_var_int(&mut schema, -6);
+    schema.push(0);
+    write_var_uint(&mut schema, 1);
+    // 12: SymbolOverride (MESSAGE: 1=guidPath GUID[], 2=textData TextData, 3=fillPaints Paint[])
+    write_cstr(&mut schema, "SymbolOverride");
+    schema.push(2);
+    write_var_uint(&mut schema, 3);
+    for (tag, n, tid, arr) in [
+        (1u64, "guidPath", 0i64, 1u8),
+        (2, "textData", 11, 0),
+        (3, "fillPaints", 7, 1),
+    ] {
+        write_cstr(&mut schema, n);
+        write_var_int(&mut schema, tid);
+        schema.push(arr);
+        write_var_uint(&mut schema, tag);
+    }
+    // 13: SymbolData (MESSAGE: 1=symbolID GUID, 2=symbolOverrides SymbolOverride[])
+    write_cstr(&mut schema, "SymbolData");
+    schema.push(2);
+    write_var_uint(&mut schema, 2);
+    write_cstr(&mut schema, "symbolID");
+    write_var_int(&mut schema, 0);
+    schema.push(0);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "symbolOverrides");
+    write_var_int(&mut schema, 12);
+    schema.push(1);
+    write_var_uint(&mut schema, 2);
+    // 14: Effect (MESSAGE: 1=type, 2=visible, 3=radius, 4=color, 5=offset Vector)
+    write_cstr(&mut schema, "Effect");
+    schema.push(2);
+    write_var_uint(&mut schema, 5);
+    for (tag, n, tid, arr) in [
+        (1u64, "type", -6i64, 0u8),
+        (2, "visible", -1, 0),
+        (3, "radius", -5, 0),
+        (4, "color", 4, 0),
+        (5, "offset", 2, 0),
+    ] {
+        write_cstr(&mut schema, n);
+        write_var_int(&mut schema, tid);
+        schema.push(arr);
+        write_var_uint(&mut schema, tag);
+    }
+    // 15: NodeChange (MESSAGE)
+    write_cstr(&mut schema, "NodeChange");
+    schema.push(2);
+    let nc_fields = [
+        (1u64, "guid", 0i64, 0u8),
+        (2, "parentIndex", 1, 0),
+        (3, "type", -6, 0),
+        (4, "name", -6, 0),
+        (5, "internalOnly", -1, 0),
+        (6, "size", 2, 0),
+        (7, "transform", 3, 0),
+        (8, "fillPaints", 7, 1),
+        (9, "strokePaints", 7, 1),
+        (10, "strokeWeight", -5, 0),
+        (11, "fillGeometry", 8, 1),
+        (12, "cornerRadius", -5, 0),
+        (13, "rectangleTopLeftCornerRadius", -5, 0),
+        (14, "rectangleTopRightCornerRadius", -5, 0),
+        (15, "rectangleBottomRightCornerRadius", -5, 0),
+        (16, "rectangleBottomLeftCornerRadius", -5, 0),
+        (17, "effects", 14, 1),
+        (18, "textData", 11, 0),
+        (19, "fontName", 9, 0),
+        (20, "fontSize", -5, 0),
+        (21, "textAlignHorizontal", -6, 0),
+        (22, "letterSpacing", 10, 0),
+        (23, "lineHeight", 10, 0),
+        (24, "symbolData", 13, 0),
+        (25, "clipsContent", -1, 0),
+        (26, "opacity", -5, 0),
+        (27, "blendMode", -6, 0),
+    ];
+    write_var_uint(&mut schema, nc_fields.len() as u64);
+    for (tag, n, tid, arr) in nc_fields {
+        write_cstr(&mut schema, n);
+        write_var_int(&mut schema, tid);
+        schema.push(arr);
+        write_var_uint(&mut schema, tag);
+    }
+    // 16: Blob (MESSAGE: 1=bytes byte[])
+    write_cstr(&mut schema, "Blob");
+    schema.push(2);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "bytes");
+    write_var_int(&mut schema, -2);
+    schema.push(1);
+    write_var_uint(&mut schema, 1);
+    // 17: Message (MESSAGE: 1=nodeChanges NodeChange[], 2=blobs Blob[])
+    write_cstr(&mut schema, "Message");
+    schema.push(2);
+    write_var_uint(&mut schema, 2);
+    write_cstr(&mut schema, "nodeChanges");
+    write_var_int(&mut schema, 15);
+    schema.push(1);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "blobs");
+    write_var_int(&mut schema, 16);
+    schema.push(1);
+    write_var_uint(&mut schema, 2);
+
+    // Blob 0: Bezier commandsBlob (0..120 x 0..80): M(0,0) -> L(120,0) -> C(120,50, 80,80, 40,80) -> L(0,80) -> Z
+    let mut cmd_blob = Vec::new();
+    cmd_blob.push(1);
+    for f in [0.0f32, 0.0] {
+        cmd_blob.extend_from_slice(&f.to_le_bytes());
+    }
+    cmd_blob.push(2);
+    for f in [120.0f32, 0.0] {
+        cmd_blob.extend_from_slice(&f.to_le_bytes());
+    }
+    cmd_blob.push(4);
+    for f in [120.0f32, 50.0, 80.0, 80.0, 40.0, 80.0] {
+        cmd_blob.extend_from_slice(&f.to_le_bytes());
+    }
+    cmd_blob.push(2);
+    for f in [0.0f32, 80.0] {
+        cmd_blob.extend_from_slice(&f.to_le_bytes());
+    }
+    cmd_blob.push(0);
+
+    let png = tiny_png_bytes();
+    let write_guid = |m: &mut Vec<u8>, s: u64, l: u64| {
+        write_var_uint(m, s);
+        write_var_uint(m, l);
+    };
+    let write_parent = |m: &mut Vec<u8>, ps: u64, pl: u64, pos: &str| {
+        write_var_uint(m, 2);
+        write_guid(m, ps, pl);
+        write_cstr(m, pos);
+    };
+    let write_matrix = |m: &mut Vec<u8>, tx: f32, ty: f32| {
+        write_var_uint(m, 7);
+        for v in [1.0f32, 0.0, tx, 0.0, 1.0, ty] {
+            write_var_float(m, v);
+        }
+    };
+    let write_solid = |m: &mut Vec<u8>, tag: u64, rgba: [f32; 4]| {
+        write_var_uint(m, tag);
+        write_var_uint(m, 1);
+        write_var_uint(m, 1);
+        write_cstr(m, "SOLID");
+        write_var_uint(m, 2);
+        for c in rgba {
+            write_var_float(m, c);
+        }
+        write_var_uint(m, 0);
+    };
+
+    // Nodes:
+    // 0: DOCUMENT (0:0)
+    // 1: Internal Only Canvas (0:99)
+    // 2: Master COMPONENT (9:1, "ChipMaster", 140x40) inside 0:99
+    // 3: Master child VECTOR (9:2, "ChipIcon", 20x20) inside 9:1
+    // 4: Master child TEXT (9:3, "ChipLabel", "Tag") inside 9:1
+    // 5: User Page (0:1, "Page 1")
+    // 6: Copied VECTOR (1:1, at (origin_x, origin_y), 120x80) with Bezier commandsBlob + GRADIENT_LINEAR + 3px stroke
+    // 7: Copied ROUNDED_RECTANGLE (1:2, at (origin_x + 140, origin_y), 160x90) with corners [6,12,18,24] + LAYER_BLUR(10) + IMAGE crop
+    // 8: Copied TEXT (1:3, at (origin_x, origin_y + 110), 220x44) "Vector Paste" Inter Bold Italic 28px tracking 1.5 leading 34
+    // 9: Copied INSTANCE (1:4, at (origin_x + 160, origin_y + 110), 140x40) referencing 9:1 with override "Live Pro"
+    let mut msg = Vec::new();
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 10);
+
+    // 0: DOCUMENT
+    write_var_uint(&mut msg, 1);
+    write_guid(&mut msg, 0, 0);
+    write_var_uint(&mut msg, 3);
+    write_cstr(&mut msg, "DOCUMENT");
+    write_var_uint(&mut msg, 4);
+    write_cstr(&mut msg, "Clipboard Doc");
+    write_var_uint(&mut msg, 0);
+
+    // 1: Internal Only Canvas
+    write_var_uint(&mut msg, 1);
+    write_guid(&mut msg, 0, 99);
+    write_parent(&mut msg, 0, 0, "!");
+    write_var_uint(&mut msg, 3);
+    write_cstr(&mut msg, "CANVAS");
+    write_var_uint(&mut msg, 4);
+    write_cstr(&mut msg, "Internal Only Canvas");
+    write_var_uint(&mut msg, 5);
+    msg.push(1);
+    write_var_uint(&mut msg, 0);
+
+    // 2: Master COMPONENT 9:1
+    write_var_uint(&mut msg, 1);
+    write_guid(&mut msg, 9, 1);
+    write_parent(&mut msg, 0, 99, "a");
+    write_var_uint(&mut msg, 3);
+    write_cstr(&mut msg, "COMPONENT");
+    write_var_uint(&mut msg, 4);
+    write_cstr(&mut msg, "ChipMaster");
+    write_var_uint(&mut msg, 6);
+    write_var_float(&mut msg, 140.0);
+    write_var_float(&mut msg, 40.0);
+    write_matrix(&mut msg, 0.0, 0.0);
+    write_solid(&mut msg, 8, [0.12, 0.16, 0.28, 1.0]);
+    write_var_uint(&mut msg, 25);
+    msg.push(1); // clipsContent = true
+    write_var_uint(&mut msg, 0);
+
+    // 3: Master child VECTOR 9:2
+    write_var_uint(&mut msg, 1);
+    write_guid(&mut msg, 9, 2);
+    write_parent(&mut msg, 9, 1, "a");
+    write_var_uint(&mut msg, 3);
+    write_cstr(&mut msg, "VECTOR");
+    write_var_uint(&mut msg, 4);
+    write_cstr(&mut msg, "ChipIcon");
+    write_var_uint(&mut msg, 6);
+    write_var_float(&mut msg, 120.0);
+    write_var_float(&mut msg, 80.0);
+    write_matrix(&mut msg, 8.0, 6.0);
+    write_solid(&mut msg, 8, [0.3, 0.75, 1.0, 1.0]);
+    write_var_uint(&mut msg, 11);
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 1);
+    write_cstr(&mut msg, "NONZERO");
+    write_var_uint(&mut msg, 2);
+    write_var_uint(&mut msg, 0); // commandsBlob = 0
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 0);
+
+    // 4: Master child TEXT 9:3
+    write_var_uint(&mut msg, 1);
+    write_guid(&mut msg, 9, 3);
+    write_parent(&mut msg, 9, 1, "b");
+    write_var_uint(&mut msg, 3);
+    write_cstr(&mut msg, "TEXT");
+    write_var_uint(&mut msg, 4);
+    write_cstr(&mut msg, "ChipLabel");
+    write_var_uint(&mut msg, 6);
+    write_var_float(&mut msg, 100.0);
+    write_var_float(&mut msg, 24.0);
+    write_matrix(&mut msg, 32.0, 8.0);
+    write_solid(&mut msg, 8, [1.0, 1.0, 1.0, 1.0]);
+    write_var_uint(&mut msg, 18);
+    write_var_uint(&mut msg, 1);
+    write_cstr(&mut msg, "Tag");
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 19);
+    write_cstr(&mut msg, "Inter");
+    write_cstr(&mut msg, "SemiBold");
+    write_var_uint(&mut msg, 20);
+    write_var_float(&mut msg, 14.0);
+    write_var_uint(&mut msg, 0);
+
+    // 5: User Page 0:1
+    write_var_uint(&mut msg, 1);
+    write_guid(&mut msg, 0, 1);
+    write_parent(&mut msg, 0, 0, "a");
+    write_var_uint(&mut msg, 3);
+    write_cstr(&mut msg, "CANVAS");
+    write_var_uint(&mut msg, 4);
+    write_cstr(&mut msg, "Page 1");
+    write_var_uint(&mut msg, 0);
+
+    // 6: Copied VECTOR 1:1 with Bezier commandsBlob + GRADIENT_LINEAR + 3px stroke
+    write_var_uint(&mut msg, 1);
+    write_guid(&mut msg, 1, 1);
+    write_parent(&mut msg, 0, 1, "a");
+    write_var_uint(&mut msg, 3);
+    write_cstr(&mut msg, "VECTOR");
+    write_var_uint(&mut msg, 4);
+    write_cstr(&mut msg, "Hero Curve");
+    write_var_uint(&mut msg, 6);
+    write_var_float(&mut msg, 120.0);
+    write_var_float(&mut msg, 80.0);
+    write_matrix(&mut msg, origin_x, origin_y);
+    // fillPaints: GRADIENT_LINEAR (2 stops)
+    write_var_uint(&mut msg, 8);
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 1);
+    write_cstr(&mut msg, "GRADIENT_LINEAR");
+    write_var_uint(&mut msg, 3);
+    write_var_uint(&mut msg, 2);
+    for (rgba, pos) in [
+        ([1.0f32, 0.25, 0.4, 1.0], 0.0f32),
+        ([0.2, 0.6, 1.0, 1.0], 1.0),
+    ] {
+        for c in rgba {
+            write_var_float(&mut msg, c);
+        }
+        write_var_float(&mut msg, pos);
+    }
+    write_var_uint(&mut msg, 0); // end fill Paint
+    // strokePaints: SOLID + strokeWeight = 3.5
+    write_solid(&mut msg, 9, [0.95, 0.95, 1.0, 1.0]);
+    write_var_uint(&mut msg, 10);
+    write_var_float(&mut msg, 3.5);
+    write_var_uint(&mut msg, 11);
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 1);
+    write_cstr(&mut msg, "NONZERO");
+    write_var_uint(&mut msg, 2);
+    write_var_uint(&mut msg, 0); // commandsBlob = 0
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 0);
+
+    // 7: Copied ROUNDED_RECTANGLE 1:2 (160x90) at (origin_x + 140, origin_y) with corners [6,12,18,24], Blur(10), DropShadow, and IMAGE crop
+    write_var_uint(&mut msg, 1);
+    write_guid(&mut msg, 1, 2);
+    write_parent(&mut msg, 0, 1, "b");
+    write_var_uint(&mut msg, 3);
+    write_cstr(&mut msg, "ROUNDED_RECTANGLE");
+    write_var_uint(&mut msg, 4);
+    write_cstr(&mut msg, "Blurred Card");
+    write_var_uint(&mut msg, 6);
+    write_var_float(&mut msg, 160.0);
+    write_var_float(&mut msg, 90.0);
+    write_matrix(&mut msg, origin_x + 140.0, origin_y);
+    // fillPaints: SOLID + cropped IMAGE
+    write_var_uint(&mut msg, 8);
+    write_var_uint(&mut msg, 2);
+    write_var_uint(&mut msg, 1);
+    write_cstr(&mut msg, "SOLID");
+    write_var_uint(&mut msg, 2);
+    for c in [0.18f32, 0.22, 0.34, 1.0] {
+        write_var_float(&mut msg, c);
+    }
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 1);
+    write_cstr(&mut msg, "IMAGE");
+    write_var_uint(&mut msg, 4); // UV crop transform
+    for v in [0.5f32, 0.0, 0.25, 0.0, 0.5, 0.25] {
+        write_var_float(&mut msg, v);
+    }
+    write_var_uint(&mut msg, 5); // Image
+    write_var_uint(&mut msg, 1); // hash
+    let fake_hash = [0x42u8; 20];
+    write_var_uint(&mut msg, fake_hash.len() as u64);
+    msg.extend_from_slice(&fake_hash);
+    if embed_image_in_blob {
+        write_var_uint(&mut msg, 2); // dataBlob = 1
+        write_var_uint(&mut msg, 1);
+    }
+    write_var_uint(&mut msg, 0); // end Image
+    write_var_uint(&mut msg, 6);
+    write_cstr(&mut msg, "CROP");
+    write_var_uint(&mut msg, 0); // end IMAGE Paint
+    write_var_uint(&mut msg, 13);
+    write_var_float(&mut msg, 6.0);
+    write_var_uint(&mut msg, 14);
+    write_var_float(&mut msg, 12.0);
+    write_var_uint(&mut msg, 15);
+    write_var_float(&mut msg, 18.0);
+    write_var_uint(&mut msg, 16);
+    write_var_float(&mut msg, 24.0);
+    // effects: LAYER_BLUR(10.0) + DROP_SHADOW(radius=8, offset=(0,4))
+    write_var_uint(&mut msg, 17);
+    write_var_uint(&mut msg, 2);
+    write_var_uint(&mut msg, 1);
+    write_cstr(&mut msg, "LAYER_BLUR");
+    write_var_uint(&mut msg, 2);
+    msg.push(1);
+    write_var_uint(&mut msg, 3);
+    write_var_float(&mut msg, 10.0);
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 1);
+    write_cstr(&mut msg, "DROP_SHADOW");
+    write_var_uint(&mut msg, 2);
+    msg.push(1);
+    write_var_uint(&mut msg, 3);
+    write_var_float(&mut msg, 8.0);
+    write_var_uint(&mut msg, 4);
+    for c in [0.0f32, 0.0, 0.0, 0.5] {
+        write_var_float(&mut msg, c);
+    }
+    write_var_uint(&mut msg, 5);
+    write_var_float(&mut msg, 0.0);
+    write_var_float(&mut msg, 4.0);
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 26);
+    write_var_float(&mut msg, 0.85);
+    write_var_uint(&mut msg, 27);
+    write_cstr(&mut msg, "SCREEN");
+    write_var_uint(&mut msg, 0);
+
+    // 8: Copied TEXT 1:3 (220x44) at (origin_x, origin_y + 110)
+    write_var_uint(&mut msg, 1);
+    write_guid(&mut msg, 1, 3);
+    write_parent(&mut msg, 0, 1, "c");
+    write_var_uint(&mut msg, 3);
+    write_cstr(&mut msg, "TEXT");
+    write_var_uint(&mut msg, 4);
+    write_cstr(&mut msg, "Title Copy");
+    write_var_uint(&mut msg, 6);
+    write_var_float(&mut msg, 220.0);
+    write_var_float(&mut msg, 44.0);
+    write_matrix(&mut msg, origin_x, origin_y + 110.0);
+    write_solid(&mut msg, 8, [0.98, 0.96, 0.9, 1.0]);
+    write_var_uint(&mut msg, 18);
+    write_var_uint(&mut msg, 1);
+    write_cstr(&mut msg, "Vector Paste");
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 19);
+    write_cstr(&mut msg, "Inter");
+    write_cstr(&mut msg, "Bold Italic");
+    write_var_uint(&mut msg, 20);
+    write_var_float(&mut msg, 28.0);
+    write_var_uint(&mut msg, 21);
+    write_cstr(&mut msg, "CENTER");
+    write_var_uint(&mut msg, 22);
+    write_var_float(&mut msg, 1.5);
+    write_cstr(&mut msg, "PIXELS");
+    write_var_uint(&mut msg, 23);
+    write_var_float(&mut msg, 36.0);
+    write_cstr(&mut msg, "PIXELS");
+    write_var_uint(&mut msg, 0);
+
+    // 9: Copied INSTANCE 1:4 (140x40) at (origin_x + 160, origin_y + 110) referencing 9:1 with override on 9:3 -> "Live Pro"
+    write_var_uint(&mut msg, 1);
+    write_guid(&mut msg, 1, 4);
+    write_parent(&mut msg, 0, 1, "d");
+    write_var_uint(&mut msg, 3);
+    write_cstr(&mut msg, "INSTANCE");
+    write_var_uint(&mut msg, 4);
+    write_cstr(&mut msg, "Chip Instance");
+    write_var_uint(&mut msg, 6);
+    write_var_float(&mut msg, 140.0);
+    write_var_float(&mut msg, 40.0);
+    write_matrix(&mut msg, origin_x + 160.0, origin_y + 110.0);
+    write_var_uint(&mut msg, 24); // symbolData
+    write_var_uint(&mut msg, 1);
+    write_guid(&mut msg, 9, 1);
+    write_var_uint(&mut msg, 2); // symbolOverrides len = 1
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 1); // guidPath = [9:3]
+    write_var_uint(&mut msg, 1);
+    write_guid(&mut msg, 9, 3);
+    write_var_uint(&mut msg, 2); // textData.characters = "Live Pro"
+    write_var_uint(&mut msg, 1);
+    write_cstr(&mut msg, "Live Pro");
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 0); // end override
+    write_var_uint(&mut msg, 0); // end symbolData
+    write_var_uint(&mut msg, 0); // end INSTANCE
+
+    // blobs: [cmd_blob, optional png]
+    write_var_uint(&mut msg, 2);
+    if embed_image_in_blob {
+        write_var_uint(&mut msg, 2);
+        for b in [&cmd_blob, &png] {
+            write_var_uint(&mut msg, 1);
+            write_var_uint(&mut msg, b.len() as u64);
+            msg.extend_from_slice(b);
+            write_var_uint(&mut msg, 0);
+        }
+    } else {
+        write_var_uint(&mut msg, 1);
+        write_var_uint(&mut msg, 1);
+        write_var_uint(&mut msg, cmd_blob.len() as u64);
+        msg.extend_from_slice(&cmd_blob);
+        write_var_uint(&mut msg, 0);
+    }
+    write_var_uint(&mut msg, 0); // end Message
+
+    let deflate = |raw: &[u8]| -> Vec<u8> {
+        let mut enc = DeflateEncoder::new(Vec::new(), Compression::default());
+        enc.write_all(raw).unwrap();
+        enc.finish().unwrap()
+    };
+    let c0 = deflate(&schema);
+    let c1 = if use_zstd {
+        encode_zstd_for_test(&msg)
+    } else {
+        deflate(&msg)
+    };
+    let mut kiwi = Vec::new();
+    kiwi.extend_from_slice(b"fig-kiwi");
+    kiwi.extend_from_slice(&106u32.to_le_bytes());
+    kiwi.extend_from_slice(&(c0.len() as u32).to_le_bytes());
+    kiwi.extend_from_slice(&c0);
+    kiwi.extend_from_slice(&(c1.len() as u32).to_le_bytes());
+    kiwi.extend_from_slice(&c1);
+    (kiwi, png)
+}
+
+#[test]
+fn t413_figma_clipboard_html_raw_and_escaped_decodes_zstd_and_deflate_at_exact_1to1_scale() {
+    for (use_zstd, escaped_html, origin_x, origin_y, embed_blob) in [
+        (true, false, 120.0f32, 80.0f32, true),
+        (false, true, 18_400.0f32, -9_200.0f32, false),
+        (true, true, 240_000.0f32, -150_000.0f32, true),
+    ] {
+        let (kiwi_bytes, png_bytes) =
+            build_rich_figma_clipboard_kiwi_fixture(use_zstd, origin_x, origin_y, embed_blob);
+        let meta_json = br#"{"fileKey":"AbCdEf123","pasteID":987654,"dataType":"scene"}"#;
+        let meta_b64 = BASE64.encode(meta_json);
+        let raw_kiwi_b64 = BASE64.encode(&kiwi_bytes);
+        let png_b64 = BASE64.encode(&png_bytes);
+
+        let html = if escaped_html {
+            // Browser-escaped `&lt;!--(figma)...(/figma)--&gt;` with wrapped lines + HTML entity `&#61;`
+            let wrapped: String = raw_kiwi_b64
+                .as_bytes()
+                .chunks(64)
+                .map(|c| std::str::from_utf8(c).unwrap())
+                .collect::<Vec<_>>()
+                .join("\n  ")
+                .replace('=', "&#61;");
+            format!(
+                "<meta charset=\"utf-8\"><span data-metadata=\"&lt;!--(figmeta){meta_b64}(/figmeta)--&gt;\"></span><span data-buffer=\"&lt;!--(figma)\n  {wrapped}\n(/figma)--&gt;\"></span><img src=\"data:image/png;base64,{png_b64}\">"
+            )
+        } else {
+            format!(
+                "<meta charset='utf-8'><span data-metadata=\"<!--(figmeta){meta_b64}(/figmeta)-->\"></span><span data-buffer=\"<!--(figma){raw_kiwi_b64}(/figma)-->\"></span>"
+            )
+        };
+
+        assert!(contains_figma_clipboard_marker(&html));
+        let extracted = extract_figma_clipboard_kiwi(&html).expect("extract figma clipboard");
+        assert_eq!(extracted.kiwi_bytes, kiwi_bytes);
+        let meta = extracted.meta.as_ref().expect("figmeta parsed");
+        assert_eq!(meta.file_key.as_deref(), Some("AbCdEf123"));
+        assert_eq!(meta.paste_id.as_deref(), Some("987654"));
+        assert_eq!(meta.data_type.as_deref(), Some("scene"));
+        if escaped_html {
+            assert_eq!(extracted.inline_images.len(), 1);
+        }
+
+        let output = import_figma_clipboard(&html, None).expect("import figma clipboard 1:1");
+        output
+            .project
+            .validate()
+            .expect("clipboard project validates");
+        assert!(
+            !output
+                .report
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "figma-page-fitted-to-stage"),
+            "clipboard import must NEVER auto-downscale"
+        );
+
+        let fb = output.figma_bounds.expect("figma_bounds measured");
+        assert!((fb.x_min - f64::from(origin_x)).abs() < 1e-3);
+        assert!((fb.y_min - f64::from(origin_y)).abs() < 1e-3);
+        assert!((fb.width() - 300.0).abs() < 1e-3);
+        assert!((fb.height() - 154.0).abs() < 1e-3);
+
+        let root = output.project.symbol(&output.project.root).unwrap();
+        assert_eq!(root.timeline.layers.len(), 1);
+        let kf = &root.timeline.layers[0].keyframes[0];
+
+        // 1. Editable Bezier VECTOR with linear gradient + 3.5px stroke at exact 1:1 scale
+        let curve = kf
+            .elements
+            .iter()
+            .find(|e| e.name == "Hero Curve")
+            .expect("Hero Curve vector");
+        assert!((curve.transform.scale_x - 1.0).abs() < 1e-6);
+        assert!((curve.transform.scale_y - 1.0).abs() < 1e-6);
+        match &curve.kind {
+            ElementKind::PaintedPath {
+                commands,
+                fill_gradient,
+                stroke_width,
+                ..
+            } => {
+                assert!((*stroke_width - 3.5).abs() < 1e-6);
+                assert!(fill_gradient.is_some());
+                assert!(
+                    commands
+                        .iter()
+                        .any(|c| matches!(c, PathCommand::CubicTo { .. }))
+                );
+            }
+            other => panic!("expected PaintedPath for gradient vector, got {other:?}"),
+        }
+
+        // 2. Rounded rectangle with asymmetric corners [6, 12, 24, 18] (NF [tl, tr, bl, br]), Blur + DropShadow, SCREEN blend, 0.85 alpha, and UV-cropped bitmap fill
+        let card_els: Vec<&Element> = kf
+            .elements
+            .iter()
+            .filter(|e| e.name == "Blurred Card")
+            .collect();
+        assert_eq!(card_els.len(), 2, "solid backdrop + cropped image fill");
+        assert!(matches!(
+            card_els[0].transform.primitive,
+            Some(PrimitiveOptions::Rectangle(RectangleOptions {
+                corner_radii: [6.0, 12.0, 24.0, 18.0],
+                corners_locked: false,
+            }))
+        ));
+        assert_eq!(card_els[1].blend_mode, BlendMode::Screen);
+        assert!((card_els[1].transform.alpha - 0.85).abs() < 1e-5);
+        assert_eq!(card_els[1].filters.len(), 2);
+        assert!(card_els[1].filters.iter().any(
+            |f| matches!(f, FilterSpec::Blur { blur_x, .. } if (*blur_x - 10.0).abs() < 1e-6)
+        ));
+        assert!(
+            card_els[1]
+                .filters
+                .iter()
+                .any(|f| matches!(f, FilterSpec::DropShadow { .. }))
+        );
+        assert_eq!(kf.bitmap_fills.len(), 1);
+        assert_eq!(output.project.resources.len(), 1);
+
+        // 3. Editable TEXT with font family, bold, italic, size 28, tracking 1.5, leading, CENTER align
+        let title = kf
+            .elements
+            .iter()
+            .find(|e| e.name == "Title Copy")
+            .expect("Title Copy text");
+        match &title.kind {
+            ElementKind::TextBox {
+                text,
+                width,
+                height,
+                format,
+                ..
+            } => {
+                assert_eq!(text, "Vector Paste");
+                assert!((*width - 220.0).abs() < 1e-6);
+                assert!((*height - 44.0).abs() < 1e-6);
+                assert_eq!(format.font, "Inter");
+                assert!((format.size - 28.0).abs() < 1e-6);
+                assert!(format.bold && format.italic);
+                assert_eq!(format.align, TextAlign::Center);
+                assert!((format.letter_spacing - 1.5).abs() < 1e-6);
+                assert!((1.2 * format.size + format.leading - 36.0).abs() < 1e-5);
+            }
+            other => panic!("expected editable TextBox, got {other:?}"),
+        }
+
+        // 4. Nested INSTANCE resolved from `Internal Only Canvas` COMPONENT + override "Live Pro" + Frame Clip mask
+        let inst = kf
+            .elements
+            .iter()
+            .find(|e| e.name == "Chip_Instance")
+            .expect("Chip_Instance");
+        let ElementKind::Instance { symbol_id, .. } = &inst.kind else {
+            panic!("expected Instance");
+        };
+        let variant_sym = output.project.symbol(symbol_id).expect("variant symbol");
+        assert!(
+            variant_sym
+                .timeline
+                .layers
+                .iter()
+                .any(|l| l.properties.role == LayerRole::Mask && l.name == "Frame Clip"),
+            "clipsContent mask preserved on component symbol"
+        );
+        let has_live_pro = variant_sym
+            .timeline
+            .layers
+            .iter()
+            .flat_map(|l| &l.keyframes)
+            .flat_map(|k| &k.elements)
+            .any(|el| matches!(&el.kind, ElementKind::TextBox { text, .. } if text == "Live Pro"));
+        assert!(
+            has_live_pro,
+            "Internal Only Canvas override text materialized"
+        );
+    }
+
+    assert!(!contains_figma_clipboard_marker(
+        "<p>Hello (figma) world (/figma)</p>"
+    ));
+    assert!(extract_figma_clipboard_kiwi("<!--(figma)bm90LWZpZ21h(/figma)-->").is_none());
+}
