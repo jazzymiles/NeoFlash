@@ -264,30 +264,34 @@ impl Editor {
             self.vector.selected_anchors = None;
             return;
         }
-        if self.selection.is_empty() {
+        if let Some((ref anchor_el, _)) = self.vector.selected_anchors
+            && self
+                .symbol()
+                .timeline
+                .layers
+                .iter()
+                .find(|layer| self.element_in_edit_scope(layer, anchor_el).is_some())
+                .is_some_and(|layer| !self.layer_is_selectable(layer))
+        {
             self.vector.selected_anchors = None;
+        }
+        if self.selection.is_empty() {
             return;
         }
         let allowed: HashSet<_> = self.editable_targets().into_iter().collect();
         // Active timeline layer remains an insertion target; normalization must not move it.
         let mut seen = HashSet::new();
-        self.selection.targets = self
+        let next_targets: Vec<_> = self
             .selection
             .targets
             .iter()
             .flat_map(|target| self.grouped_targets(target))
             .filter(|target| allowed.contains(target) && seen.insert(target.clone()))
             .collect();
-        if let Some((ref anchor_el, _)) = self.vector.selected_anchors
-            && !self
-                .selection
-                .targets
-                .iter()
-                .any(|t| &t.element == anchor_el)
-        {
-            self.vector.selected_anchors = None;
+        if self.selection.targets != next_targets {
+            self.selection.targets = next_targets;
+            self.sync_active_actions_context();
         }
-        self.sync_active_actions_context();
     }
     pub(crate) fn selected_editable(&self) -> bool {
         self.selection.symbol == self.symbol_id()
