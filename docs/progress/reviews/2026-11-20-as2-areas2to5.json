@@ -5,7 +5,7 @@
     {
       "id": "AS2-AREAS2TO5-20261120",
       "date": "2026-11-20",
-      "commit": "27e0bdee37ccac19cecec3360ecf34cf03ee14d4",
+      "commit": "28c229a86f1c2a1d823b87866748ad299478ba65",
       "title": "Close AS2 Areas 2-5 Boolean, Selection, ContextMenu, setMask and showRedrawRegions gaps",
       "summary": "Supports boxed new Boolean(v) alongside primitive Boolean(v), string and relative target paths in Selection.setFocus() and MovieClip.setMask() with cached soft alpha masking, all eight ContextMenuBuiltInItems flags with live loop/quality/zoom actions, and Canvas/DOM dirty-bounds outlines for showRedrawRegions().",
       "tests": [

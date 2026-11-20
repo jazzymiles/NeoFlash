@@ -5,7 +5,7 @@
     {
       "id": "AS3-AREAS2TO5-20261120",
       "date": "2026-11-20",
-      "commit": "27e0bdee37ccac19cecec3360ecf34cf03ee14d4",
+      "commit": "28c229a86f1c2a1d823b87866748ad299478ba65",
       "title": "Close AS3 Areas 2-5 Vector.sort, native reflection, E4X operators and drawWithQuality gaps",
       "summary": "Adds RETURNINDEXEDARRAY and UNIQUESORT to Vector.sort(), extends getQualifiedClassName, getQualifiedSuperclassName and describeType across native Flash display/runtime classes and interfaces, completes E4X computed qualifiers, dynamic XML/XMLList access/writes and indexed/descendant delete, and applies StageQuality supersampling and linearGamma on DisplayObject drawWithQuality.",
       "tests": [

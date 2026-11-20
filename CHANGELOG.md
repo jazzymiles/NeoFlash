@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- Added **Scripting Reference** class & member descriptions across all indexed ActionScript 2 (`125` classes / `1,627`
+  members), ActionScript 3 (`563` classes / `5,267` members), and JavaScript / TypeScript (`6` categories / `38` entries)
+  declarations — including documented constant values, read-only flags, AS2 operator labels and implemented interfaces —
+  plus explicit NeoFlash support status badges (`Working` / `Partial`) and capability/boundary notes for every JS/TS
+  reference entry across both the native NF v3 API browser and the scriptless HTML5 browser edition (`T-397`).
+- Preserved exact non-linear easing curves and editable De Casteljau Bézier motion paths across **Timeline** range cuts,
+  splits (`Split clip at playhead`, `F6`), deletions, copy/paste and **Reverse frames** (`T-399`): `Reverse frames`
+  time-reverses `Linear`, `EaseIn`, `EaseOut`, `EaseInOut`, `Flash { acceleration }` and `CubicBezier` (including
+  overshoot), shifts `property_eases`, `orient_to_path`, `classic_rotate_dir` (`CW ↔ CCW`) and `shape_hints` with the
+  reversed span, keeps invertible **Motion** tween spans and ◆ property keyframes intact instead of baking them to
+  classic keyframes, and subdivides or reverses `QuadraticTo` / `CubicTo` motion-path curves instead of flattening them
+  to per-frame chords.
+- Closed 15 ActionScript 2 and ActionScript 3 **Areas 2–5** conformance gaps (`T-400`): AS2 `new Boolean(v)` boxed
+  Boolean objects alongside primitive `Boolean(v)`, absolute and caller-relative string target paths in
+  `Selection.setFocus()` and `MovieClip.setMask()` (with cached soft alpha masking), all eight `ContextMenuBuiltInItems`
+  flags with live `loop`/`quality`/`zoom` menu actions, Canvas and DOM dirty-bounds outlines for `showRedrawRegions()`,
+  AS3 `Vector.sort()` `Array.RETURNINDEXEDARRAY` and `Array.UNIQUESORT` flags, `getQualifiedClassName()`,
+  `getQualifiedSuperclassName()` and `describeType()` XML reflection across native Flash display/runtime classes,
+  interfaces and `Vector.<T>`, E4X computed `(ns)::name` qualifiers, dynamic `XML`/`XMLList` Proxy reads/writes and
+  indexed/descendant `delete`, and `StageQuality` (`1×`–`16×`) supersampling plus `linearGamma` downsampling on
+  `DisplayObject` sources in `BitmapData.drawWithQuality()`.
+
 - Opening a Figma file imports all design pages as named scenes in one project by default. Dense pages retain separate editable layers and repeated photos share their original embedded image. Large artboard layouts fit inside the exported stage. HTML5 can switch between dense, script-free scenes with thousands of image fills. Animate FLA exports retain distinct Library names that differ only in letter case and split long vector edge records. SWF publishing can outline multilingual text with an installed font that covers its glyphs and reuse identical drawings across scenes.
 
 - Improved import of Illustrator SVG, PDF-compatible AI, PDF and EPS artwork. Illustrator styles,

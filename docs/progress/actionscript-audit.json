@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "1277e3e10a103d82433c8488f42e7cd6aab0c20263de51e76d20813a1ecfd12d",
+  "catalogSha256": "2bd37ac2ebfde4551d82b782df6c88a9bc96d791dc25679cccc912da26dbadcc",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -35789,6 +35789,22 @@
         "reviewIds": [
           "AS3-AMF-SOL-20261115"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-20-as2-areas2to5.json",
+        "sha256": "6bedcfbf332bfb208dd3de0273f4eb9bca83d39576068d6294578556bd95d6bf",
+        "baseCatalogSha256": "1277e3e10a103d82433c8488f42e7cd6aab0c20263de51e76d20813a1ecfd12d",
+        "reviewIds": [
+          "AS2-AREAS2TO5-20261120"
+        ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-20-as3-areas2to5.json",
+        "sha256": "5e3c6737655de90e7d9683bd50bfe57d484b5d5a8c60ae83868b0b7375c6ee59",
+        "baseCatalogSha256": "dcb87c4c106cf6bbe4a94e2bcb562ea26a32a9de13760a73b88c85f132e69bca",
+        "reviewIds": [
+          "AS3-AREAS2TO5-20261120"
+        ]
       }
     ],
     "statusReviews": [
@@ -36175,28 +36191,46 @@
         "changes": {
           "partial": 2
         }
+      },
+      {
+        "id": "AS2-AREAS2TO5-20261120",
+        "date": "2026-11-20",
+        "commit": "28c229a86f1c2a1d823b87866748ad299478ba65",
+        "path": "docs/progress/reviews/2026-11-20-as2-areas2to5.json",
+        "changes": {
+          "working": 5
+        }
+      },
+      {
+        "id": "AS3-AREAS2TO5-20261120",
+        "date": "2026-11-20",
+        "commit": "28c229a86f1c2a1d823b87866748ad299478ba65",
+        "path": "docs/progress/reviews/2026-11-20-as3-areas2to5.json",
+        "changes": {
+          "working": 10
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 5721,
-      "partial": 1645,
-      "missing": 38681,
+      "implemented_subset": 5736,
+      "partial": 1631,
+      "missing": 38680,
       "needs_review": 0,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
-        "implemented_subset": 1189,
-        "partial": 470,
-        "missing": 648,
+        "implemented_subset": 1194,
+        "partial": 466,
+        "missing": 647,
         "needs_review": 0,
         "total": 2307
       },
       "AS3": {
-        "implemented_subset": 4532,
-        "partial": 1175,
+        "implemented_subset": 4542,
+        "partial": 1165,
         "missing": 38033,
         "needs_review": 0,
         "total": 43740
@@ -36211,8 +36245,8 @@
         "total": 3083
       },
       "core": {
-        "implemented_subset": 516,
-        "partial": 5,
+        "implemented_subset": 518,
+        "partial": 3,
         "missing": 0,
         "needs_review": 0,
         "total": 521
@@ -36225,9 +36259,9 @@
         "total": 35805
       },
       "language": {
-        "implemented_subset": 301,
-        "partial": 6,
-        "missing": 2,
+        "implemented_subset": 307,
+        "partial": 1,
+        "missing": 1,
         "needs_review": 0,
         "total": 309
       },
@@ -36239,8 +36273,8 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 4904,
-        "partial": 1079,
+        "implemented_subset": 4911,
+        "partial": 1072,
         "missing": 175,
         "needs_review": 0,
         "total": 6158
@@ -36256,8 +36290,8 @@
           "total": 1044
         },
         "core": {
-          "implemented_subset": 144,
-          "partial": 1,
+          "implemented_subset": 145,
+          "partial": 0,
           "missing": 0,
           "needs_review": 0,
           "total": 145
@@ -36270,9 +36304,9 @@
           "total": 15
         },
         "language": {
-          "implemented_subset": 183,
+          "implemented_subset": 184,
           "partial": 1,
-          "missing": 1,
+          "missing": 0,
           "needs_review": 0,
           "total": 185
         },
@@ -36284,8 +36318,8 @@
           "total": 10
         },
         "runtime": {
-          "implemented_subset": 862,
-          "partial": 37,
+          "implemented_subset": 865,
+          "partial": 34,
           "missing": 9,
           "needs_review": 0,
           "total": 908
@@ -36300,8 +36334,8 @@
           "total": 2039
         },
         "core": {
-          "implemented_subset": 372,
-          "partial": 4,
+          "implemented_subset": 373,
+          "partial": 3,
           "missing": 0,
           "needs_review": 0,
           "total": 376
@@ -36314,8 +36348,8 @@
           "total": 35790
         },
         "language": {
-          "implemented_subset": 118,
-          "partial": 5,
+          "implemented_subset": 123,
+          "partial": 0,
           "missing": 1,
           "needs_review": 0,
           "total": 124
@@ -36328,8 +36362,8 @@
           "total": 161
         },
         "runtime": {
-          "implemented_subset": 4042,
-          "partial": 1042,
+          "implemented_subset": 4046,
+          "partial": 1038,
           "missing": 166,
           "needs_review": 0,
           "total": 5250
@@ -176392,6 +176426,235 @@
           "catalogId": "AS3:method:flash/utils/ByteArray.html#writeObject()",
           "status": "implemented_subset",
           "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS2-AREAS2TO5-20261120",
+      "title": "Close AS2 Areas 2-5 Boolean, Selection, ContextMenu, setMask and showRedrawRegions gaps",
+      "reason": "Supports boxed new Boolean(v) alongside primitive Boolean(v), string and relative target paths in Selection.setFocus() and MovieClip.setMask() with cached soft alpha masking, all eight ContextMenuBuiltInItems flags with live loop/quality/zoom actions, and Canvas/DOM dirty-bounds outlines for showRedrawRegions().",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-script/tests/intrinsic-fixtures.mjs",
+          "sha256": "32034f8b60952e3f4edd35fc7c9d2c1f9b833c0ab4f367e57a32e9f029824347"
+        },
+        {
+          "path": "crates/neoflash-script/tests/execute.mjs",
+          "sha256": "4e5725806cb769055b704d21cc3f022a95db5d5e155de0bb9092620912c654d4"
+        },
+        {
+          "path": "crates/neoflash-script/tests/as2-project-input.mjs",
+          "sha256": "75233cd7b1ae753ea38aae0a51b90f64f68534108db7767fc4b4b2a1f21b0469"
+        },
+        {
+          "path": "web/tests/runtime.test.cjs",
+          "sha256": "306856e58955bad76436e6f000e1568825f7ab7d51ef8e392bde813f10b540bf"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:Boolean.html#Boolean()",
+          "status": "implemented_subset",
+          "scopeNote": "Boolean(v) returns primitive boolean (undefined with 0 args in AS2) while new Boolean(v) constructs a boxed Boolean object with valueOf, toString, instanceof Boolean, and truthy object branching."
+        },
+        {
+          "catalogId": "as2:Selection.html#setFocus()",
+          "status": "implemented_subset",
+          "scopeNote": "Focuses live MovieClip, Button, and TextField instances or resolves absolute and caller-relative string target paths, clearing focus on null/undefined and returning false on unresolved paths."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#builtInItems",
+          "status": "implemented_subset",
+          "scopeNote": "Supports all eight ContextMenuBuiltInItems flags (save, zoom, quality, play, loop, rewind, forward_back, print), hideBuiltInItems(), copy(), and live loop/quality/zoom menu actions."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#setMask()",
+          "status": "implemented_subset",
+          "scopeNote": "Accepts live MovieClip instances, absolute or relative string target paths, and null clearing, including soft alpha masking when cacheAsBitmap is enabled on both maskee and mask."
+        },
+        {
+          "catalogId": "as2:global_functions.html#showRedrawRegions()",
+          "status": "implemented_subset",
+          "scopeNote": "Connects publication redraw_regions and 24-bit RGB color state to Canvas strokeRect outlines and the DOM redraw-region overlay around updated display bounds, clearing cleanly when disabled."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "as2:Boolean.html#Boolean()",
+          "status": "partial",
+          "ruleId": "AS2-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Selection.html#setFocus()",
+          "status": "partial",
+          "ruleId": "AS2-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#builtInItems",
+          "status": "partial",
+          "ruleId": "AS2-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#setMask()",
+          "status": "partial",
+          "ruleId": "AS2-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:global_functions.html#showRedrawRegions()",
+          "status": "missing",
+          "ruleId": "AS2-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS3-AREAS2TO5-20261120",
+      "title": "Close AS3 Areas 2-5 Vector.sort, native reflection, E4X operators and drawWithQuality gaps",
+      "reason": "Adds RETURNINDEXEDARRAY and UNIQUESORT to Vector.sort(), extends getQualifiedClassName, getQualifiedSuperclassName and describeType across native Flash display/runtime classes and interfaces, completes E4X computed qualifiers, dynamic XML/XMLList access/writes and indexed/descendant delete, and applies StageQuality supersampling and linearGamma on DisplayObject drawWithQuality.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-script/tests/collections-fixtures.mjs",
+          "sha256": "44ace4f1938d7b97f80dc2e4b1df01859e450eef9a94990dea9b82dfd55ca72e"
+        },
+        {
+          "path": "crates/neoflash-script/tests/execute.mjs",
+          "sha256": "4e5725806cb769055b704d21cc3f022a95db5d5e155de0bb9092620912c654d4"
+        },
+        {
+          "path": "crates/neoflash-script/tests/typed-collections.mjs",
+          "sha256": "068fb6812961e60afc42fd53c3552fd234c1574c986bffe9040cbdf3210f320b"
+        },
+        {
+          "path": "crates/neoflash-script/tests/xml-catalog.mjs",
+          "sha256": "dc3730ae1bcc2e315d8e2a7bdd7a95748e3b1105d078688803159f0b50ff0755"
+        },
+        {
+          "path": "crates/neoflash-script/tests/bitmap-pixels.mjs",
+          "sha256": "06095a1fe8c2030e77d0b52a50045a2e1049251b3af318135c6ea58b230e3857"
+        },
+        {
+          "path": "web/tests/display-family.test.cjs",
+          "sha256": "59567ee9e75545076e816678cd88338ca403d7d75d6b316f3066b60b84dae239"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:method:Vector.html#sort()",
+          "status": "implemented_subset",
+          "scopeNote": "Supports custom comparators and Array sort flags including CASEINSENSITIVE, DESCENDING, NUMERIC, UNIQUESORT (returning 0 without mutating on duplicates), and RETURNINDEXEDARRAY (returning a sorted index Array without mutating)."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedClassName()",
+          "status": "implemented_subset",
+          "scopeNote": "Returns Adobe qualified names across AS3 project classes, primitives, Vector.<T>, interfaces, and native Flash display and runtime classes and instances."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedSuperclassName()",
+          "status": "implemented_subset",
+          "scopeNote": "Resolves full Adobe superclass chains across AS3 project classes, native Flash display and runtime hierarchies, primitives, and interfaces (returning null for Object, interfaces, null, and void)."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#describeType()",
+          "status": "implemented_subset",
+          "scopeNote": "Produces Flash XML type descriptions with extendsClass, implementsInterface, accessor, method, variable, and factory metadata for AS3 project classes, native Flash display/runtime classes and instances, Vector.<T>, and interfaces."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#attribute_identifier",
+          "status": "implemented_subset",
+          "scopeNote": "Supports compiled xml.@attr, xml.@[expr], xml.@*, standalone @attr in E4X filters and with scopes, and dynamic @attr Proxy property reads, writes, membership checks, and deletion."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#descendant_accessor",
+          "status": "implemented_subset",
+          "scopeNote": "Supports descendant reads, standalone ..tag in E4X filters and with scopes, direct descendant element and attribute replacement (xml..tag = ..., xml..@attr = ...), and descendant deletion."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#name_qualifier",
+          "status": "implemented_subset",
+          "scopeNote": "Supports static ns::name, *::name, and computed (nsExpr)::name, (nsExpr)::[nameExpr], (nsExpr)::*, @(nsExpr)::attr, and ..(nsExpr)::tag qualifiers."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#delete_(XML)",
+          "status": "implemented_subset",
+          "scopeNote": "Supports named child, attribute, computed @[expr], indexed XMLList (delete xml.item[0]), no-op XML self-index (delete xml[0]), descendant (delete xml..tag), and Proxy deleteProperty deletion."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#dot_(XML)",
+          "status": "implemented_subset",
+          "scopeNote": "Supports compiled E4X child access/assignment and dynamic Proxy get, set, has, and deleteProperty on XML and single-item XMLList instances (throwing TypeError #1089 on multi-item XMLList writes)."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#drawWithQuality()",
+          "status": "implemented_subset",
+          "scopeNote": "Applies StageQuality supersampling (LOW through HIGH_16X16), StageQuality child-bitmap smoothing rules, and premultiplied linearGamma box downsampling for both DisplayObject and BitmapData sources, rejecting BlendMode.SHADER with ArgumentError."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:method:Vector.html#sort()",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedClassName()",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedSuperclassName()",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#describeType()",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#attribute_identifier",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#descendant_accessor",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#name_qualifier",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#delete_(XML)",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#dot_(XML)",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#drawWithQuality()",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
           "evidenceKind": "test_backed_review"
         }
       ]
