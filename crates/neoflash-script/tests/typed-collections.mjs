@@ -86,6 +86,82 @@ export async function verifyTypedCollections(root,cargo) {
     assert.equal(ArrayProto.push.call(scene,'clip-gamma'),3);
     assert.equal(ArrayProto.join.call(scene,'|'),'clip-alpha|clip-beta|clip-gamma');
     assert.equal(ArrayProto.join.call([scene,null],','),scene.toString()+',');
+    {
+      const prog=host.program();
+      const getQName=prog.type('flash.utils.getQualifiedClassName');
+      const getSuper=prog.type('flash.utils.getQualifiedSuperclassName');
+      const getDef=prog.type('flash.utils.getDefinitionByName');
+      const descType=prog.type('flash.utils.describeType');
+      const MovieClip=getDef('flash.display.MovieClip'),Sprite=getDef('flash.display.Sprite'),Shape=getDef('flash.display.Shape'),Bitmap=getDef('flash.display.Bitmap');
+      const BitmapData=getDef('flash.display.BitmapData'),SimpleButton=getDef('flash.display.SimpleButton'),TextField=getDef('flash.text.TextField');
+      const Stage=getDef('flash.display.Stage'),Video=getDef('flash.media.Video'),Loader=getDef('flash.display.Loader');
+      const ByteArray=getDef('flash.utils.ByteArray'),Point=getDef('flash.geom.Point'),Rectangle=getDef('flash.geom.Rectangle'),Matrix=getDef('flash.geom.Matrix');
+      const Timer=getDef('flash.utils.Timer'),Sound=getDef('flash.media.Sound'),Dictionary=getDef('flash.utils.Dictionary'),VecInt=getDef('Vector.<int>'),VecAny=getDef('Vector.<*>');
+      const IEventDispatcher=getDef('flash.events.IEventDispatcher'),IBitmapDrawable=getDef('flash.display.IBitmapDrawable');
+      const mc=new MovieClip(),sp=new Sprite(),sh=new Shape(),bmpData=new BitmapData(4,4),bmp=new Bitmap(bmpData),btn=new SimpleButton();
+      const tf=new TextField(),vid=new Video(),ldr=new Loader(),ba=new ByteArray(),pt=new Point(1,2),rc=new Rectangle(0,0,4,4),mx=new Matrix();
+      const tmr=new Timer(50,1),snd=new Sound(),dict=new Dictionary(),vecInt=new VecInt(),vecAny=new VecAny();
+      const expectedPairs=[
+        [mc,'flash.display::MovieClip','flash.display::Sprite'],
+        [scene,'app::Main','flash.display::MovieClip'],
+        [scene.cards[0],'app::InventoryCard','flash.display::MovieClip'],
+        [sp,'flash.display::Sprite','flash.display::DisplayObjectContainer'],
+        [sh,'flash.display::Shape','flash.display::DisplayObject'],
+        [bmp,'flash.display::Bitmap','flash.display::DisplayObject'],
+        [bmpData,'flash.display::BitmapData','Object'],
+        [btn,'flash.display::SimpleButton','flash.display::InteractiveObject'],
+        [tf,'flash.text::TextField','flash.display::InteractiveObject'],
+        [scene.stage,'flash.display::Stage','flash.display::DisplayObjectContainer'],
+        [Stage,'flash.display::Stage','flash.display::DisplayObjectContainer'],
+        [vid,'flash.media::Video','flash.display::DisplayObject'],
+        [ldr,'flash.display::Loader','flash.display::DisplayObjectContainer'],
+        [ba,'flash.utils::ByteArray','Object'],
+        [pt,'flash.geom::Point','Object'],
+        [rc,'flash.geom::Rectangle','Object'],
+        [mx,'flash.geom::Matrix','Object'],
+        [tmr,'flash.utils::Timer','flash.events::EventDispatcher'],
+        [snd,'flash.media::Sound','flash.events::EventDispatcher'],
+        [dict,'flash.utils::Dictionary','Object'],
+        [scene.history,'Array','Object'],
+        [scene.items,'__AS3__.vec::Vector.<app::Item>','Object'],
+        [vecInt,'__AS3__.vec::Vector.<int>','Object'],
+        [vecAny,'__AS3__.vec::Vector.<*>','Object'],
+        [IEventDispatcher,'flash.events::IEventDispatcher',null],
+        [IBitmapDrawable,'flash.display::IBitmapDrawable',null],
+        [42,'int','Object'],
+        [3.5,'Number','Object'],
+        [null,'null',null],
+        [undefined,'void',null],
+      ];
+      for(const [val,qname,superName] of expectedPairs){
+        assert.equal(getQName(val),qname,`getQualifiedClassName mismatch for ${qname}`);
+        assert.equal(getSuper(val),superName,`getQualifiedSuperclassName mismatch for ${qname}`);
+      }
+      const mcInstXml=descType(mc).toXMLString();
+      assert.match(mcInstXml,/<type name="flash\.display::MovieClip" base="flash\.display::Sprite" isDynamic="true" isFinal="false" isStatic="false">/);
+      assert.match(mcInstXml,/<extendsClass type="flash\.display::DisplayObjectContainer"\/>/);
+      assert.match(mcInstXml,/<extendsClass type="flash\.display::InteractiveObject"\/>/);
+      assert.match(mcInstXml,/<extendsClass type="flash\.display::DisplayObject"\/>/);
+      assert.match(mcInstXml,/<extendsClass type="flash\.events::EventDispatcher"\/>/);
+      assert.match(mcInstXml,/<implementsInterface type="flash\.display::IBitmapDrawable"\/>/);
+      assert.match(mcInstXml,/<implementsInterface type="flash\.events::IEventDispatcher"\/>/);
+      assert.match(mcInstXml,/<accessor\b[^>]*\bname="currentFrame"/);
+      assert.match(mcInstXml,/<method\b[^>]*\bname="gotoAndStop"/);
+      const cardXml=descType(scene.cards[0]).toXMLString();
+      assert.match(cardXml,/<type name="app::InventoryCard" base="flash\.display::MovieClip"/);
+      assert.match(cardXml,/<extendsClass type="flash\.display::MovieClip"\/>/);
+      assert.match(cardXml,/<extendsClass type="flash\.display::Sprite"\/>/);
+      assert.match(cardXml,/<variable\b[^>]*\bname="item"/);
+      const bdClsXml=descType(BitmapData).toXMLString();
+      assert.match(bdClsXml,/<type name="flash\.display::BitmapData" base="Class" isDynamic="true" isFinal="true" isStatic="true">/);
+      assert.match(bdClsXml,/<implementsInterface type="flash\.display::IBitmapDrawable"\/>/);
+      assert.match(bdClsXml,/<method\b[^>]*\bname="drawWithQuality"/);
+      const ifaceXml=descType(IEventDispatcher).toXMLString();
+      assert.match(ifaceXml,/<type name="flash\.events::IEventDispatcher" base="Class" isDynamic="true" isFinal="true" isStatic="true">/);
+      assert.match(ifaceXml,/<factory type="flash\.events::IEventDispatcher">/);
+      assert.match(ifaceXml,/<method name="addEventListener"/);
+      bmpData.dispose();tmr.stop();
+    }
     host.resetProject();scene=host.proxyFor([]);
     assert.notEqual(scene.items,firstItems);assert.notEqual(scene.cards[0],firstCards[0]);
     assert.notEqual(scene.classProbe,firstProbe,'Restart constructs fresh class-alias instances');

@@ -380,6 +380,8 @@ enum Expr {
     XmlWithAttr {
         local: Box<Expr>,
         namespace: Option<Box<Expr>>,
+        attribute: bool,
+        descendant: bool,
     },
     XmlLiteral(String, Vec<Expr>),
     RegExpLiteral(String, String),
@@ -480,7 +482,9 @@ impl Expr {
             | Self::Assign(_, a, b)
             | Self::XmlFilter(a, b, _)
             | Self::InstanceOf(a, b) => a.depth().max(b.depth()),
-            Self::XmlWithAttr { local, namespace } => local
+            Self::XmlWithAttr {
+                local, namespace, ..
+            } => local
                 .depth()
                 .max(namespace.as_deref().map_or(0, Self::depth)),
             Self::XmlSelect {
@@ -510,8 +514,10 @@ impl Expr {
         match self {
             // Writes to globals are checked after lexical scope resolution.
             Self::Name(name) => name != "this",
-            Self::Member(_, _) | Self::Index(_, _) | Self::XmlWithAttr { .. } => true,
-            Self::XmlSelect { descendant, .. } => !descendant,
+            Self::Member(_, _)
+            | Self::Index(_, _)
+            | Self::XmlWithAttr { .. }
+            | Self::XmlSelect { .. } => true,
             _ => false,
         }
     }
@@ -1717,15 +1723,80 @@ impl<'a> Frontend<'a> {
             accessor,
         ))
     }
-    fn xml_name(&mut self) -> Result<Expr, Diagnostic> {
-        if self.eat("[") {
-            let name = self.expression(0)?;
+    fn is_grouped_qualifier(
+        &self,
+        open_pos: usize,
+        open: &'static str,
+        close: &'static str,
+    ) -> bool {
+        if !self
+            .peek(open_pos)
+            .is_some_and(|t| t.kind == Kind::Punct(open))
+        {
+            return false;
+        }
+        let mut depth = 1usize;
+        let mut idx = open_pos + 1;
+        while let Some(tok) = self.peek(idx) {
+            if tok.kind == Kind::End {
+                return false;
+            }
+            if tok.kind == Kind::Punct(open) {
+                depth += 1;
+            } else if tok.kind == Kind::Punct(close) {
+                depth -= 1;
+                if depth == 0 {
+                    return self
+                        .peek(idx + 1)
+                        .is_some_and(|next| next.kind == Kind::Punct("::"));
+                }
+            }
+            idx += 1;
+        }
+        false
+    }
+    fn xml_part(&mut self, allow_parens: bool) -> Result<(Expr, bool), Diagnostic> {
+        if allow_parens && self.eat("(") {
+            let prev = self.no_in;
+            self.no_in = false;
+            let expr = self.sequence_expression()?;
+            self.no_in = prev;
+            self.expect(")")?;
+            Ok((expr, true))
+        } else if self.eat("[") {
+            let prev = self.no_in;
+            self.no_in = false;
+            let name = self.sequence_expression()?;
+            self.no_in = prev;
             self.expect("]")?;
-            Ok(name)
+            Ok((name, true))
         } else if self.eat("*") {
-            Ok(Expr::Literal("\"*\"".into()))
+            Ok((Expr::Literal("\"*\"".into()), false))
         } else {
-            Ok(Expr::Literal(format!("{:?}", self.ident()?)))
+            Ok((Expr::Literal(format!("{:?}", self.ident()?)), false))
+        }
+    }
+    fn xml_name(&mut self) -> Result<Expr, Diagnostic> {
+        Ok(self.xml_part(false)?.0)
+    }
+    fn xml_qualified_parts(&mut self) -> Result<(Expr, Option<Box<Expr>>), Diagnostic> {
+        let (first, computed) = self.xml_part(true)?;
+        if self.eat("::") {
+            let namespace = if computed {
+                first
+            } else {
+                match &first {
+                    Expr::Literal(value) if value == "\"*\"" => Expr::Literal("null".into()),
+                    Expr::Literal(value) => Expr::Name(
+                        serde_json::from_str(value)
+                            .map_err(|_| self.error("Invalid namespace identifier."))?,
+                    ),
+                    _ => first,
+                }
+            };
+            Ok((self.xml_name()?, Some(Box::new(namespace))))
+        } else {
+            Ok((first, None))
         }
     }
     fn xml_selector(&mut self, base: Expr, descendant: bool) -> Result<Expr, Diagnostic> {
@@ -1733,17 +1804,7 @@ impl<'a> Frontend<'a> {
             return Err(self.error("E4X selectors require AS3; use AS2 XMLNode DOM methods."));
         }
         let attribute = self.eat("@");
-        let first = self.xml_name()?;
-        let (local, namespace) = if self.eat("::") {
-            let namespace=match &first {
-                Expr::Literal(value) if value=="\"*\""=>Expr::Literal("null".into()),
-                Expr::Literal(value)=>Expr::Name(serde_json::from_str(value).map_err(|_|self.error("Invalid namespace identifier."))?),
-                _=>return Err(self.error("Computed namespace qualifiers are outside this selector profile; use an explicit QName value in brackets.")),
-            };
-            (self.xml_name()?, Some(Box::new(namespace)))
-        } else {
-            (first, None)
-        };
+        let (local, namespace) = self.xml_qualified_parts()?;
         Ok(Expr::XmlSelect {
             base: Box::new(base),
             local: Box::new(local),
@@ -1872,10 +1933,8 @@ impl<'a> Frontend<'a> {
                 operand,
                 Expr::Member(_, _)
                     | Expr::Index(_, _)
-                    | Expr::XmlSelect {
-                        descendant: false,
-                        ..
-                    }
+                    | Expr::XmlSelect { .. }
+                    | Expr::XmlWithAttr { .. }
             ) && !((self.with_depth > 0
                 || self.script.language == ScriptLanguage::ActionScript2)
                 && matches!(operand, Expr::Name(_)))
@@ -1900,6 +1959,29 @@ impl<'a> Frontend<'a> {
                     "Expression exceeds 128 nested operations; split it into smaller expressions.",
                 ));
             }
+            if min_bp <= 30
+                && self.script.language == ScriptLanguage::ActionScript3
+                && self.eat("::")
+            {
+                let local = self.xml_name()?;
+                lhs = if self.with_depth > 0 {
+                    Expr::XmlWithAttr {
+                        local: Box::new(local),
+                        namespace: Some(Box::new(lhs)),
+                        attribute: false,
+                        descendant: false,
+                    }
+                } else {
+                    Expr::XmlSelect {
+                        base: Box::new(Expr::Name("this".into())),
+                        local: Box::new(local),
+                        namespace: Some(Box::new(lhs)),
+                        attribute: false,
+                        descendant: false,
+                    }
+                };
+                continue;
+            }
             if min_bp <= 30 && self.eat("..") {
                 lhs = self.xml_selector(lhs, true)?;
                 continue;
@@ -1921,7 +2003,7 @@ impl<'a> Frontend<'a> {
                     lhs = Expr::TypeValue(format!("Vector.<{element}>"), offset);
                     continue;
                 }
-                if self.eat("(") {
+                if !self.is_grouped_qualifier(self.pos, "(", ")") && self.eat("(") {
                     if self.script.language != ScriptLanguage::ActionScript3 {
                         return Err(self.error("E4X filters require AS3."));
                     }
@@ -1944,6 +2026,8 @@ impl<'a> Frontend<'a> {
                 }
                 if self.is("@")
                     || self.is("*")
+                    || self.is_grouped_qualifier(self.pos, "(", ")")
+                    || self.is_grouped_qualifier(self.pos, "[", "]")
                     || self
                         .peek(self.pos + 1)
                         .is_some_and(|t| t.kind == Kind::Punct("::"))
@@ -2198,31 +2282,38 @@ impl<'a> Frontend<'a> {
         if self.is("function") {
             return Ok(Expr::Function(Box::new(self.function(false)?)));
         }
-        if self.script.language == ScriptLanguage::ActionScript3
-            && self.with_depth > 0
-            && self.eat("@")
-        {
-            let first = self.xml_name()?;
-            let (local, namespace) = if self.eat("::") {
-                let namespace = match &first {
-                    Expr::Literal(value) if value == "\"*\"" => Expr::Literal("null".into()),
-                    Expr::Literal(value) => Expr::Name(
-                        serde_json::from_str(value)
-                            .map_err(|_| self.error("Invalid namespace identifier."))?,
-                    ),
-                    _ => {
-                        return Err(self.error(
-                            "Computed namespace qualifiers are outside this selector profile; use an explicit QName value in brackets.",
-                        ))
-                    }
-                };
-                (self.xml_name()?, Some(Box::new(namespace)))
-            } else {
-                (first, None)
-            };
+        if self.script.language == ScriptLanguage::ActionScript3 && self.eat("@") {
+            let (local, namespace) = self.xml_qualified_parts()?;
             return Ok(Expr::XmlWithAttr {
                 local: Box::new(local),
                 namespace,
+                attribute: true,
+                descendant: false,
+            });
+        }
+        if self.script.language == ScriptLanguage::ActionScript3 && self.eat("..") {
+            let attribute = self.eat("@");
+            let (local, namespace) = self.xml_qualified_parts()?;
+            return Ok(Expr::XmlWithAttr {
+                local: Box::new(local),
+                namespace,
+                attribute,
+                descendant: true,
+            });
+        }
+        if self.script.language == ScriptLanguage::ActionScript3
+            && self.is("*")
+            && self
+                .peek(self.pos + 1)
+                .is_some_and(|t| t.kind == Kind::Punct("::"))
+        {
+            self.pos += 2;
+            let local = self.xml_name()?;
+            return Ok(Expr::XmlWithAttr {
+                local: Box::new(local),
+                namespace: Some(Box::new(Expr::Literal("null".into()))),
+                attribute: false,
+                descendant: false,
             });
         }
         let token = self.token().clone();
@@ -2237,13 +2328,22 @@ impl<'a> Frontend<'a> {
                     Ok(Expr::Literal(name))
                 } else if self.script.language == ScriptLanguage::ActionScript3 && self.eat("::") {
                     let local = self.xml_name()?;
-                    Ok(Expr::XmlSelect {
-                        base: Box::new(Expr::Name("this".into())),
-                        local: Box::new(local),
-                        namespace: Some(Box::new(Expr::Name(name))),
-                        attribute: false,
-                        descendant: false,
-                    })
+                    if self.with_depth > 0 {
+                        Ok(Expr::XmlWithAttr {
+                            local: Box::new(local),
+                            namespace: Some(Box::new(Expr::Name(name))),
+                            attribute: false,
+                            descendant: false,
+                        })
+                    } else {
+                        Ok(Expr::XmlSelect {
+                            base: Box::new(Expr::Name("this".into())),
+                            local: Box::new(local),
+                            namespace: Some(Box::new(Expr::Name(name))),
+                            attribute: false,
+                            descendant: false,
+                        })
+                    }
                 } else { Ok(Expr::Name(name)) }
             }
             Kind::Punct("(") => { self.pos += 1; let previous=self.no_in;self.no_in=false; let expr = self.sequence_expression()?;self.no_in=previous; self.expect(")")?; Ok(expr) }
@@ -3983,27 +4083,29 @@ impl Emitter<'_> {
                     self.as3
                 ))
             }
-            Expr::XmlWithAttr { local, namespace } => {
-                let selector = if let Some(namespace) = namespace {
-                    format!(
-                        "((__nfNamespace,__nfLocal)=>__nfXML.selector(__nfLocal,__nfNamespace,true,false))({}, {})",
-                        self.expression(namespace),
-                        self.expression(local)
-                    )
-                } else {
-                    format!(
-                        "__nfXML.selector({},undefined,true,false)",
-                        self.expression(local)
-                    )
-                };
+            Expr::XmlWithAttr {
+                local,
+                namespace,
+                attribute,
+                descendant,
+            } => {
+                let ns_expr = namespace
+                    .as_ref()
+                    .map_or_else(|| "undefined".into(), |ns| self.expression(ns));
+                let local_expr = self.expression(local);
+                let selector = format!(
+                    "((__nfNamespace,__nfLocal)=>__nfXML.selector(__nfLocal,__nfNamespace,{attribute},{descendant}))({ns_expr}, {local_expr})"
+                );
+                let targets = self
+                    .with_targets
+                    .iter()
+                    .rev()
+                    .map(|(_, t)| t.as_str())
+                    .collect::<Vec<_>>()
+                    .join(",");
                 Some(format!(
-                    "__nfWithXmlAttr([{}], {selector})",
-                    self.with_targets
-                        .iter()
-                        .rev()
-                        .map(|(_, t)| t.as_str())
-                        .collect::<Vec<_>>()
-                        .join(",")
+                    "__nfWithXmlAttr([{targets}], this, {selector}, {ns_expr}, {local_expr}, {attribute}, {descendant}{})",
+                    self.caller_argument()
                 ))
             }
             Expr::Index(base, key) => Some(format!(
@@ -4444,7 +4546,10 @@ impl Emitter<'_> {
                 )
             }
             Expr::Assign(op, left, right) => {
-                let target = if matches!(left.as_ref(), Expr::XmlSelect { .. }) {
+                let target = if matches!(
+                    left.as_ref(),
+                    Expr::XmlSelect { .. } | Expr::XmlWithAttr { .. }
+                ) {
                     String::new()
                 } else {
                     self.lvalue(left)
@@ -5173,13 +5278,27 @@ impl Emitter<'_> {
                         }
                     },
                 );
-                format!(
-                    "{callable}({})",
-                    args.iter()
-                        .map(|v| self.expression(v))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
+                let arg_list = args
+                    .iter()
+                    .map(|v| self.expression(v))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if !self.as3
+                    && let Expr::Member(base, method) = callee.as_ref()
+                    && method == "setFocus"
+                    && matches!(
+                        base.as_ref(),
+                        Expr::Name(sel)
+                            if sel == "Selection"
+                                && self.analysis.resolve(self.scope, "Selection").is_none()
+                    )
+                {
+                    return format!(
+                        "(typeof __nfLegacy?.Selection?.__nfSetFocusWithCaller === \"function\" ? __nfLegacy.Selection.__nfSetFocusWithCaller({}, [{arg_list}]) : {callable}({arg_list}))",
+                        self.legacy_receiver()
+                    );
+                }
+                format!("{callable}({arg_list})")
             }
         }
     }

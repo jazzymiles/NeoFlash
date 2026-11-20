@@ -259,8 +259,55 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
       const layerBmp=new BitmapData(40,20,true,0x00000000);layerBmp.draw(layerGrp);
       assert.equal((layerBmp.getPixel32(5,10)>>>24)&0xff,0,'erase clears alpha inside layer group');
       const midA=(layerBmp.getPixel32(20,10)>>>24)&0xff;assert.ok(midA>=124&&midA<=131,`alpha blend scales group alpha to ~128, got ${midA}`);
-      assert.equal((layerBmp.getPixel32(35,10)>>>24)&0xff,0,'alpha blend clears outside its coverage');
+      assert.equal(layerBmp.getPixel32(35,10)>>>24&0xff,0,'alpha blend clears outside its coverage');
       layerBmp.dispose();
+
+      // T-400: DisplayObject drawWithQuality (StageQuality supersampling + linearGamma + shader rejection)
+      // and native display reflection (getQualifiedClassName / getQualifiedSuperclassName / describeType).
+      const diagShape=new Shape();
+      diagShape.graphics.beginFill(0xffffff);
+      diagShape.graphics.moveTo(0,0);diagShape.graphics.lineTo(16,0);diagShape.graphics.lineTo(0,16);diagShape.graphics.lineTo(0,0);
+      diagShape.graphics.endFill();
+      const dqLow=new BitmapData(16,16,true,0x00000000);
+      const dq8x8=new BitmapData(16,16,true,0x00000000);
+      dqLow.drawWithQuality(diagShape,null,null,null,null,false,'low');
+      dq8x8.drawWithQuality(diagShape,null,null,null,null,false,'8x8');
+      let partialLow=0,partial8x8=0;
+      for(let py=0;py<16;py++)for(let px=0;px<16;px++){
+        const aL=(dqLow.getPixel32(px,py)>>>24)&0xff;
+        const aH=(dq8x8.getPixel32(px,py)>>>24)&0xff;
+        if(aL>0&&aL<255)partialLow++;
+        if(aH>0&&aH<255)partial8x8++;
+      }
+      assert.equal(partialLow,0,'StageQuality.LOW produces unsmoothed 1x coverage');
+      assert.ok(partial8x8>=12,`StageQuality.HIGH_8X8 supersamples diagonal edge, got ${partial8x8}`);
+      assert.throws(()=>dqLow.drawWithQuality(diagShape,null,null,'shader',null,false,'high'),err=>err?.name==='ArgumentError');
+      dqLow.dispose();dq8x8.dispose();
+
+      const splitSp=new Sprite();
+      const leftHalf=new Shape();leftHalf.graphics.beginFill(0xff0000);leftHalf.graphics.drawRect(0,0,3,8);leftHalf.graphics.endFill();
+      const rightHalf=new Shape();rightHalf.graphics.beginFill(0x0000ff);rightHalf.graphics.drawRect(3,0,3,8);rightHalf.graphics.endFill();
+      splitSp.addChild(leftHalf);splitSp.addChild(rightHalf);
+      const halfMat=new Matrix(0.5,0,0,1,0,0);
+      const dqSrgb=new BitmapData(4,8,true,0x00000000);
+      const dqLin=new BitmapData(4,8,true,0x00000000);
+      dqSrgb.drawWithQuality(splitSp,halfMat,null,null,null,false,'8x8');
+      dqLin.drawWithQuality(splitSp,halfMat,null,null,null,false,'8x8linear');
+      const seamSrgb=dqSrgb.getPixel(1,4),seamLin=dqLin.getPixel(1,4);
+      assert.ok(((seamLin>>>16)&0xff)>((seamSrgb>>>16)&0xff)+25,'HIGH_8X8_LINEAR blends DisplayObject subpixels in linear gamma');
+      dqSrgb.dispose();dqLin.dispose();
+
+      const getQName=host.program().type('flash.utils.getQualifiedClassName');
+      const getSuper=host.program().type('flash.utils.getQualifiedSuperclassName');
+      const descType=host.program().type('flash.utils.describeType');
+      assert.equal(getQName(widget),'flash.display::MovieClip');
+      assert.equal(getSuper(widget),'flash.display::Sprite');
+      assert.equal(getQName(scene.stage),'flash.display::Stage');
+      assert.equal(getSuper(scene.stage),'flash.display::DisplayObjectContainer');
+      assert.equal(getQName(dynBtn),'flash.display::SimpleButton');
+      assert.equal(getSuper(dynBtn),'flash.display::InteractiveObject');
+      assert.equal(getQName(rotTf),'flash.text::TextField');
+      assert.match(descType(widget).toXMLString(),/<implementsInterface type="flash\.display::IBitmapDrawable"\/>/);
 
       scene.removeChild(dynBtn);
     }

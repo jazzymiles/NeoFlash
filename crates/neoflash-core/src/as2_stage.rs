@@ -21,7 +21,17 @@ impl MenuItem {
         Ok(item)
     }
 }
-const MENU_BUILTINS: &[&str] = &["play", "rewind", "forward_back", "print"];
+const MENU_BUILTINS: &[&str] = &[
+    "save",
+    "zoom",
+    "quality",
+    "play",
+    "loop",
+    "rewind",
+    "forward_back",
+    "print",
+];
+const REQUIRED_MENU_BUILTINS: &[&str] = &["play", "rewind", "forward_back", "print"];
 fn menu_plan(value: &Value) -> Result<Value, String> {
     let values = value["items"]
         .as_array()
@@ -35,11 +45,12 @@ fn menu_plan(value: &Value) -> Result<Value, String> {
     if flags
         .keys()
         .any(|key| !MENU_BUILTINS.contains(&key.as_str()))
-        || MENU_BUILTINS
+        || flags.values().any(|v| !v.is_boolean())
+        || REQUIRED_MENU_BUILTINS
             .iter()
             .any(|key| !flags.get(*key).is_some_and(Value::is_boolean))
     {
-        return Err("ContextMenu builtInItems supports Boolean play/rewind/forward_back/print; zoom/quality/loop have no browser contract in this profile".into());
+        return Err("ContextMenu builtInItems requires Boolean flags (save, zoom, quality, play, loop, rewind, forward_back, print)".into());
     }
     let mut seen = std::collections::BTreeSet::new();
     let mut rows = Vec::new();
@@ -58,14 +69,20 @@ fn menu_plan(value: &Value) -> Result<Value, String> {
     }
     let mut separator = !rows.is_empty();
     for (flag, action, caption) in [
+        ("zoom", "zoom_in", "Zoom in"),
+        ("zoom", "zoom_out", "Zoom out"),
+        ("zoom", "show_all", "Show all"),
+        ("quality", "quality", "Quality"),
         ("play", "play", "Play"),
         ("play", "stop", "Stop"),
+        ("loop", "loop", "Loop"),
         ("rewind", "rewind", "Rewind"),
         ("forward_back", "previous", "Previous frame"),
         ("forward_back", "next", "Next frame"),
+        ("save", "save", "Save"),
         ("print", "print", "Print publication…"),
     ] {
-        if flags[flag] == true {
+        if flags.get(flag).and_then(Value::as_bool) == Some(true) {
             rows.push(json!({"action":action,"caption":caption,"enabled":true,"separatorBefore":separator}));
             separator = false;
         }
@@ -120,7 +137,7 @@ impl StageState {
             "menu_builtin" => {
                 let name = v["name"].as_str().ok_or("Missing context-menu flag")?;
                 if !MENU_BUILTINS.contains(&name) {
-                    return Err("ContextMenu builtInItems supports play/rewind/forward_back/print; zoom/quality/loop are unavailable".into());
+                    return Err("ContextMenu builtInItems supports save/zoom/quality/play/loop/rewind/forward_back/print".into());
                 }
                 Ok(json!(
                     v["value"]
@@ -352,9 +369,53 @@ mod tests {
         assert_eq!(rows[1]["index"], 3);
         assert_eq!(rows[1]["enabled"], false);
         assert_eq!(rows[2]["action"], "play");
+        for flag in MENU_BUILTINS {
+            assert_eq!(
+                s.command(&json!({"op":"menu_builtin","name":flag,"value":true}).to_string())
+                    .unwrap(),
+                true
+            );
+            assert_eq!(
+                s.command(&json!({"op":"menu_builtin","name":flag,"value":false}).to_string())
+                    .unwrap(),
+                false
+            );
+        }
         assert!(
-            s.command(r#"{"op":"menu_builtin","name":"quality","value":true}"#)
+            s.command(r#"{"op":"menu_builtin","name":"unknown","value":true}"#)
                 .is_err()
+        );
+        assert!(
+            s.command(r#"{"op":"menu_builtin","name":"quality","value":"high"}"#)
+                .is_err()
+        );
+        let full_menu = json!({
+            "op": "menu_plan",
+            "items": [],
+            "builtInItems": {
+                "save": true,
+                "zoom": true,
+                "quality": true,
+                "play": true,
+                "loop": true,
+                "rewind": true,
+                "forward_back": true,
+                "print": true
+            }
+        });
+        let full_rows = s.command(&full_menu.to_string()).unwrap();
+        let actions: Vec<&str> = full_rows
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|r| r["action"].as_str())
+            .collect();
+        assert_eq!(
+            actions,
+            vec![
+                "zoom_in", "zoom_out", "show_all", "quality", "play", "stop", "loop", "rewind",
+                "previous", "next", "save", "print",
+            ]
         );
         assert_eq!(s.command(r#"{"op":"get"}"#).unwrap()["wmodeGPU"], false);
         assert!(

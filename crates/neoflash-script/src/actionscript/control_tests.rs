@@ -33,14 +33,16 @@ fn control_targets_are_validated_at_source_and_reset_at_functions() {
         "delete local;",
         "var value:Vector.<void>;",
         "var value:Vector;",
-        "delete tree..item;",
-        "tree..item='value';",
         "var tree=<root>line\ntext</root> var n=1;",
     ] {
         assert!(as3(source).is_err(), "must reject {source}");
     }
     for source in [
         "tree.(value==1);",
+        "delete tree..item;",
+        "tree..item='value';",
+        "delete tree.item[0];",
+        "var ns:Namespace=new Namespace('m','urn:m');tree.(ns)::item;tree.@(ns)::id;tree..(ns)::item;tree.(@id=='1');with(tree){@id;..item;}",
         "default xml namespace = \"urn:catalog\";",
         "outer:for(;;){switch(1){case 1:continue outer;default:break;}break;}",
         "first:second:do{continue first;}while(false);",

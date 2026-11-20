@@ -60,7 +60,7 @@
   const unsupportedText=new Set(['htmlText','styleSheet']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,geometry,getGeom3D=()=>null,proxyFor,proxyForRef,referenceOf,getStage=()=>null,getStageHost=()=>null,measureText,pathBounds,onMutation=()=>{},onObserveUnload=()=>{},onSuperConstruct=null,isRetiring=()=>false,isRetiringReference=()=>false,onTabChange=()=>{},onTextLink=null,project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAudio=()=>null,getAS2Text=()=>null,getFte3D=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
+  function create({player,geometry,getGeom3D=()=>null,proxyFor,proxyForRef,referenceOf,getStage=()=>null,getStageHost=()=>null,measureText,pathBounds,onMutation=()=>{},onRedrawRegionsChange=null,getLegacyCaller=null,isLegacyCase=null,onObserveUnload=()=>{},onSuperConstruct=null,isRetiring=()=>false,isRetiringReference=()=>false,onTabChange=()=>{},onTextLink=null,project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAudio=()=>null,getAS2Text=()=>null,getFte3D=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
     if(!geometry)throw new Error('The Rust geometry family is missing. Re-export this project.');
     const {Point,Rectangle,Matrix,ColorTransform}=geometry;
     const legacy = new Map();
@@ -978,12 +978,34 @@
         setMask:(...args)=>{
           descriptor(target);
           if(!args.length)return undefined;
-          const mask=args[0];
-          if(typeof mask==='string')throw new TypeError('AS2 setMask string target paths are not supported; pass a live display object or null.');
+          const raw=args[0];
+          if(raw===null||raw===undefined){set(target,'mask',null);return true;}
+          let mask=raw;
+          if(typeof raw==='string'){
+            if(!raw)return false;
+            const isLegacy=Boolean(isLegacyCase?.());
+            const caller=getLegacyCaller?.();
+            const parent=parentSpace(target);
+            if(/^(?:_root|_level\d+|\/|_parent|\.\.|this)(?:$|[./])/i.test(raw)){
+              mask=resolveTarget(raw,target,isLegacy);
+            }else{
+              const bases=[];
+              if(caller&&alive(caller))bases.push(caller);
+              if(parent&&parent!==getStage()&&!bases.includes(parent))bases.push(parent);
+              if(!bases.includes(target))bases.push(target);
+              const root=proxyFor([]);
+              if(root&&!bases.includes(root))bases.push(root);
+              mask=undefined;
+              for(const base of bases){
+                const resolved=resolveTarget(raw,base,isLegacy);
+                if(resolved){mask=resolved;break;}
+              }
+            }
+          }
           // Pinned Ruffle AVM1 set_mask returns Boolean success, despite the
           // Adobe reference's Void annotation. Missing arguments are a no-op.
-          if(mask!=null&&!referenceOf(mask))return false;
-          set(target,'mask',mask==null?null:mask);return true;
+          if(!mask||!referenceOf(mask))return false;
+          set(target,'mask',mask);return true;
         },
         beginFill:(color,alpha=100)=>drawing.beginFill(color,alpha/100),
         beginBitmapFill:(bitmap,matrix=null,repeat=true,smoothing=false)=>drawing.beginBitmapFill(bitmap,matrix??null,Boolean(repeat),Boolean(smoothing)),
@@ -1091,11 +1113,17 @@
         if(!Number.isInteger(numeric)||numeric<0||numeric>0xffffff)throw new RangeError('showRedrawRegions color requires a 24-bit RGB integer.');
         request.color=numeric;
       }
-      as2Settings(request);
+      const next=as2Settings(request);
+      onRedrawRegionsChange?.(next);
+    }
+    function as2RedrawRegions(){
+      if(typeof player.as2_settings_command!=='function')return {enabled:false,color:0xff0000};
+      const cur=as2Settings();
+      return {enabled:Boolean(cur.redraw_regions),color:Number.isInteger(cur.redraw_region_color)?cur.redraw_region_color:0xff0000};
     }
     function as2Input(target,request={op:'get'}){ownerInfo(target);return JSON.parse(player.as2_input_command(referenceOf(target).key,JSON.stringify(request)));}
     function buttonLike(target){const ref=referenceOf(target),record=ref&&legacy.get(ref.key+'\u0000'+ref.lifetime);return [...buttonCallbacks].some(name=>hasCallback(record,name))||Boolean(record?.authoredButton?.some(entry=>entry.event==='keyPress'));}
-    function as2CanFocus(target){if(target===null)return true;const ok=as2Input(target,{op:'focusable',has_button_handler:buttonLike(target)});if(ok)as2TabActive=true;return ok;}
+    function as2CanFocus(target){if(target===null||target===undefined)return true;if(!alive(target))return false;const ok=as2Input(target,{op:'focusable',has_button_handler:buttonLike(target)});if(ok)as2TabActive=true;return ok;}
     function as2Ref(target,name){
       const ordinary=referenceOf(target)?.as2TimelineRef?.(name);if(ordinary)return ordinary;
       if(name==='_accProps'&&['movie_clip','button','text'].includes(ownerOf(target)))return {has:()=>accProps.has(target),delete:()=>accProps.delete(target),get:()=>accProps.get(target),set:value=>{if(value===undefined)accProps.delete(target);else accProps.set(target,value);return value;}};
@@ -2116,7 +2144,7 @@
       if(!text?.isFontCompatible)throw new Error('TextField.isFontCompatible requires the shared text service.');
       return text.isFontCompatible(fontName,fontStyle);
     };
-    return {methods,get,set,builtins,stageContainer,setGraphicsVectorFactories,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,ownerOf,ownerInfo,childByName,hasChild,snapshot,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,addLegacyEvent,flushClipLoads,notifyData,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{snapshotCache=null;nodesCache=null;childMapCache=null;as2SettingsCache=null;ownerCache.clear();descriptorCache.clear();legacy.clear();pendingClipLoads.length=0;staticTextLifetimes.clear();accProps=new WeakMap();spriteSoundTransforms=new WeakMap();touchDragId=null;contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();softKeyboardNeeds=new WeakMap();softKeyboardRects=new WeakMap();transformMatrix3D=new WeakMap();transformPerspective=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
+    return {methods,get,set,builtins,stageContainer,setGraphicsVectorFactories,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2RedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,ownerOf,ownerInfo,childByName,hasChild,snapshot,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,addLegacyEvent,flushClipLoads,notifyData,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{snapshotCache=null;nodesCache=null;childMapCache=null;as2SettingsCache=null;ownerCache.clear();descriptorCache.clear();legacy.clear();pendingClipLoads.length=0;staticTextLifetimes.clear();accProps=new WeakMap();spriteSoundTransforms=new WeakMap();touchDragId=null;contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();softKeyboardNeeds=new WeakMap();softKeyboardRects=new WeakMap();transformMatrix3D=new WeakMap();transformPerspective=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
   }
   const api={create,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;

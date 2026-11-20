@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "dcb87c4c106cf6bbe4a94e2bcb562ea26a32a9de13760a73b88c85f132e69bca",
+  "reviews": [
+    {
+      "id": "AS3-AREAS2TO5-20261120",
+      "date": "2026-11-20",
+      "commit": "27e0bdee37ccac19cecec3360ecf34cf03ee14d4",
+      "title": "Close AS3 Areas 2-5 Vector.sort, native reflection, E4X operators and drawWithQuality gaps",
+      "summary": "Adds RETURNINDEXEDARRAY and UNIQUESORT to Vector.sort(), extends getQualifiedClassName, getQualifiedSuperclassName and describeType across native Flash display/runtime classes and interfaces, completes E4X computed qualifiers, dynamic XML/XMLList access/writes and indexed/descendant delete, and applies StageQuality supersampling and linearGamma on DisplayObject drawWithQuality.",
+      "tests": [
+        "crates/neoflash-script/tests/collections-fixtures.mjs",
+        "crates/neoflash-script/tests/execute.mjs",
+        "crates/neoflash-script/tests/typed-collections.mjs",
+        "crates/neoflash-script/tests/xml-catalog.mjs",
+        "crates/neoflash-script/tests/bitmap-pixels.mjs",
+        "web/tests/display-family.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:method:Vector.html#sort()",
+          "status": "working",
+          "note": "Supports custom comparators and Array sort flags including CASEINSENSITIVE, DESCENDING, NUMERIC, UNIQUESORT (returning 0 without mutating on duplicates), and RETURNINDEXEDARRAY (returning a sorted index Array without mutating)."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedClassName()",
+          "status": "working",
+          "note": "Returns Adobe qualified names across AS3 project classes, primitives, Vector.<T>, interfaces, and native Flash display and runtime classes and instances."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedSuperclassName()",
+          "status": "working",
+          "note": "Resolves full Adobe superclass chains across AS3 project classes, native Flash display and runtime hierarchies, primitives, and interfaces (returning null for Object, interfaces, null, and void)."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#describeType()",
+          "status": "working",
+          "note": "Produces Flash XML type descriptions with extendsClass, implementsInterface, accessor, method, variable, and factory metadata for AS3 project classes, native Flash display/runtime classes and instances, Vector.<T>, and interfaces."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#attribute_identifier",
+          "status": "working",
+          "note": "Supports compiled xml.@attr, xml.@[expr], xml.@*, standalone @attr in E4X filters and with scopes, and dynamic @attr Proxy property reads, writes, membership checks, and deletion."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#descendant_accessor",
+          "status": "working",
+          "note": "Supports descendant reads, standalone ..tag in E4X filters and with scopes, direct descendant element and attribute replacement (xml..tag = ..., xml..@attr = ...), and descendant deletion."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#name_qualifier",
+          "status": "working",
+          "note": "Supports static ns::name, *::name, and computed (nsExpr)::name, (nsExpr)::[nameExpr], (nsExpr)::*, @(nsExpr)::attr, and ..(nsExpr)::tag qualifiers."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#delete_(XML)",
+          "status": "working",
+          "note": "Supports named child, attribute, computed @[expr], indexed XMLList (delete xml.item[0]), no-op XML self-index (delete xml[0]), descendant (delete xml..tag), and Proxy deleteProperty deletion."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#dot_(XML)",
+          "status": "working",
+          "note": "Supports compiled E4X child access/assignment and dynamic Proxy get, set, has, and deleteProperty on XML and single-item XMLList instances (throwing TypeError #1089 on multi-item XMLList writes)."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#drawWithQuality()",
+          "status": "working",
+          "note": "Applies StageQuality supersampling (LOW through HIGH_16X16), StageQuality child-bitmap smoothing rules, and premultiplied linearGamma box downsampling for both DisplayObject and BitmapData sources, rejecting BlendMode.SHADER with ArgumentError."
+        }
+      ]
+    }
+  ]
+}

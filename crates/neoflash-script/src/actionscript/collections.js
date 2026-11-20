@@ -224,10 +224,14 @@ function __nfArrayCompare(a, b, options, as3) {
         if (typeof a !== 'number' || typeof b !== 'number') {
             throw new __nfArrayTypeError('AS3 NUMERIC sorting currently requires numeric values. Convert score fields with Number() before sorting.');
         }
-        result = a < b ? -1 : a > b ? 1 : 0;
+        if (Number.isNaN(a) || Number.isNaN(b)) {
+            result = Number.isNaN(a) && Number.isNaN(b) ? 0 : Number.isNaN(a) ? 1 : -1;
+        } else {
+            result = a < b ? -1 : a > b ? 1 : 0;
+        }
     } else {
-        // Deliberately limit comparison coercion; object hooks have different AVM profiles.
-        if ((a !== null && typeof a === 'object') || typeof a === 'function' || (b !== null && typeof b === 'object') || typeof b === 'function') {
+        // Deliberately limit AS2 comparison coercion; object hooks have different AVM1 profiles.
+        if (!as3 && ((a !== null && typeof a === 'object') || typeof a === 'function' || (b !== null && typeof b === 'object') || typeof b === 'function')) {
             throw new __nfArrayTypeError('Array string sorting currently supports primitive values. Supply a comparator or sortOn field for objects.');
         }
         let left = __nfArrayString(a), right = __nfArrayString(b);

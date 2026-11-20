@@ -1001,9 +1001,12 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
         '    var cm:ContextMenu = new ContextMenu(function(obj:Object, menu:ContextMenu):Void {',
         '      menuLog.push("menuSelect:" + obj._name + ":" + (menu === cm));',
         '    });',
-        '    var builtIn0:Boolean = cm.builtInItems.play === true && cm.builtInItems.rewind === true && cm.builtInItems.forward_back === true && cm.builtInItems.print === true;',
+        '    var builtIn0:Boolean = cm.builtInItems.save === true && cm.builtInItems.zoom === true && cm.builtInItems.quality === true && cm.builtInItems.play === true && cm.builtInItems.loop === true && cm.builtInItems.rewind === true && cm.builtInItems.forward_back === true && cm.builtInItems.print === true;',
+        '    cm.builtInItems.zoom = false; cm.builtInItems.quality = false; cm.builtInItems.loop = false; cm.builtInItems.save = false;',
+        '    var builtInToggled:Boolean = cm.builtInItems.zoom === false && cm.builtInItems.quality === false && cm.builtInItems.loop === false && cm.builtInItems.save === false && cm.builtInItems.play === true;',
+        '    cm.builtInItems.zoom = true; cm.builtInItems.quality = true; cm.builtInItems.loop = true; cm.builtInItems.save = true;',
         '    cm.hideBuiltInItems();',
-        '    var builtInHidden:Boolean = cm.builtInItems.play === false && cm.builtInItems.rewind === false && cm.builtInItems.forward_back === false && cm.builtInItems.print === false;',
+        '    var builtInHidden:Boolean = builtInToggled && cm.builtInItems.save === false && cm.builtInItems.zoom === false && cm.builtInItems.quality === false && cm.builtInItems.play === false && cm.builtInItems.loop === false && cm.builtInItems.rewind === false && cm.builtInItems.forward_back === false && cm.builtInItems.print === false;',
         '    var item1:ContextMenuItem = new ContextMenuItem("Inspect Clip", function(obj:Object, item:ContextMenuItem):Void {',
         '      menuLog.push("item1:" + obj._name + ":" + item.caption);',
         '    }, true, true, true);',
@@ -2245,6 +2248,97 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
     b3Root.actionBtn._focusrect = false;
     assert.equal(fHost.display().as2FocusBounds(), null, 'as2FocusBounds returns null when _focusrect is false');
     b3Root.actionBtn._focusrect = true;
+
+    // T-400 AS2 Areas 2-5 conformance: ContextMenu builtInItems actions, Selection.setFocus paths,
+    // MovieClip.setMask string paths + cacheAsBitmap soft alpha mask, and showRedrawRegions dirty rects
+    const menuState0 = fHost.as2Stage().menuState();
+    assert.equal(menuState0.loop, true);
+    assert.equal(menuState0.zoomScale, 1);
+    fHost.as2Stage().triggerBuiltin('loop');
+    assert.equal(fHost.as2Stage().menuState().loop, false);
+    fHost.as2Stage().triggerBuiltin('loop');
+    assert.equal(fHost.as2Stage().menuState().loop, true);
+    const qBeforeMenu = fHost.display().as2GlobalPropRef('_quality').get();
+    fHost.as2Stage().triggerBuiltin('quality');
+    assert.notEqual(fHost.display().as2GlobalPropRef('_quality').get(), qBeforeMenu, 'ContextMenu quality builtin toggles Stage quality');
+    fHost.as2Stage().triggerBuiltin('quality');
+    fHost.as2Stage().triggerBuiltin('zoom_in');
+    assert.equal(fHost.as2Stage().menuState().zoomScale, 2);
+    fHost.as2Stage().triggerBuiltin('zoom_out');
+    assert.equal(fHost.as2Stage().menuState().zoomScale, 1);
+    fHost.as2Stage().triggerBuiltin('show_all');
+    assert.equal(fHost.as2Stage().menuState().zoomScale, 1);
+
+    const focusPanel = b3Root.createEmptyMovieClip('focusPanel', 610);
+    const nestedTf = focusPanel.createTextField('input_txt', 1, 8, 8, 90, 20);
+    nestedTf.type = 'input';
+    nestedTf.selectable = true;
+    assert.equal(fHost.legacy().Selection.setFocus('_root.focusPanel.input_txt'), true);
+    assert.equal(fHost.legacy().Selection.getFocus(), '_level0.focusPanel.input_txt');
+    assert.equal(fHost.legacy().Selection.__nfSetFocusWithCaller(focusPanel, ['input_txt']), true);
+    assert.equal(fHost.legacy().Selection.getFocus(), '_level0.focusPanel.input_txt');
+    assert.equal(fHost.legacy().Selection.setFocus('_root.missing_txt'), false);
+    assert.equal(fHost.legacy().Selection.setFocus(''), false);
+    assert.equal(fHost.legacy().Selection.setFocus(), false);
+    assert.equal(fHost.legacy().Selection.setFocus(null), true);
+    assert.equal(fHost.legacy().Selection.getFocus(), null);
+
+    const alphaGroup = b3Root.createEmptyMovieClip('alphaMaskGroup', 611);
+    const alphaContent = alphaGroup.createEmptyMovieClip('alphaMaskContent', 1);
+    alphaContent.beginFill(0x00ff00, 100);
+    alphaContent.moveTo(0, 0); alphaContent.lineTo(16, 0); alphaContent.lineTo(16, 16); alphaContent.lineTo(0, 16); alphaContent.lineTo(0, 0);
+    alphaContent.endFill();
+    const alphaMask = alphaGroup.createEmptyMovieClip('alphaMaskClip', 2);
+    alphaMask.beginFill(0xffffff, 50);
+    alphaMask.moveTo(0, 0); alphaMask.lineTo(8, 0); alphaMask.lineTo(8, 16); alphaMask.lineTo(0, 16); alphaMask.lineTo(0, 0);
+    alphaMask.endFill();
+    assert.equal(alphaContent.setMask('missing_mask_mc'), false);
+    alphaContent.cacheAsBitmap = true;
+    alphaMask.cacheAsBitmap = true;
+    assert.equal(alphaContent.setMask('alphaMaskClip'), true);
+    const softMaskSnap = new Uint8Array(fPlayer.bitmap_render_snapshot(
+      JSON.stringify(alphaGroup.toJSON().object_ref),
+      JSON.stringify([1, 0, 0, 1, 0, 0]),
+      JSON.stringify({ multipliers: [1, 1, 1, 1], offsets: [0, 0, 0, 0] }),
+      16,
+      16
+    ));
+    const insideAlpha = softMaskSnap[(4 * 16 + 4) * 4 + 3];
+    const outsideAlpha = softMaskSnap[(4 * 16 + 12) * 4 + 3];
+    assert.ok(insideAlpha > 90 && insideAlpha < 165, `expected ~50% soft mask alpha inside, got ${insideAlpha}`);
+    assert.equal(outsideAlpha, 0, 'masked-out pixel outside soft mask has alpha 0');
+    assert.equal(alphaContent.setMask('_root.alphaMaskGroup.alphaMaskClip'), true);
+    assert.equal(alphaContent.setMask(null), true);
+    const unmaskedSnap = new Uint8Array(fPlayer.bitmap_render_snapshot(
+      JSON.stringify(alphaGroup.toJSON().object_ref),
+      JSON.stringify([1, 0, 0, 1, 0, 0]),
+      JSON.stringify({ multipliers: [1, 1, 1, 1], offsets: [0, 0, 0, 0] }),
+      16,
+      16
+    ));
+    assert.equal(unmaskedSnap[(4 * 16 + 12) * 4 + 3], 255, 'setMask(null) restores full unmasked visibility');
+
+    fHost.display().showRedrawRegions(true, 0xff0000);
+    assert.deepEqual(fHost.display().as2RedrawRegions(), { enabled: true, color: 0xff0000 });
+    const redrawSnapA = fHost.display().snapshot();
+    const initialDirty = fHost.computeRedrawRegions(redrawSnapA.draws, item => {
+      const [a, , , d, tx, ty] = item.transform || [1, 0, 0, 1, 0, 0];
+      return { left: tx, top: ty, right: tx + Math.max(8, Math.abs(a) * 16), bottom: ty + Math.max(8, Math.abs(d) * 16) };
+    }, 1);
+    assert.ok(initialDirty.length > 0, 'enabling showRedrawRegions records active display regions');
+    alphaContent._x = 24;
+    const redrawSnapB = fHost.display().snapshot();
+    const movedDirty = fHost.computeRedrawRegions(redrawSnapB.draws, item => {
+      const [a, , , d, tx, ty] = item.transform || [1, 0, 0, 1, 0, 0];
+      return { left: tx, top: ty, right: tx + Math.max(8, Math.abs(a) * 16), bottom: ty + Math.max(8, Math.abs(d) * 16) };
+    }, 2);
+    assert.ok(movedDirty.some(r => r.x === 24), 'moving clip records updated redraw bounds');
+    fHost.display().showRedrawRegions(false);
+    assert.equal(fHost.display().as2RedrawRegions().enabled, false);
+    assert.equal(fHost.redrawRegions().length, 0, 'showRedrawRegions(false) clears redraw region state');
+    alphaContent.removeMovieClip();
+    alphaMask.removeMovieClip();
+    focusPanel.removeMovieClip();
 
     // DisplacementMapFilter rendered through Filter Renderer + cache invalidation on mapBitmap mutation
     const snap1 = JSON.parse(fPlayer.runtime_snapshot_json());

@@ -359,7 +359,7 @@
     function focused(){const value=stage.stage.focus;return value&&display.alive(value)&&display.descriptor(value).owner==='text'?value:null;}
     function focusPath(){const value=stage.stage.focus;if(!value)return null;if(value===stage.stage)return '_level0';return display.targetPath(value);}
     const Selection=Object.freeze({
-      setFocus:value=>{open();if(typeof value==='string')throw new TypeError('Selection.setFocus currently requires a live display object or null; path strings are pending.');if(value!==null&&!display.alive(value))return false;stage.changeFocus(value);return stage.stage.focus===value;},
+      setFocus:(...args)=>{open();if(!args.length)return false;const value=args[0],base=args[1],legacyCase=Boolean(args[2]);if(value===null||value===undefined){stage.changeFocus(null);return stage.stage.focus===null;}let target=value;if(typeof value==='string'){if(!value||typeof display.resolveTarget!=='function')return false;const origin=base&&display.alive?.(base)?base:display.resolveTarget('_level0',null,legacyCase);target=display.resolveTarget(value,origin,legacyCase);if(!target)return false;}if(!display.alive(target))return false;stage.changeFocus(target);return stage.stage.focus===target;},
       getFocus:()=>{open();return focusPath();},
       setSelection:(begin,end)=>{open();const value=focused();if(value)text.methods(referenceOf(value).key).setSelection(begin,end);},
       getBeginIndex:()=>{open();const value=focused();return value?text.info(referenceOf(value).key).selection_begin:-1;},

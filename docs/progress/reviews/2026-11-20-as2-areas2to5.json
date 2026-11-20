@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "1277e3e10a103d82433c8488f42e7cd6aab0c20263de51e76d20813a1ecfd12d",
+  "reviews": [
+    {
+      "id": "AS2-AREAS2TO5-20261120",
+      "date": "2026-11-20",
+      "commit": "27e0bdee37ccac19cecec3360ecf34cf03ee14d4",
+      "title": "Close AS2 Areas 2-5 Boolean, Selection, ContextMenu, setMask and showRedrawRegions gaps",
+      "summary": "Supports boxed new Boolean(v) alongside primitive Boolean(v), string and relative target paths in Selection.setFocus() and MovieClip.setMask() with cached soft alpha masking, all eight ContextMenuBuiltInItems flags with live loop/quality/zoom actions, and Canvas/DOM dirty-bounds outlines for showRedrawRegions().",
+      "tests": [
+        "crates/neoflash-script/tests/intrinsic-fixtures.mjs",
+        "crates/neoflash-script/tests/execute.mjs",
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "web/tests/runtime.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:Boolean.html#Boolean()",
+          "status": "working",
+          "note": "Boolean(v) returns primitive boolean (undefined with 0 args in AS2) while new Boolean(v) constructs a boxed Boolean object with valueOf, toString, instanceof Boolean, and truthy object branching."
+        },
+        {
+          "catalogId": "as2:Selection.html#setFocus()",
+          "status": "working",
+          "note": "Focuses live MovieClip, Button, and TextField instances or resolves absolute and caller-relative string target paths, clearing focus on null/undefined and returning false on unresolved paths."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#builtInItems",
+          "status": "working",
+          "note": "Supports all eight ContextMenuBuiltInItems flags (save, zoom, quality, play, loop, rewind, forward_back, print), hideBuiltInItems(), copy(), and live loop/quality/zoom menu actions."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#setMask()",
+          "status": "working",
+          "note": "Accepts live MovieClip instances, absolute or relative string target paths, and null clearing, including soft alpha masking when cacheAsBitmap is enabled on both maskee and mask."
+        },
+        {
+          "catalogId": "as2:global_functions.html#showRedrawRegions()",
+          "status": "working",
+          "note": "Connects publication redraw_regions and 24-bit RGB color state to Canvas strokeRect outlines and the DOM redraw-region overlay around updated display bounds, clearing cleanly when disabled."
+        }
+      ]
+    }
+  ]
+}

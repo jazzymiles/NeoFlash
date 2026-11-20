@@ -56,6 +56,110 @@ export async function verifyXMLCatalog(root,cargo) {
     assert.notEqual(scene.original,original);assert.notEqual(scene.legacyDoc,legacy);
     assert.throws(()=>original.toXMLString(),/previous|session|retired|reset/i,'old XML wrappers are retired with the publication');
     click();check(1,15,14);
+    {
+      const e4xScript=`
+        var doc:XML = <catalog id="c1" xmlns:m="urn:meta">
+          <m:note m:flag="yes">MetaHead</m:note>
+          <item sku="A1"><badge>old1</badge></item>
+          <item sku="B2"><badge>old2</badge></item>
+          <section><nested><leaf>deep</leaf><m:tag>nsDeep</m:tag></nested></section>
+        </catalog>;
+        function pickNs():Namespace { return new Namespace("m", "urn:meta"); }
+        var noteKey:String = "note";
+        compQualRead = String(doc.(pickNs())::note);
+        compQualBracket = String(doc.(pickNs())::[noteKey]);
+        compQualAttr = String(doc.(pickNs())::note.@(pickNs())::flag);
+        compQualDesc = String(doc..(pickNs())::tag);
+        bracketQualRead = String(doc.[pickNs()]::note);
+        filteredByAttr = String(doc.item.(@sku == "B2").badge);
+        filteredByDesc = doc.section.(..leaf == "deep").length();
+        var gotAttr:String = "";
+        with (doc.item[0]) {
+          @sku = "A1-MOD";
+          gotAttr = String(@sku);
+        }
+        withAttrVal = gotAttr;
+        var gotDesc:int = 0;
+        with (doc) {
+          gotDesc = (..leaf).length();
+        }
+        withDescCount = gotDesc;
+        var attrKey:String = "sku";
+        doc.item[1].@[attrKey] = "B2-MOD";
+        dynAttrBracket = String(doc.item[1].@[attrKey]);
+        doc..badge = "featured";
+        descAssigned = String(doc.item[0].badge) + "/" + String(doc.item[1].badge);
+        var dynDoc:* = doc;
+        dynDoc.summary = "DynamicChild";
+        dynDoc["@version"] = "2.0";
+        dynHasSummary = ("summary" in dynDoc);
+        dynHasVersion = ("@version" in dynDoc);
+        dynSummaryVal = String(doc.summary);
+        dynVersionVal = String(doc.@version);
+        var singleList:* = doc.summary;
+        singleList["@lang"] = "en";
+        singleListAttr = String(doc.summary.@lang);
+        multiWriteRejected = false;
+        try {
+          var multiList:* = doc.item;
+          multiList.extra = "fail";
+        } catch (err:TypeError) {
+          multiWriteRejected = true;
+        }
+        delSelfZero = delete doc[0];
+        delItemZero = delete doc.item[0];
+        remainingItemSku = String(doc.item[0].@sku);
+        remainingItemCount = doc.item.length();
+        delAttrDyn = delete doc.item[0].@[attrKey];
+        attrAfterDel = doc.item[0].@sku.length();
+        delProxyAttr = delete dynDoc["@version"];
+        versionAfterDel = doc.@version.length();
+        delDescLeaf = delete doc..leaf;
+        leafAfterDel = (doc..leaf).length();
+      `;
+      const compiled=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-script','--example','compile_project'],{
+        cwd:root,
+        input:JSON.stringify({
+          project:{format_version:2,name:'E4X Operators',width:100,height:100,fps:24,background:[0,0,0,255],root:'r',symbols:[{id:'r',name:'R',kind:'movie_clip',timeline:{frame_count:1,layers:[],scripts:[]}}],sources:[]},
+          scripts:[{language:'action_script3',source:e4xScript}],
+        }),
+        encoding:'utf8',
+      });
+      assert.equal(compiled.status,0,compiled.error?.message||compiled.stderr);
+      const parsed=JSON.parse(compiled.stdout);
+      assert.ok(parsed.Ok,JSON.stringify(parsed));
+      const xmlFacade=host.xml();
+      const prog=new Function('__nfBuiltins',parsed.Ok.code)({__nfLegacy:host.legacy(),__nfXML:xmlFacade,__nfTrace:()=>{}});
+      const ctx={};
+      new Function('__nfProgram','trace','__nfLegacy','__nfXML',parsed.Ok.scripts[0]).call(ctx,prog,()=>{},host.legacy(),xmlFacade);
+      assert.equal(ctx.compQualRead,'MetaHead');
+      assert.equal(ctx.compQualBracket,'MetaHead');
+      assert.equal(ctx.compQualAttr,'yes');
+      assert.equal(ctx.compQualDesc,'nsDeep');
+      assert.equal(ctx.bracketQualRead,'MetaHead');
+      assert.equal(ctx.filteredByAttr,'old2');
+      assert.equal(ctx.filteredByDesc,1);
+      assert.equal(ctx.withAttrVal,'A1-MOD');
+      assert.equal(ctx.withDescCount,1);
+      assert.equal(ctx.dynAttrBracket,'B2-MOD');
+      assert.equal(ctx.descAssigned,'featured/featured');
+      assert.equal(ctx.dynHasSummary,true);
+      assert.equal(ctx.dynHasVersion,true);
+      assert.equal(ctx.dynSummaryVal,'DynamicChild');
+      assert.equal(ctx.dynVersionVal,'2.0');
+      assert.equal(ctx.singleListAttr,'en');
+      assert.equal(ctx.multiWriteRejected,true);
+      assert.equal(ctx.delSelfZero,true);
+      assert.equal(ctx.delItemZero,true);
+      assert.equal(ctx.remainingItemSku,'B2-MOD');
+      assert.equal(ctx.remainingItemCount,1);
+      assert.equal(ctx.delAttrDyn,true);
+      assert.equal(ctx.attrAfterDel,0);
+      assert.equal(ctx.delProxyAttr,true);
+      assert.equal(ctx.versionAfterDel,0);
+      assert.equal(ctx.delDescLeaf,true);
+      assert.equal(ctx.leafAfterDel,0);
+    }
   } finally {host?.disposeFamily();player?.free();rmSync(directory,{recursive:true,force:true});}
   console.log('XML catalog: E4X selectors/attributes/namespaces, target-list create/replace/delete, escaped literal holes/subtrees, atomic refusal, AS2 DOM regression, typed handlers and Restart passed.');
 }

@@ -297,7 +297,7 @@
         if(ct.multipliers.some(value=>Math.abs(value)>1e4)||ct.offsets.some(value=>Math.abs(value)>255))throw new RangeError('BitmapData.draw ColorTransform exceeds the shared multiplier/offset bounds.');
         const as2BlendNames=['','normal','layer','multiply','screen','lighten','darken','difference','add','subtract','invert','alpha','erase','overlay','hardlight'];
         const normalizedBlend=typeof blendMode==='number'&&Number.isInteger(blendMode)&&blendMode>=0&&blendMode<=14?(as2BlendNames[blendMode]||'normal'):blendMode;
-        const validBlendModes=new Set(['normal','layer','multiply','screen','lighten','darken','difference','add','subtract','invert','alpha','erase','overlay','hardlight','shader']);
+        const validBlendModes=new Set(['normal','layer','multiply','screen','lighten','darken','difference','add','subtract','invert','alpha','erase','overlay','hardlight']);
         if(normalizedBlend!==null&&!validBlendModes.has(normalizedBlend)){const err=new TypeError(`BitmapData.draw blendMode is invalid: '${blendMode}'.`);err.name='ArgumentError';throw err;}
         const drawBlend=normalizedBlend===null?'normal':normalizedBlend;
         const commitDraw=rgba=>{
@@ -306,9 +306,39 @@
         };
         if(typeof smoothing!=='boolean')throw new TypeError('BitmapData.draw smoothing requires a Boolean.');
         const qNorm=quality===null||quality===undefined?null:String(quality).toLowerCase();
-        const effectiveSmoothing=qNorm==='low'?false:smoothing;
-        const sub=qNorm===null||qNorm==='low'?1:qNorm==='medium'?2:4;
+        const highQualitySmooth=Boolean(qNorm&&(qNorm==='best'||qNorm.startsWith('8x8')||qNorm.startsWith('16x16')));
+        const effectiveSmoothing=qNorm==='low'?false:(smoothing||highQualitySmooth);
+        const rawSub=qNorm===null||qNorm==='low'?1:qNorm==='medium'?2:(qNorm==='high'||qNorm==='best')?4:qNorm.startsWith('8x8')?8:qNorm.startsWith('16x16')?16:4;
+        let sub=rawSub;
+        while(sub>1&&info.width*sub*info.height*sub>4*1024*1024)sub>>=1;
         const linearGamma=qNorm!==null&&qNorm.endsWith('linear');
+        const downsamplePremul=(raw,srcW,dstW,dstH,scale,useLinear)=>{
+          if(scale<=1)return raw instanceof Uint8Array?raw:new Uint8Array(raw.buffer,raw.byteOffset,raw.byteLength);
+          const rgba=new Uint8Array(dstW*dstH*4),invScale2=1/(scale*scale);
+          const toLin=v=>useLinear?Math.pow(v/255,2.2):v;
+          const fromLin=v=>useLinear?Math.pow(Math.max(0,v),1/2.2)*255:v;
+          const clampByte=v=>v<=0?0:v>=255?255:Math.round(v);
+          const stride=srcW*4;
+          for(let y=0;y<dstH;y++)for(let x=0;x<dstW;x++){
+            let rPremul=0,gPremul=0,bPremul=0,aSum=0;
+            for(let sy=0;sy<scale;sy++)for(let sx=0;sx<scale;sx++){
+              const si=(y*scale+sy)*stride+(x*scale+sx)*4,a=raw[si+3];
+              if(a<=0)continue;
+              rPremul+=a*toLin(raw[si]);
+              gPremul+=a*toLin(raw[si+1]);
+              bPremul+=a*toLin(raw[si+2]);
+              aSum+=a;
+            }
+            if(aSum>0){
+              const di=(y*dstW+x)*4;
+              rgba[di]=clampByte(fromLin(rPremul/aSum));
+              rgba[di+1]=clampByte(fromLin(gPremul/aSum));
+              rgba[di+2]=clampByte(fromLin(bPremul/aSum));
+              rgba[di+3]=clampByte(aSum*invScale2);
+            }
+          }
+          return rgba;
+        };
         const clip=clipRect===null?null:rectangle(clipRect),clipJSON=JSON.stringify(clip&&{x:clip[0],y:clip[1],width:clip[2],height:clip[3]});
         if(info.width*info.height>4*1024*1024)throw new RangeError('BitmapData.draw staging exceeds the 4 Mi-pixel raster budget.');
         let snapshot;
@@ -318,6 +348,15 @@
         }else{
           const sourceRef=displayRef?.(source);if(!sourceRef)throw new TypeError('BitmapData.draw requires BitmapData or a live DisplayObject from this publication.');
           snapshot=JSON.parse(native('bitmap_draw_snapshot',key(sourceRef),JSON.stringify(m),JSON.stringify(ct)));
+          if(qNorm==='low'||effectiveSmoothing){
+            for(const d of (snapshot?.draws||[])){
+              const k=d?.kind;
+              if(!k)continue;
+              if(k.type==='bitmap_pixels')k.smoothing=qNorm==='low'?false:Boolean(k.smoothing||effectiveSmoothing);
+              if(k.fill_bitmap)k.fill_bitmap.smoothing=qNorm==='low'?false:Boolean(k.fill_bitmap.smoothing||effectiveSmoothing);
+              if(k.stroke_bitmap)k.stroke_bitmap.smoothing=qNorm==='low'?false:Boolean(k.stroke_bitmap.smoothing||effectiveSmoothing);
+            }
+          }
         }
         let surface=null;try{surface=canvas(info.width,info.height);}catch(_){surface=null;}
         const target=surface?.getContext?.('2d');
@@ -373,53 +412,82 @@
           return;
         }
         if(!target||typeof target.setTransform!=='function'||typeof target.getImageData!=='function'||(!references.has(source)&&typeof target.clip!=='function')){
-          const usedRust=!references.has(source)&&typeof player.bitmap_render_snapshot==='function';
-          const rgba=usedRust
-            ?new Uint8Array(player.bitmap_render_snapshot(key(displayRef(source)),JSON.stringify(m),JSON.stringify(ct),info.width,info.height))
-            :new Uint8Array(info.width*info.height*4);
+          const scale=sub,rw=info.width*scale,rh=info.height*scale;
+          const mScaled=scale===1?m:[m[0]*scale,m[1]*scale,m[2]*scale,m[3]*scale,m[4]*scale,m[5]*scale];
+          const hasBitmapDraws=(snapshot?.draws||[]).some(d=>d?.kind&&(d.kind.type==='bitmap_pixels'||d.kind.fill_bitmap||d.kind.stroke_bitmap));
+          const needSmoothingOverride=(qNorm==='low'||effectiveSmoothing)&&hasBitmapDraws;
+          const usedRust=!references.has(source)&&!needSmoothingOverride&&typeof player.bitmap_render_snapshot==='function';
+          const hiRgba=usedRust
+            ?new Uint8Array(player.bitmap_render_snapshot(key(displayRef(source)),JSON.stringify(mScaled),JSON.stringify(ct),rw,rh))
+            :new Uint8Array(rw*rh*4);
           const clampByte=v=>v<=0?0:v>=255?255:Math.round(v);
-          const blendPixel=(x,y,r,g,b,a)=>{
-            if(x<0||y<0||x>=info.width||y>=info.height||a<=0)return;
-            const cr=clampByte(r*ct.multipliers[0]+ct.offsets[0]);
-            const cg=clampByte(g*ct.multipliers[1]+ct.offsets[1]);
-            const cb=clampByte(b*ct.multipliers[2]+ct.offsets[2]);
-            const ca=clampByte(a*ct.multipliers[3]+ct.offsets[3]);
+          const blendPixel=(x,y,r,g,b,a,applyRootCt=true)=>{
+            if(x<0||y<0||x>=rw||y>=rh||a<=0)return;
+            const cr=applyRootCt?clampByte(r*ct.multipliers[0]+ct.offsets[0]):clampByte(r);
+            const cg=applyRootCt?clampByte(g*ct.multipliers[1]+ct.offsets[1]):clampByte(g);
+            const cb=applyRootCt?clampByte(b*ct.multipliers[2]+ct.offsets[2]):clampByte(b);
+            const ca=applyRootCt?clampByte(a*ct.multipliers[3]+ct.offsets[3]):clampByte(a);
             if(ca<=0)return;
-            const di=(y*info.width+x)*4,sa=ca/255,da=rgba[di+3]/255,oa=sa+da*(1-sa);
+            const di=(y*rw+x)*4,sa=ca/255,da=hiRgba[di+3]/255,oa=sa+da*(1-sa);
             if(oa<=0)return;
-            rgba[di]=clampByte((cr*sa+rgba[di]*da*(1-sa))/oa);
-            rgba[di+1]=clampByte((cg*sa+rgba[di+1]*da*(1-sa))/oa);
-            rgba[di+2]=clampByte((cb*sa+rgba[di+2]*da*(1-sa))/oa);
-            rgba[di+3]=clampByte(oa*255);
+            hiRgba[di]=clampByte((cr*sa+hiRgba[di]*da*(1-sa))/oa);
+            hiRgba[di+1]=clampByte((cg*sa+hiRgba[di+1]*da*(1-sa))/oa);
+            hiRgba[di+2]=clampByte((cb*sa+hiRgba[di+2]*da*(1-sa))/oa);
+            hiRgba[di+3]=clampByte(oa*255);
           };
           for(const item of (snapshot?.draws||[])){
-            const [a,b,c,d,tx,ty]=item.transform||[1,0,0,1,0,0],det=a*d-b*c,itemAlpha=Number.isFinite(item.alpha)?item.alpha:1;
+            const rawT=item.transform||[1,0,0,1,0,0];
+            const [a,b,c,d,tx,ty]=scale===1?rawT:[rawT[0]*scale,rawT[1]*scale,rawT[2]*scale,rawT[3]*scale,rawT[4]*scale,rawT[5]*scale];
+            const det=a*d-b*c,itemAlpha=Number.isFinite(item.alpha)?item.alpha:1;
             const k=item.kind||{};
             if(usedRust&&k.type!=='text_field'&&k.type!=='text')continue;
             if(k.type==='bitmap_pixels'&&Number.isFinite(det)&&Math.abs(det)>=1e-12){
-              const src=player.bitmap_pixels(key(k.pixel_ref)),sw=k.width|0,sh=k.height|0;
-              for(let y=0;y<info.height;y++)for(let x=0;x<info.width;x++){
+              const src=player.bitmap_pixels(key(k.pixel_ref)),sw=k.width|0,sh=k.height|0,smoothBmp=Boolean(k.smoothing);
+              const kct=k.color_transform;
+              for(let y=0;y<rh;y++)for(let x=0;x<rw;x++){
                 const dx=x+0.5-tx,dy=y+0.5-ty;
-                const sx=Math.floor((d*dx-c*dy)/det),sy=Math.floor((-b*dx+a*dy)/det);
-                if(sx<0||sy<0||sx>=sw||sy>=sh)continue;
-                const si=(sy*sw+sx)*4;
-                blendPixel(x,y,src[si],src[si+1],src[si+2],src[si+3]*itemAlpha);
+                const u=(d*dx-c*dy)/det,v=(-b*dx+a*dy)/det;
+                if(u<0||v<0||u>=sw||v>=sh)continue;
+                let r,g,bl,al;
+                if(!smoothBmp){
+                  const sx=Math.min(sw-1,Math.max(0,Math.floor(u))),sy=Math.min(sh-1,Math.max(0,Math.floor(v))),si=(sy*sw+sx)*4;
+                  r=src[si];g=src[si+1];bl=src[si+2];al=src[si+3];
+                }else{
+                  const fx=u-0.5,fy=v-0.5,x0=Math.floor(fx),y0=Math.floor(fy),wx=fx-x0,wy=fy-y0;
+                  const rd=(px,py)=>{const cx=Math.max(0,Math.min(sw-1,px)),cy=Math.max(0,Math.min(sh-1,py)),si=(cy*sw+cx)*4;return [src[si],src[si+1],src[si+2],src[si+3]];};
+                  const p00=rd(x0,y0),p10=rd(x0+1,y0),p01=rd(x0,y0+1),p11=rd(x0+1,y0+1);
+                  const w00=(1-wx)*(1-wy),w10=wx*(1-wy),w01=(1-wx)*wy,w11=wx*wy;
+                  al=p00[3]*w00+p10[3]*w10+p01[3]*w01+p11[3]*w11;
+                  if(al<=0.5)continue;
+                  r=(p00[0]*p00[3]*w00+p10[0]*p10[3]*w10+p01[0]*p01[3]*w01+p11[0]*p11[3]*w11)/al;
+                  g=(p00[1]*p00[3]*w00+p10[1]*p10[3]*w10+p01[1]*p01[3]*w01+p11[1]*p11[3]*w11)/al;
+                  bl=(p00[2]*p00[3]*w00+p10[2]*p10[3]*w10+p01[2]*p01[3]*w01+p11[2]*p11[3]*w11)/al;
+                }
+                if(kct){
+                  r=clampByte(r*kct.multipliers[0]+kct.offsets[0]);
+                  g=clampByte(g*kct.multipliers[1]+kct.offsets[1]);
+                  bl=clampByte(bl*kct.multipliers[2]+kct.offsets[2]);
+                  al=clampByte(al*kct.multipliers[3]+kct.offsets[3]);
+                  blendPixel(x,y,r,g,bl,al*itemAlpha,false);
+                }else{
+                  blendPixel(x,y,r,g,bl,al*itemAlpha,true);
+                }
               }
             }else if((k.type==='rectangle'||k.type==='ellipse')&&Number.isFinite(det)&&Math.abs(det)>=1e-12){
               const w=Number(k.width)||0,h=Number(k.height)||0,fill=k.fill||[0,0,0,0];
               if(w>0&&h>0&&fill[3]>0){
-                for(let y=0;y<info.height;y++)for(let x=0;x<info.width;x++){
+                for(let y=0;y<rh;y++)for(let x=0;x<rw;x++){
                   const dx=x+0.5-tx,dy=y+0.5-ty;
                   const lx=(d*dx-c*dy)/det,ly=(-b*dx+a*dy)/det;
                   if(k.type==='rectangle'){
-                    if(lx>=0&&ly>=0&&lx<w&&ly<h)blendPixel(x,y,fill[0],fill[1],fill[2],fill[3]*itemAlpha);
+                    if(lx>=0&&ly>=0&&lx<w&&ly<h)blendPixel(x,y,fill[0],fill[1],fill[2],fill[3]*itemAlpha,!references.has(source)?false:true);
                   }else{
                     const nx=(lx-w*0.5)/(w*0.5),ny=(ly-h*0.5)/(h*0.5);
-                    if(nx*nx+ny*ny<=1)blendPixel(x,y,fill[0],fill[1],fill[2],fill[3]*itemAlpha);
+                    if(nx*nx+ny*ny<=1)blendPixel(x,y,fill[0],fill[1],fill[2],fill[3]*itemAlpha,!references.has(source)?false:true);
                   }
                 }
               }
-            }else if(k.type==='path'&&(Array.isArray(k.points)||Array.isArray(k.commands))&&Number.isFinite(det)&&Math.abs(det)>=1e-12){
+            }else if((k.type==='path'||k.type==='gradient_path'||k.type==='painted_path')&&(Array.isArray(k.points)||Array.isArray(k.commands))&&Number.isFinite(det)&&Math.abs(det)>=1e-12){
               let pts=k.points;
               if(!Array.isArray(pts)&&Array.isArray(k.commands)){
                 pts=[];
@@ -431,11 +499,12 @@
                 }
               }
               if(Array.isArray(pts)&&pts.length>=2){
-                const fill=k.fill||[0,0,0,0],stroke=k.stroke||[0,0,0,0],sw=Number(k.stroke_width)||0;
+                const fill=k.fill||[0,0,0,0],stroke=k.stroke||[0,0,0,0],sw=Number(k.stroke_width)||0,fb=k.fill_bitmap;
+                const fbBytes=fb?player.bitmap_pixels(key(fb.pixel_ref)):null,fbInv=fb&&Array.isArray(fb.matrix)?(()=>{const [fa,fb1,fc,fd,ftx,fty]=fb.matrix,fdet=fa*fd-fb1*fc;return Math.abs(fdet)>=1e-12?[fd/fdet,-fb1/fdet,-fc/fdet,fa/fdet,(fc*fty-fd*ftx)/fdet,(fb1*ftx-fa*fty)/fdet]:null;})():[1,0,0,1,0,0];
                 let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
                 for(const p of pts){if(p.x<minX)minX=p.x;if(p.y<minY)minY=p.y;if(p.x>maxX)maxX=p.x;if(p.y>maxY)maxY=p.y;}
-                if(fill[3]>0&&pts.length>=3){
-                  for(let y=0;y<info.height;y++)for(let x=0;x<info.width;x++){
+                if((fill[3]>0||fbBytes)&&pts.length>=3){
+                  for(let y=0;y<rh;y++)for(let x=0;x<rw;x++){
                     const dx=x+0.5-tx,dy=y+0.5-ty;
                     const lx=(d*dx-c*dy)/det,ly=(-b*dx+a*dy)/det;
                     if(lx<minX||lx>maxX||ly<minY||ly>maxY)continue;
@@ -444,19 +513,45 @@
                       const xi=pts[i].x,yi=pts[i].y,xj=pts[j].x,yj=pts[j].y;
                       if(((yi>ly)!==(yj>ly))&&(lx<(xj-xi)*(ly-yi)/((yj-yi)||1e-12)+xi))inside=!inside;
                     }
-                    if(inside)blendPixel(x,y,fill[0],fill[1],fill[2],fill[3]*itemAlpha);
+                    if(inside){
+                      if(fbBytes&&fbInv&&fb.width>0&&fb.height>0){
+                        let bu=fbInv[0]*lx+fbInv[2]*ly+fbInv[4],bv=fbInv[1]*lx+fbInv[3]*ly+fbInv[5];
+                        const fbw=fb.width|0,fbh=fb.height|0,rep=Boolean(fb.repeat);
+                        const wrap=(val,lim)=>rep?((val%lim)+lim)%lim:Math.max(0,Math.min(lim-1,val));
+                        let r,g,bl,al;
+                        if(!fb.smoothing){
+                          const sx=wrap(Math.floor(bu),fbw),sy=wrap(Math.floor(bv),fbh),si=(sy*fbw+sx)*4;
+                          r=fbBytes[si];g=fbBytes[si+1];bl=fbBytes[si+2];al=fbBytes[si+3];
+                        }else{
+                          const fx=bu-0.5,fy=bv-0.5,x0=Math.floor(fx),y0=Math.floor(fy),wx=fx-x0,wy=fy-y0;
+                          const rd=(px,py)=>{const cx=wrap(px,fbw),cy=wrap(py,fbh),si=(cy*fbw+cx)*4;return [fbBytes[si],fbBytes[si+1],fbBytes[si+2],fbBytes[si+3]];};
+                          const p00=rd(x0,y0),p10=rd(x0+1,y0),p01=rd(x0,y0+1),p11=rd(x0+1,y0+1);
+                          const w00=(1-wx)*(1-wy),w10=wx*(1-wy),w01=(1-wx)*wy,w11=wx*wy;
+                          al=p00[3]*w00+p10[3]*w10+p01[3]*w01+p11[3]*w11;
+                          if(al<=0.5)continue;
+                          r=(p00[0]*p00[3]*w00+p10[0]*p10[3]*w10+p01[0]*p01[3]*w01+p11[0]*p11[3]*w11)/al;
+                          g=(p00[1]*p00[3]*w00+p10[1]*p10[3]*w10+p01[1]*p01[3]*w01+p11[1]*p11[3]*w11)/al;
+                          bl=(p00[2]*p00[3]*w00+p10[2]*p10[3]*w10+p01[2]*p01[3]*w01+p11[2]*p11[3]*w11)/al;
+                        }
+                        const fct=fb.color_transform;
+                        if(fct){r=clampByte(r*fct.multipliers[0]+fct.offsets[0]);g=clampByte(g*fct.multipliers[1]+fct.offsets[1]);bl=clampByte(bl*fct.multipliers[2]+fct.offsets[2]);al=clampByte(al*fct.multipliers[3]+fct.offsets[3]);}
+                        blendPixel(x,y,r,g,bl,al*itemAlpha,false);
+                      }else{
+                        blendPixel(x,y,fill[0],fill[1],fill[2],fill[3]*itemAlpha,!references.has(source)?false:true);
+                      }
+                    }
                   }
                 }
                 if(stroke[3]>0&&sw>0){
-                  const half=Math.max(0.75,sw*0.5);
+                  const half=Math.max(0.75,sw*0.5*scale);
                   for(let i=0;i<pts.length-1;i++){
                     const x0=pts[i].x,y0=pts[i].y,x1=pts[i+1].x,y1=pts[i+1].y;
-                    const steps=Math.max(1,Math.ceil(Math.hypot(x1-x0,y1-y0)*2));
+                    const steps=Math.max(1,Math.ceil(Math.hypot(x1-x0,y1-y0)*2*scale));
                     for(let s=0;s<=steps;s++){
                       const t=s/steps,lx=x0+(x1-x0)*t,ly=y0+(y1-y0)*t;
                       const sx=Math.round(a*lx+c*ly+tx),sy=Math.round(b*lx+d*ly+ty);
                       const r=Math.max(0,Math.floor(half));
-                      for(let oy=-r;oy<=r;oy++)for(let ox=-r;ox<=r;ox++)blendPixel(sx+ox,sy+oy,stroke[0],stroke[1],stroke[2],stroke[3]*itemAlpha);
+                      for(let oy=-r;oy<=r;oy++)for(let ox=-r;ox<=r;ox++)blendPixel(sx+ox,sy+oy,stroke[0],stroke[1],stroke[2],stroke[3]*itemAlpha,!references.has(source)?false:true);
                     }
                   }
                 }
@@ -467,7 +562,7 @@
               const defaultCol=Array.isArray(fmtColor)?fmtColor:[((fmtColor>>>16)&255),((fmtColor>>>8)&255),(fmtColor&255)];
               const runs=Array.isArray(field.runs)&&field.runs.length?field.runs:[{text:field.text||'',size:field.format?.size||12,color:defaultCol}];
               const fieldAlpha=((field.alpha??255)/255)*itemAlpha;
-              const yShift=ty<0?-ty:0;
+              const yShift=ty<0?-ty/scale:0;
               let cursorX=0;
               for(const run of runs){
                 const text=String(run.text||''),sz=Math.max(4,Number(run.size)||12);
@@ -480,9 +575,11 @@
                     for(let gy=1;gy<charH-1;gy++)for(let gx=1;gx<charW-1;gx++){
                       const bit=((code+gx*3+gy*5)&3)!==0||gx===1||gy===1||gy===Math.floor(charH/2);
                       if(!bit)continue;
-                      const lx=cursorX+gx,ly=gy+yShift;
-                      const sx=Math.floor(a*lx+c*ly+tx),sy=Math.floor(b*lx+d*ly+ty);
-                      blendPixel(sx,sy,col[0],col[1],col[2],Math.round(255*fieldAlpha));
+                      for(let sy=0;sy<scale;sy++)for(let sxSub=0;sxSub<scale;sxSub++){
+                        const lx=cursorX+gx+(sxSub+0.5)/scale-0.5,ly=gy+yShift+(sy+0.5)/scale-0.5;
+                        const sx=Math.floor(a*lx+c*ly+tx),syPx=Math.floor(b*lx+d*ly+ty);
+                        blendPixel(sx,syPx,col[0],col[1],col[2],Math.round(255*fieldAlpha),true);
+                      }
                     }
                   }
                   cursorX+=charW;
@@ -490,45 +587,24 @@
               }
             }
           }
-          commitDraw(rgba);
+          commitDraw(downsamplePremul(hiRgba,rw,info.width,info.height,scale,linearGamma));
           if(surface)surface.width=surface.height=0;
           return;
         }
         if(typeof paintScene!=='function')throw new Error('BitmapData.draw requires the shared scene painter.');
-        const scale=(sub>1&&info.width*sub*info.height*sub<=4*1024*1024)?sub:1;
+        const scale=sub;
         if(!surface||scale>1){if(surface)surface.width=surface.height=0;surface=canvas(info.width*scale,info.height*scale);}
         try{
           const ctx=surface.getContext('2d');
           if(!ctx)throw new Error('BitmapData.draw requires Canvas 2D.');
           ctx.imageSmoothingEnabled=effectiveSmoothing;
-          if('imageSmoothingQuality' in ctx)ctx.imageSmoothingQuality=(qNorm==='best'||qNorm?.startsWith('8x8')||qNorm?.startsWith('16x16'))?'high':qNorm==='high'?'medium':'low';
+          if('imageSmoothingQuality' in ctx)ctx.imageSmoothingQuality=highQualitySmooth?'high':qNorm==='high'?'medium':'low';
           ctx.setTransform(scale,0,0,scale,0,0);ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';ctx.clearRect(0,0,info.width,info.height);
           paintScene(ctx,snapshot);
           // Read an immutable full source before changing destination, including
           // when source and destination share the very same Rust pixel buffer.
           const raw=ctx.getImageData(0,0,info.width*scale,info.height*scale).data;
-          if(scale===1){
-            commitDraw(raw);
-          }else{
-            const rgba=new Uint8Array(info.width*info.height*4),invScale2=1/(scale*scale);
-            const toLin=v=>linearGamma?Math.pow(v/255,2.2):v;
-            const fromLin=v=>linearGamma?Math.pow(Math.max(0,v),1/2.2)*255:v;
-            const clampByte=v=>v<=0?0:v>=255?255:Math.round(v);
-            const stride=info.width*scale*4;
-            for(let y=0;y<info.height;y++)for(let x=0;x<info.width;x++){
-              let rAcc=0,gAcc=0,bAcc=0,aAcc=0;
-              for(let sy=0;sy<scale;sy++)for(let sx=0;sx<scale;sx++){
-                const si=(y*scale+sy)*stride+(x*scale+sx)*4;
-                rAcc+=toLin(raw[si]);gAcc+=toLin(raw[si+1]);bAcc+=toLin(raw[si+2]);aAcc+=raw[si+3];
-              }
-              const di=(y*info.width+x)*4;
-              rgba[di]=clampByte(fromLin(rAcc*invScale2));
-              rgba[di+1]=clampByte(fromLin(gAcc*invScale2));
-              rgba[di+2]=clampByte(fromLin(bAcc*invScale2));
-              rgba[di+3]=clampByte(aAcc*invScale2);
-            }
-            commitDraw(rgba);
-          }
+          commitDraw(downsamplePremul(raw,info.width*scale,info.width,info.height,scale,linearGamma));
         }finally{surface.width=surface.height=0;}
       }
       histogram(hRect=null){

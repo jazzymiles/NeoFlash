@@ -36,7 +36,7 @@ function create({execute,strings}){
   if(name==='String')Object.defineProperty(object,'length',{get(){return record(this).length;},enumerable:false});
   return object;
  }
- return Object.freeze({create:construct,is:value=>boxes.has(value),kind:value=>record(value).primitive.kind,reset(){generation++;},dispose(){disposed=true;generation++;}});
+ return Object.freeze({create:construct,is:value=>boxes.has(value),kind:value=>record(value).primitive.kind,prototype:name=>prototypes[name],reset(){generation++;},dispose(){disposed=true;generation++;}});
 }
 const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAS2Boxing=api;
 })(globalThis);

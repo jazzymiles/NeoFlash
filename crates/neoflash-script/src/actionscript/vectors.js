@@ -251,10 +251,14 @@ function __nfVectorMethod(state,name,args) {
         }
         case 'sort':{
             arity(1);__nfVectorMutable(state);
-            if(typeof args[0]!=='function'&&args[0]!==undefined&&(Number(args[0])&8))__nfVectorUnsupported('RETURNINDEXEDARRAY sort behavior on typed Vectors.');
-            const candidate=values.slice();state.lock++;
-            try{const sorted=__nfArraySort(candidate,args,true,false);if(sorted!==0)state.values=candidate;}
+            const candidate=values.slice();
+            let sorted;
+            state.lock++;
+            try{sorted=__nfArraySort(candidate,args,true,false);}
             finally{state.lock--;}
+            if(sorted===0)return 0;
+            if(sorted!==candidate)return sorted;
+            state.values=candidate;
             return proxy;
         }
         case 'map':case 'filter':case 'every':case 'some':case 'forEach':{

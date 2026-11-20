@@ -187,7 +187,20 @@ function __nfContainerRef(receiver,key,as3,caller,legacyCase){
             if(as3&&typeof receiver==='number')return __nfNumericMethodValue(receiver,value);
             if(as3&&Object.hasOwn(__nfObjectPropertyMethods,name)&&value===__nfObjectPropertyMethods[name])return __nfObjectPropertyMethod(receiver,name);
             if(as3){const method=__nfObjectDefaultMethod(receiver,name,value,program);if(method)return method;}
-            if(!as3&&name==='constructor'&&value===Object)return __nfObjectClass(false);
+            if(!as3&&name==='constructor'){
+                if(value===Boolean)return __nfBoolean2;
+                if(value===String)return __nfStringClass(false);
+                if(value===Number)return legacyCase?__nfNumber1:__nfNumber2;
+                if(value===Object){
+                    if(legacy?.boxing?.is?.(receiver)){
+                        const kind=legacy.boxing.kind(receiver);
+                        if(kind==='Boolean')return __nfBoolean2;
+                        if(kind==='String')return __nfStringClass(false);
+                        if(kind==='Number')return legacyCase?__nfNumber1:__nfNumber2;
+                    }
+                    return __nfObjectClass(false);
+                }
+            }
             // AVM1 exposes an absent native scrollRect as undefined; AS3 and
             // the public JS facade use null. Never rewrite ordinary user fields.
             return !as3&&name==='scrollRect'&&value===null&&typeof __nfDisplay!=='undefined'&&__nfDisplay?.alive(receiver)?undefined:value;
@@ -300,11 +313,13 @@ function __nfWithTarget(value,as3){
     if(!as3&&typeof value!=='object'&&typeof value!=='function')throw new __nfTypeError('AS2 with requires a live object reference in this profile.');
     return Object(value);
 }
-function __nfWithXmlAttr(targets,selector){
+function __nfWithXmlAttr(targets,fallbackThis,selector,namespace,local,attribute,descendant,caller){
     for(const target of targets){
         if(typeof __nfXML!=='undefined'&&__nfXML?.is(target))return __nfXML.ref(target,selector,true);
     }
-    throw new __nfTypeError('E4X attribute selector @ requires an enclosing XML with or filter target.');
+    if(typeof __nfXML!=='undefined'&&__nfXML?.is(fallbackThis))return __nfXML.ref(fallbackThis,selector,true);
+    if(!attribute&&!descendant&&namespace!==undefined)return __nfQualifiedRef(fallbackThis,namespace,local,true,caller);
+    throw new __nfTypeError('E4X '+(descendant?'descendant ..':'attribute @')+' selector requires an enclosing XML with/filter target or XML receiver.');
 }
 function __nfWithRef(targets,name,fallback,receiver,as3,caller,legacyCase){
     let firstXmlRef=null;

@@ -182,6 +182,19 @@ sparseInsertArr.insertAt(1,9);
 var sparseRemovedVal:*=sparseInsertArr.removeAt(0);
 var sparseMutationState:Array=[sparseRemovedVal,sparseInsertArr.length,0 in sparseInsertArr,sparseInsertArr[0],sparseInsertArr[1]];
 var ctorMatch:Boolean=protoA.constructor===Array;
+var vecSortTarget:Vector.<int>=Vector.<int>([30,10,20]);
+var vecIndexed:Array=vecSortTarget.sort(Array.NUMERIC|Array.RETURNINDEXEDARRAY);
+var vecIndexedDesc:Array=vecSortTarget.sort(Array.NUMERIC|Array.DESCENDING|Array.RETURNINDEXEDARRAY);
+var vecUnmutatedAfterIdx:String=vecSortTarget.join(",");
+var vecDup:Vector.<String>=Vector.<String>(["beta","Alpha","beta"]);
+var vecDupUnique:*=vecDup.sort(Array.CASEINSENSITIVE|Array.UNIQUESORT);
+var vecDupUnmutated:String=vecDup.join(",");
+var vecCaseIdx:Array=vecDup.sort(Array.CASEINSENSITIVE|Array.RETURNINDEXEDARRAY);
+var vecUniquePass:Vector.<int>=vecSortTarget.sort(Array.NUMERIC|Array.UNIQUESORT);
+var vecSortedAfterUnique:String=vecSortTarget.join(",");
+var vecNaN:Vector.<Number>=Vector.<Number>([NaN,5,1]);
+var vecNaNSorted:*=vecNaN.sort(Array.NUMERIC|Array.UNIQUESORT);
+var vecNaNStr:String=vecNaN.join(",");
 result = labels.join("|");
 trace("AS3", result, "total", total, "checks", all && any, "find", first, last);`,
 };
@@ -256,6 +269,10 @@ export const collectionsFixtures = [
       assert.deepEqual(c.holeIndexResults,[-1,-1,2,2]);assert.deepEqual(c.afterDeleteCheck,[false,false,4]);assert.deepEqual(c.afterTruncate,[2,false,'kept','neg','maxu32']);assert.deepEqual(c.afterExpand,[4,false,false]);
       assert.deepEqual(c.sparseSortPresent,[true,true,false,false,30,5]);assert.deepEqual(c.sparseIdxOrder,[3,1,0,2]);assert.equal(c.sparseUniqueOk,true);assert.equal(c.sparseRecScore0,10);
       assert.deepEqual(c.sparseMutationState,[undefined,3,true,9,2]);assert.equal(c.ctorMatch,true);
+      assert.equal(Array.isArray(c.vecIndexed),true);assert.deepEqual(c.vecIndexed,[1,2,0]);assert.deepEqual(c.vecIndexedDesc,[0,2,1]);assert.equal(c.vecUnmutatedAfterIdx,'30,10,20');
+      assert.equal(c.vecDupUnique,0);assert.equal(c.vecDupUnmutated,'beta,Alpha,beta');assert.deepEqual(c.vecCaseIdx,[1,0,2]);
+      assert.equal(c.vecUniquePass,c.vecSortTarget);assert.equal(c.vecSortedAfterUnique,'10,20,30');
+      assert.equal(c.vecNaNSorted,c.vecNaN);assert.equal(c.vecNaNStr,'1,5,NaN');
       assert.deepEqual(logs,[['AS3','Zoe:45|Ada:30|Bob:20','total',95,'checks',true,'find',1,2]]);
     } },
 ];

@@ -4,7 +4,8 @@
 function createMenus(options,command,builtinsEnabled){
  const {display,canvas,viewport}=options,doc=options.document||global.document;
  let generation=1,disposed=false,menuRecords=new WeakMap(),itemRecords=new WeakMap(),attached=new WeakMap(),panel=null;
- const builtins=['play','rewind','forward_back','print'];
+ let zoomScale=1,loopEnabled=options.getLoop?Boolean(options.getLoop()):true;
+ const builtins=['save','zoom','quality','play','loop','rewind','forward_back','print'];
  function live(){if(disposed)throw new Error('AS2 context menus belong to a disposed publication.');}
  function menuRecord(value){live();const record=menuRecords.get(value);if(!record)throw new TypeError('Expected a live ContextMenu.');return record;}
  function itemRecord(value){live();const record=itemRecords.get(value);if(!record)throw new TypeError('Expected a live ContextMenuItem.');return record;}
@@ -21,15 +22,14 @@ function createMenus(options,command,builtinsEnabled){
  for(const key of ['caption','enabled','visible','separatorBefore'])Object.defineProperty(ContextMenuItem.prototype,key,{enumerable:true,get(){return itemState(this)[key];},set(value){const r=itemRecord(this);r.value=command({op:'menu_item',value:{...r.value,[key]:value}});}});
  class ContextMenu{
   constructor(handler=null){
-   live();const flags={play:true,rewind:true,forward_back:true,print:true},object={};
-   for(const name of builtins)Object.defineProperty(object,name,{enumerable:true,get(){live();return flags[name];},set(value){flags[name]=command({op:'menu_builtin',name,value});}});
-   for(const name of ['zoom','quality','loop'])Object.defineProperty(object,name,{get(){throw new Error('ContextMenu builtInItems.'+name+' is unavailable in this browser profile.');},set(){throw new Error('ContextMenu builtInItems.'+name+' is unavailable in this browser profile.');}});
+   live();const flags={save:true,zoom:true,quality:true,play:true,loop:true,rewind:true,forward_back:true,print:true},object={};
+   for(const name of builtins)Object.defineProperty(object,name,{enumerable:true,get(){live();return flags[name];},set(value){flags[name]=command({op:'menu_builtin',name,value:Boolean(value)});}});
    menuRecords.set(this,{handler:callback(handler),items:[],flags,object});
   }
   get customItems(){return menuRecord(this).items;}
   set customItems(value){if(!Array.isArray(value)||value.length>15)throw new TypeError('ContextMenu.customItems requires an Array of at most 15 ContextMenuItem objects.');for(const item of value)itemRecord(item);menuRecord(this).items=value;}
   get builtInItems(){return menuRecord(this).object;}
-  set builtInItems(value){if(!value||typeof value!=='object')throw new TypeError('ContextMenu.builtInItems requires an object.');const next={};for(const name of Object.keys(value))next[name]=command({op:'menu_builtin',name,value:value[name]});Object.assign(menuRecord(this).flags,next);}
+  set builtInItems(value){if(!value||typeof value!=='object')throw new TypeError('ContextMenu.builtInItems requires an object.');const next={};for(const name of Object.keys(value))next[name]=command({op:'menu_builtin',name,value:Boolean(value[name])});Object.assign(menuRecord(this).flags,next);}
   get onSelect(){return menuRecord(this).handler;}set onSelect(value){menuRecord(this).handler=callback(value);}
   hideBuiltInItems(){const r=menuRecord(this);for(const name of builtins)r.object[name]=false;}
   copy(){const r=menuRecord(this),copy=new ContextMenu(r.handler),c=menuRecord(copy);Object.assign(c.flags,r.flags);c.items=r.items.map(item=>item.copy());return copy;}
@@ -39,7 +39,7 @@ function createMenus(options,command,builtinsEnabled){
  function close(){panel?.remove();panel=null;}
  function fail(error){close();if(options.onError)options.onError(error);else throw error;}
  function targetMenu(event){let target=options.contextTarget?.(event)||options.getRoot?.();const root=options.getRoot?.();for(let current=target;current&&display?.alive(current);current=display.parentSpace(current)){const menu=attached.get(current);if(menu)return{owner:current,menu};}return root&&display?.alive(root)&&attached.has(root)?{owner:root,menu:attached.get(root)}:null;}
- function runBuiltin(action){const root=options.getRoot?.();if(!root||!display?.alive(root))throw new Error('Context-menu timeline target is unavailable.');switch(action){case'play':root.play();break;case'stop':root.stop();break;case'rewind':root.gotoAndStop(1);break;case'previous':root.prevFrame();break;case'next':root.nextFrame();break;case'print':if(typeof global.print!=='function')throw new Error('Browser printing is unavailable.');global.print();break;default:throw new Error('Unknown context-menu action.');}}
+ function runBuiltin(action){const root=options.getRoot?.();if(!root||!display?.alive(root))throw new Error('Context-menu timeline target is unavailable.');switch(action){case'play':root.play();break;case'stop':root.stop();break;case'rewind':root.gotoAndStop(1);break;case'previous':root.prevFrame();break;case'next':root.nextFrame();break;case'loop':loopEnabled=options.toggleLoop?Boolean(options.toggleLoop()):!loopEnabled;break;case'quality':if(options.toggleQuality)options.toggleQuality();else display?.toggleHighQuality?.();break;case'zoom_in':zoomScale=Math.min(8,zoomScale*2);if(options.onZoom)options.onZoom('in',zoomScale);else options.preview?.setMode?.(zoomScale);break;case'zoom_out':zoomScale=Math.max(0.25,zoomScale*0.5);if(options.onZoom)options.onZoom('out',zoomScale);else options.preview?.setMode?.(zoomScale);break;case'show_all':zoomScale=1;if(options.onZoom)options.onZoom('fit',1);else options.preview?.setMode?.('fit');break;case'save':options.onSave?.();break;case'print':if(typeof global.print!=='function')throw new Error('Browser printing is unavailable.');global.print();break;default:throw new Error('Unknown context-menu action.');}}
  function show(event){if(disposed)return;try{
   close();const selected=targetMenu(event);if(!selected)return;event.preventDefault();const {owner,menu}=selected,record=menuRecord(menu),born=generation;
   if(record.handler)Reflect.apply(record.handler,menu,[owner,menu]);
@@ -61,9 +61,10 @@ function createMenus(options,command,builtinsEnabled){
  }catch(error){fail(error);}}
  const outside=event=>{if(panel&&!panel.contains(event.target))close();};
  canvas?.addEventListener?.('contextmenu',show);doc?.addEventListener?.('pointerdown',outside,true);global.addEventListener?.('blur',close);
- function reset(){generation++;close();menuRecords=new WeakMap();itemRecords=new WeakMap();attached=new WeakMap();}
+ function reset(){generation++;close();zoomScale=1;loopEnabled=options.getLoop?Boolean(options.getLoop()):true;menuRecords=new WeakMap();itemRecords=new WeakMap();attached=new WeakMap();}
  function dispose(){if(disposed)return;reset();canvas?.removeEventListener?.('contextmenu',show);doc?.removeEventListener?.('pointerdown',outside,true);global.removeEventListener?.('blur',close);disposed=true;}
- return {ContextMenu,ContextMenuItem,menuRef,reset,dispose};
+ function menuState(){live();return {zoomScale,loop:options.getLoop?Boolean(options.getLoop()):loopEnabled,quality:display?.as2GlobalPropRef?.('_quality')?.get?.()??'HIGH'};}
+ return {ContextMenu,ContextMenuItem,menuRef,menuState,triggerBuiltin:action=>{live();runBuiltin(action);},reset,dispose};
 }
 
 function create(options={}){
@@ -111,7 +112,7 @@ function create(options={}){
  function reset(){if(disposed)return;menus.reset();generation++;requestGeneration=0;if(ownsFullscreen())Promise.resolve(exitFs()).catch(()=>{});fullscreen=false;core.free();core=makeCore();enabled=false;last=null;if(preview)preview.setStageLayout?.(null);if(viewport?.style)viewport.style.overflow=initialOverflow;}
  function dispose(){if(disposed)return;reset();menus.dispose();doc?.removeEventListener?.('fullscreenchange',onFullscreen);doc?.removeEventListener?.('webkitfullscreenchange',onFullscreen);canvas?.removeEventListener?.('contextmenu',menu);core.free();disposed=true;}
  function syncPassiveLayout(vw,vh){active();last=call({op:'layout',width:vw,height:vh,fullscreen:ownsFullscreen()});return last;}
- return Object.freeze({Stage,layout,syncPassiveLayout,activate,isActive:()=>enabled,ContextMenu:menus.ContextMenu,ContextMenuItem:menus.ContextMenuItem,menuRef:menus.menuRef,reset,dispose});
+ return Object.freeze({Stage,layout,syncPassiveLayout,activate,isActive:()=>enabled,ContextMenu:menus.ContextMenu,ContextMenuItem:menus.ContextMenuItem,menuRef:menus.menuRef,menuState:menus.menuState,triggerBuiltin:menus.triggerBuiltin,reset,dispose});
 }
 const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAS2Stage=api;
 })(globalThis);

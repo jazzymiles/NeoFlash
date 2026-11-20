@@ -1048,3 +1048,303 @@ test('runtime merges authored accessibility into one visible semantic target per
   sceneVisible=false;rafCallback(1121);
   assert.equal(semanticEl.children.length,0);assert.equal(overlayEl.children.length,0,'absent artwork cannot reappear through the authored fallback overlay');
 });
+
+test('AS2 showRedrawRegions renders and clears Canvas/DOM dirty outlines and ContextMenu builtInItems supports all 8 flags', async () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const vm = require('node:vm');
+
+  const runtimeDir = path.resolve(__dirname, '../../target/web-runtime');
+  const wasmCtx = vm.createContext({ TextEncoder, TextDecoder, WebAssembly, console, URL, Request, Response });
+  vm.runInContext(fs.readFileSync(path.join(runtimeDir, 'neoflash_web.js'), 'utf8'), wasmCtx);
+  const wasm = vm.runInContext('NeoFlashWasm', wasmCtx);
+  wasmCtx.wasmBytes = fs.readFileSync(path.join(runtimeDir, 'neoflash_web_bg.wasm'));
+  await vm.runInContext('NeoFlashWasm({module_or_path: wasmBytes})', wasmCtx);
+
+  const NeoFlashGeom = require('../geom.js');
+  const NeoFlashAS2Stage = require('../as2-stage.js');
+  const geom = NeoFlashGeom.create(wasm, { getVector3D: () => null });
+
+  // 1. Verify all 8 ContextMenuBuiltInItems properties + hideBuiltInItems + copy + builtin actions
+  let loopFlag = true;
+  let qualityVal = 'HIGH';
+  let zoomCalls = [];
+  const stageMod = NeoFlashAS2Stage.create({
+    wasm,
+    width: 400,
+    height: 300,
+    geometry: geom,
+    legacy: { Stage: { width: 400, height: 300, addListener() {}, removeListener() {} }, broadcastStage() {} },
+    display: {
+      alive: () => true,
+      descriptor: () => ({ owner: 'movie_clip' }),
+      parentSpace: () => null,
+      as2GlobalPropRef: name => name === '_quality' ? { get: () => qualityVal, set: v => { qualityVal = v; } } : null,
+      toggleHighQuality: () => { qualityVal = qualityVal === 'HIGH' ? 'LOW' : 'HIGH'; },
+    },
+    getRoot: () => ({ play() {}, stop() {}, gotoAndStop() {}, prevFrame() {}, nextFrame() {} }),
+    getLoop: () => loopFlag,
+    toggleLoop: () => { loopFlag = !loopFlag; return loopFlag; },
+    onZoom: (dir, scale) => zoomCalls.push([dir, scale]),
+  });
+  const cm = new stageMod.ContextMenu();
+  const allEight = ['save', 'zoom', 'quality', 'play', 'loop', 'rewind', 'forward_back', 'print'];
+  for (const key of allEight) {
+    assert.equal(cm.builtInItems[key], true, `default builtInItems.${key} should be true`);
+    cm.builtInItems[key] = false;
+    assert.equal(cm.builtInItems[key], false, `builtInItems.${key} should toggle to false without throwing`);
+    cm.builtInItems[key] = true;
+  }
+  const cmCopy = cm.copy();
+  cm.hideBuiltInItems();
+  for (const key of allEight) {
+    assert.equal(cm.builtInItems[key], false, `hideBuiltInItems clears ${key}`);
+    assert.equal(cmCopy.builtInItems[key], true, `copied ContextMenu preserves ${key}`);
+  }
+  stageMod.triggerBuiltin('loop');
+  assert.equal(stageMod.menuState().loop, false);
+  stageMod.triggerBuiltin('quality');
+  assert.equal(qualityVal, 'LOW');
+  stageMod.triggerBuiltin('zoom_in');
+  stageMod.triggerBuiltin('zoom_out');
+  stageMod.triggerBuiltin('show_all');
+  assert.deepEqual(zoomCalls, [['in', 2], ['out', 1], ['fit', 1]]);
+  stageMod.dispose();
+
+  // 2. Verify showRedrawRegions(true, 0xFF0000) -> Canvas strokeRect + DOM overlay -> showRedrawRegions(false)
+  const project = {
+    format_version: 2,
+    name: 'Redraw Regions Test',
+    width: 320,
+    height: 240,
+    fps: 10,
+    background: [20, 24, 32, 255],
+    root: 'root',
+    symbols: [{
+      id: 'root',
+      name: 'Scene 1',
+      kind: 'movie_clip',
+      timeline: {
+        frame_count: 3,
+        scripts: [
+          { frame: 0, script: { language: 'action_script2', source: 'showRedrawRegions(true, 0xFF0000);' } },
+          { frame: 2, script: { language: 'action_script2', source: 'showRedrawRegions(false);' } },
+        ],
+        layers: [{
+          id: 'layer-1',
+          name: 'Layer 1',
+          visible: true,
+          locked: false,
+          keyframes: [
+            {
+              frame: 0,
+              label: '',
+              tween: null,
+              elements: [{
+                id: 'box-1',
+                name: 'box_mc',
+                visible: true,
+                transform: { x: 30, y: 40, scale_x: 1, scale_y: 1, rotation: 0, alpha: 1 },
+                kind: { type: 'rectangle', width: 80, height: 50, fill: [40, 120, 220, 255], stroke: [0, 0, 0, 0], stroke_width: 0 },
+                scripts: [],
+              }],
+            },
+            {
+              frame: 1,
+              label: '',
+              tween: null,
+              elements: [{
+                id: 'box-1',
+                name: 'box_mc',
+                visible: true,
+                transform: { x: 110, y: 60, scale_x: 1, scale_y: 1, rotation: 0, alpha: 1 },
+                kind: { type: 'rectangle', width: 80, height: 50, fill: [40, 120, 220, 255], stroke: [0, 0, 0, 0], stroke_width: 0 },
+                scripts: [],
+              }],
+            },
+            {
+              frame: 2,
+              label: '',
+              tween: null,
+              elements: [{
+                id: 'box-1',
+                name: 'box_mc',
+                visible: true,
+                transform: { x: 150, y: 70, scale_x: 1, scale_y: 1, rotation: 0, alpha: 1 },
+                kind: { type: 'rectangle', width: 80, height: 50, fill: [40, 120, 220, 255], stroke: [0, 0, 0, 0], stroke_width: 0 },
+                scripts: [],
+              }],
+            },
+          ],
+        }],
+      },
+    }],
+  };
+
+  const realPlayer = new wasm.WebPlayer(JSON.stringify(project));
+  const strokeRects = [];
+  const mockDocument = { activeElement: null, createElement: tag => makeEl('', tag) };
+  function makeEl(id = '', tag = 'div') {
+    const attrs = new Map();
+    const children = [];
+    return {
+      id,
+      tagName: tag.toUpperCase(),
+      parentNode: null,
+      listeners: {},
+      hidden: false,
+      disabled: false,
+      textContent: '',
+      value: 'fit',
+      clientWidth: 320,
+      clientHeight: 240,
+      children,
+      ownerDocument: mockDocument,
+      style: { display: 'none' },
+      classList: { toggle() {} },
+      setAttribute(k, v) { attrs.set(k, String(v)); },
+      getAttribute(k) { return attrs.get(k) ?? null; },
+      removeAttribute(k) { attrs.delete(k); },
+      querySelector(sel) {
+        if (sel === '[data-neoflash-redraw-regions]') {
+          return children.find(c => c.getAttribute('data-neoflash-redraw-regions') !== null) || null;
+        }
+        return null;
+      },
+      addEventListener(name, h) { this.listeners[name] = h; },
+      removeEventListener() {},
+      replaceChildren(...next) {
+        for (const c of children.slice()) c.remove();
+        for (const c of next) this.appendChild(c);
+      },
+      appendChild(c) { c.remove?.(); children.push(c); c.parentNode = this; return c; },
+      insertBefore(c, before) { c.remove?.(); children.splice(before ? children.indexOf(before) : children.length, 0, c); c.parentNode = this; },
+      removeChild(c) { c.remove?.(); },
+      remove() { if (this.parentNode) { const s = this.parentNode.children; s.splice(s.indexOf(this), 1); this.parentNode = null; } },
+      getBoundingClientRect() { return { left: 0, top: 0, width: 320, height: 240 }; },
+      getContext() {
+        return {
+          strokeStyle: '#000',
+          lineWidth: 1,
+          setTransform() {},
+          clearRect() {},
+          fillRect() {},
+          save() {},
+          restore() {},
+          transform() {},
+          beginPath() {},
+          rect() {},
+          arc() {},
+          fill() {},
+          stroke() {},
+          strokeRect(x, y, w, h) { strokeRects.push({ style: this.strokeStyle, x, y, w, h }); },
+          fillText() {},
+          measureText(str) { return { width: String(str).length * 8 }; },
+        };
+      },
+    };
+  }
+
+  const stageSurfaceEl = makeEl('stage-surface');
+  const elements = new Map([
+    ['stage', makeEl('stage', 'canvas')],
+    ['stage-space', makeEl('stage-space')],
+    ['stage-surface', stageSurfaceEl],
+    ['semantic-layer', makeEl('semantic-layer')],
+    ['stage-a11y-overlay', makeEl('stage-a11y-overlay')],
+    ['viewport', makeEl('viewport')],
+    ['status', makeEl('status')],
+    ['toggle', makeEl('toggle')],
+    ['restart', makeEl('restart')],
+    ['zoom', makeEl('zoom')],
+    ['pan', makeEl('pan')],
+    ['audio-toggle', makeEl('audio-toggle')],
+    ['report-toggle', makeEl('report-toggle')],
+    ['name', makeEl('name')],
+    ['load-info', makeEl('load-info')],
+    ['audio-status', makeEl('audio-status')],
+    ['trace', makeEl('trace')],
+    ['size-report', makeEl('size-report')],
+    ['error', makeEl('error')],
+    ['loading', makeEl('loading')],
+  ]);
+  const footer = makeEl('footer');
+  const transport = makeEl('transport');
+  const body = makeEl('body');
+  let rafCb = null;
+
+  const sandbox = {
+    console: { warn() {}, info() {}, error() {} },
+    location: { protocol: 'file:', href: 'file:///tmp/redraw-test/index.html' },
+    atob: b64 => Buffer.from(b64, 'base64').toString('binary'),
+    Uint8Array, Map, WeakMap, Set, Promise, Error, TypeError, RangeError, Math, Number, String, Boolean, Array, Object, JSON, Symbol, Reflect,
+    Path2D: class { moveTo() {} lineTo() {} quadraticCurveTo() {} bezierCurveTo() {} closePath() {} rect() {} },
+    ResizeObserver: class { observe() {} },
+    requestAnimationFrame(cb) { rafCb = cb; },
+    addEventListener() {},
+    devicePixelRatio: 1,
+    document: {
+      body,
+      visibilityState: 'visible',
+      createElement: tag => makeEl('', tag),
+      getElementById: id => elements.get(id) || makeEl(id),
+      querySelector: sel => sel === 'footer' ? footer : sel === '.transport' ? transport : null,
+      addEventListener() {},
+    },
+    NeoFlashWasmBase64: Buffer.from('\0asm\x01\0\0\0', 'binary').toString('base64'),
+    NeoFlashWasm: Object.assign(() => Promise.resolve(wasm), wasm, {
+      WebPlayer: function() { return realPlayer; },
+    }),
+    NeoFlashBundle: {
+      project,
+      scripts: [
+        {
+          frame: 0,
+          language: 'action_script2',
+          source: 'showRedrawRegions(true, 0xFF0000);',
+          code: '__nfLegacy.showRedrawRegions(true, 0xFF0000);',
+        },
+        {
+          frame: 2,
+          language: 'action_script2',
+          source: 'showRedrawRegions(false);',
+          code: '__nfLegacy.showRedrawRegions(false);',
+        },
+      ],
+      wasm: Buffer.from('\0asm\x01\0\0\0', 'binary').toString('base64'),
+      publish: { level: 'full', omitted_modules: [] },
+      warnings: [],
+    },
+  };
+  sandbox.globalThis = sandbox;
+  sandbox.window = sandbox;
+  const ctx = vm.createContext(sandbox);
+  for (const rel of ['../path.js', '../geom.js', '../geom3d.js', '../accessibility.js', '../preview.js', '../events.js', '../stage.js', '../display.js', '../runtime.js']) {
+    vm.runInContext(fs.readFileSync(path.resolve(__dirname, rel), 'utf8'), ctx);
+  }
+  await new Promise(resolve => setTimeout(resolve, 15));
+
+  try {
+    assert.equal(elements.get('error').style.display, 'none', `unexpected boot error: ${elements.get('error').textContent}`);
+    assert.ok(strokeRects.some(r => r.style === '#ff0000' && r.x === 30 && r.y === 40 && r.w === 80 && r.h === 50),
+      `expected Canvas strokeRect('#ff0000', 30, 40, 80, 50), got ${JSON.stringify(strokeRects)}`);
+    const domLayer = stageSurfaceEl.querySelector('[data-neoflash-redraw-regions]');
+    assert.ok(domLayer && domLayer.children.length > 0, 'DOM redraw-regions overlay created with active box');
+    assert.equal(domLayer.children[0].style.border, '1px solid #ff0000');
+
+    // Frame 1: box_mc moves from (30,40) to (110,60) -> both old and new dirty regions outlined!
+    strokeRects.length = 0;
+    rafCb(1000);
+    rafCb(1120);
+    assert.ok(strokeRects.some(r => r.x === 30 && r.y === 40), 'previous position is outlined as dirty');
+    assert.ok(strokeRects.some(r => r.x === 110 && r.y === 60), 'new position is outlined as dirty');
+
+    // Frame 2: showRedrawRegions(false) clears both Canvas strokeRects and DOM overlay!
+    strokeRects.length = 0;
+    rafCb(1240);
+    assert.equal(strokeRects.length, 0, 'showRedrawRegions(false) stops drawing Canvas dirty outlines');
+    assert.equal(domLayer.children.length, 0, 'showRedrawRegions(false) clears DOM redraw-region boxes');
+  } finally {
+    realPlayer.free();
+  }
+});

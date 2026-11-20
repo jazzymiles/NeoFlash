@@ -441,9 +441,35 @@ function __nfRandom2(...args) { __nfMath(false); return __nfLegacy.math.randomIn
 
 // AVM1 Boolean() differs from Boolean(undefined): only omission is undefined.
 function __nfBoolean2(value) {
-    if (new.target) throw new __nfTypeError('AS2 boxed Boolean construction is not implemented; use Boolean(value) for a primitive.');
+    if (new.target) return __nfBoxCreate('Boolean', arguments.length ? [value] : []);
     return arguments.length ? __nfBoolean(value) : undefined;
 }
+__nfDefineProperty(__nfBoolean2, '__nfIs', {
+    value: value => Boolean(typeof __nfLegacy !== 'undefined' && __nfLegacy?.boxing?.is?.(value) && __nfLegacy.boxing.kind(value) === 'Boolean'),
+});
+__nfDefineProperty(__nfBoolean2, Symbol.hasInstance, {
+    value: value => __nfBoolean2.__nfIs(value),
+});
+__nfDefineProperty(__nfBoolean2.prototype, 'valueOf', {
+    configurable: true,
+    writable: true,
+    enumerable: false,
+    value: function() {
+        if (typeof this === 'boolean') return this;
+        if (__nfBoolean2.__nfIs(this)) return this.valueOf();
+        throw new __nfTypeError('Boolean.prototype.valueOf requires a Boolean receiver.');
+    },
+});
+__nfDefineProperty(__nfBoolean2.prototype, 'toString', {
+    configurable: true,
+    writable: true,
+    enumerable: false,
+    value: function() {
+        if (typeof this === 'boolean') return this ? 'true' : 'false';
+        if (__nfBoolean2.__nfIs(this)) return this.toString();
+        throw new __nfTypeError('Boolean.prototype.toString requires a Boolean receiver.');
+    },
+});
 
 function __nfSafeDefine(target, key, descriptor) {
     if (!target || (typeof target !== 'object' && typeof target !== 'function')) return;

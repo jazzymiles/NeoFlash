@@ -1924,6 +1924,97 @@
     let legacyCursorVisible = true, pointerOverContent = false;
     let runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
     const hostPlayerConfig = typeof bundle !== 'undefined' && bundle?.player_config ? bundle.player_config : {};
+    let activeLegacyCaller = null, loopTimeline = hostPlayerConfig.loop_timeline !== false;
+    let prevRedrawSignatures = new Map(), lastRedrawRects = [], lastRedrawFrame = -1, redrawRegionsOverlay = null;
+    function formatRedrawHex(rgb) {
+      return '#' + ((Number(rgb) >>> 0) & 0xffffff).toString(16).padStart(6, '0');
+    }
+    function clearRedrawRegions() {
+      prevRedrawSignatures.clear();
+      lastRedrawRects = [];
+      lastRedrawFrame = -1;
+      if (redrawRegionsOverlay) {
+        if (typeof redrawRegionsOverlay.replaceChildren === 'function') redrawRegionsOverlay.replaceChildren();
+        else if ('textContent' in redrawRegionsOverlay) redrawRegionsOverlay.textContent = '';
+        redrawRegionsOverlay.removeAttribute?.('data-active');
+      }
+    }
+    function computeRedrawRegions(draws, boundsOf, frameKey = 0) {
+      const nextSignatures = new Map(), counts = new Map(), dirty = [];
+      let changed = false;
+      for (const item of (draws || [])) {
+        if (item.alpha <= 0) continue;
+        const area = boundsOf?.(item);
+        if (!area || !(area.right > area.left && area.bottom > area.top)) continue;
+        const baseKey = JSON.stringify(item.owner_ref ?? item.instance_path ?? 'item');
+        const seq = counts.get(baseKey) || 0;
+        counts.set(baseKey, seq + 1);
+        const itemKey = `${baseKey}#${seq}`;
+        const rect = { x: area.left, y: area.top, width: area.right - area.left, height: area.bottom - area.top };
+        const sig = JSON.stringify([item.transform, item.alpha, item.clip_ids, item.filter_id, item.kind, rect]);
+        const prev = prevRedrawSignatures.get(itemKey);
+        if (!prev) {
+          changed = true;
+          dirty.push(rect);
+        } else if (prev.sig !== sig) {
+          changed = true;
+          dirty.push(prev.rect, rect);
+        }
+        nextSignatures.set(itemKey, { sig, rect });
+      }
+      for (const [key, prev] of prevRedrawSignatures) {
+        if (!nextSignatures.has(key)) {
+          changed = true;
+          dirty.push(prev.rect);
+        }
+      }
+      if (changed || frameKey !== lastRedrawFrame) {
+        prevRedrawSignatures = nextSignatures;
+        lastRedrawFrame = frameKey;
+        lastRedrawRects = dirty;
+      }
+      return lastRedrawRects;
+    }
+    function syncRedrawRegionsDomOverlay(rects, hexColor, originX = 0, originY = 0, scale = { x: 1, y: 1 }) {
+      const activeDoc = typeof instanceDoc !== 'undefined' && instanceDoc ? instanceDoc : (typeof document === 'undefined' ? null : document);
+      const surf = typeof stageSurface !== 'undefined' && stageSurface ? stageSurface : (activeDoc?.getElementById?.('stage-surface') || null);
+      if (!activeDoc?.createElement || !surf?.appendChild) return;
+      if (!redrawRegionsOverlay) {
+        redrawRegionsOverlay = activeDoc.createElement('div');
+        redrawRegionsOverlay.className = 'neoflash-redraw-regions';
+        redrawRegionsOverlay.setAttribute?.('data-neoflash-redraw-regions', 'true');
+        if (redrawRegionsOverlay.style) {
+          Object.assign(redrawRegionsOverlay.style, { position: 'absolute', inset: '0', pointerEvents: 'none', overflow: 'hidden', zIndex: '2147483640' });
+        }
+        surf.appendChild(redrawRegionsOverlay);
+      }
+      if (typeof redrawRegionsOverlay.replaceChildren === 'function') redrawRegionsOverlay.replaceChildren();
+      else if ('textContent' in redrawRegionsOverlay) redrawRegionsOverlay.textContent = '';
+      if (!rects.length) {
+        redrawRegionsOverlay.removeAttribute?.('data-active');
+        return;
+      }
+      redrawRegionsOverlay.setAttribute?.('data-active', 'true');
+      redrawRegionsOverlay.setAttribute?.('data-color', hexColor);
+      const sx = Number(scale?.x) || 1, sy = Number(scale?.y) || sx;
+      for (const r of rects) {
+        const box = activeDoc.createElement('div');
+        box.setAttribute?.('data-neoflash-redraw-box', 'true');
+        if (box.style) {
+          Object.assign(box.style, {
+            position: 'absolute',
+            left: `${(r.x + originX) * sx}px`,
+            top: `${(r.y + originY) * sy}px`,
+            width: `${Math.max(1, r.width * sx)}px`,
+            height: `${Math.max(1, r.height * sy)}px`,
+            border: `1px solid ${hexColor}`,
+            boxSizing: 'border-box',
+            pointerEvents: 'none',
+          });
+        }
+        redrawRegionsOverlay.appendChild(box);
+      }
+    }
     const isDomRenderMode = hostPlayerConfig.render_mode === 'dom' || (typeof bundle !== 'undefined' && bundle?.publish?.renderMode === 'dom');
     const initialFlashScaleMode = hostPlayerConfig.scale_mode === 'no_scale' ? 'noScale'
       : hostPlayerConfig.scale_mode === 'exact_fit' ? 'exactFit'
@@ -2113,7 +2204,7 @@
       }
       let invokeAsfunction=()=>{};
       if(textHost&&global.NeoFlashAS2Text)as2TextHost=global.NeoFlashAS2Text.create({broadcaster:global.NeoFlashBroadcaster,wasm,player,text:textHost,getNet:()=>netHost,onAsfunction:(ref,spec)=>{const tf=proxyForRef(JSON.parse(ref));invokeAsfunction(tf?._parent||proxyFor([]),spec);afterTimerEvent();},targetForRef:key=>proxyForRef(JSON.parse(key)),afterCallback:afterTimerEvent,project:typeof project==='undefined'?null:project,document:activeDoc});
-      display=global.NeoFlashDisplay.create({player,geometry:geometryHost,getGeom3D:()=>geometry3dHost,proxyFor,proxyForRef,onObserveUnload:observeTimelineEvents,onMutation:deliverDisplayEvents,onSuperConstruct:handleSuperConstruct,isRetiring:target=>retiringTargets.has(target),isRetiringReference:key=>pendingRetirementRefs.has(key)||retiringTargets.has(proxies.get(key)?.proxy),onTabChange:(target,type)=>{if(eventHub&&global.NeoFlashEvents)eventHub.dispatch(target,new global.NeoFlashEvents.Event(type,true,false));},onTextLink:(target,text)=>{if(eventHub&&global.NeoFlashEvents&&display.alive(target)){eventHub.dispatch(target,new global.NeoFlashEvents.TextEvent('link',true,false,text));afterTimerEvent();}},project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,getAudio:()=>audioHost,getFte3D:()=>fte3dHost,as2,
+      display=global.NeoFlashDisplay.create({player,geometry:geometryHost,getGeom3D:()=>geometry3dHost,proxyFor,proxyForRef,onObserveUnload:observeTimelineEvents,onMutation:deliverDisplayEvents,onSuperConstruct:handleSuperConstruct,isRetiring:target=>retiringTargets.has(target),isRetiringReference:key=>pendingRetirementRefs.has(key)||retiringTargets.has(proxies.get(key)?.proxy),onTabChange:(target,type)=>{if(eventHub&&global.NeoFlashEvents)eventHub.dispatch(target,new global.NeoFlashEvents.Event(type,true,false));},onTextLink:(target,text)=>{if(eventHub&&global.NeoFlashEvents&&display.alive(target)){eventHub.dispatch(target,new global.NeoFlashEvents.TextEvent('link',true,false,text));afterTimerEvent();}},project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,getAudio:()=>audioHost,getFte3D:()=>fte3dHost,as2,getLegacyCaller:()=>activeLegacyCaller,onRedrawRegionsChange:next=>{if(!next?.redraw_regions)clearRedrawRegions();else{prevRedrawSignatures.clear();lastRedrawFrame=-1;}if(!inDispatch&&typeof context!=='undefined'&&typeof render==='function')render();},
         shapeContains:(kind,x,y,world)=>{const hasCanvas=typeof context!=='undefined'&&typeof context.isPointInPath==='function'&&typeof Path2D==='function';if(hasCanvas)inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.contains(hasCanvas?context:null,kind,x,y,hasCanvas?inputPaths.get(kind.commands):null,world);},
         clipsContain:(snapshot,ids,x,y)=>{if(typeof context==='undefined')throw new Error('Clipped input requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.clipsContain(context,ids,global.NeoFlashPaths.clipTable(snapshot.clips||[],snapshot.filter_groups||[]),x,y,inputPaths);},
         beforeRaster:target=>assertUnfilteredEditing(stageHost?.stage.focus,target),beforeFilters:(target,specs)=>{if(specs.length)assertUnfilteredEditing(stageHost?.stage.focus,target);},referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,getStageHost:()=>stageHost||null,
@@ -2154,7 +2245,7 @@
             keyTarget:typeof instanceKeyTarget!=='undefined'?instanceKeyTarget:(typeof global.addEventListener==='function'?global:null),
             alive:listener=>!references.has(listener)||display.alive(listener),
             onVisibility:visible=>{legacyCursorVisible=visible;updateCursor();},onError:inputFailure});
-          if(global.NeoFlashAS2Stage)as2StageHost=global.NeoFlashAS2Stage.create({wasm,legacy:legacyHost,geometry:geometryHost,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,scaleMode:initialFlashScaleMode,align:initialFlashAlign,allowsFullScreen:allowFullscreen,preview:typeof preview==='undefined'?null:preview,viewport:typeof viewport==='undefined'?null:viewport,canvas:typeof canvas==='undefined'?null:canvas,display,getRoot:()=>proxyFor([]),contextTarget:event=>{if(typeof hitAt==='function')return hitAt(event,true)?.target||proxyFor([]);const p=stagePointFromEvent(event);if(p&&p.inside&&display?.pickDetails)return display.pickDetails(p.x,p.y)?.target||proxyFor([]);return proxyFor([]);},onError:inputFailure,afterEvent:afterTimerEvent});
+          if(global.NeoFlashAS2Stage)as2StageHost=global.NeoFlashAS2Stage.create({wasm,legacy:legacyHost,geometry:geometryHost,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,scaleMode:initialFlashScaleMode,align:initialFlashAlign,allowsFullScreen:allowFullscreen,preview:typeof preview==='undefined'?null:preview,viewport:typeof viewport==='undefined'?null:viewport,canvas:typeof canvas==='undefined'?null:canvas,display,getRoot:()=>proxyFor([]),getLoop:()=>loopTimeline,toggleLoop:()=>{loopTimeline=!loopTimeline;hostPlayerConfig.loop_timeline=loopTimeline;return loopTimeline;},toggleQuality:()=>display.toggleHighQuality(),contextTarget:event=>{if(typeof hitAt==='function')return hitAt(event,true)?.target||proxyFor([]);const p=stagePointFromEvent(event);if(p&&p.inside&&display?.pickDetails)return display.pickDetails(p.x,p.y)?.target||proxyFor([]);return proxyFor([]);},onError:inputFailure,afterEvent:afterTimerEvent});
           legacyGlobals=Object.freeze({Key:legacyHost.Key,Mouse:legacyHost.Mouse,Stage:as2StageHost?.Stage||legacyHost.Stage,...(as2StageHost?{ContextMenu:as2StageHost.ContextMenu,ContextMenuItem:as2StageHost.ContextMenuItem}:{})});
         }
       }
@@ -2302,8 +2393,13 @@
               const compiled=functions.get(sourceKey(script));
               if(!compiled)throw new Error('A script is missing from the compiled export. Re-export the project.');
               const event=Object.freeze({type:'frame',target:scope,currentTarget:scope});
-              const scriptRoot=['action_script1','action_script2','ActionScript1','ActionScript2'].includes(script.language)?as2RootFor(scope):proxyFor([]);
-              compiled.fn.call(scope,event,scriptRoot,scope._parent,trace,scope.play,scope.stop,scope.gotoAndPlay,scope.gotoAndStop,scope.nextFrame,scope.prevFrame,as2.method,as2.value,program,display,legacyGlobals,xmlHost);
+              const isLegacyScript=['action_script1','action_script2','ActionScript1','ActionScript2'].includes(script.language);
+              const scriptRoot=isLegacyScript?as2RootFor(scope):proxyFor([]);
+              const prevCaller=activeLegacyCaller;
+              if(isLegacyScript)activeLegacyCaller=scope;
+              try{
+                compiled.fn.call(scope,event,scriptRoot,scope._parent,trace,scope.play,scope.stop,scope.gotoAndPlay,scope.gotoAndStop,scope.nextFrame,scope.prevFrame,as2.method,as2.value,program,display,legacyGlobals,xmlHost);
+              }finally{activeLegacyCaller=prevCaller;}
               display?.flushClipLoads?.();
             }
           }finally{callFrameDepth--;}
@@ -2354,6 +2450,24 @@
         printAsBitmap(target,boundingBox){legacyPrint(this,target,boundingBox,false);},
         printNum(level,boundingBox){legacyPrint(this,level,boundingBox,true);},
         printAsBitmapNum(level,boundingBox){legacyPrint(this,level,boundingBox,true);}});
+      const wrapLegacySelection=baseSelection=>{
+        const runSetFocus=(caller,callArgs)=>{
+          if(!callArgs.length)return false;
+          const value=callArgs[0];
+          if(value===null||value===undefined)return baseSelection.setFocus(null);
+          const ctx=legacyContext(caller??activeLegacyCaller);
+          let target=value;
+          if(typeof value==='string'){
+            if(!value)return false;
+            target=display.resolveTarget(value,ctx.base,ctx.legacyCase);
+            if(!target)return false;
+          }
+          if(!display.as2CanFocus?.(target))return false;
+          return baseSelection.setFocus(target);
+        };
+        const setFocus=(...callArgs)=>runSetFocus(null,callArgs);
+        return Object.freeze({...baseSelection,setFocus,__nfSetFocusWithCaller:runSetFocus});
+      };
       if(isDomRenderMode&&global.NeoFlashDomLayout?.createDomStageHost){
         domStageHost=global.NeoFlashDomLayout.createDomStageHost({
           document:typeof domHostDocument!=='undefined'?domHostDocument:activeDoc,
@@ -2406,12 +2520,12 @@
             return {left,top,width:w,height:h};
           },
         });
-        legacyGlobals=Object.freeze({...legacyGlobals,Selection:Object.freeze({...domStageHost.Selection,setFocus:value=>{const target=typeof value==='string'?(value?display.resolveTarget(value,proxyFor([])):null):value;if(!display.as2CanFocus?.(target))return false;return domStageHost.Selection.setFocus(target);}})});
+        legacyGlobals=Object.freeze({...legacyGlobals,Selection:wrapLegacySelection(domStageHost.Selection)});
       }else if(global.NeoFlashTextInput&&textHost&&stageHost&&typeof player.object_text_input==='function'){
         textInputHost=global.NeoFlashTextInput.create({getSize:logicalSize,getOrigin:stageOrigin,player,text:textHost,display,events:{...global.NeoFlashEvents,...eventFamilies},hub:eventHub,stage:stageHost,referenceOf:target=>references.get(target),proxyForRef,onLegacyTab:event=>display.as2Tab?.(event)||false,beforeLegacyTextEvent:(target,name)=>{if(name==='onChanged')as2ObjectHost?.textChanged(target);},onLegacyTextEvent:(target,name,args)=>as2TextHost?.textEvent(references.get(target).key,name,args),
           canvas:typeof canvas==='undefined'?null:canvas,surface:typeof stageSurface!=='undefined'?stageSurface:(activeDoc?activeDoc.getElementById('stage-surface'):null),document:activeDoc,project:typeof project==='undefined'?null:project,
           onError:inputFailure,afterInput:afterTimerEvent,onClick:(target,event)=>{target=display.resolveInput(target);if(!target)return;stageHost.handlePointer('click',event,target);if(display.alive(target)){player.object_click(references.get(target).key);dispatchScripts(target);if(typeof context!=='undefined')render();}}});
-        legacyGlobals=Object.freeze({...legacyGlobals,Selection:Object.freeze({...textInputHost.Selection,setFocus:value=>{const target=typeof value==='string'?(value?display.resolveTarget(value,proxyFor([])):null):value;if(!display.as2CanFocus?.(target))return false;return textInputHost.Selection.setFocus(target);}})});
+        legacyGlobals=Object.freeze({...legacyGlobals,Selection:wrapLegacySelection(textInputHost.Selection)});
       }
       if(global.NeoFlashTimers&&global.NeoFlashEvents)timerHost=global.NeoFlashTimers.create({wasm,events:global.NeoFlashEvents,
         onError:timerFailure,afterEvent:afterTimerEvent,requestRender:requestTimerRender});
@@ -2901,6 +3015,38 @@
         }
         builtins.__nfMediaEventsVectorFactory=as3MediaEventsHost.setVectorFactory;
       }
+      const nativeIfaceNames=new Set(['flash.accessibility.ISearchableText','flash.accessibility.ISimpleTextSelection','flash.desktop.IFilePromise','flash.display.IBitmapDrawable','flash.display.IGraphicsData','flash.display.IGraphicsFill','flash.display.IGraphicsPath','flash.display.IGraphicsStroke','flash.events.IEventDispatcher','flash.filters.IBitmapFilter','flash.security.IURIDereferencer','flash.text.ime.IIMEClient','flash.utils.IDataInput','flash.utils.IDataOutput','flash.utils.IExternalizable']);
+      const nativeFnNames=new Set(['flash.utils.getTimer','flash.utils.setInterval','flash.utils.setTimeout','flash.utils.clearInterval','flash.utils.clearTimeout','flash.utils.escapeMultiByte','flash.utils.unescapeMultiByte','flash.utils.getQualifiedClassName','flash.utils.getQualifiedSuperclassName','flash.utils.getDefinitionByName','flash.utils.describeType','flash.net.navigateToURL','flash.net.sendToURL','flash.net.registerClassAlias','flash.net.getClassByAlias','flash.profiler.showRedrawRegions','flash.system.fscommand']);
+      const ctorToNativeName=new Map();
+      for(const [qname,cls] of Object.entries(builtins)){
+        if(qname.startsWith('__nf')||nativeFnNames.has(qname)||typeof cls!=='function')continue;
+        if(!ctorToNativeName.has(cls))ctorToNativeName.set(cls,qname);
+      }
+      builtins.__nfNativeClassName=candidate=>ctorToNativeName.get(candidate)||null;
+      builtins.__nfIsNativeInterface=qname=>nativeIfaceNames.has(qname);
+      builtins.__nfNativeTypeName=value=>{
+        if(value===null||value===undefined||(typeof value!=='object'&&typeof value!=='function'))return null;
+        if(stageHost?.stage&&value===stageHost.stage)return 'flash.display.Stage';
+        if(references.has(value)&&display?.alive?.(value)){
+          const owner=display.ownerOf?display.ownerOf(value):display.descriptor(value).owner;
+          const byOwner={movie_clip:'flash.display.MovieClip',graphic:'flash.display.MovieClip',sprite:'flash.display.Sprite',shape:'flash.display.Shape',morph_shape:'flash.display.MorphShape',bitmap:'flash.display.Bitmap',button:'flash.display.SimpleButton',text:'flash.text.TextField',static_text:'flash.text.StaticText',video:'flash.media.Video',loader:'flash.display.Loader'};
+          if(byOwner[owner])return byOwner[owner];
+        }
+        const proto=Object.getPrototypeOf(value);
+        const ctor=proto&&Object.getOwnPropertyDescriptor(proto,'constructor')?.value;
+        if(ctor&&ctorToNativeName.has(ctor)&&!nativeIfaceNames.has(ctorToNativeName.get(ctor)))return ctorToNativeName.get(ctor);
+        const matched=[];
+        for(const [cls,qname] of ctorToNativeName.entries()){
+          if(nativeIfaceNames.has(qname))continue;
+          try{if(typeof cls.__nfIs==='function'&&cls.__nfIs(value))matched.push([cls,qname]);}catch(_){}
+        }
+        if(matched.length===1)return matched[0][1];
+        if(matched.length>1){
+          const narrowest=matched.find(([cls])=>!matched.some(([other])=>other!==cls&&other.prototype&&cls.prototype&&Object.prototype.isPrototypeOf.call(cls.prototype,other.prototype)));
+          return (narrowest||matched[matched.length-1])[1];
+        }
+        return null;
+      };
       program=typeof bundle!=='undefined'&&bundle.program ? (typeof compiledProgramFn==='function'?compiledProgramFn:(typeof compileProgramUnit==='function'?compileProgramUnit(bundle.program):new Function('__nfBuiltins', bundle.program.code + '\n//# sourceURL=' + (bundle.program.source_url || 'neoflash-project.js'))))(builtins) : {
         type:name=>{if(!builtins[name])throw new TypeError(`Unsupported built-in class ${name}.`);return builtins[name];},
         is:(value,name)=>Boolean(builtins[name]?.__nfIs?.(value)),
@@ -2947,6 +3093,7 @@
       offstageLinkedTargets.clear(); retiringTargets.clear(); pendingRetirementRefs.clear(); constructSessions.length = 0;
       frameLabelDispatchedScopes.clear(); boundTextVariables.clear(); registeredClasses.clear();
       executedInitClips.clear(); clipFrameLabels.clear(); callFrameDepth = 0;
+      activeLegacyCaller = null; loopTimeline = hostPlayerConfig.loop_timeline !== false; clearRedrawRegions();
       if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0;
     }
     function clearPainters() {
@@ -3864,9 +4011,15 @@
         const gotoStop = isAs2 ? as2.method(scope, 'gotoAndStop') : scope.gotoAndStop;
         const nextF = isAs2 ? as2.method(scope, 'nextFrame') : scope.nextFrame;
         const prevF = isAs2 ? as2.method(scope, 'prevFrame') : scope.prevFrame;
-        compiled.fn.call(scope, event, scriptRoot, scope._parent, trace,
-          scope.play, scope.stop, gotoPlay, gotoStop, nextF, prevF, as2.method, as2.value, program, display,
-          legacyGlobals, xmlHost);
+        const prevCaller = activeLegacyCaller;
+        if (isAs2) activeLegacyCaller = scope;
+        try {
+          compiled.fn.call(scope, event, scriptRoot, scope._parent, trace,
+            scope.play, scope.stop, gotoPlay, gotoStop, nextF, prevF, as2.method, as2.value, program, display,
+            legacyGlobals, xmlHost);
+        } finally {
+          activeLegacyCaller = prevCaller;
+        }
         display?.flushClipLoads?.();
       } catch (error) {
         const cause = unwrapScriptThrow(error);
@@ -4130,6 +4283,8 @@
       const runtimeSemNodes=as3MediaEventsHost?.applyAccessibilityPropertiesToSemanticNodes?as3MediaEventsHost.applyAccessibilityPropertiesToSemanticNodes(rawSemNodes,node=>node.owner_ref?proxyForRef(node.owner_ref):proxyFor(node.instance_path||[])):rawSemNodes;
       const preparedAccessibility=prepareStageAccessibility(runtimeSemNodes,snapshot);
       const enrichedSemNodes=preparedAccessibility.nodes;
+      const redrawCfg=display?.as2RedrawRegions?.();
+      const redrawFrame=typeof player.current_frame==='function'?player.current_frame():0;
       if(domStageHost?.isActive?.()){
         semanticLayer.clear?.();
         if(typeof a11yOverlay!=='undefined'&&a11yOverlay)a11yOverlay.replaceChildren?.();
@@ -4138,6 +4293,13 @@
         bitmapHost?.cache.beginFrame();
         try{
           domStageHost.render({snapshot:snapshot||{draws:scene,objects:[],semantics:[],clips:[],filter_groups:[]},semantics:enrichedSemNodes,width,height,originX,originY,scale:{x:preview.view.scale,y:preview.view.scaleY||preview.view.scale},stageColor:Number.isInteger(stageRgb)&&stageHost?.colorAssigned?.()?stageRgb:null,background:project.background});
+          if(redrawCfg?.enabled){
+            const boundsPainter=createScenePainter({global,paths,gradients,clippings,bitmapHost,textHost,filterHost,videoHost,context,matrix:bitmapMatrix,hidden:ref=>Boolean(domStageHost?.hidden?.(ref))});
+            const rects=computeRedrawRegions(scene,item=>boundsPainter.paintBounds(item),redrawFrame);
+            syncRedrawRegionsDomOverlay(rects,formatRedrawHex(redrawCfg.color),originX,originY,{x:preview.view.scale,y:preview.view.scaleY||preview.view.scale});
+          }else{
+            clearRedrawRegions();
+          }
         }finally{bitmapHost?.cache.endFrame();}
       }else{
       if(snapshot)textInputHost?.update(snapshot);
@@ -4160,6 +4322,20 @@
       bitmapHost?.cache.beginFrame();
       const painter=createScenePainter({global,paths,gradients,clippings,bitmapHost,textHost,filterHost,videoHost,context,matrix:bitmapMatrix,hidden:ref=>Boolean(textInputHost?.hidden(ref))});
       const {clippedBounds,objects}=painter.draw(context,snapshot||{draws:scene,objects:[],semantics:[],clips:[],filter_groups:[]},{minX:-originX,minY:-originY,width:width-originX,height:height-originY});
+      if(redrawCfg?.enabled){
+        const rects=computeRedrawRegions(scene,item=>painter.paintBounds(item),redrawFrame);
+        const hex=formatRedrawHex(redrawCfg.color);
+        if(rects.length){
+          context.save();
+          context.strokeStyle=hex;
+          context.lineWidth=1;
+          for(const r of rects)context.strokeRect(r.x,r.y,r.width,r.height);
+          context.restore();
+        }
+        syncRedrawRegionsDomOverlay(rects,hex,originX,originY,{x:preview.view.scale,y:preview.view.scaleY||preview.view.scale});
+      }else{
+        clearRedrawRegions();
+      }
       const focusBounds=display?.as2FocusBounds?.();if(focusBounds){context.save();context.strokeStyle='#ffcc00';context.lineWidth=2;context.strokeRect(focusBounds.x,focusBounds.y,focusBounds.width,focusBounds.height);context.restore();}
       const semanticScene=enrichedSemNodes.length || preparedAccessibility.fallback.length?(snapshot?scene.map(item=>{const ancestry_refs=[];for(let node=objects.get(JSON.stringify(item.owner_ref));node;node=objects.get(JSON.stringify(node.parent_ref)))ancestry_refs.push(node.object_ref);return {...item,...(clippedBounds.has(item)?{clipped_bounds:clippedBounds.get(item)}:{}),transform:bitmapMatrix(item),ancestry_refs,kind:item.kind.type==='bitmap_pixels'?{...item.kind,alpha_bounds:bitmapHost.cache.bounds(item.kind)}:item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind};}):scene):[];
       const targetCount = semanticLayer.update(enrichedSemNodes, semanticScene, {...project,width,height}, {x:preview.view.scale,y:preview.view.scaleY||preview.view.scale}, (line, kind) => { context.font = font(kind); return context.measureText(line).width; }, {x:originX,y:originY});
@@ -4479,7 +4655,7 @@
             let ticks = 0;
             while (accumulated >= interval && ticks++ < 12) {
               accumulated -= interval;
-              if (playerConfig.loop_timeline === false && player.total_frames() > 1 && player.current_frame() + 1 >= player.total_frames()) {
+              if ((loopTimeline === false || playerConfig.loop_timeline === false) && player.total_frames() > 1 && player.current_frame() + 1 >= player.total_frames()) {
                 player.set_playing(false);
                 break;
               }

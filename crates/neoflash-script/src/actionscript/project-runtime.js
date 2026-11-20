@@ -543,27 +543,57 @@ const __nfProgram = (() => {
     // metadata and descriptor facts cross into the Rust reflection policy.
     function reflectionClass(name) {
         if(['Number','int','uint','Boolean'].includes(name))return __nfNumericClass(name);
+        if(name==='Object')return __nfObjectClass(true);
         if(name==='String')return __nfStringClass(true);
+        if(name==='Array')return __nfArrayClass(true);
+        if(name==='Date')return __nfDateClass(true);
+        if(name==='RegExp')return __nfRegExpClass(true);
+        if(name==='Math')return __nfMath(true);
+        if(name==='JSON')return __nfJSON;
         if(name==='Class')return __nfClassMetaclass;
         if(name==='Function')return __nfFunctionClass;
+        if(name==='flash.utils.Dictionary'&&typeof __nfDictionaryClass==='function')return __nfDictionaryClass(true);
+        if(['XML','XMLList','Namespace','QName'].includes(name)&&typeof __nfXML!=='undefined'&&__nfXML?.[name])return __nfXML[name];
+        if(name.startsWith('Vector.<')&&name.endsWith('>')&&typeof __nfVectorType==='function'){
+            const elem=name.slice(8,-1).replace('::','.');
+            return __nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(elem)?__nfPrimitiveDescriptor(elem):elementDescriptor(elem));
+        }
         if(Object.hasOwn(__nfErrorTypes,name))return __nfErrorClass(name,true);
+        if(builtins[name]!==undefined)return builtins[name];
         return type(name);
     }
     function className(value) {
         const numeric=typeof __nfNumericClassName==='function'?__nfNumericClassName(value):null;
         if(numeric)return numeric;
         if(classFacades.has(value))return classFacades.get(value);
-        if(value===__nfObjectClass(true))return 'Object';
-        if(value===__nfStringClass(true))return 'String';
+        if(value===__nfObjectClass(true)||value===Object)return 'Object';
+        if(value===__nfStringClass(true)||value===String)return 'String';
+        if(value===__nfArrayClass(true)||value===Array)return 'Array';
+        if(value===__nfDateClass(true)||value===Date)return 'Date';
+        if(value===__nfRegExpClass(true)||value===RegExp)return 'RegExp';
+        if(value===__nfMath(true)||value===Math)return 'Math';
+        if(value===__nfJSON||value===JSON)return 'JSON';
         if(value===__nfClassMetaclass)return 'Class';
-        if(value===__nfFunctionClass)return 'Function';
-        if(typeof value==='function'&&typeof value.name==='string'&&Object.hasOwn(__nfErrorTypes,value.name)&&value===__nfErrorClass(value.name,true))return value.name;
+        if(value===__nfFunctionClass||value===Function)return 'Function';
+        if(typeof __nfDictionaryClass==='function'&&value===__nfDictionaryClass(true))return 'flash.utils.Dictionary';
+        if(typeof __nfXML!=='undefined'&&__nfXML){
+            for(const t of ['XML','XMLList','Namespace','QName']){
+                if(value===__nfXML[t])return t;
+            }
+        }
+        if(typeof value==='function'){
+            const vt=Object.getOwnPropertyDescriptor(value,Symbol.for('neoflash.as3.vector.type.v1'));
+            if(vt?.value?.name)return 'Vector.<'+vt.value.name+'>';
+            if(typeof value.name==='string'&&Object.hasOwn(__nfErrorTypes,value.name)&&value===__nfErrorClass(value.name,true))return value.name;
+        }
+        const hostCls=__nfBuiltins.__nfNativeClassName?.(value);
+        if(hostCls)return hostCls;
         for(const name of nativeTypeNames)if(builtins[name]!==undefined&&builtins[name]===value)return name;
         return null;
     }
     function isInterface(value) {
-        const name = classFacades.get(value);
-        return Boolean(name && interfaces.has(name));
+        const name = classFacades.get(value) || __nfBuiltins.__nfNativeClassName?.(value);
+        return Boolean(name && (interfaces.has(name) || __nfBuiltins.__nfIsNativeInterface?.(name)));
     }
     function isClass(value) {return className(value)!==null&&!isInterface(value);}
     function constructClass(value,args) {
@@ -572,23 +602,47 @@ const __nfProgram = (() => {
         if(['Number','int','uint','Boolean'].includes(name))return __nfScalarCreate(name,args);
         if(name==='String')return __nfStringCreate(true,args);
         if(name==='Object')return __nfObjectCreate(true,args,true);
+        if(name==='Array')return __nfArrayCreate(true,args);
+        if(name==='Date')return new (__nfDateClass(true))(...args);
+        if(name==='RegExp')return new (__nfRegExpClass(true))(...args);
+        if(name==='flash.utils.Dictionary'&&typeof __nfDictionaryClass==='function')return new (__nfDictionaryClass(true))(...args);
+        if(name.startsWith('Vector.<')&&typeof value==='function')return new value(...args);
+        if(builtins[name]&&!definitions.has(name))return new builtins[name](...args);
         return construct(name,args);
     }
     function reflectionValue(value) {
         const name=className(value);
         if(name)return {kind:'class',name};
         if(identities.has(value)){
-            const name=identities.get(value);
-            return definitions.get(name)?.dialect==='as3'?{kind:'project',name}:{kind:'unsupported'};
+            const iname=identities.get(value);
+            return definitions.get(iname)?.dialect==='as3'?{kind:'project',name:iname}:{kind:'unsupported'};
         }
         if(prototypeOwners.has(value))return {kind:'object'};
         if(value===null)return {kind:'null'};
+        if(value===undefined)return {kind:'undefined'};
         const kind=typeof value;
-        if(['undefined','boolean','number','string','function'].includes(kind))return {kind};
+        if(kind==='boolean'||kind==='string'||kind==='function')return {kind};
+        if(kind==='number'){
+            const numName=(Number.isInteger(value)&&!Object.is(value,-0)&&value>=-2147483648&&value<=2147483647)?'int':'Number';
+            return {kind:'number',name:numName};
+        }
         if(__nfArrayIsArray(value))return {kind:'array'};
         if(__nfDateIs(value))return {kind:'date'};
         if(__nfRegExpIs(value))return {kind:'regexp'};
-        if(__nfBuiltins.__nfIsNativeDisplay?.(value))return {kind:'unsupported'};
+        if(typeof __nfVectorIs==='function'&&__nfVectorIs(value))return {kind:'native',name:'Vector.<'+__nfVectorState(value).element.name+'>'};
+        if(typeof __nfDictionaryIs==='function'&&__nfDictionaryIs(value))return {kind:'native',name:'flash.utils.Dictionary'};
+        if(typeof __nfXML!=='undefined'){
+            if(__nfXML.XML?.__nfIs?.(value))return {kind:'native',name:'XML'};
+            if(__nfXML.XMLList?.__nfIs?.(value))return {kind:'native',name:'XMLList'};
+            if(__nfXML.Namespace?.__nfIs?.(value))return {kind:'native',name:'Namespace'};
+            if(__nfXML.QName?.__nfIs?.(value))return {kind:'native',name:'QName'};
+            if(__nfXML.XMLDocument?.__nfIs?.(value))return {kind:'native',name:'flash.xml.XMLDocument'};
+            if(__nfXML.XMLNode?.__nfIs?.(value))return {kind:'native',name:'flash.xml.XMLNode'};
+        }
+        const nativeName=__nfBuiltins.__nfNativeTypeName?.(value);
+        if(nativeName)return {kind:'native',name:nativeName};
+        if(value instanceof Error&&typeof value.name==='string'&&Object.hasOwn(__nfErrorTypes,value.name))return {kind:'native',name:value.name};
+        if(__nfBuiltins.__nfIsNativeDisplay?.(value))return {kind:'native',name:'flash.display.DisplayObject'};
         const prototype=Object.getPrototypeOf(value);
         return {kind:prototype===Object.prototype||prototype===null?'object':'unsupported'};
     }
@@ -614,6 +668,32 @@ const __nfProgram = (() => {
         // toString override. Use the invocation receiver, preserving call/apply.
         return defaultObjectString;
     }
+    function harvestNativeClassDescriptor(qname) {
+        const Ctor=builtins[qname];
+        if(typeof Ctor!=='function'||definitions.has(qname)||reflectionInterfaces.has(qname))return null;
+        const members=[];
+        const scan=(holder,isStatic)=>{
+            if(!holder||(typeof holder!=='object'&&typeof holder!=='function'))return;
+            let descs;try{descs=Object.getOwnPropertyDescriptors(holder);}catch(_){return;}
+            for(const [k,d] of Object.entries(descs)){
+                if(!k||k.startsWith('__nf')||k==='constructor'||k==='prototype'||k==='length'||k==='name'||k==='arguments'||k==='caller')continue;
+                if(typeof d.get==='function'||typeof d.set==='function'){
+                    if(typeof d.get==='function')members.push({name:k,kind:'get',access:'public',static:isStatic,type:'*',parameters:[]});
+                    if(typeof d.set==='function')members.push({name:k,kind:'set',access:'public',static:isStatic,type:'*',parameters:[{type:'*',optional:false}]});
+                }else if(typeof d.value==='function'){
+                    const arity=Math.max(0,Math.min(16,Number(d.value.length)||0));
+                    const parameters=Array.from({length:arity},()=>({type:'*',optional:true}));
+                    members.push({name:k,kind:'method',access:'public',static:isStatic,type:'*',parameters});
+                }else if(isStatic&&d.value!==undefined&&(typeof d.value==='string'||typeof d.value==='number'||typeof d.value==='boolean')){
+                    const ty=typeof d.value==='string'?'String':typeof d.value==='boolean'?'Boolean':Number.isInteger(d.value)?'int':'Number';
+                    members.push({name:k,kind:d.writable?'variable':'constant',access:'public',static:true,type:ty,parameters:[]});
+                }
+            }
+        };
+        scan(Ctor,true);
+        if(Ctor.prototype&&Ctor.prototype!==Object.prototype&&Ctor.prototype!==Function.prototype)scan(Ctor.prototype,false);
+        return {name:qname,base:null,public:true,dynamic:false,final:false,interface:Boolean(__nfBuiltins.__nfIsNativeInterface?.(qname)),interfaces:[],members,constructor:[]};
+    }
     function reflect(operation,args) {
         if(args.length!==1)throw new TypeError(`${operation} expects exactly one argument in the source reflection profile.`);
         if(typeof __nfBuiltins.__nfObjectExecute!=='function')throw new TypeError('Rust Object reflection is unavailable; rebuild and re-export this project.');
@@ -622,8 +702,16 @@ const __nfProgram = (() => {
         const request={op:operation,classes:metadata};
         if(operation==='getDefinitionByName') {
             if(typeof args[0]!=='string')throw new TypeError('getDefinitionByName currently requires a primitive String name.');
-            request.name=args[0];request.definitions=[...nativeTypeNames.filter(name=>builtins[name]!==undefined),'Number','int','uint','Boolean','String'];
-        } else request.value=reflectionValue(args[0]);
+            const hostDefs=Object.keys(builtins).filter(k=>!k.startsWith('__nf')&&typeof builtins[k]==='function'&&Boolean(__nfBuiltins.__nfNativeClassName?.(builtins[k])));
+            request.name=args[0];
+            request.definitions=[...new Set([...nativeTypeNames.filter(name=>builtins[name]!==undefined),...hostDefs,'Object','Number','int','uint','Boolean','String','Array','Date','RegExp','Math','JSON','Class','Function','XML','XMLList','Namespace','QName','flash.utils.Dictionary',...Object.keys(__nfErrorTypes)])];
+        } else {
+            request.value=reflectionValue(args[0]);
+            if(operation==='describeType'&&request.value?.name){
+                const desc=harvestNativeClassDescriptor(request.value.name);
+                if(desc)request.native_classes=[desc];
+            }
+        }
         let result;
         try{result=__nfBuiltins.__nfObjectExecute(request);}
         catch(error){throw operation==='getDefinitionByName'?new ReferenceError(String(error?.message||error)):new TypeError(String(error?.message||error));}

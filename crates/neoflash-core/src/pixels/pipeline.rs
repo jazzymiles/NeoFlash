@@ -593,6 +593,71 @@ impl crate::Player {
             MaskCoverage::new(project, &snapshot.clips).ok()
         };
 
+        let sample_rgba = |bytes: &[u8],
+                           bw: u32,
+                           bh: u32,
+                           u: f64,
+                           v: f64,
+                           repeat: bool,
+                           smooth: bool|
+         -> [u8; 4] {
+            let (fw, fh) = (f64::from(bw), f64::from(bh));
+            let fetch = |mut x: i64, mut y: i64| -> [u8; 4] {
+                if repeat {
+                    x = x.rem_euclid(i64::from(bw));
+                    y = y.rem_euclid(i64::from(bh));
+                } else {
+                    x = x.clamp(0, i64::from(bw) - 1);
+                    y = y.clamp(0, i64::from(bh) - 1);
+                }
+                let idx = (y as usize * bw as usize + x as usize) * 4;
+                bytes
+                    .get(idx..idx + 4)
+                    .map_or([0; 4], |s| [s[0], s[1], s[2], s[3]])
+            };
+            if !smooth {
+                let mut bx = u;
+                let mut by = v;
+                if repeat {
+                    bx = bx.rem_euclid(fw);
+                    by = by.rem_euclid(fh);
+                } else {
+                    bx = bx.clamp(0.0, fw - 1.0);
+                    by = by.clamp(0.0, fh - 1.0);
+                }
+                return fetch(bx.floor() as i64, by.floor() as i64);
+            }
+            let fx = u - 0.5;
+            let fy = v - 0.5;
+            let x0 = fx.floor() as i64;
+            let y0 = fy.floor() as i64;
+            let wx = fx - x0 as f64;
+            let wy = fy - y0 as f64;
+            let p00 = fetch(x0, y0);
+            let p10 = fetch(x0 + 1, y0);
+            let p01 = fetch(x0, y0 + 1);
+            let p11 = fetch(x0 + 1, y0 + 1);
+            let w00 = (1.0 - wx) * (1.0 - wy);
+            let w10 = wx * (1.0 - wy);
+            let w01 = (1.0 - wx) * wy;
+            let w11 = wx * wy;
+            let a = f64::from(p00[3]) * w00
+                + f64::from(p10[3]) * w10
+                + f64::from(p01[3]) * w01
+                + f64::from(p11[3]) * w11;
+            if a <= 0.5 {
+                return [0; 4];
+            }
+            let ch = |c: usize| -> u8 {
+                let pm = f64::from(p00[c]) * f64::from(p00[3]) * w00
+                    + f64::from(p10[c]) * f64::from(p10[3]) * w10
+                    + f64::from(p01[c]) * f64::from(p01[3]) * w01
+                    + f64::from(p11[c]) * f64::from(p11[3]) * w11;
+                (pm / a).round().clamp(0.0, 255.0) as u8
+            };
+            [ch(0), ch(1), ch(2), a.round().clamp(0.0, 255.0) as u8]
+        };
+
         let sample_bitmap_paint = |bp: &BitmapPaint, lx: f64, ly: f64| -> [u8; 4] {
             let Ok(bytes) = self.bitmap_pixels(&bp.pixel_ref) else {
                 return [0; 4];
@@ -603,22 +668,9 @@ impl crate::Player {
             let Some(inv) = invert_affine(bp.matrix) else {
                 return [0; 4];
             };
-            let mut bx = inv[0] * lx + inv[2] * ly + inv[4];
-            let mut by = inv[1] * lx + inv[3] * ly + inv[5];
-            let (bw, bh) = (f64::from(bp.width), f64::from(bp.height));
-            if bp.repeat {
-                bx = bx.rem_euclid(bw);
-                by = by.rem_euclid(bh);
-            } else if bx < 0.0 || by < 0.0 || bx >= bw || by >= bh {
-                bx = bx.clamp(0.0, bw - 1.0);
-                by = by.clamp(0.0, bh - 1.0);
-            }
-            let ix = (bx.floor() as u32).min(bp.width - 1) as usize;
-            let iy = (by.floor() as u32).min(bp.height - 1) as usize;
-            let idx = (iy * bp.width as usize + ix) * 4;
-            bytes
-                .get(idx..idx + 4)
-                .map_or([0; 4], |s| [s[0], s[1], s[2], s[3]])
+            let bx = inv[0] * lx + inv[2] * ly + inv[4];
+            let by = inv[1] * lx + inv[3] * ly + inv[5];
+            sample_rgba(&bytes, bp.width, bp.height, bx, by, bp.repeat, bp.smoothing)
         };
 
         let paint_over_pixel = |dst: &mut [u8], straight_src: [u8; 4], clip_a: f64| {
@@ -1001,6 +1053,7 @@ impl crate::Player {
                     pixel_ref,
                     width: bw,
                     height: bh,
+                    smoothing: bmp_smooth,
                     color_transform,
                     ..
                 } => {
@@ -1024,14 +1077,10 @@ impl crate::Player {
                             let ly = inv[1] * wx + inv[3] * wy + inv[5];
                             if lx >= 0.0 && ly >= 0.0 && lx < f64::from(*bw) && ly < f64::from(*bh)
                             {
-                                let ix = (lx.floor() as u32).min(*bw - 1) as usize;
-                                let iy = (ly.floor() as u32).min(*bh - 1) as usize;
-                                let bi = (iy * *bw as usize + ix) * 4;
-                                if let Some(src) = bytes.get(bi..bi + 4) {
-                                    let c = color_transform.apply([src[0], src[1], src[2], src[3]]);
-                                    let idx = (py as usize * width as usize + px as usize) * 4;
-                                    paint_over_pixel(&mut buf[idx..idx + 4], c, ca);
-                                }
+                                let src = sample_rgba(&bytes, *bw, *bh, lx, ly, false, *bmp_smooth);
+                                let c = color_transform.apply(src);
+                                let idx = (py as usize * width as usize + px as usize) * 4;
+                                paint_over_pixel(&mut buf[idx..idx + 4], c, ca);
                             }
                         }
                     }

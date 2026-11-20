@@ -145,9 +145,12 @@
     for(const[Type,predicate]of [[Namespace,v=>namespaces.has(v)],[QName,v=>qnames.has(v)]])Object.defineProperties(Type,{__nfIs:{value:predicate},__nfInitialize:{value:()=>unsupported('native subclassing')},[Symbol.hasInstance]:{value:predicate}});
     function selector(local='*',namespace=undefined,attribute=false,descendant=false){
       if(selectors.has(local)){if(namespace!==undefined||attribute||descendant)throw new TypeError('A selector descriptor cannot be nested.');return local;}
-      const q=qnameData(local),ns=namespaceData(namespace);let uri=namespace===null?null:namespace===undefined?(q?q.uri:local==='*'?null:attribute?'':defaultNamespace):ns?ns.uri:text(namespace);
-      const key=q?q.local:text(local);if(key.includes(':')||key.startsWith('@'))unsupported('colon/attribute strings as names; use QName or a compiled selector');
-      const result=Object.freeze({local:key,uri,prefix:ns?.prefix??q?.prefix,attribute:Boolean(attribute),descendant:Boolean(descendant)});selectors.add(result);return result;
+      const q=qnameData(local),ns=namespaceData(namespace);
+      let attrFlag=Boolean(attribute),rawLocal=q?q.local:text(local);
+      if(!q&&!attrFlag&&namespace===undefined&&rawLocal.startsWith('@')){attrFlag=true;rawLocal=rawLocal.slice(1);}
+      let uri=namespace===null?null:namespace===undefined?(q?q.uri:rawLocal==='*'?null:attrFlag?'':defaultNamespace):ns?ns.uri:text(namespace);
+      if(rawLocal.includes(':')||rawLocal.startsWith('@'))unsupported('colon/attribute strings as names; use QName or a compiled selector');
+      const result=Object.freeze({local:rawLocal,uri,prefix:ns?.prefix??q?.prefix,attribute:attrFlag,descendant:Boolean(descendant)});selectors.add(result);return result;
     }
     const indexOfKey=key=>typeof key==='number'&&Number.isInteger(key)&&key>=0&&key<4294967295?key:typeof key==='string'&&/^(0|[1-9]\d*)$/.test(key)&&Number(key)<4294967295?Number(key):null;
     function matches(n,key){return (key.local==='*'||n.name?.local===key.local)&&(key.uri===null||n.name?.uri===key.uri);}
@@ -220,9 +223,47 @@
       const matching=tx.children(parent).filter(n=>n.kind==='element'&&matches(n,s));if(matching.length>1)throw new TypeError('Empty XMLList target resolves to multiple parents.');
       const child=matching[0]||tx.track(node('element',logicalName(s,parent)));if(!matching.length)tx.setEdges(parent,[...tx.children(parent),child]);tx.members.set(r,[child]);return child;
     }
+    function replaceDescendants(tx,parent,s,content){
+      if(parent.kind!=='element')return;
+      if(s.attribute){
+        const visitAttr=el=>{
+          if(el.kind!=='element')return;
+          for(const attr of tx.attributes(el))if(matches(attr,s))tx.values.set(attr,content.scalar);
+          for(const child of tx.children(el))visitAttr(child);
+        };
+        visitAttr(parent);
+        return;
+      }
+      const scalar=!content.xml||(content.items.length===1&&['text','attribute'].includes(content.items[0].kind));
+      const visitElem=el=>{
+        if(el.kind!=='element')return;
+        const old=tx.children(el);
+        let changed=false;
+        const next=[];
+        for(const child of old){
+          if((s.local==='*'||child.kind==='element')&&matches(child,s)){
+            changed=true;
+            if(scalar&&child.kind==='element'){
+              const txt=content.scalar?tx.track(node('text',null,content.scalar)):null;
+              tx.setEdges(child,txt?[txt]:[]);
+              next.push(child);
+            }else if(content.xml){
+              for(const item of content.items)next.push(tx.track(clone(item.kind==='attribute'?node('text',null,item.value):item)));
+            }else if(content.scalar){
+              next.push(tx.track(node('text',null,content.scalar)));
+            }
+          }else{
+            visitElem(child);
+            next.push(child);
+          }
+        }
+        if(changed)tx.setEdges(el,next);
+      };
+      visitElem(parent);
+    }
     function replaceMatches(tx,parent,s,content){
       if(parent.kind!=='element')throw new TypeError('E4X child/attribute assignment requires an element.');
-      if(s.descendant)unsupported('direct descendant assignment; select an indexed item first');
+      if(s.descendant){replaceDescendants(tx,parent,s,content);return;}
       if(s.attribute){
         const old=tx.attributes(parent),matching=old.filter(n=>matches(n,s));if(s.local==='*'&&matching.length!==1)throw new TypeError('Wildcard attribute assignment requires exactly one existing attribute.');
         const first=matching[0]||tx.track(node('attribute',logicalName(s,parent,true)));tx.values.set(first,content.scalar);
@@ -237,7 +278,21 @@
       const position=matching.length?old.indexOf(matching[0]):old.length,next=old.filter(n=>!matching.includes(n));next.splice(position,0,...replacement);tx.setEdges(parent,next);
     }
     function writeIndex(value,index,input){
-      const content=prepared(input),r=state(value);if(r.kind!=='list')unsupported('indexed replacement of XML itself; use an XMLList selection');const tx=transaction(),items=tx.items(r).slice(),old=items[index];
+      const content=prepared(input),r=state(value);
+      if(r.kind==='legacy')unsupported('E4X indexed assignment on legacy XMLNode');
+      if(r.kind==='xml'){
+        if(index!==0)throw new TypeError('Out-of-bounds indexed assignment on XML requires an XMLList.');
+        const tx=transaction(),selfNode=r.nodes[0];
+        if(selfNode.kind==='attribute'){tx.values.set(selfNode,content.scalar);tx.commit();return input;}
+        if(!content.xml&&selfNode.kind==='element'){const child=content.scalar?[tx.track(node('text',null,content.scalar))]:[];tx.setEdges(selfNode,child);tx.commit();return input;}
+        if(selfNode.parent){
+          const replacement=content.xml?content.items.map(n=>tx.track(n.kind==='attribute'?node('text',null,n.value):n)):[tx.track(node('text',null,content.scalar))];
+          const siblings=tx.children(selfNode.parent).slice(),at=siblings.indexOf(selfNode);
+          if(at>=0){siblings.splice(at,1,...replacement);tx.setEdges(selfNode.parent,siblings);tx.commit();return input;}
+        }
+        throw new TypeError('Root XML node cannot be replaced in-place by an XMLList fragment.');
+      }
+      const tx=transaction(),items=tx.items(r).slice(),old=items[index];
       if(old){
         if(old.kind==='attribute'){tx.values.set(old,content.scalar);tx.commit();return input;}
         if(!content.xml&&old.kind==='element'){const child=content.scalar?[tx.track(node('text',null,content.scalar))]:[];tx.setEdges(old,child);tx.commit();return input;}
@@ -257,13 +312,42 @@
     }
     function write(value,key,input){
       const index=indexOfKey(key);if(index!==null)return writeIndex(value,index,input);
-      const s=selector(key),content=prepared(input);state(value);const tx=transaction(),parent=sourceForWrite(value,tx);replaceMatches(tx,parent,s,content);tx.commit();return input;
+      const s=selector(key),content=prepared(input),r=state(value),tx=transaction();
+      if(s.descendant){
+        for(const rootNode of tx.items(r))replaceDescendants(tx,rootNode,s,content);
+        tx.commit();return input;
+      }
+      const parent=sourceForWrite(value,tx);replaceMatches(tx,parent,s,content);tx.commit();return input;
+    }
+    function removeDescendants(tx,parent,s){
+      if(parent.kind!=='element')return;
+      if(s.attribute){
+        const attrs=tx.attributes(parent),filtered=attrs.filter(a=>!(a.kind==='attribute'&&matches(a,s)));
+        if(filtered.length!==attrs.length)tx.setEdges(parent,filtered,true);
+        for(const child of tx.children(parent))removeDescendants(tx,child,s);
+        return;
+      }
+      const old=tx.children(parent),filtered=[];
+      let changed=false;
+      for(const child of old){
+        if((s.local==='*'||child.kind==='element')&&matches(child,s)){changed=true;}
+        else{removeDescendants(tx,child,s);filtered.push(child);}
+      }
+      if(changed)tx.setEdges(parent,filtered,false);
     }
     function remove(value,key){
       const r=state(value),index=indexOfKey(key),tx=transaction();
-      if(index!==null){if(r.kind!=='list')unsupported('indexed deletion of XML itself; use an XMLList selection');const old=r.nodes[index];if(!old)return true;
-        if(old.parent)tx.setEdges(old.parent,(old.kind==='attribute'?tx.attributes(old.parent):tx.children(old.parent)).filter(n=>n!==old),old.kind==='attribute');tx.members.set(r,r.nodes.filter((_,i)=>i!==index));
-      }else{const s=selector(key);if(s.descendant)unsupported('direct descendant deletion; select an indexed item first');for(const parent of r.nodes){const old=s.attribute?tx.attributes(parent):tx.children(parent);tx.setEdges(parent,old.filter(n=>!((s.attribute||s.local==='*'||n.kind==='element')&&matches(n,s))),s.attribute);}}
+      if(r.kind==='legacy')unsupported('E4X delete on legacy XMLNode');
+      if(index!==null){
+        if(r.kind==='xml')return true;
+        const old=r.nodes[index];if(!old)return true;
+        if(old.parent)tx.setEdges(old.parent,(old.kind==='attribute'?tx.attributes(old.parent):tx.children(old.parent)).filter(n=>n!==old),old.kind==='attribute');
+        tx.members.set(r,r.nodes.filter((_,i)=>i!==index));
+      }else{
+        const s=selector(key);
+        if(s.descendant){for(const parent of r.nodes)removeDescendants(tx,parent,s);}
+        else{for(const parent of r.nodes){const old=s.attribute?tx.attributes(parent):tx.children(parent);tx.setEdges(parent,old.filter(n=>!((s.attribute||s.local==='*'||n.kind==='element')&&matches(n,s))),s.attribute);}}
+      }
       tx.commit();return true;
     }
     function literal(ir,thunks){
@@ -438,9 +522,13 @@
         get(target,key){state(value);if(key===Symbol.toStringTag)return type==='xml'?'XML':'XMLList';if(key===Symbol.toPrimitive)return hint=>{if(hint==='string')return stringOf(value);throw new TypeError('XML implicit primitive conversion is not supported; call toString() or toXMLString().');};if(typeof key==='symbol')return undefined;
           if(/^(0|[1-9]\d*)$/.test(key))return r.nodes[Number(key)]?wrapped(r.nodes[Number(key)]):undefined;
           if(Object.hasOwn(xmlMethods,key)){if(!r.methods.has(key))r.methods.set(key,(...args)=>xmlMethods[key](value,...args));return r.methods.get(key);}
-          if(key==='then')return undefined;unsupported(`property ${key}; use explicit child()/attribute() methods`);
+          if(key==='constructor')return type==='xml'?XML:XMLList;
+          if(key==='then'&&!xmlMethods.hasOwnProperty(value,'then'))return undefined;
+          return select(value,key);
         },
-        set(){unsupported('direct XML/XMLList property assignment; use tree methods');},deleteProperty(){unsupported('E4X delete syntax');},
+        set(_target,key,next){if(typeof key==='symbol')throw new TypeError('XML does not support Symbol properties.');write(value,key,next);return true;},
+        deleteProperty(_target,key){if(typeof key==='symbol')return false;return remove(value,key);},
+        has(target,key){state(value);if(typeof key==='symbol')return key in target;if(Object.hasOwn(xmlMethods,key)||key==='constructor')return true;return xmlMethods.hasOwnProperty(value,key);},
       });records.set(value,r);return value;
     }
     function XML(value=''){
