@@ -146,7 +146,11 @@
         return state.source!==null&&state.revision===field.revision?state.source:execute({op:'serialize_html',text:field.text,format:field.format,format_runs:field.format_runs||[]}).result;
       },set:value=>{
         const state=stateFor(ref);
-        if(renderProps.has(name)){state.render=execute({op:'field_render_set',state:state.render,name,value}).state;return value;}
+        if(renderProps.has(name)){
+          state.render=execute({op:'field_render_set',state:state.render,name,value}).state;
+          text.update(ref,{embed_fonts:state.render.embedFonts,anti_alias_type:state.render.antiAliasType,grid_fit_type:state.render.gridFitType,sharpness:state.render.sharpness,thickness:state.render.thickness});
+          return value;
+        }
         if(name==='autoSize'||name==='mouseWheelEnabled'){const field=text.info(ref);if(name==='autoSize'){if(value===true)value='left';if(value===false)value='none';if(!['none','left','center','right'].includes(value))throw new TypeError('autoSize requires none/left/center/right or Boolean.');}else if(typeof value!=='boolean')throw new TypeError('mouseWheelEnabled requires Boolean.');text.update(ref,{as2_viewport:{...field.as2_viewport,active:true,[name==='autoSize'?'auto_size':'mouse_wheel_enabled']:value}});return value;}
         if(name==='onScroller'){if(value!==null&&value!==undefined&&typeof value!=='function')throw new TypeError('onScroller requires a function or null.');state.onScroller=value;return value;}
         if(['background','backgroundColor','border','borderColor','scroll','hscroll'].includes(name)){
@@ -209,6 +213,8 @@
       }
       return execute({op:'font_list',candidates}).result;
     }
+    function currentRenderer(){return text.getRendererState?text.getRendererState():rendererState;}
+    function syncRenderer(next){rendererState=next;text.setRendererState?.(next);}
     class TextRenderer {
       constructor(){throw new TypeError('TextRenderer supplies static properties and methods and cannot be constructed.');}
       static setAdvancedAntialiasingTable(fontName,fontStyle,colorType,table){
@@ -220,16 +226,18 @@
           if(!item||typeof item!=='object')throw new TypeError('TextRenderer antialiasing entries require objects with fontSize, insideCutoff and outsideCutoff.');
           return {fontSize:Number(item.fontSize),insideCutoff:Number(item.insideCutoff),outsideCutoff:Number(item.outsideCutoff)};
         });
-        rendererState=execute({op:'renderer_table',state:rendererState,font_name:fontName,font_style:fontStyle,color_type:colorType,table:entries}).state;
+        const kernelStyle=fontStyle==='regular'?'none':fontStyle;
+        syncRenderer(execute({op:'renderer_table',state:currentRenderer(),font_name:fontName,font_style:kernelStyle,color_type:colorType,table:entries}).state);
       }
     }
+    TextRenderer.setAdvancedAntiAliasingTable=TextRenderer.setAdvancedAntialiasingTable;
     for(const name of ['displayMode','maxLevel']){
-      Object.defineProperty(TextRenderer,name,{enumerable:true,get(){active();return rendererState[name];},set(value){active();rendererState=execute({op:'renderer_set',state:rendererState,name,value}).state;}});
+      Object.defineProperty(TextRenderer,name,{enumerable:true,get(){active();return currentRenderer()[name];},set(value){active();syncRenderer(execute({op:'renderer_set',state:currentRenderer(),name,value}).state);}});
     }
     Object.defineProperties(TextRenderer,{__nfIs:{value:()=>false},__nfInitialize:{value:()=>{throw new TypeError('TextRenderer cannot be subclassed.');}}});
     Object.freeze(TextRenderer);
     function textEvent(ref,name,args){if(name==='onChanged'&&reflow(ref))text.notifyLayout(ref);if(!['onChanged','onScroller'].includes(name))return;const state=fields.get(ref);if(state?.broadcaster&&player.object_alive(ref))state.broadcaster.broadcastMessage(name,...args);}
-    function reset(){generation++;for(const operation of loads)try{operation.loader.close();}catch(_){}loads.clear();fields.clear();rendererState=defaultRenderer();broadcasters.reset();}
+    function reset(){generation++;for(const operation of loads)try{operation.loader.close();}catch(_){}loads.clear();fields.clear();syncRenderer(defaultRenderer());broadcasters.reset();}
     function dispose(){if(disposed)return;reset();broadcasters.dispose();disposed=true;}
     return Object.freeze({StyleSheet,TextSnapshot,TextRenderer,getFontList,snapshotFor,as2Ref,textEvent,wheel,link,execute,reset,dispose});
   }

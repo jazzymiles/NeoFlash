@@ -177,6 +177,18 @@ pub enum Request {
         color_type: String,
         table: Vec<AntialiasEntry>,
     },
+    RendererResolve {
+        #[serde(default)]
+        state: TextRendererState,
+        font_name: String,
+        #[serde(default)]
+        bold: bool,
+        #[serde(default)]
+        italic: bool,
+        #[serde(default)]
+        rgb: u32,
+        font_size: f64,
+    },
 }
 fn error(message: impl Into<String>) -> TextError {
     TextError(message.into())
@@ -1132,13 +1144,16 @@ pub fn execute(request: Request) -> Result<Value, TextError> {
                     state.display_mode = mode.into();
                 }
                 "maxLevel" => {
-                    let level =
-                        value
-                            .as_i64()
-                            .filter(|v| (0..=64).contains(v))
-                            .ok_or_else(|| {
-                                error("TextRenderer.maxLevel requires an integer in 0..=64")
-                            })? as i32;
+                    let level = value
+                        .as_i64()
+                        .map(|v| v.clamp(0, 64) as i32)
+                        .or_else(|| {
+                            value
+                                .as_f64()
+                                .filter(|v| v.is_finite())
+                                .map(|v| (v.trunc() as i64).clamp(0, 64) as i32)
+                        })
+                        .ok_or_else(|| error("TextRenderer.maxLevel requires a finite integer"))?;
                     state.max_level = level;
                 }
                 _ => return Err(error("Unknown TextRenderer property")),
@@ -1197,6 +1212,109 @@ pub fn execute(request: Request) -> Result<Value, TextError> {
             }
             state.tables.insert(key, table);
             Ok(json!({"state":state}))
+        }
+        Request::RendererResolve {
+            state,
+            font_name,
+            bold,
+            italic,
+            rgb,
+            font_size,
+        } => {
+            state.validate()?;
+            let clean_font = font_name.trim().trim_matches(['"', '\'']);
+            let style_key = match (bold, italic) {
+                (true, true) => "boldItalic",
+                (true, false) => "bold",
+                (false, true) => "italic",
+                (false, false) => "none",
+            };
+            let r = f64::from((rgb >> 16) & 255);
+            let g = f64::from((rgb >> 8) & 255);
+            let b = f64::from(rgb & 255);
+            let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            let color_type = if lum >= 128.0 { "light" } else { "dark" };
+            let sz = if font_size.is_finite() && font_size > 0.0 {
+                font_size
+            } else {
+                12.0
+            };
+
+            let exact_key = format!("{clean_font}\0{style_key}\0{color_type}");
+            let fallback_style_key = format!("{clean_font}\0none\0{color_type}");
+            let matched = state
+                .tables
+                .get(&exact_key)
+                .or_else(|| state.tables.get(&fallback_style_key))
+                .or_else(|| {
+                    let lower_font = clean_font.to_ascii_lowercase();
+                    state
+                        .tables
+                        .iter()
+                        .find(|(k, _)| {
+                            let mut parts = k.split('\0');
+                            let f = parts.next().unwrap_or("");
+                            let s = parts.next().unwrap_or("");
+                            let c = parts.next().unwrap_or("");
+                            f.to_ascii_lowercase() == lower_font
+                                && c == color_type
+                                && (s == style_key || s == "none")
+                        })
+                        .map(|(_, v)| v)
+                });
+
+            let mut has_csm = false;
+            let mut inside = 0.5f64;
+            let mut outside = -0.5f64;
+            if let Some(entries) = matched
+                && !entries.is_empty()
+            {
+                has_csm = true;
+                let mut sorted = entries.clone();
+                sorted.sort_by(|a, b| a.font_size.total_cmp(&b.font_size));
+                if sz <= sorted[0].font_size || sorted.len() == 1 {
+                    inside = sorted[0].inside_cutoff;
+                    outside = sorted[0].outside_cutoff;
+                } else if sz >= sorted.last().unwrap().font_size {
+                    let last = sorted.last().unwrap();
+                    inside = last.inside_cutoff;
+                    outside = last.outside_cutoff;
+                } else {
+                    for pair in sorted.windows(2) {
+                        if sz >= pair[0].font_size && sz <= pair[1].font_size {
+                            let span = (pair[1].font_size - pair[0].font_size).max(1e-6);
+                            let t = ((sz - pair[0].font_size) / span).clamp(0.0, 1.0);
+                            inside = pair[0].inside_cutoff
+                                + (pair[1].inside_cutoff - pair[0].inside_cutoff) * t;
+                            outside = pair[0].outside_cutoff
+                                + (pair[1].outside_cutoff - pair[0].outside_cutoff) * t;
+                            break;
+                        }
+                    }
+                }
+            }
+            let stroke_delta = if has_csm {
+                ((inside + outside) * 0.5).clamp(-1.5, 1.5)
+            } else {
+                0.0
+            };
+            let contrast_scale = if has_csm {
+                (1.0 + (inside - outside - 1.0) * 0.25).clamp(0.5, 1.6)
+            } else {
+                1.0
+            };
+            let aa_levels = 1u32 << (state.max_level.clamp(0, 8) as u32);
+            Ok(json!({
+                "displayMode": state.display_mode,
+                "maxLevel": state.max_level,
+                "aaLevels": aa_levels,
+                "hasCsm": has_csm,
+                "insideCutoff": inside,
+                "outsideCutoff": outside,
+                "strokeDelta": stroke_delta,
+                "contrastScale": contrast_scale,
+                "colorType": color_type,
+            }))
         }
     }
 }

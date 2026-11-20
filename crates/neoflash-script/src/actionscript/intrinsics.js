@@ -917,6 +917,26 @@ function __nfInstallWave7Legacy(legacy, frame) {
         frame.createTextField = legacy.MovieClip.prototype.createTextField;
     }
 
+    if (!legacy.Stage) {
+        legacy.Stage = {
+            width: 550,
+            height: 400,
+            scaleMode: 'showAll',
+            align: '',
+            showMenu: true,
+            displayState: 'normal',
+            _listeners: [],
+            addListener(l) { if (l && !this._listeners.includes(l)) this._listeners.push(l); },
+            removeListener(l) { const i = this._listeners.indexOf(l); if (i < 0) return false; this._listeners.splice(i, 1); return true; },
+        };
+    }
+    if (legacy.Stage && Object.isExtensible(legacy.Stage) && !Object.getOwnPropertyDescriptor(legacy.Stage, 'wmodeGPU')) {
+        __nfSafeDefine(legacy.Stage, 'wmodeGPU', {
+            get() { return Boolean(legacy.Stage._wmodeGPU ?? false); },
+            set() { throw new __nfTypeError('Stage.wmodeGPU is read-only.'); },
+        });
+    }
+
     if (!legacy.TextRenderer) {
         const csmTables = {};
         let displayMode = 'default';
@@ -929,8 +949,8 @@ function __nfInstallWave7Legacy(legacy, frame) {
             },
             get maxLevel() { return maxLevel; },
             set maxLevel(v) {
-                const n = Number(v) | 0;
-                if (n >= 0) maxLevel = n;
+                const n = Number(v);
+                if (!Number.isNaN(n)) maxLevel = Math.max(0, Math.min(64, Math.trunc(n)));
             },
             tables: csmTables,
             setAdvancedAntialiasingTable(fontName, fontStyle, colorType, table) {
@@ -2514,6 +2534,9 @@ const __nfWave7Registry = (() => {
         stageVideos: [{ videoWidth: 1920, videoHeight: 1080, viewPort: new Rectangle(0, 0, 1920, 1080) }],
         colorCorrection: ColorCorrection.DEFAULT,
         colorCorrectionSupport: ColorCorrectionSupport.DEFAULT_ON,
+        quality: 'HIGH',
+        wmodeGPU: false,
+        mouseLock: false,
         stageWidth: 1920,
         stageHeight: 1080,
         __nfIs: (v) => v === Stage || Boolean(v && 'softKeyboardRect' in v && 'stageVideos' in v),

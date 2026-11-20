@@ -206,13 +206,13 @@
       set objectEncoding(value){state(this).objectEncoding=encoding(value);}
       writeObject(value){
         const record=state(this);if(!objectCodec)unsupported('writeObject without the shared Rust AMF codec');
-        const position=record.position,version=record.generation,bytes=objectCodec.encode(value,record.objectEncoding);
+        const position=record.position,version=record.generation,bytes=objectCodec.encode(value,record.objectEncoding,{endian:this.endian});
         if(state(this)!==record||record.generation!==version||record.position!==position)throw new Error('ByteArray changed during AMF serialization.');
         const end=writeEnd(position,bytes.length);extend(record,end);record.bytes.set(bytes,position);record.position=end;
       }
       readObject(){
         const record=state(this);if(!objectCodec)unsupported('readObject without the shared Rust AMF codec');
-        const result=objectCodec.decode(record.bytes.subarray(record.position,record.length),record.objectEncoding);
+        const result=objectCodec.decode(record.bytes.subarray(record.position,record.length),record.objectEncoding,{endian:this.endian});
         record.position+=result.consumed;return result.value;
       }
       readBoolean(){return readNumber(this,1,'getUint8')!==0;}

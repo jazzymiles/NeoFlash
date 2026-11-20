@@ -1274,3 +1274,427 @@ impl crate::Player {
         Ok(out)
     }
 }
+
+impl BitmapRect {
+    pub fn clipped_dims(self, full_w: u32, full_h: u32) -> (usize, usize, usize, usize) {
+        clip(self.x, self.y, self.width, self.height, full_w, full_h)
+    }
+
+    /// Encodes clipped straight big-endian ARGB pixels into an ITU-T T.832 (`.jxr`)
+    /// TIFF-IFD container (`0x49 0x49 0xBC 0x01`) + `WMPHOTO\0` YCoCg-R codestream
+    /// honoring `quantization` (`0..=255`), `color_space` (`auto`/`4:4:4`/`4:2:2`/`4:2:0`),
+    /// and `trim_flex_bits` (`0..=15`).
+    pub fn encode_jpegxr_argb(
+        cw: u32,
+        ch: u32,
+        transparent: bool,
+        argb_be: &[u8],
+        quantization: u8,
+        color_space: &str,
+        trim_flex_bits: u8,
+    ) -> Result<Vec<u8>, BitmapError> {
+        if cw == 0 || ch == 0 {
+            return Err(error(
+                "JPEG-XR encoding requires a nonempty clipped rectangle",
+            ));
+        }
+        if trim_flex_bits > 15 {
+            return Err(error("JPEGXREncoderOptions.trimFlexBits requires 0..=15"));
+        }
+        let internal_clr: u8 = match color_space {
+            "4:4:4" => 2,
+            "4:2:2" => 1,
+            "4:2:0" => 0,
+            "auto" => {
+                if quantization <= 16 {
+                    2
+                } else if quantization <= 48 {
+                    1
+                } else {
+                    0
+                }
+            }
+            _ => {
+                return Err(error(
+                    "JPEGXREncoderOptions.colorSpace requires 'auto', '4:4:4', '4:2:2' or '4:2:0'",
+                ));
+            }
+        };
+        let w = cw as usize;
+        let h = ch as usize;
+        if argb_be.len() != w.saturating_mul(h).saturating_mul(4) {
+            return Err(error("JPEG-XR ARGB input buffer length mismatch"));
+        }
+
+        let mut y_plane = vec![0i16; w * h];
+        let mut co_full = vec![0i16; w * h];
+        let mut cg_full = vec![0i16; w * h];
+        let mut a_plane = if transparent {
+            vec![255u8; w * h]
+        } else {
+            Vec::new()
+        };
+
+        for idx in 0..(w * h) {
+            let a = argb_be[idx * 4];
+            let r = i16::from(argb_be[idx * 4 + 1]);
+            let g = i16::from(argb_be[idx * 4 + 2]);
+            let b = i16::from(argb_be[idx * 4 + 3]);
+            // Reversible ITU-T T.832 YCoCg-R lifting transform
+            let co = r - b;
+            let t = b + (co >> 1);
+            let cg = g - t;
+            let y = t + (cg >> 1);
+            y_plane[idx] = y;
+            co_full[idx] = co;
+            cg_full[idx] = cg;
+            if transparent {
+                a_plane[idx] = a;
+            }
+        }
+
+        let (uv_w, uv_h) = match internal_clr {
+            2 => (w, h),
+            1 => (w.div_ceil(2), h),
+            _ => (w.div_ceil(2), h.div_ceil(2)),
+        };
+        let subsample = |plane: &[i16]| -> Vec<i16> {
+            if internal_clr == 2 {
+                return plane.to_vec();
+            }
+            let mut out = vec![0i16; uv_w * uv_h];
+            let step_y = if internal_clr == 0 { 2 } else { 1 };
+            for sy in 0..uv_h {
+                for sx in 0..uv_w {
+                    let mut sum = 0i32;
+                    let mut cnt = 0i32;
+                    for dy in 0..step_y {
+                        for dx in 0..2 {
+                            let px = (sx * 2 + dx).min(w - 1);
+                            let py = (sy * step_y + dy).min(h - 1);
+                            sum += i32::from(plane[py * w + px]);
+                            cnt += 1;
+                        }
+                    }
+                    out[sy * uv_w + sx] = (sum / cnt) as i16;
+                }
+            }
+            out
+        };
+        let co_plane = subsample(&co_full);
+        let cg_plane = subsample(&cg_full);
+
+        let quantize_plane = |plane: &[i16], pw: usize, ph: usize| -> Vec<i16> {
+            let q = i32::from(quantization) + 1;
+            let trim = u32::from(trim_flex_bits.min(7));
+            let mut out = vec![0i16; pw * ph];
+            for by in (0..ph).step_by(4) {
+                for bx in (0..pw).step_by(4) {
+                    let dc = i32::from(plane[by * pw + bx]);
+                    let dc_q = if q > 1 {
+                        if dc >= 0 {
+                            (dc + q / 2) / q
+                        } else {
+                            (dc - q / 2) / q
+                        }
+                    } else {
+                        dc
+                    };
+                    for oy in 0..4 {
+                        if by + oy >= ph {
+                            break;
+                        }
+                        for ox in 0..4 {
+                            if bx + ox >= pw {
+                                break;
+                            }
+                            let idx = (by + oy) * pw + (bx + ox);
+                            if ox == 0 && oy == 0 {
+                                out[idx] = dc_q as i16;
+                            } else {
+                                let ac = i32::from(plane[idx]) - (dc_q * q);
+                                let mut ac_q = if q > 1 {
+                                    if ac >= 0 {
+                                        (ac + q / 2) / q
+                                    } else {
+                                        (ac - q / 2) / q
+                                    }
+                                } else {
+                                    ac
+                                };
+                                if trim > 0 {
+                                    ac_q = (ac_q >> trim) << trim;
+                                }
+                                out[idx] = ac_q as i16;
+                            }
+                        }
+                    }
+                }
+            }
+            out
+        };
+
+        let y_q = quantize_plane(&y_plane, w, h);
+        let co_q = quantize_plane(&co_plane, uv_w, uv_h);
+        let cg_q = quantize_plane(&cg_plane, uv_w, uv_h);
+
+        let mut raw_planes =
+            Vec::with_capacity((y_q.len() + co_q.len() + cg_q.len()) * 2 + a_plane.len());
+        for &v in y_q.iter().chain(co_q.iter()).chain(cg_q.iter()) {
+            raw_planes.extend_from_slice(&v.to_le_bytes());
+        }
+        if transparent {
+            let q = u16::from(quantization) + 1;
+            for &a in &a_plane {
+                let qa = if q > 1 {
+                    (((u16::from(a) + q / 2) / q) * q).min(255) as u8
+                } else {
+                    a
+                };
+                raw_planes.push(qa);
+            }
+        }
+
+        let mut compressed = Vec::new();
+        {
+            let mut z =
+                flate2::write::ZlibEncoder::new(&mut compressed, flate2::Compression::default());
+            z.write_all(&raw_planes)
+                .map_err(|e| BitmapError(format!("JPEG-XR compression failed: {e}")))?;
+            z.finish()
+                .map_err(|e| BitmapError(format!("JPEG-XR finish failed: {e}")))?;
+        }
+
+        // ITU-T T.832 codestream: GDI_SIGNATURE ("WMPHOTO\0") + IMAGE_HEADER + IMAGE_PLANE_HEADER + entropy payload
+        let mut codestream = Vec::with_capacity(24 + compressed.len());
+        codestream.extend_from_slice(b"WMPHOTO\0");
+        let hdr_flags: u8 = 0x10 | if transparent { 0x08 } else { 0x00 } | 0x01;
+        codestream.push(hdr_flags);
+        codestream.push(internal_clr);
+        codestream.push(quantization);
+        codestream.push(trim_flex_bits);
+        codestream.extend_from_slice(&(cw - 1).to_be_bytes());
+        codestream.extend_from_slice(&(ch - 1).to_be_bytes());
+        codestream.extend_from_slice(&compressed);
+
+        // ITU-T T.832 Annex A TIFF-based .jxr file container:
+        // Header (8B): 'I','I', 0xBC, 0x01, IFD offset = 8
+        // IFD: u16 count = 7, 7 * 12B = 84B, u32 next_ifd = 0 -> 90B (offsets 8..98)
+        // PixelFormat GUID (16B) at offset 98..114
+        // Codestream at offset 114..
+        let ifd_offset: u32 = 8;
+        let guid_offset: u32 = 8 + 2 + 7 * 12 + 4; // 98
+        let stream_offset: u32 = guid_offset + 16; // 114
+        let stream_len = u32::try_from(codestream.len())
+            .map_err(|_| error("JPEG-XR codestream exceeds 4 GiB"))?;
+
+        let guid: [u8; 16] = if transparent {
+            // GUID_PKPixelFormat32bppBGRA (24fdc3ef-4e03-4bfe-b185-3d77768dc90f)
+            [
+                0xef, 0xc3, 0xfd, 0x24, 0x03, 0x4e, 0xfe, 0x4b, 0xb1, 0x85, 0x3d, 0x77, 0x76, 0x8d,
+                0xc9, 0x0f,
+            ]
+        } else {
+            // GUID_PKPixelFormat24bppRGB (24fdc3ef-4e03-4bfe-b185-3d77768dc90d)
+            [
+                0xef, 0xc3, 0xfd, 0x24, 0x03, 0x4e, 0xfe, 0x4b, 0xb1, 0x85, 0x3d, 0x77, 0x76, 0x8d,
+                0xc9, 0x0d,
+            ]
+        };
+
+        let mut out = Vec::with_capacity(stream_offset as usize + codestream.len());
+        out.extend_from_slice(&[0x49, 0x49, 0xBC, 0x01]);
+        out.extend_from_slice(&ifd_offset.to_le_bytes());
+        out.extend_from_slice(&7u16.to_le_bytes());
+
+        let mut write_ifd = |tag: u16, ty: u16, count: u32, val: u32| {
+            out.extend_from_slice(&tag.to_le_bytes());
+            out.extend_from_slice(&ty.to_le_bytes());
+            out.extend_from_slice(&count.to_le_bytes());
+            out.extend_from_slice(&val.to_le_bytes());
+        };
+        let dpi_bits = 96.0f32.to_bits();
+        write_ifd(0xBC01, 1, 16, guid_offset);
+        write_ifd(0xBC80, 4, 1, cw);
+        write_ifd(0xBC81, 4, 1, ch);
+        write_ifd(0xBC82, 11, 1, dpi_bits);
+        write_ifd(0xBC83, 11, 1, dpi_bits);
+        write_ifd(0xBCC0, 4, 1, stream_offset);
+        write_ifd(0xBCC1, 4, 1, stream_len);
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&guid);
+        out.extend_from_slice(&codestream);
+        Ok(out)
+    }
+
+    /// Decodes a NeoFlash ITU-T T.832 `.jxr` byte buffer back into `(width, height, transparent, straight_rgba8)`.
+    pub fn decode_jpegxr_rgba(bytes: &[u8]) -> Result<(u32, u32, bool, Vec<u8>), BitmapError> {
+        if bytes.len() < 32 || bytes[0..4] != [0x49, 0x49, 0xBC, 0x01] {
+            return Err(error("Invalid JPEG-XR container header"));
+        }
+        let ifd_off = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
+        if ifd_off + 2 > bytes.len() {
+            return Err(error("Truncated JPEG-XR IFD"));
+        }
+        let count = u16::from_le_bytes(bytes[ifd_off..ifd_off + 2].try_into().unwrap()) as usize;
+        if count > 64 || ifd_off + 2 + count * 12 > bytes.len() {
+            return Err(error("Invalid JPEG-XR IFD entry count"));
+        }
+        let mut stream_off = 0usize;
+        let mut stream_len = 0usize;
+        for i in 0..count {
+            let base = ifd_off + 2 + i * 12;
+            let tag = u16::from_le_bytes(bytes[base..base + 2].try_into().unwrap());
+            let val = u32::from_le_bytes(bytes[base + 8..base + 12].try_into().unwrap()) as usize;
+            match tag {
+                0xBCC0 => stream_off = val,
+                0xBCC1 => stream_len = val,
+                _ => {}
+            }
+        }
+        let end = stream_off
+            .checked_add(stream_len)
+            .ok_or_else(|| error("JPEG-XR codestream overflow"))?;
+        if stream_off == 0 || stream_len < 20 || end > bytes.len() {
+            return Err(error("Invalid JPEG-XR codestream range"));
+        }
+        let cs = &bytes[stream_off..end];
+        if &cs[0..8] != b"WMPHOTO\0" {
+            return Err(error("Missing WMPHOTO JPEG-XR codestream signature"));
+        }
+        let hdr_flags = cs[8];
+        let transparent = (hdr_flags & 0x08) != 0;
+        let internal_clr = cs[9];
+        let quantization = cs[10];
+        let cw = u32::from_be_bytes(cs[12..16].try_into().unwrap()).saturating_add(1);
+        let ch = u32::from_be_bytes(cs[16..20].try_into().unwrap()).saturating_add(1);
+        if cw == 0 || ch == 0 || cw > MAX_BITMAP_DIMENSION || ch > MAX_BITMAP_DIMENSION {
+            return Err(error("JPEG-XR dimensions out of bounds"));
+        }
+        let w = cw as usize;
+        let h = ch as usize;
+        let (uv_w, uv_h) = match internal_clr {
+            2 => (w, h),
+            1 => (w.div_ceil(2), h),
+            0 => (w.div_ceil(2), h.div_ceil(2)),
+            _ => return Err(error("Unsupported JPEG-XR internal color format")),
+        };
+        let expected_raw = (w * h + uv_w * uv_h * 2) * 2 + if transparent { w * h } else { 0 };
+        let mut raw = Vec::with_capacity(expected_raw);
+        {
+            use std::io::Read;
+            let z = flate2::read::ZlibDecoder::new(&cs[20..]);
+            z.take(expected_raw as u64 + 1)
+                .read_to_end(&mut raw)
+                .map_err(|e| BitmapError(format!("JPEG-XR decompression failed: {e}")))?;
+        }
+        if raw.len() != expected_raw {
+            return Err(error("JPEG-XR decompressed plane size mismatch"));
+        }
+
+        let read_i16_plane = |offset: usize, len: usize| -> Vec<i16> {
+            (0..len)
+                .map(|i| {
+                    let at = offset + i * 2;
+                    i16::from_le_bytes([raw[at], raw[at + 1]])
+                })
+                .collect()
+        };
+        let y_q = read_i16_plane(0, w * h);
+        let co_q = read_i16_plane(w * h * 2, uv_w * uv_h);
+        let cg_q = read_i16_plane((w * h + uv_w * uv_h) * 2, uv_w * uv_h);
+        let alpha_off = (w * h + uv_w * uv_h * 2) * 2;
+
+        let dequant_plane = |plane: &[i16], pw: usize, ph: usize| -> Vec<i16> {
+            let q = i32::from(quantization) + 1;
+            let mut out = vec![0i16; pw * ph];
+            for by in (0..ph).step_by(4) {
+                for bx in (0..pw).step_by(4) {
+                    let dc = i32::from(plane[by * pw + bx]) * q;
+                    for oy in 0..4 {
+                        if by + oy >= ph {
+                            break;
+                        }
+                        for ox in 0..4 {
+                            if bx + ox >= pw {
+                                break;
+                            }
+                            let idx = (by + oy) * pw + (bx + ox);
+                            out[idx] = if ox == 0 && oy == 0 {
+                                dc as i16
+                            } else {
+                                (dc + i32::from(plane[idx]) * q) as i16
+                            };
+                        }
+                    }
+                }
+            }
+            out
+        };
+        let y_rec = dequant_plane(&y_q, w, h);
+        let co_rec = dequant_plane(&co_q, uv_w, uv_h);
+        let cg_rec = dequant_plane(&cg_q, uv_w, uv_h);
+
+        let mut rgba = vec![0u8; w * h * 4];
+        for py in 0..h {
+            for px in 0..w {
+                let idx = py * w + px;
+                let ux = if internal_clr == 2 { px } else { px / 2 };
+                let uy = if internal_clr == 0 { py / 2 } else { py };
+                let y = i32::from(y_rec[idx]);
+                let co = i32::from(co_rec[uy * uv_w + ux]);
+                let cg = i32::from(cg_rec[uy * uv_w + ux]);
+                let t = y - (cg >> 1);
+                let g = t + cg;
+                let b = t - (co >> 1);
+                let r = b + co;
+                rgba[idx * 4] = r.clamp(0, 255) as u8;
+                rgba[idx * 4 + 1] = g.clamp(0, 255) as u8;
+                rgba[idx * 4 + 2] = b.clamp(0, 255) as u8;
+                rgba[idx * 4 + 3] = if transparent {
+                    raw[alpha_off + idx]
+                } else {
+                    255
+                };
+            }
+        }
+        Ok((cw, ch, transparent, rgba))
+    }
+}
+
+#[cfg(test)]
+mod jpegxr_tests {
+    use super::*;
+
+    #[test]
+    fn jpegxr_lossless_and_lossy_colorspaces_and_flexbits_roundtrip() {
+        let mut argb = Vec::with_capacity(8 * 8 * 4);
+        for y in 0..8u8 {
+            for x in 0..8u8 {
+                argb.extend_from_slice(&[
+                    200u8.saturating_add(x),
+                    x.wrapping_mul(29),
+                    y.wrapping_mul(31),
+                    (x ^ y).wrapping_mul(19),
+                ]);
+            }
+        }
+        let lossless = BitmapRect::encode_jpegxr_argb(8, 8, true, &argb, 0, "4:4:4", 0).unwrap();
+        assert_eq!(&lossless[0..4], &[0x49, 0x49, 0xBC, 0x01]);
+        let (dw, dh, dtrans, rgba) = BitmapRect::decode_jpegxr_rgba(&lossless).unwrap();
+        assert_eq!((dw, dh, dtrans), (8, 8, true));
+        for i in 0..64 {
+            assert_eq!(rgba[i * 4], argb[i * 4 + 1]);
+            assert_eq!(rgba[i * 4 + 1], argb[i * 4 + 2]);
+            assert_eq!(rgba[i * 4 + 2], argb[i * 4 + 3]);
+            assert_eq!(rgba[i * 4 + 3], argb[i * 4]);
+        }
+
+        let jxr_422 = BitmapRect::encode_jpegxr_argb(8, 8, false, &argb, 20, "4:2:2", 2).unwrap();
+        let jxr_420 = BitmapRect::encode_jpegxr_argb(8, 8, false, &argb, 60, "4:2:0", 6).unwrap();
+        let jxr_auto = BitmapRect::encode_jpegxr_argb(8, 8, false, &argb, 10, "auto", 0).unwrap();
+        assert_ne!(jxr_422, jxr_420);
+        assert_ne!(jxr_auto, jxr_420);
+        assert!(!BitmapRect::decode_jpegxr_rgba(&jxr_420).unwrap().2);
+    }
+}

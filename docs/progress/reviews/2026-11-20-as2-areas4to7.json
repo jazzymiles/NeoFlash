@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "2bd37ac2ebfde4551d82b782df6c88a9bc96d791dc25679cccc912da26dbadcc",
+  "reviews": [
+    {
+      "id": "AS2-AREAS4TO7-20261120",
+      "date": "2026-11-20",
+      "commit": "a578880b117bc7ea1c5e43d3bd825900ab48b6e2",
+      "title": "Close AS2 Areas 4-6 Stage.wmodeGPU and TextRenderer plus Area 7 NetStream.getInfo",
+      "summary": "Wires Stage.wmodeGPU across Rust ScriptAS2Stage and GPU layer promotion, exposes flash.text.TextRenderer (displayMode, maxLevel, setAdvancedAntialiasingTable) with continuous stroke modulation, and upgrades NetStream.getInfo() with rolling/peak byte rates, channel/data byte counts, buffer lengths, and dropped-frame snapshots.",
+      "tests": [
+        "crates/neoflash-core/src/as2_stage.rs",
+        "crates/neoflash-core/src/as2_text.rs",
+        "crates/neoflash-core/src/as2_media.rs",
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "web/tests/text-graphemes-ime.test.cjs",
+        "web/tests/media-netstream.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:Stage.html#wmodeGPU",
+          "status": "working",
+          "note": "Read-only Boolean property on Stage backed by ScriptAS2Stage configure_gpu: returns false on 2D Canvas/DOM and true when GPU/WebGL wmode compositing is active."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#class",
+          "status": "working",
+          "note": "Exposes flash.text.TextRenderer in AS2 publications and _global.flash.text.TextRenderer backed by shared Rust TextRendererState and CSM interpolation."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#displayMode",
+          "status": "working",
+          "note": "Reads and sets static TextRenderer.displayMode ('default', 'lcd', 'crt') validated by Rust TextRendererState and drives LCD RGB subpixel and CRT bloom text rendering."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#maxLevel",
+          "status": "working",
+          "note": "Reads and sets static TextRenderer.maxLevel clamped to 0..64 (default 4), disabling stroke smoothing at 0 and scaling antialiasing passes with higher levels."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#setAdvancedAntialiasingTable()",
+          "status": "working",
+          "note": "Stores per-font/style/colorType (dark or light) CSM cutoff tables in Rust and interpolates insideCutoff/outsideCutoff by font size and text luminance when rendering advanced TextFields."
+        },
+        {
+          "catalogId": "as2:NetStream.html#getInfo()",
+          "status": "working",
+          "note": "Returns live ScriptAS2Stream playback snapshots including rolling and peak bytes/sec, playbackBytesPerSecond, audio/video/data byte counts and buffer lengths, droppedFrames, srtt, uri, resourceName, and isLive."
+        }
+      ]
+    }
+  ]
+}

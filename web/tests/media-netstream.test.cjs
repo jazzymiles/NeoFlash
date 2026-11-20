@@ -716,6 +716,196 @@ test('T-327 Node WASM & host unit suite: NetStream reset modes (0/1/2/3), Seek.I
   assert.equal(plan3.isMatrix, true);
   assert.ok(Math.abs(plan3.gains[0] - 0.9) < 1e-6, `3-stage gain[0] must be 1.8 * 0.5 = 0.9, got ${plan3.gains[0]}`);
 
+  // Verify reset=0 (append) emits per-clip Start/Stop while reset=2 (appendAndAggregateMessages) aggregates into one Start + one Stop,
+  // reset=1/3 emit Play.Reset, and start=-1 plays live Infinity streams while rejecting recorded finite streams!
+  {
+    const mode0Codes = [];
+    const ns0 = new videoHost.NetStream(nc);
+    ns0.client = { onMetaData() {}, onPlayStatus: (p) => mode0Codes.push(`ps:${p.code}`) };
+    ns0.addEventListener('netStatus', (e) => mode0Codes.push(e.info.code));
+    ns0.play('media/motion.mp4', 0, -1, 1);
+    ns0.play('audio/cued.wav', 0, -1, 0);
+    await new Promise((r) => setTimeout(r, 20));
+    videoElements.at(-1).ended = true;
+    videoElements.at(-1).emit('ended');
+    await new Promise((r) => setTimeout(r, 20));
+    videoElements.at(-1).ended = true;
+    videoElements.at(-1).emit('ended');
+    await new Promise((r) => setTimeout(r, 15));
+    assert.equal(mode0Codes.filter((c) => c === 'NetStream.Play.Start').length, 2, 'reset=0 emits NetStream.Play.Start for each item');
+    assert.equal(mode0Codes.filter((c) => c === 'NetStream.Play.Stop').length, 2, 'reset=0 emits NetStream.Play.Stop for each item');
+
+    const mode2Codes = [];
+    const ns2 = new videoHost.NetStream(nc);
+    ns2.client = { onMetaData() {}, onPlayStatus: (p) => mode2Codes.push(`ps:${p.code}`) };
+    ns2.addEventListener('netStatus', (e) => mode2Codes.push(e.info.code));
+    ns2.play('media/motion.mp4', 0, -1, 1);
+    ns2.play('audio/cued.wav', 0, -1, 2);
+    await new Promise((r) => setTimeout(r, 20));
+    videoElements.at(-1).ended = true;
+    videoElements.at(-1).emit('ended');
+    await new Promise((r) => setTimeout(r, 20));
+    videoElements.at(-1).ended = true;
+    videoElements.at(-1).emit('ended');
+    await new Promise((r) => setTimeout(r, 15));
+    assert.equal(mode2Codes.filter((c) => c === 'NetStream.Play.Start').length, 1, 'reset=2 aggregates intermediate Play.Start into one playlist start');
+    assert.equal(mode2Codes.filter((c) => c === 'NetStream.Play.Stop').length, 1, 'reset=2 aggregates intermediate Play.Stop into one playlist stop');
+    assert.ok(mode2Codes.includes('ps:NetStream.Play.Switch'));
+    assert.ok(mode2Codes.includes('ps:NetStream.Play.Complete'));
+
+    // In HTTP progressive mode (nc.connect(null)), negative start (-1) plays from 0; RTMP live URLs emit StreamNotFound
+    const recOnlyCodes = [];
+    const nsLiveCheck = new videoHost.NetStream(nc);
+    nsLiveCheck.addEventListener('netStatus', (e) => recOnlyCodes.push(e.info.code));
+    nsLiveCheck.play('media/motion.mp4', -1);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.ok(recOnlyCodes.includes('NetStream.Play.Start'), 'HTTP progressive mode with start=-1 starts at 0');
+    assert.equal(nsLiveCheck.time, 0);
+    recOnlyCodes.length = 0;
+    nsLiveCheck.play('rtmp://live.example.test/app/stream', -1);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.ok(recOnlyCodes.includes('NetStream.Play.StreamNotFound'), 'RTMP live stream URL emits StreamNotFound in HTML5');
+    ns0.dispose();
+    ns2.dispose();
+    nsLiveCheck.dispose();
+  }
+
+  // Verify progressive HTTP chunk-by-chunk observed bytesLoaded, live duration=Infinity HLS playback, and AS2 NetStream.getInfo()!
+  {
+    let pushChunk = null;
+    let streamAborted = false;
+    const progTotal = cuedWav.length;
+    const progVideos = [];
+    const progHost = Video.create({
+      player,
+      wasm,
+      net,
+      events: Events,
+      isUserGesture: () => true,
+      getSoundTransform: () => audioHost.SoundTransform,
+      referenceOf: (obj) => obj?.__ref || null,
+      proxyForRef: (ref) => ({ __ref: { key: JSON.stringify(ref), objectRef: ref } }),
+      createCanvas: (w, h) => ({
+        width: w,
+        height: h,
+        getContext: () => ({ drawImage() {}, save() {}, restore() {}, getImageData: () => ({ data: new Uint8ClampedArray(w * h * 4) }), putImageData() {} }),
+      }),
+      fetch: async (url, init = {}) => {
+        if (init.signal) {
+          init.signal.addEventListener('abort', () => { streamAborted = true; });
+        }
+        const stream = new ReadableStream({
+          start(controller) { pushChunk = controller; },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { 'Content-Type': 'video/mp4', 'Content-Length': String(progTotal) },
+        });
+      },
+      createVideo: () => {
+        const listeners = new Map();
+        const el = {
+          muted: false, volume: 1, paused: true, ended: false, readyState: 0,
+          videoWidth: 320, videoHeight: 180, duration: 4, currentTime: 0, _src: '',
+          // Intentionally keep buffered=0 so bytesLoaded MUST come from observed HTTP chunks!
+          buffered: { length: 1, start: () => 0, end: () => (el._src.includes('live.m3u8') ? 1.5 : 0) },
+          getVideoPlaybackQuality: () => ({ droppedVideoFrames: 3, totalVideoFrames: 60 }),
+          get src() { return this._src; },
+          set src(v) { this._src = v; },
+          addEventListener(t, fn) { if (!listeners.has(t)) listeners.set(t, []); listeners.get(t).push(fn); },
+          removeEventListener(t, fn) { if (listeners.has(t)) listeners.set(t, listeners.get(t).filter((x) => x !== fn)); },
+          removeAttribute(k) { if (k === 'src') this._src = ''; },
+          emit(t) { for (const fn of [...(listeners.get(t) || [])]) fn(); },
+          load() {
+            if (!this._src) return;
+            this.duration = this._src.includes('live.m3u8') ? Infinity : 4;
+            queueMicrotask(() => {
+              this.readyState = 2;
+              this.emit('loadedmetadata');
+              this.emit('loadeddata');
+              this.emit('canplay');
+            });
+          },
+          play() {
+            this.paused = false;
+            queueMicrotask(() => { if (!this.paused) this.emit('playing'); });
+            return Promise.resolve();
+          },
+          pause() { this.paused = true; this.emit('pause'); },
+        };
+        progVideos.push(el);
+        return el;
+      },
+    });
+    await progHost.resumeFromGesture();
+    const pNc = new progHost.NetConnection();
+    pNc.connect(null);
+    const pNs = new progHost.NetStream(pNc);
+    pNs.play('https://cdn.example.test/progressive-stream.mp4');
+    await new Promise((r) => setTimeout(r, 20));
+    assert.ok(pushChunk, 'progressive stream reader opened');
+    pushChunk.enqueue(new Uint8Array(450));
+    await new Promise((r) => setTimeout(r, 15));
+    assert.equal(pNs.bytesLoaded, 450, 'bytesLoaded reflects first observed 450-byte network chunk');
+    assert.equal(pNs.bytesTotal, progTotal);
+    pushChunk.enqueue(new Uint8Array(750));
+    await new Promise((r) => setTimeout(r, 15));
+    assert.equal(pNs.bytesLoaded, 1200, 'bytesLoaded advances to 1200 after second chunk');
+    pNs.close();
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(streamAborted, true, 'NetStream.close() aborts progressive stream fetch');
+
+    // Live HTTP HLS stream (duration === Infinity) with start = -1 & bounded len
+    const liveMetas = [];
+    const liveCodes = [];
+    const liveNs = new progHost.NetStream(pNc);
+    liveNs.client = { onMetaData: (m) => liveMetas.push(m), onPlayStatus: (p) => liveCodes.push(`ps:${p.code}`) };
+    liveNs.addEventListener('netStatus', (e) => liveCodes.push(e.info.code));
+    liveNs.play('https://cdn.example.test/live.m3u8', -1, 0.04);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(liveMetas.length, 1);
+    assert.equal(liveMetas[0].isLive, true, 'live stream metadata reports isLive=true');
+    assert.ok(liveCodes.includes('NetStream.Play.Start'));
+    progVideos.at(-1).currentTime = 0.06;
+    progVideos.at(-1).emit('timeupdate');
+    await new Promise((r) => setTimeout(r, 15));
+    assert.ok(liveCodes.includes('NetStream.Play.Stop'), 'bounded live len stops stream cleanly');
+
+    // AS2 LegacyNetStream.getInfo() snapshot metrics
+    const as2Nc = new progHost.LegacyNetConnection();
+    as2Nc.connect(null);
+    const as2Ns = new progHost.LegacyNetStream(as2Nc);
+    let as2MetaCount = 0;
+    as2Ns.onMetaData = () => { as2MetaCount++; };
+    as2Ns.play('https://cdn.example.test/as2-prog.mp4');
+    await new Promise((r) => setTimeout(r, 20));
+    pushChunk.enqueue(new Uint8Array(800));
+    await new Promise((r) => setTimeout(r, 25));
+    pushChunk.enqueue(new Uint8Array(progTotal - 800));
+    pushChunk.close();
+    await new Promise((r) => setTimeout(r, 20));
+    as2Ns.send('onCustomMeta', { tag: 'chapter-1' });
+    const infoAll = as2Ns.getInfo();
+    assert.equal(as2MetaCount, 1);
+    assert.ok(infoAll.byteCount >= progTotal, `expected byteCount >= ${progTotal}, got ${infoAll.byteCount}`);
+    assert.ok(infoAll.videoByteCount > infoAll.audioByteCount && infoAll.audioByteCount > 0);
+    assert.ok(infoAll.dataByteCount > 0, 'onMetaData and send() contribute to dataByteCount');
+    assert.ok(infoAll.currentBytesPerSecond > 0, `expected rolling currentBytesPerSecond > 0, got ${infoAll.currentBytesPerSecond}`);
+    assert.ok(infoAll.maxBytesPerSecond >= infoAll.currentBytesPerSecond);
+    assert.equal(infoAll.playbackBytesPerSecond, progTotal / 4);
+    assert.equal(infoAll.droppedFrames, 3, 'droppedFrames reads getVideoPlaybackQuality().droppedVideoFrames');
+    assert.ok(infoAll.resourceName.includes('as2-prog.mp4'));
+    assert.equal(infoAll.isLive, false);
+    as2Ns.receiveAudio(false);
+    const infoMutedAudio = as2Ns.getInfo();
+    assert.equal(infoMutedAudio.audioBufferLength, 0);
+    assert.equal(infoMutedAudio.audioByteCount, 0);
+    as2Ns.close();
+    liveNs.dispose();
+    pNs.dispose();
+    progHost.dispose();
+  }
+
   // Disposed streams release the publication's 64-stream quota and remain
   // idempotently disposed instead of silently continuing to operate.
   ns.dispose();

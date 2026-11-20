@@ -99,10 +99,50 @@ pub fn amf_encode(format: u8, graph_json: &str) -> Result<Vec<u8>, JsValue> {
     let graph: neoflash_core::AmfGraph = serde_json::from_str(graph_json).map_err(display_error)?;
     neoflash_core::amf_encode(format, &graph).map_err(display_error)
 }
+fn call_js_ext_reader(
+    func: &js_sys::Function,
+    class_name: &str,
+    rem: &[u8],
+) -> Result<(usize, Option<usize>), String> {
+    let slice = js_sys::Uint8Array::from(rem);
+    let out = func
+        .call2(&JsValue::NULL, &JsValue::from_str(class_name), &slice)
+        .map_err(|err| {
+            err.as_string()
+                .unwrap_or_else(|| "externalizable readExternal failed".into())
+        })?;
+    let raw = out
+        .as_string()
+        .ok_or_else(|| "externalizable reader must return JSON string".to_owned())?;
+    let v: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("invalid externalizable response: {e}"))?;
+    let consumed = v["consumed"]
+        .as_u64()
+        .ok_or_else(|| "externalizable response missing consumed count".to_owned())?
+        as usize;
+    let token = v["token"].as_u64().map(|t| t as usize);
+    Ok((consumed, token))
+}
+
 #[wasm_bindgen]
 pub fn amf_decode(format: u8, bytes: &[u8]) -> Result<String, JsValue> {
     serde_json::to_string(&neoflash_core::amf_decode(format, bytes).map_err(display_error)?)
         .map_err(display_error)
+}
+#[wasm_bindgen]
+pub fn amf_decode_ext(
+    format: u8,
+    bytes: &[u8],
+    ext_reader: Option<js_sys::Function>,
+) -> Result<String, JsValue> {
+    let decoded = if let Some(func) = ext_reader {
+        let mut cb = |cls: &str, rem: &[u8]| call_js_ext_reader(&func, cls, rem);
+        neoflash_core::AmfDecoded::decode_with_ext(format, bytes, Some(&mut cb))
+            .map_err(display_error)?
+    } else {
+        neoflash_core::amf_decode(format, bytes).map_err(display_error)?
+    };
+    serde_json::to_string(&decoded).map_err(display_error)
 }
 #[wasm_bindgen]
 pub fn sol_encode(format: u8, name: &str, graph_json: &str) -> Result<Vec<u8>, JsValue> {
@@ -116,6 +156,25 @@ pub fn sol_encode(format: u8, name: &str, graph_json: &str) -> Result<Vec<u8>, J
 pub fn sol_decode(bytes: &[u8]) -> Result<String, JsValue> {
     let (name, format, decoded) =
         neoflash_core::AmfDecoded::decode_sol(bytes).map_err(display_error)?;
+    serde_json::to_string(&serde_json::json!({
+        "name": name,
+        "format": format,
+        "decoded": decoded,
+    }))
+    .map_err(display_error)
+}
+#[wasm_bindgen]
+pub fn sol_decode_ext(
+    bytes: &[u8],
+    ext_reader: Option<js_sys::Function>,
+) -> Result<String, JsValue> {
+    let (name, format, decoded) = if let Some(func) = ext_reader {
+        let mut cb = |cls: &str, rem: &[u8]| call_js_ext_reader(&func, cls, rem);
+        neoflash_core::AmfDecoded::decode_sol_with_ext(bytes, Some(&mut cb))
+            .map_err(display_error)?
+    } else {
+        neoflash_core::AmfDecoded::decode_sol(bytes).map_err(display_error)?
+    };
     serde_json::to_string(&serde_json::json!({
         "name": name,
         "format": format,
@@ -408,11 +467,26 @@ impl WebPlayer {
     pub fn amf_decode(&self, format: u8, bytes: &[u8]) -> Result<String, JsValue> {
         amf_decode(format, bytes)
     }
+    pub fn amf_decode_ext(
+        &self,
+        format: u8,
+        bytes: &[u8],
+        ext_reader: Option<js_sys::Function>,
+    ) -> Result<String, JsValue> {
+        amf_decode_ext(format, bytes, ext_reader)
+    }
     pub fn sol_encode(&self, format: u8, name: &str, graph_json: &str) -> Result<Vec<u8>, JsValue> {
         sol_encode(format, name, graph_json)
     }
     pub fn sol_decode(&self, bytes: &[u8]) -> Result<String, JsValue> {
         sol_decode(bytes)
+    }
+    pub fn sol_decode_ext(
+        &self,
+        bytes: &[u8],
+        ext_reader: Option<js_sys::Function>,
+    ) -> Result<String, JsValue> {
+        sol_decode_ext(bytes, ext_reader)
     }
     pub fn scene_json(&self) -> Result<String, JsValue> {
         serde_json::to_string(&self.player.runtime_snapshot(&self.project).draws)
@@ -1246,6 +1320,47 @@ impl WebPlayer {
                 quality,
             )
             .map_err(display_error)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn bitmap_encode_jpegxr(
+        &self,
+        target: &str,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        quantization: u8,
+        color_space: &str,
+        trim_flex_bits: u8,
+    ) -> Result<Vec<u8>, JsValue> {
+        let pref = pixel_ref(target)?;
+        let info = self.player.bitmap_info(&pref).map_err(display_error)?;
+        let rect = neoflash_core::BitmapRect {
+            x,
+            y,
+            width,
+            height,
+        };
+        let (x0, y0, x1, y1) = rect.clipped_dims(info.width, info.height);
+        if x0 >= x1 || y0 >= y1 {
+            return Err(JsValue::from_str(
+                "BitmapData: JPEG-XR encoding requires a nonempty clipped rectangle",
+            ));
+        }
+        let argb = self
+            .player
+            .bitmap_get_pixels(&pref, rect, false)
+            .map_err(display_error)?;
+        neoflash_core::BitmapRect::encode_jpegxr_argb(
+            (x1 - x0) as u32,
+            (y1 - y0) as u32,
+            info.transparent,
+            &argb,
+            quantization,
+            color_space,
+            trim_flex_bits,
+        )
+        .map_err(display_error)
     }
     #[allow(clippy::too_many_arguments)]
     pub fn bitmap_draw_rgba(

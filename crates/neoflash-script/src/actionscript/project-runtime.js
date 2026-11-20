@@ -789,7 +789,7 @@ const __nfProgram = (() => {
         }
         return { className: name, customToString: false, entries };
     }
-    return Object.freeze({ type, is, cast, as2Cast, define, defineInterface, defineNamespace, declareIntrinsic, registerInitClip, runInitClips, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, isDynamic: dynamicAllowed, ref, assertDynamicWrite, objectDescriptor, isClass, isInterface, constructClass, className, reflect, defaultObjectMethod, isProxy, hasTrait, invokeProxy, resolveQualifiedSlot, traceObjectInfo,
+    return Object.freeze({ type, is, cast, as2Cast, define, defineInterface, defineNamespace, declareIntrinsic, registerInitClip, runInitClips, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, isDynamic: dynamicAllowed, ref, assertDynamicWrite, objectDescriptor, isClass, isInterface, constructClass, className, resolveClass: reflectionClass, reflect, defaultObjectMethod, isProxy, hasTrait, invokeProxy, resolveQualifiedSlot, traceObjectInfo,
         instanceClassName:value=>identities.get(value)||null,
         setNativeTypes:names=>{nativeTypeNames=names;},
         dialect:name=>definitions.get(name)?.dialect });

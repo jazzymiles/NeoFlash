@@ -104,6 +104,7 @@ pub struct StageState {
     mode: String,
     menu: bool,
     source: Option<Rect>,
+    wmode_gpu: bool,
 }
 impl StageState {
     pub fn new(width: f64, height: f64) -> Result<Self, String> {
@@ -120,10 +121,11 @@ impl StageState {
             mode: "showAll".into(),
             menu: true,
             source: None,
+            wmode_gpu: false,
         })
     }
     fn state(&self) -> Value {
-        json!({"align":self.align,"scaleMode":self.mode,"showMenu":self.menu,"fullScreenSourceRect":self.source,"wmodeGPU":false})
+        json!({"align":self.align,"scaleMode":self.mode,"showMenu":self.menu,"fullScreenSourceRect":self.source,"wmodeGPU":self.wmode_gpu})
     }
     pub fn command(&mut self, input: &str) -> Result<Value, String> {
         if input.len() > 65536 {
@@ -146,6 +148,12 @@ impl StageState {
                 ))
             }
             "get" => Ok(self.state()),
+            "configure_gpu" => {
+                self.wmode_gpu = v["wmodeGPU"]
+                    .as_bool()
+                    .ok_or("Stage configure_gpu requires Boolean wmodeGPU")?;
+                Ok(self.state())
+            }
             "set" => {
                 let mut next = self.clone();
                 let value = &v["value"];
@@ -418,9 +426,16 @@ mod tests {
             ]
         );
         assert_eq!(s.command(r#"{"op":"get"}"#).unwrap()["wmodeGPU"], false);
+        assert_eq!(
+            s.command(r#"{"op":"configure_gpu","wmodeGPU":true}"#)
+                .unwrap()["wmodeGPU"],
+            true
+        );
+        assert_eq!(s.command(r#"{"op":"get"}"#).unwrap()["wmodeGPU"], true);
         assert!(
-            s.command(r#"{"op":"set","name":"wmodeGPU","value":true}"#)
+            s.command(r#"{"op":"set","name":"wmodeGPU","value":false}"#)
                 .is_err()
         );
+        assert_eq!(s.command(r#"{"op":"get"}"#).unwrap()["wmodeGPU"], true);
     }
 }

@@ -2095,6 +2095,8 @@
       const as3Mouse=stageHost?.mouseState?.();
       if(!legacyCursorVisible||(as3Mouse&&!as3Mouse.visible)){canvas.style.cursor='none';return;}
       if(typeof preview!=='undefined'&&preview.panMode){canvas.style.cursor='grab';return;}
+      const customCss=stageHost?.cursorCss?.();
+      if(customCss){canvas.style.cursor=customCss;return;}
       const cursor=as3Mouse?.cursor||'auto';
       canvas.style.cursor=cursor==='arrow'?'default':cursor==='button'?'pointer':cursor==='hand'?'grab':cursor==='ibeam'?'text':pointerOverContent?'pointer':'default';
     }
@@ -2184,6 +2186,7 @@
       if(global.NeoFlashGeom3D)geometry3dHost=global.NeoFlashGeom3D.create(wasm,{getPoint:()=>geometryHost.Point});
       if(global.NeoFlashBitmap)bitmapHost=global.NeoFlashBitmap.create({player,geometry:geometryHost,as2,
         getBinary:()=>binaryHost,getFilters:()=>filterHost,
+        onInvalidate:()=>{if(typeof requestTimerRender==='function')requestTimerRender();},
         displayRef:source=>{const ref=references.get(source);if(!ref)return null;display.descriptor(source);return ref.objectRef;},
         paintScene:(target,snapshot)=>{
           if(!global.NeoFlashPaths)throw new Error('BitmapData.draw requires the shared path renderer.');
@@ -2204,14 +2207,16 @@
       }
       let invokeAsfunction=()=>{};
       if(textHost&&global.NeoFlashAS2Text)as2TextHost=global.NeoFlashAS2Text.create({broadcaster:global.NeoFlashBroadcaster,wasm,player,text:textHost,getNet:()=>netHost,onAsfunction:(ref,spec)=>{const tf=proxyForRef(JSON.parse(ref));invokeAsfunction(tf?._parent||proxyFor([]),spec);afterTimerEvent();},targetForRef:key=>proxyForRef(JSON.parse(key)),afterCallback:afterTimerEvent,project:typeof project==='undefined'?null:project,document:activeDoc});
-      display=global.NeoFlashDisplay.create({player,geometry:geometryHost,getGeom3D:()=>geometry3dHost,proxyFor,proxyForRef,onObserveUnload:observeTimelineEvents,onMutation:deliverDisplayEvents,onSuperConstruct:handleSuperConstruct,isRetiring:target=>retiringTargets.has(target),isRetiringReference:key=>pendingRetirementRefs.has(key)||retiringTargets.has(proxies.get(key)?.proxy),onTabChange:(target,type)=>{if(eventHub&&global.NeoFlashEvents)eventHub.dispatch(target,new global.NeoFlashEvents.Event(type,true,false));},onTextLink:(target,text)=>{if(eventHub&&global.NeoFlashEvents&&display.alive(target)){eventHub.dispatch(target,new global.NeoFlashEvents.TextEvent('link',true,false,text));afterTimerEvent();}},project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,getAudio:()=>audioHost,getFte3D:()=>fte3dHost,as2,getLegacyCaller:()=>activeLegacyCaller,onRedrawRegionsChange:next=>{if(!next?.redraw_regions)clearRedrawRegions();else{prevRedrawSignatures.clear();lastRedrawFrame=-1;}if(!inDispatch&&typeof context!=='undefined'&&typeof render==='function')render();},
+      display=global.NeoFlashDisplay.create({player,geometry:geometryHost,getGeom3D:()=>geometry3dHost,proxyFor,proxyForRef,onObserveUnload:observeTimelineEvents,onMutation:deliverDisplayEvents,onSuperConstruct:handleSuperConstruct,isRetiring:target=>retiringTargets.has(target),isRetiringReference:key=>pendingRetirementRefs.has(key)||retiringTargets.has(proxies.get(key)?.proxy),onTabChange:(target,type)=>{if(eventHub&&global.NeoFlashEvents)eventHub.dispatch(target,new global.NeoFlashEvents.Event(type,true,false));},onTextLink:(target,text)=>{if(eventHub&&global.NeoFlashEvents&&display.alive(target)){eventHub.dispatch(target,new global.NeoFlashEvents.TextEvent('link',true,false,text));afterTimerEvent();}},project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,getNetSys:()=>as3NetSysHost,getAudio:()=>audioHost,getFte3D:()=>fte3dHost,as2,getLegacyCaller:()=>activeLegacyCaller,onRedrawRegionsChange:next=>{if(!next?.redraw_regions)clearRedrawRegions();else{prevRedrawSignatures.clear();lastRedrawFrame=-1;}if(!inDispatch&&typeof context!=='undefined'&&typeof render==='function')render();},
         shapeContains:(kind,x,y,world)=>{const hasCanvas=typeof context!=='undefined'&&typeof context.isPointInPath==='function'&&typeof Path2D==='function';if(hasCanvas)inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.contains(hasCanvas?context:null,kind,x,y,hasCanvas?inputPaths.get(kind.commands):null,world);},
         clipsContain:(snapshot,ids,x,y)=>{if(typeof context==='undefined')throw new Error('Clipped input requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.clipsContain(context,ids,global.NeoFlashPaths.clipTable(snapshot.clips||[],snapshot.filter_groups||[]),x,y,inputPaths);},
         beforeRaster:target=>assertUnfilteredEditing(stageHost?.stage.focus,target),beforeFilters:(target,specs)=>{if(specs.length)assertUnfilteredEditing(stageHost?.stage.focus,target);},referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,getStageHost:()=>stageHost||null,
         measureText:(line,kind)=>{if(typeof context==='undefined')throw new Error('Text bounds require the Canvas font measurement service.');context.font=font(kind);return context.measureText(line).width;},
         pathBounds:(commands,matrix)=>global.NeoFlashAccessibility.pathBounds(commands,matrix)});
       if(global.NeoFlashEvents&&global.NeoFlashStage) {
-        global.NeoFlashStage.setStageAdapters?.({makePoint:(x,y)=>new geometryHost.Point(x,y),isPoint:value=>geometryHost.Point.__nfIs(value),isRectangle:value=>geometryHost.Rectangle.__nfIs(value),makeRectangle:(x,y,w,h)=>new geometryHost.Rectangle(x,y,w,h),isBitmapData:value=>Boolean(bitmapHost?.BitmapData.__nfIs(value))});
+        const runtimeAccel=typeof accelMode!=='undefined'?accelMode:'';
+        const isWmodeGpu=runtimeAccel==='gpu_web_gl'||String(hostPlayerConfig.wmode||'').toLowerCase()==='gpu'||hostPlayerConfig.wmode_gpu===true;
+        global.NeoFlashStage.setStageAdapters?.({makePoint:(x,y)=>new geometryHost.Point(x,y),isPoint:value=>geometryHost.Point.__nfIs(value),isRectangle:value=>geometryHost.Rectangle.__nfIs(value),makeRectangle:(x,y,w,h)=>new geometryHost.Rectangle(x,y,w,h),isBitmapData:value=>Boolean(bitmapHost?.BitmapData.__nfIs(value)),encodeCursorPng:bmp=>bitmapHost?player.bitmap_encode_png(JSON.stringify(bitmapHost.refOf(bmp)),0,0,Math.min(128,bmp.width),Math.min(128,bmp.height),false):null});
         const alive=target=>retiringTargets.has(target)||target===stageHost?.stage||Boolean(frameLabelType?.__nfIs(target))||display.alive(target);
         const local=(target,x,y)=>{const p=(target===stageHost?.stage||frameLabelType?.__nfIs(target))?{x,y}:display.convert(target,{x,y},false);return[p.x,p.y];};
         eventHub=global.NeoFlashEvents.create({alive,onListener:type=>{
@@ -2222,6 +2227,8 @@
         stageHost=global.NeoFlashStage.create({events:eventHub,FullScreenEvent:eventFamilies.FullScreenEvent,TouchEvent:eventFamilies.TouchEvent,IMEEvent:eventFamilies.IMEEvent,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,
           scaleMode:initialFlashScaleMode,align:initialFlashAlign,allowsFullScreen:allowFullscreen?undefined:false,allowsFullScreenInteractive:allowFullscreen?undefined:false,
           color:initialStageColor,viewport:typeof viewport==='undefined'?null:viewport,screen:global.screen,devicePixelRatio:global.devicePixelRatio,
+          context:typeof context==='undefined'?null:context,wmode:hostPlayerConfig.wmode,acceleration:runtimeAccel,wmodeGPU:isWmodeGpu,
+          isObjectInaccessible:target=>Boolean(display?.isObjectInaccessible?.(target)),
           stageContainer:display.stageContainer,getStageContentSize:()=>display.stageContainer.contentSize(),
           getStage3Ds:()=>fte3dHost?.getStage3Ds()||[],getStageVideos:()=>as3MediaEventsHost?as3MediaEventsHost.getStageVideos():(fte3dHost?.getStageVideos()||[]),getSoftKeyboardRect:()=>fte3dHost?fte3dHost.getSoftKeyboardRect():new geometryHost.Rectangle(0,0,0,0),
           numChildren:()=>{if(!display||(typeof player.runtime_snapshot_json!=='function'&&typeof player.display_nodes_json!=='function'))return 1;return graphMode?display.stageContainer.numChildren():(display.nodes().filter(node=>node.on_stage!==false&&node.path.length===0).length||1);},
@@ -2233,7 +2240,10 @@
           onAlignChanged:()=>{enableHostStageLayout(true);if(typeof context!=='undefined')render();},
           onFullScreenSourceRectChanged:()=>{if(ownsViewportFullscreen()||(stageHost?.stage?.displayState&&stageHost.stage.displayState!=='normal')){enableHostStageLayout(false);if(typeof context!=='undefined')render();}},
           onDisplayStateChanged:state=>{if(state!=='normal')enableHostStageLayout(false);else if(!hostStageLayoutPinned)syncInitialStageLayout();else if(typeof preview!=='undefined'&&preview)preview.resize();if(typeof context!=='undefined')render();},
-          onColorChanged:()=>{if(typeof context!=='undefined')render();},onInvalidate:requestTimerRender,
+          onColorChanged:()=>{if(typeof context!=='undefined')render();},
+          onQualityChanged:()=>{if(!inDispatch&&typeof context!=='undefined')render();},
+          onColorCorrectionChanged:()=>{if(!inDispatch&&typeof context!=='undefined')render();},
+          onInvalidate:requestTimerRender,
           onFocusChanged:(next,previous)=>{if(familyDisposed)return;fte3dHost?.handleFocusChange?.(next,previous);const handled=(domStageHost||textInputHost)?.focusChanged(next,previous);return syncSemanticFocus(next,previous,handled)||handled;},ownsTextInput:node=>(domStageHost||textInputHost)?.owns(node),canFocus:value=>{const ih=domStageHost||textInputHost;if(ih&&!ih.canFocus(value))return false;assertUnfilteredEditing(value);return true;},
           hitTest:event=>{const p=stagePointFromEvent(event);return p&&p.inside?display.pick(p.x,p.y):null;},
           coordinates:event=>{const p=stagePointFromEvent(event);return p?[p.x,p.y]:null;},
@@ -2245,7 +2255,7 @@
             keyTarget:typeof instanceKeyTarget!=='undefined'?instanceKeyTarget:(typeof global.addEventListener==='function'?global:null),
             alive:listener=>!references.has(listener)||display.alive(listener),
             onVisibility:visible=>{legacyCursorVisible=visible;updateCursor();},onError:inputFailure});
-          if(global.NeoFlashAS2Stage)as2StageHost=global.NeoFlashAS2Stage.create({wasm,legacy:legacyHost,geometry:geometryHost,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,scaleMode:initialFlashScaleMode,align:initialFlashAlign,allowsFullScreen:allowFullscreen,preview:typeof preview==='undefined'?null:preview,viewport:typeof viewport==='undefined'?null:viewport,canvas:typeof canvas==='undefined'?null:canvas,display,getRoot:()=>proxyFor([]),getLoop:()=>loopTimeline,toggleLoop:()=>{loopTimeline=!loopTimeline;hostPlayerConfig.loop_timeline=loopTimeline;return loopTimeline;},toggleQuality:()=>display.toggleHighQuality(),contextTarget:event=>{if(typeof hitAt==='function')return hitAt(event,true)?.target||proxyFor([]);const p=stagePointFromEvent(event);if(p&&p.inside&&display?.pickDetails)return display.pickDetails(p.x,p.y)?.target||proxyFor([]);return proxyFor([]);},onError:inputFailure,afterEvent:afterTimerEvent});
+          if(global.NeoFlashAS2Stage)as2StageHost=global.NeoFlashAS2Stage.create({wasm,legacy:legacyHost,geometry:geometryHost,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,scaleMode:initialFlashScaleMode,align:initialFlashAlign,allowsFullScreen:allowFullscreen,wmode:hostPlayerConfig.wmode,acceleration:runtimeAccel,wmodeGPU:isWmodeGpu,preview:typeof preview==='undefined'?null:preview,viewport:typeof viewport==='undefined'?null:viewport,canvas:typeof canvas==='undefined'?null:canvas,display,getRoot:()=>proxyFor([]),getLoop:()=>loopTimeline,toggleLoop:()=>{loopTimeline=!loopTimeline;hostPlayerConfig.loop_timeline=loopTimeline;return loopTimeline;},toggleQuality:()=>display.toggleHighQuality(),contextTarget:event=>{if(typeof hitAt==='function')return hitAt(event,true)?.target||proxyFor([]);const p=stagePointFromEvent(event);if(p&&p.inside&&display?.pickDetails)return display.pickDetails(p.x,p.y)?.target||proxyFor([]);return proxyFor([]);},onError:inputFailure,afterEvent:afterTimerEvent});
           legacyGlobals=Object.freeze({Key:legacyHost.Key,Mouse:legacyHost.Mouse,Stage:as2StageHost?.Stage||legacyHost.Stage,...(as2StageHost?{ContextMenu:as2StageHost.ContextMenu,ContextMenuItem:as2StageHost.ContextMenuItem}:{})});
         }
       }
@@ -2534,7 +2544,7 @@
       if(global.NeoFlashBroadcaster){broadcasterHost=global.NeoFlashBroadcaster.create(wasm);legacyGlobals=Object.freeze({...legacyGlobals,AsBroadcaster:broadcasterHost.AsBroadcaster});}
       if(global.NeoFlashByteArray)binaryHost=global.NeoFlashByteArray.create({wasm});
       if(global.NeoFlashAMF&&binaryHost&&typeof player.amf_encode==='function'){
-        amfHost=global.NeoFlashAMF.create({binary:binaryHost,encode:(format,graph)=>player.amf_encode(format,graph),decode:(format,bytes)=>player.amf_decode(format,bytes),encodeSol:typeof wasm?.sol_encode==='function'?(format,name,graph)=>wasm.sol_encode(format,name,graph):undefined,decodeSol:typeof wasm?.sol_decode==='function'?bytes=>wasm.sol_decode(bytes):undefined,getXML:()=>xmlHost,getProgram:()=>program,isUnsupported:value=>references.has(value)});
+        amfHost=global.NeoFlashAMF.create({binary:binaryHost,encode:(format,graph)=>player.amf_encode(format,graph),decode:(format,bytes)=>player.amf_decode(format,bytes),decodeExt:typeof player.amf_decode_ext==='function'?(format,bytes,cb)=>player.amf_decode_ext(format,bytes,cb):(typeof wasm?.amf_decode_ext==='function'?(format,bytes,cb)=>wasm.amf_decode_ext(format,bytes,cb):undefined),encodeSol:typeof wasm?.sol_encode==='function'?(format,name,graph)=>wasm.sol_encode(format,name,graph):undefined,decodeSol:typeof wasm?.sol_decode==='function'?bytes=>wasm.sol_decode(bytes):undefined,decodeSolExt:typeof wasm?.sol_decode_ext==='function'?(bytes,cb)=>wasm.sol_decode_ext(bytes,cb):undefined,getXML:()=>xmlHost,getProgram:()=>program,isUnsupported:value=>references.has(value)});
         binaryHost.setObjectCodec(amfHost);
         if(global.NeoFlashStorage&&global.NeoFlashEvents){
           storageHost=global.NeoFlashStorage.create({amf:amfHost,events:global.NeoFlashEvents,onError:error=>console.warn(error),onSystemStatus:notifySystemStatus});
@@ -2783,7 +2793,7 @@
         LegacyTextField.getFontList=as2TextHost.getFontList;
         const isTextField=display.builtins['flash.text.TextField'].__nfIs;
         Object.defineProperties(LegacyTextField,{__nfIs:{value:isTextField},[Symbol.hasInstance]:{value:isTextField}});
-        legacyGlobals=Object.freeze({...legacyGlobals,TextField:LegacyTextField,TextSnapshot:as2TextHost.TextSnapshot,nativeRef:(receiver,name)=>{
+        legacyGlobals=Object.freeze({...legacyGlobals,TextField:LegacyTextField,TextRenderer:as2TextHost.TextRenderer,TextSnapshot:as2TextHost.TextSnapshot,nativeRef:(receiver,name)=>{
           if(name==='getFontList'&&(receiver===LegacyTextField||receiver===display.builtins['flash.text.TextField']))return {has:()=>true,delete:()=>false,get:()=>as2TextHost.getFontList,set:()=>{throw new TypeError('TextField.getFontList is read-only.');}};
           const menu=as2StageHost?.menuRef(receiver,name);if(menu)return menu;
           const geometry=geometryHost.as2Ref?.(receiver,name);if(geometry)return geometry;
@@ -2949,8 +2959,19 @@
         builtins['flash.display.BitmapDataChannel']=global.NeoFlashBitmap.BitmapDataChannel;
         for(const name of ['JPEGEncoderOptions','BitmapEncodingColorSpace','JPEGXREncoderOptions'])if(global.NeoFlashBitmap[name])builtins['flash.display.'+name]=global.NeoFlashBitmap[name];
       }
+      const isAs2Publication=Boolean(
+        (typeof project!=='undefined'&&project&&(
+          project.sources?.some(s=>s?.language==='action_script2'||s?.language==='action_script1'||s?.script?.language==='action_script2'||s?.script?.language==='action_script1')||
+          project.symbols?.some(sym=>sym?.timeline?.scripts?.some(e=>e?.script?.language==='action_script2'||e?.script?.language==='action_script1'))
+        ))||
+        (typeof functions!=='undefined'&&typeof functions?.keys==='function'&&[...functions.keys()].some(k=>/^(?:action_script[12]|ActionScript[12])\u0000/.test(k)))||
+        (typeof bundle!=='undefined'&&typeof bundle?.program?.code==='string'&&bundle.program.code.includes('"as2"'))
+      );
       const textSource=textHost||global.NeoFlashText;
-      if(textSource)for(const name of ['TextFormat','TextFormatAlign','TextFormatDisplay','TextFieldType','TextFieldAutoSize','AntiAliasType','GridFitType','FontStyle','FontType','TextColorType','TextDisplayMode','TextInteractionMode','CSMSettings','TextRenderer','Font','StyleSheet','TextLineMetrics','TextSnapshot'])if(textSource[name])builtins['flash.text.'+name]=textSource[name];
+      if(textSource)for(const name of ['TextFormat','TextFormatAlign','TextFormatDisplay','TextFieldType','TextFieldAutoSize','AntiAliasType','GridFitType','FontStyle','FontType','TextColorType','TextDisplayMode','TextInteractionMode','CSMSettings','TextRenderer','Font','StyleSheet','TextLineMetrics','TextSnapshot']){
+        if(name==='TextRenderer'&&isAs2Publication&&as2TextHost?.TextRenderer)continue;
+        if(textSource[name])builtins['flash.text.'+name]=textSource[name];
+      }
       if(filterHost)for(const name of ['BitmapFilter','BlurFilter','GlowFilter','DropShadowFilter','ColorMatrixFilter','BitmapFilterQuality','ConvolutionFilter','BevelFilter','GradientGlowFilter','GradientBevelFilter','BitmapFilterType','DisplacementMapFilter','DisplacementMapFilterMode','ShaderFilter'])if(filterHost[name])builtins['flash.filters.'+name]=filterHost[name];
       else if(global.NeoFlashFilters?.DisplacementMapFilterMode)builtins['flash.filters.DisplacementMapFilterMode']=global.NeoFlashFilters.DisplacementMapFilterMode;
       if(global.NeoFlashFilters?.ShaderFilter&&!builtins['flash.filters.ShaderFilter'])builtins['flash.filters.ShaderFilter']=global.NeoFlashFilters.ShaderFilter;
@@ -2969,6 +2990,7 @@
         if(binaryHost.CompressionAlgorithm)builtins['flash.utils.CompressionAlgorithm']=binaryHost.CompressionAlgorithm;
         if(binaryHost.IDataInput)builtins['flash.utils.IDataInput']=nativeInterface('flash.utils.IDataInput',{__nfIs:value=>binaryHost.IDataInput.__nfIs(value)||Boolean(airHost?.isDataInput(value))||Boolean(as3NetSysHost?.isDataInput(value))||Boolean(as3MediaEventsHost?.builtins['flash.media.AVURLStream']?.__nfIs(value)),__nfInitialize:binaryHost.IDataInput.__nfInitialize});
         if(binaryHost.IDataOutput)builtins['flash.utils.IDataOutput']=nativeInterface('flash.utils.IDataOutput',{__nfIs:value=>binaryHost.IDataOutput.__nfIs(value)||Boolean(airHost?.isDataOutput(value))||Boolean(as3NetSysHost?.isDataOutput(value)),__nfInitialize:binaryHost.IDataOutput.__nfInitialize});
+        builtins['flash.utils.IExternalizable']=nativeInterface('flash.utils.IExternalizable',{__nfIs:value=>Boolean(value&&typeof value==='object'&&value[Symbol.for('neoflash.externalizable')]===true),__nfInitialize:()=>{throw new TypeError('IExternalizable is an interface and cannot be instantiated.');}});
       }
       if(externalHost)builtins['flash.external.ExternalInterface']=externalHost.ExternalInterface;
       if(netHost){
@@ -2985,14 +3007,6 @@
         builtins.__nfAirVectorFactory=airHost.setVectorFactory;
       }
       if(as3NetSysHost){
-        const isAs2Publication=Boolean(
-          (typeof project!=='undefined'&&project&&(
-            project.sources?.some(s=>s?.language==='action_script2'||s?.language==='action_script1'||s?.script?.language==='action_script2'||s?.script?.language==='action_script1')||
-            project.symbols?.some(sym=>sym?.timeline?.scripts?.some(e=>e?.script?.language==='action_script2'||e?.script?.language==='action_script1'))
-          ))||
-          (typeof functions!=='undefined'&&typeof functions?.keys==='function'&&[...functions.keys()].some(k=>/^(?:action_script[12]|ActionScript[12])\u0000/.test(k)))||
-          (typeof bundle!=='undefined'&&typeof bundle?.program?.code==='string'&&bundle.program.code.includes('"as2"'))
-        );
         for(const [qname,type] of Object.entries(as3NetSysHost.builtins)){
           if((qname==='flash.net.FileReference'||qname==='flash.net.FileReferenceList')&&isAs2Publication)continue;
           if(qname.startsWith('flash.desktop.Clipboard')&&(qname in builtins))continue;
@@ -4304,10 +4318,12 @@
       }else{
       if(snapshot)textInputHost?.update(snapshot);
       const sx=canvas.width/width,sy=canvas.height/height;
-      if(typeof player.as2_settings_command==='function'&&display){
-        const quality=display.as2GlobalPropRef('_quality').get();
+      if((typeof player.as2_settings_command==='function'&&display)||stageHost?.stage){
+        const as2Q=(typeof player.as2_settings_command==='function'&&display)?display.as2GlobalPropRef('_quality').get():'HIGH';
+        const stageQ=String(stageHost?.stage?.quality||'HIGH').toUpperCase();
+        const quality=stageQ!=='HIGH'?stageQ:(as2Q||'HIGH');
         context.imageSmoothingEnabled=quality!=='LOW';
-        if('imageSmoothingQuality' in context)context.imageSmoothingQuality=quality==='BEST'?'high':quality==='MEDIUM'?'low':'medium';
+        if('imageSmoothingQuality' in context)context.imageSmoothingQuality=(quality==='BEST'||quality.startsWith('HIGH_'))?'high':quality==='MEDIUM'?'low':'medium';
       }
       context.setTransform(sx, 0, 0, sy, 0, 0);
       context.clearRect(0, 0, width, height);

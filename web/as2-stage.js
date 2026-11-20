@@ -71,12 +71,26 @@ function create(options={}){
  const{wasm,legacy,geometry,preview,viewport,canvas}=options;
  if(!wasm?.ScriptAS2Stage||!legacy?.Stage||!geometry?.Rectangle)throw new Error('AS2 Stage requires the Rust layout, legacy listeners and geometry services.');
  const width=options.width,height=options.height,doc=options.document||global.document;
+ const wmodeLower=String(options.wmode||options.acceleration||'').toLowerCase();
+ const gpuEnabled=Boolean(options.wmodeGPU??(wmodeLower==='gpu'||wmodeLower==='gpu_web_gl'));
+ function applyGpuLayer(){
+  for(const el of [canvas,viewport]){
+   if(!el)continue;
+   if(el.dataset)el.dataset.wmodeGpu=gpuEnabled?'true':'false';
+   if(gpuEnabled&&el.style){
+    el.style.willChange='transform';
+    if(!el.style.transform)el.style.transform='translateZ(0)';
+   }
+  }
+ }
  function makeCore(){
   const next=new wasm.ScriptAS2Stage(width,height);
   if(options.scaleMode)next.command(JSON.stringify({op:'set',name:'scaleMode',value:options.scaleMode}));
   if(options.align)next.command(JSON.stringify({op:'set',name:'align',value:options.align}));
+  if(gpuEnabled)next.command(JSON.stringify({op:'configure_gpu',wmodeGPU:true}));
   return next;
  }
+ applyGpuLayer();
  let core=makeCore(),disposed=false,generation=1,enabled=false,last=null,fullscreen=false,requestGeneration=0;
  const initialOverflow=viewport?.style?.overflow;
  function active(){if(disposed)throw new Error('AS2 Stage belongs to a disposed publication.');}

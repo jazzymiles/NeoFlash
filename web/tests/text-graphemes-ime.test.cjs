@@ -590,10 +590,123 @@ test('Node/WASM: UAX #29 graphemes, FTE atoms, AS2/AS3 mixed runs, TextInteracti
       assert.equal(fmtPrefix.color, 0xff0000);
       assert.equal(fmtSuffix.italic, true);
       assert.equal(fmtSuffix.color, 0x0055ff);
+
+      // AS2 flash.text.TextRenderer static surface & Rust CSM resolution
+      const As2TextRenderer = as2Host.legacy().TextRenderer;
+      assert.equal(As2TextRenderer, as2Host.program().type('flash.text.TextRenderer'));
+      assert.equal(As2TextRenderer.displayMode, 'default');
+      assert.equal(As2TextRenderer.maxLevel, 4);
+      As2TextRenderer.displayMode = 'crt';
+      As2TextRenderer.maxLevel = -5;
+      assert.equal(As2TextRenderer.displayMode, 'crt');
+      assert.equal(As2TextRenderer.maxLevel, 0);
+      assert.throws(() => { As2TextRenderer.displayMode = 'bogus'; }, /displayMode/, 'AS2 invalid displayMode throws actionable validation error');
+      As2TextRenderer.displayMode = 'default';
+      As2TextRenderer.maxLevel = 4;
+      As2TextRenderer.setAdvancedAntialiasingTable('Arial', 'none', 'dark', [
+        { fontSize: 12, insideCutoff: 0.8, outsideCutoff: -0.3 },
+        { fontSize: 24, insideCutoff: 0.4, outsideCutoff: -0.6 },
+      ]);
+      const resolvedCsm = as2Host.text().resolveRendererCsm({ font: 'Arial', bold: false, italic: false, size: 18, color: 0x111111 });
+      assert.equal(resolvedCsm.hasCsm, true);
+      assert.equal(resolvedCsm.colorType, 'dark');
+      assert.ok(Math.abs(resolvedCsm.insideCutoff - 0.6) < 1e-6);
+      assert.ok(Math.abs(resolvedCsm.outsideCutoff - -0.45) < 1e-6);
     } finally {
       as2Host.disposeFamily();
       as2Player.free();
     }
+
+    // 5. AS3 CSMSettings, TextDisplayMode, TextRenderer + Canvas pixel/stroke rendering differences
+    const CSMSettings = prog.type('flash.text.CSMSettings');
+    const TextDisplayMode = prog.type('flash.text.TextDisplayMode');
+    const TextRenderer = prog.type('flash.text.TextRenderer');
+    const TextColorType = prog.type('flash.text.TextColorType');
+    const FontStyle = prog.type('flash.text.FontStyle');
+    const AntiAliasType = prog.type('flash.text.AntiAliasType');
+    assert.deepEqual([TextDisplayMode.DEFAULT, TextDisplayMode.LCD, TextDisplayMode.CRT], ['default', 'lcd', 'crt']);
+    const csm12 = new CSMSettings(12, 0.85, -0.25);
+    const csm24 = new CSMSettings(24, 0.35, -0.75);
+    assert.deepEqual([csm12.fontSize, csm12.insideCutoff, csm12.outsideCutoff], [12, 0.85, -0.25]);
+    csm12.insideCutoff = 0.9;
+    assert.equal(csm12.insideCutoff, 0.9);
+    TextRenderer.setAdvancedAntiAliasingTable('Arial', FontStyle.REGULAR, TextColorType.DARK_COLOR, [csm12, csm24]);
+    assert.throws(() => { TextRenderer.displayMode = 'plasma'; }, err => err.name === 'ArgumentError');
+    TextRenderer.maxLevel = 999;
+    assert.equal(TextRenderer.maxLevel, 64);
+    TextRenderer.maxLevel = 4;
+
+    const advTf = new TextField();
+    advTf.antiAliasType = AntiAliasType.ADVANCED;
+    advTf.thickness = 80;
+    advTf.sharpness = 120;
+    advTf.text = 'Subpixel';
+    scene.addChild(advTf);
+    const advInfo = JSON.parse(player.object_text_info(JSON.stringify(advTf.toJSON().object_ref)));
+    const runDrawProbe = (mode, level) => {
+      TextRenderer.displayMode = mode;
+      TextRenderer.maxLevel = level;
+      const ops = [];
+      const probeCtx = {
+        font: '', fillStyle: '', strokeStyle: '', lineWidth: 0, globalAlpha: 1, shadowBlur: 0, shadowColor: '', imageSmoothingEnabled: true,
+        save() {}, restore() {}, beginPath() {}, rect() {}, clip() {}, fillRect() {}, strokeRect() {}, moveTo() {}, lineTo() {}, stroke() {},
+        measureText: (s) => ({ width: s.length * 8 }),
+        fillText(txt, x, y) { ops.push({ op: 'fill', style: String(this.fillStyle), alpha: this.globalAlpha, blur: this.shadowBlur, x, y, txt }); },
+        strokeText(txt, x, y) { ops.push({ op: 'stroke', width: this.lineWidth, alpha: this.globalAlpha, x, y, txt }); },
+      };
+      host.text().draw(probeCtx, advInfo);
+      return ops;
+    };
+    const defaultOps = runDrawProbe(TextDisplayMode.DEFAULT, 4);
+    const lcdOps = runDrawProbe(TextDisplayMode.LCD, 4);
+    const crtOps = runDrawProbe(TextDisplayMode.CRT, 4);
+    const level0Ops = runDrawProbe(TextDisplayMode.DEFAULT, 0);
+    TextRenderer.displayMode = TextDisplayMode.DEFAULT;
+    TextRenderer.maxLevel = 4;
+    assert.ok(lcdOps.filter(o => o.op === 'fill').length > defaultOps.filter(o => o.op === 'fill').length, 'LCD mode renders RGB subpixel passes');
+    assert.ok(crtOps.some(o => o.blur > 0), 'CRT mode applies phosphor bloom shadowBlur');
+    assert.equal(level0Ops.filter(o => o.op === 'stroke').length, 0, 'maxLevel=0 disables antialiased stroke smoothing');
+
+    // 6. Device-font Font.hasGlyphs via .notdef tofu raster comparison
+    const TextModule = require('../text.js');
+    const devTextHost = TextModule.create({
+      player,
+      wasm: runtimeWasm,
+      events: require('../events.js'),
+      project,
+      measureText: (s) => s.length * 8,
+      createCanvas: (w, h) => {
+        let drawn = '';
+        return {
+          width: w,
+          height: h,
+          getContext: () => ({
+            font: '', fillStyle: '', textBaseline: 'top',
+            clearRect() { drawn = ''; },
+            measureText(s) {
+              const isTofu = s === '\uFFFD' || s === '\uFFFF' || s === '\u0378' || s.charCodeAt(0) >= 0xe000;
+              const familyWidth = String(this.font).includes('"Arial"') ? 12 : 10;
+              return { width: isTofu ? 9 : s.length * familyWidth };
+            },
+            fillText(s) { drawn = s; },
+            getImageData: () => {
+              const buf = new Uint8ClampedArray(w * h * 4);
+              const isTofu = drawn === '\uFFFD' || drawn === '\uFFFF' || drawn === '\u0378' || drawn.charCodeAt(0) >= 0xe000;
+              const seed = isTofu ? 0x5a : (drawn.charCodeAt(0) & 0xff) || 0x33;
+              buf[0] = seed; buf[1] = isTofu ? 0x11 : 0x99; buf[3] = 255;
+              return { data: buf };
+            },
+          }),
+        };
+      },
+    });
+    const devArial = devTextHost.Font.enumerateFonts(true).find(f => f.fontType === 'device' && f.fontName === 'Arial');
+    assert.ok(devArial, 'enumerateFonts(true) includes device Arial');
+    assert.equal(devArial.hasGlyphs('Hello 2026!'), true, 'device font accepts supported characters with non-tofu rasters');
+    assert.equal(devArial.hasGlyphs('Hello\u0378'), false, 'device font rejects unassigned codepoint matching .notdef tofu');
+    assert.equal(devArial.hasGlyphs('Hello\uE999'), false, 'device font rejects unmapped PUA codepoint');
+    assert.equal(devArial.hasGlyphs('Line1\nLine2'), false, 'device font rejects control characters');
+    devTextHost.dispose();
   } finally {
     host.disposeFamily();
     player.free();
@@ -1444,9 +1557,41 @@ test('Browser HTML5 (Canvas + DOM): graphemes, mixed-run IME commit/cancel, rich
       );
 
       // 8. Adobe exposes textInteractionMode as read-only on desktop. A script
-      //    write fails and cannot manufacture a user-mode-change event or lock.
-      const modeContract = await cdp.evalJson(`window.__t326Scene().probeTextInteractionModeWrite()`);
-      assert.deepEqual(modeContract, { threw: true, mode: 'normal' }, `${mode}: textInteractionMode must be read-only`);
+      //    write fails and cannot manufacture a user-mode-change event or lock;
+      //    real user Alt-pointer / contextmenu selection gesture transitions mode & fires textInteractionModeChange!
+      const modeContract = await cdp.evalJson(`(() => {
+        const scene = window.__t326Scene();
+        const base = scene.probeTextInteractionModeWrite();
+        const tf = scene.getChildByName('richInput');
+        const events = [];
+        tf.addEventListener('textInteractionModeChange', e => events.push({ mode: tf.textInteractionMode, bubbles: e.bubbles }));
+        scene.stage.focus = tf;
+        const inputEl = document.querySelector('textarea, input[type="text"], [contenteditable="true"]');
+        if (inputEl) {
+          inputEl.focus();
+          inputEl.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, altKey: true }));
+          inputEl.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, altKey: true }));
+        }
+        const FontCls = window.NeoFlashPlayer?.program?.type?.('flash.text.Font');
+        let devGlyphProbe = null;
+        if (FontCls) {
+          const dev = FontCls.enumerateFonts(true).find(f => f.fontType === 'device');
+          if (dev) devGlyphProbe = { ascii: dev.hasGlyphs('AZ09 '), tofu: dev.hasGlyphs('A\\uF8FE\\uE777') };
+        }
+        return { ...base, events, devGlyphProbe };
+      })()`);
+      assert.equal(modeContract.threw, true, `${mode}: textInteractionMode must be read-only`);
+      assert.equal(modeContract.mode, 'normal', `${mode}: script write keeps mode normal`);
+      if (mode === 'canvas') {
+        assert.deepEqual(
+          modeContract.events,
+          [{ mode: 'selection', bubbles: false }, { mode: 'normal', bubbles: false }],
+          `${mode}: user Alt-mousedown / plain-mousedown transitions textInteractionMode and dispatches non-bubbling textInteractionModeChange`
+        );
+      }
+      if (modeContract.devGlyphProbe) {
+        assert.deepEqual(modeContract.devGlyphProbe, { ascii: true, tofu: false }, `${mode}: Chromium device Font.hasGlyphs distinguishes real glyphs from .notdef tofu`);
+      }
 
       // 9. Restart resets stage cleanly in both Canvas and DOM modes!
       const afterRestart = await cdp.evalJson(`(() => {

@@ -53,6 +53,34 @@ pub enum AmfNode {
     XmlDocument {
         text: String,
     },
+    VectorInt {
+        fixed: bool,
+        values: Vec<i32>,
+    },
+    VectorUint {
+        fixed: bool,
+        values: Vec<u32>,
+    },
+    VectorNumber {
+        fixed: bool,
+        values: Vec<String>,
+    },
+    VectorObject {
+        fixed: bool,
+        #[serde(default)]
+        type_name: String,
+        values: Vec<AmfValue>,
+    },
+    Dictionary {
+        weak_keys: bool,
+        entries: Vec<(AmfValue, AmfValue)>,
+    },
+    Externalizable {
+        class_name: String,
+        base64: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ext_token: Option<usize>,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -207,6 +235,74 @@ impl AmfGraph {
                     b.bytes(bytes.len())?;
                     continue;
                 }
+                AmfNode::VectorInt { values, .. } => {
+                    if values.len() > MAX_ITEMS {
+                        return Err(fail("vector length exceeds budget"));
+                    }
+                    b.items(values.len())?;
+                    b.bytes(values.len().saturating_mul(4))?;
+                    continue;
+                }
+                AmfNode::VectorUint { values, .. } => {
+                    if values.len() > MAX_ITEMS {
+                        return Err(fail("vector length exceeds budget"));
+                    }
+                    b.items(values.len())?;
+                    b.bytes(values.len().saturating_mul(4))?;
+                    continue;
+                }
+                AmfNode::VectorNumber { values, .. } => {
+                    if values.len() > MAX_ITEMS {
+                        return Err(fail("vector length exceeds budget"));
+                    }
+                    b.items(values.len())?;
+                    b.bytes(values.len().saturating_mul(8))?;
+                    for s in values {
+                        number(s)?;
+                    }
+                    continue;
+                }
+                AmfNode::VectorObject {
+                    type_name, values, ..
+                } => {
+                    if values.len() > MAX_ITEMS {
+                        return Err(fail("vector length exceeds budget"));
+                    }
+                    b.bytes(type_name.len())?;
+                    for v in values {
+                        val(v, &mut b)?;
+                    }
+                    continue;
+                }
+                AmfNode::Dictionary { entries, .. } => {
+                    if entries.len() > MAX_ITEMS {
+                        return Err(fail("dictionary length exceeds budget"));
+                    }
+                    for (k, v) in entries {
+                        val(k, &mut b)?;
+                        val(v, &mut b)?;
+                    }
+                    continue;
+                }
+                AmfNode::Externalizable {
+                    class_name, base64, ..
+                } => {
+                    if class_name.is_empty() {
+                        return Err(fail("externalizable class_name cannot be empty"));
+                    }
+                    b.bytes(class_name.len())?;
+                    if base64.len() > MAX_AMF_BYTES.div_ceil(3) * 4 {
+                        return Err(fail("externalizable payload exceeds budget"));
+                    }
+                    let bytes = STANDARD
+                        .decode(base64)
+                        .map_err(|_| fail("invalid canonical base64"))?;
+                    if STANDARD.encode(&bytes) != *base64 {
+                        return Err(fail("invalid canonical base64"));
+                    }
+                    b.bytes(bytes.len())?;
+                    continue;
+                }
             };
             let mut names = HashSet::new();
             for (name, v) in entries {
@@ -247,7 +343,7 @@ struct Writer<'a> {
     sol_amf0_slots: Option<usize>,
     refs3: HashMap<usize, usize>,
     strings: HashMap<String, usize>,
-    traits: HashMap<String, usize>,
+    traits: HashMap<(bool, String), usize>,
 }
 impl Writer<'_> {
     fn put(&mut self, v: &[u8]) -> Result<(), AmfError> {
@@ -353,7 +449,17 @@ impl Writer<'_> {
         if format == 0 {
             // Types introduced with AVM+ retain their type through the standard
             // AMF0 switch marker rather than masquerading as legacy XMLDocument.
-            if matches!(node, AmfNode::Bytes { .. } | AmfNode::Xml { .. }) {
+            if matches!(
+                node,
+                AmfNode::Bytes { .. }
+                    | AmfNode::Xml { .. }
+                    | AmfNode::VectorInt { .. }
+                    | AmfNode::VectorUint { .. }
+                    | AmfNode::VectorNumber { .. }
+                    | AmfNode::VectorObject { .. }
+                    | AmfNode::Dictionary { .. }
+                    | AmfNode::Externalizable { .. }
+            ) {
                 self.byte(17)?;
                 return self.node(id, 3, depth);
             }
@@ -424,12 +530,17 @@ impl Writer<'_> {
             }
         } else {
             let marker = match node {
-                AmfNode::Object { .. } => 10,
+                AmfNode::Object { .. } | AmfNode::Externalizable { .. } => 10,
                 AmfNode::Array { .. } => 9,
                 AmfNode::Date { .. } => 8,
                 AmfNode::Bytes { .. } => 12,
                 AmfNode::XmlDocument { .. } => 7,
                 AmfNode::Xml { .. } => 11,
+                AmfNode::VectorInt { .. } => 13,
+                AmfNode::VectorUint { .. } => 14,
+                AmfNode::VectorNumber { .. } => 15,
+                AmfNode::VectorObject { .. } => 16,
+                AmfNode::Dictionary { .. } => 17,
             };
             self.byte(marker)?;
             if let Some(i) = self.refs3.get(&id) {
@@ -442,16 +553,34 @@ impl Writer<'_> {
                     entries,
                 } => {
                     let class = class_name.as_deref().unwrap_or("");
-                    if let Some(&trait_index) = self.traits.get(class) {
+                    let key = (false, class.to_owned());
+                    if let Some(&trait_index) = self.traits.get(&key) {
                         self.u29(((trait_index as u32) << 2) | 1)?;
                     } else {
                         let next = self.traits.len();
-                        self.traits.insert(class.to_owned(), next);
+                        self.traits.insert(key, next);
                         self.u29(11)?;
                         self.string3(class)?;
                     }
                     self.entries3(entries, depth)?;
                     self.string3("")
+                }
+                AmfNode::Externalizable {
+                    class_name, base64, ..
+                } => {
+                    let key = (true, class_name.clone());
+                    if let Some(&trait_index) = self.traits.get(&key) {
+                        self.u29(((trait_index as u32) << 2) | 1)?;
+                    } else {
+                        let next = self.traits.len();
+                        self.traits.insert(key, next);
+                        self.u29(7)?;
+                        self.string3(class_name)?;
+                    }
+                    let bytes = STANDARD
+                        .decode(base64)
+                        .map_err(|_| fail("invalid base64"))?;
+                    self.put(&bytes)
                 }
                 AmfNode::Array { dense, entries, .. } => {
                     self.u29(((dense.len() as u32) << 1) | 1)?;
@@ -477,6 +606,52 @@ impl Writer<'_> {
                     self.u29(((text.len() as u32) << 1) | 1)?;
                     self.put(text.as_bytes())
                 }
+                AmfNode::VectorInt { fixed, values } => {
+                    self.u29(((values.len() as u32) << 1) | 1)?;
+                    self.byte(u8::from(*fixed))?;
+                    for v in values {
+                        self.put(&v.to_be_bytes())?;
+                    }
+                    Ok(())
+                }
+                AmfNode::VectorUint { fixed, values } => {
+                    self.u29(((values.len() as u32) << 1) | 1)?;
+                    self.byte(u8::from(*fixed))?;
+                    for v in values {
+                        self.put(&v.to_be_bytes())?;
+                    }
+                    Ok(())
+                }
+                AmfNode::VectorNumber { fixed, values } => {
+                    self.u29(((values.len() as u32) << 1) | 1)?;
+                    self.byte(u8::from(*fixed))?;
+                    for s in values {
+                        self.put(&number(s)?.to_be_bytes())?;
+                    }
+                    Ok(())
+                }
+                AmfNode::VectorObject {
+                    fixed,
+                    type_name,
+                    values,
+                } => {
+                    self.u29(((values.len() as u32) << 1) | 1)?;
+                    self.byte(u8::from(*fixed))?;
+                    self.string3(type_name)?;
+                    for v in values {
+                        self.value(v, 3, depth + 1)?;
+                    }
+                    Ok(())
+                }
+                AmfNode::Dictionary { weak_keys, entries } => {
+                    self.u29(((entries.len() as u32) << 1) | 1)?;
+                    self.byte(u8::from(*weak_keys))?;
+                    for (k, v) in entries {
+                        self.value(k, 3, depth + 1)?;
+                        self.value(v, 3, depth + 1)?;
+                    }
+                    Ok(())
+                }
             }
         }
     }
@@ -501,13 +676,17 @@ impl Writer<'_> {
     }
 }
 
+pub type ExternalizableReader<'a> =
+    &'a mut dyn FnMut(&str, &[u8]) -> Result<(usize, Option<usize>), String>;
+
 #[derive(Clone)]
 struct Trait {
     class_name: Option<String>,
     dynamic: bool,
+    externalizable: bool,
     names: Vec<String>,
 }
-struct Reader<'a> {
+struct Reader<'a, 'b> {
     data: &'a [u8],
     pos: usize,
     nodes: Vec<AmfNode>,
@@ -517,35 +696,46 @@ struct Reader<'a> {
     strings: Vec<String>,
     traits: Vec<Trait>,
     budget: Budget,
+    ext_reader: Option<ExternalizableReader<'b>>,
 }
 pub fn amf_decode(format: u8, bytes: &[u8]) -> Result<AmfDecoded, AmfError> {
-    if !matches!(format, 0 | 3) {
-        return Err(fail("objectEncoding must be 0 or 3"));
-    }
-    let mut r = Reader {
-        data: bytes,
-        pos: 0,
-        nodes: vec![],
-        refs0: vec![],
-        sol_amf0_slots: false,
-        refs3: vec![],
-        strings: vec![],
-        traits: vec![],
-        budget: Budget::default(),
-    };
-    let root = r.value(format, 0).map_err(|mut error| {
-        error.offset = r.pos;
-        error
-    })?;
-    Ok(AmfDecoded {
-        graph: AmfGraph {
-            root,
-            nodes: r.nodes,
-        },
-        consumed: r.pos,
-    })
+    AmfDecoded::decode_with_ext(format, bytes, None)
 }
-impl Reader<'_> {
+impl AmfDecoded {
+    pub fn decode_with_ext(
+        format: u8,
+        bytes: &[u8],
+        ext_reader: Option<ExternalizableReader<'_>>,
+    ) -> Result<AmfDecoded, AmfError> {
+        if !matches!(format, 0 | 3) {
+            return Err(fail("objectEncoding must be 0 or 3"));
+        }
+        let mut r = Reader {
+            data: bytes,
+            pos: 0,
+            nodes: vec![],
+            refs0: vec![],
+            sol_amf0_slots: false,
+            refs3: vec![],
+            strings: vec![],
+            traits: vec![],
+            budget: Budget::default(),
+            ext_reader,
+        };
+        let root = r.value(format, 0).map_err(|mut error| {
+            error.offset = r.pos;
+            error
+        })?;
+        Ok(AmfDecoded {
+            graph: AmfGraph {
+                root,
+                nodes: r.nodes,
+            },
+            consumed: r.pos,
+        })
+    }
+}
+impl Reader<'_, '_> {
     fn take(&mut self, n: usize) -> Result<&[u8], AmfError> {
         let end = self
             .pos
@@ -758,10 +948,8 @@ impl Reader<'_> {
                 }
                 5 => Ok(AmfValue::Number(self.double()?)),
                 6 => Ok(AmfValue::String(self.string3()?)),
-                7..=12 => self.complex3(marker, depth),
-                _ => Err(fail(
-                    "unsupported AMF3 marker (Vector/Dictionary are pending)",
-                )),
+                7..=17 => self.complex3(marker, depth),
+                _ => Err(fail("unsupported AMF3 marker")),
             }
         }
     }
@@ -841,10 +1029,15 @@ impl Reader<'_> {
                 (&self.nodes[id], marker),
                 (AmfNode::Date { .. }, 8)
                     | (AmfNode::Array { .. }, 9)
-                    | (AmfNode::Object { .. }, 10)
+                    | (AmfNode::Object { .. } | AmfNode::Externalizable { .. }, 10)
                     | (AmfNode::Bytes { .. }, 12)
                     | (AmfNode::XmlDocument { .. }, 7)
                     | (AmfNode::Xml { .. }, 11)
+                    | (AmfNode::VectorInt { .. }, 13)
+                    | (AmfNode::VectorUint { .. }, 14)
+                    | (AmfNode::VectorNumber { .. }, 15)
+                    | (AmfNode::VectorObject { .. }, 16)
+                    | (AmfNode::Dictionary { .. }, 17)
             );
             if !valid {
                 return Err(fail("AMF3 reference marker/type mismatch"));
@@ -852,6 +1045,18 @@ impl Reader<'_> {
             return Ok(AmfValue::Ref(id));
         }
         let id = self.node(3, None)?;
+        match marker {
+            7 | 8 | 11 | 12 | 13 | 14 | 15 => self.complex3_leaf(id, marker, h)?,
+            9 => self.complex3_array(id, h, depth)?,
+            10 => self.complex3_object(id, h, depth)?,
+            16 => self.complex3_vector_object(id, h, depth)?,
+            17 => self.complex3_dictionary(id, h, depth)?,
+            _ => unreachable!(),
+        }
+        Ok(AmfValue::Ref(id))
+    }
+    #[inline(never)]
+    fn complex3_leaf(&mut self, id: usize, marker: u8, h: u32) -> Result<(), AmfError> {
         let node = match marker {
             7 | 11 => {
                 let text = self.text((h >> 1) as usize)?;
@@ -871,73 +1076,213 @@ impl Reader<'_> {
                     base64: STANDARD.encode(self.take(n)?),
                 }
             }
-            9 => {
+            13 => {
                 let n = (h >> 1) as usize;
                 self.count(n)?;
-                self.nodes[id] = AmfNode::Array {
-                    dense: vec![],
-                    entries: vec![],
-                    amf0_length: None,
-                };
-                let entries = self.entries3(depth, &mut HashSet::new())?;
-                self.count(n)?;
-                let mut dense = Vec::with_capacity(n);
+                self.budget.items(n)?;
+                self.budget.bytes(n.saturating_mul(4))?;
+                let fixed = self.byte()? != 0;
+                let mut values = Vec::with_capacity(n);
                 for _ in 0..n {
-                    dense.push(self.value(3, depth + 1)?);
+                    values.push(i32::from_be_bytes(self.take(4)?.try_into().unwrap()));
                 }
-                self.array(dense, entries, None)?
+                AmfNode::VectorInt { fixed, values }
             }
-            10 => {
-                let traits = if h & 2 == 0 {
-                    self.traits
-                        .get((h >> 2) as usize)
-                        .ok_or_else(|| fail("invalid AMF3 trait reference"))?
-                        .clone()
-                } else {
-                    if h & 4 != 0 {
-                        return Err(fail("externalizable objects are not supported"));
-                    }
-                    let count = (h >> 4) as usize;
-                    self.count(count)?;
-                    let class = self.string3()?;
-                    let mut names = Vec::with_capacity(count);
-                    let mut seen = HashSet::new();
-                    for _ in 0..count {
-                        self.budget.items(1)?;
-                        let name = self.string3()?;
-                        if !seen.insert(name.clone()) {
-                            return Err(fail("duplicate sealed member name"));
-                        }
-                        names.push(name);
-                    }
-                    let t = Trait {
-                        class_name: (!class.is_empty()).then_some(class),
-                        dynamic: h & 8 != 0,
-                        names,
-                    };
-                    self.traits.push(t.clone());
-                    t
-                };
-                let mut entries = vec![];
-                let mut seen = HashSet::new();
-                for name in traits.names {
-                    self.budget.items(1)?;
-                    self.budget.bytes(name.len())?;
-                    seen.insert(name.clone());
-                    entries.push((name, self.value(3, depth + 1)?));
+            14 => {
+                let n = (h >> 1) as usize;
+                self.count(n)?;
+                self.budget.items(n)?;
+                self.budget.bytes(n.saturating_mul(4))?;
+                let fixed = self.byte()? != 0;
+                let mut values = Vec::with_capacity(n);
+                for _ in 0..n {
+                    values.push(self.u32()?);
                 }
-                if traits.dynamic {
-                    entries.extend(self.entries3(depth, &mut seen)?);
+                AmfNode::VectorUint { fixed, values }
+            }
+            15 => {
+                let n = (h >> 1) as usize;
+                self.count(n)?;
+                self.budget.items(n)?;
+                self.budget.bytes(n.saturating_mul(8))?;
+                let fixed = self.byte()? != 0;
+                let mut values = Vec::with_capacity(n);
+                for _ in 0..n {
+                    values.push(self.double()?);
                 }
-                AmfNode::Object {
-                    class_name: traits.class_name,
-                    entries,
-                }
+                AmfNode::VectorNumber { fixed, values }
             }
             _ => unreachable!(),
         };
         self.nodes[id] = node;
-        Ok(AmfValue::Ref(id))
+        Ok(())
+    }
+    fn complex3_array(&mut self, id: usize, h: u32, depth: usize) -> Result<(), AmfError> {
+        let n = (h >> 1) as usize;
+        self.count(n)?;
+        self.nodes[id] = AmfNode::Array {
+            dense: vec![],
+            entries: vec![],
+            amf0_length: None,
+        };
+        let entries = self.entries3(depth, &mut HashSet::new())?;
+        self.count(n)?;
+        let mut dense = Vec::with_capacity(n);
+        for _ in 0..n {
+            dense.push(self.value(3, depth + 1)?);
+        }
+        self.nodes[id] = self.array(dense, entries, None)?;
+        Ok(())
+    }
+    #[inline(never)]
+    fn decode_object_traits(&mut self, h: u32) -> Result<Trait, AmfError> {
+        if h & 2 == 0 {
+            self.traits
+                .get((h >> 2) as usize)
+                .ok_or_else(|| fail("invalid AMF3 trait reference"))
+                .cloned()
+        } else if h & 4 != 0 {
+            if (h >> 3) != 0 {
+                return Err(fail("invalid AMF3 externalizable trait header"));
+            }
+            let class = self.string3()?;
+            if class.is_empty() {
+                return Err(fail(
+                    "externalizable object requires a non-empty class alias",
+                ));
+            }
+            let t = Trait {
+                class_name: Some(class),
+                dynamic: false,
+                externalizable: true,
+                names: vec![],
+            };
+            self.traits.push(t.clone());
+            Ok(t)
+        } else {
+            let count = (h >> 4) as usize;
+            self.count(count)?;
+            let class = self.string3()?;
+            let mut names = Vec::with_capacity(count);
+            let mut seen = HashSet::new();
+            for _ in 0..count {
+                self.budget.items(1)?;
+                let name = self.string3()?;
+                if !seen.insert(name.clone()) {
+                    return Err(fail("duplicate sealed member name"));
+                }
+                names.push(name);
+            }
+            let t = Trait {
+                class_name: (!class.is_empty()).then_some(class),
+                dynamic: h & 8 != 0,
+                externalizable: false,
+                names,
+            };
+            self.traits.push(t.clone());
+            Ok(t)
+        }
+    }
+    #[inline(never)]
+    fn decode_externalizable_body(
+        &mut self,
+        id: usize,
+        class_name: String,
+    ) -> Result<(), AmfError> {
+        self.nodes[id] = AmfNode::Externalizable {
+            class_name: class_name.clone(),
+            base64: String::new(),
+            ext_token: None,
+        };
+        let remaining = self
+            .data
+            .get(self.pos..)
+            .ok_or_else(|| fail("truncated AMF value"))?;
+        let reader = self
+            .ext_reader
+            .as_deref_mut()
+            .ok_or_else(|| fail("externalizable objects require an externalizable class reader"))?;
+        let (consumed, ext_token) = reader(&class_name, remaining).map_err(|msg| {
+            fail(if msg.is_empty() {
+                "externalizable readExternal failed"
+            } else {
+                &msg
+            })
+        })?;
+        if consumed > remaining.len() {
+            return Err(fail("externalizable reader consumed past remaining stream"));
+        }
+        self.budget.bytes(consumed)?;
+        let raw = self.take(consumed)?;
+        self.nodes[id] = AmfNode::Externalizable {
+            class_name,
+            base64: STANDARD.encode(raw),
+            ext_token,
+        };
+        Ok(())
+    }
+    fn complex3_object(&mut self, id: usize, h: u32, depth: usize) -> Result<(), AmfError> {
+        let traits = self.decode_object_traits(h)?;
+        if traits.externalizable {
+            let class_name = traits
+                .class_name
+                .ok_or_else(|| fail("externalizable object requires a class alias"))?;
+            return self.decode_externalizable_body(id, class_name);
+        }
+        let mut entries = vec![];
+        let mut seen = HashSet::new();
+        for name in traits.names {
+            self.budget.items(1)?;
+            self.budget.bytes(name.len())?;
+            seen.insert(name.clone());
+            entries.push((name, self.value(3, depth + 1)?));
+        }
+        if traits.dynamic {
+            entries.extend(self.entries3(depth, &mut seen)?);
+        }
+        self.nodes[id] = AmfNode::Object {
+            class_name: traits.class_name,
+            entries,
+        };
+        Ok(())
+    }
+    fn complex3_vector_object(&mut self, id: usize, h: u32, depth: usize) -> Result<(), AmfError> {
+        let n = (h >> 1) as usize;
+        self.count(n)?;
+        let fixed = self.byte()? != 0;
+        self.nodes[id] = AmfNode::VectorObject {
+            fixed,
+            type_name: String::new(),
+            values: vec![],
+        };
+        let type_name = self.string3()?;
+        let mut values = Vec::with_capacity(n);
+        for _ in 0..n {
+            values.push(self.value(3, depth + 1)?);
+        }
+        self.nodes[id] = AmfNode::VectorObject {
+            fixed,
+            type_name,
+            values,
+        };
+        Ok(())
+    }
+    fn complex3_dictionary(&mut self, id: usize, h: u32, depth: usize) -> Result<(), AmfError> {
+        let n = (h >> 1) as usize;
+        self.count(n.saturating_mul(2))?;
+        let weak_keys = self.byte()? != 0;
+        self.nodes[id] = AmfNode::Dictionary {
+            weak_keys,
+            entries: vec![],
+        };
+        let mut entries = Vec::with_capacity(n);
+        for _ in 0..n {
+            let k = self.value(3, depth + 1)?;
+            let v = self.value(3, depth + 1)?;
+            entries.push((k, v));
+        }
+        self.nodes[id] = AmfNode::Dictionary { weak_keys, entries };
+        Ok(())
     }
 }
 
@@ -1044,6 +1389,13 @@ impl AmfGraph {
 impl AmfDecoded {
     /// Decode a Flash Local Shared Object (`.sol` / `TCSO`) binary container into `(name, format, decoded)`.
     pub fn decode_sol(bytes: &[u8]) -> Result<(String, u8, AmfDecoded), AmfError> {
+        Self::decode_sol_with_ext(bytes, None)
+    }
+
+    pub fn decode_sol_with_ext(
+        bytes: &[u8],
+        ext_reader: Option<ExternalizableReader<'_>>,
+    ) -> Result<(String, u8, AmfDecoded), AmfError> {
         if bytes.len() > MAX_AMF_BYTES {
             return Err(fail("SOL container exceeds 16 MiB including its header"));
         }
@@ -1079,6 +1431,7 @@ impl AmfDecoded {
             strings: vec![],
             traits: vec![],
             budget: Budget::default(),
+            ext_reader,
         };
         let result = (|| -> Result<(String, u8, usize), AmfError> {
             let name_len = r.u16()? as usize;
@@ -1180,6 +1533,149 @@ mod tests {
             assert_eq!(decoded_format, format);
             assert_eq!(decoded.consumed, bytes.len());
             assert_eq!(decoded.graph, graph);
+        }
+    }
+
+    #[test]
+    fn amf3_vectors_dictionary_and_externalizable_roundtrip_wire_and_sol() {
+        let ext_bytes = [0xDE, 0xAD, 0xBE, 0xEF];
+        let ext_b64 = STANDARD.encode(ext_bytes);
+        let graph = AmfGraph {
+            root: AmfValue::Ref(0),
+            nodes: vec![
+                AmfNode::Object {
+                    class_name: None,
+                    entries: vec![
+                        ("ints".into(), AmfValue::Ref(1)),
+                        ("ints_ref".into(), AmfValue::Ref(1)),
+                        ("uints".into(), AmfValue::Ref(2)),
+                        ("nums".into(), AmfValue::Ref(3)),
+                        ("objs".into(), AmfValue::Ref(4)),
+                        ("dict".into(), AmfValue::Ref(5)),
+                        ("ext_a".into(), AmfValue::Ref(6)),
+                        ("ext_a_ref".into(), AmfValue::Ref(6)),
+                        ("ext_b".into(), AmfValue::Ref(7)),
+                    ],
+                },
+                AmfNode::VectorInt {
+                    fixed: true,
+                    values: vec![-2_147_483_648, -1, 0, 2_147_483_647],
+                },
+                AmfNode::VectorUint {
+                    fixed: false,
+                    values: vec![0, 42, 4_294_967_295],
+                },
+                AmfNode::VectorNumber {
+                    fixed: true,
+                    values: vec![
+                        "-0".into(),
+                        "NaN".into(),
+                        "Infinity".into(),
+                        "3.141592653589793".into(),
+                    ],
+                },
+                AmfNode::VectorObject {
+                    fixed: false,
+                    type_name: "*".into(),
+                    values: vec![
+                        AmfValue::String("head".into()),
+                        AmfValue::Ref(4),
+                        AmfValue::Ref(6),
+                    ],
+                },
+                AmfNode::Dictionary {
+                    weak_keys: true,
+                    entries: vec![
+                        (AmfValue::Ref(1), AmfValue::String("by_vec".into())),
+                        (AmfValue::Ref(5), AmfValue::Ref(5)),
+                        (AmfValue::Number("9".into()), AmfValue::Bool(true)),
+                    ],
+                },
+                AmfNode::Externalizable {
+                    class_name: "com.example.Packet".into(),
+                    base64: ext_b64.clone(),
+                    ext_token: None,
+                },
+                AmfNode::Externalizable {
+                    class_name: "com.example.Packet".into(),
+                    base64: STANDARD.encode([0x11, 0x22]),
+                    ext_token: None,
+                },
+            ],
+        };
+
+        for format in [3u8, 0u8] {
+            let encoded = amf_encode(format, &graph).unwrap();
+            let mut ext_calls = Vec::new();
+            let mut reader = |cls: &str, rem: &[u8]| -> Result<(usize, Option<usize>), String> {
+                assert_eq!(cls, "com.example.Packet");
+                let len = if rem.starts_with(&ext_bytes) { 4 } else { 2 };
+                let tok = ext_calls.len();
+                ext_calls.push((cls.to_string(), rem[..len].to_vec()));
+                Ok((len, Some(tok)))
+            };
+            let decoded = AmfDecoded::decode_with_ext(format, &encoded, Some(&mut reader)).unwrap();
+            assert_eq!(decoded.consumed, encoded.len());
+            assert_eq!(ext_calls.len(), 2);
+            assert_eq!(decoded.graph.nodes[1], graph.nodes[1]);
+            assert_eq!(decoded.graph.nodes[2], graph.nodes[2]);
+            assert_eq!(decoded.graph.nodes[3], graph.nodes[3]);
+            assert_eq!(
+                decoded.graph.nodes[4],
+                AmfNode::VectorObject {
+                    fixed: false,
+                    type_name: "*".into(),
+                    values: vec![
+                        AmfValue::String("head".into()),
+                        AmfValue::Ref(4),
+                        AmfValue::Ref(5),
+                    ],
+                }
+            );
+            assert_eq!(
+                decoded.graph.nodes[5],
+                AmfNode::Externalizable {
+                    class_name: "com.example.Packet".into(),
+                    base64: ext_b64.clone(),
+                    ext_token: Some(0),
+                }
+            );
+            assert_eq!(
+                decoded.graph.nodes[6],
+                AmfNode::Dictionary {
+                    weak_keys: true,
+                    entries: vec![
+                        (AmfValue::Ref(1), AmfValue::String("by_vec".into())),
+                        (AmfValue::Ref(6), AmfValue::Ref(6)),
+                        (AmfValue::Number("9".into()), AmfValue::Bool(true)),
+                    ],
+                }
+            );
+            assert_eq!(
+                decoded.graph.nodes[7],
+                AmfNode::Externalizable {
+                    class_name: "com.example.Packet".into(),
+                    base64: STANDARD.encode([0x11, 0x22]),
+                    ext_token: Some(1),
+                }
+            );
+
+            let sol = graph.encode_sol("ext/save", format).unwrap();
+            let mut sol_calls = 0usize;
+            let mut sol_reader =
+                |cls: &str, rem: &[u8]| -> Result<(usize, Option<usize>), String> {
+                    assert_eq!(cls, "com.example.Packet");
+                    let len = if rem.starts_with(&ext_bytes) { 4 } else { 2 };
+                    let tok = sol_calls;
+                    sol_calls += 1;
+                    Ok((len, Some(tok)))
+                };
+            let (sol_name, sol_fmt, sol_dec) =
+                AmfDecoded::decode_sol_with_ext(&sol, Some(&mut sol_reader)).unwrap();
+            assert_eq!(sol_name, "ext/save");
+            assert_eq!(sol_fmt, format);
+            assert_eq!(sol_dec.consumed, sol.len());
+            assert_eq!(sol_calls, 2);
         }
     }
 }

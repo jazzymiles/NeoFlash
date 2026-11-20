@@ -142,6 +142,22 @@ var uriAlias:Function=encodeURIComponent;var uriAliased=uriAlias("a b");
 function uriShadow(encodeURI:Function):String{return encodeURI("value");}
 var uriShadowed=uriShadow(function(value:String):String{return "local:"+value;});
 var uriError=false;try{decodeURIComponent("%E0%A4");}catch(e:URIError){uriError=true;}
+var pcreNamed:RegExp = new RegExp("(?P<year>\\d{4})-(?<month>\\d{2})-(?P=year)");
+var pcreExec:Object = pcreNamed.exec("id=2026-11-2026!");
+var pcreYear:String = pcreExec.year;
+var pcreMonth:String = pcreExec.month;
+var pcreReplaced:String = "2026-11".replace(new RegExp("(?P<y>\\d{4})-(?<m>\\d{2})"), "$<m>/$<y>");
+var pcreInlineFlags:Boolean = new RegExp("(?i)abc(?-i)DEF").test("AbcDEF") && !new RegExp("(?i)abc(?-i)DEF").test("Abcdef");
+var pcreScopedFlags:Boolean = new RegExp("(?i:abc)DEF").test("aBcDEF") && !new RegExp("(?i:abc)DEF").test("aBcdef");
+var pcreComment:Boolean = new RegExp("foo(?# inline comment )bar").test("foobar");
+var pcreCondNum:Array = [new RegExp("(a)?(?(1)yes|no)").exec("ayes")[0], new RegExp("(a)?(?(1)yes|no)").exec("no")[0]];
+var pcreCondNamed:Array = [new RegExp("(?P<k>@)?(?(k)at|plain)").exec("@at")[0], new RegExp("(?P<k>@)?(?(k)at|plain)").exec("plain")[0]];
+var pcreCondAssert:Array = [new RegExp("(?(?=\\d)\\d+|[a-z]+)").exec("42")[0], new RegExp("(?(?=\\d)\\d+|[a-z]+)").exec("ok")[0]];
+var pcreEscapes:Boolean = new RegExp("\\A\\a\\e\\x{03B1}\\Z").test("\x07\x1bα\n") && !new RegExp("\\Aα\\z").test("α\n") && new RegExp("\\Aα\\z").test("α");
+var pcreReclone:RegExp = new RegExp(pcreNamed);
+var pcreFlagOverrideError:Boolean = false;
+try { new RegExp(pcreNamed, "gi"); } catch (e:TypeError) { pcreFlagOverrideError = true; }
+var pcreSameCall:Boolean = (RegExp(pcreNamed) === pcreNamed) && (pcreReclone !== pcreNamed) && (pcreReclone.source === pcreNamed.source) && pcreFlagOverrideError;
 `;
 
 export const stringsFixtures = ['as2','as3'].map(language => ({
@@ -178,6 +194,10 @@ export const stringsFixtures = ['as2','as3'].map(language => ({
       assert.equal(c.uriEncoded,'https://example.test/a%20b?q=%CE%B1&x=1');assert.equal(c.uriDecoded,c.uriSource);
       assert.equal(c.componentEncoded,'a%2Fb%20%CE%B1');assert.equal(c.componentDecoded,'a/b α');assert.equal(c.reservedDecoded,'%2F%23');
       assert.deepEqual(c.uriDefaults,['undefined','null','null']);assert.equal(c.uriAliased,'a%20b');assert.equal(c.uriShadowed,'local:value');assert.equal(c.uriError,true);
+      assert.equal(c.pcreYear,'2026');assert.equal(c.pcreMonth,'11');assert.equal(c.pcreReplaced,'11/2026');
+      assert.equal(c.pcreInlineFlags,true);assert.equal(c.pcreScopedFlags,true);assert.equal(c.pcreComment,true);
+      assert.deepEqual(c.pcreCondNum,['ayes','no']);assert.deepEqual(c.pcreCondNamed,['@at','plain']);assert.deepEqual(c.pcreCondAssert,['42','ok']);
+      assert.equal(c.pcreEscapes,true);assert.equal(c.pcreSameCall,true);
       assert.equal(c.untouched,'blue'); expected.push(['REPLACE','$& red','RED:0:7 red','blue']);
     } else {
       assert.equal(c.omitted,undefined); assert.equal(c.explicitEnd,'bcd'); assert.equal(c.nullSearch,0);

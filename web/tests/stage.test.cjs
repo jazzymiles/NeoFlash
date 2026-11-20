@@ -662,3 +662,154 @@ test('syncAccessibilityOverlay synchronizes deterministic tabIndex read order, r
   textTarget.text='Saved';entries=collectProjectAccessibilityEntries(project,0,options);assert.equal(entries.find(entry=>entry.id==='status').ariaLabel,'Saved');
   textTarget.visible=false;assert.equal(collectProjectAccessibilityEntries(project,0,options).some(entry=>entry.id==='status'),false);
 });
+
+test('Stage quality, wmodeGPU, colorCorrection/colorCorrectionSupport, mouseLock Pointer Lock deltas, and MouseCursorData PNG/animated CSS cursors', async () => {
+  const NeoFlashStage = require('../stage.js');
+  const docListeners = new Map();
+  let pointerLockElement = null, pointerLockRequests = 0, pointerLockExits = 0;
+  const mockDoc = {
+    get pointerLockElement() { return pointerLockElement; },
+    addEventListener(type, fn) { if (!docListeners.has(type)) docListeners.set(type, []); docListeners.get(type).push(fn); },
+    removeEventListener(type, fn) { if (docListeners.has(type)) docListeners.set(type, docListeners.get(type).filter(x => x !== fn)); },
+    exitPointerLock() {
+      pointerLockExits++;
+      pointerLockElement = null;
+      for (const fn of docListeners.get('pointerlockchange') || []) fn();
+    },
+  };
+  const canvasListeners = new Map();
+  const canvasAttrs = {};
+  const mockCanvas = {
+    style: {},
+    dataset: {},
+    ownerDocument: mockDoc,
+    setAttribute(k, v) { canvasAttrs[k] = String(v); },
+    getAttribute(k) { return canvasAttrs[k] ?? null; },
+    removeAttribute(k) { delete canvasAttrs[k]; },
+    addEventListener(t, fn) { if (!canvasListeners.has(t)) canvasListeners.set(t, []); canvasListeners.get(t).push(fn); },
+    removeEventListener(t, fn) { if (canvasListeners.has(t)) canvasListeners.set(t, canvasListeners.get(t).filter(x => x !== fn)); },
+    requestPointerLock() {
+      pointerLockRequests++;
+      pointerLockElement = mockCanvas;
+      for (const fn of docListeners.get('pointerlockchange') || []) fn();
+    },
+  };
+  const viewportAttrs = {};
+  const mockViewport = {
+    style: {},
+    dataset: {},
+    ownerDocument: mockDoc,
+    setAttribute(k, v) { viewportAttrs[k] = String(v); },
+    getAttribute(k) { return viewportAttrs[k] ?? null; },
+    removeAttribute(k) { delete viewportAttrs[k]; },
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  const mockCtx = {
+    imageSmoothingEnabled: true,
+    imageSmoothingQuality: 'medium',
+    getContextAttributes: () => ({ colorSpace: 'display-p3' }),
+  };
+
+  let qualityChanges = 0, colorCorrectionChanges = 0, mouseChanges = 0;
+  const { stage, controller } = setup({
+    canvas: mockCanvas,
+    viewport: mockViewport,
+    context: mockCtx,
+    wmode: 'gpu',
+    allowsFullScreen: true,
+    allowsFullScreenInteractive: true,
+    onQualityChanged: () => qualityChanges++,
+    onColorCorrectionChanged: () => colorCorrectionChanges++,
+    onMouseChanged: () => mouseChanges++,
+  });
+
+  // 1. wmodeGPU & GPU layer promotion
+  assert.equal(stage.wmodeGPU, true);
+  assert.equal(mockCanvas.style.willChange, 'transform');
+  assert.equal(mockCanvas.dataset.wmodeGpu, 'true');
+  assert.throws(() => { 'use strict'; stage.wmodeGPU = false; }, TypeError);
+
+  // 2. Stage.quality updates Canvas smoothing + CSS imageRendering + notifies host
+  stage.quality = StageQuality.LOW;
+  assert.equal(stage.quality, 'LOW');
+  assert.equal(mockCtx.imageSmoothingEnabled, false);
+  assert.equal(mockCanvas.style.imageRendering, 'pixelated');
+  stage.quality = StageQuality.MEDIUM;
+  assert.equal(mockCtx.imageSmoothingEnabled, true);
+  assert.equal(mockCtx.imageSmoothingQuality, 'low');
+  stage.quality = StageQuality.HIGH_16X16_LINEAR;
+  assert.equal(stage.quality, '16X16LINEAR');
+  assert.equal(mockCtx.imageSmoothingEnabled, true);
+  assert.equal(mockCtx.imageSmoothingQuality, 'high');
+  assert.ok(qualityChanges >= 3);
+  assert.throws(() => { stage.quality = 'INVALID_QUALITY'; }, err => err.name === 'ArgumentError');
+
+  // 3. Stage.colorCorrectionSupport & Stage.colorCorrection
+  assert.equal(stage.colorCorrectionSupport, 'defaultOn');
+  stage.colorCorrection = 'off';
+  assert.equal(stage.colorCorrection, 'off');
+  assert.equal(mockCanvas.dataset.colorCorrection, 'off');
+  assert.equal(mockCanvas.style.colorInterpolation, 'linearRGB');
+  stage.colorCorrection = 'on';
+  assert.equal(stage.colorCorrection, 'on');
+  assert.equal(mockCanvas.dataset.colorCorrection, 'on');
+  assert.equal(mockCanvas.style.colorInterpolation, 'sRGB');
+  assert.ok(colorCorrectionChanges >= 2);
+  assert.throws(() => { stage.colorCorrection = 'badMode'; }, err => err.name === 'ArgumentError');
+
+  // 4. Stage.mouseLock engages/releases DOM Pointer Lock and routes relative movementX/movementY deltas
+  controller.attach();
+  const moveDeltas = [];
+  stage.addEventListener(Events.MouseEvent.MOUSE_MOVE, e => moveDeltas.push([e.movementX, e.movementY, e.stageX, e.stageY]));
+  stage.displayState = StageDisplayState.FULL_SCREEN_INTERACTIVE;
+  stage.mouseLock = true;
+  assert.equal(stage.mouseLock, true);
+  assert.equal(pointerLockRequests, 1);
+  assert.equal(mockDoc.pointerLockElement, mockCanvas);
+  controller.handlePointer('pointermove', { clientX: 100, clientY: 100, movementX: 14, movementY: -9, button: 0, buttons: 0 }, stage);
+  assert.ok(moveDeltas.length >= 1);
+  assert.deepEqual([moveDeltas[0][0], moveDeltas[0][1]], [14, -9]);
+  // Browser-initiated pointerlock release (e.g. Escape) syncs stage.mouseLock back to false
+  mockDoc.exitPointerLock();
+  assert.equal(stage.mouseLock, false);
+  stage.mouseLock = true;
+  assert.equal(stage.mouseLock, true);
+  stage.mouseLock = false;
+  assert.equal(pointerLockExits, 2);
+
+  // 5. Mouse.supportsNativeCursor + MouseCursorData multi-frame PNG data-URI CSS cursor & animation
+  const { Mouse: HostMouse } = controller;
+  assert.equal(HostMouse.supportsNativeCursor, true);
+  NeoFlashStage.setStageAdapters({
+    isBitmapData: v => Boolean(v && Array.isArray(v.rgba) && v.width > 0 && v.height > 0),
+    isPoint: v => Boolean(v && Number.isFinite(v.x) && Number.isFinite(v.y)),
+    makePoint: (x, y) => ({ x, y }),
+    encodeCursorPng: null,
+  });
+  const frameRed = { width: 2, height: 2, getPixelsRgba: () => new Uint8Array([255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255]), rgba: [255, 0, 0, 255] };
+  const frameBlue = { width: 2, height: 2, getPixelsRgba: () => new Uint8Array([0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255]), rgba: [0, 0, 255, 255] };
+  const animCursor = new MouseCursorData();
+  animCursor.data = [frameRed, frameBlue];
+  animCursor.hotSpot = { x: 1, y: 1 };
+  animCursor.frameRate = 40;
+  HostMouse.registerCursor('pulse', animCursor);
+  HostMouse.cursor = 'pulse';
+  const cssFrame0 = controller.cursorCss();
+  assert.match(cssFrame0, /^url\("data:image\/png;base64,[A-Za-z0-9+/=]+"\) 1 1, auto$/);
+  const pngBytes0 = Buffer.from(/base64,([A-Za-z0-9+/=]+)/.exec(cssFrame0)[1], 'base64');
+  assert.deepEqual([...pngBytes0.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const prevMouseChanges = mouseChanges;
+  let cssFrame1 = cssFrame0;
+  const deadline = Date.now() + 250;
+  while (cssFrame1 === cssFrame0 && Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 8));
+    cssFrame1 = controller.cursorCss();
+  }
+  assert.notEqual(cssFrame1, cssFrame0, 'animated MouseCursorData advances PNG cursor frames at frameRate');
+  assert.ok(mouseChanges > prevMouseChanges);
+  HostMouse.unregisterCursor('pulse');
+  assert.equal(HostMouse.cursor, 'auto');
+  assert.equal(controller.cursorCss(), null);
+  controller.dispose();
+});

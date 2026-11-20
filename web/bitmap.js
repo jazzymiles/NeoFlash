@@ -83,11 +83,11 @@
     if(mode==='auto'&&b===0&&c===0&&Math.abs(a-1)<=0.001&&Math.abs(d-1)<=0.001)return [1,0,0,1,Math.round(e),Math.round(f)];
     return [...matrix];
   }
-  function create({player,geometry,createCanvas,getBinary,getFilters,displayRef,paintScene,as2,maxCacheBytes=128*1024*1024,maxCacheEntries=256}={}){
+  function create({player,geometry,createCanvas,getBinary,getFilters,displayRef,paintScene,onInvalidate,as2,maxCacheBytes=128*1024*1024,maxCacheEntries=256}={}){
     if(!player||!geometry?.Rectangle)throw new TypeError('BitmapData requires the shared Rust Player and Rectangle type.');
     if(!Number.isSafeInteger(maxCacheBytes)||maxCacheBytes<0||!Number.isSafeInteger(maxCacheEntries)||maxCacheEntries<0)throw new RangeError('Bitmap cache budgets must be nonnegative safe integers.');
-    const references=new WeakMap(),facades=new Map(),uploads=new Map();
-    let generation=1,disposed=false,used=new Set(),cacheBytes=0;
+    const references=new WeakMap(),facades=new Map(),uploads=new Map(),locks=new Map(),partialDisplay=new Map();
+    let generation=1,disposed=false,used=new Set(),cacheBytes=0,invalidationFlushes=0;
     let uintVector=values=>Array.from(values,v=>v>>>0),hasUintVector=false;
     let histogramVector=channels=>channels.map(ch=>Array.from(ch,Number));
     function setUintVectorFactory(fn){if(typeof fn==='function'){uintVector=fn;hasUintVector=true;}}
@@ -226,8 +226,44 @@
       noise(...args){return legacyPixels(this,'noise',args);}
       perlinNoise(...args){return legacyPixels(this,'perlinNoise',args);}
       pixelDissolve(...args){return legacyPixels(this,'pixelDissolve',args);}
-      lock(){descriptor(this);}
-      unlock(changeRect=null){descriptor(this);if(changeRect!==null)rectangle(changeRect);}
+      lock(){
+        const info=descriptor(this),id=key(reference(this));
+        const existing=locks.get(id);
+        if(existing){existing.depth++;return;}
+        const partial=partialDisplay.get(id);
+        const snapBytes=(partial&&partial.revision===info.revision)?new Uint8Array(partial.bytes):new Uint8Array(native('bitmap_pixels',id));
+        locks.set(id,{depth:1,lockedRevision:info.revision,bytes:snapBytes,width:info.width,height:info.height});
+      }
+      unlock(changeRect=null){
+        const info=descriptor(this),id=key(reference(this));
+        const rect=changeRect===null?null:rectangle(changeRect);
+        const st=locks.get(id);
+        if(!st)return;
+        st.depth--;
+        if(st.depth>0)return;
+        locks.delete(id);
+        if(info.revision===st.lockedRevision&&!partialDisplay.has(id))return;
+        for(const [entry,record] of uploads)if(record.pixelKey===id)drop(entry);
+        let dirtyRect={x:0,y:0,width:info.width,height:info.height};
+        if(rect!==null){
+          const x0=Math.max(0,Math.min(info.width,rect[0])),y0=Math.max(0,Math.min(info.height,rect[1]));
+          const x1=Math.max(0,Math.min(info.width,rect[0]+Math.max(0,rect[2]))),y1=Math.max(0,Math.min(info.height,rect[1]+Math.max(0,rect[3])));
+          dirtyRect={x:x0,y:y0,width:x1-x0,height:y1-y0};
+          const merged=new Uint8Array(st.bytes);
+          if(x1>x0&&y1>y0){
+            const live=native('bitmap_pixels',id);
+            for(let py=y0;py<y1;py++){
+              const rowStart=(py*info.width+x0)*4,rowEnd=(py*info.width+x1)*4;
+              merged.set(live.subarray(rowStart,rowEnd),rowStart);
+            }
+          }
+          partialDisplay.set(id,{revision:info.revision,bytes:merged,token:(partialDisplay.get(id)?.token||0)+1});
+        }else{
+          partialDisplay.delete(id);
+        }
+        invalidationFlushes++;
+        onInvalidate?.(id,dirtyRect);
+      }
       getVector(rect){
         const ref=key(refOf(this)),area=rectangle(rect),bytes=native('bitmap_get_pixels',ref,...area,false);
         const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),count=bytes.byteLength>>>2,values=new Array(count);
@@ -284,8 +320,11 @@
         }else if(jpegEncoderOptions.has(compressor)&&typeof player.bitmap_encode_jpeg==='function'){
           const quality=compressor.quality;
           produce=()=>native('bitmap_encode_jpeg',ref,...area,quality);
+        }else if(jpegxrEncoderOptions.has(compressor)&&typeof player.bitmap_encode_jpegxr==='function'){
+          const {quantization,colorSpace,trimFlexBits}=jpegxrEncoderOptions.get(compressor);
+          produce=()=>native('bitmap_encode_jpegxr',ref,...area,quantization,colorSpace,trimFlexBits);
         }else{
-          throw new TypeError('BitmapData.encode requires PNGEncoderOptions or JPEGEncoderOptions; JPEG-XR encoding is not supported.');
+          throw new TypeError('BitmapData.encode requires PNGEncoderOptions, JPEGEncoderOptions or JPEGXREncoderOptions.');
         }
         if(output===null)return service.fromBytes(produce());
         service.writeFromHost(output,produce);return output;
@@ -620,7 +659,7 @@
         }
         this.draw(source,matrix,transform,blendMode,clipRect,smoothing,quality);
       }
-      dispose(){const ref=reference(this),id=key(ref);player.bitmap_dispose(id);for(const [entry,record]of uploads)if(record.pixelKey===id)drop(entry);}
+      dispose(){const ref=reference(this),id=key(ref);locks.delete(id);partialDisplay.delete(id);player.bitmap_dispose(id);for(const [entry,record]of uploads)if(record.pixelKey===id)drop(entry);}
     }
     Object.defineProperties(BitmapData,{__nfIs:{value:value=>references.has(value)},__nfInitialize:{value:()=>unsupported('native subclassing')},loadBitmap:{value:()=>unsupported('loadBitmap library linkage')}});
     Object.defineProperty(BitmapData,Symbol.hasInstance,{value:BitmapData.__nfIs});
@@ -631,10 +670,28 @@
       const result=createCanvas?createCanvas(width,height):typeof global.OffscreenCanvas==='function'?new global.OffscreenCanvas(width,height):global.document?.createElement('canvas');
       if(!result)throw new Error('Bitmap rendering requires a Canvas 2D surface.');result.width=width;result.height=height;return result;
     }
+    function applyColorTransformRgba(srcBytes,colorTransform){
+      const identity=colorTransform.multipliers.every(v=>v===1)&&colorTransform.offsets.every(v=>v===0);
+      if(identity)return srcBytes;
+      const out=new Uint8Array(srcBytes.length),[rm,gm,bm,am]=colorTransform.multipliers,[ro,go,bo,ao]=colorTransform.offsets;
+      const clamp=v=>v<=0?0:v>=255?255:Math.round(v);
+      for(let i=0;i<srcBytes.length;i+=4){
+        out[i]=clamp(srcBytes[i]*rm+ro);
+        out[i+1]=clamp(srcBytes[i+1]*gm+go);
+        out[i+2]=clamp(srcBytes[i+2]*bm+bo);
+        out[i+3]=clamp(srcBytes[i+3]*am+ao);
+      }
+      return out;
+    }
     function upload(kind){
       active();const pixelKey=key(kind.pixel_ref),colorTransform=kind.color_transform||identityColor;
+      const lockState=locks.get(pixelKey);
+      const partial=partialDisplay.get(pixelKey);
+      if(partial&&partial.revision!==kind.revision&&!lockState)partialDisplay.delete(pixelKey);
+      const activePartial=!lockState?partialDisplay.get(pixelKey):null;
+      const effectiveRev=lockState?`locked:${lockState.lockedRevision}`:(activePartial?`partial:${activePartial.revision}:${activePartial.token}`:kind.revision);
       const colorKey=JSON.stringify({multipliers:colorTransform.multipliers,offsets:colorTransform.offsets});
-      const id=JSON.stringify([pixelKey,kind.revision,kind.width,kind.height,colorKey]);used.add(id);
+      const id=JSON.stringify([pixelKey,effectiveRev,kind.width,kind.height,colorKey]);used.add(id);
       const old=uploads.get(id);if(old){uploads.delete(id);uploads.set(id,old);return old;}
       // Keep the Canvas, one hit-test bit per pixel and four colors for clamped brushes.
       // The temporary RGBA upload is released once the surface has received it.
@@ -642,13 +699,15 @@
       const cost=pixelCount*4+Math.ceil(pixelCount/8)+16;
       if(!Number.isSafeInteger(cost)||cost<0)throw new RangeError('Invalid bitmap cache dimensions.');
       let reusable=null;
-      for(const [entry,record]of uploads)if(record.pixelKey===pixelKey&&record.revision!==kind.revision){
+      for(const [entry,record]of uploads)if(record.pixelKey===pixelKey&&record.revision!==effectiveRev){
         if(!reusable&&record.colorKey===colorKey){reusable=record.canvas;cacheBytes-=record.cost;uploads.delete(entry);}
         else drop(entry);
       }
       if(cost<=maxCacheBytes&&maxCacheEntries>0)while(uploads.size&&(cacheBytes+cost>maxCacheBytes||uploads.size>=maxCacheEntries))drop(uploads.keys().next().value);
       const identity=colorTransform.multipliers.every(value=>value===1)&&colorTransform.offsets.every(value=>value===0);
-      const bytes=identity?native('bitmap_pixels',pixelKey):native('bitmap_pixels_transformed',pixelKey,colorKey);
+      const bytes=lockState?applyColorTransformRgba(lockState.bytes,colorTransform)
+        :activePartial?applyColorTransformRgba(activePartial.bytes,colorTransform)
+        :(identity?native('bitmap_pixels',pixelKey):native('bitmap_pixels_transformed',pixelKey,colorKey));
       if(bytes.length!==kind.width*kind.height*4)throw new Error('Rust bitmap dimensions do not match its RGBA buffer.');
       const surface=reusable||canvas(kind.width,kind.height),context=surface.getContext('2d');
       if(!context)throw new Error('Bitmap rendering requires Canvas 2D.');
@@ -665,7 +724,7 @@
         if(!alphaBounds)alphaBounds={left:x,top:y,right:x+1,bottom:y+1};
         else {alphaBounds.left=Math.min(alphaBounds.left,x);alphaBounds.top=Math.min(alphaBounds.top,y);alphaBounds.right=Math.max(alphaBounds.right,x+1);alphaBounds.bottom=Math.max(alphaBounds.bottom,y+1);}
       }
-      const record={canvas:surface,hitBits,corners,width:kind.width,height:kind.height,revision:kind.revision,alphaBounds,pixelKey,colorKey,cost,retained:cost<=maxCacheBytes&&maxCacheEntries>0};
+      const record={canvas:surface,hitBits,corners,width:kind.width,height:kind.height,revision:effectiveRev,alphaBounds,pixelKey,colorKey,cost,retained:cost<=maxCacheBytes&&maxCacheEntries>0};
       if(record.retained){uploads.set(id,record);cacheBytes+=cost;}return record;
     }
     function consume(kind,operation){const record=upload(kind);try{return operation(record);}finally{if(!record.retained)release(record);}}
@@ -690,11 +749,20 @@
         return consume(kind,record=>Boolean(record.hitBits[index>>>3]&(1<<(index&7))));
       },
       bounds(kind){return consume(kind,record=>record.alphaBounds);},
-      stats(){return {entries:uploads.size,bytes:cacheBytes,maxBytes:maxCacheBytes,maxEntries:maxCacheEntries};},
+      stats(){return {entries:uploads.size,bytes:cacheBytes,maxBytes:maxCacheBytes,maxEntries:maxCacheEntries,lockedBitmaps:locks.size,invalidationFlushes};},
+      isLocked(bmd){const id=key(reference(bmd));return locks.has(id);},
+      effectivePixels(pixelKey,colorTransform=identityColor){
+        const lockState=locks.get(pixelKey);
+        if(lockState)return applyColorTransformRgba(lockState.bytes,colorTransform);
+        const partial=partialDisplay.get(pixelKey);
+        if(partial)return applyColorTransformRgba(partial.bytes,colorTransform);
+        const identity=colorTransform.multipliers.every(v=>v===1)&&colorTransform.offsets.every(v=>v===0);
+        return identity?native('bitmap_pixels',pixelKey):native('bitmap_pixels_transformed',pixelKey,JSON.stringify({multipliers:colorTransform.multipliers,offsets:colorTransform.offsets}));
+      },
       endFrame(){for(const id of uploads.keys())if(!used.has(id))drop(id);},
       clear(){for(const id of [...uploads.keys()])drop(id);used.clear();},
     });
-    function reset(){active();cache.clear();facades.clear();generation++;}
+    function reset(){active();cache.clear();facades.clear();locks.clear();partialDisplay.clear();invalidationFlushes=0;generation++;}
     function dispose(){if(disposed)return;reset();disposed=true;}
     return Object.freeze({BitmapData,BitmapDataChannel,BitmapEncodingColorSpace,PixelSnapping,PNGEncoderOptions,JPEGEncoderOptions,JPEGXREncoderOptions,setUintVectorFactory,setHistogramVectorFactory,fromRef,refOf,cache,createCanvas:canvas,reset,dispose});
   }

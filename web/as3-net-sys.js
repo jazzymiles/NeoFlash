@@ -2800,6 +2800,9 @@
           enumerable: true,
           get() {
             const r = nsRec(this);
+            if (!r.appendMode && typeof vh.streamInfo === 'function' && (r.media || r.url || r.aviHandle || r.aviBytes || r.isEmbeddedBytes || r.totalBytes > 0)) {
+              return new NetStreamInfo(vh.streamInfo(r));
+            }
             const snap = execKernel({ op: 'flv_info', streamId: r.flvId }).info;
             const loaded = r.encodedBytes || snap.byteCount || 0;
             return new NetStreamInfo({
@@ -5299,6 +5302,68 @@
     let securityExactSettings = true;
     const allowedSecurityDomains = new Set();
     const loadedPolicyFiles = [];
+    let objectSecurityDomains = new WeakMap();
+
+    function extractDomainHost(domainOrUrl) {
+      const raw = String(domainOrUrl ?? '').trim();
+      if (!raw) return '';
+      if (raw === '*') return '*';
+      try {
+        if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(raw)) {
+          return new URL(raw).hostname.toLowerCase();
+        }
+      } catch (_) {}
+      return raw.toLowerCase();
+    }
+
+    function isDomainAllowed(domainOrUrl) {
+      const host = extractDomainHost(domainOrUrl);
+      if (!host) return true;
+      const pageHost = String(resolvePageDomain() || '').toLowerCase();
+      if (host === pageHost) return true;
+      if (allowedSecurityDomains.has('*')) return true;
+      for (const allowed of allowedSecurityDomains) {
+        const norm = extractDomainHost(allowed);
+        if (!norm) continue;
+        if (norm === '*' || norm === host) return true;
+        if (!securityExactSettings && (host.endsWith('.' + norm) || norm.endsWith('.' + host))) return true;
+        if (norm.startsWith('*.') && (host === norm.slice(2) || host.endsWith(norm.slice(1)))) return true;
+      }
+      return false;
+    }
+
+    function setObjectSecurityDomain(target, spec) {
+      if (!target || (typeof target !== 'object' && typeof target !== 'function')) {
+        throw new TypeError('setObjectSecurityDomain requires a target object.');
+      }
+      if (spec === null || spec === undefined) {
+        objectSecurityDomains.delete(target);
+        return;
+      }
+      if (typeof spec === 'string') {
+        objectSecurityDomains.set(target, { domain: spec, securityDomain: null, childAllowsParent: undefined });
+      } else if (securityDomains.has(spec)) {
+        objectSecurityDomains.set(target, { domain: '', securityDomain: spec, childAllowsParent: spec === SecurityDomain.currentDomain });
+      } else if (typeof spec === 'object') {
+        objectSecurityDomains.set(target, {
+          domain: spec.domain ? String(spec.domain) : '',
+          securityDomain: spec.securityDomain || null,
+          childAllowsParent: spec.childAllowsParent,
+        });
+      }
+    }
+
+    function isObjectInaccessible(target) {
+      if (!target || (typeof target !== 'object' && typeof target !== 'function')) return false;
+      const rec = objectSecurityDomains.get(target);
+      if (rec) {
+        if (rec.childAllowsParent === true) return false;
+        if (rec.domain) return !isDomainAllowed(rec.domain);
+        if (rec.securityDomain && rec.securityDomain !== SecurityDomain.currentDomain) return true;
+        if (rec.childAllowsParent === false) return true;
+      }
+      return false;
+    }
 
     class Security {
       constructor() {
@@ -5778,6 +5843,7 @@
       workersById.clear();
       allowedSecurityDomains.clear();
       loadedPolicyFiles.length = 0;
+      objectSecurityDomains = new WeakMap();
       generalClipboardInstance = null;
       drmManagerSingleton = null;
       drmNetworkIdleTimeout = 120000;
@@ -5901,6 +5967,9 @@
       Security,
       SecurityDomain,
       SecurityPanel,
+      isDomainAllowed,
+      setObjectSecurityDomain,
+      isObjectInaccessible,
       System,
       SystemUpdater,
       SystemUpdaterType,

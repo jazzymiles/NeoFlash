@@ -60,7 +60,7 @@
   const unsupportedText=new Set(['htmlText','styleSheet']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,geometry,getGeom3D=()=>null,proxyFor,proxyForRef,referenceOf,getStage=()=>null,getStageHost=()=>null,measureText,pathBounds,onMutation=()=>{},onRedrawRegionsChange=null,getLegacyCaller=null,isLegacyCase=null,onObserveUnload=()=>{},onSuperConstruct=null,isRetiring=()=>false,isRetiringReference=()=>false,onTabChange=()=>{},onTextLink=null,project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAudio=()=>null,getAS2Text=()=>null,getFte3D=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
+  function create({player,geometry,getGeom3D=()=>null,proxyFor,proxyForRef,referenceOf,getStage=()=>null,getStageHost=()=>null,measureText,pathBounds,onMutation=()=>{},onRedrawRegionsChange=null,getLegacyCaller=null,isLegacyCase=null,onObserveUnload=()=>{},onSuperConstruct=null,isRetiring=()=>false,isRetiringReference=()=>false,onTabChange=()=>{},onTextLink=null,project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getNetSys=()=>null,getAudio=()=>null,getAS2Text=()=>null,getFte3D=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
     if(!geometry)throw new Error('The Rust geometry family is missing. Re-export this project.');
     const {Point,Rectangle,Matrix,ColorTransform}=geometry;
     const legacy = new Map();
@@ -99,7 +99,55 @@
       return false;
     }
     const staticTextLifetimes = new Map();
-    let accProps = new WeakMap(), spriteSoundTransforms = new WeakMap();
+    let accProps = new WeakMap(), spriteSoundTransforms = new WeakMap(), securitySandboxes = new WeakMap();
+    function checkDomainAllowed(domainOrUrl) {
+      const ns = getNetSys();
+      if (ns?.isDomainAllowed) return ns.isDomainAllowed(domainOrUrl);
+      const raw = String(domainOrUrl ?? '').trim().toLowerCase();
+      if (!raw || raw === '*') return true;
+      const pageHost = String(global.location?.hostname || 'localhost').toLowerCase();
+      return raw === pageHost;
+    }
+    function setSecuritySandbox(target, spec) {
+      descriptor(target);
+      if (spec === null || spec === undefined) {
+        securitySandboxes.delete(target);
+        getNetSys()?.setObjectSecurityDomain?.(target, null);
+        return;
+      }
+      if (typeof spec === 'string') {
+        securitySandboxes.set(target, { domain: spec });
+        getNetSys()?.setObjectSecurityDomain?.(target, spec);
+      } else if (typeof spec === 'object') {
+        securitySandboxes.set(target, { ...spec });
+        getNetSys()?.setObjectSecurityDomain?.(target, spec);
+      }
+    }
+    function isNodeInaccessible(node, list) {
+      const ns = getNetSys();
+      const pubOrigin = getNet()?.publicationOrigin?.() || '';
+      for (let cur = node; cur; cur = parentNode(cur, list)) {
+        const proxy = nodeProxy(cur);
+        const sb = securitySandboxes.get(proxy);
+        if (sb) {
+          if (sb.childAllowsParent === true) continue;
+          if (sb.inaccessible === true || sb.childAllowsParent === false) return true;
+          if (sb.domain && !checkDomainAllowed(sb.domain)) return true;
+        }
+        if (ns?.isObjectInaccessible?.(proxy)) return true;
+        if (cur.owner === 'loader') {
+          let loadedUrl = '';
+          try { loadedUrl = getLoader()?.urlForDisplay?.(proxy) || proxy?.contentLoaderInfo?.url || ''; } catch (_) {}
+          if (typeof loadedUrl === 'string' && /^https?:\/\//i.test(loadedUrl) && pubOrigin) {
+            try {
+              const parsed = new URL(loadedUrl);
+              if (parsed.origin !== pubOrigin && !checkDomainAllowed(parsed.hostname)) return true;
+            } catch (_) {}
+          }
+        }
+      }
+      return false;
+    }
     let touchDragId = null;
     let graphicsVectors = {
       intVector: values => Array.from(values, v => v | 0),
@@ -918,6 +966,30 @@
         if(child===getStage())return true;
         return descriptor(child).on_stage!==false;
       },
+      getObjectsUnderPoint(pt){
+        if(!Point.__nfIs(pt))throw new TypeError('Stage.getObjectsUnderPoint requires a flash.geom.Point.');
+        const px=Number(pt.x),py=Number(pt.y);
+        if(!Number.isFinite(px)||!Number.isFinite(py))return [];
+        const snap=snapshot(),list=snap.objects,matches=[];
+        for(const node of list){
+          if(node.on_stage===false||node.effective_visible===false)continue;
+          if(node.clip_ids?.length&&clipsContain&&!clipsContain(snap,node.clip_ids,px,py))continue;
+          if(leafHit(node,px,py)&&!isNodeInaccessible(node,list))matches.push(nodeProxy(node));
+        }
+        return matches;
+      },
+      areInaccessibleObjectsUnderPoint(pt){
+        if(!Point.__nfIs(pt))throw new TypeError('Stage.areInaccessibleObjectsUnderPoint requires a flash.geom.Point.');
+        const px=Number(pt.x),py=Number(pt.y);
+        if(!Number.isFinite(px)||!Number.isFinite(py))return false;
+        const snap=snapshot(),list=snap.objects;
+        for(const node of list){
+          if(node.on_stage===false||node.effective_visible===false)continue;
+          if(node.clip_ids?.length&&clipsContain&&!clipsContain(snap,node.clip_ids,px,py))continue;
+          if(leafHit(node,px,py)&&isNodeInaccessible(node,list))return true;
+        }
+        return false;
+      },
       contentSize(){
         let box=null;
         for(const ref of stageRefs()){
@@ -1431,13 +1503,22 @@
           for(const node of list){
             if(!descendant(node,source,list)||node.effective_visible===false)continue;
             if(node.clip_ids?.length&&clipsContain&&!clipsContain(snap,node.clip_ids,px,py))continue;
-            if(leafHit(node,px,py))matches.push(nodeProxy(node));
+            if(leafHit(node,px,py)&&!isNodeInaccessible(node,list))matches.push(nodeProxy(node));
           }
           return matches;
         },
         areInaccessibleObjectsUnderPoint: pt=>{
           requireContainer(target);
           if(!Point.__nfIs(pt))throw new TypeError('DisplayObjectContainer.areInaccessibleObjectsUnderPoint requires a flash.geom.Point.');
+          const px=Number(pt.x),py=Number(pt.y);
+          if(!Number.isFinite(px)||!Number.isFinite(py))return false;
+          const snap=snapshot();
+          const list=snap.objects,source=descriptor(target,list);
+          for(const node of list){
+            if(!descendant(node,source,list)||node.effective_visible===false)continue;
+            if(node.clip_ids?.length&&clipsContain&&!clipsContain(snap,node.clip_ids,px,py))continue;
+            if(leafHit(node,px,py)&&isNodeInaccessible(node,list))return true;
+          }
           return false;
         },
       });
@@ -2144,7 +2225,7 @@
       if(!text?.isFontCompatible)throw new Error('TextField.isFontCompatible requires the shared text service.');
       return text.isFontCompatible(fontName,fontStyle);
     };
-    return {methods,get,set,builtins,stageContainer,setGraphicsVectorFactories,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2RedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,ownerOf,ownerInfo,childByName,hasChild,snapshot,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,addLegacyEvent,flushClipLoads,notifyData,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{snapshotCache=null;nodesCache=null;childMapCache=null;as2SettingsCache=null;ownerCache.clear();descriptorCache.clear();legacy.clear();pendingClipLoads.length=0;staticTextLifetimes.clear();accProps=new WeakMap();spriteSoundTransforms=new WeakMap();touchDragId=null;contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();softKeyboardNeeds=new WeakMap();softKeyboardRects=new WeakMap();transformMatrix3D=new WeakMap();transformPerspective=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
+    return {methods,get,set,builtins,stageContainer,setGraphicsVectorFactories,setSecuritySandbox,isObjectInaccessible:target=>{if(!target||target===getStage()||!alive(target))return false;const list=nodes();return isNodeInaccessible(descriptor(target,list),list);},as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2RedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,ownerOf,ownerInfo,childByName,hasChild,snapshot,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,addLegacyEvent,flushClipLoads,notifyData,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{snapshotCache=null;nodesCache=null;childMapCache=null;as2SettingsCache=null;ownerCache.clear();descriptorCache.clear();legacy.clear();pendingClipLoads.length=0;staticTextLifetimes.clear();accProps=new WeakMap();spriteSoundTransforms=new WeakMap();securitySandboxes=new WeakMap();touchDragId=null;contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();softKeyboardNeeds=new WeakMap();softKeyboardRects=new WeakMap();transformMatrix3D=new WeakMap();transformPerspective=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
   }
   const api={create,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;

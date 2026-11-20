@@ -1,0 +1,268 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "0acb93d05ed4e345b23bd643ecd5cd5795bb1c63469941d6102e5f9f93b4130e",
+  "reviews": [
+    {
+      "id": "AS3-AREAS2TO7-20261120",
+      "date": "2026-11-20",
+      "commit": "a578880b117bc7ea1c5e43d3bd825900ab48b6e2",
+      "title": "Close AS3 Areas 2, 4, 5, 6 and 7 AMF3, RegExp, Stage, Mouse, Bitmap, Text and NetStream gaps",
+      "summary": "Adds AMF3 Vector, Dictionary, and IExternalizable codecs, PCRE RegExp named groups/conditionals/inline flags, Stage quality/wmodeGPU/colorCorrection/mouseLock, areInaccessibleObjectsUnderPoint, MouseCursorData PNG cursors, BitmapData JPEG-XR encode and lock/unlock, Font.hasGlyphs, TextRenderer/CSMSettings, and NetStream progressive bytesLoaded and play aggregation.",
+      "tests": [
+        "crates/neoflash-core/src/amf.rs",
+        "crates/neoflash-core/src/pixels/pipeline.rs",
+        "crates/neoflash-script/tests/strings-fixtures.mjs",
+        "crates/neoflash-script/tests/execute.mjs",
+        "crates/neoflash-script/tests/typed-collections.mjs",
+        "crates/neoflash-script/tests/bitmap-pixels.mjs",
+        "web/tests/amf-sol.test.cjs",
+        "web/tests/stage.test.cjs",
+        "web/tests/display-family.test.cjs",
+        "web/tests/text-graphemes-ime.test.cjs",
+        "web/tests/media-netstream.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readObject()",
+          "status": "working",
+          "note": "Decodes AMF0 and AMF3 graphs including Vector.<int|uint|Number|*|Object> and typed Vectors (preserving fixed and object references), Dictionary (weakKeys and object/primitive keys), and IExternalizable.readExternal via registerClassAlias."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeObject()",
+          "status": "working",
+          "note": "Encodes AMF0 and AMF3 graphs including Vector.<int|uint|Number|*|Object> and typed Vectors, Dictionary (weakKeys and object/primitive keys), and IExternalizable.writeExternal across ByteArray and SharedObject .sol persistence."
+        },
+        {
+          "catalogId": "AS3:class:RegExp.html#",
+          "status": "working",
+          "note": "Supports g/i/m/s/x flags, PCRE named groups (?P<name>...) and (?<name>...), named backreferences and $<name> replacements, inline (?imsx-imsx) modifiers, (?#...) comments, conditionals (?(1)a|b)/(?(name)a|b)/(?(?=...)a|b), and \\a/\\e/\\A/\\Z/\\z/\\x{...} escapes."
+        },
+        {
+          "catalogId": "AS3:constructor:RegExp.html#RegExp()",
+          "status": "working",
+          "note": "RegExp(re) returns the same RegExp instance when no flags are supplied, whereas new RegExp(re, flags) clones or overrides flags with lastIndex reset to 0 and PCRE-compatible pattern translation."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#quality",
+          "status": "working",
+          "note": "Validates StageQuality constants, updates Canvas 2D imageSmoothingEnabled/imageSmoothingQuality and CSS imageRendering on Stage redraws, and rejects invalid values with ArgumentError."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#wmodeGPU",
+          "status": "working",
+          "note": "Read-only Boolean reflecting active GPU/WebGL wmode acceleration (false on 2D Canvas/DOM, true when wmode is 'gpu' or gpu_web_gl compositing is active)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#colorCorrection",
+          "status": "working",
+          "note": "Validates ColorCorrection.DEFAULT/ON/OFF, updates DOM/CSS color-interpolation and stage color-correction attributes, triggers Stage redraws, and throws ArgumentError on invalid strings."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#colorCorrectionSupport",
+          "status": "working",
+          "note": "Reports ColorCorrectionSupport based on host Canvas 2D colorSpace and CSS color-gamut media queries ('defaultOn' on color-managed sRGB/Display-P3 surfaces, 'unsupported' when unconfigured in headless VMs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#mouseLock",
+          "status": "working",
+          "note": "Enforces fullscreen-only IllegalOperationError contract, requests and exits browser Pointer Lock on the Stage surface, syncs with pointerlockchange, and delivers relative movementX/movementY MouseEvent deltas."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#areInaccessibleObjectsUnderPoint()",
+          "status": "working",
+          "note": "Returns true when cross-sandbox display leaves without Security.allowDomain permission intersect the stage point (and filters them from getObjectsUnderPoint), returning false once access is granted."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Mouse.html#supportsNativeCursor",
+          "status": "working",
+          "note": "Reports true when attached to an interactive DOM/Canvas cursor surface capable of rendering custom PNG MouseCursorData cursors and false on headless surfaces."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#registerCursor()",
+          "status": "working",
+          "note": "Validates MouseCursorData frames and encodes RGBA BitmapData frames into RFC-2083 PNG data-URI CSS cursors with hotSpot coordinates and frameRate-driven multi-frame cursor animation."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#unregisterCursor()",
+          "status": "working",
+          "note": "Removes registered custom cursor definitions, stops active cursor frame timers, and resets the active cursor to MouseCursor.AUTO when unregistered."
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/MouseCursorData.html#",
+          "status": "working",
+          "note": "Final cursor descriptor class holding Vector.<BitmapData> frames, Point hotSpot, and Number frameRate for Mouse.registerCursor."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/ui/MouseCursorData.html#MouseCursorData()",
+          "status": "working",
+          "note": "Constructs a MouseCursorData instance initialized with data = null, hotSpot = (0, 0), and frameRate = 0."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#data",
+          "status": "working",
+          "note": "Reads and validates Vector.<BitmapData> cursor frames for custom native cursor encoding."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#frameRate",
+          "status": "working",
+          "note": "Reads and validates nonnegative finite cursor animation frame rate in frames per second."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#hotSpot",
+          "status": "working",
+          "note": "Reads and clones the cursor registration Point hotSpot applied to CSS url(...) x y cursor coordinates."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#encode()",
+          "status": "working",
+          "note": "Encodes bounded sub-rectangles into ByteArray using PNGEncoderOptions, JPEGEncoderOptions, or JPEGXREncoderOptions (ITU-T T.832 .jxr container honoring quantization, colorSpace, and trimFlexBits)."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#lock()",
+          "status": "working",
+          "note": "Supports nested lock reference counting that freezes cached display uploads and defers display invalidations while direct pixel mutations proceed on the BitmapData."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#unlock()",
+          "status": "working",
+          "note": "Balances nested lock() calls, coalesces optional Rectangle changeRect regions, updates partial or full display pixels, and triggers a single display invalidation flush when the outer lock releases."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/JPEGXREncoderOptions.html#",
+          "status": "working",
+          "note": "Options class configuring ITU-T T.832 JPEG-XR quantization, chroma subsampling colorSpace, and flex-bits trimming for BitmapData.encode."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/JPEGXREncoderOptions.html#JPEGXREncoderOptions()",
+          "status": "working",
+          "note": "Constructs JPEGXREncoderOptions with defaults quantization = 20, colorSpace = BitmapEncodingColorSpace.COLORSPACE_AUTO, and trimFlexBits = 0."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#colorSpace",
+          "status": "working",
+          "note": "Selects BitmapEncodingColorSpace ('auto', '4:4:4', '4:2:2', '4:2:0') for JPEG-XR chroma subsampling and validates on BitmapData.encode."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#quantization",
+          "status": "working",
+          "note": "Controls JPEG-XR lossy quantization step size (0 for lossless YCoCg-R encoding, higher values increasing compression)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#trimFlexBits",
+          "status": "working",
+          "note": "Controls JPEG-XR high-frequency flexbits trimming (0..15) during frequency-band serialization."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/BitmapEncodingColorSpace.html#",
+          "status": "working",
+          "note": "Constant enumeration class defining chroma subsampling modes for JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_0",
+          "status": "working",
+          "note": "Constant '4:2:0' selecting 2x2 chroma subsampling in BitmapData.encode with JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_2",
+          "status": "working",
+          "note": "Constant '4:2:2' selecting 2x1 horizontal chroma subsampling in BitmapData.encode with JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_4_4",
+          "status": "working",
+          "note": "Constant '4:4:4' selecting full-resolution chroma channels in BitmapData.encode with JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_AUTO",
+          "status": "working",
+          "note": "Constant 'auto' selecting automatic chroma format in BitmapData.encode with JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/Font.html#hasGlyphs()",
+          "status": "working",
+          "note": "Checks exact SFNT cmap Format 4/12 and TTC glyph coverage for embedded fonts, and verifies installed face availability plus Canvas .notdef tofu glyph raster comparison for device fonts."
+        },
+        {
+          "catalogId": "AS3:event:flash/text/TextField.html#event:textInteractionModeChange",
+          "status": "working",
+          "note": "Dispatches non-bubbling Event('textInteractionModeChange') when user touch-selection, Alt-pointer, or context-menu interaction switches TextField.textInteractionMode between 'normal' and 'selection'."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/CSMSettings.html#",
+          "status": "working",
+          "note": "Continuous Stroke Modulation table entry class consumed by TextRenderer.setAdvancedAntiAliasingTable."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/CSMSettings.html#CSMSettings()",
+          "status": "working",
+          "note": "Constructs CSMSettings(fontSize, insideCutoff, outsideCutoff) with validated numeric fields."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#fontSize",
+          "status": "working",
+          "note": "Reads and writes the target pixel fontSize key for CSM cutoff interpolation."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#insideCutoff",
+          "status": "working",
+          "note": "Reads and writes the CSM insideCutoff threshold modulating stroke weight on advanced-antialiased text."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#outsideCutoff",
+          "status": "working",
+          "note": "Reads and writes the CSM outsideCutoff threshold modulating edge contrast and sharpness on advanced-antialiased text."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextDisplayMode.html#",
+          "status": "working",
+          "note": "Enumeration class supplying subpixel display mode constants for TextRenderer.displayMode."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#CRT",
+          "status": "working",
+          "note": "Constant 'crt' enabling phosphor-bloom CRT antialiasing in TextRenderer."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#DEFAULT",
+          "status": "working",
+          "note": "Constant 'default' selecting standard grayscale antialiasing in TextRenderer."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#LCD",
+          "status": "working",
+          "note": "Constant 'lcd' enabling RGB subpixel antialiasing passes in TextRenderer."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextRenderer.html#",
+          "status": "working",
+          "note": "Static advanced-antialiasing controller driving CSM stroke/contrast interpolation, subpixel display modes, and antialiasing quality levels across Canvas text rendering."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextRenderer.html#displayMode",
+          "status": "working",
+          "note": "Reads and sets TextDisplayMode ('default', 'lcd', 'crt'), throwing ArgumentError on invalid strings and updating Canvas text subpixel/CRT rendering."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextRenderer.html#maxLevel",
+          "status": "working",
+          "note": "Reads and sets static antialiasing quality level clamped to 0..64 (default 4), controlling stroke smoothing intensity."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextRenderer.html#setAdvancedAntiAliasingTable()",
+          "status": "working",
+          "note": "Registers CSMSettings arrays per fontName, FontStyle, and TextColorType ('dark'/'light') and interpolates cutoffs by font size and luminance during AntiAliasType.ADVANCED rendering."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#play()",
+          "status": "working",
+          "note": "Supports local/HTTP(S) media (with negative start playing from 0 and RTMP URLs reporting StreamNotFound), HLS/DASH live streams (duration = Infinity), start/len clipping, single-frame len = 0, play(false), play(null) data generation, and reset modes 0/1/2/3 with playlist status-message aggregation."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#bytesLoaded",
+          "status": "working",
+          "note": "Reports exact embedded/appendBytes counts and real observed HTTP progressive transfer bytes from streaming Fetch chunks, 206 Range probes, and PerformanceResourceTiming (falling back to buffered estimation only on opaque cross-origin media)."
+        }
+      ]
+    }
+  ]
+}

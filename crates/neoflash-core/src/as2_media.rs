@@ -10,6 +10,10 @@ pub struct ScriptAS2Stream {
     audio: bool,
     video: bool,
     frames: VecDeque<(f64, f64)>,
+    byte_samples: VecDeque<(f64, u64)>,
+    data_samples: VecDeque<(f64, u64)>,
+    data_bytes: u64,
+    max_bytes_per_second: f64,
     buffer_time: f64,
     max_pause_buffer_time: f64,
     buffer_waiting: bool,
@@ -20,6 +24,10 @@ impl Default for ScriptAS2Stream {
             audio: true,
             video: true,
             frames: VecDeque::new(),
+            byte_samples: VecDeque::new(),
+            data_samples: VecDeque::new(),
+            data_bytes: 0,
+            max_bytes_per_second: 0.,
             buffer_time: 0.1,
             max_pause_buffer_time: 30.0,
             buffer_waiting: true,
@@ -29,6 +37,62 @@ impl Default for ScriptAS2Stream {
 impl ScriptAS2Stream {
     pub fn new() -> Self {
         Self::default()
+    }
+    fn record_bytes(&mut self, now: f64, bytes: u64) {
+        if self
+            .byte_samples
+            .back()
+            .is_some_and(|&(last_t, last_b)| now < last_t || bytes < last_b)
+        {
+            self.byte_samples.clear();
+            self.max_bytes_per_second = 0.;
+        }
+        if self.byte_samples.is_empty() && bytes > 0 {
+            self.byte_samples.push_back(((now - 50.0).max(0.0), 0));
+        }
+        if self
+            .byte_samples
+            .back()
+            .is_none_or(|&(last_t, last_b)| now > last_t || bytes != last_b)
+        {
+            self.byte_samples.push_back((now, bytes));
+        }
+        while self.byte_samples.len() > 64
+            || self.byte_samples.len() > 2
+                && self
+                    .byte_samples
+                    .get(1)
+                    .is_some_and(|&(t, _)| now - t > 2000.)
+        {
+            self.byte_samples.pop_front();
+        }
+        if let (Some(&(t0, b0)), Some(&(t1, b1))) =
+            (self.byte_samples.front(), self.byte_samples.back())
+        {
+            let dt = t1 - t0;
+            if dt > 0. && b1 >= b0 {
+                let rate = ((b1 - b0) as f64) * 1000.0 / dt;
+                if rate > self.max_bytes_per_second {
+                    self.max_bytes_per_second = rate;
+                }
+            }
+        }
+    }
+    fn record_data_bytes(&mut self, now: f64, added: u64) {
+        self.data_bytes = self.data_bytes.saturating_add(added);
+        if self.data_samples.is_empty() && self.data_bytes > 0 {
+            self.data_samples.push_back(((now - 50.0).max(0.0), 0));
+        }
+        self.data_samples.push_back((now, self.data_bytes));
+        while self.data_samples.len() > 64
+            || self.data_samples.len() > 2
+                && self
+                    .data_samples
+                    .get(1)
+                    .is_some_and(|&(t, _)| now - t > 2000.)
+        {
+            self.data_samples.pop_front();
+        }
     }
     pub fn execute(&mut self, request: &str) -> Result<String, String> {
         let q: Value = serde_json::from_str(request).map_err(|_| "Invalid AS2 stream request")?;
@@ -47,8 +111,135 @@ impl ScriptAS2Stream {
             }
             "reset" => {
                 self.frames.clear();
+                self.byte_samples.clear();
+                self.data_samples.clear();
+                self.data_bytes = 0;
+                self.max_bytes_per_second = 0.;
                 self.buffer_waiting = true;
                 Value::Null
+            }
+            "bytes" => {
+                let now = finite(&q["now"], "Byte sample timestamp", 0., 1e16)?;
+                let loaded = q["bytesLoaded"].as_u64().unwrap_or(0);
+                self.record_bytes(now, loaded);
+                Value::Null
+            }
+            "data_bytes" => {
+                let now = finite(&q["now"], "Data sample timestamp", 0., 1e16)?;
+                let count = q["bytes"].as_u64().unwrap_or(0);
+                self.record_data_bytes(now, count);
+                json!(self.data_bytes)
+            }
+            "info" => {
+                let now = finite(&q["now"], "Info timestamp", 0., 1e16)?;
+                let loaded = q["bytesLoaded"].as_u64().unwrap_or(0);
+                let total = q["bytesTotal"].as_u64().unwrap_or(loaded);
+                self.record_bytes(now, loaded);
+                let is_live = q["isLive"].as_bool().unwrap_or(false);
+                let buf_len = if q["ranges"].is_array() {
+                    buffer_length(&q).unwrap_or(0.)
+                } else {
+                    q["bufferLength"].as_f64().unwrap_or(0.).max(0.)
+                };
+                let mut cur_bps = 0.;
+                if let (Some(&(t0, b0)), Some(&(t1, b1))) =
+                    (self.byte_samples.front(), self.byte_samples.back())
+                {
+                    let dt = t1 - t0;
+                    if dt > 0. && b1 >= b0 && now - t1 <= 2000. {
+                        cur_bps = ((b1 - b0) as f64) * 1000.0 / dt;
+                    }
+                }
+                let mut data_bps = 0.;
+                if let (Some(&(t0, b0)), Some(&(t1, b1))) =
+                    (self.data_samples.front(), self.data_samples.back())
+                {
+                    let dt = t1 - t0;
+                    if dt > 0. && b1 >= b0 && now - t1 <= 2000. {
+                        data_bps = ((b1 - b0) as f64) * 1000.0 / dt;
+                    }
+                }
+                let duration = q["duration"].as_f64().filter(|d| d.is_finite() && *d > 0.);
+                let time = q["time"]
+                    .as_f64()
+                    .filter(|t| t.is_finite() && *t > 0.)
+                    .unwrap_or(0.);
+                let playback_bps = if let Some(dur) = duration {
+                    if total > 0 {
+                        (total as f64) / dur
+                    } else {
+                        (loaded as f64) / dur
+                    }
+                } else if time > 0. && loaded > 0 {
+                    (loaded as f64) / time
+                } else {
+                    cur_bps
+                };
+                if playback_bps > self.max_bytes_per_second
+                    && loaded > 0
+                    && self.max_bytes_per_second == 0.
+                {
+                    self.max_bytes_per_second = playback_bps;
+                }
+                let has_video = q["hasVideo"].as_bool().unwrap_or(true) && self.video;
+                let has_audio = q["hasAudio"].as_bool().unwrap_or(true) && self.audio;
+                let (audio_share, video_share) = match (has_audio, has_video) {
+                    (true, true) => (0.125, 0.875),
+                    (true, false) => (1.0, 0.0),
+                    (false, true) => (0.0, 1.0),
+                    (false, false) => (0.0, 0.0),
+                };
+                let audio_bytes = ((loaded as f64) * audio_share).round() as u64;
+                let video_bytes = if has_video {
+                    loaded.saturating_sub(audio_bytes)
+                } else {
+                    0
+                };
+                let buf_bytes_total = if playback_bps > 0. && buf_len > 0. {
+                    ((buf_len * playback_bps).round() as u64).min(loaded)
+                } else if buf_len > 0. {
+                    loaded
+                } else {
+                    0
+                };
+                let audio_buf_bytes = ((buf_bytes_total as f64) * audio_share).round() as u64;
+                let video_buf_bytes = if has_video {
+                    buf_bytes_total.saturating_sub(audio_buf_bytes)
+                } else {
+                    0
+                };
+                let dropped = q["droppedFrames"].as_u64().unwrap_or(0);
+                let srtt = q["srtt"]
+                    .as_f64()
+                    .filter(|v| v.is_finite() && *v >= 0.)
+                    .unwrap_or(0.);
+                let uri = q["uri"].as_str().unwrap_or("");
+                let resource_name = q["resourceName"].as_str().unwrap_or("");
+                json!({
+                    "byteCount": loaded.saturating_add(self.data_bytes),
+                    "audioByteCount": audio_bytes,
+                    "videoByteCount": video_bytes,
+                    "dataByteCount": self.data_bytes,
+                    "currentBytesPerSecond": cur_bps,
+                    "maxBytesPerSecond": self.max_bytes_per_second,
+                    "playbackBytesPerSecond": playback_bps,
+                    "audioBytesPerSecond": cur_bps * audio_share,
+                    "videoBytesPerSecond": cur_bps * video_share,
+                    "dataBytesPerSecond": data_bps,
+                    "audioBufferByteLength": audio_buf_bytes,
+                    "videoBufferByteLength": video_buf_bytes,
+                    "dataBufferByteLength": 0,
+                    "audioBufferLength": if has_audio { buf_len } else { 0. },
+                    "videoBufferLength": if has_video { buf_len } else { 0. },
+                    "dataBufferLength": 0.,
+                    "droppedFrames": dropped,
+                    "srtt": srtt,
+                    "audioLossRate": 0.,
+                    "videoLossRate": 0.,
+                    "uri": uri,
+                    "resourceName": resource_name,
+                    "isLive": is_live
+                })
             }
             "frame" => {
                 let now = finite(&q["now"], "Frame timestamp", 0., 1e16)?;
@@ -899,5 +1090,58 @@ mod tests {
                 .execute(r#"{"op":"receive","kind":"video","enabled":24}"#)
                 .is_err()
         );
+        invoke(&mut stream, json!({"op":"reset"}));
+        invoke(
+            &mut stream,
+            json!({"op":"bytes","now":100,"bytesLoaded":2000}),
+        );
+        invoke(
+            &mut stream,
+            json!({"op":"bytes","now":600,"bytesLoaded":10000}),
+        );
+        invoke(
+            &mut stream,
+            json!({"op":"receive","kind":"audio","enabled":true}),
+        );
+        invoke(
+            &mut stream,
+            json!({"op":"receive","kind":"video","enabled":true}),
+        );
+        invoke(&mut stream, json!({"op":"data_bytes","now":600,"bytes":64}));
+        let info = invoke(
+            &mut stream,
+            json!({
+                "op":"info",
+                "now":600,
+                "bytesLoaded":10000,
+                "bytesTotal":20000,
+                "duration":4.0,
+                "time":1.0,
+                "ranges":[[0,2.5]],
+                "hasVideo":true,
+                "hasAudio":true,
+                "droppedFrames":3,
+                "srtt":12.5,
+                "isLive":false,
+                "uri":"null",
+                "resourceName":"media/motion.mp4"
+            }),
+        )["value"]
+            .clone();
+        assert_eq!(info["byteCount"], 10064);
+        assert_eq!(info["dataByteCount"], 64);
+        assert_eq!(info["audioByteCount"], 1250);
+        assert_eq!(info["videoByteCount"], 8750);
+        assert_eq!(info["playbackBytesPerSecond"], 5000.);
+        assert!(info["currentBytesPerSecond"].as_f64().unwrap() > 10000.);
+        assert!(
+            info["maxBytesPerSecond"].as_f64().unwrap()
+                >= info["currentBytesPerSecond"].as_f64().unwrap()
+        );
+        assert_eq!(info["audioBufferLength"], 1.5);
+        assert_eq!(info["videoBufferLength"], 1.5);
+        assert_eq!(info["droppedFrames"], 3);
+        assert_eq!(info["srtt"], 12.5);
+        assert_eq!(info["resourceName"], "media/motion.mp4");
     }
 }

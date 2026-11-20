@@ -215,6 +215,61 @@ export async function verifyBitmapPixels(root,cargo) {
     sf.leftExtension=2;sf.rightExtension=3;sf.topExtension=4;sf.bottomExtension=5;
     const sfClone=sf.clone();
     assert.deepEqual([sfClone.leftExtension,sfClone.rightExtension,sfClone.topExtension,sfClone.bottomExtension],[2,3,4,5]);
+    // Verify BitmapData.encode (PNG, JPEG, and JPEGXREncoderOptions + BitmapEncodingColorSpace) and lock()/unlock(changeRect)
+    {
+    const PngOpts=host.program().type('flash.display.PNGEncoderOptions');
+    const JpgOpts=host.program().type('flash.display.JPEGEncoderOptions');
+    const JxrOpts=host.program().type('flash.display.JPEGXREncoderOptions');
+    const ColorSpaceEnum=host.program().type('flash.display.BitmapEncodingColorSpace');
+    assert.equal(ColorSpaceEnum.COLORSPACE_AUTO,'auto');
+    assert.equal(ColorSpaceEnum.COLORSPACE_4_4_4,'4:4:4');
+    assert.equal(ColorSpaceEnum.COLORSPACE_4_2_2,'4:2:2');
+    assert.equal(ColorSpaceEnum.COLORSPACE_4_2_0,'4:2:0');
+    const jxrDefaults=new JxrOpts();
+    assert.deepEqual([jxrDefaults.quantization,jxrDefaults.colorSpace,jxrDefaults.trimFlexBits],[20,'auto',0]);
+    const encSrc=new BitmapData(8,8,true,0x00000000);
+    for(let y=0;y<8;y++)for(let x=0;x<8;x++){
+      encSrc.setPixel32(x,y,(((0x80+((x*15)&0x7f))<<24)|(((x*31)&0xff)<<16)|(((y*29)&0xff)<<8)|(((x+y)*17)&0xff))>>>0);
+    }
+    const pngEncoded=encSrc.encode(encSrc.rect,new PngOpts(true));
+    pngEncoded.position=0;
+    assert.deepEqual([pngEncoded.readUnsignedByte(),pngEncoded.readUnsignedByte(),pngEncoded.readUnsignedByte(),pngEncoded.readUnsignedByte()],[0x89,0x50,0x4e,0x47]);
+    const jpgEncoded=encSrc.encode(encSrc.rect,new JpgOpts(85));
+    jpgEncoded.position=0;
+    assert.deepEqual([jpgEncoded.readUnsignedByte(),jpgEncoded.readUnsignedByte()],[0xff,0xd8]);
+    const jxrLossless=encSrc.encode(encSrc.rect,new JxrOpts(0,ColorSpaceEnum.COLORSPACE_4_4_4,0));
+    const jxr422=encSrc.encode(encSrc.rect,new JxrOpts(25,ColorSpaceEnum.COLORSPACE_4_2_2,1));
+    const jxr420Trim=encSrc.encode(encSrc.rect,new JxrOpts(60,ColorSpaceEnum.COLORSPACE_4_2_0,4));
+    jxrLossless.position=0;
+    assert.deepEqual([jxrLossless.readUnsignedByte(),jxrLossless.readUnsignedByte(),jxrLossless.readUnsignedByte(),jxrLossless.readUnsignedByte()],[0x49,0x49,0xbc,0x01],'JPEGXREncoderOptions emits ITU-T T.832 .jxr header');
+    assert.ok(jxr422.length>16&&jxr420Trim.length>16);
+    assert.notEqual(jxrLossless.length,jxr420Trim.length,'JPEG-XR quantization/colorSpace/trimFlexBits changes encoded bitstream');
+    assert.throws(()=>new JxrOpts(20,'invalid-cs',0),err=>err.name==='ArgumentError');
+
+    const RectCls=host.program().type('flash.geom.Rectangle');
+    const lockBmp=new BitmapData(8,8,true,0xff112233);
+    const lockKey=JSON.stringify(host.bitmap().refOf(lockBmp));
+    const flushesBefore=host.bitmap().cache.stats().invalidationFlushes;
+    lockBmp.lock();
+    lockBmp.lock();
+    assert.equal(host.bitmap().cache.isLocked(lockBmp),true,'nested lock() keeps BitmapData locked');
+    lockBmp.setPixel32(1,1,0xffff0000);
+    lockBmp.setPixel32(6,6,0xff00ff00);
+    assert.equal(host.bitmap().cache.stats().invalidationFlushes,flushesBefore,'mutations while locked defer display invalidation');
+    assert.equal(host.bitmap().cache.effectivePixels(lockKey)[(1*8+1)*4],0x11,'locked display surface keeps pre-lock pixels');
+    lockBmp.unlock(new RectCls(0,0,4,4));
+    assert.equal(host.bitmap().cache.isLocked(lockBmp),true,'inner unlock() keeps outer lock active');
+    lockBmp.unlock(new RectCls(0,0,4,4));
+    assert.equal(host.bitmap().cache.isLocked(lockBmp),false,'outer unlock() releases lock and flushes changeRect');
+    assert.equal(host.bitmap().cache.stats().invalidationFlushes,flushesBefore+1,'coalesced unlock flushes once');
+    const postPartial=host.bitmap().cache.effectivePixels(lockKey);
+    assert.equal(postPartial[(1*8+1)*4],0xff,'pixel inside unlock(changeRect) updates display surface');
+    assert.equal(postPartial[(6*8+6)*4+1],0x22,'pixel outside unlock(changeRect) stays deferred until full unlock');
+    lockBmp.lock();
+    lockBmp.unlock();
+    assert.equal(host.bitmap().cache.effectivePixels(lockKey)[(6*8+6)*4+1],0xff,'full unlock() syncs entire BitmapData');
+    encSrc.dispose();lockBmp.dispose();
+    }
     histSrc.dispose();qualDst.dispose();blendDst.dispose();blendSrc.dispose();mapBmp.dispose();dispSrc.dispose();dispDst.dispose();
     const old=scene.shared;
     host.resetProject();const fresh=host.proxyFor([]);

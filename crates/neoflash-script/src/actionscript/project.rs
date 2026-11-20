@@ -259,6 +259,7 @@ const BUILTINS: &[&str] = &[
     "flash.utils.CompressionAlgorithm",
     "flash.utils.IDataInput",
     "flash.utils.IDataOutput",
+    "flash.utils.IExternalizable",
     "flash.utils.Dictionary",
     "flash.net.URLRequest",
     "flash.net.URLRequestHeader",
@@ -842,6 +843,8 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "setDirty"
                 | "readObject"
                 | "writeObject"
+                | "readExternal"
+                | "writeExternal"
                 | "close"
                 | "decode"
                 | "getPixel"
@@ -3463,6 +3466,25 @@ fn builtin_interface_contracts() -> BTreeMap<String, BTreeMap<(String, MethodKin
                 &[("String", false)],
                 "flash.utils.IDataInput",
             )]),
+        ),
+        (
+            "flash.utils.IExternalizable".to_owned(),
+            BTreeMap::from([
+                entry(
+                    "flash.utils.IExternalizable",
+                    "writeExternal",
+                    MethodKind::Method,
+                    &[(do_, false)],
+                    "void",
+                ),
+                entry(
+                    "flash.utils.IExternalizable",
+                    "readExternal",
+                    MethodKind::Method,
+                    &[(di, false)],
+                    "void",
+                ),
+            ]),
         ),
     ])
 }

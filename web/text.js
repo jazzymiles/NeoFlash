@@ -261,7 +261,7 @@
   }
   const RICH_CLIPBOARD_MIME='application/x-neoflash-runs+json';
   const UNHANDLED=Symbol('unhandled text member');
-  function create({player,wasm=null,events=null,project=null,document=global.document,getProgram=null,geometry,measureText,portableMetrics=false,fontMetrics=null,onUpdate=()=>{},onScroll=null}={}){
+  function create({player,wasm=null,events=null,project=null,document=global.document,getProgram=null,geometry,measureText,createCanvas=null,deviceFontHasGlyphs=null,portableMetrics=false,fontMetrics=null,onUpdate=()=>{},onScroll=null}={}){
     if(!player)throw new TypeError('TextField requires the shared Player.');
     const getRuntimeWasm=()=>wasm||(typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm);
     let sharedRichClipboard=null;
@@ -617,7 +617,7 @@
         if(surface?.background!==null&&surface?.background!==undefined){context.fillStyle=`rgba(${surface.background>>>16},${surface.background>>>8&255},${surface.background&255},${field.alpha/255})`;context.fillRect(0,0,surface.width,surface.height);}
         if(surface?.border!==null&&surface?.border!==undefined&&surface.width>0&&surface.height>0){const bw=Number(surface.border_width)||Number(field.border_width)||1;context.strokeStyle=`rgba(${surface.border>>>16},${surface.border>>>8&255},${surface.border&255},${field.alpha/255})`;context.lineWidth=bw;context.strokeRect(0.5,0.5,Math.max(0,surface.width-1),Math.max(0,surface.height-1));}
         if(field.box){context.beginPath();context.rect(0,0,field.box.width,field.box.height);context.clip();}
-        const antiAlias=field.anti_alias_type||'normal';
+        const antiAlias=field.anti_alias_type||(rendererAntiAliasType==='advanced'?'advanced':'normal');
         const gridFit=field.grid_fit_type||'pixel';
         const thickness=Number(field.thickness)||0;
         const sharpness=Number(field.sharpness)||0;
@@ -629,14 +629,53 @@
         for(const item of result.highlights||[]){const hc=item.color??0xffff00;context.fillStyle=`rgba(${hc>>>16},${hc>>>8&255},${hc&255},${baseAlpha})`;context.fillRect(item.x,item.y,item.width,item.height);}
         applyFont(context,field.format,false,embedOnly,field,surface);context.textAlign='left';context.textBaseline='top';
         context.fillStyle=`rgba(${rgb>>>16},${rgb>>>8&255},${rgb&255},${baseAlpha})`;
+        const paintGlyphRun=(textStr,drawX,drawY,fmt)=>{
+          const cRgb=fmt.color>>>0,cr=(cRgb>>>16)&255,cg=(cRgb>>>8)&255,cb=cRgb&255;
+          if(antiAlias!=='advanced'){
+            context.fillStyle=`rgba(${cr},${cg},${cb},${baseAlpha})`;
+            context.fillText(textStr,drawX,drawY);
+            return;
+          }
+          const csm=resolveRendererCsm(fmt);
+          const quantLevels=Math.max(2,Number(csm.aaLevels)||16);
+          const rawAlpha=Math.max(0,Math.min(1,baseAlpha*(Number(csm.contrastScale)||1)*(csm.strokeDelta<0?Math.max(0.45,1+csm.strokeDelta*0.25):1)));
+          const effAlpha=csm.maxLevel===0?(rawAlpha>=0.5?1:0):(Math.round(rawAlpha*(quantLevels-1))/(quantLevels-1));
+          const effX=csm.maxLevel===0?Math.round(drawX):drawX;
+          const effY=csm.maxLevel===0?Math.round(drawY):drawY;
+          const subWeight=csm.maxLevel>0?Math.min(1,Math.max(0.15,csm.maxLevel/8)):0;
+          if(csm.displayMode==='lcd'&&subWeight>0){
+            const fringeA=Math.min(0.45,effAlpha*0.22*subWeight);
+            context.fillStyle=`rgba(${Math.min(255,cr+64)},${Math.max(0,cg-24)},${Math.max(0,cb-48)},${fringeA})`;
+            context.fillText(textStr,effX-0.33,effY);
+            context.fillStyle=`rgba(${Math.max(0,cr-48)},${Math.max(0,cg-24)},${Math.min(255,cb+64)},${fringeA})`;
+            context.fillText(textStr,effX+0.33,effY);
+          }else if(csm.displayMode==='crt'&&subWeight>0){
+            const phosphorA=Math.min(0.4,effAlpha*0.18*subWeight);
+            const prevBlur=context.shadowBlur,prevShadowColor=context.shadowColor;
+            context.shadowBlur=Math.max(0.4,0.8*subWeight);
+            context.shadowColor=`rgba(${cr},${cg},${cb},${phosphorA})`;
+            context.fillStyle=`rgba(${cr},${cg},${cb},${phosphorA})`;
+            context.fillText(textStr,effX-0.38,effY);
+            context.fillText(textStr,effX+0.38,effY);
+            context.fillStyle=`rgba(${cr},${cg},${cb},${effAlpha})`;
+            context.fillText(textStr,effX,effY);
+            context.shadowBlur=prevBlur||0;
+            context.shadowColor=prevShadowColor||'';
+          }else{
+            context.fillStyle=`rgba(${cr},${cg},${cb},${effAlpha})`;
+            context.fillText(textStr,effX,effY);
+          }
+          const strokeWeight=csm.maxLevel>0?(thickness>0?(thickness/200)*0.8:0)+(csm.strokeDelta>0?csm.strokeDelta*0.55:0):0;
+          if(strokeWeight>1e-3&&typeof context.strokeText==='function'){
+            context.strokeStyle=`rgba(${cr},${cg},${cb},${Math.min(1,effAlpha*Math.min(1,strokeWeight*0.85))})`;
+            context.lineWidth=strokeWeight;
+            context.strokeText(textStr,effX,effY);
+          }
+        };
         for(const item of result.runs?.length?result.runs:result.lines){
           const fmt=item.format||field.format;
           if(embedOnly&&registeredFonts.length>0&&!isEmbeddedFontAvailable(fmt))continue;
-          if(item.format){
-            applyFont(context,item.format,false,embedOnly,field,surface);
-            const itemRgb=item.format.color;
-            context.fillStyle=`rgba(${itemRgb>>>16},${itemRgb>>>8&255},${itemRgb&255},${baseAlpha})`;
-          }
+          if(item.format)applyFont(context,item.format,false,embedOnly,field,surface);
           const gx=gridFit==='pixel'?Math.round(item.x):gridFit==='subpixel'?Math.round(item.x*3)/3:item.x;
           const gy=gridFit==='pixel'?Math.round(item.y):item.y;
           const rot=Number(item.rotation)||0;
@@ -645,22 +684,10 @@
             context.save();
             context.translate(cx,cy);
             context.rotate(rot*Math.PI/180);
-            context.fillText(item.text,gx-cx,gy-cy);
-            if(antiAlias==='advanced'&&thickness>0&&typeof context.strokeText==='function'){
-              const cRgb=fmt.color;
-              context.strokeStyle=`rgba(${cRgb>>>16},${cRgb>>>8&255},${cRgb&255},${Math.min(1,baseAlpha*(thickness/200)*0.6)})`;
-              context.lineWidth=(thickness/200)*0.8;
-              context.strokeText(item.text,gx-cx,gy-cy);
-            }
+            paintGlyphRun(item.text,gx-cx,gy-cy,fmt);
             context.restore();
           }else{
-            context.fillText(item.text,gx,gy);
-            if(antiAlias==='advanced'&&thickness>0&&typeof context.strokeText==='function'){
-              const cRgb=fmt.color;
-              context.strokeStyle=`rgba(${cRgb>>>16},${cRgb>>>8&255},${cRgb&255},${Math.min(1,baseAlpha*(thickness/200)*0.6)})`;
-              context.lineWidth=(thickness/200)*0.8;
-              context.strokeText(item.text,gx,gy);
-            }
+            paintGlyphRun(item.text,gx,gy,fmt);
           }
         }
         for(const [x,y,radius]of result.bullets||[]){context.beginPath();context.arc(x,y,radius,0,Math.PI*2);context.fill();}
@@ -677,7 +704,29 @@
       catch(error){throw error instanceof Error?error:new TypeError(String(error));}
     }
     const defaultRenderer=()=>({displayMode:'default',maxLevel:4,tables:{}});
-    let rendererState=defaultRenderer(),rendererAntiAliasType=AntiAliasType.NORMAL;
+    let rendererState=defaultRenderer(),rendererAntiAliasType=AntiAliasType.NORMAL,rendererRev=1;
+    const rendererCsmCache=new Map();
+    function setRendererState(next){
+      rendererState=next||defaultRenderer();
+      rendererRev++;
+      rendererCsmCache.clear();
+      invalidateCache();
+    }
+    function resolveRendererCsm(fmt){
+      const fontName=String(fmt?.font||'sans-serif');
+      const bold=Boolean(fmt?.bold),italic=Boolean(fmt?.italic),rgb=(Number(fmt?.color)||0)>>>0,size=Number(fmt?.size)||12;
+      const cacheKey=`${rendererRev}|${fontName}|${bold?1:0}|${italic?1:0}|${rgb}|${size}`;
+      if(rendererCsmCache.has(cacheKey))return rendererCsmCache.get(cacheKey);
+      let resolved;
+      try{
+        resolved=textKernel({op:'renderer_resolve',state:rendererState,font_name:fontName,bold,italic,rgb,font_size:size});
+      }catch(_){
+        resolved={displayMode:rendererState.displayMode||'default',maxLevel:rendererState.maxLevel??4,aaLevels:1<<Math.min(8,Math.max(0,rendererState.maxLevel??4)),hasCsm:false,strokeDelta:0,contrastScale:1};
+      }
+      if(rendererCsmCache.size>=1024)rendererCsmCache.clear();
+      rendererCsmCache.set(cacheKey,resolved);
+      return resolved;
+    }
     class TextRenderer {
       constructor(){throw new TypeError('TextRenderer supplies static properties and methods and cannot be constructed.');}
       static setAdvancedAntiAliasingTable(fontName,fontStyle,colorType,table){
@@ -690,17 +739,25 @@
           return {fontSize:Number(item.fontSize),insideCutoff:Number(item.insideCutoff),outsideCutoff:Number(item.outsideCutoff)};
         });
         const kernelStyle=fontStyle==='regular'?'none':fontStyle;
-        rendererState=textKernel({op:'renderer_table',state:rendererState,font_name:fontName,font_style:kernelStyle,color_type:colorType,table:entries}).state;
+        setRendererState(textKernel({op:'renderer_table',state:rendererState,font_name:fontName,font_style:kernelStyle,color_type:colorType,table:entries}).state);
       }
     }
     TextRenderer.setAdvancedAntialiasingTable=TextRenderer.setAdvancedAntiAliasingTable;
     Object.defineProperty(TextRenderer,'antiAliasType',{enumerable:true,
       get(){active();return rendererAntiAliasType;},
-      set(value){active();if(!['normal','advanced'].includes(value))throw new TypeError('TextRenderer.antiAliasType requires normal or advanced.');rendererAntiAliasType=value;}});
+      set(value){active();if(!['normal','advanced'].includes(value))throw new TypeError('TextRenderer.antiAliasType requires normal or advanced.');rendererAntiAliasType=value;invalidateCache();}});
     for(const name of ['displayMode','maxLevel']){
       Object.defineProperty(TextRenderer,name,{enumerable:true,
         get(){active();return rendererState[name];},
-        set(value){active();rendererState=textKernel({op:'renderer_set',state:rendererState,name,value}).state;}});
+        set(value){
+          active();
+          if(name==='displayMode'&&!['default','lcd','crt'].includes(String(value))){
+            const err=new RangeError("TextRenderer.displayMode requires 'default', 'lcd' or 'crt'.");
+            err.name='ArgumentError';
+            throw err;
+          }
+          setRendererState(textKernel({op:'renderer_set',state:rendererState,name,value}).state);
+        }});
     }
     Object.defineProperties(TextRenderer,{__nfIs:{value:()=>false},__nfInitialize:{value:()=>{throw new TypeError('TextRenderer cannot be subclassed.');}},[Symbol.hasInstance]:{value:()=>false}});
     Object.freeze(TextRenderer);
@@ -739,10 +796,106 @@
     })();
 
     const fontRecords=new WeakMap(),fontToken=Symbol('Font'),registeredFonts=[],registeredFontClasses=new Set();
-    function fallbackPrintableHasGlyphs(value){
+    const deviceGlyphCache=new Map();
+    let glyphProbeSurface=undefined;
+    function getGlyphProbeContext(){
+      if(glyphProbeSurface!==undefined)return glyphProbeSurface;
+      glyphProbeSurface=null;
+      try{
+        const c=typeof createCanvas==='function'?createCanvas(40,40):(typeof global.OffscreenCanvas==='function'?new global.OffscreenCanvas(40,40):document?.createElement?.('canvas'));
+        if(c){
+          c.width=40;c.height=40;
+          const ctx=c.getContext?.('2d',{willReadFrequently:true})||c.getContext?.('2d');
+          if(ctx&&typeof ctx.clearRect==='function'&&typeof ctx.fillText==='function'&&typeof ctx.getImageData==='function'){
+            ctx.clearRect(0,0,40,40);
+            ctx.fillStyle='#ffffff';
+            ctx.font='24px sans-serif';
+            ctx.textBaseline='top';
+            ctx.fillText('A',4,4);
+            const data=ctx.getImageData(0,0,40,40)?.data;
+            let ink=0;
+            if(data)for(let i=3;i<data.length;i+=4)if(data[i]>0){ink=1;break;}
+            if(ink>0)glyphProbeSurface=ctx;
+          }
+        }
+      }catch(_){glyphProbeSurface=null;}
+      return glyphProbeSurface;
+    }
+    function glyphRasterSignature(ctx,fontSpec,ch){
+      ctx.clearRect(0,0,40,40);
+      ctx.font=fontSpec;
+      ctx.fillStyle='#ffffff';
+      ctx.textBaseline='top';
+      ctx.fillText(ch,4,4);
+      const w=Number(ctx.measureText?.(ch)?.width)||0;
+      const data=ctx.getImageData(0,0,40,40).data;
+      let h1=2166136261>>>0,ink=0;
+      for(let i=3;i<data.length;i+=4){
+        const a=data[i];
+        if(a>0){ink++;h1=Math.imul(h1^((i<<8)|a),16777619)>>>0;}
+      }
+      return `${Math.round(w*100)}:${ink}:${h1}`;
+    }
+    function inspectDeviceFontHasGlyphs(fontName,fontStyle,value){
+      const fam=String(fontName||'sans-serif').trim();
+      const stylePrefix=fontStyle===FontStyle.BOLD_ITALIC?'italic bold ':fontStyle===FontStyle.BOLD?'bold ':fontStyle===FontStyle.ITALIC?'italic ':'';
+      const genericFamilies=new Set(['sans-serif','serif','monospace','cursive','fantasy','system-ui','_sans','_serif','_typewriter']);
       for(const ch of value){
         const cp=ch.codePointAt(0);
         if(cp<0x20||(cp>=0x7f&&cp<=0x9f)||(cp>=0xd800&&cp<=0xdfff)||cp===0xfffd||(cp>=0xfdd0&&cp<=0xfdef)||(cp&0xfffe)===0xfffe)return false;
+        // Private Use Areas and unassigned astral planes have no universal device-font mapping unless verified in SFNT/Canvas.
+        if((cp>=0xe000&&cp<=0xf8ff)||cp>=0xf0000||(cp>=0x323b0&&cp<=0xdffff))return false;
+      }
+      const ctx=getGlyphProbeContext();
+      if(!ctx){
+        if(!genericFamilies.has(fam.toLowerCase())&&document?.fonts?.check){
+          try{if(!document.fonts.check(`${stylePrefix}16px ${cssFontFamily(fam)}`))return false;}catch(_){}
+        }
+        return true;
+      }
+      const cssFam=genericFamilies.has(fam.toLowerCase())
+        ?(fam==='_sans'?'sans-serif':fam==='_serif'?'serif':fam==='_typewriter'?'monospace':fam.toLowerCase())
+        :JSON.stringify(fam);
+      if(!genericFamilies.has(fam.toLowerCase())){
+        const instKey=`installed|${stylePrefix}|${fam.toLowerCase()}`;
+        let installed=deviceGlyphCache.get(instKey);
+        if(installed===undefined){
+          if(document?.fonts?.check){
+            try{installed=Boolean(document.fonts.check(`${stylePrefix}24px ${cssFam}`));}catch(_){installed=undefined;}
+          }
+          if(installed===undefined){
+            const probeStr='mmmmmmmmmmlliWW';
+            ctx.font=`${stylePrefix}24px monospace`;const monoW=ctx.measureText(probeStr).width;
+            ctx.font=`${stylePrefix}24px ${cssFam}, monospace`;const testMonoW=ctx.measureText(probeStr).width;
+            ctx.font=`${stylePrefix}24px serif`;const serifW=ctx.measureText(probeStr).width;
+            ctx.font=`${stylePrefix}24px ${cssFam}, serif`;const testSerifW=ctx.measureText(probeStr).width;
+            installed=Math.abs(testMonoW-monoW)>0.05||Math.abs(testSerifW-serifW)>0.05;
+          }
+          if(deviceGlyphCache.size>=4096)deviceGlyphCache.clear();
+          deviceGlyphCache.set(instKey,installed);
+        }
+        if(!installed)return false;
+      }
+      const fontSpec=`${stylePrefix}24px ${cssFam}`;
+      const tofuKey=`tofu|${fontSpec}`;
+      let tofuSig=deviceGlyphCache.get(tofuKey);
+      if(tofuSig===undefined){
+        tofuSig=glyphRasterSignature(ctx,fontSpec,'\uffff');
+        deviceGlyphCache.set(tofuKey,tofuSig);
+      }
+      for(const ch of value){
+        const cp=ch.codePointAt(0);
+        if(cp===0x20||cp===0xa0)continue;
+        const gKey=`glyph|${fontSpec}|${cp}`;
+        let ok=deviceGlyphCache.get(gKey);
+        if(ok===undefined){
+          const sig=glyphRasterSignature(ctx,fontSpec,ch);
+          const [,inkStr]=sig.split(':');
+          ok=Number(inkStr)>0&&sig!==tofuSig;
+          if(deviceGlyphCache.size>=4096)deviceGlyphCache.clear();
+          deviceGlyphCache.set(gKey,ok);
+        }
+        if(!ok)return false;
       }
       return true;
     }
@@ -796,7 +949,11 @@
             }
           }
         }
-        return fallbackPrintableHasGlyphs(value);
+        if(typeof deviceFontHasGlyphs==='function'){
+          const custom=deviceFontHasGlyphs(String(record.fontName||''),String(record.fontStyle||FontStyle.REGULAR),value);
+          if(typeof custom==='boolean')return custom;
+        }
+        return inspectDeviceFontHasGlyphs(record.fontName,record.fontStyle,value);
       }
       static registerFont(fontClass){
         active();
@@ -1412,7 +1569,7 @@
     }
 
     function invalidateCache(){cache.clear();cacheBytes=0;}
-    function reset(){active();invalidateCache();fieldStates.clear();sharedRichClipboard=null;rendererState=defaultRenderer();rendererAntiAliasType=AntiAliasType.NORMAL;registeredFonts.length=0;registeredFontClasses.clear();}
+    function reset(){active();invalidateCache();fieldStates.clear();sharedRichClipboard=null;setRendererState(defaultRenderer());rendererAntiAliasType=AntiAliasType.NORMAL;registeredFonts.length=0;registeredFontClasses.clear();}
     function dispose(){if(disposed)return;reset();for(const fn of domCleanups)fn();domCleanups.length=0;disposed=true;}
     return Object.freeze({
       measure:(strings,format)=>strings.map(value=>measureText(value,format)),
@@ -1427,6 +1584,9 @@
       writeRichClipboard,
       readRichClipboard,
       clearRichClipboard:()=>{sharedRichClipboard=null;},
+      getRendererState:()=>rendererState,
+      setRendererState,
+      resolveRendererCsm,
       toOutlines,TextFormat,As2TextFormat,legacyFormatCopy,formatPatch,
       bindAs2:execute=>{as2Execute=execute;},
       bindAs2Layout:callback=>{as2Layout=callback;},

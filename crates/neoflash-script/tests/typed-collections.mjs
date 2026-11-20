@@ -160,6 +160,37 @@ export async function verifyTypedCollections(root,cargo) {
       assert.match(ifaceXml,/<type name="flash\.events::IEventDispatcher" base="Class" isDynamic="true" isFinal="true" isStatic="true">/);
       assert.match(ifaceXml,/<factory type="flash\.events::IEventDispatcher">/);
       assert.match(ifaceXml,/<method name="addEventListener"/);
+      // Verify ByteArray.writeObject / readObject AMF3 round-trip for compiled AS3 Vectors, Dictionary & registered classes
+      const VecUint=getDef('Vector.<uint>'),VecNum=getDef('Vector.<Number>'),VecPoint=getDef('Vector.<flash.geom.Point>');
+      const IExternalizable=getDef('flash.utils.IExternalizable');
+      const registerClassAlias=prog.type('flash.net.registerClassAlias');
+      registerClassAlias('flash.geom.Point',Point);
+      assert.equal(getQName(IExternalizable),'flash.utils::IExternalizable');
+      const viWire=new VecInt(2,true);viWire[0]=-42;viWire[1]=1024;
+      const vuWire=new VecUint();vuWire.push(1,4000000000);
+      const vnWire=new VecNum();vnWire.push(-0.5,2.25);
+      const vPtWire=new VecPoint(1,true);vPtWire[0]=new Point(12.5,-8);
+      const dictWire=new Dictionary(true);
+      dictWire[vPtWire[0]]='card-zero';
+      dictWire['meta']=99;
+      const amfBa=new ByteArray();
+      amfBa.writeObject({vi:viWire,vu:vuWire,vn:vuWire.length?vnWire:vnWire,vPt:vPtWire,dict:dictWire});
+      amfBa.position=0;
+      const amfOut=amfBa.readObject();
+      assert.equal(getQName(amfOut.vi),'__AS3__.vec::Vector.<int>');
+      assert.equal(amfOut.vi.fixed,true);
+      assert.deepEqual([amfOut.vi[0],amfOut.vi[1]],[-42,1024]);
+      assert.equal(getQName(amfOut.vu),'__AS3__.vec::Vector.<uint>');
+      assert.deepEqual([amfOut.vu[0],amfOut.vu[1]],[1,4000000000]);
+      assert.equal(getQName(amfOut.vn),'__AS3__.vec::Vector.<Number>');
+      assert.deepEqual([amfOut.vn[0],amfOut.vn[1]],[-0.5,2.25]);
+      assert.equal(getQName(amfOut.vPt),'__AS3__.vec::Vector.<flash.geom::Point>');
+      assert.equal(amfOut.vPt.fixed,true);
+      assert.equal(amfOut.vPt[0].x,12.5);
+      assert.equal(amfOut.vPt[0].y,-8);
+      assert.equal(getQName(amfOut.dict),'flash.utils::Dictionary');
+      assert.equal(amfOut.dict[amfOut.vPt[0]],'card-zero');
+      assert.equal(amfOut.dict['meta'],99);
       bmpData.dispose();tmr.stop();
     }
     host.resetProject();scene=host.proxyFor([]);

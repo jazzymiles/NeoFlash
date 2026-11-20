@@ -2361,6 +2361,39 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
       composite: (_target, canvas) => { compositedSurface = canvas; },
     });
     assert.ok(fHost.filters().renderer.stats().framePixels > 0, 'mutating mapBitmap in-place invalidates cached DisplacementMapFilter surface');
+
+    // Verify AS2 Stage.wmodeGPU = true when wmode: 'gpu' is active + flash.text.TextRenderer setAdvancedAntialiasingTable
+    const gpuPlayer = new wasm.WebPlayer(JSON.stringify(bundle.project));
+    let gpuHost = null;
+    try {
+      const gpuCanvas = { style: {}, dataset: {}, addEventListener() {}, removeEventListener() {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 320, height: 240 }) };
+      ({ host: gpuHost } = createRuntimeHost(root, gpuPlayer, Array.from(bundle.scripts, item => ({
+        script: { language: item.language, source: item.source }, code: item.code, location: item.location,
+      })), {
+        project: bundle.project,
+        bundle: { ...bundle, player_config: { ...(bundle.player_config || {}), wmode: 'gpu' } },
+        canvas: gpuCanvas,
+        context: { measureText: line => ({ width: line.length * 8 }), save() {}, restore() {} },
+      }));
+      assert.equal(gpuHost.legacy().Stage.wmodeGPU, true, 'AS2 Stage.wmodeGPU reflects active GPU wmode');
+      assert.equal(gpuCanvas.style.willChange, 'transform');
+      assert.throws(() => { gpuHost.legacy().Stage.wmodeGPU = false; }, /read-only/);
+      const Tr = gpuHost.legacy().TextRenderer;
+      Tr.displayMode = 'crt';
+      Tr.maxLevel = 7;
+      Tr.setAdvancedAntialiasingTable('Arial', 'bold', 'light', [
+        { fontSize: 14, insideCutoff: 0.72, outsideCutoff: -0.38 },
+      ]);
+      assert.equal(Tr.displayMode, 'crt');
+      assert.equal(Tr.maxLevel, 7);
+      const resolvedLight = gpuHost.text().resolveRendererCsm({ font: 'Arial', bold: true, italic: false, size: 14, color: 0xf5f5f5 });
+      assert.equal(resolvedLight.hasCsm, true);
+      assert.equal(resolvedLight.colorType, 'light');
+      assert.ok(Math.abs(resolvedLight.insideCutoff - 0.72) < 1e-6);
+    } finally {
+      gpuHost?.disposeFamily();
+      gpuPlayer.free();
+    }
   } finally {
     if (hadLocation) globalThis.location = prevLocation;
     else delete globalThis.location;

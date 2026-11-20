@@ -157,7 +157,13 @@
         if(snap)record.base=snap;
         acceptDom(record);
       });
-      on('select',()=>selection(record));
+      on('select',()=>{
+        selection(record);
+        if(record.lastPointerType==='touch'){
+          const lo=control.selectionStart??0,hi=control.selectionEnd??lo;
+          if(lo!==hi)text.userInteractionModeChanged?.(record.key,'selection');
+        }
+      });
       on('copy',event=>{
         const curField=text.info(record.key);
         if(curField.display_as_password)return;
@@ -204,6 +210,7 @@
           else if(record.imeSnapshot){record.base=record.imeSnapshot;record.imeSnapshot=null;}
         }
         acceptDom(record);
+        if(text.info(record.key).interaction_mode==='selection')text.userInteractionModeChanged?.(record.key,'normal');
         if(stage.stage.focus===record.target)stage.changeFocus(null);
         options.afterInput?.();
       });
@@ -260,7 +267,32 @@
           }
         }
       });
-      for(const type of ['pointerdown','pointerup','pointermove'])on(type,event=>stage.handlePointer(type,event,record.target));
+      for(const type of ['pointerdown','pointerup','pointermove'])on(type,event=>{
+        if(type==='pointerdown'){
+          record.lastPointerType=event.pointerType||'mouse';
+          record.touchDownPt=event.pointerType==='touch'?{x:Number(event.clientX)||0,y:Number(event.clientY)||0}:null;
+          if(event.altKey&&selectable(text.info(record.key))){
+            const nextMode=text.info(record.key).interaction_mode==='selection'?'normal':'selection';
+            text.userInteractionModeChanged?.(record.key,nextMode);
+          }
+        }else if(type==='pointermove'&&event.pointerType==='touch'&&record.touchDownPt&&(event.buttons&1||event.pressure>0)){
+          const dx=(Number(event.clientX)||0)-record.touchDownPt.x,dy=(Number(event.clientY)||0)-record.touchDownPt.y;
+          if(Math.hypot(dx,dy)>=4)text.userInteractionModeChanged?.(record.key,'selection');
+        }else if(type==='pointerup'&&event.pointerType==='touch'){
+          const wasTap=record.touchDownPt&&Math.hypot((Number(event.clientX)||0)-record.touchDownPt.x,(Number(event.clientY)||0)-record.touchDownPt.y)<4;
+          record.touchDownPt=null;
+          const lo=control.selectionStart??0,hi=control.selectionEnd??lo;
+          if(wasTap&&lo===hi&&text.info(record.key).interaction_mode==='selection')text.userInteractionModeChanged?.(record.key,'normal');
+        }
+        stage.handlePointer(type,event,record.target);
+      });
+      on('contextmenu',event=>{
+        if(event.altKey&&selectable(text.info(record.key))){
+          event.preventDefault?.();
+          const nextMode=text.info(record.key).interaction_mode==='selection'?'normal':'selection';
+          if(text.userInteractionModeChanged?.(record.key,nextMode))options.afterInput?.();
+        }
+      });
       on('click',event=>options.onClick?.(record.target,event));
       surface.appendChild(root);style(record,lastSnapshot||snapshot());sync(record.key,true);
       domSuppressed=true;try{control.focus({preventScroll:true});}finally{domSuppressed=false;}
@@ -328,6 +360,7 @@
           else if(old.imeSnapshot){old.base=old.imeSnapshot;old.imeSnapshot=null;}
         }
         try{acceptDom(old);}finally{removeDom(old);}
+        if(alive(old)&&text.info(old.key).interaction_mode==='selection')text.userInteractionModeChanged?.(old.key,'normal');
       }
       if(previous&&display.alive(previous))legacy(previous,'onKillFocus',[next]);if(version!==transition)return true;
       if(next&&display.alive(next)){
@@ -388,6 +421,43 @@
         if(!active||active.control||!alive(active))return;
         event.preventDefault?.();
       }));
+      if(options.canvas?.addEventListener){
+        let canvasTouchStart=null;
+        cleanups.push(listen(options.canvas,'pointerdown',event=>{
+          if(!active||active.control||!alive(active))return;
+          const curField=text.info(active.key);
+          if(!selectable(curField))return;
+          if(event.pointerType==='touch')canvasTouchStart={x:Number(event.clientX)||0,y:Number(event.clientY)||0,moved:false};
+          else if(event.altKey){
+            const nextMode=curField.interaction_mode==='selection'?'normal':'selection';
+            if(text.userInteractionModeChanged?.(active.key,nextMode))options.afterInput?.();
+          }
+        }));
+        cleanups.push(listen(options.canvas,'pointermove',event=>{
+          if(!canvasTouchStart||event.pointerType!=='touch'||!active||active.control||!alive(active))return;
+          const dx=(Number(event.clientX)||0)-canvasTouchStart.x,dy=(Number(event.clientY)||0)-canvasTouchStart.y;
+          if(Math.hypot(dx,dy)>=4){
+            canvasTouchStart.moved=true;
+            if(text.userInteractionModeChanged?.(active.key,'selection'))options.afterInput?.();
+          }
+        }));
+        cleanups.push(listen(options.canvas,'pointerup',event=>{
+          if(!canvasTouchStart||event.pointerType!=='touch')return;
+          const moved=canvasTouchStart.moved;
+          canvasTouchStart=null;
+          if(!moved&&active&&!active.control&&alive(active)&&text.info(active.key).interaction_mode==='selection'){
+            if(text.userInteractionModeChanged?.(active.key,'normal'))options.afterInput?.();
+          }
+        }));
+        cleanups.push(listen(options.canvas,'contextmenu',event=>{
+          if(!event.altKey||!active||active.control||!alive(active))return;
+          const curField=text.info(active.key);
+          if(!selectable(curField))return;
+          event.preventDefault?.();
+          const nextMode=curField.interaction_mode==='selection'?'normal':'selection';
+          if(text.userInteractionModeChanged?.(active.key,nextMode))options.afterInput?.();
+        }));
+      }
     }
     function reset(){open();transition++;removeDom(active);active=null;lastSnapshot=null;listeners.clear();}
     function dispose(){if(disposed)return;reset();for(const cleanup of cleanups)cleanup();disposed=true;}

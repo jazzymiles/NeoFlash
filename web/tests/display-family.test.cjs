@@ -543,6 +543,33 @@ trace("AS2 as3only deleted", delete classic.soundTransform, delete classic.upSta
     assert.equal(resetDocument.emptyClip.isPlaying,false);assert.equal(resetDocument.a.badge.currentLabel,'pulse');
     assert.equal(linked.proxyFor([]).classic.tag,'init-before-constructor');
     assert.equal(linked.activateSemantic(legacyButton),false,'stale semantic owner cannot activate a recreated namespace');
+    // Verify DisplayObjectContainer.areInaccessibleObjectsUnderPoint, getObjectsUnderPoint & Stage.isFocusInaccessible with Security.allowDomain
+    {
+      const PointCls=linked.program().type('flash.geom.Point');
+      const SecurityCls=linked.program().type('flash.system.Security');
+      const SpriteCls=linked.program().type('flash.display.Sprite');
+      const crossChild=new SpriteCls();
+      crossChild.graphics.beginFill(0xff3366,1);
+      crossChild.graphics.drawRect(0,0,40,40);
+      crossChild.graphics.endFill();
+      crossChild.x=310;crossChild.y=310;
+      resetDocument.addChild(crossChild);
+      linked.display().setSecuritySandbox(crossChild,'https://cdn.untrusted-partner.test/widget.swf',false);
+      const probePt=new PointCls(325,325);
+      assert.equal(resetDocument.areInaccessibleObjectsUnderPoint(probePt),true,'untrusted cross-domain child reports inaccessible under point');
+      assert.equal(resetDocument.stage.areInaccessibleObjectsUnderPoint(probePt),true,'Stage delegates areInaccessibleObjectsUnderPoint');
+      assert.equal(resetDocument.getObjectsUnderPoint(probePt).includes(crossChild),false,'getObjectsUnderPoint filters out inaccessible cross-domain leaves');
+      resetDocument.stage.focus=crossChild;
+      assert.equal(resetDocument.stage.isFocusInaccessible(),true,'Stage.isFocusInaccessible returns true when an untrusted child holds focus');
+      assert.equal(resetDocument.stage.focus,null,'reading stage.focus returns null when focus is inaccessible');
+      SecurityCls.allowDomain('https://cdn.untrusted-partner.test');
+      assert.equal(resetDocument.areInaccessibleObjectsUnderPoint(probePt),false,'Security.allowDomain grants access to cross-domain child');
+      assert.equal(resetDocument.getObjectsUnderPoint(probePt).includes(crossChild),true,'getObjectsUnderPoint includes child once domain is allowed');
+      assert.equal(resetDocument.stage.isFocusInaccessible(),false);
+      assert.equal(resetDocument.stage.focus,crossChild);
+      resetDocument.stage.focus=null;
+      resetDocument.removeChild(crossChild);
+    }
     linked.disposeFamily();
   } finally {
     if (player) player.free();
