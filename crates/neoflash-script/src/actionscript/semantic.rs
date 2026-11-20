@@ -1424,7 +1424,18 @@ impl Engine<'_, '_> {
             }
         }
         let members = self.context.members(class, statics);
-        if let Some(member) = members.iter().find(|m| m.name == name) {
+        let shadowed_by_missing_override = self.is_checked_builtin_owner(class)
+            && !matches!(name, "constructor" | "toString" | "valueOf")
+            && self
+                .context
+                .api
+                .missing
+                .iter()
+                .any(|m| m.is_static == statics && m.name == name && m.owner == class);
+        if let Some(member) = members
+            .iter()
+            .find(|m| m.name == name && (!shadowed_by_missing_override || m.owner == class))
+        {
             if !as3
                 && !statics
                 && short_name(class) == "TextField"
@@ -1820,10 +1831,25 @@ fn unsupported_member_guidance(short: &str, name: &str, as3: bool) -> &'static s
         ("BitmapData", "lock" | "unlock") => {
             "pixel updates apply directly in NeoFlash without 'lock()' or 'unlock()'."
         }
-        ("NetStream", "attachAudio" | "attachVideo" | "attachCamera" | "publish") => {
+        ("ContextMenuItem", "clone") => {
+            "construct a new 'ContextMenuItem(caption, separatorBefore, enabled, visible)' instead."
+        }
+        ("ContextMenuItem", _) => {
+            "construct a 'ContextMenuItem(caption)' or configure 'ContextMenu.builtInItems' instead."
+        }
+        ("NetStream", "attachAudio" | "attachVideo" | "attachCamera" | "liveDelay" | "publish") => {
             "use 'NetStream.play(url)' for local/HTTP media playback."
         }
-        ("Stage", "quality" | "colorCorrection" | "wmodeGPU" | "mouseLock") => {
+        (_, "imeStartComposition") => {
+            "listen for 'TextEvent.TEXT_INPUT' or 'Event.CHANGE' on 'TextField' instead."
+        }
+        (_, "metaData") => {
+            "store custom metadata on an application object or 'Dictionary' keyed by the display object instead."
+        }
+        (
+            "Stage",
+            "quality" | "colorCorrection" | "colorCorrectionSupport" | "wmodeGPU" | "mouseLock",
+        ) => {
             if as3 {
                 "use supported Stage properties such as 'scaleMode', 'align', 'stageWidth', or 'stageHeight'."
             } else {

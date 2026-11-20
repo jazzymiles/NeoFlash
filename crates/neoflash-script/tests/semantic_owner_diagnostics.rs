@@ -58,8 +58,13 @@ fn as3_owner_diagnostics_flag_invalid_members_and_legacy_callbacks_with_exact_sp
             "setPixel",
         ),
         (
-            "import flash.display.BitmapData;\nvar bmp:BitmapData = new BitmapData(16, 16);\nbmp.lock();",
-            "lock",
+            "import flash.ui.ContextMenuItem;\nvar item:ContextMenuItem = new ContextMenuItem('Copy');\nitem.clone();",
+            "clone",
+            "not supported",
+        ),
+        (
+            "import flash.text.TextField;\nvar tf:TextField = new TextField();\nvar meta = tf.metaData;",
+            "metaData",
             "not supported",
         ),
         (
@@ -188,6 +193,11 @@ fn as2_owner_diagnostics_flag_invalid_callbacks_html_string_and_unknown_members(
             "import flash.display.BitmapData;\nvar bmp:BitmapData = new BitmapData(10, 10);\nbmp.unknownMethod();",
             "unknownMethod",
             "BitmapData",
+        ),
+        (
+            "var ns:NetStream;\nns.publish('live');",
+            "publish",
+            "NetStream.play(url)",
         ),
         (
             "var so = SharedObject.getLocal('prefs');\nso.save();",
