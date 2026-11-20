@@ -23,19 +23,44 @@ Run after any change to declaration statuses:
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CATALOG = ROOT / "docs/progress/actionscript-catalog.json"
 AUDIT = ROOT / "docs/progress/actionscript-audit.json"
-REFERENCE = ROOT / "docs/actionscript-reference"
 REFERENCE_FILES = ["as2.json", "as2-components.json", "as2-components-supplement.json", "as3.json"]
 OUTPUT = ROOT / "crates/neoflash-script/assets/actionscript-api.json"
+SCHEMA_VERSION = 4
 GLOBAL_OWNER = "<global>"  # AS3 package-level functions in the reference
 READY = {"implemented_subset": "subset", "partial": "partial"}
 # Declarations shown under "Language elements" instead of a class or package.
 LANGUAGE_KINDS = {"operator", "statement", "directive", "keyword", "special_type", "compiler_directive"}
+
+
+def resolve_reference_dir():
+    """Find docs/actionscript-reference in this tree or the shared git common-dir root."""
+    local = ROOT / "docs/actionscript-reference"
+    if all((local / name).exists() for name in REFERENCE_FILES):
+        return local
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            shared = Path(proc.stdout.strip()).parent / "docs/actionscript-reference"
+            if all((shared / name).exists() for name in REFERENCE_FILES):
+                return shared
+    except OSError:
+        pass
+    return local
+
+
+REFERENCE = resolve_reference_dir()
 
 
 def key(entry):
@@ -87,6 +112,45 @@ def parameters(ref):
     return signature[start + 1 : end].strip() if 0 <= start < end else ""
 
 
+def constant_value(ref):
+    """Documented literal value of a constant, when recorded in the reference."""
+    if ref["kind"] != "constant":
+        return ""
+    signature = ref.get("signature") or ""
+    match = re.search(r"=\s*(.+?)\s*;?\s*$", signature)
+    if match:
+        val = match.group(1).strip()
+        return val if len(val) <= 64 else ""
+    if ref.get("constant_value") is not None:
+        val = str(ref["constant_value"]).strip()
+        return val if len(val) <= 64 else ""
+    return ""
+
+
+def operator_label(ref, name):
+    """Human phrase of an operator when the reference stores it separately from the symbol."""
+    raw = (ref.get("operator_name") or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith(name + " "):
+        return raw[len(name) + 1 :].strip()
+    return raw
+
+
+def class_entry(ref, own, status, fallback_kind="class"):
+    """Compact class or interface record."""
+    entry = {
+        "parents": parents(ref, own) if ref else [],
+        "status": status,
+        "kind": ref["kind"] if ref else fallback_kind,
+    }
+    if ref:
+        implements = [name for name in (ref.get("implements") or []) if name and name != own]
+        if implements:
+            entry["implements"] = implements
+    return entry
+
+
 def member_entry(entry, ref, status):
     """Compact member record shared by the ready and the missing lists."""
     owner = entry.get("owner") or ""
@@ -99,9 +163,17 @@ def member_entry(entry, ref, status):
     }
     if ref.get("static"):
         member["static"] = True
+    if ref.get("read_only") is True or ref.get("read_write") == "read_only":
+        member["readOnly"] = True
     params = parameters(ref)
     if params is not None:
         member["params"] = params
+    val = constant_value(ref)
+    if val:
+        member["value"] = val
+    op = operator_label(ref, entry["name"])
+    if op:
+        member["operator"] = op
     return member
 
 
@@ -141,8 +213,12 @@ def build():
     if any(not (REFERENCE / name).exists() for name in REFERENCE_FILES) and OUTPUT.exists():
         existing = json.loads(OUTPUT.read_text())
         current = existing.get("catalogSha256") == hashlib.sha256(CATALOG.read_bytes()).hexdigest()
-        # The missing lists need signatures too, so an asset written before schema 3 cannot be reused.
-        if current and all("missing" in api for api in existing["languages"].values()):
+        # The missing lists and reference metadata need schema >= 4.
+        if (
+            current
+            and existing.get("schemaVersion", 0) >= SCHEMA_VERSION
+            and all("missing" in api for api in existing["languages"].values())
+        ):
             entries = {}
             for entry in catalog:
                 language, owner, name, kind = key(entry)
@@ -154,7 +230,7 @@ def build():
                     notes = {limits.get((entry["rule_id"], entry["catalog_id"]), "") for entry in matches if entry["status"] == "partial"}
                     if matches and all(entry["status"] == "partial" for entry in matches) and len(notes) == 1 and "" not in notes:
                         member["limitation"] = notes.pop()
-            existing["schemaVersion"] = 3
+            existing["schemaVersion"] = SCHEMA_VERSION
             existing["auditSha256"] = hashlib.sha256(AUDIT.read_bytes()).hexdigest()
             return existing
     references = {}
@@ -162,7 +238,7 @@ def build():
     for name in REFERENCE_FILES:
         path = REFERENCE / name
         if not path.exists():
-            sys.exit(f"missing {path.relative_to(ROOT)}: restore the local reference snapshot first")
+            sys.exit(f"missing {path}: restore the local reference snapshot first")
         for ref in json.loads(path.read_text())["entries"]:
             references.setdefault(key(ref), ref)
             if ref["kind"] in ("class", "interface"):
@@ -181,7 +257,7 @@ def build():
         kind = entry["kind"]
         if kind == "class" or kind == "interface":
             name = qualified_class(ref, entry)
-            language["classes"][name] = {"parents": parents(ref, name), "status": status, "kind": kind}
+            language["classes"][name] = class_entry(ref, name, status, kind)
             continue
         group = "language" if kind in LANGUAGE_KINDS or ref.get("scope") == "language" and not entry.get("owner") else ""
         member = member_entry(entry, ref, status)
@@ -200,11 +276,7 @@ def build():
             owner = member["owner"]
             if owner and "group" not in member and owner not in language["classes"]:
                 ref = class_refs.get((language_name, owner))
-                language["classes"][owner] = {
-                    "parents": parents(ref, owner) if ref else [],
-                    "status": "members",
-                    "kind": ref["kind"] if ref else "class",
-                }
+                language["classes"][owner] = class_entry(ref, owner, "members")
     if unjoined:
         sys.exit(f"{len(unjoined)} ready catalog entries have no reference signature, e.g. {unjoined[:5]}")
     for language in languages.values():
@@ -215,7 +287,7 @@ def build():
     if missing_unjoined:
         print(f"{missing_unjoined} missing members of indexed classes have no reference signature and are left out")
     return {
-        "schemaVersion": 3,
+        "schemaVersion": SCHEMA_VERSION,
         "generatedBy": "scripts/editor-api-index.py",
         "catalogSha256": hashlib.sha256(CATALOG.read_bytes()).hexdigest(),
         "auditSha256": hashlib.sha256(AUDIT.read_bytes()).hexdigest(),

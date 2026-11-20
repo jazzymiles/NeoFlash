@@ -54,17 +54,19 @@ fn cached_analysis(language: ScriptLanguage, source: &str) -> Arc<Analysis> {
     })
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct ClassInfo {
     #[serde(default)]
     pub kind: String,
     #[serde(default)]
     pub parents: Vec<String>,
+    #[serde(default)]
+    pub implements: Vec<String>,
     /// `subset`, `partial`, or `members` (class itself unaudited, some members ready).
     pub status: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct Member {
     /// Qualified owner class; empty for global functions/constants and language elements.
     pub owner: String,
@@ -76,9 +78,18 @@ pub struct Member {
     pub ty: String,
     #[serde(rename = "static", default)]
     pub is_static: bool,
+    /// True when the documented property has only a getter / is read-only.
+    #[serde(rename = "readOnly", default)]
+    pub read_only: bool,
     /// Documented parameter list for callables.
     #[serde(default)]
     pub params: Option<String>,
+    /// Documented literal value of a constant, when recorded in the reference.
+    #[serde(default)]
+    pub value: Option<String>,
+    /// Human operator phrase (`"logical NOT"`), when stored separately from `name`.
+    #[serde(default)]
+    pub operator: Option<String>,
     /// `language` for operators, statements and directives.
     #[serde(default)]
     pub group: Option<String>,
@@ -258,9 +269,7 @@ pub fn scan_class(unit: &SourceUnit) -> Option<ProjectClass> {
                 },
                 is_static: s.is_static,
                 params: s.params.clone(),
-                group: None,
-                limitation: None,
-                status: String::new(),
+                ..Member::default()
             })
             .collect(),
     })
@@ -784,9 +793,7 @@ impl<'a> HintContext<'a> {
                         },
                         is_static: false,
                         params: symbol.params.clone(),
-                        group: None,
-                        limitation: None,
-                        status: String::new(),
+                        ..Member::default()
                     }
                 }));
                 candidates.extend(self.members(&self.this_class, false));
@@ -797,11 +804,7 @@ impl<'a> HintContext<'a> {
                     name: name.clone(),
                     kind: "property".into(),
                     ty: short_name(class).to_owned(),
-                    is_static: false,
-                    params: None,
-                    group: None,
-                    limitation: None,
-                    status: String::new(),
+                    ..Member::default()
                 }));
             }
         }
@@ -855,11 +858,7 @@ impl<'a> HintContext<'a> {
                 name: short_name(&qualified).to_owned(),
                 kind: "class".into(),
                 ty: "class".into(),
-                is_static: false,
-                params: None,
-                group: None,
-                limitation: None,
-                status: String::new(),
+                ..Member::default()
             })
             .collect()
     }
@@ -1099,12 +1098,7 @@ pub fn search(
             owner: qualified.clone(),
             name: short_name(&qualified).to_owned(),
             kind: "class".into(),
-            ty: String::new(),
-            is_static: false,
-            params: None,
-            group: None,
-            limitation: None,
-            status: String::new(),
+            ..Member::default()
         });
     let members = project
         .iter()
@@ -1400,5 +1394,32 @@ mod tests {
             &first,
             &context.analyze("var value:TextField; value.")
         ));
+    }
+
+    #[test]
+    fn reference_metadata_is_carried_into_api_index() {
+        let as3 = api(ScriptLanguage::ActionScript3).unwrap();
+        assert_eq!(
+            as3.classes["flash.display.DisplayObject"].implements,
+            ["flash.display.IBitmapDrawable"]
+        );
+        let click = own_members(&[], as3, "flash.events.MouseEvent")
+            .into_iter()
+            .find(|m| m.name == "CLICK")
+            .unwrap();
+        assert_eq!(click.value.as_deref(), Some("\"click\""));
+        let current_frame = own_members(&[], as3, "flash.display.MovieClip")
+            .into_iter()
+            .find(|m| m.name == "currentFrame")
+            .unwrap();
+        assert!(current_frame.read_only);
+
+        let as2 = api(ScriptLanguage::ActionScript2).unwrap();
+        let bang = as2
+            .members
+            .iter()
+            .find(|m| m.name == "!" && m.kind == "operator")
+            .unwrap();
+        assert_eq!(bang.operator.as_deref(), Some("logical NOT"));
     }
 }

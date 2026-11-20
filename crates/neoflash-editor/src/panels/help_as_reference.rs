@@ -86,6 +86,8 @@ pub(crate) struct JsTsApiEntry {
     pub insertion: &'static str,
     pub ts_only: bool,
     pub kind: JsTsEntryKind,
+    pub support: Support,
+    pub support_note: &'static str,
 }
 
 pub(crate) const JS_TS_CATEGORIES: &[(&str, &str, bool)] = &[
@@ -133,6 +135,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "this.",
         ts_only: false,
         kind: JsTsEntryKind::Binding,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "NeoFlash Context & Timeline",
@@ -144,6 +148,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "event.target",
         ts_only: false,
         kind: JsTsEntryKind::Binding,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "NeoFlash Context & Timeline",
@@ -155,6 +161,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "trace(\"\");",
         ts_only: false,
         kind: JsTsEntryKind::Function,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "NeoFlash Context & Timeline",
@@ -166,6 +174,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "play();",
         ts_only: false,
         kind: JsTsEntryKind::Function,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "NeoFlash Context & Timeline",
@@ -177,6 +187,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "stop();",
         ts_only: false,
         kind: JsTsEntryKind::Function,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "NeoFlash Context & Timeline",
@@ -188,6 +200,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "gotoAndPlay(1);",
         ts_only: false,
         kind: JsTsEntryKind::Function,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "NeoFlash Context & Timeline",
@@ -199,6 +213,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "gotoAndStop(1);",
         ts_only: false,
         kind: JsTsEntryKind::Function,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "NeoFlash Context & Timeline",
@@ -210,6 +226,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "nextFrame();",
         ts_only: false,
         kind: JsTsEntryKind::Function,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "NeoFlash Context & Timeline",
@@ -221,6 +239,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "prevFrame();",
         ts_only: false,
         kind: JsTsEntryKind::Function,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "NeoFlash Context & Timeline",
@@ -232,6 +252,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "stopAllSounds();",
         ts_only: false,
         kind: JsTsEntryKind::Function,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "NeoFlash Context & Timeline",
@@ -243,6 +265,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "NeoFlash.loadPublish(\"subapp/bundle.js\", this);",
         ts_only: false,
         kind: JsTsEntryKind::Function,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "NeoFlash Context & Timeline",
@@ -254,6 +278,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "this.getChildByName(\"instanceName\")",
         ts_only: false,
         kind: JsTsEntryKind::Function,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "NeoFlash Context & Timeline",
@@ -265,6 +291,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "this.addEventListener(\"enterFrame\", (event) => {\n    \n});",
         ts_only: false,
         kind: JsTsEntryKind::Function,
+        support: Support::Working,
+        support_note: "",
     },
     // ── Category 2: Modules & JSX ──
     JsTsApiEntry {
@@ -277,6 +305,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "import { } from \"./module\";",
         ts_only: false,
         kind: JsTsEntryKind::Keyword,
+        support: Support::Partial,
+        support_note: "Resolves relative project SourceUnit modules (./ and ../); bare npm/node_modules packages, Node built-ins, and remote URL imports are not supported, and multi-file module bundling runs in Test Movie and HTML5 publish rather than silent authoring AuthoredPlayback.",
     },
     JsTsApiEntry {
         category: "Modules & JSX",
@@ -288,6 +318,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "export function helper() {\n    \n}",
         ts_only: false,
         kind: JsTsEntryKind::Keyword,
+        support: Support::Partial,
+        support_note: "Supported in project SourceUnit module files (.js/.jsx/.ts/.tsx); timeline frame and object scripts cannot export bindings, and cross-module imports run in Test Movie and HTML5 publish rather than silent authoring AuthoredPlayback.",
     },
     JsTsApiEntry {
         category: "Modules & JSX",
@@ -299,6 +331,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "const view = <hud-panel title=\"Score\">{score}</hud-panel>;",
         ts_only: false,
         kind: JsTsEntryKind::Function,
+        support: Support::Working,
+        support_note: "",
     },
     // ── Category 3: ECMAScript & Async ──
     JsTsApiEntry {
@@ -311,6 +345,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "function name() {\n    \n}",
         ts_only: false,
         kind: JsTsEntryKind::Keyword,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "ECMAScript & Async",
@@ -322,6 +358,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "fn.call(this)",
         ts_only: false,
         kind: JsTsEntryKind::Class,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "ECMAScript & Async",
@@ -333,6 +371,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "return;",
         ts_only: false,
         kind: JsTsEntryKind::Keyword,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "ECMAScript & Async",
@@ -344,6 +384,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "new Promise((resolve, reject) => {\n    resolve(true);\n})",
         ts_only: false,
         kind: JsTsEntryKind::Class,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "ECMAScript & Async",
@@ -355,6 +397,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "await Promise.all([])",
         ts_only: false,
         kind: JsTsEntryKind::Member("Promise"),
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "ECMAScript & Async",
@@ -366,6 +410,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "async function run() {\n    \n}",
         ts_only: false,
         kind: JsTsEntryKind::Keyword,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "ECMAScript & Async",
@@ -377,6 +423,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "new Map()",
         ts_only: false,
         kind: JsTsEntryKind::Class,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "ECMAScript & Async",
@@ -388,6 +436,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "new Set()",
         ts_only: false,
         kind: JsTsEntryKind::Class,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "ECMAScript & Async",
@@ -399,6 +449,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "JSON.stringify({})",
         ts_only: false,
         kind: JsTsEntryKind::Class,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "ECMAScript & Async",
@@ -410,6 +462,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "Math.hypot(dx, dy)",
         ts_only: false,
         kind: JsTsEntryKind::Class,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "ECMAScript & Async",
@@ -421,6 +475,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "throw new Error(\"\");",
         ts_only: false,
         kind: JsTsEntryKind::Class,
+        support: Support::Working,
+        support_note: "",
     },
     // ── Category 4: TypeScript & Checker ──
     JsTsApiEntry {
@@ -433,6 +489,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "function compute(value: number): number {\n    return value;\n}",
         ts_only: true,
         kind: JsTsEntryKind::TypeConstruct,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "TypeScript & Checker",
@@ -444,6 +502,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "interface ActorState {\n    id: string;\n    x: number;\n    y: number;\n}",
         ts_only: true,
         kind: JsTsEntryKind::TypeConstruct,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "TypeScript & Checker",
@@ -455,6 +515,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "type FrameTarget = number | string;",
         ts_only: true,
         kind: JsTsEntryKind::TypeConstruct,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "TypeScript & Checker",
@@ -466,6 +528,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "enum GamePhase {\n    Title = \"title\",\n    Playing = \"playing\",\n}",
         ts_only: true,
         kind: JsTsEntryKind::TypeConstruct,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "TypeScript & Checker",
@@ -477,6 +541,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "Record<string, number>",
         ts_only: true,
         kind: JsTsEntryKind::TypeConstruct,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "TypeScript & Checker",
@@ -488,6 +554,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "Partial<ActorState>",
         ts_only: true,
         kind: JsTsEntryKind::TypeConstruct,
+        support: Support::Working,
+        support_note: "",
     },
     JsTsApiEntry {
         category: "TypeScript & Checker",
@@ -499,6 +567,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "Pick<ActorState, \"x\" | \"y\">",
         ts_only: true,
         kind: JsTsEntryKind::TypeConstruct,
+        support: Support::Working,
+        support_note: "",
     },
     // ── Category 5: Browser DOM & Canvas 2D ──
     JsTsApiEntry {
@@ -511,6 +581,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "/** @type {CanvasRenderingContext2D} */\nconst ctx = canvas.getContext(\"2d\");",
         ts_only: false,
         kind: JsTsEntryKind::Class,
+        support: Support::Working,
+        support_note: "Runs in published HTML5 and browser Test Movie; not evaluated inside silent authoring AuthoredPlayback.",
     },
     JsTsApiEntry {
         category: "Browser DOM & Canvas 2D",
@@ -522,6 +594,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "ctx.fillRect(0, 0, 100, 60);",
         ts_only: false,
         kind: JsTsEntryKind::Member("CanvasRenderingContext2D"),
+        support: Support::Working,
+        support_note: "Runs in published HTML5 and browser Test Movie; not evaluated inside silent authoring AuthoredPlayback.",
     },
     JsTsApiEntry {
         category: "Browser DOM & Canvas 2D",
@@ -533,6 +607,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "ctx.beginPath();\nctx.arc(60, 60, 24, 0, Math.PI * 2);\nctx.fill();",
         ts_only: false,
         kind: JsTsEntryKind::Member("CanvasRenderingContext2D"),
+        support: Support::Working,
+        support_note: "Runs in published HTML5 and browser Test Movie; not evaluated inside silent authoring AuthoredPlayback.",
     },
     JsTsApiEntry {
         category: "Browser DOM & Canvas 2D",
@@ -544,6 +620,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "ctx.drawImage(image, 0, 0);",
         ts_only: false,
         kind: JsTsEntryKind::Member("CanvasRenderingContext2D"),
+        support: Support::Working,
+        support_note: "Runs in published HTML5 and browser Test Movie; subject to browser CORS canvas taint rules and not evaluated in silent authoring AuthoredPlayback.",
     },
     JsTsApiEntry {
         category: "Browser DOM & Canvas 2D",
@@ -555,6 +633,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "ctx.save();\nctx.translate(x, y);\nctx.restore();",
         ts_only: false,
         kind: JsTsEntryKind::Member("CanvasRenderingContext2D"),
+        support: Support::Working,
+        support_note: "Runs in published HTML5 and browser Test Movie; not evaluated inside silent authoring AuthoredPlayback.",
     },
     JsTsApiEntry {
         category: "Browser DOM & Canvas 2D",
@@ -566,6 +646,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "document.querySelector(\"#stage-canvas\")",
         ts_only: false,
         kind: JsTsEntryKind::Function,
+        support: Support::Partial,
+        support_note: "Runs in published HTML5 browser DOM; unavailable in headless validation and silent authoring AuthoredPlayback (guard shared modules with typeof document !== \"undefined\").",
     },
     JsTsApiEntry {
         category: "Browser DOM & Canvas 2D",
@@ -577,6 +659,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "requestAnimationFrame((nowMs) => {\n    \n});",
         ts_only: false,
         kind: JsTsEntryKind::Function,
+        support: Support::Working,
+        support_note: "Runs in published HTML5 and browser Test Movie; not scheduled inside silent authoring AuthoredPlayback.",
     },
     JsTsApiEntry {
         category: "Browser DOM & Canvas 2D",
@@ -588,6 +672,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "setTimeout(() => {\n    \n}, 250);",
         ts_only: false,
         kind: JsTsEntryKind::Function,
+        support: Support::Working,
+        support_note: "Runs in published HTML5 and browser Test Movie; asynchronous timers do not advance inside silent authoring AuthoredPlayback.",
     },
     // ── Category 6: Web Fetch, Audio & Storage ──
     JsTsApiEntry {
@@ -600,6 +686,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "const response = await fetch(\"./data/level.json\");\nconst data = await response.json();",
         ts_only: false,
         kind: JsTsEntryKind::Function,
+        support: Support::Working,
+        support_note: "Runs in published HTML5 and browser Test Movie over HTTP/HTTPS subject to CORS and CSP connect-src; does not run in silent authoring AuthoredPlayback.",
     },
     JsTsApiEntry {
         category: "Web Fetch, Audio & Storage",
@@ -611,6 +699,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "localStorage.setItem(\"neoflash.save\", JSON.stringify({ score: 100 }));",
         ts_only: false,
         kind: JsTsEntryKind::Class,
+        support: Support::Working,
+        support_note: "Runs in published HTML5 and browser Test Movie within same-origin storage quota; unavailable in silent authoring AuthoredPlayback.",
     },
     JsTsApiEntry {
         category: "Web Fetch, Audio & Storage",
@@ -622,6 +712,8 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         insertion: "const audioCtx = new AudioContext();\nawait audioCtx.resume();",
         ts_only: false,
         kind: JsTsEntryKind::Class,
+        support: Support::Working,
+        support_note: "Runs in published HTML5 and browser Test Movie after a user gesture; authoring scrubbing and silent AuthoredPlayback remain silent.",
     },
 ];
 
@@ -4414,9 +4506,11 @@ struct AsClassDraft {
     key: String,
     name: String,
     package: String,
+    kind: String,
     pseudo: bool,
     status: String,
     parents: Vec<String>,
+    implements: Vec<String>,
     members: Vec<Member>,
 }
 
@@ -4447,9 +4541,11 @@ fn build_as_index(api: &'static script_api::LanguageApi, language: ScriptLanguag
             key: API_GLOBAL_KEY.into(),
             name: "Global functions and properties".into(),
             package: TOP_LEVEL.into(),
+            kind: "package".into(),
             pseudo: true,
             status: String::new(),
             parents: Vec::new(),
+            implements: Vec::new(),
             members: globals,
         });
     }
@@ -4458,9 +4554,11 @@ fn build_as_index(api: &'static script_api::LanguageApi, language: ScriptLanguag
             key: API_LANGUAGE_KEY.into(),
             name: "Operators and statements".into(),
             package: TOP_LEVEL.into(),
+            kind: "package".into(),
             pseudo: true,
             status: String::new(),
             parents: Vec::new(),
+            implements: Vec::new(),
             members: language_elements,
         });
     }
@@ -4496,9 +4594,11 @@ fn build_as_index(api: &'static script_api::LanguageApi, language: ScriptLanguag
                 key: key.clone(),
                 name: "Package functions".into(),
                 package: key.clone(),
+                kind: "package".into(),
                 pseudo: true,
                 status: String::new(),
                 parents: Vec::new(),
+                implements: Vec::new(),
                 members,
             });
             continue;
@@ -4512,9 +4612,11 @@ fn build_as_index(api: &'static script_api::LanguageApi, language: ScriptLanguag
             } else {
                 package.to_owned()
             },
+            kind: info.kind.clone(),
             pseudo: false,
             status: info.status.clone(),
             parents: info.parents.clone(),
+            implements: info.implements.clone(),
             members,
         });
     }
@@ -4620,9 +4722,15 @@ fn build_as_index(api: &'static script_api::LanguageApi, language: ScriptLanguag
                 _ => format!("Functions declared directly in the {} package.", draft.package),
             }
             } else {
-                script_api::keyword_reference_summary(language, &draft.name)
-                    .unwrap_or_default()
-                    .to_owned()
+                script_api::describe_as_class(
+                    language,
+                    &draft.key,
+                    &draft.name,
+                    &draft.package,
+                    &draft.kind,
+                    &draft.parents,
+                    &draft.implements,
+                )
             };
         let insertion = (!draft.pseudo).then(|| {
             super::actions_sidebar::toolbox_insertion(
@@ -4630,12 +4738,7 @@ fn build_as_index(api: &'static script_api::LanguageApi, language: ScriptLanguag
                     owner: draft.key.clone(),
                     name: draft.name.clone(),
                     kind: "class".into(),
-                    ty: String::new(),
-                    is_static: false,
-                    params: None,
-                    group: None,
-                    limitation: None,
-                    status: String::new(),
+                    ..Member::default()
                 },
                 language,
             )
@@ -4803,9 +4906,8 @@ fn as_member_view(m: &Member, language: ScriptLanguage, class: &AsClassDraft) ->
             (_, false) => format!("{receiver}.{}", m.name),
         }
     };
-    let description = script_api::keyword_reference_summary(language, &m.name)
-        .unwrap_or_default()
-        .to_owned();
+    let description =
+        script_api::describe_as_member(language, &class.key, &class.name, class.pseudo, m);
     let kind_label = match (m.is_static, kind) {
         (_, "special_type") => "special type".to_owned(),
         (true, "constant") => "constant".to_owned(),
@@ -4845,6 +4947,7 @@ fn build_js_ts_index() -> ApiIndex {
         classes: Vec::new(),
     };
     let mut member_count = 0;
+    let mut status_count = 0;
     for &(category, description, _) in JS_TS_CATEGORIES {
         let entries: Vec<&'static JsTsApiEntry> = JS_TS_API_ENTRIES
             .iter()
@@ -4892,6 +4995,17 @@ fn build_js_ts_index() -> ApiIndex {
                     .filter(|rest| rest.starts_with(['(', ':', '<']))
                     .unwrap_or(entry.signature)
                     .to_owned();
+                let note = if entry.support_note.is_empty() {
+                    format!(
+                        "{}. Available in: {}.",
+                        entry.provenance, entry.availability
+                    )
+                } else {
+                    format!(
+                        "{}. {} Available in: {}.",
+                        entry.provenance, entry.support_note, entry.availability
+                    )
+                };
                 ApiMember {
                     key: key_of(entry),
                     name: entry.name.to_owned(),
@@ -4906,11 +5020,8 @@ fn build_js_ts_index() -> ApiIndex {
                     declaration: entry.signature.to_owned(),
                     params: Vec::new(),
                     returns: String::new(),
-                    support: None,
-                    note: format!(
-                        "{}. Available in: {}.",
-                        entry.provenance, entry.availability
-                    ),
+                    support: Some(entry.support),
+                    note,
                     description: entry.summary.to_owned(),
                     example: entry.insertion.to_owned(),
                     insertion: super::actions::js_ts_toolbox_insertion(entry),
@@ -4920,6 +5031,12 @@ fn build_js_ts_index() -> ApiIndex {
             .collect();
         members.sort_by_key(|m| m.group);
         member_count += members.len();
+        status_count += members.iter().filter(|m| m.support.is_some()).count();
+        let class_status = if members.iter().all(|m| m.support == Some(Support::Working)) {
+            "subset"
+        } else {
+            "partial"
+        };
         package
             .classes
             .push((category.to_owned(), category.to_owned()));
@@ -4930,7 +5047,7 @@ fn build_js_ts_index() -> ApiIndex {
                 name: category.to_owned(),
                 package: "JavaScript / TypeScript".into(),
                 chain: Vec::new(),
-                status: String::new(),
+                status: class_status.into(),
                 description: format!("{description}."),
                 insertion: None,
                 members,
@@ -4943,7 +5060,7 @@ fn build_js_ts_index() -> ApiIndex {
         flat: true,
         classes,
         member_count,
-        status_count: 0,
+        status_count,
     }
 }
 
@@ -4957,12 +5074,13 @@ pub(crate) struct ApiHit {
     /// Package of a class hit, kind of a member hit.
     pub meta: String,
     pub support: Option<Support>,
-    /// 0 exact name, 1 prefix, 2 substring.
+    /// 0 exact name, 1 prefix, 2 substring, 3 description match.
     pub rank: u8,
 }
 
-/// Classes and members of `scope` whose name matches `query`, ordered exact name, prefix,
-/// substring; classes before members inside a rank. `Class.member` narrows members to a class.
+/// Classes and members of `scope` whose name or description matches `query`, ordered exact name,
+/// prefix, substring, then description; classes before members inside a rank. `Class.member`
+/// narrows members to a class.
 pub(crate) fn api_search(scope: LanguageScope, query: &str) -> Vec<ApiHit> {
     let q = query.trim().to_lowercase();
     if q.is_empty() {
@@ -4984,6 +5102,7 @@ pub(crate) fn api_search(scope: LanguageScope, query: &str) -> Vec<ApiHit> {
     let dotted = q
         .rsplit_once('.')
         .filter(|(owner, member)| !owner.is_empty() && !member.is_empty());
+    let match_descriptions = dotted.is_none() && q.chars().count() >= 3;
     let mut hits = Vec::new();
     for (class_key, _) in index.packages.iter().flat_map(|p| &p.classes) {
         let Some(class) = index.class(class_key) else {
@@ -4991,31 +5110,25 @@ pub(crate) fn api_search(scope: LanguageScope, query: &str) -> Vec<ApiHit> {
         };
         let pseudo = class.insertion.is_none();
         let class_name = class.name.to_lowercase();
-        if !pseudo || index.flat {
-            let class_rank = rank(&class.name, &q)
-                .or_else(|| class.key.to_lowercase().contains(&q).then_some(2));
-            if let Some(rank) = class_rank {
-                hits.push(ApiHit {
-                    class_key: class.key.clone(),
-                    member_key: None,
-                    label: class.name.clone(),
-                    meta: class.package.clone(),
-                    support: None,
-                    rank,
-                });
-            }
-        }
         let owner_matches = dotted
             .is_some_and(|(owner, _)| class_name == owner || class.key.to_lowercase() == owner);
+        let mut class_has_member_name_hit = false;
         for member in &class.members {
             let by_owner = dotted
                 .filter(|_| owner_matches)
                 .and_then(|(_, name)| rank(&member.name, name));
-            let Some(rank) = [by_owner, rank(&member.name, &q)]
+            let name_rank = [by_owner, rank(&member.name, &q)]
                 .into_iter()
                 .flatten()
-                .min()
-            else {
+                .min();
+            if name_rank.is_some() {
+                class_has_member_name_hit = true;
+            }
+            let desc_rank = (match_descriptions
+                && (member.description.to_lowercase().contains(&q)
+                    || member.note.to_lowercase().contains(&q)))
+            .then_some(3);
+            let Some(rank) = [name_rank, desc_rank].into_iter().flatten().min() else {
                 continue;
             };
             hits.push(ApiHit {
@@ -5030,6 +5143,26 @@ pub(crate) fn api_search(scope: LanguageScope, query: &str) -> Vec<ApiHit> {
                 support: member.support,
                 rank,
             });
+        }
+        if !pseudo || index.flat {
+            let class_rank = rank(&class.name, &q)
+                .or_else(|| class.key.to_lowercase().contains(&q).then_some(2))
+                .or_else(|| {
+                    (!class_has_member_name_hit
+                        && match_descriptions
+                        && class.description.to_lowercase().contains(&q))
+                    .then_some(3)
+                });
+            if let Some(rank) = class_rank {
+                hits.push(ApiHit {
+                    class_key: class.key.clone(),
+                    member_key: None,
+                    label: class.name.clone(),
+                    meta: class.package.clone(),
+                    support: Support::of(&class.status),
+                    rank,
+                });
+            }
         }
     }
     hits.sort_by(|a, b| {
@@ -5199,13 +5332,25 @@ pub(crate) fn group_thousands(value: usize) -> String {
 /// Left text of the footer status row on the API tab.
 pub(crate) fn api_footer_text(scope: LanguageScope) -> String {
     let index = api_index(scope);
-    let (classes, members) = if index.flat {
-        ("categories", "entries")
-    } else {
-        ("classes", "members")
-    };
+    if index.flat {
+        let mut working = 0usize;
+        let mut partial = 0usize;
+        for class in index.classes.values() {
+            let (w, p, _) = class.support_counts();
+            working += w;
+            partial += p;
+        }
+        return format!(
+            "{} · {} categories · {} entries · {} working · {} partial",
+            scope.reference_label(),
+            group_thousands(index.class_count),
+            group_thousands(index.member_count),
+            group_thousands(working),
+            group_thousands(partial),
+        );
+    }
     format!(
-        "{} · {} {classes} · {} {members}",
+        "{} · {} classes · {} members",
         scope.reference_label(),
         group_thousands(index.class_count),
         group_thousands(index.member_count)
@@ -5456,9 +5601,10 @@ fn support_badge(ui: &mut Ui, support: Support) {
 /// "In NeoFlash" line: the catalogue status in words, with its note when there is one.
 fn support_message(ui: &mut Ui, support: Support, note: &str) {
     let text = match support {
-        Support::Working => {
+        Support::Working if note.is_empty() => {
             "Working. The documented behaviour runs in Test Movie and HTML5 publish; only browser or sandbox limits may remain.".to_owned()
         }
+        Support::Working => format!("Working. {note}"),
         Support::Partial if note.is_empty() => {
             "Partial. A runtime path exists; part of the documented behaviour is missing.".to_owned()
         }
@@ -6171,6 +6317,14 @@ fn class_summary(ui: &mut Ui, class: &ApiClass, actions: &mut RefActions) {
             support_badge(ui, support);
         }
     });
+    if !class.description.is_empty() {
+        ui.add(
+            egui::Label::new(
+                rich(&class.description, TextStyle::DialogBody).color(p.text_secondary),
+            )
+            .wrap(),
+        );
+    }
     ui.add(
         egui::Label::new(
             rich(
@@ -6847,6 +7001,123 @@ fn write_chapter_svg_illustration(index: usize, out: &mut String) {
     out.replace_range(svg_start.., &normalized);
 }
 
+fn write_support_badge_html(support: Option<Support>, status_raw: &str, out: &mut String) {
+    match (support, status_raw) {
+        (Some(Support::Working), _) => {
+            out.push_str("<span class=\"status-working\">Working</span>");
+        }
+        (Some(Support::Partial), _) => {
+            out.push_str("<span class=\"status-partial\">Partial</span>");
+        }
+        (Some(Support::Missing), _) => {
+            out.push_str("<span class=\"status-missing\">Missing</span>");
+        }
+        (None, "members") => {
+            out.push_str("<span class=\"status-missing\">Members only</span>");
+        }
+        _ => {
+            out.push_str("<span class=\"status-missing\">Indexed</span>");
+        }
+    }
+}
+
+fn write_js_ts_entries_html(
+    heading: &str,
+    categories: &[&str],
+    include_scope_summary: bool,
+    out: &mut String,
+) {
+    out.push_str("<h3>");
+    super::help_manual::escape_html(heading, out);
+    out.push_str("</h3>");
+    if include_scope_summary {
+        out.push_str("<p class=\"chapter-sub\"><strong>API Coverage:</strong> ");
+        super::help_manual::escape_html(&api_footer_text(LanguageScope::JsTs), out);
+        out.push_str("</p>");
+    }
+    out.push_str(
+        "<table class=\"ref-table\"><thead><tr><th>Entry &amp; Signature</th><th>NeoFlash Status</th><th>Description &amp; Boundary</th></tr></thead><tbody>",
+    );
+    for entry in JS_TS_API_ENTRIES
+        .iter()
+        .filter(|e| categories.contains(&e.category))
+    {
+        out.push_str("<tr><td><code>");
+        super::help_manual::escape_html(entry.name, out);
+        out.push_str("</code><br><code>");
+        super::help_manual::escape_html(entry.signature, out);
+        out.push_str("</code></td><td>");
+        write_support_badge_html(Some(entry.support), "", out);
+        out.push_str("<br><code>[");
+        super::help_manual::escape_html(entry.provenance, out);
+        out.push_str("]</code></td><td>");
+        super::help_manual::escape_html(entry.summary, out);
+        if !entry.support_note.is_empty() {
+            out.push_str(" <strong>NeoFlash note:</strong> ");
+            super::help_manual::escape_html(entry.support_note, out);
+        }
+        out.push_str(" <em>Available in: ");
+        super::help_manual::escape_html(entry.availability, out);
+        out.push_str(".</em></td></tr>");
+    }
+    out.push_str("</tbody></table>");
+}
+
+fn write_as_index_browser_html(
+    scope: LanguageScope,
+    heading: &str,
+    core_class_keys: &[&str],
+    filter_pkg: impl Fn(&str) -> bool,
+    out: &mut String,
+) {
+    let index = api_index(scope);
+    out.push_str("<details class=\"api-details\"><summary>");
+    super::help_manual::escape_html(heading, out);
+    out.push_str(
+        "</summary><table class=\"ref-table\"><thead><tr><th>Class / Package</th><th>NeoFlash Status</th><th>Description</th></tr></thead><tbody>",
+    );
+    for pkg in index.packages.iter().filter(|p| filter_pkg(&p.label)) {
+        for (class_key, _) in &pkg.classes {
+            let Some(class) = index.class(class_key) else {
+                continue;
+            };
+            let (working, partial, missing) = class.support_counts();
+            out.push_str("<tr><td><code>");
+            super::help_manual::escape_html(&class.name, out);
+            out.push_str("</code><br><span class=\"search-terms\">");
+            super::help_manual::escape_html(&class.package, out);
+            out.push_str("</span></td><td>");
+            write_support_badge_html(Support::of(&class.status), &class.status, out);
+            let _ = write!(
+                out,
+                "<br><span class=\"search-terms\">{working}W / {partial}P / {missing}M</span></td><td>"
+            );
+            super::help_manual::escape_html(&class.description, out);
+            out.push_str("</td></tr>");
+        }
+    }
+    out.push_str("</tbody></table>");
+    for &key in core_class_keys {
+        let Some(class) = index.class(key) else {
+            continue;
+        };
+        out.push_str("<details class=\"api-details\"><summary>");
+        super::help_manual::escape_html(&class.name, out);
+        out.push_str(" — Core Member Descriptions</summary><table class=\"ref-table\"><thead><tr><th>Member</th><th>Status</th><th>Description</th></tr></thead><tbody>");
+        for member in class.members.iter().take(24) {
+            out.push_str("<tr><td><code>");
+            super::help_manual::escape_html(&member.label, out);
+            out.push_str("</code></td><td>");
+            write_support_badge_html(member.support, "", out);
+            out.push_str("</td><td>");
+            super::help_manual::escape_html(&member.description, out);
+            out.push_str("</td></tr>");
+        }
+        out.push_str("</tbody></table></details>");
+    }
+    out.push_str("</details>");
+}
+
 fn write_as_chapter_reference_html(index: usize, out: &mut String) {
     match index {
         9 => {
@@ -6922,6 +7193,13 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
             );
             super::help_manual::escape_html(AS2_ONE_FRAME_GAME_LOOP_SAMPLE, out);
             out.push_str("</code></pre>");
+            write_as_index_browser_html(
+                LanguageScope::As1As2,
+                "ActionScript 1.0 / 2.0 Global Functions, Language Elements & Top-Level Classes",
+                &[API_GLOBAL_KEY, "MovieClip", "Button"],
+                |pkg| pkg == "Top level",
+                out,
+            );
         }
         11 => {
             out.push_str(
@@ -6935,6 +7213,13 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
                  </tbody></table>\
                  <h3>AS2 Procedural Drawing, TextFormat &amp; BitmapData Example</h3>\
                  <pre class=\"code-block\"><code>import flash.display.BitmapData;\nimport flash.geom.Matrix;\nvar canvas:MovieClip = this.createEmptyMovieClip(\"badge_mc\", this.getNextHighestDepth());\ncanvas.lineStyle(2, 0x6C93FF, 100);\ncanvas.beginFill(0x1F2A48, 95);\ncanvas.moveTo(20, 20); canvas.lineTo(180, 20); canvas.lineTo(180, 70); canvas.lineTo(20, 70); canvas.endFill();\nthis.createTextField(\"label_txt\", this.getNextHighestDepth(), 32, 32, 140, 28);\nlabel_txt.text = \"READY PLAYER ONE\";\nlabel_txt.setTextFormat(new TextFormat(\"Inter\", 14, 0xFFFFFF, true));</code></pre>",
+            );
+            write_as_index_browser_html(
+                LanguageScope::As1As2,
+                "ActionScript 2.0 Indexed Packages & Class Descriptions (flash.*, mx.*, System.*)",
+                &["TextField", "flash.display.BitmapData", "Sound"],
+                |pkg| pkg != "Top level",
+                out,
             );
         }
         12 => {
@@ -6956,6 +7241,21 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
                  <h3>AS3 Display List &amp; Coordinate Space Example</h3>\
                  <pre class=\"code-block\"><code>package {\n    import flash.display.Sprite;\n    import flash.events.Event;\n    import flash.geom.Point;\n    public class Main extends Sprite {\n        public function Main() {\n            addEventListener(Event.ADDED_TO_STAGE, init);\n        }\n        private function init(e:Event):void {\n            var child:Sprite = new Sprite();\n            child.x = 120; child.y = 80;\n            addChild(child);\n            var globalPt:Point = child.localToGlobal(new Point(0, -18));\n            trace(\"Global position:\", globalPt.x, globalPt.y);\n        }\n    }\n}</code></pre>",
             );
+            write_as_index_browser_html(
+                LanguageScope::As3,
+                "ActionScript 3.0 Display List, Top-Level & Text Class Descriptions",
+                &[
+                    "flash.display.MovieClip",
+                    "flash.display.DisplayObject",
+                    "flash.text.TextField",
+                ],
+                |pkg| {
+                    pkg == "Top level"
+                        || pkg.starts_with("flash.display")
+                        || pkg.starts_with("flash.text")
+                },
+                out,
+            );
         }
         13 => {
             out.push_str(
@@ -6969,6 +7269,17 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
                  <h3>AS3 3-Phase Events, Stage Keyboard &amp; Timer Example</h3>\
                  <pre class=\"code-block\"><code>import flash.events.MouseEvent;\nimport flash.events.KeyboardEvent;\nimport flash.events.TimerEvent;\nimport flash.utils.Timer;\ncard_mc.buttonMode = true;\ncard_mc.mouseChildren = false;\ncard_mc.addEventListener(MouseEvent.MOUSE_DOWN, function(e:MouseEvent):void { card_mc.startDrag(); });\nstage.addEventListener(MouseEvent.MOUSE_UP, function(e:MouseEvent):void { card_mc.stopDrag(); });\nvar timer:Timer = new Timer(500, 10);\ntimer.addEventListener(TimerEvent.TIMER, function(e:TimerEvent):void { trace(timer.currentCount); });\ntimer.start();</code></pre>",
             );
+            write_as_index_browser_html(
+                LanguageScope::As3,
+                "ActionScript 3.0 Events, Input & Timer Class Descriptions (flash.events.*, flash.ui.*)",
+                &[
+                    "flash.events.EventDispatcher",
+                    "flash.events.MouseEvent",
+                    "flash.utils.Timer",
+                ],
+                |pkg| pkg.starts_with("flash.events") || pkg.starts_with("flash.ui"),
+                out,
+            );
         }
         14 => {
             out.push_str(
@@ -6981,6 +7292,23 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
                  </tbody></table>\
                  <h3>AS3 Graphics, GlowFilter, SoundChannel &amp; E4X XML Example</h3>\
                  <pre class=\"code-block\"><code>import flash.display.Sprite;\nimport flash.filters.GlowFilter;\nimport flash.media.Sound;\nimport flash.media.SoundTransform;\nvar orb:Sprite = new Sprite();\norb.graphics.beginFill(0x3C6BF0, 0.85);\norb.graphics.drawCircle(0, 0, 36);\norb.graphics.endFill();\norb.filters = [new GlowFilter(0x6C93FF, 0.9, 16, 16, 2, 2)];\naddChild(orb);\nvar xml:XML = &lt;items&gt;&lt;weapon id=\"railgun\" dmg=\"90\"/&gt;&lt;/items&gt;;\ntrace(xml.weapon.(Number(@dmg) &gt;= 50).@id);</code></pre>",
+            );
+            write_as_index_browser_html(
+                LanguageScope::As3,
+                "ActionScript 3.0 Geometry, Filters, Media, Networking & Binary Class Descriptions",
+                &[
+                    "flash.geom.Point",
+                    "flash.media.Sound",
+                    "flash.utils.ByteArray",
+                ],
+                |pkg| {
+                    pkg != "Top level"
+                        && !pkg.starts_with("flash.display")
+                        && !pkg.starts_with("flash.text")
+                        && !pkg.starts_with("flash.events")
+                        && !pkg.starts_with("flash.ui")
+                },
+                out,
             );
         }
         15 => {
@@ -6997,18 +7325,18 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
             );
         }
         16 => {
+            write_js_ts_entries_html(
+                "JavaScript (ES2023+), Modules & JSX — NeoFlash Support Status & Reference",
+                &[
+                    "NeoFlash Context & Timeline",
+                    "Modules & JSX",
+                    "ECMAScript & Async",
+                ],
+                true,
+                out,
+            );
             out.push_str(
-                "<h3>JavaScript (ES2023+) Runtime Bindings &amp; Provenance Table</h3>\
-                 <table class=\"ref-table\"><thead><tr><th>Binding / Syntax</th><th>Provenance</th><th>Behavior &amp; Scope</th></tr></thead><tbody>\
-                 <tr><td><code>this</code></td><td><code>[NeoFlash binding]</code></td><td>Owning <code>MovieClip</code> in frame scripts; attached <code>DisplayObject</code> in object scripts.</td></tr>\
-                 <tr><td><code>event</code></td><td><code>[NeoFlash binding]</code></td><td>Structured event payload (<code>type</code>, <code>target</code>, <code>currentTarget</code>, <code>stageX</code>, <code>stageY</code>, <code>keyCode</code>).</td></tr>\
-                 <tr><td><code>trace(...values)</code></td><td><code>[NeoFlash binding]</code></td><td>Writes to Output panel (F2) in authoring and <code>console.log</code> in published HTML5.</td></tr>\
-                 <tr><td><code>play / stop / gotoAndPlay / gotoAndStop</code></td><td><code>[NeoFlash binding]</code></td><td>1-based frame and label navigation on the active timeline or target MovieClip.</td></tr>\
-                 <tr><td><code>import / export</code></td><td><code>[Project module]</code></td><td>Relative ESM imports (<code>./</code>, <code>../</code>) across project <code>.js/.jsx/.ts/.tsx</code> files (no Node/npm).</td></tr>\
-                 <tr><td><code>&lt;Tag prop={v}/&gt;</code></td><td><code>[NeoFlash binding]</code></td><td>Compiled deterministically to <code>__nfJsx(tag, props, ...children)</code>.</td></tr>\
-                 <tr><td><code>Promise / async / await</code></td><td><code>[ECMAScript]</code></td><td>Standard ES2023+ promises, async functions, <code>Map</code>, <code>Set</code>, <code>JSON</code>, and <code>Math</code>.</td></tr>\
-                 </tbody></table>\
-                 <h3>JavaScript Functions, Closures &amp; Function.call / apply Example</h3>\
+                "<h3>JavaScript Functions, Closures &amp; Function.call / apply Example</h3>\
                  <pre class=\"code-block\"><code>",
             );
             super::help_manual::escape_html(JS_FUNCTIONS_CLOSURES_AND_CALL_SAMPLE, out);
@@ -7019,16 +7347,14 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
             );
         }
         17 => {
+            write_js_ts_entries_html(
+                "TypeScript & Built-In Checker (ts_check) — NeoFlash Support Status & Reference",
+                &["TypeScript & Checker"],
+                false,
+                out,
+            );
             out.push_str(
-                "<h3>TypeScript &amp; Built-In Checker (<code>ts_check</code>) Reference Table</h3>\
-                 <table class=\"ref-table\"><thead><tr><th>Construct / Utility</th><th>Provenance</th><th>Static Verification &amp; Runtime Lowering</th></tr></thead><tbody>\
-                 <tr><td><code>function (typed)</code></td><td><code>[TypeScript]</code></td><td>Checks parameter arity, optional (<code>?</code>) / default arguments, function type aliases, and return types; erased at runtime.</td></tr>\
-                 <tr><td><code>interface Name { ... }</code></td><td><code>[TypeScript]</code></td><td>Checked for required/optional (<code>?</code>) members and inheritance; erased at runtime.</td></tr>\
-                 <tr><td><code>type Alias&lt;T&gt; = A | B</code></td><td><code>[TypeScript]</code></td><td>Unions (<code>|</code>), intersections (<code>&amp;</code>), tuples, and generic aliases; erased at runtime.</td></tr>\
-                 <tr><td><code>enum Kind { A, B }</code></td><td><code>[TypeScript]</code></td><td>Checked for member access and lowered to a runtime lookup object.</td></tr>\
-                 <tr><td><code>Record / Partial / Pick / Omit</code></td><td><code>[TypeScript]</code></td><td>Built-in utility types validated by <code>ts_check</code> without external <code>tsc</code> or <code>node_modules</code>.</td></tr>\
-                 </tbody></table>\
-                 <h3>TypeScript Typed &amp; Generic Functions Example</h3>\
+                "<h3>TypeScript Typed &amp; Generic Functions Example</h3>\
                  <pre class=\"code-block\"><code>",
             );
             super::help_manual::escape_html(TS_TYPED_AND_GENERIC_FUNCTIONS_SAMPLE, out);
@@ -7039,16 +7365,14 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
             );
         }
         18 => {
+            write_js_ts_entries_html(
+                "Browser & Web APIs (Published HTML5 Host) — NeoFlash Support Status & Boundaries",
+                &["Browser DOM & Canvas 2D", "Web Fetch, Audio & Storage"],
+                false,
+                out,
+            );
             out.push_str(
-                "<h3>Browser &amp; Web APIs Reference Table (Published HTML5 Host)</h3>\
-                 <table class=\"ref-table\"><thead><tr><th>Web API</th><th>Provenance</th><th>Availability &amp; Browser Security Boundary</th></tr></thead><tbody>\
-                 <tr><td><code>CanvasRenderingContext2D</code></td><td><code>[Browser host]</code></td><td><code>fillRect</code>, <code>beginPath</code>, <code>arc</code>, <code>fill</code>, <code>drawImage</code>, <code>setTransform</code>; subject to CORS canvas taint rules.</td></tr>\
-                 <tr><td><code>document.querySelector</code></td><td><code>[Browser host]</code></td><td>DOM lookup and overlay styling in published HTML5 pages; guard with <code>typeof document !== \"undefined\"</code>.</td></tr>\
-                 <tr><td><code>fetch(url, init)</code></td><td><code>[Browser host]</code></td><td>Async HTTP/HTTPS requests returning <code>Promise&lt;Response&gt;</code>; requires HTTP(S) CORS headers &amp; CSP <code>connect-src</code>.</td></tr>\
-                 <tr><td><code>localStorage</code></td><td><code>[Browser host]</code></td><td>Same-origin key-value persistence (~5 MB quota; wrap in <code>try/catch</code> for private browsing).</td></tr>\
-                 <tr><td><code>AudioContext &amp; video.play()</code></td><td><code>[Browser host]</code></td><td>Requires a user gesture (click / keydown) before unmuted audio playback starts.</td></tr>\
-                 </tbody></table>\
-                 <h3>TypeScript + Browser Host Example</h3>\
+                "<h3>TypeScript + Browser Host Example</h3>\
                  <pre class=\"code-block\"><code>async function syncHighScore(canvas: HTMLCanvasElement, url: string): Promise&lt;void&gt; {\n    const ctx = canvas.getContext(\"2d\");\n    if (ctx) { ctx.fillRect(0, 0, 240, 48); }\n    const res = await fetch(url);\n    const top = await res.json();\n    localStorage.setItem(\"neoflash.topScore\", JSON.stringify(top));\n}</code></pre>",
             );
         }
@@ -7216,6 +7540,11 @@ pub(crate) fn render_browser_help_html_for_project(
          table.ref-table{width:100%;border-collapse:collapse;margin:10px 0;font-size:12px}\
          table.ref-table th,table.ref-table td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--border-subtle);vertical-align:top}\
          table.ref-table th{color:var(--accent-default);font-weight:600;background:var(--bg-raised)}\
+         .status-working{color:var(--success-default);font-weight:600}\
+         .status-partial{color:var(--warning-default);font-weight:600}\
+         .status-missing{color:var(--text-tertiary);font-weight:600}\
+         details.api-details{margin:10px 0}\
+         details.api-details>summary{cursor:pointer;font-weight:600;color:var(--accent-default);padding:4px 0}\
          .cross-links{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:10px;border-top:1px solid var(--border-subtle)}\
          .cross-link{display:inline-block;padding:4px 10px;border-radius:6px;background:var(--bg-raised);border:1px solid var(--border-default);color:var(--accent-default);text-decoration:none;font-size:11.5px;font-weight:500}\
          .cross-link:hover{background:var(--accent-subtle);border-color:var(--accent-default)}\
@@ -8040,7 +8369,7 @@ mod tests {
         assert!(js.flat);
         assert_eq!(js.class_count, JS_TS_CATEGORIES.len());
         assert_eq!(js.member_count, JS_TS_API_ENTRIES.len());
-        assert_eq!(js.status_count, 0);
+        assert_eq!(js.status_count, js.member_count);
 
         let movie_clip = api_index(LanguageScope::As3)
             .class("flash.display.MovieClip")
@@ -8111,5 +8440,165 @@ mod tests {
         assert_eq!(distance.example, "Point.distance(pt1, pt2);");
         assert_eq!(distance.returns, "Number");
         assert!(api_footer_text(LanguageScope::As3).starts_with("ActionScript 3 · "));
+    }
+
+    #[test]
+    fn t397_every_api_class_and_member_has_description_and_js_ts_status_coverage() {
+        const FORBIDDEN_GLYPHS: &[char] = &['⌘', '⌥', '⇧', '⌃', '↵', '⌤', '⌫', '⌦', '⇥'];
+        for scope in [
+            LanguageScope::As1As2,
+            LanguageScope::As3,
+            LanguageScope::JsTs,
+        ] {
+            let index = api_index(scope);
+            assert!(index.class_count > 0);
+            assert!(index.member_count > 0);
+            for (class_key, class) in &index.classes {
+                let desc = class.description.trim();
+                assert!(
+                    !desc.is_empty() && desc.len() >= 20,
+                    "{scope:?} class {class_key} has empty or trivial description: {desc:?}"
+                );
+                assert!(
+                    !desc.chars().any(|c| FORBIDDEN_GLYPHS.contains(&c)),
+                    "{scope:?} class {class_key} description contains literal shortcut glyph: {desc}"
+                );
+                for member in &class.members {
+                    let mdesc = member.description.trim();
+                    assert!(
+                        !mdesc.is_empty() && mdesc.len() >= 16,
+                        "{scope:?} member {class_key}.{} has empty or trivial description: {mdesc:?}",
+                        member.key
+                    );
+                    assert!(
+                        !mdesc.chars().any(|c| FORBIDDEN_GLYPHS.contains(&c)),
+                        "{scope:?} member {class_key}.{} description contains literal shortcut glyph: {mdesc}",
+                        member.key
+                    );
+                }
+            }
+        }
+
+        // 100% of JS/TS entries carry an explicit Support::Working or Support::Partial status.
+        let js = api_index(LanguageScope::JsTs);
+        assert_eq!(js.status_count, js.member_count);
+        let mut js_working = 0usize;
+        let mut js_partial = 0usize;
+        for class in js.classes.values() {
+            assert!(matches!(class.status.as_str(), "subset" | "partial"));
+            for member in &class.members {
+                match member.support {
+                    Some(Support::Working) => js_working += 1,
+                    Some(Support::Partial) => {
+                        js_partial += 1;
+                        assert!(
+                            !member.note.trim().is_empty(),
+                            "partial JS/TS entry {} must carry a boundary note",
+                            member.name
+                        );
+                    }
+                    other => panic!(
+                        "unexpected JS/TS support status {other:?} on {}",
+                        member.name
+                    ),
+                }
+            }
+        }
+        assert!(js_working >= 30 && js_partial >= 2);
+        assert_eq!(js_working + js_partial, JS_TS_API_ENTRIES.len());
+
+        let js_footer = api_footer_text(LanguageScope::JsTs);
+        assert!(
+            js_footer.contains(&format!("{js_working} working"))
+                && js_footer.contains(&format!("{js_partial} partial")),
+            "JS/TS footer must report working & partial counts: {js_footer}"
+        );
+
+        // Description search surfaces conceptual hits at rank 3 behind name hits (0..=2).
+        let perlin_hits = api_search(LanguageScope::As3, "perlin");
+        assert!(perlin_hits.iter().any(|h| h.rank <= 2));
+        let bezier_hits = api_search(LanguageScope::As3, "bezier");
+        assert!(
+            bezier_hits
+                .iter()
+                .any(|h| h.rank == 3 && h.label == "Graphics.curveTo()"),
+            "expected description rank-3 hits for 'bezier' in AS3: {bezier_hits:?}"
+        );
+        let cors_hits = api_search(LanguageScope::JsTs, "cors");
+        assert!(
+            cors_hits
+                .iter()
+                .any(|h| h.rank == 3 && (h.label == "fetch" || h.label == "drawImage")),
+            "expected description/note rank-3 hits for 'cors' in JS/TS: {cors_hits:?}"
+        );
+
+        // Browser HTML edition surfaces JS/TS statuses, boundary notes, and AS2/AS3 descriptions.
+        let html = render_browser_help_html_for_project(
+            Theme::Dark,
+            Some(super::super::help_manual::HelpManualMode::ScriptingReference),
+            Some(16),
+            None,
+            Some(ScriptLanguage::TypeScript),
+            LanguageScope::JsTs,
+        );
+        assert!(html.contains("class=\"status-working\">Working</span>"));
+        assert!(html.contains("class=\"status-partial\">Partial</span>"));
+        assert!(html.contains("SourceUnit"));
+        assert!(html.contains("AuthoredPlayback"));
+        assert!(html.contains(&api_footer_text(LanguageScope::JsTs)));
+        assert!(
+            html.contains("ActionScript 3.0 Display List, Top-Level &amp; Text Class Descriptions")
+        );
+        assert!(!html.contains("<script"));
+
+        // Headless egui pass: detail pane renders class.description, member.description, and JS/TS badges.
+        let ctx = egui::Context::default();
+        let _ = crate::app::Editor::from_project(&ctx, neoflash_core::Project::blank());
+        let mut state = ApiBrowserState::default();
+        state.select(LanguageScope::As3, "flash.display.MovieClip", None);
+        let class_out = ctx.run(egui::RawInput::default(), |ctx| {
+            let mut actions = RefActions::default();
+            egui::CentralPanel::default().show(ctx, |ui| {
+                api_detail_column(ui, &mut state, LanguageScope::As3, &mut actions);
+            });
+        });
+        let class_texts: String = class_out
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) => Some(t.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            class_texts.contains("multi-frame timeline"),
+            "class_summary must render class.description: {class_texts}"
+        );
+
+        state.select(
+            LanguageScope::JsTs,
+            "Modules & JSX",
+            Some("Modules & JSX|import"),
+        );
+        let js_out = ctx.run(egui::RawInput::default(), |ctx| {
+            let mut actions = RefActions::default();
+            egui::CentralPanel::default().show(ctx, |ui| {
+                api_detail_column(ui, &mut state, LanguageScope::JsTs, &mut actions);
+            });
+        });
+        let js_texts: String = js_out
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) => Some(t.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            js_texts.contains("Partial") && js_texts.contains("SourceUnit"),
+            "JS/TS detail column must render Partial badge and boundary note: {js_texts}"
+        );
     }
 }
