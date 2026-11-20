@@ -24,6 +24,8 @@ struct Active3dDrag {
     target: SelectionTarget,
     element_id: Id,
     handle: Gizmo3dHandle,
+    start_screen: Pos2,
+    last_screen: Pos2,
     start_local: Pos2,
     start_state: Stage3dAuthoringState,
     base_element: Element,
@@ -356,10 +358,22 @@ impl Editor {
         );
         let center = mapping.edit_to_screen(origin, self.zoom, center_local);
         let axis_len = 56.0_f32;
-        let rot_z_rad = (element.transform.rotation + state.rotate_3d[2]).to_radians() as f32;
+        let rot_z_rad = (element.transform.rotation + state.rotate_3d[2]).to_radians();
         let (sz, cz) = rot_z_rad.sin_cos();
-        let x_tip = center + Vec2::new(cz * axis_len, sz * axis_len);
-        let y_tip = center + Vec2::new(-sz * axis_len, cz * axis_len);
+        let x_mapped = mapping.local_delta_to_screen(self.zoom, [cz, sz]);
+        let y_mapped = mapping.local_delta_to_screen(self.zoom, [-sz, cz]);
+        let x_dir = if x_mapped.length_sq() > 1e-10 {
+            x_mapped.normalized()
+        } else {
+            Vec2::new(cz as f32, sz as f32)
+        };
+        let y_dir = if y_mapped.length_sq() > 1e-10 {
+            y_mapped.normalized()
+        } else {
+            Vec2::new(-sz as f32, cz as f32)
+        };
+        let x_tip = center + x_dir * axis_len;
+        let y_tip = center + y_dir * axis_len;
         let z_tip = center + Vec2::new(-axis_len * 0.55, -axis_len * 0.55);
         let vp_local = Pos2::new(
             state.vanishing_point[0] as f32,
@@ -465,12 +479,12 @@ impl Editor {
                 i.pointer.interact_pos().or_else(|| i.pointer.latest_pos()),
             )
         });
-        let Some(pos) = pointer_pos else {
-            return false;
-        };
 
         let session_key = self.clipboard.session.clone();
-        if pressed && let Some(handle) = geom.hit_test(pos, rotate_mode) {
+        if pressed
+            && let Some(pos) = pointer_pos
+            && let Some(handle) = geom.hit_test(pos, rotate_mode)
+        {
             self.finish_edits();
             self.ensure_key_for(&target.layer, false);
             let start_local = mapping.screen_to_edit(origin, self.zoom, pos);
@@ -490,6 +504,8 @@ impl Editor {
                 target,
                 element_id: element.id,
                 handle,
+                start_screen: pos,
+                last_screen: pos,
                 start_local,
                 start_state,
                 base_element,
@@ -507,11 +523,28 @@ impl Editor {
         let Some(drag) = active_drag else {
             return false;
         };
+        let pos = pointer_pos.unwrap_or(drag.last_screen);
+
+        let compute_drag_delta = |cur_pos: Pos2, drag: &Active3dDrag| -> (f64, f64) {
+            if matches!(
+                drag.handle,
+                Gizmo3dHandle::TranslateZ | Gizmo3dHandle::PerspectiveAngle
+            ) {
+                let z = f64::from(self.zoom.max(0.01));
+                (
+                    f64::from(cur_pos.x - drag.start_screen.x) / z,
+                    f64::from(cur_pos.y - drag.start_screen.y) / z,
+                )
+            } else {
+                let [dx, dy] =
+                    mapping.screen_delta_to_local(self.zoom, cur_pos - drag.start_screen);
+                let _ = drag.start_local;
+                (dx, dy)
+            }
+        };
 
         if down {
-            let cur_local = mapping.screen_to_edit(origin, self.zoom, pos);
-            let dx = f64::from(cur_local.x - drag.start_local.x);
-            let dy = f64::from(cur_local.y - drag.start_local.y);
+            let (dx, dy) = compute_drag_delta(pos, &drag);
             let mut preview_state = drag.start_state.clone();
             preview_state.apply_handle_drag(drag.handle, dx, dy);
             let focal = preview_state.focal_length(f64::from(self.project.width));
@@ -536,14 +569,15 @@ impl Editor {
             }
             let mut sessions = MOVIE_CLIP_3D_SESSIONS.lock().unwrap();
             let sess = sessions.entry(session_key).or_default();
+            if let Some(active) = sess.active_drag.as_mut() {
+                active.last_screen = pos;
+            }
             sess.states.insert(drag.element_id, preview_state);
             return true;
         }
 
         if released || !down {
-            let cur_local = mapping.screen_to_edit(origin, self.zoom, pos);
-            let dx = f64::from(cur_local.x - drag.start_local.x);
-            let dy = f64::from(cur_local.y - drag.start_local.y);
+            let (dx, dy) = compute_drag_delta(pos, &drag);
             // Restore pre-drag project before committing one atomic Undo step.
             self.project = drag.before_project.clone();
             {

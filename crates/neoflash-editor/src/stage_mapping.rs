@@ -1,6 +1,6 @@
-use eframe::egui::Pos2;
 #[cfg(test)]
 use eframe::egui::Rect;
+use eframe::egui::{Pos2, Vec2};
 use neoflash_core::{AuthoredScene, affine_multiply, invert_affine_matrix};
 
 const IDENTITY: [f64; 6] = [1., 0., 0., 1., 0., 0.];
@@ -97,6 +97,32 @@ impl StageMapping {
         map_point(self.stage_to_edit, point)
     }
 
+    pub(crate) fn local_to_stage(self, point: [f64; 2]) -> [f64; 2] {
+        self.edit_to_stage_point(point)
+    }
+
+    pub(crate) fn stage_to_local(self, point: [f64; 2]) -> [f64; 2] {
+        self.stage_to_edit_point(point)
+    }
+
+    pub(crate) fn local_delta_to_stage(self, delta: [f64; 2]) -> [f64; 2] {
+        map_vector(self.edit_to_stage, delta)
+    }
+
+    pub(crate) fn stage_delta_to_local(self, delta: [f64; 2]) -> [f64; 2] {
+        map_vector(self.stage_to_edit, delta)
+    }
+
+    pub(crate) fn determinant(self) -> f64 {
+        let [a, b, c, d, _, _] = self.edit_to_stage;
+        a * d - b * c
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn is_reflected(self) -> bool {
+        self.determinant() < 0.0
+    }
+
     pub(crate) fn edit_to_stage_pos(self, point: Pos2) -> Pos2 {
         pos(self.edit_to_stage_point([f64::from(point.x), f64::from(point.y)]))
     }
@@ -106,12 +132,32 @@ impl StageMapping {
     }
 
     pub(crate) fn edit_to_screen(self, origin: Pos2, zoom: f32, point: Pos2) -> Pos2 {
-        origin + self.edit_to_stage_pos(point).to_vec2() * zoom
+        let z = safe_zoom(zoom);
+        let stage = self.edit_to_stage_point([f64::from(point.x), f64::from(point.y)]);
+        Pos2::new(
+            (f64::from(origin.x) + stage[0] * z) as f32,
+            (f64::from(origin.y) + stage[1] * z) as f32,
+        )
     }
 
     pub(crate) fn screen_to_edit(self, origin: Pos2, zoom: f32, point: Pos2) -> Pos2 {
-        let stage = Pos2::ZERO + (point - origin) / zoom;
-        self.stage_to_edit_pos(stage)
+        let z = safe_zoom(zoom);
+        let stage = [
+            (f64::from(point.x) - f64::from(origin.x)) / z,
+            (f64::from(point.y) - f64::from(origin.y)) / z,
+        ];
+        pos(self.stage_to_edit_point(stage))
+    }
+
+    pub(crate) fn local_delta_to_screen(self, zoom: f32, local_delta: [f64; 2]) -> Vec2 {
+        let z = safe_zoom(zoom);
+        let stage_delta = self.local_delta_to_stage(local_delta);
+        Vec2::new((stage_delta[0] * z) as f32, (stage_delta[1] * z) as f32)
+    }
+
+    pub(crate) fn screen_delta_to_local(self, zoom: f32, screen_delta: Vec2) -> [f64; 2] {
+        let z = safe_zoom(zoom);
+        self.stage_delta_to_local([f64::from(screen_delta.x) / z, f64::from(screen_delta.y) / z])
     }
 
     pub(crate) fn map_matrix(self, local: [f64; 6]) -> [f64; 6] {
@@ -180,10 +226,25 @@ impl StageMapping {
     }
 }
 
+fn safe_zoom(zoom: f32) -> f64 {
+    if zoom.is_finite() && zoom > 1e-6 {
+        f64::from(zoom)
+    } else {
+        1.0
+    }
+}
+
 fn map_point(matrix: [f64; 6], point: [f64; 2]) -> [f64; 2] {
     [
         matrix[0] * point[0] + matrix[2] * point[1] + matrix[4],
         matrix[1] * point[0] + matrix[3] * point[1] + matrix[5],
+    ]
+}
+
+fn map_vector(matrix: [f64; 6], delta: [f64; 2]) -> [f64; 2] {
+    [
+        matrix[0] * delta[0] + matrix[2] * delta[1],
+        matrix[1] * delta[0] + matrix[3] * delta[1],
     ]
 }
 

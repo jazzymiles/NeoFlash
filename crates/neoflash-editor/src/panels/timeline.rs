@@ -169,11 +169,13 @@ impl TimelineVirtualWindow {
     }
 
     /// Exact top spacer height above `first_row`.
+    #[allow(dead_code)]
     pub fn top_spacer_height(&self, row_h: f32, total_rows: usize) -> f32 {
         (self.row_range(total_rows).start as f32 * row_h.max(0.0)).max(0.0)
     }
 
     /// Exact bottom spacer height below `last_row`.
+    #[allow(dead_code)]
     pub fn bottom_spacer_height(&self, row_h: f32, total_rows: usize) -> f32 {
         let range = self.row_range(total_rows);
         (total_rows.saturating_sub(range.end) as f32 * row_h.max(0.0)).max(0.0)
@@ -201,7 +203,7 @@ impl TimelineVirtualWindow {
 }
 
 /// Telemetry recorded during the most recent `timeline_contents` pass.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TimelineVirtualStats {
     pub window: TimelineVirtualWindow,
     pub total_rows: usize,
@@ -210,9 +212,77 @@ pub struct TimelineVirtualStats {
     pub drawn_grid_rows: usize,
     pub drawn_frame_columns: u32,
     pub drawn_spans: usize,
+    pub layer_list_height: f32,
+    pub scroll_offset_y: f32,
 }
 
 const TIMELINE_VIRTUAL_STATS_ID: &str = "neoflash_timeline_virtual_stats";
+const TIMELINE_LAYER_FOCUS_ID: &str = "neoflash_timeline_layer_focus";
+
+fn fast_layer_kind(layer: &Layer, guided_ids: &std::collections::HashSet<String>) -> tl::LayerKind {
+    match layer.properties.role {
+        LayerRole::Folder if layer.properties.collapsed => tl::LayerKind::FolderClosed,
+        LayerRole::Folder => tl::LayerKind::FolderOpen,
+        LayerRole::Guide if guided_ids.contains(&layer.id) => tl::LayerKind::MotionGuide,
+        LayerRole::Guide => tl::LayerKind::Guide,
+        LayerRole::Mask => tl::LayerKind::Mask,
+        LayerRole::Normal if layer.properties.mask.is_some() => tl::LayerKind::Masked,
+        LayerRole::Normal
+            if layer.keyframes.iter().any(|k| k.sound.is_some())
+                && layer.keyframes.iter().all(|k| k.elements.is_empty()) =>
+        {
+            tl::LayerKind::Sound
+        }
+        LayerRole::Normal => tl::LayerKind::Layer,
+    }
+}
+
+fn fast_layer_depth(
+    layers: &[Layer],
+    by_id: &std::collections::HashMap<String, usize>,
+    layer: &Layer,
+) -> usize {
+    let mut depth = 0usize;
+    let mut seen = std::collections::HashSet::from([layer.id.as_str()]);
+    let mut current = layer;
+    while let Some(parent) = current
+        .properties
+        .mask
+        .as_ref()
+        .or(current.properties.motion_guide.as_ref())
+        .or(current.properties.parent.as_ref())
+        .and_then(|id| by_id.get(id.as_str()).and_then(|&idx| layers.get(idx)))
+    {
+        if !seen.insert(parent.id.as_str()) {
+            break;
+        }
+        depth += 1;
+        current = parent;
+    }
+    depth
+}
+
+fn fast_layer_effective_blend_mode(
+    layers: &[Layer],
+    by_id: &std::collections::HashMap<String, usize>,
+    layer: &Layer,
+) -> BlendMode {
+    let mut current = Some(layer);
+    for _ in 0..=layers.len() {
+        let Some(node) = current else {
+            return BlendMode::Normal;
+        };
+        if !node.properties.blend_mode.is_normal() {
+            return node.properties.blend_mode;
+        }
+        current = node
+            .properties
+            .parent
+            .as_ref()
+            .and_then(|id| by_id.get(id.as_str()).and_then(|&idx| layers.get(idx)));
+    }
+    BlendMode::Normal
+}
 
 /// Compute the visible layer row index range (`start..end`) inside `clip_top..=clip_bottom`
 /// for timeline row virtualization (with a 2-row overscan margin).
@@ -357,6 +427,12 @@ impl Editor {
         let mut cancel_rename = false;
         let previous_cell = self.timeline_cell;
         let row_height = self.workspace.timeline.row_height();
+        let timeline_panel_rect = ui.max_rect();
+        if let Some(pt) = pressed
+            && !timeline_panel_rect.contains(pt)
+        {
+            ctx.data_mut(|d| d.insert_temp(egui::Id::new(TIMELINE_LAYER_FOCUS_ID), false));
+        }
         let timeline_width = ui.available_width();
         let maximum_layer_width =
             (timeline_width - FRAMES_MIN).clamp(LAYER_COLUMN_MIN, LAYER_COLUMN_MAX);
@@ -503,6 +579,62 @@ impl Editor {
                 self.clear_selection();
             }
             let total_rows = layer_indices.len();
+            let timeline_layers_focused = ctx
+                .data(|d| d.get_temp::<bool>(egui::Id::new(TIMELINE_LAYER_FOCUS_ID)))
+                .unwrap_or(false);
+            if timeline_layers_focused
+                && !cancelled
+                && rename.is_none()
+                && reorder.is_none()
+                && resize.is_none()
+                && total_rows > 0
+                && !self.has_modal_dialog_in(&ctx)
+                && !ctx.wants_keyboard_input()
+                && ctx.memory(|m| m.focused().is_none())
+                && self.selection.is_empty()
+            {
+                let cur_row = layer_indices
+                    .iter()
+                    .position(|&idx| idx == self.layer)
+                    .unwrap_or(0);
+                let page_rows = ((height / row_height).floor() as usize).max(1);
+                let nav = ctx.input_mut(|input| {
+                    for shift in [true, false] {
+                        let mods = if shift {
+                            egui::Modifiers::SHIFT
+                        } else {
+                            egui::Modifiers::NONE
+                        };
+                        if input.consume_key(mods, egui::Key::ArrowUp) {
+                            return Some((cur_row.saturating_sub(1), shift));
+                        }
+                        if input.consume_key(mods, egui::Key::ArrowDown) {
+                            return Some(((cur_row + 1).min(total_rows - 1), shift));
+                        }
+                        if input.consume_key(mods, egui::Key::PageUp) {
+                            return Some((cur_row.saturating_sub(page_rows), shift));
+                        }
+                        if input.consume_key(mods, egui::Key::PageDown) {
+                            return Some(((cur_row + page_rows).min(total_rows - 1), shift));
+                        }
+                        if input.consume_key(mods, egui::Key::Home) {
+                            return Some((0, shift));
+                        }
+                        if input.consume_key(mods, egui::Key::End) {
+                            return Some((total_rows - 1, shift));
+                        }
+                    }
+                    None
+                });
+                if let Some((target_row, extend_shift)) = nav
+                    && let Some(&target_idx) = layer_indices.get(target_row)
+                {
+                    self.finish_edits();
+                    self.timeline_key_drag = None;
+                    self.select_layer_row(target_idx, extend_shift, false);
+                    self.clear_selection();
+                }
+            }
             let count = self.symbol().timeline.frame_count;
             let mut script_frames: Vec<u32> = self
                 .symbol()
@@ -522,7 +654,20 @@ impl Editor {
             let mut grid_rect = Rect::NOTHING;
             let mut grid_clip = Rect::NOTHING;
             let mut drawn_layer_rows = 0usize;
+            let mut measured_layer_list_height = 0.0_f32;
             let mut virtual_stats: Option<TimelineVirtualStats> = None;
+            let (id_to_idx, guided_ids) = {
+                let layers = &self.symbol().timeline.layers;
+                let mut by_id = std::collections::HashMap::with_capacity(layers.len());
+                let mut guided = std::collections::HashSet::new();
+                for (i, l) in layers.iter().enumerate() {
+                    by_id.insert(l.id.clone(), i);
+                    if let Some(mg) = &l.properties.motion_guide {
+                        guided.insert(mg.clone());
+                    }
+                }
+                (by_id, guided)
+            };
             let rows = egui::ScrollArea::vertical()
                 .id_salt("timeline_rows")
                 .scroll_source(scroll_source)
@@ -549,15 +694,34 @@ impl Editor {
                                     count.max(1),
                                 );
                                 let row_range = row_window.row_range(total_rows);
-                                let top_spacer =
-                                    row_window.top_spacer_height(row_height, total_rows);
-                                if top_spacer > 0.0 {
-                                    ui.allocate_exact_size(
-                                        Vec2::new(layer_column_width, top_spacer),
-                                        Sense::hover(),
-                                    );
+                                let mut rendered_rows: Vec<usize> = row_range.collect();
+                                if let Some(drag) = &reorder
+                                    && let Some(&drag_idx) = id_to_idx.get(&drag.layer)
+                                    && let Some(r) =
+                                        layer_indices.iter().position(|&idx| idx == drag_idx)
+                                {
+                                    rendered_rows.push(r);
                                 }
-                                for row_index in row_range {
+                                if let Some(draft) = &rename
+                                    && let Some(&ren_idx) = id_to_idx.get(&draft.layer)
+                                    && let Some(r) =
+                                        layer_indices.iter().position(|&idx| idx == ren_idx)
+                                {
+                                    rendered_rows.push(r);
+                                }
+                                rendered_rows.sort_unstable();
+                                rendered_rows.dedup();
+                                let mut cursor_row = 0usize;
+                                for row_index in rendered_rows {
+                                    if row_index > cursor_row {
+                                        let gap_spacer =
+                                            (row_index - cursor_row) as f32 * row_height;
+                                        ui.allocate_exact_size(
+                                            Vec2::new(layer_column_width, gap_spacer),
+                                            Sense::hover(),
+                                        );
+                                    }
+                                    cursor_row = row_index + 1;
                                     let Some(&idx) = layer_indices.get(row_index) else {
                                         continue;
                                     };
@@ -566,11 +730,25 @@ impl Editor {
                                         let Some(real_layer) = timeline.layers.get(idx) else {
                                             continue;
                                         };
-                                        let depth = layer_depth(timeline, real_layer);
-                                        let kind = layer_kind(timeline, real_layer);
+                                        let depth = if total_rows <= 4 {
+                                            layer_depth(timeline, real_layer)
+                                        } else {
+                                            fast_layer_depth(
+                                                &timeline.layers,
+                                                &id_to_idx,
+                                                real_layer,
+                                            )
+                                        };
+                                        let kind = if total_rows <= 4 {
+                                            layer_kind(timeline, real_layer)
+                                        } else {
+                                            fast_layer_kind(real_layer, &guided_ids)
+                                        };
                                         let effective_blend_label =
-                                            neoflash_core::layer_effective_blend_mode(
-                                                timeline, real_layer,
+                                            fast_layer_effective_blend_mode(
+                                                &timeline.layers,
+                                                &id_to_idx,
+                                                real_layer,
                                             )
                                             .label();
                                         let color = layer_color(real_layer);
@@ -847,12 +1025,24 @@ impl Editor {
                                     }
                                     let response = row.row;
                                     if response.clicked() {
+                                        ctx.data_mut(|d| {
+                                            d.insert_temp(
+                                                egui::Id::new(TIMELINE_LAYER_FOCUS_ID),
+                                                true,
+                                            );
+                                        });
                                         let mods = ui.input(|i| i.modifiers);
                                         self.finish_edits();
                                         self.timeline_key_drag = None;
                                         self.select_layer_row(idx, mods.shift, mods.command);
                                         self.clear_selection();
                                     } else if response.secondary_clicked() {
+                                        ctx.data_mut(|d| {
+                                            d.insert_temp(
+                                                egui::Id::new(TIMELINE_LAYER_FOCUS_ID),
+                                                true,
+                                            );
+                                        });
                                         self.finish_edits();
                                         self.timeline_key_drag = None;
                                         if !self.is_layer_row_selected(idx) {
@@ -958,14 +1148,15 @@ impl Editor {
                                         );
                                     });
                                 }
-                                let bottom_spacer =
-                                    row_window.bottom_spacer_height(row_height, total_rows);
-                                if bottom_spacer > 0.0 {
+                                if total_rows > cursor_row {
+                                    let bottom_spacer =
+                                        (total_rows - cursor_row) as f32 * row_height;
                                     ui.allocate_exact_size(
                                         Vec2::new(layer_column_width, bottom_spacer),
                                         Sense::hover(),
                                     );
                                 }
+                                measured_layer_list_height = ui.cursor().min.y - list_origin.y;
                             },
                         );
                         let frames = egui::ScrollArea::horizontal()
@@ -992,6 +1183,11 @@ impl Editor {
                                 };
                                 grid_rect = rect;
                                 grid_clip = ui.clip_rect().intersect(rect);
+                                if response.clicked() || response.secondary_clicked() {
+                                    ctx.data_mut(|d| {
+                                        d.insert_temp(egui::Id::new(TIMELINE_LAYER_FOCUS_ID), true);
+                                    });
+                                }
                                 let was_deselected = self.are_layers_deselected();
                                 self.timeline_grid_interact(
                                     ui,
@@ -1018,6 +1214,7 @@ impl Editor {
                                     view.tinted,
                                 );
                                 stats.drawn_layer_rows = drawn_layer_rows;
+                                stats.layer_list_height = measured_layer_list_height;
                                 virtual_stats = Some(stats);
                                 self.paint_frame_selection(ui, rect, cell_width, &layer_indices);
                                 let selected_cell = Rect::from_min_size(
@@ -1197,7 +1394,49 @@ impl Editor {
                         }
                     });
                 });
-            if let Some(stats) = virtual_stats {
+            let mut active_scroll_y = rows.state.offset.y;
+            let revealed_layer_id = ui.id().with("revealed-active-layer");
+            let current_active_layer_id = if self.are_layers_deselected() {
+                String::new()
+            } else {
+                self.symbol()
+                    .timeline
+                    .layers
+                    .get(self.layer)
+                    .map(|l| l.id.clone())
+                    .unwrap_or_default()
+            };
+            let previous_active_layer_id = ctx.data(|d| d.get_temp::<String>(revealed_layer_id));
+            ctx.data_mut(|d| d.insert_temp(revealed_layer_id, current_active_layer_id.clone()));
+            if let Some(prev_id) = previous_active_layer_id
+                && !current_active_layer_id.is_empty()
+                && prev_id != current_active_layer_id
+                && reorder.is_none()
+                && !self.timeline_edit.dragging()
+                && let Some(visual_row) = layer_indices.iter().position(|&idx| idx == self.layer)
+            {
+                let view_h = rows.inner_rect.height().max(row_height);
+                let max_y = (rows.content_size.y - rows.inner_rect.height()).max(0.0);
+                let row_top = visual_row as f32 * row_height;
+                let row_bottom = row_top + row_height;
+                let next_y = if row_top < active_scroll_y {
+                    row_top
+                } else if row_bottom > active_scroll_y + view_h {
+                    row_bottom - view_h
+                } else {
+                    active_scroll_y
+                }
+                .clamp(0.0, max_y);
+                if (next_y - active_scroll_y).abs() > 0.5 {
+                    let mut state = rows.state;
+                    state.offset.y = next_y;
+                    state.store(&ctx, rows.id);
+                    active_scroll_y = next_y;
+                    ctx.request_repaint();
+                }
+            }
+            if let Some(mut stats) = virtual_stats {
+                stats.scroll_offset_y = active_scroll_y;
                 ctx.data_mut(|data| {
                     data.insert_temp(egui::Id::new(TIMELINE_VIRTUAL_STATS_ID), stats);
                 });
@@ -1399,26 +1638,46 @@ impl Editor {
                                     ));
                                 }
                             }
-                            if down {
-                                let direction = if position.y < names_view.top() + 18. {
-                                    -1.
-                                } else if position.y > names_view.bottom() - 18. {
-                                    1.
-                                } else {
-                                    0.
-                                };
-                                if direction != 0. {
-                                    let mut state = rows.state;
-                                    let maximum =
-                                        (rows.content_size.y - rows.inner_rect.height()).max(0.);
-                                    state.offset.y = (state.offset.y
-                                        + direction
-                                            * 220.
-                                            * ui.input(|input| input.stable_dt).min(0.05))
-                                    .clamp(0., maximum);
-                                    state.store(ui.ctx(), rows.id);
-                                    ctx.request_repaint();
-                                }
+                        }
+                        if down
+                            && position.x >= names_view.left()
+                            && position.x <= names_view.right()
+                        {
+                            let wheel_dy = ui.input(|input| {
+                                input
+                                    .events
+                                    .iter()
+                                    .filter_map(|ev| match ev {
+                                        egui::Event::MouseWheel { unit, delta, .. } => {
+                                            let scale = match unit {
+                                                egui::MouseWheelUnit::Point => 1.0,
+                                                egui::MouseWheelUnit::Line => row_height,
+                                                egui::MouseWheelUnit::Page => names_view.height(),
+                                            };
+                                            Some(-delta.y * scale)
+                                        }
+                                        _ => None,
+                                    })
+                                    .sum::<f32>()
+                            });
+                            let direction = if position.y < names_view.top() + 18. {
+                                -1.
+                            } else if position.y > names_view.bottom() - 18. {
+                                1.
+                            } else {
+                                0.
+                            };
+                            let edge_dy = direction
+                                * 220.
+                                * ui.input(|input| input.stable_dt).clamp(0.0, 0.05);
+                            if edge_dy != 0. || wheel_dy != 0. {
+                                let mut state = rows.state;
+                                let maximum =
+                                    (rows.content_size.y - rows.inner_rect.height()).max(0.);
+                                state.offset.y =
+                                    (state.offset.y + edge_dy + wheel_dy).clamp(0., maximum);
+                                state.store(ui.ctx(), rows.id);
+                                ctx.request_repaint();
                             }
                         }
                     }
@@ -2143,6 +2402,8 @@ impl Editor {
             drawn_grid_rows,
             drawn_frame_columns,
             drawn_spans,
+            layer_list_height: 0.0,
+            scroll_offset_y: 0.0,
         }
     }
 
@@ -2595,5 +2856,241 @@ impl Editor {
             },
             None,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn t410_thousand_layer_virtualization_scroll_jump_and_offscreen_reorder() {
+        let ctx = egui::Context::default();
+        let mut project = Project::blank();
+        project.symbols[0].timeline.frame_count = 120;
+        project.symbols[0].timeline.layers = (0..1_000)
+            .map(|i| Layer {
+                id: format!("layer_{i}"),
+                name: format!("Layer {i}"),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: Vec::new(),
+                    tween: None,
+                    label: String::new(),
+                    ..Default::default()
+                }],
+                properties: LayerProperties::default(),
+            })
+            .collect();
+        let mut editor = Editor::from_project(&ctx, project);
+        editor.project.validate().unwrap();
+        let row_h = editor.workspace.timeline.row_height();
+
+        let render = |ed: &mut Editor, events: Vec<egui::Event>, down: bool| -> egui::FullOutput {
+            let mut raw = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1_280.0, 320.0))),
+                events,
+                ..Default::default()
+            };
+            raw.focused = true;
+            if down {
+                raw.modifiers = egui::Modifiers::NONE;
+            }
+            ctx.run(raw, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ed.timeline_contents(ui);
+                });
+            })
+        };
+
+        // 1. Initial 1,000-layer render pass: exact total height & O(visible) row count.
+        let _ = render(&mut editor, vec![], false);
+        let stats = editor
+            .last_timeline_virtual_stats(&ctx)
+            .expect("1,000-layer stats recorded");
+        assert_eq!(stats.total_rows, 1_000);
+        assert!(
+            (stats.layer_list_height - 1_000.0 * row_h).abs() < 1e-2,
+            "expected exact height {}, got {}",
+            1_000.0 * row_h,
+            stats.layer_list_height
+        );
+        assert!(
+            stats.drawn_layer_rows > 0 && stats.drawn_layer_rows <= 28,
+            "drawn_layer_rows={}",
+            stats.drawn_layer_rows
+        );
+        assert!(
+            stats.drawn_grid_rows > 0 && stats.drawn_grid_rows <= 28,
+            "drawn_grid_rows={}",
+            stats.drawn_grid_rows
+        );
+
+        // 2. Selecting serialized layer 500 (visual row 499) then serialized layer 0 (visual row 999)
+        //    automatically jumps viewport scroll to reveal each newly selected layer.
+        editor.select_layer_row(500, false, false);
+        let _ = render(&mut editor, vec![], false);
+        let _ = render(&mut editor, vec![], false);
+        let stats_mid = editor.last_timeline_virtual_stats(&ctx).unwrap();
+        assert!(
+            stats_mid.window.first_row <= 499 && 499 <= stats_mid.window.last_row,
+            "selected layer at visual row 499 must scroll into view: {:?}",
+            stats_mid.window
+        );
+
+        editor.select_layer_row(0, false, false);
+        let _ = render(&mut editor, vec![], false);
+        let _ = render(&mut editor, vec![], false);
+        let stats_jumped = editor.last_timeline_virtual_stats(&ctx).unwrap();
+        assert!(
+            stats_jumped.window.last_row >= 999,
+            "selected layer at visual row 999 must scroll into view: {:?}",
+            stats_jumped.window
+        );
+        assert!((stats_jumped.layer_list_height - 1_000.0 * row_h).abs() < 1e-2);
+
+        // 3. Keyboard navigation (`Home`, `ArrowDown`, `Shift+ArrowDown`) jumps back to top & extends selection.
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new(TIMELINE_LAYER_FOCUS_ID), true));
+        let _ = render(
+            &mut editor,
+            vec![egui::Event::Key {
+                key: egui::Key::Home,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            false,
+        );
+        let _ = render(&mut editor, vec![], false);
+        assert_eq!(editor.layer, 999, "Home selects top visual row (layer_999)");
+        assert_eq!(
+            editor
+                .last_timeline_virtual_stats(&ctx)
+                .unwrap()
+                .window
+                .first_row,
+            0
+        );
+
+        let _ = render(
+            &mut editor,
+            vec![egui::Event::Key {
+                key: egui::Key::ArrowDown,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::SHIFT,
+            }],
+            false,
+        );
+        let _ = render(&mut editor, vec![], false);
+        assert!(editor.is_layer_row_selected(999));
+        assert!(editor.is_layer_row_selected(998));
+
+        // 4. Drag top visual row (`layer_999`) while scrolled to bottom: `dragged_layer` stays rendered
+        //    with exact `1000 * row_h` height and commits reorder cleanly on release!
+        editor.select_layer_row(999, false, false);
+        let out_top = render(&mut editor, vec![], false);
+        let row0_pos = out_top
+            .shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                egui::Shape::Text(t) if t.galley.job.text == "Layer 999" => {
+                    Some(egui::Rect::from_min_size(t.pos, t.galley.size()).center())
+                }
+                _ => None,
+            })
+            .expect("top row `Layer 999` rendered");
+
+        // Press and drag >= 6 pt on `Layer 999`.
+        let drag_mid = row0_pos + Vec2::new(0.0, 12.0);
+        let _ = render(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(row0_pos),
+                egui::Event::PointerButton {
+                    pos: row0_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            true,
+        );
+        let _ = render(&mut editor, vec![egui::Event::PointerMoved(drag_mid)], true);
+
+        // Scroll 24,000 pt down via MouseWheel while holding drag so row 0 is ~980 rows offscreen!
+        let _ = render(
+            &mut editor,
+            vec![
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: Vec2::new(0.0, -24_000.0),
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerMoved(Pos2::new(row0_pos.x, 180.0)),
+            ],
+            true,
+        );
+        let out_scrolled_drag = render(
+            &mut editor,
+            vec![egui::Event::PointerMoved(Pos2::new(row0_pos.x, 180.0))],
+            true,
+        );
+        let drag_stats = editor.last_timeline_virtual_stats(&ctx).unwrap();
+        assert!(
+            drag_stats.window.first_row > 500,
+            "scrolled deep into 1,000-layer list: {:?}",
+            drag_stats.window
+        );
+        let visible_window_len = drag_stats.window.row_range(1_000).len();
+        assert_eq!(
+            drag_stats.drawn_layer_rows,
+            visible_window_len + 1,
+            "pinned offscreen dragged_layer must remain rendered alongside visible window"
+        );
+        assert!(
+            (drag_stats.layer_list_height - 1_000.0 * row_h).abs() < 1e-2,
+            "multi-gap spacer must preserve exact 1,000 * row_h height"
+        );
+        let _ = out_scrolled_drag;
+
+        // Release inside the layer column near the bottom to reorder `layer_999`!
+        let drop_pos = Pos2::new(row0_pos.x, 260.0);
+        let _ = render(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(drop_pos),
+                egui::Event::PointerButton {
+                    pos: drop_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            false,
+        );
+        assert!(
+            editor.history.can_undo(),
+            "releasing offscreen-origin layer reorder must commit in 1 Undo step"
+        );
+        let new_pos = editor
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .position(|l| l.id == "layer_999")
+            .unwrap();
+        assert!(
+            new_pos < 500,
+            "layer_999 moved from top (999) into bottom half: {new_pos}"
+        );
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.symbol().timeline.layers[999].id, "layer_999");
+        editor.project.validate().unwrap();
     }
 }

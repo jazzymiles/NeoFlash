@@ -1445,3 +1445,543 @@ fn t380_empty_movie_clip_library_drop_and_edit_in_place_populate_clear_roundtrip
     assert!((centered_t.y - 300.0).abs() < 1e-5);
     editor.project.validate().unwrap();
 }
+
+#[test]
+fn t410_reflected_and_skewed_edit_in_place_roundtrip_dimming_and_stage_gizmos() {
+    use crate::app::Tool;
+    use crate::stage_mapping::StageMapping;
+    use crate::tests::{primary_button, stage_input_frame};
+    use neoflash_core::{IkArmature, IkBone, PathCommand};
+
+    // 1. Direct oblique 2-axis skew (`skew_x = 25 deg`, `skew_y = -15 deg`) + negative scale
+    //    (`scale_x = -1.0`, `scale_y = -1.5` and single-axis reflection `det < 0`) round-trips & NaN guards.
+    let skew_x = 25.0_f64.to_radians();
+    let skew_y = (-15.0_f64).to_radians();
+    let oblique_reflected = [
+        -skew_y.cos(),
+        -skew_y.sin(),
+        -1.5 * (-skew_x.sin()),
+        -1.5 * skew_x.cos(),
+        320.0,
+        240.0,
+    ];
+    let single_flip_oblique = [
+        -skew_y.cos(),
+        -skew_y.sin(),
+        1.5 * (-skew_x.sin()),
+        1.5 * skew_x.cos(),
+        320.0,
+        240.0,
+    ];
+    assert!(
+        StageMapping::try_new(single_flip_oblique)
+            .unwrap()
+            .determinant()
+            < 0.0
+    );
+    for matrix in [oblique_reflected, single_flip_oblique] {
+        let mapping = StageMapping::try_new(matrix).unwrap();
+        for pt in [[0.0, 0.0], [42.5, -18.25], [-120.0, 87.5]] {
+            let stage = mapping.local_to_stage(pt);
+            let back = mapping.stage_to_local(stage);
+            assert!((back[0] - pt[0]).abs() < 1e-8);
+            assert!((back[1] - pt[1]).abs() < 1e-8);
+
+            let origin = egui::pos2(140.0, 95.0);
+            let screen =
+                mapping.edit_to_screen(origin, 1.35, egui::pos2(pt[0] as f32, pt[1] as f32));
+            let local_pos = mapping.screen_to_edit(origin, 1.35, screen);
+            assert!((f64::from(local_pos.x) - pt[0]).abs() < 1e-3);
+            assert!((f64::from(local_pos.y) - pt[1]).abs() < 1e-3);
+        }
+    }
+    // Singular and NaN/Infinity matrices are rejected cleanly without NaN propagation.
+    assert!(StageMapping::try_new([0.0, 0.0, 1.0, 2.0, 10.0, 20.0]).is_err());
+    assert!(StageMapping::try_new([f64::NAN, 0.0, 0.0, 1.0, 0.0, 0.0]).is_err());
+    assert_eq!(
+        crate::stage::inverse([f64::NAN, 0.0, 0.0, 1.0, 0.0, 0.0], egui::pos2(5.0, 5.0)),
+        None
+    );
+    assert_eq!(
+        crate::stage::inverse([1.0, 2.0, 2.0, 4.0, 0.0, 0.0], egui::pos2(5.0, 5.0)),
+        None
+    );
+
+    // 2. Build nested reflected + skewed Edit in Place project (`scale_x = -1.0`, `scale_y = -1.5`,
+    //    `skew_x = 25 deg`, `skew_y = -15 deg`, AND a reflected `det < 0` child level) with parent siblings.
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    add_empty_symbol(&mut editor, "outer-skew");
+    add_empty_symbol(&mut editor, "inner-flip");
+
+    // Parent sibling context on root Stage: vibrant red rectangle + text + video placeholder.
+    let parent_rect_color = [212, 54, 48, 255];
+    editor.symbol_mut().timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "parent-sibling-rect".into(),
+            name: "parent-sibling-rect".into(),
+            transform: Transform {
+                x: 40.0,
+                y: 40.0,
+                ..Default::default()
+            },
+            kind: ElementKind::Rectangle {
+                width: 60.0,
+                height: 40.0,
+                fill: parent_rect_color,
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        });
+    editor.symbol_mut().timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "parent-sibling-text".into(),
+            name: "parent-sibling-text".into(),
+            transform: Transform {
+                x: 40.0,
+                y: 100.0,
+                scale_x: -1.0,
+                scale_y: 1.2,
+                skew: 20.0,
+                ..Default::default()
+            },
+            kind: ElementKind::Text {
+                text: "ReflectedLabel".into(),
+                font_family: "Inter".into(),
+                font_size: 16.0,
+                color: [30, 60, 90, 255],
+            },
+            ..Element::default()
+        });
+    editor.symbol_mut().timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "parent-sibling-oval".into(),
+            name: "parent-sibling-oval".into(),
+            transform: Transform {
+                x: 180.0,
+                y: 40.0,
+                scale_x: -1.0,
+                scale_y: 1.0,
+                ..Default::default()
+            },
+            kind: ElementKind::Ellipse {
+                width: 80.0,
+                height: 50.0,
+                fill: [70, 90, 180, 255],
+                stroke: [20, 30, 60, 255],
+                stroke_width: 1.0,
+            },
+            ..Element::default()
+        });
+
+    let outer_target = place(
+        &mut editor,
+        "outer-skew",
+        Transform {
+            x: 340.0,
+            y: 260.0,
+            scale_x: -1.0,
+            scale_y: -1.5,
+            rotation: -15.0,
+            skew: 25.0,
+            ..Default::default()
+        },
+    );
+    editor.set_selection(vec![outer_target]);
+    assert!(editor.enter_selected_symbol_in_place());
+
+    // Place `inner-flip` with `scale_x = -1.0, scale_y = 1.0, skew = -15.0` so cumulative determinant < 0!
+    let inner_target = place(
+        &mut editor,
+        "inner-flip",
+        Transform {
+            x: 20.0,
+            y: -10.0,
+            scale_x: -1.0,
+            scale_y: 1.0,
+            skew: -15.0,
+            ..Default::default()
+        },
+    );
+    let child_fill = [36, 184, 96, 255];
+    editor.transact(|ed| {
+        let inner_sym = ed.project.symbol_mut("inner-flip").unwrap();
+        inner_sym.timeline.layers[0].keyframes[0].elements = vec![
+            Element {
+                id: "child-box".into(),
+                name: "child-box".into(),
+                transform: Transform {
+                    x: 10.0,
+                    y: 15.0,
+                    ..Default::default()
+                },
+                kind: ElementKind::Rectangle {
+                    width: 50.0,
+                    height: 36.0,
+                    fill: child_fill,
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                },
+                ..Element::default()
+            },
+            Element {
+                id: "child-bone-tip".into(),
+                name: "child-bone-tip".into(),
+                transform: Transform {
+                    x: 90.0,
+                    y: 15.0,
+                    ..Default::default()
+                },
+                kind: ElementKind::Path {
+                    commands: vec![
+                        PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                        PathCommand::LineTo { x: 24.0, y: 0.0 },
+                        PathCommand::LineTo { x: 24.0, y: 18.0 },
+                        PathCommand::Close,
+                    ],
+                    fill_rule: neoflash_core::FillRule::NonZero,
+                    fill: [60, 120, 230, 255],
+                    stroke: [20, 40, 80, 255],
+                    stroke_width: 2.0,
+                },
+                ..Element::default()
+            },
+        ];
+    });
+    editor.set_selection(vec![inner_target]);
+    assert!(editor.enter_selected_symbol_in_place());
+    assert_eq!(editor.symbol_id(), "inner-flip");
+
+    let live_mapping = editor.edit_stage_mapping().unwrap();
+    assert!(
+        live_mapping.determinant() < 0.0,
+        "cumulative Edit in Place transform has negative determinant (reflected + skewed): {}",
+        live_mapping.determinant()
+    );
+    let round_local = editor
+        .edit_stage_to_local(editor.edit_local_to_stage([35.0, 33.0]).unwrap())
+        .unwrap();
+    assert!((round_local[0] - 35.0).abs() < 1e-7);
+    assert!((round_local[1] - 33.0).abs() < 1e-7);
+
+    // Render Stage and verify dimmed parent context (`alpha == 191`), opaque child (`alpha == 255`),
+    // finite non-inverted polygon/mesh winding, and accurate child hit-testing!
+    editor.set_tool(Tool::Select);
+    let out = stage_input_frame(&mut editor, &ctx, 0.05, vec![]);
+    let mut saw_dimmed_parent = false;
+    let mut saw_opaque_child = false;
+    let expected_dimmed_parent = egui::Color32::from_rgba_unmultiplied(
+        parent_rect_color[0],
+        parent_rect_color[1],
+        parent_rect_color[2],
+        (255.0_f64 * 0.75) as u8,
+    );
+    let expected_opaque_child =
+        egui::Color32::from_rgba_unmultiplied(child_fill[0], child_fill[1], child_fill[2], 255);
+    fn color_matches(actual: egui::Color32, expected: egui::Color32) -> bool {
+        (i16::from(actual.r()) - i16::from(expected.r())).abs() <= 2
+            && (i16::from(actual.g()) - i16::from(expected.g())).abs() <= 2
+            && (i16::from(actual.b()) - i16::from(expected.b())).abs() <= 2
+            && (i16::from(actual.a()) - i16::from(expected.a())).abs() <= 2
+    }
+    fn inspect_shape(
+        shape: &egui::Shape,
+        dimmed_parent: egui::Color32,
+        opaque_child: egui::Color32,
+        saw_dimmed_parent: &mut bool,
+        saw_opaque_child: &mut bool,
+    ) {
+        match shape {
+            egui::Shape::Vec(nested) => {
+                for item in nested {
+                    inspect_shape(
+                        item,
+                        dimmed_parent,
+                        opaque_child,
+                        saw_dimmed_parent,
+                        saw_opaque_child,
+                    );
+                }
+            }
+            egui::Shape::Rect(rect_shape) => {
+                assert!(rect_shape.rect.is_finite());
+                if color_matches(rect_shape.fill, dimmed_parent) {
+                    *saw_dimmed_parent = true;
+                }
+                if color_matches(rect_shape.fill, opaque_child) {
+                    *saw_opaque_child = true;
+                }
+            }
+            egui::Shape::Mesh(mesh) => {
+                for v in &mesh.vertices {
+                    assert!(v.pos.is_finite(), "non-finite mesh vertex in Edit in Place");
+                    if color_matches(v.color, dimmed_parent) {
+                        *saw_dimmed_parent = true;
+                    }
+                    if color_matches(v.color, opaque_child) {
+                        *saw_opaque_child = true;
+                    }
+                }
+            }
+            egui::Shape::Path(path) => {
+                for pt in &path.points {
+                    assert!(pt.is_finite(), "non-finite polygon vertex in Edit in Place");
+                }
+                if path.closed && path.fill != egui::Color32::TRANSPARENT {
+                    if color_matches(path.fill, dimmed_parent) {
+                        *saw_dimmed_parent = true;
+                    }
+                    if color_matches(path.fill, opaque_child) {
+                        *saw_opaque_child = true;
+                    }
+                    if path.points.len() >= 3 {
+                        let a = path.points[0];
+                        let b = path.points[1];
+                        let c = path.points[2];
+                        let signed_area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+                        assert!(
+                            signed_area >= -1e-3,
+                            "reflected closed filled PathShape must keep non-inverted winding, got {signed_area}"
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    for clipped in &out.shapes {
+        inspect_shape(
+            &clipped.shape,
+            expected_dimmed_parent,
+            expected_opaque_child,
+            &mut saw_dimmed_parent,
+            &mut saw_opaque_child,
+        );
+    }
+    assert!(
+        saw_dimmed_parent,
+        "parent sibling rendered at 75% dimmed opacity"
+    );
+    assert!(saw_opaque_child, "active child rendered at 100% opacity");
+
+    // Click mapped center of `child-box` (`local = (35, 33)`) -> selects `child-box`!
+    let child_screen = live_mapping.edit_to_screen(
+        editor.stage_view.origin,
+        editor.zoom,
+        egui::pos2(35.0, 33.0),
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.10,
+        vec![
+            egui::Event::PointerMoved(child_screen),
+            primary_button(child_screen, true),
+        ],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.14,
+        vec![primary_button(child_screen, false)],
+    );
+    assert_eq!(
+        editor.selection.single().map(|t| t.element.as_str()),
+        Some("child-box")
+    );
+
+    // 3A. 3D Translation & Rotation gizmos inside reflected + skewed Edit in Place map pointer deltas cleanly!
+    let pre_3d_project = editor.project.clone();
+    editor.set_tool(Tool::Translate3D);
+    let _ = stage_input_frame(&mut editor, &ctx, 0.20, vec![]);
+    let (_, _, gizmo_geom) = editor
+        .selected_3d_gizmo_screen_geometry(editor.stage_view.origin, live_mapping)
+        .expect("3D gizmo geometry available for selected child");
+    let x_drag_dir = (gizmo_geom.x_tip - gizmo_geom.center).normalized();
+    let x_end = gizmo_geom.x_tip + x_drag_dir * 36.0;
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.24,
+        vec![
+            egui::Event::PointerMoved(gizmo_geom.x_tip),
+            primary_button(gizmo_geom.x_tip, true),
+        ],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.28,
+        vec![egui::Event::PointerMoved(x_end)],
+    );
+    let _ = stage_input_frame(&mut editor, &ctx, 0.32, vec![primary_button(x_end, false)]);
+    let state_after_3d = editor.element_3d_state("child-box");
+    assert!(
+        state_after_3d.translate_3d[0] > 5.0,
+        "dragging along mapped +X 3D handle must increase local translate_3d[0], got {:?}",
+        state_after_3d.translate_3d
+    );
+    assert!(
+        state_after_3d.translate_3d[1].abs() < 1.0,
+        "dragging purely along mapped +X 3D handle must keep translate_3d[1] ~ 0, got {:?}",
+        state_after_3d.translate_3d
+    );
+
+    editor.set_tool(Tool::Rotate3D);
+    let _ = stage_input_frame(&mut editor, &ctx, 0.34, vec![]);
+    let (_, _, rot_geom) = editor
+        .selected_3d_gizmo_screen_geometry(editor.stage_view.origin, live_mapping)
+        .unwrap();
+    let y_drag_dir = (rot_geom.y_tip - rot_geom.center).normalized();
+    let rot_end = rot_geom.x_tip + y_drag_dir * 30.0;
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.35,
+        vec![
+            egui::Event::PointerMoved(rot_geom.x_tip),
+            primary_button(rot_geom.x_tip, true),
+        ],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.37,
+        vec![egui::Event::PointerMoved(rot_end)],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.39,
+        vec![primary_button(rot_end, false)],
+    );
+    assert!(
+        editor.element_3d_state("child-box").rotate_3d[0].abs() > 2.0,
+        "Rotate3D handle drag mapped cleanly through reflected/skewed Edit in Place"
+    );
+    if editor.project != pre_3d_project {
+        editor.undo();
+    }
+    editor.project.validate().unwrap();
+
+    // 3B. Bone IK effector gizmo drag inside reflected + skewed Edit in Place!
+    assert_eq!(editor.symbol_id(), "inner-flip");
+    editor.transact(|ed| {
+        let inner_sym = ed.project.symbol_mut("inner-flip").unwrap();
+        inner_sym.timeline.layers[0].keyframes[0].ik_armatures = vec![IkArmature {
+            id: "arm-eip".into(),
+            name: "EipRig".into(),
+            bones: vec![
+                IkBone {
+                    id: "bone-root".into(),
+                    element_id: "child-box".into(),
+                    parent_bone_id: None,
+                    length: 80.0,
+                    min_angle: None,
+                    max_angle: None,
+                    stiffness: 0.2,
+                },
+                IkBone {
+                    id: "bone-leaf".into(),
+                    element_id: "child-bone-tip".into(),
+                    parent_bone_id: Some("bone-root".into()),
+                    length: 24.0,
+                    min_angle: None,
+                    max_angle: None,
+                    stiffness: 0.2,
+                },
+            ],
+            effector_bone_id: "bone-leaf".into(),
+            target_pos: [114.0, 15.0],
+            pole_pos: None,
+        }];
+    });
+    editor.set_tool(Tool::Bone);
+    let _ = stage_input_frame(&mut editor, &ctx, 0.40, vec![]);
+    let eff_start_screen = live_mapping.edit_to_screen(
+        editor.stage_view.origin,
+        editor.zoom,
+        egui::pos2(114.0, 15.0),
+    );
+    let desired_local_target = egui::pos2(85.0, 62.0);
+    let eff_end_screen =
+        live_mapping.edit_to_screen(editor.stage_view.origin, editor.zoom, desired_local_target);
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.44,
+        vec![
+            egui::Event::PointerMoved(eff_start_screen),
+            primary_button(eff_start_screen, true),
+        ],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.48,
+        vec![egui::Event::PointerMoved(eff_end_screen)],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.52,
+        vec![primary_button(eff_end_screen, false)],
+    );
+    let solved_target = editor.symbol().timeline.layers[0].keyframes[0].ik_armatures[0].target_pos;
+    assert!(
+        (solved_target[0] - f64::from(desired_local_target.x)).abs() < 1.0
+            && (solved_target[1] - f64::from(desired_local_target.y)).abs() < 1.0,
+        "IK effector target mapped cleanly to local symbol coordinates: {solved_target:?}"
+    );
+    editor.undo();
+
+    // 3C. 9-slice guides inside oblique/reflected Edit in Place map pointer drag & oblique dashes!
+    editor.set_tool(Tool::Select);
+    editor
+        .set_symbol_scale9_grid("inner-flip", Some([20.0, 15.0, 60.0, 40.0]))
+        .unwrap();
+    let guide_x0_screen = live_mapping.edit_to_screen(
+        editor.stage_view.origin,
+        editor.zoom,
+        egui::pos2(20.0, 35.0),
+    );
+    let guide_x0_dragged = live_mapping.edit_to_screen(
+        editor.stage_view.origin,
+        editor.zoom,
+        egui::pos2(32.0, 35.0),
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.60,
+        vec![
+            egui::Event::PointerMoved(guide_x0_screen),
+            primary_button(guide_x0_screen, true),
+        ],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.64,
+        vec![egui::Event::PointerMoved(guide_x0_dragged)],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.68,
+        vec![primary_button(guide_x0_dragged, false)],
+    );
+    let updated_grid = editor
+        .symbol()
+        .scale9_grid()
+        .expect("scale9_grid stays active");
+    assert!(
+        (updated_grid[0] - 32.0).abs() < 0.25,
+        "dragging oblique 9-slice left guide mapped to local x=32.0, got {updated_grid:?}"
+    );
+    editor.project.validate().unwrap();
+}

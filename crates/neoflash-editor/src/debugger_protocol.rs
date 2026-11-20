@@ -15,6 +15,8 @@ const MAX_FRAMES: usize = 64;
 const MAX_SCOPES: usize = 8;
 const MAX_GENERATED_STEPS: usize = 64;
 const MAX_LOCALS: usize = 256;
+const MAX_INSPECTED_OBJECTS: usize = 128;
+const MAX_OBJECT_PROPERTIES: usize = 256;
 const MAX_TEXT: usize = 1_024;
 const MAX_OUTPUT_EVENTS: usize = 128;
 const MAX_SOURCE_BYTES: usize = 16 * 1024 * 1024;
@@ -83,6 +85,19 @@ pub(crate) enum DebugCommand {
     SetWatches(Vec<WatchRequest>),
     EvaluateWatches,
     SelectFrame(usize),
+    InspectObject {
+        object_id: String,
+    },
+    SetVariableValue {
+        scope_number: usize,
+        variable_name: String,
+        new_value: String,
+    },
+    SetPropertyValue {
+        object_id: String,
+        property_name: String,
+        new_value: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -140,6 +155,46 @@ pub(crate) struct DebugSnapshot {
     pub command_pending: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DebugInspectableLocal {
+    pub scope_number: usize,
+    pub scope: String,
+    pub name: String,
+    pub value: String,
+    pub kind: String,
+    pub subtype: Option<String>,
+    pub object_id: Option<String>,
+    pub accessor: bool,
+    pub writable: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DebugInspectableWatch {
+    pub index: usize,
+    pub expression: String,
+    pub object_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DebugObjectProperty {
+    pub name: String,
+    pub value: String,
+    pub kind: String,
+    pub subtype: Option<String>,
+    pub object_id: Option<String>,
+    pub accessor: bool,
+    pub writable: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DebugInspection {
+    pub pause_epoch: u64,
+    pub pause_generation: u64,
+    pub locals: Vec<DebugInspectableLocal>,
+    pub watches: Vec<DebugInspectableWatch>,
+    pub object_properties: BTreeMap<String, Vec<DebugObjectProperty>>,
+}
+
 #[derive(Clone, Debug)]
 struct ParsedScript {
     source: usize,
@@ -149,6 +204,7 @@ struct ParsedScript {
 
 #[derive(Clone, Debug)]
 struct Scope {
+    scope_number: usize,
     name: String,
     object_id: String,
 }
@@ -174,13 +230,27 @@ enum Pending {
     Properties {
         pause: u64,
         frame: usize,
+        scope_number: usize,
         scope: String,
+    },
+    ObjectProperties {
+        pause: u64,
+        frame: usize,
+        object_id: String,
     },
     Watch {
         pause: u64,
         watch_gen: u64,
         frame: usize,
         index: usize,
+    },
+    EditVariable {
+        pause: u64,
+        frame: usize,
+    },
+    EditProperty {
+        pause: u64,
+        frame: usize,
     },
 }
 
@@ -190,6 +260,8 @@ pub(crate) struct DebugProtocol {
     desired: Vec<AuthoredBreakpoint>,
     watches: Vec<WatchRequest>,
     watch_results: Vec<DebugWatchResult>,
+    inspection: DebugInspection,
+    inspected_object_ids: BTreeSet<String>,
     snapshot: DebugSnapshot,
     target: Option<String>,
     session: Option<String>,
@@ -203,6 +275,7 @@ pub(crate) struct DebugProtocol {
     breakpoint_ids: BTreeMap<String, (String, Option<AuthoredBreakpoint>)>,
     installed: BTreeSet<(String, usize, usize, u64)>,
     breakpoint_generation: u64,
+    pause_epoch: u64,
     pause_generation: u64,
     watch_generation: u64,
     gate: Option<String>,
@@ -224,6 +297,8 @@ impl DebugProtocol {
             desired: Vec::new(),
             watches: Vec::new(),
             watch_results: Vec::new(),
+            inspection: DebugInspection::default(),
+            inspected_object_ids: BTreeSet::new(),
             snapshot: DebugSnapshot {
                 epoch: 1,
                 state: DebugState::Disconnected,
@@ -250,6 +325,7 @@ impl DebugProtocol {
             breakpoint_ids: BTreeMap::new(),
             installed: BTreeSet::new(),
             breakpoint_generation: 1,
+            pause_epoch: 0,
             pause_generation: 0,
             watch_generation: 0,
             gate: None,
@@ -268,6 +344,10 @@ impl DebugProtocol {
 
     pub fn watch_results(&self) -> Vec<DebugWatchResult> {
         self.watch_results.clone()
+    }
+
+    pub fn inspection(&self) -> DebugInspection {
+        self.inspection.clone()
     }
 
     pub fn epoch(&self) -> u64 {
@@ -402,8 +482,124 @@ impl DebugProtocol {
                     return Err("Select a call frame while the debugger is paused.".into());
                 }
                 self.snapshot.selected_frame = Some(index);
+                self.pause_epoch = self.pause_epoch.saturating_add(1);
+                self.inspected_object_ids.clear();
+                self.inspection.object_properties.clear();
                 self.request_locals(index);
                 self.request_watches(index);
+                return Ok(());
+            }
+            DebugCommand::InspectObject { object_id } => {
+                if self.snapshot.state != DebugState::Paused || self.snapshot.command_pending {
+                    return Err("Pause Test Movie before expanding object properties.".into());
+                }
+                let Some(frame) = self.snapshot.selected_frame else {
+                    return Err("Select a call frame while the debugger is paused.".into());
+                };
+                let Some(object_id) = id_string(Some(&Value::String(object_id))) else {
+                    return Err("Invalid remote object identifier.".into());
+                };
+                if self.inspected_object_ids.len() >= MAX_INSPECTED_OBJECTS
+                    && !self.inspected_object_ids.contains(&object_id)
+                {
+                    return Err("Expanded object limit reached for this pause.".into());
+                }
+                self.inspected_object_ids.insert(object_id.clone());
+                if !self.queue(
+                    "Runtime.getProperties",
+                    json!({
+                        "objectId": object_id,
+                        "ownProperties": true,
+                        "accessorPropertiesOnly": false,
+                        "generatePreview": true
+                    }),
+                    Pending::ObjectProperties {
+                        pause: self.pause_generation,
+                        frame,
+                        object_id,
+                    },
+                    true,
+                ) {
+                    return Err("Debugger request limit reached.".into());
+                }
+                return Ok(());
+            }
+            DebugCommand::SetVariableValue {
+                scope_number,
+                variable_name,
+                new_value,
+            } => {
+                if self.snapshot.state != DebugState::Paused || self.snapshot.command_pending {
+                    return Err("Pause Test Movie before editing variables.".into());
+                }
+                let Some(frame) = self.snapshot.selected_frame else {
+                    return Err("Select a call frame while the debugger is paused.".into());
+                };
+                let call_frame_id = self
+                    .call_frame_ids
+                    .get(frame)
+                    .cloned()
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| "Active call frame cannot be modified.".to_owned())?;
+                let variable_name = bounded(variable_name.trim(), MAX_TEXT);
+                if variable_name.is_empty() {
+                    return Err("Variable name cannot be empty.".into());
+                }
+                let parsed = parse_debug_scalar_value(&new_value)?;
+                if !self.queue(
+                    "Debugger.setVariableValue",
+                    json!({
+                        "scopeNumber": scope_number,
+                        "variableName": variable_name,
+                        "newValue": { "value": parsed },
+                        "callFrameId": call_frame_id
+                    }),
+                    Pending::EditVariable {
+                        pause: self.pause_generation,
+                        frame,
+                    },
+                    true,
+                ) {
+                    return Err("Debugger request limit reached.".into());
+                }
+                return Ok(());
+            }
+            DebugCommand::SetPropertyValue {
+                object_id,
+                property_name,
+                new_value,
+            } => {
+                if self.snapshot.state != DebugState::Paused || self.snapshot.command_pending {
+                    return Err("Pause Test Movie before editing object properties.".into());
+                }
+                let Some(frame) = self.snapshot.selected_frame else {
+                    return Err("Select a call frame while the debugger is paused.".into());
+                };
+                let Some(object_id) = id_string(Some(&Value::String(object_id))) else {
+                    return Err("Invalid remote object identifier.".into());
+                };
+                let property_name = bounded(&property_name, MAX_TEXT);
+                let prop_literal = serde_json::to_string(&property_name)
+                    .map_err(|_| "Invalid property name.".to_owned())?;
+                let parsed = parse_debug_scalar_value(&new_value)?;
+                let declaration = format!("function(v) {{ this[{prop_literal}] = v; }}");
+                if !self.queue(
+                    "Runtime.callFunctionOn",
+                    json!({
+                        "objectId": object_id,
+                        "functionDeclaration": declaration,
+                        "arguments": [{ "value": parsed }],
+                        "silent": true,
+                        "returnByValue": true
+                    }),
+                    Pending::EditProperty {
+                        pause: self.pause_generation,
+                        frame,
+                    },
+                    true,
+                ) {
+                    return Err("Debugger request limit reached.".into());
+                }
                 return Ok(());
             }
             _ => {}
@@ -431,8 +627,15 @@ impl DebugProtocol {
             }
             .into());
         }
+        self.pause_epoch = self.pause_epoch.saturating_add(1);
         self.pause_generation += 1;
         self.snapshot.locals.clear();
+        self.inspected_object_ids.clear();
+        self.inspection.pause_epoch = self.pause_epoch;
+        self.inspection.pause_generation = self.pause_generation;
+        self.inspection.locals.clear();
+        self.inspection.watches.clear();
+        self.inspection.object_properties.clear();
         if !self.queue(method, json!({}), Pending::Control, true) {
             return Err("Debugger request limit reached.".into());
         }
@@ -680,6 +883,7 @@ impl DebugProtocol {
             Pending::Properties {
                 pause,
                 frame,
+                scope_number,
                 scope,
             } => {
                 if self.snapshot.state != DebugState::Paused
@@ -697,35 +901,60 @@ impl DebugProtocol {
                         if self.snapshot.locals.len() >= MAX_LOCALS {
                             break;
                         }
-                        let Some(name) = property.get("name").and_then(Value::as_str) else {
+                        let Some(decoded) = decode_cdp_property(property) else {
                             continue;
                         };
-                        let accessor =
-                            property.get("get").is_some() || property.get("set").is_some();
-                        let remote = property.get("value").unwrap_or(&Value::Null);
                         self.snapshot.locals.push(DebugLocal {
                             scope: scope.clone(),
-                            name: bounded(name, MAX_TEXT),
-                            value: if property.get("wasThrown").and_then(Value::as_bool)
-                                == Some(true)
-                            {
-                                "<unavailable>".into()
-                            } else if accessor {
-                                "<accessor; not invoked>".into()
-                            } else {
-                                remote_summary(remote)
-                            },
-                            kind: bounded(
-                                remote
-                                    .get("type")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("accessor"),
-                                80,
-                            ),
-                            accessor,
+                            name: decoded.name.clone(),
+                            value: decoded.value.clone(),
+                            kind: decoded.kind.clone(),
+                            accessor: decoded.accessor,
+                        });
+                        self.inspection.locals.push(DebugInspectableLocal {
+                            scope_number,
+                            scope: scope.clone(),
+                            name: decoded.name,
+                            value: decoded.value,
+                            kind: decoded.kind,
+                            subtype: decoded.subtype,
+                            object_id: decoded.object_id,
+                            accessor: decoded.accessor,
+                            writable: decoded.writable,
                         });
                     }
                 }
+            }
+            Pending::ObjectProperties {
+                pause,
+                frame,
+                object_id,
+            } => {
+                if self.snapshot.state != DebugState::Paused
+                    || pause != self.pause_generation
+                    || self.snapshot.selected_frame != Some(frame)
+                {
+                    return;
+                }
+                if result.get("exceptionDetails").is_some() {
+                    self.inspection
+                        .object_properties
+                        .insert(object_id, Vec::new());
+                    self.note("Chrome could not read paused object properties.");
+                    return;
+                }
+                let mut entries = Vec::new();
+                if let Some(properties) = result.get("result").and_then(Value::as_array) {
+                    for property in properties.iter().take(MAX_OBJECT_PROPERTIES * 8) {
+                        if entries.len() >= MAX_OBJECT_PROPERTIES {
+                            break;
+                        }
+                        if let Some(decoded) = decode_cdp_property(property) {
+                            entries.push(decoded);
+                        }
+                    }
+                }
+                self.inspection.object_properties.insert(object_id, entries);
             }
             Pending::Watch {
                 pause,
@@ -746,16 +975,39 @@ impl DebugProtocol {
                 if let Some(details) = result.get("exceptionDetails") {
                     slot.value = format_watch_exception(details, result.get("result"));
                     slot.is_error = true;
+                    if let Some(insp) = self.inspection.watches.get_mut(index) {
+                        insp.object_id = None;
+                    }
                     return;
                 }
                 let remote = result.get("result").unwrap_or(&Value::Null);
                 if remote.is_null() {
                     slot.value = "<unavailable>".into();
                     slot.is_error = true;
+                    if let Some(insp) = self.inspection.watches.get_mut(index) {
+                        insp.object_id = None;
+                    }
                 } else {
                     slot.value = remote_summary(remote);
                     slot.is_error = false;
+                    if let Some(insp) = self.inspection.watches.get_mut(index) {
+                        insp.object_id = remote_inspectable_object_id(remote, false);
+                    }
                 }
+            }
+            Pending::EditVariable { pause, frame } | Pending::EditProperty { pause, frame } => {
+                if self.snapshot.state != DebugState::Paused
+                    || pause != self.pause_generation
+                    || self.snapshot.selected_frame != Some(frame)
+                {
+                    return;
+                }
+                if let Some(details) = result.get("exceptionDetails") {
+                    let reason = format_watch_exception(details, result.get("result"));
+                    self.note(&format!("Cannot assign value: {reason}"));
+                    return;
+                }
+                self.refresh_paused_inspection(frame);
             }
             Pending::Remove => {}
         }
@@ -1003,7 +1255,8 @@ impl DebugProtocol {
                 .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
-                .filter_map(|scope| {
+                .enumerate()
+                .filter_map(|(scope_number, scope)| {
                     let kind = scope.get("type")?.as_str()?;
                     if !matches!(kind, "local" | "closure" | "catch" | "block" | "script") {
                         return None;
@@ -1013,6 +1266,7 @@ impl DebugProtocol {
                         return None;
                     }
                     Some(Scope {
+                        scope_number,
                         name: bounded(kind, 80),
                         object_id: id_string(object.get("objectId"))?,
                     })
@@ -1054,6 +1308,7 @@ impl DebugProtocol {
             .or_else(|| (!self.snapshot.frames.is_empty()).then_some(0));
         self.snapshot.selected_frame = selected;
         if let Some(index) = selected {
+            self.pause_epoch = self.pause_epoch.saturating_add(1);
             self.request_locals(index);
             self.request_watches(index);
         }
@@ -1121,10 +1376,52 @@ impl DebugProtocol {
     fn request_locals(&mut self, frame: usize) {
         self.pause_generation += 1;
         self.snapshot.locals.clear();
+        self.inspection.pause_epoch = self.pause_epoch;
+        self.inspection.pause_generation = self.pause_generation;
+        self.inspection.locals.clear();
+        self.inspection.object_properties.clear();
         let scopes = self.scopes.get(frame).cloned().unwrap_or_default();
         for scope in scopes {
-            self.queue("Runtime.getProperties", json!({"objectId":scope.object_id,"ownProperties":true,"accessorPropertiesOnly":false,"generatePreview":true}),
-                Pending::Properties { pause:self.pause_generation, frame, scope:scope.name }, true);
+            self.queue(
+                "Runtime.getProperties",
+                json!({
+                    "objectId": scope.object_id,
+                    "ownProperties": true,
+                    "accessorPropertiesOnly": false,
+                    "generatePreview": true
+                }),
+                Pending::Properties {
+                    pause: self.pause_generation,
+                    frame,
+                    scope_number: scope.scope_number,
+                    scope: scope.name,
+                },
+                true,
+            );
+        }
+    }
+
+    fn refresh_paused_inspection(&mut self, frame: usize) {
+        let expanded: Vec<String> = self.inspected_object_ids.iter().cloned().collect();
+        self.request_locals(frame);
+        self.request_watches(frame);
+        let pause = self.pause_generation;
+        for object_id in expanded {
+            self.queue(
+                "Runtime.getProperties",
+                json!({
+                    "objectId": object_id,
+                    "ownProperties": true,
+                    "accessorPropertiesOnly": false,
+                    "generatePreview": true
+                }),
+                Pending::ObjectProperties {
+                    pause,
+                    frame,
+                    object_id,
+                },
+                true,
+            );
         }
     }
 
@@ -1132,6 +1429,7 @@ impl DebugProtocol {
         self.watch_generation = self.watch_generation.saturating_add(1);
         if self.watches.is_empty() {
             self.watch_results.clear();
+            self.inspection.watches.clear();
             return;
         }
         let call_frame_id = self.call_frame_ids.get(frame).cloned().unwrap_or_default();
@@ -1146,6 +1444,16 @@ impl DebugProtocol {
                     "…".into()
                 },
                 is_error: call_frame_id.is_empty(),
+            })
+            .collect();
+        self.inspection.watches = self
+            .watches
+            .iter()
+            .enumerate()
+            .map(|(index, watch)| DebugInspectableWatch {
+                index,
+                expression: watch.expression.clone(),
+                object_id: None,
             })
             .collect();
         if call_frame_id.is_empty() {
@@ -1214,6 +1522,16 @@ impl DebugProtocol {
                 is_error: false,
             })
             .collect();
+        self.inspection.watches = self
+            .watches
+            .iter()
+            .enumerate()
+            .map(|(index, watch)| DebugInspectableWatch {
+                index,
+                expression: watch.expression.clone(),
+                object_id: None,
+            })
+            .collect();
     }
 
     fn replace_desired(&mut self, mut points: Vec<AuthoredBreakpoint>) {
@@ -1237,6 +1555,7 @@ impl DebugProtocol {
             .collect();
     }
     fn clear_pause(&mut self) {
+        self.pause_epoch = self.pause_epoch.saturating_add(1);
         self.pause_generation += 1;
         self.gate = None;
         self.snapshot.frames.clear();
@@ -1244,6 +1563,11 @@ impl DebugProtocol {
         self.scopes.clear();
         self.call_frame_ids.clear();
         self.snapshot.selected_frame = None;
+        self.inspected_object_ids.clear();
+        self.inspection.pause_epoch = self.pause_epoch;
+        self.inspection.pause_generation = self.pause_generation;
+        self.inspection.locals.clear();
+        self.inspection.object_properties.clear();
         self.refresh_watches();
     }
     fn clear_session(&mut self) {
@@ -1452,6 +1776,21 @@ impl DebugProtocol {
                 self.generated_steps = None;
                 self.note(message);
             }
+            Pending::ObjectProperties {
+                pause,
+                frame,
+                object_id,
+            } => {
+                if self.snapshot.state == DebugState::Paused
+                    && pause == self.pause_generation
+                    && self.snapshot.selected_frame == Some(frame)
+                {
+                    self.inspection
+                        .object_properties
+                        .insert(object_id, Vec::new());
+                }
+                self.note(message);
+            }
             Pending::Watch {
                 pause,
                 watch_gen,
@@ -1471,11 +1810,114 @@ impl DebugProtocol {
                         format!("<{}>", bounded(trimmed, 240))
                     };
                     slot.is_error = true;
+                    if let Some(insp) = self.inspection.watches.get_mut(index) {
+                        insp.object_id = None;
+                    }
                 }
             }
             _ => self.note(message),
         }
     }
+}
+
+/// Parse a scalar JSON value (`Number`, `Boolean`, `String`, or `null`) for paused variable/property editing.
+pub(crate) fn parse_debug_scalar_value(input: &str) -> Result<Value, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("Enter a scalar JSON value (number, boolean, string, or null).".into());
+    }
+    if trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2 {
+        let inner = &trimmed[1..trimmed.len() - 1];
+        let mut unescaped = String::with_capacity(inner.len());
+        let mut chars = inner.chars();
+        while let Some(ch) = chars.next() {
+            if ch == '\\' {
+                match chars.next() {
+                    Some('\\') => unescaped.push('\\'),
+                    Some('\'') => unescaped.push('\''),
+                    Some('"') => unescaped.push('"'),
+                    Some('n') => unescaped.push('\n'),
+                    Some('r') => unescaped.push('\r'),
+                    Some('t') => unescaped.push('\t'),
+                    Some(other) => {
+                        unescaped.push('\\');
+                        unescaped.push(other);
+                    }
+                    None => return Err("Unterminated string escape.".into()),
+                }
+            } else {
+                unescaped.push(ch);
+            }
+        }
+        return Ok(Value::String(bounded(&unescaped, MAX_TEXT)));
+    }
+    let parsed: Value = serde_json::from_str(trimmed).map_err(|_| {
+        "Value must be a scalar JSON literal (e.g. 42, -3.5, true, false, \"text\", or null)."
+            .to_owned()
+    })?;
+    match parsed {
+        Value::Null | Value::Bool(_) => Ok(parsed),
+        Value::Number(ref num) if num.as_f64().is_some_and(f64::is_finite) => Ok(parsed),
+        Value::String(text) => Ok(Value::String(bounded(&text, MAX_TEXT))),
+        _ => Err(
+            "Only scalar JSON values (Number, Boolean, String, or null) can be assigned.".into(),
+        ),
+    }
+}
+
+fn remote_inspectable_object_id(remote: &Value, accessor: bool) -> Option<String> {
+    if accessor {
+        return None;
+    }
+    let subtype = remote.get("subtype").and_then(Value::as_str);
+    if matches!(subtype, Some("null" | "proxy")) {
+        return None;
+    }
+    id_string(remote.get("objectId"))
+}
+
+fn decode_cdp_property(property: &Value) -> Option<DebugObjectProperty> {
+    let name = property.get("name").and_then(Value::as_str)?;
+    let was_thrown = property.get("wasThrown").and_then(Value::as_bool) == Some(true);
+    let accessor = property.get("get").is_some() || property.get("set").is_some();
+    let remote = property.get("value").unwrap_or(&Value::Null);
+    let object_id = if was_thrown {
+        None
+    } else {
+        remote_inspectable_object_id(remote, accessor)
+    };
+    let prop_writable = property
+        .get("writable")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let value = if was_thrown {
+        "<unavailable>".into()
+    } else if accessor {
+        "<accessor; not invoked>".into()
+    } else {
+        remote_summary(remote)
+    };
+    let kind = bounded(
+        remote
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("accessor"),
+        80,
+    );
+    let subtype = remote
+        .get("subtype")
+        .and_then(Value::as_str)
+        .map(|s| bounded(s, 80));
+    let writable = !was_thrown && !accessor && prop_writable && object_id.is_none();
+    Some(DebugObjectProperty {
+        name: bounded(name, MAX_TEXT),
+        value,
+        kind,
+        subtype,
+        object_id,
+        accessor,
+        writable,
+    })
 }
 
 fn format_watch_exception(details: &Value, remote: Option<&Value>) -> String {
@@ -3295,5 +3737,191 @@ pausedCallFrame(5);
             let stdout = String::from_utf8_lossy(&output.stdout);
             assert_eq!(stdout.trim(), r#"[45,420,true,5,"clip_mc",true]"#);
         }
+    }
+
+    #[test]
+    fn t410_nested_object_inspection_and_scalar_property_editing_refresh_locals_and_watches() {
+        assert_eq!(parse_debug_scalar_value("42").unwrap(), json!(42));
+        assert_eq!(parse_debug_scalar_value("-3.5").unwrap(), json!(-3.5));
+        assert_eq!(parse_debug_scalar_value("true").unwrap(), json!(true));
+        assert_eq!(parse_debug_scalar_value("false").unwrap(), json!(false));
+        assert_eq!(parse_debug_scalar_value("null").unwrap(), Value::Null);
+        assert_eq!(
+            parse_debug_scalar_value("\"hero_1\"").unwrap(),
+            json!("hero_1")
+        );
+        assert_eq!(
+            parse_debug_scalar_value("'clip\\'s'").unwrap(),
+            json!("clip's")
+        );
+        assert!(parse_debug_scalar_value("").is_err());
+        assert!(parse_debug_scalar_value("{\"x\":1}").is_err());
+        assert!(parse_debug_scalar_value("[1,2]").is_err());
+        assert!(parse_debug_scalar_value("undefined").is_err());
+
+        let mut protocol = connect();
+        protocol.set_watches(vec![WatchRequest::new("hero", "hero")]);
+        // Scope index 0 is `with` (filtered out), scope index 1 is `local` -> scope_number MUST be 1!
+        event(
+            &mut protocol,
+            "Debugger.paused",
+            json!({
+                "reason": "other",
+                "callFrames": [
+                    {
+                        "callFrameId": "cf-0",
+                        "functionName": "tick",
+                        "location": {"scriptId": "script-1", "lineNumber": 2, "columnNumber": 0},
+                        "scopeChain": [
+                            {"type": "with", "object": {"type": "object", "objectId": "scope-with"}},
+                            {"type": "local", "object": {"type": "object", "objectId": "scope-local"}}
+                        ]
+                    },
+                    {
+                        "callFrameId": "cf-1",
+                        "functionName": "outer",
+                        "location": {"scriptId": "script-1", "lineNumber": 2, "columnNumber": 0},
+                        "scopeChain": [
+                            {"type": "local", "object": {"type": "object", "objectId": "scope-outer"}}
+                        ]
+                    }
+                ]
+            }),
+        );
+        let init_cmds = protocol.drain_commands();
+        assert_eq!(init_cmds.len(), 2);
+        reply(
+            &mut protocol,
+            &init_cmds[0],
+            json!({
+                "result": [
+                    {"name": "score", "writable": true, "value": {"type": "number", "value": 10}},
+                    {"name": "hero", "writable": true, "value": {"type": "object", "objectId": "obj-hero", "className": "Object"}},
+                    {"name": "trap", "writable": true, "value": {"type": "object", "subtype": "proxy", "objectId": "obj-proxy"}}
+                ]
+            }),
+        );
+        reply(
+            &mut protocol,
+            &init_cmds[1],
+            json!({"result": {"type": "object", "objectId": "obj-watch-hero", "className": "Object"}}),
+        );
+
+        let insp = protocol.inspection();
+        assert_eq!(insp.locals.len(), 3);
+        assert_eq!(insp.locals[0].scope_number, 1);
+        assert!(insp.locals[0].writable);
+        assert_eq!(insp.locals[1].object_id.as_deref(), Some("obj-hero"));
+        assert_eq!(
+            insp.locals[2].object_id, None,
+            "proxies must never be expandable"
+        );
+        assert_eq!(insp.watches[0].object_id.as_deref(), Some("obj-watch-hero"));
+
+        // Lazy expand `obj-hero`.
+        protocol
+            .command(DebugCommand::InspectObject {
+                object_id: "obj-hero".into(),
+            })
+            .unwrap();
+        let expand_cmds = protocol.drain_commands();
+        assert_eq!(expand_cmds.len(), 1);
+        assert_eq!(expand_cmds[0]["method"], "Runtime.getProperties");
+        assert_eq!(
+            expand_cmds[0]["params"],
+            json!({
+                "objectId": "obj-hero",
+                "ownProperties": true,
+                "accessorPropertiesOnly": false,
+                "generatePreview": true
+            })
+        );
+        reply(
+            &mut protocol,
+            &expand_cmds[0],
+            json!({
+                "result": [
+                    {"name": "x", "writable": true, "value": {"type": "number", "value": 24}},
+                    {"name": "self", "writable": true, "value": {"type": "object", "objectId": "obj-hero"}}
+                ]
+            }),
+        );
+        assert_eq!(
+            protocol.inspection().object_properties["obj-hero"][0].value,
+            "24"
+        );
+
+        // Edit top-level local via Debugger.setVariableValue with exact scopeNumber 1.
+        protocol
+            .command(DebugCommand::SetVariableValue {
+                scope_number: 1,
+                variable_name: "score".into(),
+                new_value: "99".into(),
+            })
+            .unwrap();
+        let var_cmds = protocol.drain_commands();
+        assert_eq!(var_cmds.len(), 1);
+        assert_eq!(var_cmds[0]["method"], "Debugger.setVariableValue");
+        assert_eq!(
+            var_cmds[0]["params"],
+            json!({
+                "scopeNumber": 1,
+                "variableName": "score",
+                "newValue": {"value": 99},
+                "callFrameId": "cf-0"
+            })
+        );
+        reply(&mut protocol, &var_cmds[0], json!({}));
+        // Must immediately refresh scope locals, watches, AND expanded `obj-hero`!
+        let refresh_cmds = protocol.drain_commands();
+        assert_eq!(refresh_cmds.len(), 3);
+        assert_eq!(refresh_cmds[0]["method"], "Runtime.getProperties");
+        assert_eq!(refresh_cmds[1]["method"], "Debugger.evaluateOnCallFrame");
+        assert_eq!(refresh_cmds[2]["method"], "Runtime.getProperties");
+        assert_eq!(refresh_cmds[2]["params"]["objectId"], "obj-hero");
+
+        // Edit nested object property via Runtime.callFunctionOn.
+        protocol
+            .command(DebugCommand::SetPropertyValue {
+                object_id: "obj-hero".into(),
+                property_name: "x".into(),
+                new_value: "128.5".into(),
+            })
+            .unwrap();
+        let prop_cmds = protocol.drain_commands();
+        assert_eq!(prop_cmds.len(), 1);
+        assert_eq!(prop_cmds[0]["method"], "Runtime.callFunctionOn");
+        assert_eq!(
+            prop_cmds[0]["params"],
+            json!({
+                "objectId": "obj-hero",
+                "functionDeclaration": "function(v) { this[\"x\"] = v; }",
+                "arguments": [{"value": 128.5}],
+                "silent": true,
+                "returnByValue": true
+            })
+        );
+        reply(
+            &mut protocol,
+            &prop_cmds[0],
+            json!({"result": {"type": "number", "value": 128.5}}),
+        );
+        let prop_refresh = protocol.drain_commands();
+        assert_eq!(prop_refresh.len(), 3);
+
+        // Switching call frames clears cached expanded object properties cleanly.
+        reply(
+            &mut protocol,
+            &prop_refresh[2],
+            json!({"result": [{"name": "x", "writable": true, "value": {"type": "number", "value": 128.5}}]}),
+        );
+        assert!(
+            protocol
+                .inspection()
+                .object_properties
+                .contains_key("obj-hero")
+        );
+        protocol.command(DebugCommand::SelectFrame(1)).unwrap();
+        assert!(protocol.inspection().object_properties.is_empty());
     }
 }

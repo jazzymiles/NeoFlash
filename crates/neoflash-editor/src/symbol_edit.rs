@@ -313,6 +313,31 @@ impl Editor {
         self.edit_session.current_matrix(&self.project)
     }
 
+    pub(crate) fn edit_stage_mapping(
+        &self,
+    ) -> Result<crate::stage_mapping::StageMapping, SymbolEditError> {
+        crate::stage_mapping::StageMapping::try_new(self.edit_local_to_context_matrix()?).map_err(
+            |err| match err {
+                crate::stage_mapping::StageMappingError::NonFinite => {
+                    SymbolEditError::InvalidPlacementTransform
+                }
+                crate::stage_mapping::StageMappingError::Singular => {
+                    SymbolEditError::SingularPlacement
+                }
+            },
+        )
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn edit_local_to_stage(&self, local: [f64; 2]) -> Result<[f64; 2], SymbolEditError> {
+        Ok(self.edit_stage_mapping()?.local_to_stage(local))
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn edit_stage_to_local(&self, stage: [f64; 2]) -> Result<[f64; 2], SymbolEditError> {
+        Ok(self.edit_stage_mapping()?.stage_to_local(stage))
+    }
+
     pub(crate) fn resolved_edit_matrices(&self) -> Result<Vec<[f64; 6]>, SymbolEditError> {
         self.edit_session.resolved_matrices(&self.project)
     }

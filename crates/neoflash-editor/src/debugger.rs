@@ -1,9 +1,9 @@
 //! Test Movie debugger lifecycle. Authored documents never store debugger state.
 use crate::app::{Editor, ScriptTarget};
 use crate::debugger_protocol::{
-    AuthoredBreakpoint, AuthoredLocation, DebugCommand, DebugOutputKind, DebugProtocol,
-    DebugSnapshot, DebugSource, DebugState, DebugWatchResult, WatchRequest,
-    compile_watch_expression,
+    AuthoredBreakpoint, AuthoredLocation, DebugCommand, DebugInspection, DebugOutputKind,
+    DebugProtocol, DebugSnapshot, DebugSource, DebugState, DebugWatchResult, WatchRequest,
+    compile_watch_expression, parse_debug_scalar_value,
 };
 use crate::debugger_sources::{ScriptOrigin, read_export_sources};
 use crate::debugger_transport::{BrowserPipe, browser_executable, file_url, private_directory};
@@ -12,6 +12,7 @@ use crate::panels::actions_sidebar::ScriptLocation;
 use crate::workspace::PanelId;
 use eframe::egui;
 use neoflash_core::{Project, Script};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc, Mutex,
@@ -20,6 +21,26 @@ use std::sync::{
 };
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum DebugEditTarget {
+    ScopeVariable {
+        scope_number: usize,
+        variable_name: String,
+    },
+    ObjectProperty {
+        object_id: String,
+        property_name: String,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct DebugInlineEdit {
+    pub row_key: String,
+    pub target: DebugEditTarget,
+    pub draft: String,
+    pub focus: bool,
+}
 
 #[derive(Default)]
 pub(crate) struct Debugger {
@@ -35,6 +56,10 @@ pub(crate) struct Debugger {
     last_navigated_pause: Option<(u64, Option<usize>, Option<AuthoredLocation>)>,
     export_directory: Option<PathBuf>,
     pub(crate) startup_status: Option<DebuggerStartupStatus>,
+    expanded_paths: BTreeSet<String>,
+    requested_object_ids: BTreeSet<(u64, String)>,
+    last_pause_epoch: u64,
+    pub(crate) inline_edit: Option<DebugInlineEdit>,
 }
 
 /// Presentation only: these failures occur before any debug session exists.
@@ -55,6 +80,7 @@ impl DebuggerStartupStatus {
 struct DebugSession {
     snapshot: Arc<Mutex<DebugSnapshot>>,
     watch_results: Arc<Mutex<Vec<DebugWatchResult>>>,
+    inspection: Arc<Mutex<DebugInspection>>,
     commands: mpsc::SyncSender<DebugCommand>,
     stop: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
@@ -84,6 +110,8 @@ impl DebugSession {
         let shared = Arc::clone(&snapshot);
         let watch_results = Arc::new(Mutex::new(protocol.watch_results()));
         let shared_watches = Arc::clone(&watch_results);
+        let inspection = Arc::new(Mutex::new(protocol.inspection()));
+        let shared_inspection = Arc::clone(&inspection);
         let stop = Arc::new(AtomicBool::new(false));
         let stopping = Arc::clone(&stop);
         let (commands, receiver) = mpsc::sync_channel(64);
@@ -128,6 +156,7 @@ impl DebugSession {
                         }
                         let next = protocol.snapshot();
                         let next_watches = protocol.watch_results();
+                        let next_inspection = protocol.inspection();
                         let terminal =
                             matches!(next.state, DebugState::Disconnected | DebugState::Failed);
                         let mut changed = false;
@@ -135,6 +164,12 @@ impl DebugSession {
                             && *watches != next_watches
                         {
                             *watches = next_watches;
+                            changed = true;
+                        }
+                        if let Ok(mut insp) = shared_inspection.lock()
+                            && *insp != next_inspection
+                        {
+                            *insp = next_inspection;
                             changed = true;
                         }
                         if let Ok(mut snapshot) = shared.lock()
@@ -163,6 +198,9 @@ impl DebugSession {
                 if let Ok(mut watches) = shared_watches.lock() {
                     *watches = protocol.watch_results();
                 }
+                if let Ok(mut insp) = shared_inspection.lock() {
+                    *insp = protocol.inspection();
+                }
                 if let Ok(mut snapshot) = shared.lock() {
                     *snapshot = protocol.snapshot();
                 }
@@ -172,6 +210,7 @@ impl DebugSession {
         Ok(Self {
             snapshot,
             watch_results,
+            inspection,
             commands,
             stop,
             worker: Some(worker),
@@ -204,6 +243,53 @@ impl Debugger {
             .and_then(|session| session.watch_results.lock().ok())
             .map(|w| w.clone())
             .unwrap_or_default()
+    }
+    pub(crate) fn inspection(&self) -> DebugInspection {
+        self.session
+            .as_ref()
+            .and_then(|session| session.inspection.lock().ok())
+            .map(|insp| insp.clone())
+            .unwrap_or_default()
+    }
+    pub(crate) fn is_tree_expanded(&self, row_key: &str) -> bool {
+        self.expanded_paths.contains(row_key)
+    }
+    pub(crate) fn toggle_tree_expanded(&mut self, row_key: &str) -> bool {
+        if self.expanded_paths.remove(row_key) {
+            if self
+                .inline_edit
+                .as_ref()
+                .is_some_and(|e| e.row_key.starts_with(row_key))
+            {
+                self.inline_edit = None;
+            }
+            false
+        } else {
+            self.expanded_paths.insert(row_key.to_owned());
+            true
+        }
+    }
+    pub(crate) fn sync_ui_pause_state(
+        &mut self,
+        paused: bool,
+        pause_epoch: u64,
+        pause_generation: u64,
+    ) {
+        if !paused {
+            self.requested_object_ids.clear();
+            self.inline_edit = None;
+            return;
+        }
+        if pause_epoch != self.last_pause_epoch {
+            self.last_pause_epoch = pause_epoch;
+            self.inline_edit = None;
+        }
+        self.requested_object_ids
+            .retain(|(generation, _)| *generation == pause_generation);
+    }
+    pub(crate) fn mark_object_requested(&mut self, pause_generation: u64, object_id: &str) -> bool {
+        self.requested_object_ids
+            .insert((pause_generation, object_id.to_owned()))
     }
     #[cfg(test)]
     pub(crate) fn set_test_watch_results(&self, results: Vec<DebugWatchResult>) {
@@ -245,6 +331,7 @@ impl Debugger {
         self.session = Some(DebugSession {
             snapshot,
             watch_results: Arc::new(Mutex::new(Vec::new())),
+            inspection: Arc::new(Mutex::new(DebugInspection::default())),
             commands,
             stop: Arc::new(AtomicBool::new(false)),
             worker: None,
@@ -260,6 +347,10 @@ impl Debugger {
         self.last_output_seq = 0;
         self.last_navigated_pause = None;
         self.startup_status = None;
+        self.expanded_paths.clear();
+        self.requested_object_ids.clear();
+        self.last_pause_epoch = 0;
+        self.inline_edit = None;
         if let Some(directory) = self.export_directory.take() {
             let _ = std::fs::remove_dir_all(directory);
         }
@@ -458,6 +549,13 @@ impl Editor {
     }
 
     pub(crate) fn poll_debugger(&mut self, ctx: &egui::Context) {
+        if !cfg!(test)
+            && std::env::var_os("NEOFLASH_SCREENSHOT").is_some()
+            && std::env::var("NEOFLASH_SCREENSHOT_DEBUGGER").as_deref() == Ok("paused")
+            && self.debugger.session.is_none()
+        {
+            self.install_screenshot_paused_debugger();
+        }
         if self
             .debugger
             .project
@@ -756,6 +854,247 @@ impl Editor {
         }
     }
 
+    pub(crate) fn ensure_debug_object_inspected(
+        &mut self,
+        pause_generation: u64,
+        object_id: &str,
+        already_loaded: bool,
+    ) {
+        if !already_loaded
+            && self
+                .debugger
+                .mark_object_requested(pause_generation, object_id)
+        {
+            let _ = self.debug_command(DebugCommand::InspectObject {
+                object_id: object_id.to_owned(),
+            });
+        }
+    }
+
+    pub(crate) fn commit_debug_inline_edit(&mut self, edit: DebugInlineEdit) -> bool {
+        if let Err(reason) = parse_debug_scalar_value(&edit.draft) {
+            self.message_event(OutputSeverity::Error, OutputSource::Debugger, reason, None);
+            return false;
+        }
+        match edit.target {
+            DebugEditTarget::ScopeVariable {
+                scope_number,
+                variable_name,
+            } => self.debug_command(DebugCommand::SetVariableValue {
+                scope_number,
+                variable_name,
+                new_value: edit.draft,
+            }),
+            DebugEditTarget::ObjectProperty {
+                object_id,
+                property_name,
+            } => self.debug_command(DebugCommand::SetPropertyValue {
+                object_id,
+                property_name,
+                new_value: edit.draft,
+            }),
+        }
+    }
+
+    fn install_screenshot_paused_debugger(&mut self) {
+        use crate::debugger_protocol::{
+            DebugFrame, DebugInspectableLocal, DebugInspectableWatch, DebugLocal,
+            DebugObjectProperty,
+        };
+        let mut snapshot =
+            DebugProtocol::new("file:///screenshot.html".into(), vec![], vec![]).snapshot();
+        snapshot.state = DebugState::Paused;
+        snapshot.reason = "breakpoint".into();
+        snapshot.frames = vec![
+            DebugFrame {
+                function_name: "stepHero".into(),
+                location: Some(AuthoredLocation {
+                    source: "Scene 1 · Frame 12".into(),
+                    line: 18,
+                    column: 5,
+                }),
+                generated_url: "project.js".into(),
+                generated_line: 42,
+                generated_column: 5,
+            },
+            DebugFrame {
+                function_name: "onEnterFrame".into(),
+                location: Some(AuthoredLocation {
+                    source: "Scene 1 · Frame 1".into(),
+                    line: 6,
+                    column: 1,
+                }),
+                generated_url: "project.js".into(),
+                generated_line: 14,
+                generated_column: 1,
+            },
+        ];
+        snapshot.selected_frame = Some(0);
+        snapshot.locals = vec![
+            DebugLocal {
+                scope: "local".into(),
+                name: "score".into(),
+                value: "1250".into(),
+                kind: "number".into(),
+                accessor: false,
+            },
+            DebugLocal {
+                scope: "local".into(),
+                name: "hero".into(),
+                value: "{ name: \"astro\", pos: { x: 240, y: 180 }, active: true }".into(),
+                kind: "object".into(),
+                accessor: false,
+            },
+        ];
+        let mut object_properties = std::collections::BTreeMap::new();
+        object_properties.insert(
+            "obj-hero".into(),
+            vec![
+                DebugObjectProperty {
+                    name: "name".into(),
+                    value: "\"astro\"".into(),
+                    kind: "string".into(),
+                    subtype: None,
+                    object_id: None,
+                    accessor: false,
+                    writable: true,
+                },
+                DebugObjectProperty {
+                    name: "pos".into(),
+                    value: "{ x: 240, y: 180 }".into(),
+                    kind: "object".into(),
+                    subtype: None,
+                    object_id: Some("obj-pos".into()),
+                    accessor: false,
+                    writable: false,
+                },
+                DebugObjectProperty {
+                    name: "active".into(),
+                    value: "true".into(),
+                    kind: "boolean".into(),
+                    subtype: None,
+                    object_id: None,
+                    accessor: false,
+                    writable: true,
+                },
+            ],
+        );
+        object_properties.insert(
+            "obj-pos".into(),
+            vec![
+                DebugObjectProperty {
+                    name: "x".into(),
+                    value: "240".into(),
+                    kind: "number".into(),
+                    subtype: None,
+                    object_id: None,
+                    accessor: false,
+                    writable: true,
+                },
+                DebugObjectProperty {
+                    name: "y".into(),
+                    value: "180".into(),
+                    kind: "number".into(),
+                    subtype: None,
+                    object_id: None,
+                    accessor: false,
+                    writable: true,
+                },
+            ],
+        );
+        object_properties.insert(
+            "obj-waypoints".into(),
+            vec![
+                DebugObjectProperty {
+                    name: "0".into(),
+                    value: "120".into(),
+                    kind: "number".into(),
+                    subtype: None,
+                    object_id: None,
+                    accessor: false,
+                    writable: true,
+                },
+                DebugObjectProperty {
+                    name: "1".into(),
+                    value: "240".into(),
+                    kind: "number".into(),
+                    subtype: None,
+                    object_id: None,
+                    accessor: false,
+                    writable: true,
+                },
+            ],
+        );
+        let inspection = DebugInspection {
+            pause_epoch: 1,
+            pause_generation: 1,
+            locals: vec![
+                DebugInspectableLocal {
+                    scope_number: 0,
+                    scope: "local".into(),
+                    name: "score".into(),
+                    value: "1250".into(),
+                    kind: "number".into(),
+                    subtype: None,
+                    object_id: None,
+                    accessor: false,
+                    writable: true,
+                },
+                DebugInspectableLocal {
+                    scope_number: 0,
+                    scope: "local".into(),
+                    name: "hero".into(),
+                    value: "{ name: \"astro\", pos: { x: 240, y: 180 }, active: true }".into(),
+                    kind: "object".into(),
+                    subtype: None,
+                    object_id: Some("obj-hero".into()),
+                    accessor: false,
+                    writable: false,
+                },
+            ],
+            watches: vec![DebugInspectableWatch {
+                index: 0,
+                expression: "waypoints".into(),
+                object_id: Some("obj-waypoints".into()),
+            }],
+            object_properties,
+        };
+        if self.debugger_watches().is_empty() {
+            self.add_debugger_watch("waypoints");
+        }
+        let watches = vec![DebugWatchResult {
+            expression: "waypoints".into(),
+            value: "[120, 240]".into(),
+            is_error: false,
+        }];
+        let (commands, _rx) = mpsc::sync_channel(8);
+        self.debugger.breakpoints = vec![AuthoredBreakpoint {
+            source: "Scene 1 · Frame 12".into(),
+            line: 18,
+            column: None,
+        }];
+        self.debugger
+            .expanded_paths
+            .insert("frame:0:local:0:hero".into());
+        self.debugger
+            .expanded_paths
+            .insert("frame:0:local:0:hero.pos".into());
+        self.debugger
+            .expanded_paths
+            .insert("watch:0:waypoints".into());
+        self.debugger.last_pause_epoch = 1;
+        self.debugger.project = Some(self.project.clone());
+        self.debugger.session = Some(DebugSession {
+            snapshot: Arc::new(Mutex::new(snapshot)),
+            watch_results: Arc::new(Mutex::new(watches)),
+            inspection: Arc::new(Mutex::new(inspection)),
+            commands,
+            stop: Arc::new(AtomicBool::new(false)),
+            worker: None,
+            errors: Arc::new(Mutex::new(Vec::new())),
+        });
+    }
+
     fn debug_source_at_caret(&self, ctx: &egui::Context) -> Option<AuthoredBreakpoint> {
         let (source, name) = if self.script_target == ScriptTarget::Source {
             let unit = self
@@ -995,6 +1334,7 @@ mod tests {
             editor.debugger.session = Some(DebugSession {
                 snapshot: Arc::new(Mutex::new(snapshot)),
                 watch_results: Arc::new(Mutex::new(vec![])),
+                inspection: Arc::new(Mutex::new(DebugInspection::default())),
                 commands,
                 stop: Arc::new(AtomicBool::new(false)),
                 worker: None,
@@ -1036,6 +1376,7 @@ mod tests {
         editor.debugger.session = Some(DebugSession {
             snapshot: Arc::new(Mutex::new(snapshot)),
             watch_results: Arc::new(Mutex::new(vec![])),
+            inspection: Arc::new(Mutex::new(DebugInspection::default())),
             commands,
             stop: Arc::new(AtomicBool::new(false)),
             worker: None,
@@ -1104,6 +1445,7 @@ mod tests {
             editor.debugger.session = Some(DebugSession {
                 snapshot: shared.clone(),
                 watch_results: Arc::new(Mutex::new(vec![])),
+                inspection: Arc::new(Mutex::new(DebugInspection::default())),
                 commands,
                 stop: Arc::new(AtomicBool::new(false)),
                 worker: None,
@@ -1465,6 +1807,7 @@ mod tests {
                 DebugProtocol::new("file:///fixture.html".into(), vec![], vec![]).snapshot(),
             )),
             watch_results: Arc::new(Mutex::new(vec![])),
+            inspection: Arc::new(Mutex::new(DebugInspection::default())),
             commands,
             stop: Arc::new(AtomicBool::new(false)),
             worker: None,
@@ -1699,6 +2042,7 @@ mod tests {
         editor.debugger.session = Some(DebugSession {
             snapshot: shared.clone(),
             watch_results: Arc::new(Mutex::new(vec![])),
+            inspection: Arc::new(Mutex::new(DebugInspection::default())),
             commands,
             stop: Arc::new(AtomicBool::new(false)),
             worker: None,
@@ -2004,5 +2348,564 @@ mod tests {
         editor.debugger.stop();
         editor.refresh_debugger_watches();
         assert_eq!(editor.debugger_watches()[0].last_value, "25");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn t410_debugger_nested_tree_expansion_cycle_safety_and_property_editing() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut project = Project::blank();
+        project.script_language = Some(ScriptLanguage::JavaScript);
+        let mut editor = Editor::from_project(&ctx, project);
+        editor.add_debugger_watch("items");
+        editor.add_debugger_watch("hero.x + score");
+
+        let fixture = StartupFixture(private_directory().unwrap());
+        let executable = fixture.0.join("mock-cdp-browser");
+        let index = fixture.0.join("index.html");
+        let log_path = fixture.0.join("cdp_log.jsonl");
+        std::fs::write(&index, "<!doctype html>").unwrap();
+        let mock_py = r#"#!/usr/bin/env python3
+import json, os, re, sys
+
+inp = os.fdopen(3, "rb", buffering=0)
+out = os.fdopen(4, "wb", buffering=0)
+log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cdp_log.jsonl")
+
+state = {
+    "step": 1,
+    "score": 10,
+    "caller_val": 77,
+    "objects": {
+        "obj-hero": {"x": 24, "flag": False, "label": "ship", "note": "init", "self": ("ref", "obj-hero"), "d1": ("ref", "obj-d1")},
+        "obj-d1": {"d2": ("ref", "obj-d2")},
+        "obj-d2": {"d3": ("ref", "obj-d3")},
+        "obj-d3": {"d4": ("ref", "obj-d4")},
+        "obj-d4": {"d5": ("ref", "obj-d5")},
+        "obj-d5": {"d6": ("ref", "obj-d6")},
+        "obj-d6": {"d7": ("ref", "obj-d7"), "leaf": 6},
+        "obj-d7": {"deep": 7},
+        "obj-items": {"0": 5, "1": 8},
+        "obj-hero-step2": {"x": 500, "flag": True, "label": "next", "note": None},
+    },
+}
+
+def send(msg):
+    out.write(json.dumps(msg).encode("utf-8") + b"\x00")
+
+def log_cmd(msg):
+    with open(log_file, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(msg) + "\n")
+
+def encode_remote(val):
+    if isinstance(val, tuple) and val[0] == "ref":
+        oid = val[1]
+        if oid == "obj-items":
+            d = state["objects"][oid]
+            return {
+                "type": "object",
+                "subtype": "array",
+                "objectId": oid,
+                "description": "Array(2)",
+                "preview": {
+                    "type": "object",
+                    "subtype": "array",
+                    "description": "Array(2)",
+                    "overflow": False,
+                    "properties": [
+                        {"name": "0", "type": "number", "value": str(d["0"])},
+                        {"name": "1", "type": "number", "value": str(d["1"])},
+                    ],
+                },
+            }
+        return {"type": "object", "objectId": oid, "className": "Object"}
+    if val is None:
+        return {"type": "object", "subtype": "null", "value": None}
+    if isinstance(val, bool):
+        return {"type": "boolean", "value": val}
+    if isinstance(val, (int, float)):
+        return {"type": "number", "value": val}
+    return {"type": "string", "value": str(val)}
+
+def emit_paused():
+    hero_oid = "obj-hero" if state["step"] == 1 else "obj-hero-step2"
+    send({
+        "method": "Debugger.paused",
+        "sessionId": "sess-1",
+        "params": {
+            "reason": "other",
+            "callFrames": [
+                {
+                    "callFrameId": f"cf-0-{state['step']}",
+                    "functionName": "tick",
+                    "location": {"scriptId": "s-1", "lineNumber": state["step"], "columnNumber": 0},
+                    "scopeChain": [
+                        {"type": "with", "object": {"type": "object", "objectId": "scope-with"}},
+                        {"type": "local", "object": {"type": "object", "objectId": f"scope-local-{hero_oid}"}},
+                    ],
+                },
+                {
+                    "callFrameId": f"cf-1-{state['step']}",
+                    "functionName": "main",
+                    "location": {"scriptId": "s-1", "lineNumber": 0, "columnNumber": 0},
+                    "scopeChain": [
+                        {"type": "local", "object": {"type": "object", "objectId": "scope-caller"}},
+                    ],
+                },
+            ],
+        },
+    })
+
+buf = b""
+while True:
+    chunk = inp.read(4096)
+    if not chunk:
+        break
+    buf += chunk
+    while b"\x00" in buf:
+        raw, buf = buf.split(b"\x00", 1)
+        if not raw:
+            continue
+        msg = json.loads(raw.decode("utf-8"))
+        mid = msg.get("id")
+        method = msg.get("method")
+        params = msg.get("params") or {}
+        if method == "Target.createTarget":
+            send({"id": mid, "result": {"targetId": "t-1"}})
+        elif method == "Target.attachToTarget":
+            send({"id": mid, "result": {"sessionId": "sess-1"}})
+        elif method in ("Runtime.enable", "Debugger.enable", "Page.enable", "Debugger.setBlackboxPatterns", "Debugger.setInstrumentationBreakpoint"):
+            send({"id": mid, "result": {}})
+        elif method == "Page.navigate":
+            send({"id": mid, "result": {"frameId": "f-1"}})
+            emit_paused()
+        elif method == "Runtime.getProperties":
+            log_cmd({"method": method, "params": params})
+            oid = params.get("objectId", "")
+            if oid.startswith("scope-local-"):
+                hero_oid = oid[len("scope-local-"):]
+                props = [
+                    {"name": "score", "writable": True, "value": encode_remote(state["score"])},
+                    {"name": "hero", "writable": True, "value": encode_remote(("ref", hero_oid))},
+                ]
+            elif oid == "scope-caller":
+                props = [
+                    {"name": "callerVal", "writable": True, "value": encode_remote(state["caller_val"])},
+                ]
+            else:
+                obj = state["objects"].get(oid, {})
+                props = [
+                    {"name": k, "writable": True, "value": encode_remote(v)}
+                    for k, v in obj.items()
+                ]
+            send({"id": mid, "result": {"result": props}})
+        elif method == "Debugger.evaluateOnCallFrame":
+            expr = params.get("expression", "")
+            hero_oid = "obj-hero" if state["step"] == 1 else "obj-hero-step2"
+            if expr == "items":
+                send({"id": mid, "result": {"result": encode_remote(("ref", "obj-items"))}})
+            elif expr == "hero.x + score":
+                total = state["objects"][hero_oid]["x"] + state["score"]
+                send({"id": mid, "result": {"result": encode_remote(total)}})
+            else:
+                send({"id": mid, "result": {"result": {"type": "undefined"}}})
+        elif method == "Debugger.setVariableValue":
+            log_cmd({"method": method, "params": params})
+            if params.get("scopeNumber") == 1 and params.get("variableName") == "score":
+                state["score"] = params["newValue"]["value"]
+            send({"id": mid, "result": {}})
+        elif method == "Runtime.callFunctionOn":
+            log_cmd({"method": method, "params": params})
+            oid = params.get("objectId", "")
+            decl = params.get("functionDeclaration", "")
+            m = re.search(r'this\[("(?:\\.|[^"])*")\]\s*=\s*v;', decl)
+            if m and oid in state["objects"]:
+                prop_name = json.loads(m.group(1))
+                state["objects"][oid][prop_name] = params["arguments"][0]["value"]
+            send({"id": mid, "result": {"result": {"type": "undefined"}}})
+        elif method == "Debugger.stepOver":
+            send({"id": mid, "result": {}})
+            send({"method": "Debugger.resumed", "sessionId": "sess-1", "params": {}})
+            state["step"] += 1
+            emit_paused()
+        elif method == "Debugger.resume":
+            send({"id": mid, "result": {}})
+            send({"method": "Debugger.resumed", "sessionId": "sess-1", "params": {}})
+"#;
+        std::fs::write(&executable, mock_py).unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        let initial_watches = editor.build_debug_watch_requests();
+        editor.debugger.project = Some(editor.project.clone());
+        editor.debugger.session = Some(
+            DebugSession::launch(
+                executable,
+                &index,
+                vec![],
+                vec![],
+                initial_watches,
+                ctx.clone(),
+            )
+            .unwrap(),
+        );
+
+        let wait_until = |ed: &mut Editor, pred: &dyn Fn(&Editor) -> bool, desc: &str| {
+            let deadline = Instant::now() + Duration::from_secs(4);
+            while Instant::now() < deadline {
+                ed.poll_debugger(&ctx);
+                if pred(ed) {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            panic!("timed out waiting for {desc}");
+        };
+
+        let render_panel = |ed: &mut Editor, events: Vec<egui::Event>| -> egui::FullOutput {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1400.0, 720.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    ed.poll_debugger(ctx);
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        let _ = ed.debugger_contents(ui);
+                    });
+                },
+            )
+        };
+
+        let text_center = |out: &egui::FullOutput, needle: &str| -> Option<egui::Pos2> {
+            out.shapes.iter().find_map(|s| match &s.shape {
+                egui::Shape::Text(t) if t.galley.job.text == needle => {
+                    let rect = egui::Rect::from_min_size(t.pos, t.galley.size());
+                    Some(rect.center())
+                }
+                _ => None,
+            })
+        };
+
+        let all_texts = |out: &egui::FullOutput| -> Vec<String> {
+            out.shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::Text(t) => Some(t.galley.job.text.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        let click_pos = |ed: &mut Editor, pos: egui::Pos2| {
+            let _ = render_panel(
+                ed,
+                vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+            let _ = render_panel(
+                ed,
+                vec![egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+        };
+
+        // 1. Wait until paused with top-level Locals & Watches populated; no lazy child fetches yet!
+        wait_until(
+            &mut editor,
+            &|ed| {
+                ed.debugger.inspection().locals.len() == 2
+                    && ed.debugger_watches().len() == 2
+                    && ed.debugger_watches()[1].last_value == "34"
+            },
+            "initial paused locals and watches",
+        );
+        assert!(editor.debugger.inspection().object_properties.is_empty());
+
+        let out = render_panel(&mut editor, vec![]);
+        let texts = all_texts(&out);
+        assert!(texts.iter().any(|t| t == "score"));
+        assert!(texts.iter().any(|t| t == "▸ hero"));
+        assert!(texts.iter().any(|t| t == "▸ items"));
+
+        // 2. Click `▸ hero` in Locals AND `▸ items` in Watch -> lazy Runtime.getProperties!
+        let hero_pos = text_center(&out, "▸ hero").expect("`▸ hero` row visible");
+        click_pos(&mut editor, hero_pos);
+        let _ = render_panel(&mut editor, vec![]);
+        wait_until(
+            &mut editor,
+            &|ed| {
+                ed.debugger
+                    .inspection()
+                    .object_properties
+                    .contains_key("obj-hero")
+            },
+            "obj-hero Runtime.getProperties",
+        );
+
+        let out = render_panel(&mut editor, vec![]);
+        let items_pos = text_center(&out, "▸ items").expect("`▸ items` watch row visible");
+        click_pos(&mut editor, items_pos);
+        let _ = render_panel(&mut editor, vec![]);
+        wait_until(
+            &mut editor,
+            &|ed| {
+                ed.debugger
+                    .inspection()
+                    .object_properties
+                    .contains_key("obj-items")
+            },
+            "obj-items Runtime.getProperties",
+        );
+
+        let out = render_panel(&mut editor, vec![]);
+        let texts = all_texts(&out);
+        assert!(texts.iter().any(|t| t == "▾ hero"));
+        assert!(texts.iter().any(|t| t == "    x"));
+        assert!(
+            texts.iter().any(|t| t == "    self"),
+            "cycle child visible as leaf"
+        );
+        assert!(
+            texts.iter().any(|t| t.starts_with("<circular>")),
+            "cyclic objectId marked <circular> without expandable chevron"
+        );
+        assert!(texts.iter().any(|t| t == "▾ items"));
+        assert!(texts.iter().any(|t| t == "    0"));
+
+        // 3. Expand d1..d5 to verify bounded depth up to 6 levels (`d6` is depth 6, so `d7` at depth 7 is NOT expandable).
+        for (depth, name, oid) in [
+            (1usize, "d1", "obj-d1"),
+            (2, "d2", "obj-d2"),
+            (3, "d3", "obj-d3"),
+            (4, "d4", "obj-d4"),
+            (5, "d5", "obj-d5"),
+        ] {
+            let out = render_panel(&mut editor, vec![]);
+            let label = format!("{}▸ {name}", "  ".repeat(depth));
+            let pos = text_center(&out, &label).unwrap_or_else(|| panic!("missing `{label}`"));
+            click_pos(&mut editor, pos);
+            let _ = render_panel(&mut editor, vec![]);
+            wait_until(
+                &mut editor,
+                &|ed| ed.debugger.inspection().object_properties.contains_key(oid),
+                oid,
+            );
+        }
+        let out = render_panel(&mut editor, vec![]);
+        let texts = all_texts(&out);
+        // Depth 6 (`d6` under `d5`) is rendered as non-expandable (`  d6` instead of `▸ d6`) so depth never exceeds 6!
+        assert!(
+            texts
+                .iter()
+                .any(|t| t == &format!("{}  d6", "  ".repeat(6)))
+        );
+        assert!(
+            !texts
+                .iter()
+                .any(|t| t == &format!("{}▸ d6", "  ".repeat(6)))
+        );
+
+        // 4. Inline edit top-level local `score` -> 100 via Debugger.setVariableValue!
+        let score_pos = text_center(&out, "score").expect("`score` row visible");
+        click_pos(&mut editor, score_pos);
+        let _ = render_panel(&mut editor, vec![]); // grants focus
+        let _ = render_panel(
+            &mut editor,
+            vec![
+                egui::Event::Text("100".into()),
+                egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        wait_until(
+            &mut editor,
+            &|ed| ed.debugger_watches()[1].last_value == "124",
+            "watch refresh after Debugger.setVariableValue",
+        );
+
+        // 5. Inline edit expanded nested object property `hero.x` -> 200 via Runtime.callFunctionOn,
+        //    plus boolean (`true`), string (`"booster"`), null (`null`), and Watch array element `items[0]` -> 42!
+        let out = render_panel(&mut editor, vec![]);
+        let x_pos = text_center(&out, "    x").expect("`    x` child row visible");
+        click_pos(&mut editor, x_pos);
+        let _ = render_panel(&mut editor, vec![]);
+        let _ = render_panel(
+            &mut editor,
+            vec![
+                egui::Event::Text("200".into()),
+                egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        wait_until(
+            &mut editor,
+            &|ed| {
+                ed.debugger_watches()[1].last_value == "300"
+                    && ed
+                        .debugger
+                        .inspection()
+                        .object_properties
+                        .get("obj-hero")
+                        .and_then(|p| p.iter().find(|i| i.name == "x"))
+                        .is_some_and(|i| i.value == "200")
+            },
+            "Locals + Watch + expanded subtree refresh after Runtime.callFunctionOn(number)",
+        );
+
+        for (prop_label, literal, expected_display) in [
+            ("    flag", "true", "true"),
+            ("    label", "\"booster\"", "\"booster\""),
+            ("    note", "null", "null"),
+        ] {
+            let out = render_panel(&mut editor, vec![]);
+            let pos =
+                text_center(&out, prop_label).unwrap_or_else(|| panic!("missing {prop_label}"));
+            click_pos(&mut editor, pos);
+            let _ = render_panel(&mut editor, vec![]);
+            let _ = render_panel(
+                &mut editor,
+                vec![
+                    egui::Event::Text(literal.into()),
+                    egui::Event::Key {
+                        key: egui::Key::Enter,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+            let prop_name = prop_label.trim();
+            wait_until(
+                &mut editor,
+                &|ed| {
+                    ed.debugger
+                        .inspection()
+                        .object_properties
+                        .get("obj-hero")
+                        .and_then(|p| p.iter().find(|i| i.name == prop_name))
+                        .is_some_and(|i| i.value == expected_display)
+                },
+                prop_name,
+            );
+        }
+
+        // Also edit expanded Watch array child `items[0]` -> 42!
+        let out = render_panel(&mut editor, vec![]);
+        let item0_pos = text_center(&out, "    0").expect("Watch child `    0` visible");
+        click_pos(&mut editor, item0_pos);
+        let _ = render_panel(&mut editor, vec![]);
+        let _ = render_panel(
+            &mut editor,
+            vec![
+                egui::Event::Text("42".into()),
+                egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        wait_until(
+            &mut editor,
+            &|ed| ed.debugger_watches()[0].last_value == "[42, 8]",
+            "Watch array refresh after editing items[0]",
+        );
+
+        // Verify exact wire commands logged by the loopback CDP pipe!
+        let log_raw = std::fs::read_to_string(&log_path).unwrap();
+        assert!(log_raw.contains("\"Runtime.getProperties\""));
+        assert!(log_raw.contains("\"ownProperties\": true"));
+        assert!(log_raw.contains("\"accessorPropertiesOnly\": false"));
+        assert!(log_raw.contains("\"generatePreview\": true"));
+        assert!(log_raw.contains("\"Debugger.setVariableValue\""));
+        assert!(log_raw.contains("\"Runtime.callFunctionOn\""));
+        assert!(log_raw.contains("function(v) { this[\\\"x\\\"] = v; }"));
+
+        // 6. StepOver clears pause-1 `obj-hero` and cleanly re-fetches `obj-hero-step2` (`x = 500`)!
+        assert!(editor.debug_command(DebugCommand::StepOver));
+        wait_until(
+            &mut editor,
+            &|ed| {
+                !ed.debugger
+                    .inspection()
+                    .object_properties
+                    .contains_key("obj-hero")
+                    && ed.debugger_watches()[1].last_value == "600"
+            },
+            "step clears stale objectId",
+        );
+        let _ = render_panel(&mut editor, vec![]);
+        wait_until(
+            &mut editor,
+            &|ed| {
+                ed.debugger
+                    .inspection()
+                    .object_properties
+                    .get("obj-hero-step2")
+                    .and_then(|p| p.iter().find(|i| i.name == "x"))
+                    .is_some_and(|i| i.value == "500")
+            },
+            "step re-fetches new pause objectId",
+        );
+
+        // 7. Call-frame switch (`SelectFrame(1)`) & `Resume` clear stale object properties cleanly!
+        assert!(editor.debug_command(DebugCommand::SelectFrame(1)));
+        wait_until(
+            &mut editor,
+            &|ed| {
+                ed.debugger
+                    .inspection()
+                    .locals
+                    .iter()
+                    .any(|l| l.name == "callerVal")
+                    && !ed
+                        .debugger
+                        .inspection()
+                        .object_properties
+                        .contains_key("obj-hero-step2")
+            },
+            "SelectFrame(1) clears frame-0 object properties",
+        );
+        assert!(editor.debug_command(DebugCommand::Resume));
+        wait_until(
+            &mut editor,
+            &|ed| {
+                ed.debugger
+                    .snapshot()
+                    .is_some_and(|s| s.state == DebugState::Running)
+                    && ed.debugger.inspection().object_properties.is_empty()
+            },
+            "Resume clears paused inspection",
+        );
+        editor.debugger.stop();
     }
 }

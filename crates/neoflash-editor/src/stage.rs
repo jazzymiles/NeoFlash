@@ -158,16 +158,26 @@ pub(crate) fn affine(m: [f64; 6], p: Pos2) -> Pos2 {
     )
 }
 pub(crate) fn inverse(m: [f64; 6], p: Pos2) -> Option<Pos2> {
-    let d = m[0] * m[3] - m[1] * m[2];
-    if d.abs() < 1e-10 {
+    if !p.is_finite() || m.iter().any(|v| !v.is_finite()) {
         return None;
     }
-    let x = p.x as f64 - m[4];
-    let y = p.y as f64 - m[5];
-    Some(Pos2::new(
+    let d = m[0] * m[3] - m[1] * m[2];
+    if !d.is_finite() || d.abs() < 1e-10 {
+        return None;
+    }
+    let x = f64::from(p.x) - m[4];
+    let y = f64::from(p.y) - m[5];
+    let out = Pos2::new(
         ((m[3] * x - m[2] * y) / d) as f32,
         ((-m[1] * x + m[0] * y) / d) as f32,
-    ))
+    );
+    out.is_finite().then_some(out)
+}
+
+fn reverse_mesh_winding(mesh: &mut egui::Mesh) {
+    for tri in mesh.indices.as_chunks_mut::<3>().0 {
+        tri.swap(1, 2);
+    }
 }
 pub(crate) type StageInstanceMarkers = (Vec<(Id, Pos2, bool)>, Vec<(Id, Pos2)>);
 
@@ -327,12 +337,17 @@ pub(crate) fn hit_item_with_slop(
         return false;
     }
     let zoom = zoom.max(1e-3);
-    let sx = item.transform[0].hypot(item.transform[1]).max(0.001);
-    let sy = item.transform[2].hypot(item.transform[3]).max(0.001);
-    let max_scale = sx.max(sy);
+    let [a, b, c, d, _, _] = item.transform;
+    let det_abs = (a * d - b * c).abs().max(1e-6);
+    let trace = a * a + b * b + c * c + d * d;
+    let disc = (trace * trace - 4.0 * det_abs * det_abs).max(0.0).sqrt();
+    let min_sigma = ((trace - disc) * 0.5).max(0.0).sqrt().max(0.001);
+    let max_scale = ((trace + disc) * 0.5).max(0.0).sqrt().max(0.001);
+    let inv_x = (d.hypot(c) / det_abs).min(1e3);
+    let inv_y = (b.hypot(a) / det_abs).min(1e3);
     let slop = slop_px.max(0.0);
-    let slop_x = slop / (sx as f32 * zoom);
-    let slop_y = slop / (sy as f32 * zoom);
+    let slop_x = (f64::from(slop) * inv_x / f64::from(zoom)) as f32;
+    let slop_y = (f64::from(slop) * inv_y / f64::from(zoom)) as f32;
     if !bounds.expand2(Vec2::new(slop_x, slop_y)).contains(local) {
         return false;
     }
@@ -352,7 +367,7 @@ pub(crate) fn hit_item_with_slop(
             let Some(visibility) = crate::vector::vector_paint_visibility(item) else {
                 return false;
             };
-            let local_slop = f64::from(slop) / (max_scale * f64::from(zoom));
+            let local_slop = f64::from(slop) / (min_sigma * f64::from(zoom));
             let base_stroke = if visibility.stroke { *stroke_width } else { 0. };
             let effective_stroke = if visibility.stroke || (visibility.fill && local_slop > 0.) {
                 base_stroke + 2. * local_slop
@@ -401,6 +416,8 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle, retain_solid_
         bitmap_texture,
     } = style;
     let screen = |pt: Pos2| origin + affine(item.transform, pt).to_vec2() * zoom;
+    let reflected =
+        (item.transform[0] * item.transform[3] - item.transform[1] * item.transform[2]) < 0.0;
     let alpha = opacity;
     let color = |value: Color, alpha: f64, tint: Option<Color32>| {
         color(item.color_transform.apply(value), alpha, tint)
@@ -485,6 +502,9 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle, retain_solid_
                     if let egui::epaint::Primitive::Mesh(mut mesh) = primitive.primitive {
                         for vertex in &mut mesh.vertices {
                             vertex.pos = screen(vertex.pos);
+                        }
+                        if reflected {
+                            reverse_mesh_winding(&mut mesh);
                         }
                         p.add(Shape::mesh(mesh));
                     }
@@ -575,27 +595,35 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle, retain_solid_
                     mesh.vertices
                         .push(egui::epaint::Vertex { pos, uv, color: c });
                 }
-                mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
+                mesh.indices.extend_from_slice(if reflected {
+                    &[0, 2, 1, 0, 3, 2]
+                } else {
+                    &[0, 1, 2, 0, 2, 3]
+                });
                 p.add(Shape::mesh(mesh));
             } else {
+                let mut quad_poly = points.to_vec();
+                if reflected {
+                    quad_poly.reverse();
+                }
                 p.add(Shape::convex_polygon(
-                    points.to_vec(),
+                    quad_poly,
                     background,
                     Stroke::new(1.0_f32, foreground),
                 ));
                 let r = w.min(h) * 0.12;
                 let center = Pos2::new(w * 0.5, h * 0.4);
-                p.add(Shape::convex_polygon(
-                    [
-                        Pos2::new(center.x - r * 0.6, center.y - r),
-                        Pos2::new(center.x + r, center.y),
-                        Pos2::new(center.x - r * 0.6, center.y + r),
-                    ]
-                    .map(screen)
-                    .to_vec(),
-                    foreground,
-                    Stroke::NONE,
-                ));
+                let mut tri_poly = [
+                    Pos2::new(center.x - r * 0.6, center.y - r),
+                    Pos2::new(center.x + r, center.y),
+                    Pos2::new(center.x - r * 0.6, center.y + r),
+                ]
+                .map(screen)
+                .to_vec();
+                if reflected {
+                    tri_poly.reverse();
+                }
+                p.add(Shape::convex_polygon(tri_poly, foreground, Stroke::NONE));
                 let galley = p.layout_no_wrap(
                     "VIDEO · browser playback".into(),
                     FontId::proportional((w / 18.).min(h / 9.).clamp(1., 16.)),
@@ -615,6 +643,9 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle, retain_solid_
                     if let egui::epaint::Primitive::Mesh(mut mesh) = primitive.primitive {
                         for vertex in &mut mesh.vertices {
                             vertex.pos = screen(vertex.pos);
+                        }
+                        if reflected {
+                            reverse_mesh_winding(&mut mesh);
                         }
                         p.add(Shape::mesh(mesh));
                     }
@@ -665,7 +696,11 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle, retain_solid_
                     mesh.vertices
                         .push(egui::epaint::Vertex { pos, uv, color: c });
                 }
-                mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
+                mesh.indices.extend_from_slice(if reflected {
+                    &[0, 2, 1, 0, 3, 2]
+                } else {
+                    &[0, 1, 2, 0, 2, 3]
+                });
                 p.add(Shape::mesh(mesh));
             } else {
                 p.add(Shape::closed_line(
@@ -1459,12 +1494,14 @@ impl Editor {
             || self.authoring_tools.is_drawing()
             || self.shape_draft.is_some()
             || self.vector.point_drag.is_some()
+            || self.vector.live_deform_drag.is_some()
             || self.vector.draft.is_some()
             || !response.rect.contains(pos)
             || ui
                 .ctx()
                 .layer_id_at(pos)
                 .is_some_and(|layer| layer != response.layer_id)
+            || self.hits_active_stage_gizmo_handle(pos, origin, mapping)
             || self
                 .pick_placement(
                     scene,
@@ -1500,6 +1537,35 @@ impl Editor {
             });
         }
         double
+    }
+
+    fn hits_active_stage_gizmo_handle(
+        &self,
+        pos: Pos2,
+        origin: Pos2,
+        mapping: StageMapping,
+    ) -> bool {
+        if matches!(self.tool, Tool::Translate3D | Tool::Rotate3D)
+            && self
+                .selected_3d_gizmo_screen_geometry(origin, mapping)
+                .is_some_and(|(_, _, geom)| {
+                    geom.hit_test(pos, self.tool == Tool::Rotate3D).is_some()
+                })
+        {
+            return true;
+        }
+        let zoom = self.zoom.max(0.01);
+        let min_map_scale = mapping.scale_bounds().0.max(1e-3);
+        let local = mapping.screen_to_edit(origin, zoom, pos);
+        let pt = [f64::from(local.x), f64::from(local.y)];
+        let tol = f64::from(10.0 / zoom) / min_map_scale;
+        if self.tool == Tool::Bone && self.hit_test_ik_bone_gizmo(pt, tol * 1.4).is_some() {
+            return true;
+        }
+        if self.tool == Tool::AssetWarp && self.hit_test_asset_warp_pin(pt, tol).is_some() {
+            return true;
+        }
+        false
     }
 
     fn take_empty_stage_exit_release(&self, ui: &egui::Ui, response: &egui::Response) -> bool {
@@ -2540,6 +2606,9 @@ impl Editor {
                     let h = *height as f32;
                     let screen =
                         |pt: Pos2| origin + affine(draw.item.transform, pt).to_vec2() * zoom;
+                    let badge_reflected = (draw.item.transform[0] * draw.item.transform[3]
+                        - draw.item.transform[1] * draw.item.transform[2])
+                        < 0.0;
                     let galley = target.layout_no_wrap(
                         badge.clone(),
                         FontId::proportional((w / 22.).min(h / 11.).clamp(1., 13.)),
@@ -2557,6 +2626,9 @@ impl Editor {
                         if let egui::epaint::Primitive::Mesh(mut mesh) = primitive.primitive {
                             for vertex in &mut mesh.vertices {
                                 vertex.pos = screen(vertex.pos);
+                            }
+                            if badge_reflected {
+                                reverse_mesh_winding(&mut mesh);
                             }
                             target.add(Shape::mesh(mesh));
                         }
@@ -3268,7 +3340,8 @@ impl Editor {
             let local = mapping.screen_to_edit(origin, zoom, pos);
             [f64::from(local.x), f64::from(local.y)]
         };
-        let hit_tol_stage = f64::from(10.0 / zoom);
+        let min_map_scale = mapping.scale_bounds().0.max(1e-3);
+        let hit_tol_stage = f64::from(10.0 / zoom) / min_map_scale;
         let events = ui.input(|i| i.events.clone());
 
         // 1. Free Transform (`Tool::Transform` / `Tool::FreeTransform`) Envelope (4x4) & Perspective (2x2)
@@ -3708,10 +3781,7 @@ impl Editor {
                                     }
                                 }
                                 StageLiveDeformKind::IkBoneCreate { start_stage, .. } => {
-                                    if (stage_pt[0] - start_stage[0])
-                                        .hypot(stage_pt[1] - start_stage[1])
-                                        >= 4.0
-                                    {
+                                    if pos.distance(to_screen(start_stage)) >= 4.0 {
                                         let _ = self.create_ik_bone_on_stage(start_stage, stage_pt);
                                     }
                                 }

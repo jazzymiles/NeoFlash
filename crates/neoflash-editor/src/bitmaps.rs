@@ -60,6 +60,31 @@ impl BitmapFillPaint {
             }
         }));
         mesh.indices.clone_from(&geometry.indices);
+        let flip_winding = geometry
+            .indices
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .find_map(|tri| {
+                let lo = geometry.vertices.get(tri[0] as usize)?;
+                let l1 = geometry.vertices.get(tri[1] as usize)?;
+                let l2 = geometry.vertices.get(tri[2] as usize)?;
+                let local_cross = (l1.x - lo.x) * (l2.y - lo.y) - (l1.y - lo.y) * (l2.x - lo.x);
+                if local_cross.abs() <= 1e-6 {
+                    return None;
+                }
+                let s0 = mesh.vertices[tri[0] as usize].pos;
+                let s1 = mesh.vertices[tri[1] as usize].pos;
+                let s2 = mesh.vertices[tri[2] as usize].pos;
+                let screen_cross = (s1.x - s0.x) * (s2.y - s0.y) - (s1.y - s0.y) * (s2.x - s0.x);
+                Some(local_cross.signum() != screen_cross.signum())
+            })
+            .unwrap_or(false);
+        if flip_winding {
+            for tri in mesh.indices.as_chunks_mut::<3>().0 {
+                tri.swap(1, 2);
+            }
+        }
         mesh
     }
 }
@@ -94,6 +119,54 @@ fn compute_nudged_scale9_grid(
         _ => return Err(format!("Invalid 9-slice guide edge index {edge_index}.")),
     }
     Ok([x0, y0, (x1 - x0).max(1.0), (y1 - y0).max(1.0)])
+}
+
+fn clip_infinite_line_to_rect(
+    a: egui::Pos2,
+    b: egui::Pos2,
+    rect: egui::Rect,
+) -> Option<(egui::Pos2, egui::Pos2)> {
+    if !a.is_finite() || !b.is_finite() || !rect.is_finite() || rect.is_negative() {
+        return None;
+    }
+    let dx = f64::from(b.x) - f64::from(a.x);
+    let dy = f64::from(b.y) - f64::from(a.y);
+    if dx.hypot(dy) <= 1e-6 {
+        return None;
+    }
+    let ax = f64::from(a.x);
+    let ay = f64::from(a.y);
+    let left = f64::from(rect.left());
+    let right = f64::from(rect.right());
+    let top = f64::from(rect.top());
+    let bottom = f64::from(rect.bottom());
+    let mut t_min = f64::NEG_INFINITY;
+    let mut t_max = f64::INFINITY;
+    for (p, q) in [
+        (-dx, ax - left),
+        (dx, right - ax),
+        (-dy, ay - top),
+        (dy, bottom - ay),
+    ] {
+        if p.abs() <= 1e-12 {
+            if q < -1e-6 {
+                return None;
+            }
+        } else {
+            let t = q / p;
+            if p < 0.0 {
+                t_min = t_min.max(t);
+            } else {
+                t_max = t_max.min(t);
+            }
+        }
+    }
+    if t_min > t_max || !t_min.is_finite() || !t_max.is_finite() {
+        return None;
+    }
+    let p0 = egui::pos2((ax + t_min * dx) as f32, (ay + t_min * dy) as f32);
+    let p1 = egui::pos2((ax + t_max * dx) as f32, (ay + t_max * dy) as f32);
+    (p0.is_finite() && p1.is_finite()).then_some((p0, p1))
 }
 
 fn screen_line_distance_and_cursor(
@@ -710,31 +783,19 @@ impl crate::app::Editor {
             let x1 = (gx + gw) as f32;
             let y0 = gy as f32;
             let y1 = (gy + gh) as f32;
-            let span = 256.0_f32;
-            let edges = [
-                (
-                    0usize,
-                    mapping.edit_to_screen(origin, zoom, egui::pos2(x0, y0 - span)),
-                    mapping.edit_to_screen(origin, zoom, egui::pos2(x0, y0 + span)),
-                ),
-                (
-                    1usize,
-                    mapping.edit_to_screen(origin, zoom, egui::pos2(x1, y0 - span)),
-                    mapping.edit_to_screen(origin, zoom, egui::pos2(x1, y0 + span)),
-                ),
-                (
-                    2usize,
-                    mapping.edit_to_screen(origin, zoom, egui::pos2(x0 - span, y0)),
-                    mapping.edit_to_screen(origin, zoom, egui::pos2(x0 + span, y0)),
-                ),
-                (
-                    3usize,
-                    mapping.edit_to_screen(origin, zoom, egui::pos2(x0 - span, y1)),
-                    mapping.edit_to_screen(origin, zoom, egui::pos2(x0 + span, y1)),
-                ),
+            let local_lines = [
+                (0usize, egui::pos2(x0, y0), egui::pos2(x0, y0 + 64.0)),
+                (1usize, egui::pos2(x1, y0), egui::pos2(x1, y0 + 64.0)),
+                (2usize, egui::pos2(x0, y0), egui::pos2(x0 + 64.0, y0)),
+                (3usize, egui::pos2(x0, y1), egui::pos2(x0 + 64.0, y1)),
             ];
             let mut best: Option<(usize, f32, egui::CursorIcon)> = None;
-            for (idx, a, b) in edges {
+            for (idx, la, lb) in local_lines {
+                let sa = mapping.edit_to_screen(origin, zoom, la);
+                let sb = mapping.edit_to_screen(origin, zoom, lb);
+                let Some((a, b)) = clip_infinite_line_to_rect(sa, sb, canvas) else {
+                    continue;
+                };
                 let (dist, cursor) = screen_line_distance_and_cursor(a, b, pos);
                 if dist <= HIT_RADIUS_PT && best.is_none_or(|(_, bdist, _)| dist < bdist) {
                     best = Some((idx, dist, cursor));
@@ -930,32 +991,44 @@ impl crate::app::Editor {
         else {
             return;
         };
-        let p0 = mapping.edit_to_screen(origin, self.zoom, egui::pos2(gx as f32, gy as f32));
-        let p1 = mapping.edit_to_screen(
-            origin,
-            self.zoom,
-            egui::pos2((gx + gw) as f32, (gy + gh) as f32),
-        );
+        let x0 = gx as f32;
+        let x1 = (gx + gw) as f32;
+        let y0 = gy as f32;
+        let y1 = (gy + gh) as f32;
         let color = neoflash_ui::palette(painter.ctx()).guide;
         let stroke = egui::Stroke::new(1.0_f32, color);
-        for sx in [p0.x, p1.x] {
-            if sx >= stage_rect.left() && sx <= stage_rect.right() {
-                let mut y = stage_rect.top();
-                while y < stage_rect.bottom() {
-                    let y_end = (y + 5.0).min(stage_rect.bottom());
-                    painter.line_segment([egui::pos2(sx, y), egui::pos2(sx, y_end)], stroke);
-                    y += 9.0;
+        let local_lines = [
+            (egui::pos2(x0, y0), egui::pos2(x0, y0 + 64.0)),
+            (egui::pos2(x1, y0), egui::pos2(x1, y0 + 64.0)),
+            (egui::pos2(x0, y0), egui::pos2(x0 + 64.0, y0)),
+            (egui::pos2(x0, y1), egui::pos2(x0 + 64.0, y1)),
+        ];
+        for (la, lb) in local_lines {
+            let sa = mapping.edit_to_screen(origin, self.zoom, la);
+            let sb = mapping.edit_to_screen(origin, self.zoom, lb);
+            let Some((mut seg_start, mut seg_end)) = clip_infinite_line_to_rect(sa, sb, stage_rect)
+            else {
+                continue;
+            };
+            // Canonicalize top-to-bottom or left-to-right so dash phase matches axis-aligned guides.
+            if (seg_end.y - seg_start.y).abs() > (seg_end.x - seg_start.x).abs() {
+                if seg_start.y > seg_end.y {
+                    std::mem::swap(&mut seg_start, &mut seg_end);
                 }
+            } else if seg_start.x > seg_end.x {
+                std::mem::swap(&mut seg_start, &mut seg_end);
             }
-        }
-        for sy in [p0.y, p1.y] {
-            if sy >= stage_rect.top() && sy <= stage_rect.bottom() {
-                let mut x = stage_rect.left();
-                while x < stage_rect.right() {
-                    let x_end = (x + 5.0).min(stage_rect.right());
-                    painter.line_segment([egui::pos2(x, sy), egui::pos2(x_end, sy)], stroke);
-                    x += 9.0;
-                }
+            let delta = seg_end - seg_start;
+            let len = delta.length();
+            if len <= 1e-3 || !len.is_finite() {
+                continue;
+            }
+            let dir = delta / len;
+            let mut t = 0.0_f32;
+            while t < len {
+                let t_end = (t + 5.0).min(len);
+                painter.line_segment([seg_start + dir * t, seg_start + dir * t_end], stroke);
+                t += 9.0;
             }
         }
     }

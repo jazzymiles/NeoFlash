@@ -1,12 +1,14 @@
 //! Existing NF2 Debugger composition bound to a live Test Movie session.
 use crate::app::Editor;
-use crate::debugger::DebuggerStartupStatus;
-use crate::debugger_protocol::{DebugCommand, DebugState};
+use crate::debugger::{DebugEditTarget, DebugInlineEdit, DebuggerStartupStatus};
+use crate::debugger_protocol::{DebugCommand, DebugInspection, DebugState};
 use crate::theme::{DesignUi as _, ScrollTheme as _};
 use eframe::egui::{self, Ui};
 use neoflash_ui::components as c;
 use neoflash_ui::icons::{self, i16};
 use neoflash_ui::tokens::{TextStyle, space};
+
+const MAX_DEBUGGER_TREE_DEPTH: usize = 6;
 
 fn column_title(ui: &mut Ui, s: &str) {
     let nf = neoflash_ui::palette(ui.ctx());
@@ -93,6 +95,16 @@ impl Editor {
                     .selected_frame
                     .is_some_and(|index| index < snapshot.frames.len())
         });
+        let inspection = self.debugger.inspection();
+        self.debugger.sync_ui_pause_state(
+            has_paused_frame,
+            inspection.pause_epoch,
+            inspection.pause_generation,
+        );
+        let selected_frame = snapshot
+            .as_ref()
+            .and_then(|s| s.selected_frame)
+            .unwrap_or(0);
         let actionscript = snapshot
             .as_ref()
             .and_then(|snapshot| {
@@ -360,17 +372,74 @@ impl Editor {
                     kind: c::TableRowKind::Header,
                     columns: cols,
                 });
-                for local in snapshot.iter().flat_map(|snapshot| &snapshot.locals) {
-                    // The AS compiler reserves this prefix for its own bindings.
-                    // Keep JS/TS names intact, including authored __nf identifiers.
-                    if actionscript && local.name.starts_with("__nf") {
-                        continue;
+                if !inspection.locals.is_empty() {
+                    for local in &inspection.locals {
+                        // The AS compiler reserves this prefix for its own bindings.
+                        // Keep JS/TS names intact, including authored __nf identifiers.
+                        if actionscript && local.name.starts_with("__nf") {
+                            continue;
+                        }
+                        let expandable = local.object_id.is_some();
+                        let row_key = format!(
+                            "frame:{selected_frame}:local:{}:{}",
+                            local.scope_number, local.name
+                        );
+                        let expanded = expandable && self.debugger.is_tree_expanded(&row_key);
+                        let name_cell = if expandable {
+                            format!("{} {}", if expanded { "▾" } else { "▸" }, local.name)
+                        } else {
+                            local.name.clone()
+                        };
+                        let edit_target = (paused && local.writable && !expandable).then(|| {
+                            DebugEditTarget::ScopeVariable {
+                                scope_number: local.scope_number,
+                                variable_name: local.name.clone(),
+                            }
+                        });
+                        self.render_debugger_value_row(
+                            ui,
+                            &row_key,
+                            &name_cell,
+                            &local.value,
+                            cols,
+                            expandable,
+                            edit_target,
+                        );
+                        if expandable
+                            && self.debugger.is_tree_expanded(&row_key)
+                            && let Some(oid) = local.object_id.as_deref()
+                        {
+                            self.ensure_debug_object_inspected(
+                                inspection.pause_generation,
+                                oid,
+                                inspection.object_properties.contains_key(oid),
+                            );
+                            let mut ancestors = vec![oid.to_owned()];
+                            self.render_debugger_object_children(
+                                ui,
+                                &row_key,
+                                oid,
+                                1,
+                                &mut ancestors,
+                                actionscript,
+                                paused,
+                                &inspection,
+                                cols,
+                                None,
+                            );
+                        }
                     }
-                    ui.add(c::TableRow {
-                        cells: &[&local.name, &local.value],
-                        kind: c::TableRowKind::Row,
-                        columns: cols,
-                    });
+                } else {
+                    for local in snapshot.iter().flat_map(|snapshot| &snapshot.locals) {
+                        if actionscript && local.name.starts_with("__nf") {
+                            continue;
+                        }
+                        ui.add(c::TableRow {
+                            cells: &[&local.name, &local.value],
+                            kind: c::TableRowKind::Row,
+                            columns: cols,
+                        });
+                    }
                 }
             });
             column(ui, "Watch", watch_width, |ui| {
@@ -449,26 +518,47 @@ impl Editor {
                     } else {
                         watch.last_value.as_str()
                     };
+                    let watch_oid = has_paused_frame
+                        .then(|| {
+                            inspection
+                                .watches
+                                .iter()
+                                .find(|w| w.index == idx && w.expression == watch.expression)
+                                .and_then(|w| w.object_id.as_deref())
+                        })
+                        .flatten();
+                    let expandable = watch_oid.is_some();
+                    let row_key = format!("watch:{idx}:{}", watch.expression);
+                    let expanded = expandable && self.debugger.is_tree_expanded(&row_key);
+                    let name_cell = if expandable {
+                        format!("{} {}", if expanded { "▾" } else { "▸" }, watch.expression)
+                    } else {
+                        watch.expression.clone()
+                    };
+                    let table_w = (ui.available_width() - row_h - row_gap - row_pad).max(0.0);
+                    let value_col = if table_w > 0.0 {
+                        (0.45 * full_table_w / table_w).min(0.85)
+                    } else {
+                        0.45
+                    };
+                    let row_cols = [0.0, value_col];
                     ui.horizontal(|ui| {
                         ui.set_height(row_h);
                         ui.spacing_mut().item_spacing.x = row_gap;
-                        let table_w = (ui.available_width() - row_h - row_gap - row_pad).max(0.0);
-                        let value_col = if table_w > 0.0 {
-                            (0.45 * full_table_w / table_w).min(0.85)
-                        } else {
-                            0.45
-                        };
-                        let row_cols = [0.0, value_col];
                         ui.allocate_ui_with_layout(
                             egui::vec2(table_w, row_h),
                             egui::Layout::left_to_right(egui::Align::Center),
                             |ui| {
                                 ui.set_width(table_w);
-                                ui.add(c::TableRow {
-                                    cells: &[&watch.expression, display_value],
-                                    kind: c::TableRowKind::Row,
-                                    columns: &row_cols,
-                                });
+                                self.render_debugger_value_row(
+                                    ui,
+                                    &row_key,
+                                    &name_cell,
+                                    display_value,
+                                    &row_cols,
+                                    expandable,
+                                    None,
+                                );
                             },
                         );
                         if ui
@@ -478,6 +568,29 @@ impl Editor {
                             remove_watch_idx = Some(idx);
                         }
                     });
+                    if expandable
+                        && self.debugger.is_tree_expanded(&row_key)
+                        && let Some(oid) = watch_oid
+                    {
+                        self.ensure_debug_object_inspected(
+                            inspection.pause_generation,
+                            oid,
+                            inspection.object_properties.contains_key(oid),
+                        );
+                        let mut ancestors = vec![oid.to_owned()];
+                        self.render_debugger_object_children(
+                            ui,
+                            &row_key,
+                            oid,
+                            1,
+                            &mut ancestors,
+                            actionscript,
+                            paused,
+                            &inspection,
+                            &row_cols,
+                            Some(table_w),
+                        );
+                    }
                 }
                 if let Some(idx) = remove_watch_idx {
                     self.remove_debugger_watch(idx);
@@ -520,5 +633,248 @@ impl Editor {
             });
         });
         false
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_debugger_value_row(
+        &mut self,
+        ui: &mut Ui,
+        row_key: &str,
+        name_cell: &str,
+        value_cell: &str,
+        columns: &[f32],
+        expandable: bool,
+        edit_target: Option<DebugEditTarget>,
+    ) {
+        let is_editing = self
+            .debugger
+            .inline_edit
+            .as_ref()
+            .is_some_and(|edit| edit.row_key == row_key);
+        if is_editing {
+            super::dialog_helpers::mark_inline_edit_active(ui.ctx());
+            let row_resp = ui.add(c::TableRow {
+                cells: &[name_cell, ""],
+                kind: c::TableRowKind::Selected,
+                columns,
+            });
+            let val_start = columns.get(1).copied().unwrap_or(0.45);
+            let x0 = row_resp.rect.left() + row_resp.rect.width() * val_start + space::s2();
+            let x1 = (row_resp.rect.right() - space::s1()).max(x0);
+            let edit_rect = egui::Rect::from_min_max(
+                egui::pos2(x0, row_resp.rect.top()),
+                egui::pos2(x1, row_resp.rect.bottom()),
+            );
+            let mut commit_now = false;
+            let mut cancel_now = false;
+            if let Some(draft) = self.debugger.inline_edit.as_mut() {
+                let mut slot = ui.new_child(
+                    egui::UiBuilder::new()
+                        .id_salt(("debugger-inline-value", row_key))
+                        .max_rect(edit_rect)
+                        .layout(egui::Layout::left_to_right(egui::Align::Min)),
+                );
+                let mut field = slot.add(
+                    c::TextField::new(&mut draft.draft, "Edit value")
+                        .hint("JSON value")
+                        .mono()
+                        .compact(edit_rect.height())
+                        .text_style(TextStyle::MonoSmall)
+                        .width(edit_rect.width()),
+                );
+                field.id = c::TextField::edit_id(field.id);
+                if draft.focus {
+                    field.request_focus();
+                    if let Some(mut state) =
+                        egui::text_edit::TextEditState::load(ui.ctx(), field.id)
+                    {
+                        state
+                            .cursor
+                            .set_char_range(Some(egui::text::CCursorRange::two(
+                                egui::text::CCursor::new(0),
+                                egui::text::CCursor::new(draft.draft.chars().count()),
+                            )));
+                        state.store(ui.ctx(), field.id);
+                    }
+                    draft.focus = false;
+                } else if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+                {
+                    cancel_now = true;
+                    field.surrender_focus();
+                } else if field.lost_focus()
+                    || ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+                {
+                    let _ =
+                        ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+                    commit_now = true;
+                    field.surrender_focus();
+                }
+            }
+            if cancel_now {
+                self.debugger.inline_edit = None;
+            } else if commit_now && let Some(edit) = self.debugger.inline_edit.take() {
+                let _ = self.commit_debug_inline_edit(edit);
+            }
+            return;
+        }
+
+        let response = ui.add(c::TableRow {
+            cells: &[name_cell, value_cell],
+            kind: c::TableRowKind::Row,
+            columns,
+        });
+        if response.clicked() {
+            if expandable {
+                self.debugger.toggle_tree_expanded(row_key);
+            } else if let Some(target) = edit_target {
+                let initial = if value_cell == "undefined" {
+                    String::new()
+                } else {
+                    value_cell.to_owned()
+                };
+                self.debugger.inline_edit = Some(DebugInlineEdit {
+                    row_key: row_key.to_owned(),
+                    target,
+                    draft: initial,
+                    focus: true,
+                });
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_debugger_object_children(
+        &mut self,
+        ui: &mut Ui,
+        parent_key: &str,
+        parent_object_id: &str,
+        depth: usize,
+        ancestor_ids: &mut Vec<String>,
+        actionscript: bool,
+        paused: bool,
+        inspection: &DebugInspection,
+        columns: &[f32],
+        constrained_width: Option<f32>,
+    ) {
+        if depth > MAX_DEBUGGER_TREE_DEPTH {
+            return;
+        }
+        let row_h = neoflash_ui::metrics::row();
+        let indent = "  ".repeat(depth);
+        let Some(children) = inspection.object_properties.get(parent_object_id) else {
+            let loading_name = format!("{indent}  …");
+            if let Some(table_w) = constrained_width {
+                ui.horizontal(|ui| {
+                    ui.set_height(row_h);
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(table_w, row_h),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.set_width(table_w);
+                            ui.add(c::TableRow {
+                                cells: &[&loading_name, "Loading…"],
+                                kind: c::TableRowKind::Row,
+                                columns,
+                            });
+                        },
+                    );
+                });
+            } else {
+                ui.add(c::TableRow {
+                    cells: &[&loading_name, "Loading…"],
+                    kind: c::TableRowKind::Row,
+                    columns,
+                });
+            }
+            return;
+        };
+
+        for prop in children {
+            if actionscript && prop.name.starts_with("__nf") {
+                continue;
+            }
+            let is_cycle = prop
+                .object_id
+                .as_ref()
+                .is_some_and(|oid| ancestor_ids.iter().any(|seen| seen == oid));
+            let can_expand =
+                prop.object_id.is_some() && !is_cycle && depth < MAX_DEBUGGER_TREE_DEPTH;
+            let child_key = format!("{parent_key}.{}", prop.name);
+            let child_expanded = can_expand && self.debugger.is_tree_expanded(&child_key);
+            let glyph = if can_expand {
+                if child_expanded { "▾ " } else { "▸ " }
+            } else {
+                "  "
+            };
+            let name_cell = format!("{indent}{glyph}{}", prop.name);
+            let value_cell = if is_cycle {
+                format!("<circular> {}", prop.value)
+            } else {
+                prop.value.clone()
+            };
+            let edit_target = (paused && prop.writable && prop.object_id.is_none()).then(|| {
+                DebugEditTarget::ObjectProperty {
+                    object_id: parent_object_id.to_owned(),
+                    property_name: prop.name.clone(),
+                }
+            });
+            if let Some(table_w) = constrained_width {
+                ui.horizontal(|ui| {
+                    ui.set_height(row_h);
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(table_w, row_h),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.set_width(table_w);
+                            self.render_debugger_value_row(
+                                ui,
+                                &child_key,
+                                &name_cell,
+                                &value_cell,
+                                columns,
+                                can_expand,
+                                edit_target,
+                            );
+                        },
+                    );
+                });
+            } else {
+                self.render_debugger_value_row(
+                    ui,
+                    &child_key,
+                    &name_cell,
+                    &value_cell,
+                    columns,
+                    can_expand,
+                    edit_target,
+                );
+            }
+            if can_expand
+                && self.debugger.is_tree_expanded(&child_key)
+                && let Some(child_oid) = prop.object_id.as_deref()
+            {
+                self.ensure_debug_object_inspected(
+                    inspection.pause_generation,
+                    child_oid,
+                    inspection.object_properties.contains_key(child_oid),
+                );
+                ancestor_ids.push(child_oid.to_owned());
+                self.render_debugger_object_children(
+                    ui,
+                    &child_key,
+                    child_oid,
+                    depth + 1,
+                    ancestor_ids,
+                    actionscript,
+                    paused,
+                    inspection,
+                    columns,
+                    constrained_width,
+                );
+                ancestor_ids.pop();
+            }
+        }
     }
 }
