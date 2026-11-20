@@ -2922,6 +2922,7 @@ impl Editor {
             if layer.properties.role == LayerRole::Folder
                 || !layer_effectively_visible(timeline, layer)
                 || layer_effectively_locked(timeline, layer)
+                || !self.is_layer_id_effectively_soloed(&layer.id)
             {
                 continue;
             }
@@ -3106,6 +3107,7 @@ impl Editor {
             if layer.properties.role == LayerRole::Folder
                 || !layer_effectively_visible(timeline, layer)
                 || layer_effectively_locked(timeline, layer)
+                || !self.is_layer_id_effectively_soloed(&layer.id)
             {
                 continue;
             }
@@ -3222,6 +3224,7 @@ impl Editor {
             if layer.properties.role == LayerRole::Folder
                 || !layer_effectively_visible(timeline, layer)
                 || layer_effectively_locked(timeline, layer)
+                || !self.is_layer_id_effectively_soloed(&layer.id)
             {
                 return false;
             }
@@ -3262,6 +3265,7 @@ impl Editor {
             if layer.properties.role == LayerRole::Folder
                 || !layer_effectively_visible(timeline, layer)
                 || layer_effectively_locked(timeline, layer)
+                || !self.is_layer_id_effectively_soloed(&layer.id)
             {
                 continue;
             }

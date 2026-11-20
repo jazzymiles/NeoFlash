@@ -919,6 +919,7 @@ impl Editor {
                 !layer_effectively_locked(&self.symbol().timeline, layer)
                     && layer.properties.role != LayerRole::Folder
                     && layer_effectively_visible(&self.symbol().timeline, layer)
+                    && self.is_layer_id_effectively_soloed(&layer.id)
             })
     }
     pub fn make_key(&mut self, blank: bool) {

@@ -64,6 +64,11 @@ fn group_indices(layers: &[Layer], selected: usize) -> Vec<usize> {
                     .mask
                     .as_ref()
                     .is_some_and(|id| ids.contains(id))
+                || layer
+                    .properties
+                    .motion_guide
+                    .as_ref()
+                    .is_some_and(|id| ids.contains(id))
             {
                 ids.insert(layer.id.clone());
             }
@@ -77,6 +82,48 @@ fn group_indices(layers: &[Layer], selected: usize) -> Vec<usize> {
         .enumerate()
         .filter_map(|(index, layer)| ids.contains(&layer.id).then_some(index))
         .collect()
+}
+
+/// Indices of `targets`, all of their folder/mask/guide descendants, any mask or motion-guide
+/// layers referenced by those rows, and every ancestor folder along `properties.parent` up to root.
+fn isolate_kept_layer_indices(layers: &[Layer], targets: Vec<usize>) -> HashSet<usize> {
+    let by_id: HashMap<&str, usize> = layers
+        .iter()
+        .enumerate()
+        .map(|(idx, layer)| (layer.id.as_str(), idx))
+        .collect();
+    let mut kept: HashSet<usize> = targets
+        .into_iter()
+        .filter(|&ti| ti < layers.len())
+        .flat_map(|ti| group_indices(layers, ti))
+        .collect();
+    let aux_indices: Vec<usize> = kept
+        .iter()
+        .flat_map(|&idx| {
+            let props = &layers[idx].properties;
+            [props.mask.as_deref(), props.motion_guide.as_deref()]
+                .into_iter()
+                .flatten()
+                .filter_map(|id| by_id.get(id).copied())
+        })
+        .collect();
+    kept.extend(aux_indices);
+    let seeds: Vec<usize> = kept.iter().copied().collect();
+    for seed in seeds {
+        let mut cursor = layers[seed].properties.parent.as_deref();
+        let mut visited = HashSet::from([seed]);
+        while let Some(parent_id) = cursor {
+            let Some(&parent_idx) = by_id.get(parent_id) else {
+                break;
+            };
+            if !visited.insert(parent_idx) {
+                break;
+            }
+            kept.insert(parent_idx);
+            cursor = layers[parent_idx].properties.parent.as_deref();
+        }
+    }
+    kept
 }
 pub(crate) fn layer_group_indices(layers: &[Layer], selected: usize) -> Vec<usize> {
     group_indices(layers, selected)
@@ -1666,12 +1713,13 @@ impl Editor {
         let targets = self.target_layer_indices(index);
         self.layer_change(move |p, id| {
             let layers = &mut p.symbol_mut(id).unwrap().timeline.layers;
-            let selected: HashSet<usize> = targets
-                .into_iter()
-                .flat_map(|ti| group_indices(layers, ti))
-                .collect();
+            let kept = isolate_kept_layer_indices(layers, targets);
             for (i, l) in layers.iter_mut().enumerate() {
-                l.locked = !selected.contains(&i) && l.properties.role != LayerRole::Folder;
+                if kept.contains(&i) {
+                    l.locked = false;
+                } else if l.properties.role != LayerRole::Folder {
+                    l.locked = true;
+                }
             }
         });
     }
@@ -1679,18 +1727,9 @@ impl Editor {
         let targets = self.target_layer_indices(index);
         self.layer_change(move |p, id| {
             let layers = &mut p.symbol_mut(id).unwrap().timeline.layers;
-            let selected: HashSet<usize> = targets
-                .into_iter()
-                .flat_map(|ti| group_indices(layers, ti))
-                .collect();
-            let keep_masks: HashSet<Id> = selected
-                .iter()
-                .filter_map(|&i| layers[i].properties.mask.clone())
-                .collect();
+            let kept = isolate_kept_layer_indices(layers, targets);
             for (i, l) in layers.iter_mut().enumerate() {
-                l.visible = selected.contains(&i)
-                    || l.properties.role == LayerRole::Folder
-                    || keep_masks.contains(&l.id);
+                l.visible = kept.contains(&i);
             }
         });
     }

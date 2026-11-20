@@ -632,7 +632,11 @@ impl Editor {
                                         self.toggle_layer_folder(idx);
                                     }
                                     if row.visibility {
-                                        self.toggle_selected_layers_visibility(idx);
+                                        if ui.input(|i| i.modifiers.alt) {
+                                            self.hide_other_layers(idx);
+                                        } else {
+                                            self.toggle_selected_layers_visibility(idx);
+                                        }
                                     }
                                     if row.solo {
                                         let alt = ui.input(|i| i.modifiers.alt);
@@ -653,7 +657,11 @@ impl Editor {
                                         }
                                     }
                                     if row.lock {
-                                        self.toggle_selected_layers_lock(idx);
+                                        if ui.input(|i| i.modifiers.alt) {
+                                            self.lock_other_layers(idx);
+                                        } else {
+                                            self.toggle_selected_layers_lock(idx);
+                                        }
                                     }
                                     if row.outline {
                                         self.toggle_selected_layers_outline(idx);

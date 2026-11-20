@@ -3317,6 +3317,7 @@ impl Editor {
 
     fn graphic_synced_frame_at(
         project: &Project,
+        timeline: &Timeline,
         layer: &Layer,
         parent_frame: u32,
         element: &Element,
@@ -3333,13 +3334,20 @@ impl Editor {
             return None;
         }
         let count = sym.timeline.frame_count.max(1);
-        let key_start = layer.key_at(parent_frame).map_or(parent_frame, |k| k.frame);
-        let elapsed = parent_frame.saturating_sub(key_start);
+        let elapsed = if neoflash_core::layer_effectively_synced(timeline, layer) {
+            parent_frame
+        } else {
+            parent_frame.saturating_sub(neoflash_core::placement_start(
+                layer,
+                parent_frame,
+                &element.id,
+            ))
+        };
         let synced = match playback {
             InstancePlayback::Loop | InstancePlayback::Independent => elapsed % count,
-            InstancePlayback::LoopFrom(first) => (first + elapsed) % count,
+            InstancePlayback::LoopFrom(first) => elapsed.saturating_add(first) % count,
             InstancePlayback::PlayOnce => elapsed.min(count - 1),
-            InstancePlayback::PlayOnceFrom(first) => (first + elapsed).min(count - 1),
+            InstancePlayback::PlayOnceFrom(first) => elapsed.saturating_add(first).min(count - 1),
             InstancePlayback::SingleFrame(first) => first.min(count - 1),
         };
         Some(synced)
@@ -3366,19 +3374,21 @@ impl Editor {
             return false;
         };
         let symbol_id = symbol_id.clone();
-        let Some(layer) = self
-            .symbol()
-            .timeline
-            .layers
-            .iter()
-            .find(|l| l.id == target.layer)
-        else {
-            return false;
-        };
-        let Some(synced_frame) =
-            Self::graphic_synced_frame_at(&self.project, layer, self.frame, &placement)
-        else {
-            return false;
+        let synced_frame = {
+            let timeline = &self.symbol().timeline;
+            let Some(layer) = timeline.layers.iter().find(|l| l.id == target.layer) else {
+                return false;
+            };
+            let Some(synced) = Self::graphic_synced_frame_at(
+                &self.project,
+                timeline,
+                layer,
+                self.frame,
+                &placement,
+            ) else {
+                return false;
+            };
+            synced
         };
         if !self.enter_symbol_at(target, symbol_id) {
             return false;
@@ -3416,7 +3426,8 @@ impl Editor {
             let Some(layer) = timeline.layers.iter().find(|l| l.id == target.layer) else {
                 continue;
             };
-            let Some(synced) = Self::graphic_synced_frame_at(&self.project, layer, frame, &el)
+            let Some(synced) =
+                Self::graphic_synced_frame_at(&self.project, timeline, layer, frame, &el)
             else {
                 continue;
             };

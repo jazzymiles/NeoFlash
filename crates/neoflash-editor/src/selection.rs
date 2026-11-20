@@ -251,11 +251,21 @@ impl Editor {
         self.set_selection(self.editable_targets());
     }
     pub(crate) fn normalize_targets(&mut self) {
+        if let Some(active_text) = self.stage_text_edit.active_target.clone()
+            && (self.stage_text_edit.symbol_id != self.symbol_id()
+                || !self.target_editable(&active_text))
+        {
+            self.stage_text_edit.active_target = None;
+            self.stage_text_edit.pointer_dragging = false;
+            self.stage_text_edit.ime_preedit = None;
+        }
         if self.selection.symbol != self.symbol_id() {
             self.clear_selection();
+            self.vector.selected_anchors = None;
             return;
         }
         if self.selection.is_empty() {
+            self.vector.selected_anchors = None;
             return;
         }
         let allowed: HashSet<_> = self.editable_targets().into_iter().collect();
@@ -268,6 +278,16 @@ impl Editor {
             .flat_map(|target| self.grouped_targets(target))
             .filter(|target| allowed.contains(target) && seen.insert(target.clone()))
             .collect();
+        if let Some((ref anchor_el, _)) = self.vector.selected_anchors
+            && !self
+                .selection
+                .targets
+                .iter()
+                .any(|t| &t.element == anchor_el)
+        {
+            self.vector.selected_anchors = None;
+        }
+        self.sync_active_actions_context();
     }
     pub(crate) fn selected_editable(&self) -> bool {
         self.selection.symbol == self.symbol_id()

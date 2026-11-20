@@ -8109,3 +8109,316 @@ fn t399_editor_reverse_frames_preserves_nonlinear_property_eases_cw_ccw_and_moti
     editor.undo();
     assert_eq!(editor.project, before);
 }
+
+#[test]
+fn solo_hidden_layers_block_stage_selection_select_all_drawing_erasing_and_paste() {
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    project.format_version = 6;
+    project.symbols[0].timeline.frame_count = 5;
+
+    let mut bg = project.symbols[0].timeline.layers[0].clone();
+    bg.id = "bg".into();
+    bg.name = "Background".into();
+    bg.keyframes = vec![Keyframe {
+        frame: 0,
+        elements: vec![Element {
+            id: "bg-shape".into(),
+            name: "bg-shape".into(),
+            transform: Transform {
+                x: 20.0,
+                y: 20.0,
+                ..Default::default()
+            },
+            kind: ElementKind::Rectangle {
+                width: 40.0,
+                height: 40.0,
+                fill: [200, 40, 40, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Default::default()
+        }],
+        ..Default::default()
+    }];
+
+    let mut fg = bg.clone();
+    fg.id = "fg".into();
+    fg.name = "Foreground".into();
+    fg.keyframes = vec![Keyframe {
+        frame: 0,
+        elements: vec![Element {
+            id: "fg-shape".into(),
+            name: "fg-shape".into(),
+            transform: Transform {
+                x: 140.0,
+                y: 20.0,
+                ..Default::default()
+            },
+            kind: ElementKind::Rectangle {
+                width: 40.0,
+                height: 40.0,
+                fill: [40, 120, 220, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Default::default()
+        }],
+        ..Default::default()
+    }];
+    project.symbols[0].timeline.layers = vec![bg, fg];
+    project.validate().unwrap();
+    let before = project.clone();
+
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.clear_history();
+
+    // Without Solo, Select All picks both layers' objects.
+    editor.select_all();
+    assert_eq!(editor.selection.len(), 2);
+
+    // Copy a valid NeoFlash clipboard payload from the foreground object before toggling Solo.
+    editor.select_single_id("fg-shape".into());
+    let mut copied_payload = String::new();
+    let copy_out = ctx.run(egui::RawInput::default(), |ctx| {
+        editor.copy_selection(ctx, false);
+    });
+    for cmd in &copy_out.platform_output.commands {
+        if let egui::OutputCommand::CopyText(text) = cmd {
+            copied_payload = text.clone();
+        }
+    }
+    assert!(!copied_payload.is_empty(), "expected copied object payload");
+
+    // Re-select both layers, then toggle Solo on Foreground (layer 1):
+    // existing Stage selection on solo-hidden Background (layer 0) MUST be pruned immediately!
+    editor.select_all();
+    assert_eq!(editor.selection.len(), 2);
+    assert!(editor.toggle_layer_solo(1, false));
+    assert_eq!(
+        editor
+            .selection
+            .targets
+            .iter()
+            .map(|t| t.element.as_str())
+            .collect::<Vec<_>>(),
+        vec!["fg-shape"],
+        "toggling Solo prunes Stage selection from solo-hidden layers"
+    );
+
+    // Select All while Solo is active excludes solo-hidden layers.
+    editor.clear_selection();
+    editor.select_all();
+    assert_eq!(
+        editor
+            .selection
+            .targets
+            .iter()
+            .map(|t| t.element.as_str())
+            .collect::<Vec<_>>(),
+        vec!["fg-shape"]
+    );
+
+    // Click hit-testing on Stage at Background's rect (40, 40) is blocked; Foreground (160, 40) hits.
+    let presented = editor.current_authored_scene(true);
+    let scene: Vec<_> = presented.draws.into_iter().map(|d| d.item).collect();
+    let painter = ctx.layer_painter(egui::LayerId::background());
+    let mapping = crate::stage_mapping::StageMapping::identity();
+    assert!(
+        editor
+            .pick_placement(&scene, &painter, egui::pos2(40.0, 40.0), mapping)
+            .is_none(),
+        "solo-hidden layer must not hit-test on Stage"
+    );
+    assert_eq!(
+        editor
+            .pick_placement(&scene, &painter, egui::pos2(160.0, 40.0), mapping)
+            .map(|t| t.element),
+        Some("fg-shape".into())
+    );
+
+    // Active layer set to solo-hidden Background (layer 0): non-editable for drawing, keys, and paste!
+    editor.layer = 0;
+    assert!(
+        !editor.layer_editable(),
+        "solo-hidden active layer must not be editable"
+    );
+    editor.add_element(rectangle(), 80.0, 80.0);
+    editor.make_key(false);
+    editor.paste_objects(&ctx, &copied_payload, true);
+    assert!(
+        !editor.try_pen_subdivide(egui::Pos2::ZERO, mapping, egui::pos2(20.0, 40.0)),
+        "Pen subdivide must ignore solo-hidden layers"
+    );
+    assert_eq!(
+        editor.project, before,
+        "solo-hidden layer rejected drawing, keyframe, pen, and paste mutations"
+    );
+    assert!(!editor.history.can_undo());
+
+    // Clearing Solo restores editability and Select All without touching saved visibility or Undo.
+    editor.clear_all_solo_layers();
+    assert!(editor.layer_editable());
+    editor.select_all();
+    assert_eq!(editor.selection.len(), 2);
+    assert_eq!(editor.project, before);
+}
+
+#[test]
+fn nested_folder_hide_others_and_lock_others_preserve_ancestors_and_descendants_with_undo() {
+    let ctx = egui::Context::default();
+    let mk_layer = |id: &str, name: &str, role: LayerRole, parent: Option<&str>| Layer {
+        id: id.into(),
+        name: name.into(),
+        visible: true,
+        locked: false,
+        properties: LayerProperties {
+            role,
+            parent: parent.map(Into::into),
+            ..Default::default()
+        },
+        keyframes: if role == LayerRole::Folder {
+            vec![]
+        } else {
+            vec![Keyframe {
+                frame: 0,
+                elements: vec![element(&format!("{id}-el"), rectangle(), 10.0)],
+                ..Default::default()
+            }]
+        },
+    };
+
+    let mut project = Project::blank();
+    project.format_version = 6;
+    // Hierarchy:
+    //   0: root-extra (Normal)
+    //   1: other-child (Normal, parent = other-folder)
+    //   2: other-folder (Folder)
+    //   3: inner-sibling (Normal, parent = inner-folder)
+    //   4: target-child (Normal, parent = inner-folder)
+    //   5: inner-folder (Folder, parent = outer-folder)
+    //   6: direct-sibling (Normal, parent = outer-folder)
+    //   7: outer-folder (Folder)
+    project.symbols[0].timeline.layers = vec![
+        mk_layer("root-extra", "Root Extra", LayerRole::Normal, None),
+        mk_layer(
+            "other-child",
+            "Other Child",
+            LayerRole::Normal,
+            Some("other-folder"),
+        ),
+        mk_layer("other-folder", "Other Folder", LayerRole::Folder, None),
+        mk_layer(
+            "inner-sibling",
+            "Inner Sibling",
+            LayerRole::Normal,
+            Some("inner-folder"),
+        ),
+        mk_layer(
+            "target-child",
+            "Target Child",
+            LayerRole::Normal,
+            Some("inner-folder"),
+        ),
+        mk_layer(
+            "inner-folder",
+            "Inner Folder",
+            LayerRole::Folder,
+            Some("outer-folder"),
+        ),
+        mk_layer(
+            "direct-sibling",
+            "Direct Sibling",
+            LayerRole::Normal,
+            Some("outer-folder"),
+        ),
+        mk_layer("outer-folder", "Outer Folder", LayerRole::Folder, None),
+    ];
+    project.validate().unwrap();
+    let before = project.clone();
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.clear_history();
+
+    // 1. Hide others / Lock others on nested `inner-folder` (idx 5):
+    // keeps `outer-folder` (7) ancestor + `inner-folder` (5) + both descendants (3, 4);
+    // hides/locks `direct-sibling` (6), `other-folder` (2), `other-child` (1), and `root-extra` (0).
+    editor.hide_other_layers(5);
+    {
+        let tl = &editor.symbol().timeline;
+        for kept in [3, 4, 5, 7] {
+            assert!(tl.layers[kept].visible, "expected layer {kept} visible");
+            assert!(
+                layer_effectively_visible(tl, &tl.layers[kept]),
+                "expected layer {kept} effectively visible"
+            );
+        }
+        for hidden in [0, 1, 2, 6] {
+            assert!(!tl.layers[hidden].visible, "expected layer {hidden} hidden");
+        }
+    }
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before);
+
+    editor.lock_other_layers(5);
+    {
+        let tl = &editor.symbol().timeline;
+        for unlocked in [3, 4, 5, 7] {
+            assert!(
+                !layer_effectively_locked(tl, &tl.layers[unlocked]),
+                "expected layer {unlocked} effectively unlocked"
+            );
+        }
+        for locked in [0, 1, 6] {
+            assert!(tl.layers[locked].locked, "expected layer {locked} locked");
+            assert!(layer_effectively_locked(tl, &tl.layers[locked]));
+        }
+    }
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before);
+
+    // 2. Hide others / Lock others on deep child `target-child` (idx 4), even when its ancestor
+    // folders were previously hidden or locked!
+    editor.transact(|s| {
+        let layers = &mut s.symbol_mut().timeline.layers;
+        layers[7].visible = false;
+        layers[7].locked = true;
+        layers[5].visible = false;
+        layers[5].locked = true;
+    });
+    let pre_child_state = editor.project.clone();
+
+    editor.hide_other_layers(4);
+    {
+        let tl = &editor.symbol().timeline;
+        for kept in [4, 5, 7] {
+            assert!(tl.layers[kept].visible);
+        }
+        assert!(
+            layer_effectively_visible(tl, &tl.layers[4]),
+            "child inside nested folders stays effectively visible after Hide others"
+        );
+        for hidden in [0, 1, 2, 3, 6] {
+            assert!(!tl.layers[hidden].visible);
+        }
+    }
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &pre_child_state);
+
+    editor.lock_other_layers(4);
+    {
+        let tl = &editor.symbol().timeline;
+        assert!(!tl.layers[4].locked);
+        assert!(!tl.layers[5].locked);
+        assert!(!tl.layers[7].locked);
+        assert!(
+            !layer_effectively_locked(tl, &tl.layers[4]),
+            "child inside nested folders stays effectively unlocked after Lock others"
+        );
+        for locked in [0, 1, 3, 6] {
+            assert!(tl.layers[locked].locked);
+        }
+    }
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &pre_child_state);
+    undo_restores(&mut editor, &before);
+}

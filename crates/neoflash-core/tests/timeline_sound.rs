@@ -724,3 +724,61 @@ fn pure_wav_and_pcm_waveform_peaks_extract_stereo_envelope_and_trim_slices() {
     assert_eq!(mono.buckets(), 2);
     assert!((mono.peak_amplitude(0, 1) - 0.8).abs() < 1e-6);
 }
+
+#[test]
+fn format_6_frame_sound_without_trim_loads_cleanly_and_seek_emits_trimmed_stream_offset() {
+    let base = project(
+        12,
+        vec![
+            layer("fx", vec![key(0, Some(("beep", SoundSync::Start)))]),
+            layer("music", vec![key(2, Some(("song", SoundSync::Stream)))]),
+        ],
+    );
+    assert_eq!(base.format_version, 6);
+    let raw_v6 = base.to_json().unwrap();
+    assert!(
+        !raw_v6.contains("in_point") && !raw_v6.contains("out_point"),
+        "untrimmed format-6 sound omits trim fields on disk"
+    );
+    let loaded_v6 = Project::from_json(&raw_v6).unwrap();
+    loaded_v6.validate().unwrap();
+    assert_eq!(loaded_v6.format_version, 6);
+    assert_eq!(
+        loaded_v6.symbols[0].timeline.layers[0].keyframes[0]
+            .sound
+            .as_ref()
+            .map(|s| (s.in_point, s.out_point)),
+        Some((None, None))
+    );
+
+    let mut trimmed = loaded_v6;
+    {
+        let stream = trimmed.symbols[0].timeline.layers[1].keyframes[0]
+            .sound
+            .as_mut()
+            .unwrap();
+        stream.in_point = Some(0.2);
+        stream.out_point = Some(0.9);
+    }
+    trimmed.upgrade_format_for_features();
+    assert_eq!(trimmed.format_version, 7);
+    trimmed.validate().unwrap();
+
+    let mut player = Player::new(&trimmed);
+    let _ = player.drain_sound_commands();
+    player.seek(&trimmed, 8);
+    let cmds = player.drain_sound_commands();
+    assert!(matches!(
+        cmds.as_slice(),
+        [SoundCommand::StreamStart {
+            resource,
+            offset,
+            in_point: Some(inp),
+            out_point: Some(outp),
+            ..
+        }] if resource == "song"
+            && (*offset - (6.0 / 10.0)).abs() < 1e-9
+            && (*inp - 0.2).abs() < 1e-9
+            && (*outp - 0.9).abs() < 1e-9
+    ));
+}

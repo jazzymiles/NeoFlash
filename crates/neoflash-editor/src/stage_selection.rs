@@ -2676,6 +2676,7 @@ impl Editor {
                             if layer.properties.role == LayerRole::Folder
                                 || !layer_effectively_visible(&sym.timeline, layer)
                                 || layer_effectively_locked(&sym.timeline, layer)
+                                || !self.is_layer_id_effectively_soloed(&layer.id)
                             {
                                 continue;
                             }

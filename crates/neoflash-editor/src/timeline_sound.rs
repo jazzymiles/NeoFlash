@@ -360,6 +360,8 @@ pub(crate) struct TimelineAudio {
     video: neoflash_export::video_audio::VideoSoundChannels,
     preview: Option<u64>,
     auditioning_headless: bool,
+    #[cfg(test)]
+    pub(crate) last_audition_trim: Option<(Option<f64>, Option<f64>)>,
     /// Local import paths of audio resources for Sound properties ▸ Update (session-only).
     pub(crate) source_paths: HashMap<Id, std::path::PathBuf>,
     /// Recent commands of editor playback (diagnostics and tests).
@@ -381,6 +383,8 @@ impl Default for TimelineAudio {
             video: Default::default(),
             preview: None,
             auditioning_headless: false,
+            #[cfg(test)]
+            last_audition_trim: None,
             source_paths: HashMap::new(),
             history: vec![],
         }
@@ -512,6 +516,46 @@ impl TimelineAudio {
             WaveformResolution::Buckets(buckets.clamp(1, MAX_WAVEFORM_BUCKETS)),
             ctx,
         )
+    }
+
+    /// Synchronous cached stereo/mono peaks for modal audio editors (`Edit envelope`) that already
+    /// decode the active resource on open. Reuses `self.waveforms` and `self.decoded` so repeated
+    /// frames hit the cache in O(1) without re-reducing PCM.
+    pub(crate) fn decoded_waveform_peaks(
+        &mut self,
+        project: &Project,
+        resource: &str,
+        buckets: usize,
+    ) -> Option<Arc<WaveformPeaks>> {
+        self.collect_waveforms(project);
+        let unit = project.resources.iter().find(|unit| unit.id == resource)?;
+        let resolution = WaveformResolution::Buckets(buckets.clamp(1, MAX_WAVEFORM_BUCKETS));
+        let key = (resource.to_owned(), resolution);
+        if let Some(cached) = self.waveforms.get(&key)
+            && Arc::ptr_eq(&cached.source, &unit.data_base64)
+            && let Some(ref ready) = cached.result
+        {
+            return ready.as_ref().ok().cloned();
+        }
+        let sound = self.decoded(project, resource).ok()?;
+        let peaks = sample_waveform_peaks(
+            &sound.samples,
+            sound.channels,
+            sound.rate,
+            buckets.clamp(1, MAX_WAVEFORM_BUCKETS),
+        )
+        .map(Arc::new);
+        let result = peaks
+            .clone()
+            .ok_or_else(|| format!("{}: no waveform samples", unit.path));
+        self.waveforms.insert(
+            key,
+            CachedWaveform {
+                source: unit.data_base64.clone(),
+                result: Some(result),
+            },
+        );
+        peaks
     }
 
     /// Cached decoded metadata for passive UI inspection. Waveform requests populate this cache;
@@ -722,8 +766,16 @@ impl TimelineAudio {
                 .is_some()
             {
                 self.auditioning_headless = true;
+                #[cfg(test)]
+                {
+                    self.last_audition_trim = Some((sound.in_point, sound.out_point));
+                }
             }
             return;
+        }
+        #[cfg(test)]
+        if !self.muted {
+            self.last_audition_trim = Some((sound.in_point, sound.out_point));
         }
         self.start(
             project,

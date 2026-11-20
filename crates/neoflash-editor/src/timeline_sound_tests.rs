@@ -783,3 +783,273 @@ fn sound_properties_export_settings_commit_with_one_undo_and_upgrade_to_format_9
     editor.undo();
     assert_eq!(editor.project, before);
 }
+
+fn stereo_wav_bytes(frames: usize, rate: u32, left_amp: f32, right_amp: f32) -> Vec<u8> {
+    let mut pcm = Vec::with_capacity(frames * 4);
+    for i in 0..frames {
+        let sign = if i % 2 == 0 { 1.0_f32 } else { -1.0_f32 };
+        let l = (sign * left_amp * 32_767.0)
+            .round()
+            .clamp(-32_768.0, 32_767.0) as i16;
+        let r = (sign * right_amp * 32_767.0)
+            .round()
+            .clamp(-32_768.0, 32_767.0) as i16;
+        pcm.extend_from_slice(&l.to_le_bytes());
+        pcm.extend_from_slice(&r.to_le_bytes());
+    }
+    let mut bytes = b"RIFF".to_vec();
+    bytes.extend_from_slice(&(36 + pcm.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(b"WAVEfmt ");
+    bytes.extend_from_slice(&16u32.to_le_bytes());
+    bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    bytes.extend_from_slice(&2u16.to_le_bytes()); // stereo
+    bytes.extend_from_slice(&rate.to_le_bytes());
+    bytes.extend_from_slice(&(rate * 4).to_le_bytes());
+    bytes.extend_from_slice(&4u16.to_le_bytes());
+    bytes.extend_from_slice(&16u16.to_le_bytes());
+    bytes.extend_from_slice(b"data");
+    bytes.extend_from_slice(&(pcm.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&pcm);
+    bytes
+}
+
+#[test]
+fn edit_envelope_renders_decoded_stereo_waveform_behind_curve_and_commits_trim_in_one_undo() {
+    let ctx = egui::Context::default();
+    let mut editor = editor_in(&ctx);
+    let stereo_bytes = stereo_wav_bytes(1000, 1000, 0.9, 0.2); // 1.0 s stereo: loud L, quiet R
+    editor.project.resources.push(
+        ResourceUnit::from_bytes("stereo", "audio/stereo.wav", "audio/wav", &stereo_bytes).unwrap(),
+    );
+    editor.layer = 1;
+    editor.frame = 0;
+    editor.set_frame_sound(Some("stereo".into()));
+    editor.edit_frame_sound(|s| s.effect = SoundEffect::FadeIn);
+    editor.clear_history();
+    let before = editor.project.clone();
+    assert_eq!(before.format_version, 6);
+
+    editor.open_edit_envelope();
+    assert!(editor.edit_envelope.is_some());
+
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0));
+    let mut out = egui::FullOutput::default();
+    for _ in 0..2 {
+        out = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ctx| editor.edit_envelope_dialog(ctx),
+        );
+    }
+
+    fn flatten_shapes<'a>(shape: &'a egui::Shape, out: &mut Vec<&'a egui::Shape>) {
+        match shape {
+            egui::Shape::Vec(children) => {
+                for child in children {
+                    flatten_shapes(child, out);
+                }
+            }
+            other => out.push(other),
+        }
+    }
+    let mut flat_shapes: Vec<&egui::Shape> = Vec::new();
+    for clipped in &out.shapes {
+        flatten_shapes(&clipped.shape, &mut flat_shapes);
+    }
+
+    let nf = neoflash_ui::palette(&ctx);
+    // Locate the two `Shape::Path` envelope curves (top = L, bottom = R) and `success_default`
+    // vertical waveform bars, verifying L > R amplitude and waveform z-order strictly before curves!
+    let mut curve_indices_and_y: Vec<(usize, f32)> = Vec::new();
+    let mut wave_bars: Vec<(usize, f32, f32)> = Vec::new(); // (shape_idx, center_y, height)
+    for (idx, shape) in flat_shapes.iter().enumerate() {
+        match shape {
+            egui::Shape::LineSegment { points, stroke }
+                if stroke.color == nf.success_default
+                    && (points[0].x - points[1].x).abs() < 1e-3 =>
+            {
+                let cy = (points[0].y + points[1].y) * 0.5;
+                let h = (points[1].y - points[0].y).abs();
+                wave_bars.push((idx, cy, h));
+            }
+            egui::Shape::LineSegment { points, stroke }
+                if stroke.color == nf.accent_default
+                    && (points[1].x - points[0].x).abs() > 50.0 =>
+            {
+                curve_indices_and_y.push((idx, points[0].y.min(points[1].y)));
+            }
+            egui::Shape::Path(path) if !path.closed && (path.stroke.width - 1.5).abs() < 1e-3 => {
+                if let Some(first) = path.points.first() {
+                    curve_indices_and_y.push((idx, first.y));
+                }
+            }
+            _ => {}
+        }
+    }
+    // Find the ruler bounds from the "0s" and "1s" text labels to split L vs R and drag trim handles!
+    let mut ruler_left_x = None;
+    let mut ruler_right_x = None;
+    let mut ruler_center_y = None;
+    for shape in &flat_shapes {
+        if let egui::Shape::Text(t) = shape {
+            if t.galley.text() == "0.0s" || t.galley.text() == "0s" {
+                ruler_left_x = Some(t.pos.x);
+                ruler_center_y = Some(t.pos.y + t.galley.size().y * 0.5);
+            } else if t.galley.text() == "1.0s" || t.galley.text() == "1s" {
+                ruler_right_x = Some(t.pos.x + t.galley.size().x);
+            }
+        }
+    }
+    let left_x = ruler_left_x.expect("0s label on ruler");
+    let right_x = ruler_right_x.expect("1s label on ruler");
+    let ry = ruler_center_y.expect("ruler y");
+    let width = right_x - left_x;
+    assert!(width > 100.0);
+
+    assert_eq!(
+        curve_indices_and_y.len(),
+        2,
+        "expected L and R envelope curves"
+    );
+    assert!(
+        wave_bars.len() >= 100,
+        "expected decoded stereo waveform peak bars, got {}",
+        wave_bars.len()
+    );
+    let (curve_l_idx, _) = curve_indices_and_y[0];
+    let (curve_r_idx, _) = curve_indices_and_y[1];
+    let mut l_bars = Vec::new();
+    let mut r_bars = Vec::new();
+    for &(idx, cy, h) in &wave_bars {
+        if cy < ry {
+            assert!(
+                idx < curve_l_idx,
+                "L waveform peak bar ({idx}) must render behind L envelope curve ({curve_l_idx})"
+            );
+            l_bars.push(h);
+        } else {
+            assert!(
+                idx < curve_r_idx,
+                "R waveform peak bar ({idx}) must render behind R envelope curve ({curve_r_idx})"
+            );
+            r_bars.push(h);
+        }
+    }
+    assert!(!l_bars.is_empty() && !r_bars.is_empty());
+    let max_l = l_bars.iter().copied().fold(0.0_f32, f32::max);
+    let max_r = r_bars.iter().copied().fold(0.0_f32, f32::max);
+    assert!(
+        max_l > max_r * 2.5,
+        "expected decoded L peak ({max_l}) > 2.5x R peak ({max_r})"
+    );
+
+    // Drag start trim handle from left_x + 1 to 25% (0.25s) and end trim handle from right_x - 1 to 75% (0.75s).
+    let drag_handle = |editor: &mut Editor, from_x: f32, to_x: f32| {
+        let start_pos = egui::pos2(from_x, ry);
+        let end_pos = egui::pos2(to_x, ry);
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                events: vec![
+                    egui::Event::PointerMoved(start_pos),
+                    egui::Event::PointerButton {
+                        pos: start_pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                ..Default::default()
+            },
+            |ctx| editor.edit_envelope_dialog(ctx),
+        );
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                events: vec![egui::Event::PointerMoved(end_pos)],
+                ..Default::default()
+            },
+            |ctx| editor.edit_envelope_dialog(ctx),
+        );
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                events: vec![egui::Event::PointerButton {
+                    pos: end_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+                ..Default::default()
+            },
+            |ctx| editor.edit_envelope_dialog(ctx),
+        );
+    };
+
+    drag_handle(&mut editor, left_x + 1.0, left_x + width * 0.25);
+    drag_handle(&mut editor, right_x - 1.0, left_x + width * 0.75);
+
+    let draft = editor.edit_envelope.clone().expect("draft still open");
+    let inp = draft.in_point.expect("in_point set by ruler drag");
+    let outp = draft.out_point.expect("out_point set by ruler drag");
+    assert!((inp - 0.25).abs() < 0.03, "expected ~0.25s, got {inp}");
+    assert!((outp - 0.75).abs() < 0.03, "expected ~0.75s, got {outp}");
+
+    // Preview audition respects the draft trim window, and VoiceSource yields only the trimmed segment!
+    let preview = draft.preview_sound(editor.frame_sound().map(|(_, s)| s).as_ref());
+    editor.timeline_audio.audition(&editor.project, &preview);
+    assert!(editor.timeline_audio.is_auditioning());
+    assert_eq!(
+        editor.timeline_audio.last_audition_trim,
+        Some((Some(inp), Some(outp)))
+    );
+    let decoded = editor
+        .timeline_audio
+        .decoded(&editor.project, "stereo")
+        .unwrap();
+    let trimmed_source = crate::timeline_sound::VoiceSource::new(
+        decoded,
+        0.0,
+        1,
+        false,
+        (Some(inp), Some(outp)),
+        vec![],
+    )
+    .expect("trimmed voice source");
+    let sample_count = trimmed_source.count();
+    let expected_samples = ((outp - inp) * 1000.0).round() as usize * 2;
+    assert!(
+        sample_count.abs_diff(expected_samples) <= 4,
+        "expected ~{expected_samples} stereo samples, got {sample_count}"
+    );
+
+    // Confirm with Enter: commits in a single Undo step and upgrades format_version to 7!
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            events: vec![egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            ..Default::default()
+        },
+        |ctx| editor.edit_envelope_dialog(ctx),
+    );
+    assert!(editor.edit_envelope.is_none());
+    let (_, committed) = editor.frame_sound().unwrap();
+    assert_eq!(committed.in_point, Some(inp));
+    assert_eq!(committed.out_point, Some(outp));
+    assert_eq!(editor.project.format_version, 7);
+    editor.project.validate().unwrap();
+
+    editor.undo();
+    assert_eq!(
+        editor.project, before,
+        "single Undo restores pre-dialog document"
+    );
+}

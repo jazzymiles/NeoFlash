@@ -935,8 +935,10 @@
       if(source.loop&&(segStart>0||segEnd<duration)){source.loopStart=segStart;source.loopEnd=segEnd;}
       voice.nodes=connectEnvelope(voice,source,start,Number.isFinite(total)?total:segDuration);
       voice.source=source;source.onended=()=>{if(voice.source===source)stopVoice(voice);};
-      source.start(start,segStart+(voice.offset%segDuration));
-      if(Number.isFinite(total))source.stop(start+total-voice.offset);
+      const playOffset=segStart+(voice.offset%segDuration),playDuration=total-voice.offset;
+      if(Number.isFinite(playDuration)&&(segStart>0||segEnd<duration))source.start(start,playOffset,playDuration);
+      else source.start(start,playOffset);
+      if(Number.isFinite(playDuration))source.stop(start+playDuration);
       changed();
     }
     function flushVoices(){for(const voice of [...voices]){if(disposed)break;try{startVoice(voice);}catch(error){stopVoice(voice);report(error);}}}

@@ -127,6 +127,7 @@ pub fn flatten_scenes_cow(project: &Project) -> (std::borrow::Cow<'_, Project>, 
                 &mut properties.parent,
                 &mut properties.mask,
                 &mut properties.motion_guide,
+                &mut properties.linked_layer,
             ] {
                 if let Some(target) = reference.as_mut()
                     && let Some(fresh) = renamed.get(target.as_str())
@@ -142,6 +143,8 @@ pub fn flatten_scenes_cow(project: &Project) -> (std::borrow::Cow<'_, Project>, 
                     for key in &mut layer.keyframes {
                         let key_frame = key.frame;
                         for element in &mut key.elements {
+                            let force_loop_from =
+                                element.instance_behavior == Some(SymbolKind::MovieClip);
                             if let ElementKind::Instance {
                                 symbol_id,
                                 playback,
@@ -158,7 +161,7 @@ pub fn flatten_scenes_cow(project: &Project) -> (std::borrow::Cow<'_, Project>, 
                                 *playback = match *playback {
                                     InstancePlayback::Independent | InstancePlayback::Loop => {
                                         let start = p_local % child_len;
-                                        if start == 0 {
+                                        if start == 0 && !force_loop_from {
                                             InstancePlayback::Loop
                                         } else {
                                             InstancePlayback::LoopFrom(start)
@@ -166,7 +169,7 @@ pub fn flatten_scenes_cow(project: &Project) -> (std::borrow::Cow<'_, Project>, 
                                     }
                                     InstancePlayback::LoopFrom(start) => {
                                         let start = start.saturating_add(p_local) % child_len;
-                                        if start == 0 {
+                                        if start == 0 && !force_loop_from {
                                             InstancePlayback::Loop
                                         } else {
                                             InstancePlayback::LoopFrom(start)
@@ -196,6 +199,42 @@ pub fn flatten_scenes_cow(project: &Project) -> (std::borrow::Cow<'_, Project>, 
                             }
                         }
                     }
+                }
+            }
+            // Rename any element IDs that collide with an earlier scene/layer so flattened
+            // validation succeeds and runtime placement lifetimes never bleed across scenes.
+            let mut elem_map: HashMap<Id, Id> = HashMap::new();
+            let mut layer_seen_elems: HashSet<&str> = HashSet::new();
+            for key in &source.keyframes {
+                for el in &key.elements {
+                    if !layer_seen_elems.insert(el.id.as_str()) {
+                        continue;
+                    }
+                    if !taken.insert(el.id.clone()) {
+                        let mut suffix = index + 1;
+                        let fresh = loop {
+                            let candidate = format!("{}~scene{suffix}", el.id);
+                            if !used.contains(&candidate) && !taken.contains(&candidate) {
+                                break candidate;
+                            }
+                            suffix += 1;
+                        };
+                        used.insert(fresh.clone());
+                        taken.insert(fresh.clone());
+                        elem_map.insert(el.id.clone(), fresh);
+                    }
+                }
+            }
+            if !elem_map.is_empty() {
+                for group in &mut layer.properties.groups {
+                    for member in &mut group.members {
+                        if let Some(fresh) = elem_map.get(member) {
+                            *member = fresh.clone();
+                        }
+                    }
+                }
+                for key in &mut layer.keyframes {
+                    key.remap_all_ids(&elem_map, None, None);
                 }
             }
             for key in &mut layer.keyframes {

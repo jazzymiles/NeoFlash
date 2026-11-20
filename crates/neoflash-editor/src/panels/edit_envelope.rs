@@ -15,6 +15,8 @@ use neoflash_ui::metrics;
 use neoflash_ui::tokens::{TextStyle, space};
 use neoflash_ui::typography::rich;
 
+const MIN_TRIM_GAP_SECS: f64 = 0.01;
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct EditEnvelopeDraft {
     pub(crate) symbol_id: Id,
@@ -26,6 +28,9 @@ pub(crate) struct EditEnvelopeDraft {
     pub(crate) right: Vec<(f32, f32)>,
     pub(crate) selected_left: Option<usize>,
     pub(crate) selected_right: Option<usize>,
+    pub(crate) in_point: Option<f64>,
+    pub(crate) out_point: Option<f64>,
+    had_explicit_out: bool,
     /// `0` = Seconds, `1` = Frames.
     pub(crate) unit: usize,
     /// Horizontal time ruler zoom (`1.0..=8.0`).
@@ -51,6 +56,9 @@ impl EditEnvelopeDraft {
             right,
             selected_left: None,
             selected_right: None,
+            in_point: sound.in_point,
+            out_point: sound.out_point,
+            had_explicit_out: sound.out_point.is_some(),
             unit: 0,
             zoom: 1.0,
         }
@@ -80,8 +88,79 @@ impl EditEnvelopeDraft {
         sound.effect = self.effect;
         sound.envelope = (self.effect == SoundEffect::Custom)
             .then(|| merge_stereo_envelope(&self.left, &self.right));
+        sound.in_point = self.in_point;
+        sound.out_point = self.out_point;
         sound
     }
+}
+
+fn channel_waveform_columns(
+    lane: &[[f32; 2]],
+    audio_duration: f64,
+    visible_secs: f64,
+    columns: usize,
+) -> Vec<(f32, f32)> {
+    if columns == 0 || lane.is_empty() || audio_duration <= 0.0 || visible_secs <= 0.0 {
+        return Vec::new();
+    }
+    let bucket_secs = audio_duration / lane.len() as f64;
+    let col_secs = visible_secs / columns as f64;
+    (0..columns)
+        .map(|col| {
+            let t0 = col as f64 * col_secs;
+            if t0 >= audio_duration {
+                return (0.0, 0.0);
+            }
+            let t1 = ((col + 1) as f64 * col_secs).min(audio_duration);
+            let a = ((t0 / bucket_secs).floor() as usize).min(lane.len() - 1);
+            let b = ((t1 / bucket_secs).ceil() as usize).clamp(a + 1, lane.len());
+            lane[a..b]
+                .iter()
+                .fold((0.0_f32, 0.0_f32), |(lo, hi), &[x, y]| {
+                    (lo.min(x), hi.max(y))
+                })
+        })
+        .collect()
+}
+
+/// Splice underlay shapes (`paint_sound_peaks` + trim dim/guides) strictly behind `EnvelopeLane`'s
+/// border, channel badge, envelope polyline, and anchor handles while staying above its background.
+fn splice_envelope_lane_underlay(
+    ctx: &egui::Context,
+    layer_id: egui::LayerId,
+    clip_rect: egui::Rect,
+    before_lane_idx: usize,
+    paint: impl FnOnce(&egui::Painter),
+) -> usize {
+    let scratch_layer = egui::LayerId::new(
+        egui::Order::Background,
+        egui::Id::new("nf-edit-envelope-wave-scratch"),
+    );
+    let scratch = egui::Painter::new(ctx.clone(), scratch_layer, clip_rect);
+    paint(&scratch);
+    ctx.graphics_mut(|graphics| {
+        let added: Vec<_> = {
+            let list = graphics.entry(scratch_layer);
+            let items = list.all_entries().cloned().collect();
+            *list = Default::default();
+            items
+        };
+        if added.is_empty() {
+            return 0;
+        }
+        let added_count = added.len();
+        let target = graphics.entry(layer_id);
+        let mut all: Vec<_> = target.all_entries().cloned().collect();
+        // `EnvelopeLane` paints 4 background shapes (`bg_field` + two `paint_span`s + centre `hline`)
+        // before its border, channel text, curve line, and anchor handles.
+        let insert_at = (before_lane_idx + 4).min(all.len());
+        all.splice(insert_at..insert_at, added);
+        *target = Default::default();
+        for entry in all {
+            target.add(entry.clip_rect, entry.shape);
+        }
+        added_count
+    })
 }
 
 pub(crate) type StereoEnvelopeLanes = (Vec<(f32, f32)>, Vec<(f32, f32)>);
@@ -231,6 +310,7 @@ impl Editor {
             timeline.layers.iter().enumerate().find_map(|(idx, layer)| {
                 if neoflash_core::layer_effectively_locked(timeline, layer)
                     || !neoflash_core::layer_effectively_visible(timeline, layer)
+                    || !self.is_layer_id_effectively_soloed(&layer.id)
                 {
                     return None;
                 }
@@ -266,7 +346,12 @@ impl Editor {
             .and_then(|s| s.timeline.layers.iter().find(|l| l.id == draft.layer_id))
             .and_then(|l| l.keyframes.iter().find(|k| k.frame == draft.key_frame))
             .and_then(|k| k.sound.as_ref())
-            .is_some_and(|s| s.effect == draft.effect && s.envelope == new_envelope);
+            .is_some_and(|s| {
+                s.effect == draft.effect
+                    && s.envelope == new_envelope
+                    && s.in_point == draft.in_point
+                    && s.out_point == draft.out_point
+            });
         if unchanged {
             return;
         }
@@ -285,6 +370,8 @@ impl Editor {
             {
                 sound.effect = draft.effect;
                 sound.envelope = new_envelope;
+                sound.in_point = draft.in_point;
+                sound.out_point = draft.out_point;
             }
         });
     }
@@ -313,6 +400,12 @@ impl Editor {
 
         let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let width = dialog_width(ctx, metrics::dialog_l());
+        let peak_buckets = ((width as f64 * draft.zoom).ceil() as usize).clamp(64, 8192);
+        let decoded_peaks = self.timeline_audio.decoded_waveform_peaks(
+            &self.project,
+            &draft.resource,
+            peak_buckets,
+        );
         // Channel lanes are artwork three list rows high.
         let lane_height = 3.0 * metrics::row();
         let modal = egui::Modal::new(egui::Id::new("edit-envelope"))
@@ -354,6 +447,11 @@ impl Editor {
                         });
                     });
 
+                    let layer_id = ui.layer_id();
+                    let clip_rect = ui.clip_rect();
+                    let before_l = ui
+                        .ctx()
+                        .graphics_mut(|g| g.entry(layer_id).all_entries().count());
                     let prev_left = draft.left.clone();
                     let resp_l = ui.add(c::EnvelopeLane {
                         channel: "L",
@@ -420,6 +518,143 @@ impl Editor {
                         }
                     }
 
+                    let max_in = (duration_secs - MIN_TRIM_GAP_SECS).max(0.0);
+                    let mut eff_in = draft.in_point.unwrap_or(0.0).clamp(0.0, max_in);
+                    let mut eff_out = draft.out_point.unwrap_or(duration_secs).clamp(
+                        (eff_in + MIN_TRIM_GAP_SECS).min(duration_secs),
+                        duration_secs,
+                    );
+                    let x_for_sec = |sec: f64| -> f32 {
+                        ruler.left() + (sec / visible_secs).clamp(0.0, 1.0) as f32 * ruler.width()
+                    };
+                    let handle_half = space::s2();
+                    let in_x_initial = x_for_sec(eff_in);
+                    let out_x_initial = x_for_sec(eff_out);
+                    let in_hit = egui::Rect::from_min_max(
+                        egui::pos2((in_x_initial - handle_half).max(ruler.left()), ruler.top()),
+                        egui::pos2(
+                            (in_x_initial + handle_half)
+                                .min((in_x_initial + out_x_initial) * 0.5)
+                                .max(in_x_initial + space::s1())
+                                .min(ruler.right()),
+                            ruler.bottom(),
+                        ),
+                    );
+                    let out_hit = egui::Rect::from_min_max(
+                        egui::pos2(
+                            (out_x_initial - handle_half)
+                                .max((in_x_initial + out_x_initial) * 0.5)
+                                .min(out_x_initial - space::s1())
+                                .max(ruler.left()),
+                            ruler.top(),
+                        ),
+                        egui::pos2(
+                            (out_x_initial + handle_half).min(ruler.right()),
+                            ruler.bottom(),
+                        ),
+                    );
+                    let in_resp = ui.interact(
+                        in_hit,
+                        egui::Id::new("edit-envelope-trim-in"),
+                        egui::Sense::click_and_drag(),
+                    );
+                    let out_resp = ui.interact(
+                        out_hit,
+                        egui::Id::new("edit-envelope-trim-out"),
+                        egui::Sense::click_and_drag(),
+                    );
+                    if in_resp.hovered()
+                        || in_resp.dragged()
+                        || out_resp.hovered()
+                        || out_resp.dragged()
+                    {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                    }
+                    if in_resp.dragged() {
+                        let next_in = if let Some(pos) = in_resp.interact_pointer_pos() {
+                            (f64::from(pos.x - ruler.left()) / f64::from(ruler.width().max(1.0)))
+                                * visible_secs
+                        } else {
+                            eff_in
+                                + (f64::from(in_resp.drag_delta().x)
+                                    / f64::from(ruler.width().max(1.0)))
+                                    * visible_secs
+                        }
+                        .clamp(0.0, (eff_out - MIN_TRIM_GAP_SECS).max(0.0));
+                        eff_in = next_in;
+                        draft.in_point = if next_in <= 1e-4 {
+                            None
+                        } else {
+                            Some(next_in.min(FrameSound::MAX_SOUND_TRIM_SECONDS))
+                        };
+                    }
+                    if out_resp.dragged() {
+                        let min_out = (eff_in + MIN_TRIM_GAP_SECS).min(duration_secs);
+                        let next_out = if let Some(pos) = out_resp.interact_pointer_pos() {
+                            (f64::from(pos.x - ruler.left()) / f64::from(ruler.width().max(1.0)))
+                                * visible_secs
+                        } else {
+                            eff_out
+                                + (f64::from(out_resp.drag_delta().x)
+                                    / f64::from(ruler.width().max(1.0)))
+                                    * visible_secs
+                        }
+                        .clamp(min_out, duration_secs);
+                        eff_out = next_out;
+                        draft.out_point =
+                            if (duration_secs - next_out) <= 1e-4 && !draft.had_explicit_out {
+                                None
+                            } else {
+                                Some(next_out.min(FrameSound::MAX_SOUND_TRIM_SECONDS))
+                            };
+                    }
+                    let in_x = x_for_sec(eff_in);
+                    let out_x = x_for_sec(eff_out);
+                    let tick_arm = space::s1();
+                    let in_color =
+                        if in_resp.hovered() || in_resp.dragged() || draft.in_point.is_some() {
+                            nf.accent_default
+                        } else {
+                            nf.border_strong
+                        };
+                    let out_color =
+                        if out_resp.hovered() || out_resp.dragged() || draft.out_point.is_some() {
+                            nf.accent_default
+                        } else {
+                            nf.border_strong
+                        };
+                    if eff_in <= visible_secs {
+                        let stroke = egui::Stroke::new(1.5_f32, in_color);
+                        ui.painter().vline(in_x, ruler.y_range(), stroke);
+                        ui.painter().hline(
+                            in_x..=(in_x + tick_arm).min(ruler.right()),
+                            ruler.top(),
+                            stroke,
+                        );
+                        ui.painter().hline(
+                            in_x..=(in_x + tick_arm).min(ruler.right()),
+                            ruler.bottom(),
+                            stroke,
+                        );
+                    }
+                    if eff_out <= visible_secs {
+                        let stroke = egui::Stroke::new(1.5_f32, out_color);
+                        ui.painter().vline(out_x, ruler.y_range(), stroke);
+                        ui.painter().hline(
+                            (out_x - tick_arm).max(ruler.left())..=out_x,
+                            ruler.top(),
+                            stroke,
+                        );
+                        ui.painter().hline(
+                            (out_x - tick_arm).max(ruler.left())..=out_x,
+                            ruler.bottom(),
+                            stroke,
+                        );
+                    }
+
+                    let before_r = ui
+                        .ctx()
+                        .graphics_mut(|g| g.entry(layer_id).all_entries().count());
                     let prev_right = draft.right.clone();
                     let resp_r = ui.add(c::EnvelopeLane {
                         channel: "R",
@@ -441,6 +676,95 @@ impl Editor {
                             draft.effect = SoundEffect::Custom;
                         }
                     }
+
+                    let cols = resp_l.rect.width().ceil().max(1.0) as usize;
+                    let (left_cols, right_cols) = if let Some(ref peaks) = decoded_peaks {
+                        let l_cols = channel_waveform_columns(
+                            &peaks.left,
+                            peaks.duration,
+                            visible_secs,
+                            cols,
+                        );
+                        let r_source = if peaks.right.is_empty() {
+                            &peaks.left
+                        } else {
+                            &peaks.right
+                        };
+                        let r_cols =
+                            channel_waveform_columns(r_source, peaks.duration, visible_secs, cols);
+                        (l_cols, r_cols)
+                    } else {
+                        (Vec::new(), Vec::new())
+                    };
+                    let paint_trim_shade = |painter: &egui::Painter, rect: egui::Rect| {
+                        if eff_in > 0.0 {
+                            let rx = in_x.clamp(rect.left(), rect.right());
+                            if rx > rect.left() {
+                                painter.rect_filled(
+                                    egui::Rect::from_min_max(
+                                        rect.min,
+                                        egui::pos2(rx, rect.bottom()),
+                                    ),
+                                    0.0,
+                                    nf.overlay,
+                                );
+                                painter.vline(
+                                    rx,
+                                    rect.y_range(),
+                                    egui::Stroke::new(1.0_f32, nf.border_strong),
+                                );
+                            }
+                        }
+                        if eff_out < visible_secs {
+                            let lx = out_x.clamp(rect.left(), rect.right());
+                            if lx < rect.right() {
+                                painter.rect_filled(
+                                    egui::Rect::from_min_max(egui::pos2(lx, rect.top()), rect.max),
+                                    0.0,
+                                    nf.overlay,
+                                );
+                                painter.vline(
+                                    lx,
+                                    rect.y_range(),
+                                    egui::Stroke::new(1.0_f32, nf.border_strong),
+                                );
+                            }
+                        }
+                    };
+                    let spliced_l = splice_envelope_lane_underlay(
+                        ui.ctx(),
+                        layer_id,
+                        clip_rect,
+                        before_l,
+                        |painter| {
+                            if !left_cols.is_empty() {
+                                c::timeline::paint_sound_peaks(
+                                    painter,
+                                    ui.ctx(),
+                                    resp_l.rect,
+                                    &[left_cols.as_slice()],
+                                );
+                            }
+                            paint_trim_shade(painter, resp_l.rect);
+                        },
+                    );
+                    splice_envelope_lane_underlay(
+                        ui.ctx(),
+                        layer_id,
+                        clip_rect,
+                        before_r + spliced_l,
+                        |painter| {
+                            if !right_cols.is_empty() {
+                                c::timeline::paint_sound_peaks(
+                                    painter,
+                                    ui.ctx(),
+                                    resp_r.rect,
+                                    &[right_cols.as_slice()],
+                                );
+                            }
+                            paint_trim_shade(painter, resp_r.rect);
+                        },
+                    );
                 });
                 dialog.footer(
                     ui,

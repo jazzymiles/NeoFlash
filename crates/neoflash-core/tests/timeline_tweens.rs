@@ -3515,3 +3515,435 @@ fn t399_de_casteljau_subdivide_and_reverse_preserve_quadratic_and_cubic_bezier_p
         }
     }
 }
+
+#[test]
+fn multi_scene_flattened_graphic_playback_matches_scene_local_authoring_1_to_1() {
+    use neoflash_core::{InstancePlayback, Player, Symbol, SymbolKind, flatten_scenes_with_ranges};
+
+    let graphic = Symbol {
+        id: "walk-gfx".into(),
+        name: "WalkGfx".into(),
+        folder: String::new(),
+        kind: SymbolKind::Graphic,
+        timeline: Timeline {
+            frame_count: 4,
+            layers: vec![layer(
+                "gfx-art",
+                (0..4)
+                    .map(|f| key(f, vec![rect("dot", f64::from(f) * 10.0, 0.0)]))
+                    .collect(),
+            )],
+            scripts: vec![],
+            guides: vec![],
+        },
+        class_name: None,
+        linkage_id: None,
+    };
+    let clip_sym = Symbol {
+        id: "badge-mc".into(),
+        name: "BadgeMc".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        timeline: Timeline {
+            frame_count: 5,
+            layers: vec![layer(
+                "mc-art",
+                (0..5)
+                    .map(|f| key(f, vec![rect("pip", f64::from(f) * 100.0, 0.0)]))
+                    .collect(),
+            )],
+            scripts: vec![],
+            guides: vec![],
+        },
+        class_name: None,
+        linkage_id: None,
+    };
+
+    let gfx_inst = |id: &str, playback: InstancePlayback, y: f64| Element {
+        id: id.into(),
+        name: id.into(),
+        transform: Transform {
+            y,
+            ..Default::default()
+        },
+        kind: ElementKind::Instance {
+            symbol_id: "walk-gfx".into(),
+            playback,
+        },
+        ..Element::default()
+    };
+
+    // Scene 1 (5 frames): PlayOnce graphic that clamps before the scene boundary, sharing ID
+    // "shared-once" with Scene 2 to verify scene-boundary lifetime isolation on flatten.
+    let mut proj = Project::blank();
+    proj.symbols[0].name = "Scene 1".into();
+    proj.symbols[0].timeline = Timeline {
+        frame_count: 5,
+        layers: vec![layer(
+            "s1-art",
+            vec![key(
+                0,
+                vec![gfx_inst("shared-once", InstancePlayback::PlayOnce, 0.0)],
+            )],
+        )],
+        scripts: vec![],
+        guides: vec![],
+    };
+
+    // Scene 2 (8 frames): Loop, LoopFrom, PlayOnce, PlayOnceFrom, SingleFrame, held delayed span,
+    // synced layer (including MovieClip-behavior instance), and Motion tween ◆ playback switch.
+    let mut synced_mc = Element {
+        id: "s2-synced-mc".into(),
+        name: "s2-synced-mc".into(),
+        transform: Transform {
+            y: 300.0,
+            ..Default::default()
+        },
+        kind: ElementKind::Instance {
+            symbol_id: "badge-mc".into(),
+            playback: InstancePlayback::Loop,
+        },
+        instance_behavior: Some(SymbolKind::MovieClip),
+        ..Element::default()
+    };
+    let mut synced_layer = layer(
+        "s2-synced",
+        vec![
+            key(0, vec![synced_mc.clone()]),
+            key(
+                2,
+                vec![{
+                    synced_mc.id = "s2-synced-mc-late".into();
+                    synced_mc
+                }],
+            ),
+        ],
+    );
+    synced_layer.properties.sync_timeline = true;
+
+    let mut motion_start = key(
+        0,
+        vec![gfx_inst("s2-motion-gfx", InstancePlayback::Loop, 400.0)],
+    );
+    motion_start.tween = Some(Easing::Linear);
+    motion_start.tween_kind = TweenKind::Motion;
+    let mut motion_mid = key(
+        4,
+        vec![gfx_inst(
+            "s2-motion-gfx",
+            InstancePlayback::SingleFrame(2),
+            420.0,
+        )],
+    );
+    motion_mid.tween = Some(Easing::Linear);
+    motion_mid.tween_kind = TweenKind::Motion;
+    motion_mid.keyed_properties = Some(vec![TweenProperty::Y]);
+
+    let scene2 = Symbol {
+        id: "scene-2".into(),
+        name: "Scene 2".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        timeline: Timeline {
+            frame_count: 8,
+            layers: vec![
+                layer(
+                    "s2-standard",
+                    vec![key(
+                        0,
+                        vec![
+                            gfx_inst("shared-once", InstancePlayback::PlayOnce, 0.0),
+                            gfx_inst("s2-loop", InstancePlayback::Loop, 50.0),
+                            gfx_inst("s2-loop-from", InstancePlayback::LoopFrom(2), 100.0),
+                            gfx_inst("s2-once-from", InstancePlayback::PlayOnceFrom(1), 150.0),
+                            gfx_inst("s2-single", InstancePlayback::SingleFrame(3), 200.0),
+                        ],
+                    )],
+                ),
+                layer(
+                    "s2-delayed",
+                    vec![
+                        key(0, vec![]),
+                        key(
+                            3,
+                            vec![gfx_inst("s2-held", InstancePlayback::PlayOnce, 250.0)],
+                        ),
+                    ],
+                ),
+                synced_layer,
+                layer("s2-motion", vec![motion_start, motion_mid]),
+            ],
+            scripts: vec![],
+            guides: vec![],
+        },
+        class_name: None,
+        linkage_id: None,
+    };
+
+    proj.scenes = vec![proj.root.clone(), scene2.id.clone()];
+    proj.symbols.push(scene2);
+    proj.symbols.push(graphic);
+    proj.symbols.push(clip_sym);
+    proj.upgrade_format_for_features();
+
+    let (flat, ranges) = flatten_scenes_with_ranges(&proj);
+    flat.validate().unwrap();
+    assert_eq!(ranges.len(), 2);
+    assert_eq!((ranges[0].start, ranges[0].frames), (0, 5));
+    assert_eq!((ranges[1].start, ranges[1].frames), (5, 8));
+
+    let mut player = Player::new(&flat);
+    player.set_scenes(&flat, ranges.clone()).unwrap();
+
+    for (scene_idx, scene_id) in [(0usize, proj.root.as_str()), (1usize, "scene-2")] {
+        let range = &ranges[scene_idx];
+        for local_f in 0..range.frames {
+            let flat_f = range.start + local_f;
+            assert_eq!(player.frame(), flat_f);
+            let authored = evaluate(&proj, scene_id, local_f);
+            let flattened = evaluate(&flat, &flat.root, flat_f);
+            let runtime_items = player.evaluate(&flat);
+            assert_eq!(
+                authored.len(),
+                flattened.len(),
+                "scene {scene_id} local frame {local_f} draw count"
+            );
+            assert_eq!(
+                authored.len(),
+                runtime_items.len(),
+                "scene {scene_id} local frame {local_f} runtime draw count"
+            );
+            for (idx, ((a, b), r)) in authored
+                .iter()
+                .zip(&flattened)
+                .zip(&runtime_items)
+                .enumerate()
+            {
+                assert_eq!(
+                    a.transform, b.transform,
+                    "scene {scene_id} frame {local_f} draw {idx} flattened transform"
+                );
+                assert_eq!(
+                    a.transform, r.transform,
+                    "scene {scene_id} frame {local_f} draw {idx} Player transform"
+                );
+            }
+            if flat_f + 1 < flat.symbol(&flat.root).unwrap().timeline.frame_count {
+                player.tick(&flat);
+            }
+        }
+    }
+}
+
+#[test]
+fn classic_and_motion_tween_dummy_filters_fade_in_out_and_pair_mismatched_stacks() {
+    use neoflash_core::{FilterSpec, IDENTITY_COLOR_MATRIX};
+
+    let classic_filters = |a: &[FilterSpec], b: &[FilterSpec], frame: u32| -> Vec<FilterSpec> {
+        let mut el_a = rect("box", 0.0, 0.0);
+        el_a.filters = a.to_vec();
+        let mut el_b = rect("box", 20.0, 0.0);
+        el_b.filters = b.to_vec();
+        let mut k0 = key(0, vec![el_a]);
+        k0.tween = Some(Easing::Linear);
+        let k2 = key(2, vec![el_b]);
+        let lyr = layer("classic-f", vec![k0, k2]);
+        sample_layer(&lyr, frame)[0].filters.clone()
+    };
+
+    let samples: Vec<FilterSpec> = vec![
+        FilterSpec::Blur {
+            blur_x: 12.0,
+            blur_y: 8.0,
+            quality: 2,
+        },
+        FilterSpec::Glow {
+            color: 0xff3366,
+            alpha: 0.8,
+            blur_x: 10.0,
+            blur_y: 10.0,
+            strength: 2.0,
+            quality: 2,
+            inner: true,
+            knockout: false,
+        },
+        FilterSpec::DropShadow {
+            distance: 8.0,
+            angle: 60.0,
+            color: 0x112233,
+            alpha: 0.9,
+            blur_x: 6.0,
+            blur_y: 6.0,
+            strength: 1.5,
+            quality: 3,
+            inner: false,
+            knockout: true,
+            hide_object: false,
+        },
+        FilterSpec::Bevel {
+            distance: 6.0,
+            angle: 45.0,
+            highlight_color: 0xffffff,
+            highlight_alpha: 0.8,
+            shadow_color: 0x000000,
+            shadow_alpha: 0.6,
+            blur_x: 4.0,
+            blur_y: 4.0,
+            strength: 2.0,
+            quality: 2,
+            placement: "outer".into(),
+            knockout: false,
+        },
+        FilterSpec::GradientGlow {
+            distance: 4.0,
+            angle: 30.0,
+            colors: vec![0xff0000, 0x00ff00],
+            alphas: vec![0.4, 1.0],
+            ratios: vec![0, 255],
+            blur_x: 8.0,
+            blur_y: 8.0,
+            strength: 2.0,
+            quality: 2,
+            placement: "inner".into(),
+            knockout: false,
+        },
+        FilterSpec::GradientBevel {
+            distance: 4.0,
+            angle: 120.0,
+            colors: vec![0x0000ff, 0xffffff],
+            alphas: vec![0.6, 0.8],
+            ratios: vec![0, 255],
+            blur_x: 6.0,
+            blur_y: 6.0,
+            strength: 1.5,
+            quality: 2,
+            placement: "full".into(),
+            knockout: false,
+        },
+        FilterSpec::ColorMatrix {
+            matrix: [
+                0.5, 0.0, 0.0, 0.0, 20.0, 0.0, 0.5, 0.0, 0.0, 20.0, 0.0, 0.0, 0.5, 0.0, 20.0, 0.0,
+                0.0, 0.0, 1.0, 0.0,
+            ],
+        },
+        FilterSpec::Convolution {
+            matrix_x: 3,
+            matrix_y: 3,
+            matrix: vec![0.0, -1.0, 0.0, -1.0, 5.0, -1.0, 0.0, -1.0, 0.0],
+            divisor: 1.0,
+            bias: 10.0,
+            preserve_alpha: true,
+            clamp: true,
+            color: 0x000000,
+            alpha: 0.5,
+        },
+    ];
+
+    for spec in &samples {
+        let fade_in_mid = classic_filters(&[], std::slice::from_ref(spec), 1);
+        let fade_out_mid = classic_filters(std::slice::from_ref(spec), &[], 1);
+        assert_eq!(fade_in_mid.len(), 1, "fade-in for {spec:?}");
+        assert_eq!(fade_out_mid.len(), 1, "fade-out for {spec:?}");
+        fade_in_mid[0].validate().unwrap();
+        fade_out_mid[0].validate().unwrap();
+        assert_eq!(
+            fade_in_mid[0], fade_out_mid[0],
+            "symmetric midpoint {spec:?}"
+        );
+
+        let fade_in_zero = classic_filters(&[], std::slice::from_ref(spec), 0);
+        if let FilterSpec::ColorMatrix { matrix } = &fade_in_zero[0] {
+            assert_eq!(*matrix, IDENTITY_COLOR_MATRIX);
+        }
+        if let FilterSpec::Convolution { matrix, bias, .. } = &fade_in_zero[0] {
+            assert_eq!(
+                matrix.as_slice(),
+                &[0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+            );
+            assert!(bias.abs() < 1e-9);
+        }
+    }
+
+    // Mismatched multi-filter stacks pair matching variants in order via LCS rather than greedy pop.
+    let a_stack = vec![
+        samples[1].clone(), // Glow (fades out)
+        samples[0].clone(), // Blur(12, 8) -> pairs with Blur(4, 2)
+        samples[2].clone(), // DropShadow(8) -> pairs with DropShadow(2)
+    ];
+    let b_stack = vec![
+        FilterSpec::Blur {
+            blur_x: 4.0,
+            blur_y: 2.0,
+            quality: 2,
+        },
+        FilterSpec::DropShadow {
+            distance: 2.0,
+            angle: 60.0,
+            color: 0x112233,
+            alpha: 0.5,
+            blur_x: 2.0,
+            blur_y: 2.0,
+            strength: 0.5,
+            quality: 3,
+            inner: false,
+            knockout: true,
+            hide_object: false,
+        },
+        samples[3].clone(), // Bevel (fades in)
+    ];
+    let mid_stack = classic_filters(&a_stack, &b_stack, 1);
+    assert_eq!(mid_stack.len(), 4);
+    assert!(matches!(mid_stack[0], FilterSpec::Glow { alpha, .. } if (alpha - 0.4).abs() < 1e-6));
+    assert!(
+        matches!(mid_stack[1], FilterSpec::Blur { blur_x, blur_y, .. } if (blur_x - 8.0).abs() < 1e-6 && (blur_y - 5.0).abs() < 1e-6)
+    );
+    assert!(
+        matches!(mid_stack[2], FilterSpec::DropShadow { distance, .. } if (distance - 5.0).abs() < 1e-6)
+    );
+    assert!(
+        matches!(mid_stack[3], FilterSpec::Bevel { distance, .. } if (distance - 3.0).abs() < 1e-6)
+    );
+
+    // Motion tween hold-then-fade: Blur(12, 12) at frame 0, held Blur(12, 12) at ◆ frame 5, [] at ◆ frame 10.
+    let mut el0 = rect("box", 0.0, 0.0);
+    el0.filters = vec![FilterSpec::Blur {
+        blur_x: 12.0,
+        blur_y: 12.0,
+        quality: 1,
+    }];
+    let mut el5 = rect("box", 50.0, 0.0);
+    el5.filters = el0.filters.clone();
+    let el10 = rect("box", 100.0, 0.0);
+
+    let mut k0 = key(0, vec![el0]);
+    k0.tween = Some(Easing::Linear);
+    k0.tween_kind = TweenKind::Motion;
+    let mut k5 = key(5, vec![el5]);
+    k5.tween = Some(Easing::Linear);
+    k5.tween_kind = TweenKind::Motion;
+    k5.keyed_properties = Some(vec![TweenProperty::X]);
+    let mut k10 = key(10, vec![el10]);
+    k10.tween = Some(Easing::Linear);
+    k10.tween_kind = TweenKind::Motion;
+    k10.keyed_properties = Some(vec![TweenProperty::X]);
+
+    let motion_layer = layer("motion-filters", vec![k0, k5, k10]);
+    let proj = {
+        let mut p = project(11, vec![motion_layer]);
+        p.upgrade_format_for_features();
+        p.validate().unwrap();
+        p
+    };
+    let blur_at = |f: u32| match sample_layer(&proj.symbols[0].timeline.layers[0], f)[0]
+        .filters
+        .first()
+    {
+        Some(FilterSpec::Blur { blur_x, .. }) => *blur_x,
+        None => 0.0,
+        other => panic!("unexpected filter {other:?}"),
+    };
+    assert!((blur_at(3) - 12.0).abs() < 1e-6, "held across 0..=5");
+    assert!((blur_at(5) - 12.0).abs() < 1e-6, "exact at ◆ frame 5");
+    assert!((blur_at(8) - 4.8).abs() < 1e-6, "fades across 5..10");
+    assert!(blur_at(10).abs() < 1e-6, "cleared at ◆ frame 10");
+}

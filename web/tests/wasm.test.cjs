@@ -596,3 +596,268 @@ test('WASM and runtime host fire AS2 on(release) on first click and onClipEvent(
   host.disposeFamily();
   player.free();
 });
+
+test('WASM multi-scene Graphic playback matches authoring phase and NeoFlashAudio schedules trimmed start durations',async()=>{
+  await ready;
+  const base=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../../examples/timeline-sound.nflash'),'utf8'));
+  const transform=(x,y=0)=>({
+    x,y,scale_x:1,scale_y:1,rotation:0,skew:0,alpha:1,
+    color_transform:{multipliers:[1,1,1,1],offsets:[0,0,0,0]},
+  });
+  const rectEl=(id,x)=>({
+    id,name:id,transform:transform(x,0),
+    kind:{type:'rectangle',width:10,height:10,fill:[20,40,60,255],stroke:[0,0,0,0],stroke_width:0},
+    scripts:[],
+  });
+  const doc={
+    format_version:8,
+    name:'Multi-scene Graphic & filter tween check',
+    width:320,
+    height:200,
+    fps:24,
+    background:[255,255,255,255],
+    root:'scene-1',
+    scenes:['scene-1','scene-2'],
+    resources:base.resources.filter(r=>r.id==='melody'),
+    symbols:[
+      {
+        id:'scene-1',
+        name:'Scene 1',
+        kind:'movie_clip',
+        timeline:{
+          frame_count:4,
+          layers:[{
+            id:'s1-layer',
+            name:'S1',
+            visible:true,
+            locked:false,
+            keyframes:[key(0,[{
+                id:'g-once',
+                name:'g-once',
+                transform:transform(0,0),
+                kind:{type:'instance',symbol_id:'walk-gfx',playback:'play_once'},
+                scripts:[],
+              }])],
+          }],
+          scripts:[],
+        },
+      },
+      {
+        id:'scene-2',
+        name:'Scene 2',
+        kind:'movie_clip',
+        timeline:{
+          frame_count:6,
+          layers:[
+            {
+              id:'s2-gfx',
+              name:'S2 Gfx',
+              visible:true,
+              locked:false,
+              keyframes:[key(0,[
+                  {
+                    id:'g-loop',
+                    name:'g-loop',
+                    transform:transform(0,20),
+                    kind:{type:'instance',symbol_id:'walk-gfx',playback:'loop'},
+                    scripts:[],
+                  },
+                  {
+                    id:'g-once-2',
+                    name:'g-once-2',
+                    transform:transform(0,40),
+                    kind:{type:'instance',symbol_id:'walk-gfx',playback:'play_once'},
+                    scripts:[],
+                  },
+                  {
+                    id:'g-single',
+                    name:'g-single',
+                    transform:transform(0,60),
+                    kind:{type:'instance',symbol_id:'walk-gfx',playback:{single_frame:2}},
+                    scripts:[],
+                  },
+                ])],
+            },
+            {
+              id:'s2-synced',
+              name:'S2 Synced',
+              visible:true,
+              locked:false,
+              properties:{sync_timeline:true},
+              keyframes:[
+                key(0,[]),
+                key(2,[{
+                    id:'g-sync',
+                    name:'g-sync',
+                    transform:transform(0,80),
+                    kind:{type:'instance',symbol_id:'walk-gfx',playback:'loop'},
+                    scripts:[],
+                  }]),
+              ],
+            },
+            {
+              id:'s2-filter',
+              name:'S2 Filter',
+              visible:true,
+              locked:false,
+              keyframes:[
+                key(0,[{
+                    ...rectEl('fade-box',0),
+                    filters:[],
+                  }],'','linear'),
+                key(4,[{
+                    ...rectEl('fade-box',40),
+                    filters:[{type:'blur',blur_x:16,blur_y:8,quality:2}],
+                  }]),
+              ],
+            },
+          ],
+          scripts:[],
+        },
+      },
+      {
+        id:'walk-gfx',
+        name:'Walk',
+        kind:'graphic',
+        timeline:{
+          frame_count:3,
+          layers:[{
+            id:'walk-art',
+            name:'Art',
+            visible:true,
+            locked:false,
+            keyframes:[
+              key(0,[rectEl('dot',0)]),
+              key(1,[rectEl('dot',10)]),
+              key(2,[rectEl('dot',20)]),
+            ],
+          }],
+          scripts:[],
+        },
+      },
+    ],
+  };
+
+  const player=new wasm.WebPlayer(JSON.stringify(doc));
+  // Advance past Scene 1 (frames 0..3): Scene 1 PlayOnce clamps at 20 on frames 2 and 3.
+  const s1Xs=[];
+  for(let f=0;f<4;f++){
+    const draws=JSON.parse(player.scene_json());
+    s1Xs.push(draws[0].transform[4]);
+    player.tick();
+  }
+  assert.deepEqual(s1Xs,[0,10,20,20],'Scene 1 PlayOnce clamps at child end');
+
+  // Scene 2 starts at flattened frame 4 (scene-local 0..5):
+  // - g-loop (y=20): [0, 10, 20, 0, 10, 20]
+  // - g-once-2 (y=40): [0, 10, 20, 20, 20, 20] (restarts at 0 on Scene 2 entry!)
+  // - g-single (y=60): [20, 20, 20, 20, 20, 20]
+  // - g-sync (y=80, sync_timeline from local frame 2): absent on 0..1, then [20, 0, 10, 20]
+  const loopXs=[],onceXs=[],singleXs=[],syncXs=[],midBlur=[];
+  for(let local=0;local<6;local++){
+    const draws=JSON.parse(player.scene_json());
+    const byY=y=>draws.find(d=>Math.abs(d.transform[5]-y)<1e-6);
+    loopXs.push(byY(20).transform[4]);
+    onceXs.push(byY(40).transform[4]);
+    singleXs.push(byY(60).transform[4]);
+    const syncDraw=byY(80);
+    syncXs.push(syncDraw?syncDraw.transform[4]:null);
+    if(local===2){
+      const nodes=JSON.parse(player.display_nodes_json());
+      const fadeNode=nodes.find(n=>n.name==='fade-box');
+      midBlur.push(fadeNode.filters[0]);
+    }
+    if(local<5)player.tick();
+  }
+  assert.deepEqual(loopXs,[0,10,20,0,10,20],'Scene 2 Graphic Loop wraps in scene-local phase');
+  assert.deepEqual(onceXs,[0,10,20,20,20,20],'Scene 2 Graphic PlayOnce starts at 0 and clamps');
+  assert.deepEqual(singleXs,[20,20,20,20,20,20],'Scene 2 Graphic SingleFrame holds frame 2');
+  assert.deepEqual(syncXs,[null,null,20,0,10,20],'Scene 2 synced layer locks to scene-local frame');
+  assert.equal(midBlur.length,1);
+  assert.equal(midBlur[0].blur_x,8,'dummy Blur filter fades in from 0 to 16 at midpoint');
+  assert.equal(midBlur[0].blur_y,4,'dummy Blur filter fades in from 0 to 8 at midpoint');
+  player.free();
+
+  // Verify Web Audio `source.start(when, offset, duration)` scheduling for trimmed in/out commands.
+  const startedCalls=[];
+  let nowTime=1.0;
+  const param=()=>({value:1,setValueAtTime(){},linearRampToValueAtTime(){}});
+  const node=kind=>({kind,gain:param(),connect(){},disconnect(){}});
+  const context={
+    state:'running',
+    sampleRate:8000,
+    get currentTime(){return nowTime;},
+    destination:node('destination'),
+    resume(){this.state='running';return Promise.resolve();},
+    close(){return Promise.resolve();},
+    decodeAudioData(){return Promise.resolve({duration:1.5,length:1,numberOfChannels:1});},
+    createGain(){return node('gain');},
+    createStereoPanner(){return {...node('pan'),pan:param()};},
+    createChannelSplitter(){return node('splitter');},
+    createChannelMerger(){return node('merger');},
+    createBufferSource(){
+      const src={
+        ...node('source'),
+        loop:false,
+        loopStart:0,
+        loopEnd:0,
+        start(...args){startedCalls.push({args,loop:this.loop,loopStart:this.loopStart,loopEnd:this.loopEnd});},
+        stop(when){this.stopped=when;},
+      };
+      return src;
+    },
+  };
+  const resources=new Map(doc.resources.map(r=>[r.path,Buffer.from(r.data_base64,'base64')]));
+  const audio=require('../audio.js').create({
+    events:require('../events.js'),
+    net:{URLLoader:class{},mediaSource:p=>({bytes:new Uint8Array(resources.get(p))})},
+    binary:{toBytes:x=>x},
+    resources:doc.resources,
+    createContext:()=>context,
+    isUserGesture:()=>true,
+    now:()=>nowTime,
+    onError:error=>{throw error;},
+  });
+  await audio.resumeFromGesture();
+  audio.preloadTimeline(['melody']);
+  await new Promise(done=>setTimeout(done,0));
+
+  // 1. Non-looping trimmed stream: in_point=0.2, out_point=0.7 (0.5s window), offset=0.1 -> start(1.0, 0.3, 0.4).
+  audio.timeline([{
+    op:'stream_start',
+    channel:'ch-trim',
+    resource:'melody',
+    offset:0.1,
+    loops:1,
+    loop_forever:false,
+    in_point:0.2,
+    out_point:0.7,
+    envelope:[[0,1,1]],
+  }]);
+  assert.equal(startedCalls.length,1);
+  assert.equal(startedCalls[0].args.length,3,'trimmed non-looping sound passes 3-arg source.start(when, offset, duration)');
+  assert.ok(Math.abs(startedCalls[0].args[0]-1.0)<1e-9);
+  assert.ok(Math.abs(startedCalls[0].args[1]-0.3)<1e-9);
+  assert.ok(Math.abs(startedCalls[0].args[2]-0.4)<1e-9);
+  assert.equal(startedCalls[0].loop,false);
+
+  // 2. Multi-loop trimmed Event sound: in_point=0.25, out_point=0.65 (0.4s * 3 = 1.2s), loopStart/loopEnd set.
+  audio.timeline([{
+    op:'play',
+    resource:'melody',
+    sync:'event',
+    loops:3,
+    loop_forever:false,
+    in_point:0.25,
+    out_point:0.65,
+    envelope:[[0,1,1]],
+  }]);
+  assert.equal(startedCalls.length,2);
+  assert.equal(startedCalls[1].loop,true);
+  assert.ok(Math.abs(startedCalls[1].loopStart-0.25)<1e-9);
+  assert.ok(Math.abs(startedCalls[1].loopEnd-0.65)<1e-9);
+  assert.ok(Math.abs(startedCalls[1].args[1]-0.25)<1e-9);
+  assert.ok(Math.abs(startedCalls[1].args[2]-1.2)<1e-9);
+
+  audio.dispose();
+});

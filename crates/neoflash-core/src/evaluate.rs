@@ -329,10 +329,13 @@ fn zero_dummy_filter(spec: &FilterSpec) -> FilterSpec {
             alpha,
             ..
         } => {
-            let mx = (*matrix_x).max(1);
-            let my = (*matrix_y).max(1);
-            let mut matrix = vec![0.0; (mx * my) as usize];
-            let center = ((my / 2) * mx + (mx / 2)) as usize;
+            if spec.as_shader().is_some() || spec.as_displacement().is_some() {
+                return spec.clone();
+            }
+            let mx = (*matrix_x).clamp(1, 15);
+            let my = (*matrix_y).clamp(1, 15);
+            let mut matrix = vec![0.0; usize::from(mx) * usize::from(my)];
+            let center = usize::from(my / 2) * usize::from(mx) + usize::from(mx / 2);
             if let Some(cell) = matrix.get_mut(center) {
                 *cell = 1.0;
             }
@@ -463,7 +466,51 @@ fn interpolate_gradient_stops(
     (colors, alphas, ratios)
 }
 
+fn can_pair_filters(a: &FilterSpec, b: &FilterSpec) -> bool {
+    if a.as_shader().is_some()
+        || b.as_shader().is_some()
+        || a.as_displacement().is_some()
+        || b.as_displacement().is_some()
+    {
+        return false;
+    }
+    match (a, b) {
+        (
+            FilterSpec::Convolution {
+                matrix_x: ax,
+                matrix_y: ay,
+                ..
+            },
+            FilterSpec::Convolution {
+                matrix_x: bx,
+                matrix_y: by,
+                ..
+            },
+        ) => {
+            let ax_clean = a.clone().with_enabled(true);
+            let bx_clean = b.clone().with_enabled(true);
+            if let (
+                FilterSpec::Convolution { matrix_x: mx_a, .. },
+                FilterSpec::Convolution { matrix_x: mx_b, .. },
+            ) = (ax_clean, bx_clean)
+            {
+                mx_a == mx_b && ay == by
+            } else {
+                ax == bx && ay == by
+            }
+        }
+        _ => std::mem::discriminant(a) == std::mem::discriminant(b),
+    }
+}
+
 fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSpec> {
+    if a.as_shader().is_some()
+        || b.as_shader().is_some()
+        || a.as_displacement().is_some()
+        || b.as_displacement().is_some()
+    {
+        return None;
+    }
     let a_enabled = a.is_enabled();
     let b_enabled = b.is_enabled();
     if !a_enabled && !b_enabled {
@@ -486,22 +533,32 @@ fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSp
         let bl = lerp(ch(ca, 0), ch(cb, 0), t).round().clamp(0.0, 255.0) as u32;
         (r << 16) | (g << 8) | bl
     };
+    let pick_quality = |aq: u8, bq: u8| -> u8 {
+        if t <= 0.0 {
+            aq
+        } else if t >= 1.0 {
+            bq
+        } else {
+            aq.max(bq)
+        }
+    };
+    let use_end = t >= 1.0;
     match (a, b) {
         (
             FilterSpec::Blur {
                 blur_x: ax,
                 blur_y: ay,
-                quality,
+                quality: aq,
             },
             FilterSpec::Blur {
                 blur_x: bx,
                 blur_y: by,
-                ..
+                quality: bq,
             },
         ) => Some(FilterSpec::Blur {
             blur_x: lerp(*ax, *bx, t).clamp(0.0, 255.0),
             blur_y: lerp(*ay, *by, t).clamp(0.0, 255.0),
-            quality: *quality,
+            quality: pick_quality(*aq, *bq),
         }),
         (
             FilterSpec::Glow {
@@ -510,9 +567,9 @@ fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSp
                 blur_x: ax,
                 blur_y: ay,
                 strength: ast,
-                quality,
-                inner,
-                knockout,
+                quality: aq,
+                inner: ai,
+                knockout: ak,
             },
             FilterSpec::Glow {
                 color: bc,
@@ -520,7 +577,9 @@ fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSp
                 blur_x: bx,
                 blur_y: by,
                 strength: bst,
-                ..
+                quality: bq,
+                inner: bi,
+                knockout: bk,
             },
         ) => Some(FilterSpec::Glow {
             color: lerp_rgb(*ac, *bc),
@@ -528,9 +587,9 @@ fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSp
             blur_x: lerp(*ax, *bx, t).clamp(0.0, 255.0),
             blur_y: lerp(*ay, *by, t).clamp(0.0, 255.0),
             strength: lerp(*ast, *bst, t).clamp(0.0, 255.0),
-            quality: *quality,
-            inner: *inner,
-            knockout: *knockout,
+            quality: pick_quality(*aq, *bq),
+            inner: if use_end { *bi } else { *ai },
+            knockout: if use_end { *bk } else { *ak },
         }),
         (
             FilterSpec::DropShadow {
@@ -541,10 +600,10 @@ fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSp
                 blur_x: ax,
                 blur_y: ay,
                 strength: ast,
-                quality,
-                inner,
-                knockout,
-                hide_object,
+                quality: aq,
+                inner: ai,
+                knockout: ak,
+                hide_object: ah,
             },
             FilterSpec::DropShadow {
                 distance: bd,
@@ -554,24 +613,73 @@ fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSp
                 blur_x: bx,
                 blur_y: by,
                 strength: bst,
-                ..
+                quality: bq,
+                inner: bi,
+                knockout: bk,
+                hide_object: bh,
             },
         ) => Some(FilterSpec::DropShadow {
-            distance: lerp(*ad, *bd, t),
-            angle: lerp(*aang, *bang, t),
+            distance: lerp(*ad, *bd, t).clamp(-8192.0, 8192.0),
+            angle: lerp(*aang, *bang, t).clamp(-1e9, 1e9),
             color: lerp_rgb(*ac, *bc),
             alpha: lerp(*aa, *ba, t).clamp(0.0, 1.0),
             blur_x: lerp(*ax, *bx, t).clamp(0.0, 255.0),
             blur_y: lerp(*ay, *by, t).clamp(0.0, 255.0),
             strength: lerp(*ast, *bst, t).clamp(0.0, 255.0),
-            quality: *quality,
-            inner: *inner,
-            knockout: *knockout,
-            hide_object: *hide_object,
+            quality: pick_quality(*aq, *bq),
+            inner: if use_end { *bi } else { *ai },
+            knockout: if use_end { *bk } else { *ak },
+            hide_object: if use_end { *bh } else { *ah },
         }),
         (FilterSpec::ColorMatrix { matrix: am }, FilterSpec::ColorMatrix { matrix: bm }) => {
             Some(FilterSpec::ColorMatrix {
-                matrix: std::array::from_fn(|i| lerp(am[i], bm[i], t)),
+                matrix: std::array::from_fn(|i| lerp(am[i], bm[i], t).clamp(-65536.0, 65536.0)),
+            })
+        }
+        (
+            FilterSpec::Convolution {
+                matrix_x: ax,
+                matrix_y: ay,
+                matrix: am,
+                divisor: adiv,
+                bias: abias,
+                preserve_alpha: apa,
+                clamp: aclamp,
+                color: ac,
+                alpha: aa,
+            },
+            FilterSpec::Convolution {
+                matrix_x: bx,
+                matrix_y: by,
+                matrix: bm,
+                divisor: bdiv,
+                bias: bbias,
+                preserve_alpha: bpa,
+                clamp: bclamp,
+                color: bc,
+                alpha: ba,
+            },
+        ) if ax == bx && ay == by && am.len() == bm.len() => {
+            let raw_div = lerp(*adiv, *bdiv, t).clamp(-65536.0, 65536.0);
+            let divisor = if raw_div.abs() < 1e-6 && (*adiv != 0.0 || *bdiv != 0.0) {
+                if raw_div < 0.0 { -1e-6 } else { 1e-6 }
+            } else {
+                raw_div
+            };
+            Some(FilterSpec::Convolution {
+                matrix_x: *ax,
+                matrix_y: *ay,
+                matrix: am
+                    .iter()
+                    .zip(bm)
+                    .map(|(av, bv)| lerp(*av, *bv, t).clamp(-65536.0, 65536.0))
+                    .collect(),
+                divisor,
+                bias: lerp(*abias, *bbias, t).clamp(-65536.0, 65536.0),
+                preserve_alpha: if use_end { *bpa } else { *apa },
+                clamp: if use_end { *bclamp } else { *aclamp },
+                color: lerp_rgb(*ac, *bc),
+                alpha: lerp(*aa, *ba, t).clamp(0.0, 1.0),
             })
         }
         (
@@ -585,9 +693,9 @@ fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSp
                 blur_x: ax,
                 blur_y: ay,
                 strength: ast,
-                quality,
-                placement,
-                knockout,
+                quality: aq,
+                placement: ap,
+                knockout: ak,
             },
             FilterSpec::Bevel {
                 distance: bd,
@@ -599,11 +707,13 @@ fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSp
                 blur_x: bx,
                 blur_y: by,
                 strength: bst,
-                ..
+                quality: bq,
+                placement: bp,
+                knockout: bk,
             },
         ) => Some(FilterSpec::Bevel {
-            distance: lerp(*ad, *bd, t),
-            angle: lerp(*aang, *bang, t),
+            distance: lerp(*ad, *bd, t).clamp(-8192.0, 8192.0),
+            angle: lerp(*aang, *bang, t).clamp(-1e9, 1e9),
             highlight_color: lerp_rgb(*ahc, *bhc),
             highlight_alpha: lerp(*aha, *bha, t).clamp(0.0, 1.0),
             shadow_color: lerp_rgb(*asc, *bsc),
@@ -611,9 +721,9 @@ fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSp
             blur_x: lerp(*ax, *bx, t).clamp(0.0, 255.0),
             blur_y: lerp(*ay, *by, t).clamp(0.0, 255.0),
             strength: lerp(*ast, *bst, t).clamp(0.0, 255.0),
-            quality: *quality,
-            placement: placement.clone(),
-            knockout: *knockout,
+            quality: pick_quality(*aq, *bq),
+            placement: if use_end { bp.clone() } else { ap.clone() },
+            knockout: if use_end { *bk } else { *ak },
         }),
         (
             FilterSpec::GradientGlow {
@@ -625,9 +735,9 @@ fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSp
                 blur_x: ax,
                 blur_y: ay,
                 strength: ast,
-                quality,
-                placement,
-                knockout,
+                quality: aq,
+                placement: ap,
+                knockout: ak,
             },
             FilterSpec::GradientGlow {
                 distance: bd,
@@ -638,22 +748,24 @@ fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSp
                 blur_x: bx,
                 blur_y: by,
                 strength: bst,
-                ..
+                quality: bq,
+                placement: bp,
+                knockout: bk,
             },
         ) => {
             let (colors, alphas, ratios) = interpolate_gradient_stops(ac, aa, ar, bc, ba, br, t);
             Some(FilterSpec::GradientGlow {
-                distance: lerp(*ad, *bd, t),
-                angle: lerp(*aang, *bang, t),
+                distance: lerp(*ad, *bd, t).clamp(-8192.0, 8192.0),
+                angle: lerp(*aang, *bang, t).clamp(-1e9, 1e9),
                 colors,
                 alphas,
                 ratios,
                 blur_x: lerp(*ax, *bx, t).clamp(0.0, 255.0),
                 blur_y: lerp(*ay, *by, t).clamp(0.0, 255.0),
                 strength: lerp(*ast, *bst, t).clamp(0.0, 255.0),
-                quality: *quality,
-                placement: placement.clone(),
-                knockout: *knockout,
+                quality: pick_quality(*aq, *bq),
+                placement: if use_end { bp.clone() } else { ap.clone() },
+                knockout: if use_end { *bk } else { *ak },
             })
         }
         (
@@ -666,9 +778,9 @@ fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSp
                 blur_x: ax,
                 blur_y: ay,
                 strength: ast,
-                quality,
-                placement,
-                knockout,
+                quality: aq,
+                placement: ap,
+                knockout: ak,
             },
             FilterSpec::GradientBevel {
                 distance: bd,
@@ -679,22 +791,24 @@ fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSp
                 blur_x: bx,
                 blur_y: by,
                 strength: bst,
-                ..
+                quality: bq,
+                placement: bp,
+                knockout: bk,
             },
         ) => {
             let (colors, alphas, ratios) = interpolate_gradient_stops(ac, aa, ar, bc, ba, br, t);
             Some(FilterSpec::GradientBevel {
-                distance: lerp(*ad, *bd, t),
-                angle: lerp(*aang, *bang, t),
+                distance: lerp(*ad, *bd, t).clamp(-8192.0, 8192.0),
+                angle: lerp(*aang, *bang, t).clamp(-1e9, 1e9),
                 colors,
                 alphas,
                 ratios,
                 blur_x: lerp(*ax, *bx, t).clamp(0.0, 255.0),
                 blur_y: lerp(*ay, *by, t).clamp(0.0, 255.0),
                 strength: lerp(*ast, *bst, t).clamp(0.0, 255.0),
-                quality: *quality,
-                placement: placement.clone(),
-                knockout: *knockout,
+                quality: pick_quality(*aq, *bq),
+                placement: if use_end { bp.clone() } else { ap.clone() },
+                knockout: if use_end { *bk } else { *ak },
             })
         }
         _ => None,
@@ -719,35 +833,78 @@ pub fn interpolate_filter_list(a: &[FilterSpec], b: &[FilterSpec], t: f64) -> Ve
     {
         return interpolated;
     }
-    let mut out = Vec::with_capacity(a.len().max(b.len()));
-    let mut b_cursor = 0usize;
-    for fa in a {
-        if let Some(rel_idx) = b[b_cursor..]
-            .iter()
-            .position(|fb| std::mem::discriminant(fa) == std::mem::discriminant(fb))
-        {
-            let match_idx = b_cursor + rel_idx;
-            for fb in &b[b_cursor..match_idx] {
-                let dummy = zero_dummy_filter(fb);
-                if let Some(interp) = interpolate_filter(&dummy, fb, t) {
-                    out.push(interp);
-                }
-            }
-            if let Some(interp) = interpolate_filter(fa, &b[match_idx], t) {
-                out.push(interp);
-            }
-            b_cursor = match_idx + 1;
+
+    // Order-preserving Longest Common Subsequence pairing across filter variants (matching
+    // Flash 8–CS6 dummy-filter insertion while avoiding greedy mismatches on 2+ filter stacks).
+    let na = a.len();
+    let nb = b.len();
+    let cols = nb + 1;
+    let mut dp = vec![0usize; (na + 1) * cols];
+    for i in (0..na).rev() {
+        for j in (0..nb).rev() {
+            dp[i * cols + j] = if can_pair_filters(&a[i], &b[j]) {
+                1 + dp[(i + 1) * cols + (j + 1)]
+            } else {
+                dp[(i + 1) * cols + j].max(dp[i * cols + (j + 1)])
+            };
+        }
+    }
+
+    let mut pairs = Vec::with_capacity(na.min(nb));
+    let (mut i, mut j) = (0usize, 0usize);
+    while i < na && j < nb {
+        if can_pair_filters(&a[i], &b[j]) && dp[i * cols + j] == 1 + dp[(i + 1) * cols + (j + 1)] {
+            pairs.push((i, j));
+            i += 1;
+            j += 1;
+        } else if dp[i * cols + (j + 1)] >= dp[(i + 1) * cols + j] {
+            // Prefer advancing `b` on ties so earlier `a` filters pair with the earliest viable `b`
+            // and unmatched `b` filters before a match fade in ahead of it, matching Flash z-order.
+            j += 1;
         } else {
+            i += 1;
+        }
+    }
+
+    let mut out = Vec::with_capacity(na + nb);
+    let (mut a_cursor, mut b_cursor) = (0usize, 0usize);
+    for (ai, bj) in pairs {
+        for fa in &a[a_cursor..ai] {
             let dummy = zero_dummy_filter(fa);
             if let Some(interp) = interpolate_filter(fa, &dummy, t) {
                 out.push(interp);
+            } else if t < 1.0 {
+                out.push(fa.clone());
             }
+        }
+        for fb in &b[b_cursor..bj] {
+            let dummy = zero_dummy_filter(fb);
+            if let Some(interp) = interpolate_filter(&dummy, fb, t) {
+                out.push(interp);
+            } else if t > 0.0 {
+                out.push(fb.clone());
+            }
+        }
+        if let Some(interp) = interpolate_filter(&a[ai], &b[bj], t) {
+            out.push(interp);
+        }
+        a_cursor = ai + 1;
+        b_cursor = bj + 1;
+    }
+    for fa in &a[a_cursor..] {
+        let dummy = zero_dummy_filter(fa);
+        if let Some(interp) = interpolate_filter(fa, &dummy, t) {
+            out.push(interp);
+        } else if t < 1.0 {
+            out.push(fa.clone());
         }
     }
     for fb in &b[b_cursor..] {
         let dummy = zero_dummy_filter(fb);
         if let Some(interp) = interpolate_filter(&dummy, fb, t) {
             out.push(interp);
+        } else if t > 0.0 {
+            out.push(fb.clone());
         }
     }
     out.truncate(crate::MAX_OBJECT_FILTERS);
@@ -1517,16 +1674,12 @@ fn sample_motion_key_filters(layer: &Layer, frame: u32, fallback: &Keyframe) -> 
     let Some((start, properties, end)) = motion_span(layer, frame) else {
         return fallback.filters.clone();
     };
-    let mut filter_keys: Vec<(u32, &[FilterSpec])> = vec![(start.frame, &start.filters)];
+    let mut filter_keys: Vec<(u32, &[FilterSpec])> = Vec::with_capacity(1 + properties.len());
+    filter_keys.push((start.frame, &start.filters));
     for prop_key in &properties {
-        if filter_keys
-            .last()
-            .is_none_or(|(_, last_f)| *last_f != prop_key.filters.as_slice())
-        {
-            filter_keys.push((prop_key.frame, &prop_key.filters));
-        }
+        filter_keys.push((prop_key.frame, &prop_key.filters));
     }
-    if filter_keys.len() <= 1 {
+    if filter_keys.windows(2).all(|w| w[0].1 == w[1].1) {
         return start.filters.clone();
     }
     let last = properties.last().map_or(start.frame, |k| k.frame);
@@ -1576,17 +1729,35 @@ fn sample_motion(layer: &Layer, frame: u32) -> Vec<Element> {
         .map(|element| {
             let mut out = element.clone();
             out.transform = motion_pose(start, &properties, element, progress, length);
-            let mut filter_keys: Vec<(u32, &[FilterSpec])> = vec![(start.frame, &element.filters)];
+            if let ElementKind::Instance {
+                ref symbol_id,
+                ref mut playback,
+            } = out.kind
+            {
+                for prop_key in &properties {
+                    if prop_key.frame > frame {
+                        break;
+                    }
+                    if let Some(ke) = prop_key.elements.iter().find(|e| e.id == element.id)
+                        && let ElementKind::Instance {
+                            symbol_id: ref key_sym,
+                            playback: key_playback,
+                        } = ke.kind
+                        && key_sym == symbol_id
+                    {
+                        *playback = key_playback;
+                    }
+                }
+            }
+            let mut filter_keys: Vec<(u32, &[FilterSpec])> =
+                Vec::with_capacity(1 + properties.len());
+            filter_keys.push((start.frame, &element.filters));
             for prop_key in &properties {
-                if let Some(ke) = prop_key.elements.iter().find(|e| e.id == element.id)
-                    && filter_keys
-                        .last()
-                        .is_none_or(|(_, last_f)| *last_f != ke.filters.as_slice())
-                {
+                if let Some(ke) = prop_key.elements.iter().find(|e| e.id == element.id) {
                     filter_keys.push((prop_key.frame, &ke.filters));
                 }
             }
-            if filter_keys.len() > 1 {
+            if !filter_keys.windows(2).all(|w| w[0].1 == w[1].1) {
                 let ease = start.tween.unwrap_or(Easing::Linear);
                 let eff_time = start.frame as f64 + easing(progress, ease) * length;
                 let mut prev = filter_keys[0];
