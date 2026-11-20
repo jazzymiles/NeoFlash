@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "0996f05a35c241dfadf52e61e77a03db9cba6de73b6923e6e11c10eb49d03a56",
+  "reviews": [
+    {
+      "id": "AS3-AREAS2TO8-20261121",
+      "date": "2026-11-21",
+      "commit": "ac651dd45d5358ce60f79bc8b7629dbcf59feb9e",
+      "title": "Close AS3 Areas 2, 4 and 5 object_proxy, Function, BlendMode.SHADER, mask, and SWF Loader gaps",
+      "summary": "Implements flash.utils.object_proxy and Proxy/ObjectProxy meta-trap dispatch, full Function call/apply/new Function/prototype/arguments.caller semantics, 2-input Pixel Bender BlendMode.SHADER compositing, dynamic/nested/TextField/Video/Bitmap DisplayObject.mask clipping and hit-testing, and pure-Rust FWS/CWS/ZWS SWF AVM1/AVM2 execution in Loader.load and loadBytes.",
+      "tests": [
+        "crates/neoflash-core/src/pixels/pipeline.rs",
+        "crates/neoflash-script/tests/execute.mjs",
+        "crates/neoflash-script/tests/interfaces-accessors.mjs",
+        "crates/neoflash-script/tests/function-workflow.mjs",
+        "crates/neoflash-script/tests/bitmap-pixels.mjs",
+        "crates/neoflash-script/tests/clipped-scene.mjs",
+        "crates/neoflash-script/tests/loader-gallery.mjs",
+        "crates/neoflash-script/tests/core-surface.mjs",
+        "web/tests/as3-fte-3d.test.cjs",
+        "web/tests/display-family.test.cjs",
+        "web/tests/swf-loader.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:statement:statements.html#object_proxy",
+          "status": "working",
+          "note": "Supports flash.utils.object_proxy and mx.utils.object_proxy namespace imports, use namespace object_proxy, flash.utils.Proxy meta-trap subclassing (getProperty, setProperty, callProperty, hasProperty, deleteProperty, nextNameIndex/nextName/nextValue, isAttribute), and mx.utils.ObjectProxy PropertyChangeEvent dispatch."
+        },
+        {
+          "catalogId": "AS3:class:Function.html#",
+          "status": "working",
+          "note": "Supports Function declarations, expressions, closures, bound class methods, Function.prototype.call/apply with primitive receiver boxing, arity length, writable prototype and new Ctor(...) construction, dynamic new Function(...params, body) compilation, and AS3 arguments.caller === undefined."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#SHADER",
+          "status": "working",
+          "note": "Evaluates 2-input Pixel Bender blendShader kernels (dst background + src foreground RGBA) across Rust evaluate_blend_shader_rgba, PixelArena::draw_rgba, BitmapData.draw, and HTML5 Stage DisplayObject compositing when blendMode == BlendMode.SHADER."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mask",
+          "status": "working",
+          "note": "Clips Stage rendering, BitmapData.draw (including external mask sources), and shape-flag hitTestPoint across dynamic mask assignment/reassignment/nulling, nested mask chains, geometric paths, soft alpha/PNG/Bitmap masks, and TextField/Video mask sources while keeping getBounds/getRect unmasked."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#load()",
+          "status": "working",
+          "note": "Loads images (PNG/JPEG/GIF/WebP), NeoFlash HTML5 child bundles, and raw FWS/CWS/ZWS SWF movies (decoding timelines, shapes, sprites, bitmaps, text, and AVM1/AVM2 bytecode into a live MovieClip with contentLoaderInfo events and unloadAndStop cleanup) within browser CORS/origin limits."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
+          "status": "working",
+          "note": "Decodes in-memory PNG/JPEG/GIF/WebP ByteArrays and raw FWS/CWS/ZWS SWF ByteArrays into live Bitmap or multi-frame AVM1/AVM2 MovieClip content with contentLoaderInfo metadata, frame navigation, and unloadAndStop cleanup."
+        }
+      ]
+    }
+  ]
+}

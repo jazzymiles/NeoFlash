@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "cd8550dc03ab64033cc8738c9f2974085c1773bde7ece9498bdd7a939b48ee22",
+  "reviews": [
+    {
+      "id": "AS2-AREA7-20261121",
+      "date": "2026-11-21",
+      "commit": "ac651dd45d5358ce60f79bc8b7629dbcf59feb9e",
+      "title": "Close AS2 Area 7 NetStream attachAudio, attachVideo, publish, and liveDelay gaps",
+      "summary": "Implements AS2 NetStream.prototype.attachAudio, attachVideo, publish, and liveDelay across Rust ScriptAS2Stream, web/video.js, and actionscript/intrinsics.js with an in-memory live loopback stream registry, duplicate BadName protection, UnpublishNotify subscriber dispatch, and live subscriber metadata/send/Camera delivery.",
+      "tests": [
+        "crates/neoflash-core/src/as2_media.rs",
+        "crates/neoflash-script/tests/media-netstream.mjs",
+        "crates/neoflash-script/tests/as2-project-input.mjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:NetStream.html#attachAudio()",
+          "status": "working",
+          "note": "Attaches a Microphone source or false/null detach on NetStream instances via Rust ScriptAS2Stream and web/video.js live loopback publishing."
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachVideo()",
+          "status": "working",
+          "note": "Attaches a Camera source (with optional snapshotMilliseconds) or false/null detach on NetStream instances and delivers frames to live loopback Video subscribers."
+        },
+        {
+          "catalogId": "as2:NetStream.html#liveDelay",
+          "status": "working",
+          "note": "Read-only numeric liveDelay property on NetStream reporting buffered live-stream delay in seconds from ScriptAS2Stream."
+        },
+        {
+          "catalogId": "as2:NetStream.html#publish()",
+          "status": "working",
+          "note": "Publishes and unpublishes named live/record/append streams in the browser loopback registry, dispatching NetStream.Publish.Start, NetStream.Publish.BadName on active name collisions, and NetStream.Unpublish.Success / NetStream.Play.UnpublishNotify."
+        }
+      ]
+    }
+  ]
+}

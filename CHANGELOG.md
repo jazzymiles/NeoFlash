@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+- Added native 1:1 **Figma** and **SVG** clipboard paste (`T-413`): copying frames, groups, vectors, text, cropped bitmap fills,
+  masks, blurs/drop shadows or nested component instances in Figma Desktop or Figma Web (`⌘C` / `Copy as SVG`) and pasting onto
+  the NeoFlash Stage (`⌘V` centered on Stage, `⌘⇧V` **Paste in Place** at document coordinates or normalized onto Stage for
+  off-stage infinite-canvas origins) decodes `<!--(figma)...(/figma)-->` Deflate/Zstandard `fig-kiwi` payloads directly from the
+  system clipboard (skipping `Internal Only Canvas` definitions) into editable vector paths, strokes, gradients, bitmap fills,
+  `TextBox` runs, masks, filters and collision-free `MovieClip` symbols in a single Undo step.
+- Added standalone **`.as` pure Script Editor document tabs** and 4-tier ActionScript **`#include` / `include`** resolution
+  (`T-412`): opening `.as` files from **File ▸ Open…**, **Open recent**, macOS file launch, Stage/tab drag-and-drop or
+  **Output** / **Compiler errors** click-to-jump opens a dedicated document tab rendering a full-window NF v3 Script Editor
+  without Stage, Timeline, Tools, Library or Properties chrome (preserving `.nflash` workspace docks across tab switches, with
+  atomic UTF-8 `⌘S` / `Save As…` / `Revert`, crash recovery and external disk-modification banners), and ActionScript `#include`
+  plus AS3 `include` directives resolve across live open `.as` tabs, `project.resources`, `project.sources` and relative disk
+  `.as` files across `Check syntax`, native `Play`, `Test Movie`, `Publish` (HTML5, SWF, FLA/XFL) and `--headless` CLI.
+- Closed all remaining ActionScript 2 and ActionScript 3 **Areas 1–7** declaration gaps (`T-407`), bringing **both AS3 Areas 1–7
+  (`1,939 / 1,939` in Areas 1–6 and `91 / 91` in Area 7 = `100.0%` Working)** and **AS2 Areas 1–7 (`925 / 925` in Areas 1–6 and
+  `83 / 83` in Area 7 = `100.0%` Working)** to **zero Missing declarations across all 8 Flash Player areas**: added
+  `flash.utils.object_proxy` / `Proxy` / `mx.utils.ObjectProxy` meta-trap dispatch, 2-input Pixel Bender `BlendMode.SHADER` +
+  `DisplayObject.blendShader` compositing, dynamic/nested/`TextField`/`Video`/`Bitmap` `DisplayObject.mask` clipping and
+  `hitTestPoint`, full AS3 `Function` (`new Function`, `call`/`apply` receiver boxing, `prototype`, `arguments.caller`), AS2
+  `NetStream.{attachAudio, attachVideo, publish, liveDelay}` live loopback streaming, and pure-Rust `FWS`/`CWS`/`ZWS` `.swf`
+  AVM1/AVM2 movie execution inside HTML5 `Loader.load()` and `Loader.loadBytes()`.
+- Extracted playable embedded video/compiled-clip media and deepened **Legacy Binary FLA** conversion (`T-408`): decoded
+  `CMediaVideoStream` (`FLV`, `MP4`, `Sorenson H.263`, `On2 VP6`/`VP6A` and `ScreenVideo`) streams into playable `video/x-flv` /
+  `video/mp4` resources bound to Stage `Video` spans, imported `CSwfPage` compiled clips as editable symbols, preserved
+  `CMediaSound` AS2/AS3 export linkage (`SymbolKind::Sound`), and eliminated recurring corpus approximations across `105` binary
+  FLA files (`fla_text_metrics`, `fla_tween_dropped`, `fla_media_not_imported`, `fla_instance_settings` and
+  `fla_graphic_first_frame` all reduced to `0`).
+- Deepened **SWF** AVM1/AVM2 round-trip compilation & `SwfBytecodePlayer` preview, **Lottie / dotLottie** vector-glyph text
+  outlines & custom stereo sound envelopes, and **PDF / AI / EPS** vector gradient shadings (`T-409`): added `try`/`catch`/`finally`
+  + `throw`, `switch`/`case`, `for..in`/`for each`, multi-level `super` inheritance, `is`/`as`/`instanceof`/`in`/`delete` and
+  dynamic MovieClip/Sprite Stage projection to SWF export and `SwfBytecodePlayer`, converted static Lottie text runs to cubic
+  Bézier glyph outlines with multi-point stereo `au.lv` audio envelopes, and added Type 2/3 axial and radial `/Shading` /
+  PostScript Level 3 `shfill` vector gradient import and export.
+- Wired nested **Debugger** object/array tree expansion & paused property editing, **1,000-layer Timeline** row virtualization
+  and oblique/reflected **Edit in Place** (`T-410`): added lazy CDP `Runtime.getProperties` disclosure trees and
+  `Runtime.callFunctionOn` paused property editing in **Variables** and **Watch**, virtualized Timeline layer-header and
+  frame-grid row construction to O(visible rows) across 1,000+ layers, and added SVD hit-testing, reflected mesh-winding
+  inversion and full affine Stage gizmo mapping for skewed, rotated and mirrored parent chains during **Edit in Place**.
+
 - Closed 54 ActionScript 2 and ActionScript 3 **Areas 1–7** conformance gaps (`T-401`), bringing **AS2 Areas 1–6 to 100.0%
   (`925 / 925` Working)**, **AS3 Area 6 (`Text and fonts`) to 100.0% (`174 / 174` Working)**, and **AS3 Area 7 (`File audio
   and video playback`) to 100.0% (`91 / 91` Working)**: AS2 `Stage.wmodeGPU`, `flash.text.TextRenderer` (`displayMode`,
