@@ -2166,11 +2166,7 @@ impl SwfBytecodePlayer {
         let saved_pool =
             std::mem::replace(&mut self.avm1_constant_pool, func.constant_pool.clone());
         let saved_regs = self.avm1_registers.clone();
-        let exec_target = match &this_val {
-            Avm1Value::MovieClipIdentity(t) if !t.is_empty() && t != "_root" => t.clone(),
-            _ => func.base_target.clone(),
-        };
-        let saved_target = std::mem::replace(&mut self.avm1_target, exec_target);
+        let saved_target = std::mem::replace(&mut self.avm1_target, func.base_target.clone());
         let saved_with = std::mem::take(&mut self.avm1_with_scopes);
 
         for r in 0..usize::from(func.register_count) {

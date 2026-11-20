@@ -468,16 +468,9 @@ pub(super) fn avm1_compile_expr(
             avm1_compile_function(out, "", name.as_deref(), params, body)?;
         }
         SwfExpr::Member(obj, prop) => {
-            if matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "this")
-                && is_avm1_mc_builtin_prop(prop)
-            {
-                avm1_push_string(out, prop)?;
-                out.push(0x1c); // ActionGetVariable
-            } else {
-                avm1_compile_expr(out, obj, reg_map)?;
-                avm1_push_string(out, prop)?;
-                out.push(0x4e); // ActionGetMember
-            }
+            avm1_compile_expr(out, obj, reg_map)?;
+            avm1_push_string(out, prop)?;
+            out.push(0x4e); // ActionGetMember
         }
         SwfExpr::Index(obj, idx) => {
             avm1_compile_expr(out, obj, reg_map)?;
@@ -884,16 +877,9 @@ pub(super) fn avm1_load_lvalue(
             }
         }
         SwfLValue::Member(obj, prop) => {
-            if matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "this")
-                && is_avm1_mc_builtin_prop(prop)
-            {
-                avm1_push_string(out, prop)?;
-                out.push(0x1c); // ActionGetVariable
-            } else {
-                avm1_compile_expr(out, obj, reg_map)?;
-                avm1_push_string(out, prop)?;
-                out.push(0x4e); // ActionGetMember
-            }
+            avm1_compile_expr(out, obj, reg_map)?;
+            avm1_push_string(out, prop)?;
+            out.push(0x4e); // ActionGetMember
         }
         SwfLValue::Index(obj, idx) => {
             avm1_compile_expr(out, obj, reg_map)?;
@@ -936,24 +922,10 @@ where
             }
         }
         SwfLValue::Member(obj, prop) => {
-            if matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "this")
-                && is_avm1_mc_builtin_prop(prop)
-            {
-                avm1_push_string(out, prop)?;
-                emit_rhs(out)?;
-                out.push(0x1d); // ActionSetVariable
-                avm1_push_string(out, "this")?;
-                out.push(0x1c); // ActionGetVariable
-                avm1_push_string(out, prop)?;
-                avm1_push_string(out, prop)?;
-                out.push(0x1c); // ActionGetVariable
-                out.push(0x4f); // ActionSetMember
-            } else {
-                avm1_compile_expr(out, obj, reg_map)?;
-                avm1_push_string(out, prop)?;
-                emit_rhs(out)?;
-                out.push(0x4f); // ActionSetMember
-            }
+            avm1_compile_expr(out, obj, reg_map)?;
+            avm1_push_string(out, prop)?;
+            emit_rhs(out)?;
+            out.push(0x4f); // ActionSetMember
         }
         SwfLValue::Index(obj, idx) => {
             avm1_compile_expr(out, obj, reg_map)?;
