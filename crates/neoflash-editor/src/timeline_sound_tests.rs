@@ -817,7 +817,7 @@ fn stereo_wav_bytes(frames: usize, rate: u32, left_amp: f32, right_amp: f32) -> 
 fn edit_envelope_renders_decoded_stereo_waveform_behind_curve_and_commits_trim_in_one_undo() {
     let ctx = egui::Context::default();
     let mut editor = editor_in(&ctx);
-    let stereo_bytes = stereo_wav_bytes(1000, 1000, 0.9, 0.2); // 1.0 s stereo: loud L, quiet R
+    let stereo_bytes = stereo_wav_bytes(1000, 1000, 0.9, 0.0); // 1.0 s stereo: loud L, silent R
     editor.project.resources.push(
         ResourceUnit::from_bytes("stereo", "audio/stereo.wav", "audio/wav", &stereo_bytes).unwrap(),
     );
@@ -834,10 +834,11 @@ fn edit_envelope_renders_decoded_stereo_waveform_behind_curve_and_commits_trim_i
 
     let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0));
     let mut out = egui::FullOutput::default();
-    for _ in 0..2 {
+    for pass in 0..2 {
         out = ctx.run(
             egui::RawInput {
                 screen_rect: Some(screen),
+                time: Some(pass as f64),
                 ..Default::default()
             },
             |ctx| editor.edit_envelope_dialog(ctx),
@@ -854,18 +855,51 @@ fn edit_envelope_renders_decoded_stereo_waveform_behind_curve_and_commits_trim_i
             other => out.push(other),
         }
     }
-    let mut flat_shapes: Vec<&egui::Shape> = Vec::new();
-    for clipped in &out.shapes {
-        flatten_shapes(&clipped.shape, &mut flat_shapes);
+    fn collect_flat(output: &egui::FullOutput) -> Vec<&egui::Shape> {
+        let mut flat = Vec::new();
+        for clipped in &output.shapes {
+            flatten_shapes(&clipped.shape, &mut flat);
+        }
+        flat
     }
+    let flat_shapes = collect_flat(&out);
+
+    // Find the ruler bounds from the "0s" and "1s" text labels to split L vs R and drag trim handles!
+    let mut ruler_left_x = None;
+    let mut ruler_right_x = None;
+    let mut ruler_center_y = None;
+    for shape in &flat_shapes {
+        if let egui::Shape::Text(t) = shape {
+            if t.galley.text() == "0.0s" || t.galley.text() == "0s" {
+                ruler_left_x = Some(t.pos.x);
+                ruler_center_y = Some(t.pos.y + t.galley.size().y * 0.5);
+            } else if t.galley.text() == "1.0s" || t.galley.text() == "1s" {
+                ruler_right_x = Some(t.pos.x + t.galley.size().x);
+            }
+        }
+    }
+    let left_x = ruler_left_x.expect("0s label on ruler");
+    let right_x = ruler_right_x.expect("1s label on ruler");
+    let ry = ruler_center_y.expect("ruler y");
+    let width = right_x - left_x;
+    assert!(width > 100.0);
 
     let nf = neoflash_ui::palette(&ctx);
-    // Locate the two `Shape::Path` envelope curves (top = L, bottom = R) and `success_default`
-    // vertical waveform bars, verifying L > R amplitude and waveform z-order strictly before curves!
+    // Collect `timeline_static` row background rects, envelope curves, and `success_default`
+    // vertical waveform bars to verify z-order AND that synthetic PRNG bars are stripped!
+    let mut l_bg_indices: Vec<usize> = Vec::new();
+    let mut r_bg_indices: Vec<usize> = Vec::new();
     let mut curve_indices_and_y: Vec<(usize, f32)> = Vec::new();
     let mut wave_bars: Vec<(usize, f32, f32)> = Vec::new(); // (shape_idx, center_y, height)
     for (idx, shape) in flat_shapes.iter().enumerate() {
         match shape {
+            egui::Shape::Rect(r) if r.fill == nf.timeline_static && r.rect.width() > 100.0 => {
+                if r.rect.center().y < ry {
+                    l_bg_indices.push(idx);
+                } else {
+                    r_bg_indices.push(idx);
+                }
+            }
             egui::Shape::LineSegment { points, stroke }
                 if stroke.color == nf.success_default
                     && (points[0].x - points[1].x).abs() < 1e-3 =>
@@ -888,26 +922,17 @@ fn edit_envelope_renders_decoded_stereo_waveform_behind_curve_and_commits_trim_i
             _ => {}
         }
     }
-    // Find the ruler bounds from the "0s" and "1s" text labels to split L vs R and drag trim handles!
-    let mut ruler_left_x = None;
-    let mut ruler_right_x = None;
-    let mut ruler_center_y = None;
-    for shape in &flat_shapes {
-        if let egui::Shape::Text(t) = shape {
-            if t.galley.text() == "0.0s" || t.galley.text() == "0s" {
-                ruler_left_x = Some(t.pos.x);
-                ruler_center_y = Some(t.pos.y + t.galley.size().y * 0.5);
-            } else if t.galley.text() == "1.0s" || t.galley.text() == "1s" {
-                ruler_right_x = Some(t.pos.x + t.galley.size().x);
-            }
-        }
-    }
-    let left_x = ruler_left_x.expect("0s label on ruler");
-    let right_x = ruler_right_x.expect("1s label on ruler");
-    let ry = ruler_center_y.expect("ruler y");
-    let width = right_x - left_x;
-    assert!(width > 100.0);
 
+    assert_eq!(
+        l_bg_indices.len(),
+        2,
+        "expected 2 timeline_static bg rects on L lane"
+    );
+    assert_eq!(
+        r_bg_indices.len(),
+        2,
+        "expected 2 timeline_static bg rects on R lane"
+    );
     assert_eq!(
         curve_indices_and_y.len(),
         2,
@@ -918,6 +943,8 @@ fn edit_envelope_renders_decoded_stereo_waveform_behind_curve_and_commits_trim_i
         "expected decoded stereo waveform peak bars, got {}",
         wave_bars.len()
     );
+    let last_l_bg_idx = *l_bg_indices.last().unwrap();
+    let last_r_bg_idx = *r_bg_indices.last().unwrap();
     let (curve_l_idx, _) = curve_indices_and_y[0];
     let (curve_r_idx, _) = curve_indices_and_y[1];
     let mut l_bars = Vec::new();
@@ -925,14 +952,14 @@ fn edit_envelope_renders_decoded_stereo_waveform_behind_curve_and_commits_trim_i
     for &(idx, cy, h) in &wave_bars {
         if cy < ry {
             assert!(
-                idx < curve_l_idx,
-                "L waveform peak bar ({idx}) must render behind L envelope curve ({curve_l_idx})"
+                idx > last_l_bg_idx && idx < curve_l_idx,
+                "L waveform peak bar ({idx}) must sit above both L timeline_static bgs ({last_l_bg_idx}) and behind L curve ({curve_l_idx})"
             );
             l_bars.push(h);
         } else {
             assert!(
-                idx < curve_r_idx,
-                "R waveform peak bar ({idx}) must render behind R envelope curve ({curve_r_idx})"
+                idx > last_r_bg_idx && idx < curve_r_idx,
+                "R waveform peak bar ({idx}) must sit above both R timeline_static bgs ({last_r_bg_idx}) and behind R curve ({curve_r_idx})"
             );
             r_bars.push(h);
         }
@@ -941,17 +968,24 @@ fn edit_envelope_renders_decoded_stereo_waveform_behind_curve_and_commits_trim_i
     let max_l = l_bars.iter().copied().fold(0.0_f32, f32::max);
     let max_r = r_bars.iter().copied().fold(0.0_f32, f32::max);
     assert!(
-        max_l > max_r * 2.5,
-        "expected decoded L peak ({max_l}) > 2.5x R peak ({max_r})"
+        max_l > 20.0,
+        "expected loud decoded L peak > 20.0 px, got {max_l}"
+    );
+    assert!(
+        max_r <= 2.0,
+        "expected silent decoded R channel to strip synthetic PRNG bars (max_r <= 2.0 px), got {max_r}"
     );
 
     // Drag start trim handle from left_x + 1 to 25% (0.25s) and end trim handle from right_x - 1 to 75% (0.75s).
-    let drag_handle = |editor: &mut Editor, from_x: f32, to_x: f32| {
+    let mut sim_time = 2.0_f64;
+    let mut drag_handle = |editor: &mut Editor, from_x: f32, to_x: f32| {
         let start_pos = egui::pos2(from_x, ry);
         let end_pos = egui::pos2(to_x, ry);
+        sim_time += 0.1;
         let _ = ctx.run(
             egui::RawInput {
                 screen_rect: Some(screen),
+                time: Some(sim_time),
                 events: vec![
                     egui::Event::PointerMoved(start_pos),
                     egui::Event::PointerButton {
@@ -965,17 +999,21 @@ fn edit_envelope_renders_decoded_stereo_waveform_behind_curve_and_commits_trim_i
             },
             |ctx| editor.edit_envelope_dialog(ctx),
         );
+        sim_time += 0.1;
         let _ = ctx.run(
             egui::RawInput {
                 screen_rect: Some(screen),
+                time: Some(sim_time),
                 events: vec![egui::Event::PointerMoved(end_pos)],
                 ..Default::default()
             },
             |ctx| editor.edit_envelope_dialog(ctx),
         );
+        sim_time += 0.1;
         let _ = ctx.run(
             egui::RawInput {
                 screen_rect: Some(screen),
+                time: Some(sim_time),
                 events: vec![egui::Event::PointerButton {
                     pos: end_pos,
                     button: egui::PointerButton::Primary,
@@ -996,6 +1034,77 @@ fn edit_envelope_renders_decoded_stereo_waveform_behind_curve_and_commits_trim_i
     let outp = draft.out_point.expect("out_point set by ruler drag");
     assert!((inp - 0.25).abs() < 0.03, "expected ~0.25s, got {inp}");
     assert!((outp - 0.75).abs() < 0.03, "expected ~0.75s, got {outp}");
+
+    // Verify trim-shade overlay rects also sit strictly above both `timeline_static` backgrounds
+    // and strictly behind each lane's envelope curve!
+    let trimmed_out = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            time: Some(sim_time + 1.0),
+            ..Default::default()
+        },
+        |ctx| editor.edit_envelope_dialog(ctx),
+    );
+    let trimmed_flat = collect_flat(&trimmed_out);
+    let mut trim_l_bgs = Vec::new();
+    let mut trim_r_bgs = Vec::new();
+    let mut trim_l_shades = Vec::new();
+    let mut trim_r_shades = Vec::new();
+    let mut trim_curves = Vec::new();
+    for (idx, shape) in trimmed_flat.iter().enumerate() {
+        match shape {
+            egui::Shape::Rect(r) if r.fill == nf.timeline_static && r.rect.width() > 100.0 => {
+                if r.rect.center().y < ry {
+                    trim_l_bgs.push(idx);
+                } else {
+                    trim_r_bgs.push(idx);
+                }
+            }
+            // Exclude the full-screen modal backdrop (`r.rect.width() < 1000.0`).
+            egui::Shape::Rect(r)
+                if r.fill == nf.overlay && r.rect.width() > 5.0 && r.rect.width() < 1000.0 =>
+            {
+                if r.rect.center().y < ry {
+                    trim_l_shades.push(idx);
+                } else {
+                    trim_r_shades.push(idx);
+                }
+            }
+            egui::Shape::LineSegment { points, stroke }
+                if stroke.color == nf.accent_default
+                    && (points[1].x - points[0].x).abs() > 50.0 =>
+            {
+                trim_curves.push(idx);
+            }
+            egui::Shape::Path(path) if !path.closed && (path.stroke.width - 1.5).abs() < 1e-3 => {
+                trim_curves.push(idx);
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(
+        trim_l_shades.len(),
+        2,
+        "expected in/out trim shades on L lane"
+    );
+    assert_eq!(
+        trim_r_shades.len(),
+        2,
+        "expected in/out trim shades on R lane"
+    );
+    assert_eq!(trim_curves.len(), 2);
+    for idx in trim_l_shades {
+        assert!(
+            idx > *trim_l_bgs.last().unwrap() && idx < trim_curves[0],
+            "L trim shade ({idx}) must sit between L backgrounds and L curve"
+        );
+    }
+    for idx in trim_r_shades {
+        assert!(
+            idx > *trim_r_bgs.last().unwrap() && idx < trim_curves[1],
+            "R trim shade ({idx}) must sit between R backgrounds and R curve"
+        );
+    }
 
     // Preview audition respects the draft trim window, and VoiceSource yields only the trimmed segment!
     let preview = draft.preview_sound(editor.frame_sound().map(|(_, s)| s).as_ref());

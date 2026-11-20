@@ -123,20 +123,25 @@ fn channel_waveform_columns(
         .collect()
 }
 
-/// Splice underlay shapes (`paint_sound_peaks` + trim dim/guides) strictly behind `EnvelopeLane`'s
-/// border, channel badge, envelope polyline, and anchor handles while staying above its background.
+/// Splice underlay shapes (`paint_sound_peaks` + trim dim/guides) strictly after both `paint_span`
+/// row backgrounds + centre `hline` of `EnvelopeLane` and strictly behind its border, channel
+/// badge, envelope polyline, and anchor handles, optionally stripping synthetic `SpanType::Sound`
+/// placeholder bars when real decoded audio peaks are available.
 fn splice_envelope_lane_underlay(
     ctx: &egui::Context,
-    layer_id: egui::LayerId,
-    clip_rect: egui::Rect,
-    before_lane_idx: usize,
+    base_painter: &egui::Painter,
+    lane_span: (usize, usize, usize),
+    strip_synthetic_peaks: Option<egui::Color32>,
     paint: impl FnOnce(&egui::Painter),
-) -> usize {
+) {
+    let (before_lane_idx, after_lane_idx, rendered_points) = lane_span;
+    let layer_id = base_painter.layer_id();
+    let opacity = base_painter.opacity();
     let scratch_layer = egui::LayerId::new(
         egui::Order::Background,
         egui::Id::new("nf-edit-envelope-wave-scratch"),
     );
-    let scratch = egui::Painter::new(ctx.clone(), scratch_layer, clip_rect);
+    let scratch = base_painter.clone().with_layer_id(scratch_layer);
     paint(&scratch);
     ctx.graphics_mut(|graphics| {
         let added: Vec<_> = {
@@ -145,22 +150,46 @@ fn splice_envelope_lane_underlay(
             *list = Default::default();
             items
         };
-        if added.is_empty() {
-            return 0;
+        if added.is_empty() && strip_synthetic_peaks.is_none() {
+            return;
         }
-        let added_count = added.len();
         let target = graphics.entry(layer_id);
         let mut all: Vec<_> = target.all_entries().cloned().collect();
-        // `EnvelopeLane` paints 4 background shapes (`bg_field` + two `paint_span`s + centre `hline`)
-        // before its border, channel text, curve line, and anchor handles.
-        let insert_at = (before_lane_idx + 4).min(all.len());
-        all.splice(insert_at..insert_at, added);
+        let start = before_lane_idx.min(all.len());
+        let end = after_lane_idx.clamp(start, all.len());
+        // `EnvelopeLane` paints its unfilled `rect_stroke` border immediately after both
+        // `paint_span` backgrounds and the centre `hline`, followed by channel `text`, curve, and
+        // `AnchorPoint` handles.
+        let fg_fallback = (3 + 2 * rendered_points).min(end - start);
+        let bg_end = all[start..end]
+            .iter()
+            .position(|entry| {
+                matches!(
+                    &entry.shape,
+                    egui::Shape::Rect(r) if r.fill == egui::Color32::TRANSPARENT
+                )
+            })
+            .map_or(end - fg_fallback, |rel| start + rel);
+        let bg_kept: Vec<_> = all[start..bg_end]
+            .iter()
+            .filter(|entry| {
+                strip_synthetic_peaks.is_none_or(|peak_color| {
+                    let painted_peak = peak_color.gamma_multiply(opacity);
+                    !matches!(
+                        entry.shape,
+                        egui::Shape::LineSegment { stroke, .. }
+                            if stroke.color == painted_peak || stroke.color == peak_color
+                    )
+                })
+            })
+            .cloned()
+            .collect();
+        all.splice(start..bg_end, bg_kept.into_iter().chain(added));
         *target = Default::default();
         for entry in all {
             target.add(entry.clip_rect, entry.shape);
         }
-        added_count
-    })
+    });
 }
 
 pub(crate) type StereoEnvelopeLanes = (Vec<(f32, f32)>, Vec<(f32, f32)>);
@@ -448,7 +477,6 @@ impl Editor {
                     });
 
                     let layer_id = ui.layer_id();
-                    let clip_rect = ui.clip_rect();
                     let before_l = ui
                         .ctx()
                         .graphics_mut(|g| g.entry(layer_id).all_entries().count());
@@ -459,6 +487,10 @@ impl Editor {
                         selected: draft.selected_left,
                         height: lane_height,
                     });
+                    let rendered_points_l = draft.left.len();
+                    let after_l = ui
+                        .ctx()
+                        .graphics_mut(|g| g.entry(layer_id).all_entries().count());
                     if resp_l.changed() {
                         if draft.left.len() > prev_left.len()
                             && unique_time_count(&draft.left, &draft.right)
@@ -662,6 +694,10 @@ impl Editor {
                         selected: draft.selected_right,
                         height: lane_height,
                     });
+                    let rendered_points_r = draft.right.len();
+                    let after_r = ui
+                        .ctx()
+                        .graphics_mut(|g| g.entry(layer_id).all_entries().count());
                     if resp_r.changed() {
                         if draft.right.len() > prev_right.len()
                             && unique_time_count(&draft.left, &draft.right)
@@ -731,28 +767,13 @@ impl Editor {
                             }
                         }
                     };
-                    let spliced_l = splice_envelope_lane_underlay(
-                        ui.ctx(),
-                        layer_id,
-                        clip_rect,
-                        before_l,
-                        |painter| {
-                            if !left_cols.is_empty() {
-                                c::timeline::paint_sound_peaks(
-                                    painter,
-                                    ui.ctx(),
-                                    resp_l.rect,
-                                    &[left_cols.as_slice()],
-                                );
-                            }
-                            paint_trim_shade(painter, resp_l.rect);
-                        },
-                    );
+                    let strip_synthetic = decoded_peaks.is_some().then_some(nf.success_default);
+                    // Splice `R` first, then `L` so `L`'s `[before_l..after_l]` indices never shift.
                     splice_envelope_lane_underlay(
                         ui.ctx(),
-                        layer_id,
-                        clip_rect,
-                        before_r + spliced_l,
+                        ui.painter(),
+                        (before_r, after_r, rendered_points_r),
+                        strip_synthetic,
                         |painter| {
                             if !right_cols.is_empty() {
                                 c::timeline::paint_sound_peaks(
@@ -763,6 +784,23 @@ impl Editor {
                                 );
                             }
                             paint_trim_shade(painter, resp_r.rect);
+                        },
+                    );
+                    splice_envelope_lane_underlay(
+                        ui.ctx(),
+                        ui.painter(),
+                        (before_l, after_l, rendered_points_l),
+                        strip_synthetic,
+                        |painter| {
+                            if !left_cols.is_empty() {
+                                c::timeline::paint_sound_peaks(
+                                    painter,
+                                    ui.ctx(),
+                                    resp_l.rect,
+                                    &[left_cols.as_slice()],
+                                );
+                            }
+                            paint_trim_shade(painter, resp_l.rect);
                         },
                     );
                 });
