@@ -349,6 +349,11 @@ impl PixelArena {
         expected_revision: &str,
         blend_mode: &str,
     ) -> Result<(), BitmapError> {
+        if blend_mode == "shader" {
+            return Err(error(
+                "BlendMode.SHADER requires blendShader bytecode evaluation",
+            ));
+        }
         if !matches!(
             blend_mode,
             "" | "normal"
@@ -365,7 +370,6 @@ impl PixelArena {
                 | "erase"
                 | "overlay"
                 | "hardlight"
-                | "shader"
         ) {
             return Err(error("unsupported BlendMode"));
         }
@@ -401,6 +405,82 @@ impl PixelArena {
         }
         Ok(())
     }
+
+    #[cfg(test)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_rgba_shader(
+        &mut self,
+        r: &PixelRef,
+        w: u32,
+        h: u32,
+        fg_rgba: &[u8],
+        rect: Option<BitmapRect>,
+        expected_revision: &str,
+        bytecode_base64: &str,
+        precision_hint: &str,
+        params_json: &str,
+    ) -> Result<(), BitmapError> {
+        raster_budget(w, h)?;
+        let b_check = self.live(r)?;
+        if b_check.width != w || b_check.height != h || fg_rgba.len() != w as usize * h as usize * 4
+        {
+            return Err(error(
+                "draw raster must match destination dimensions and RGBA byte length",
+            ));
+        }
+        if b_check.revision.to_string() != expected_revision {
+            return Err(error("draw destination changed during raster capture"));
+        }
+        let (x0, y0, x1, y1) = rect
+            .unwrap_or(BitmapRect {
+                x: 0,
+                y: 0,
+                width: w as i32,
+                height: h as i32,
+            })
+            .clipped(b_check);
+        if x0 >= x1 || y0 >= y1 {
+            return Ok(());
+        }
+        let sub_w = x1 - x0;
+        let sub_h = y1 - y0;
+        let mut bg_sub = Vec::with_capacity(sub_w * sub_h * 4);
+        let mut fg_sub = Vec::with_capacity(sub_w * sub_h * 4);
+        let dst_pixels = b_check.pixels.as_ref().unwrap();
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let i = (y * w as usize + x) * 4;
+                bg_sub.extend_from_slice(&straight(&dst_pixels[i..i + 4]));
+                fg_sub.extend_from_slice(&fg_rgba[i..i + 4]);
+            }
+        }
+        let blended = crate::as3_fte_3d::evaluate_blend_shader_rgba(
+            &bg_sub,
+            &fg_sub,
+            sub_w as u32,
+            sub_h as u32,
+            bytecode_base64,
+            precision_hint,
+            params_json,
+        )
+        .map_err(|e| BitmapError(e.to_string()))?;
+        let b = self.live_mut(r)?;
+        let transparent = b.transparent;
+        let dst_mut = b.pixels.as_mut().unwrap();
+        for sy in 0..sub_h {
+            for sx in 0..sub_w {
+                let si = (sy * sub_w + sx) * 4;
+                let di = ((y0 + sy) * w as usize + (x0 + sx)) * 4;
+                let p = &blended[si..si + 4];
+                dst_mut[di..di + 4].copy_from_slice(&premul(
+                    u32::from_be_bytes([p[3], p[0], p[1], p[2]]),
+                    transparent,
+                ));
+            }
+        }
+        b.revision += 1;
+        Ok(())
+    }
 }
 
 fn blend_pixel(d: &mut [u8], sp: [u8; 4], s_raw: &[u8], mode: &str, transparent: bool) {
@@ -417,7 +497,7 @@ fn blend_pixel(d: &mut [u8], sp: [u8; 4], s_raw: &[u8], mode: &str, transparent:
                 *item = ((u32::from(*item) * inv + 127) / 255) as u8;
             }
         }
-        "" | "normal" | "layer" | "shader" => {
+        "" | "normal" | "layer" => {
             let inv = 255 - sa;
             for c in 0..4 {
                 d[c] = (u32::from(sp[c]) + (u32::from(d[c]) * inv + 127) / 255).min(255) as u8;
@@ -688,21 +768,70 @@ impl crate::Player {
             blend_pixel(dst, sp, &raw, "normal", true);
         };
 
+        let clips_by_id: std::collections::HashMap<&str, &crate::RuntimeClip> =
+            snapshot.clips.iter().map(|c| (c.id.as_str(), c)).collect();
+
         let clip_alpha_at = |clip_ids: &[String], deferred: &[String], px: f64, py: f64| -> f64 {
             if clip_ids.is_empty() {
                 return 1.0;
             }
-            let active: Vec<String> = clip_ids
-                .iter()
-                .filter(|id| !deferred.contains(id))
-                .cloned()
-                .collect();
-            if active.is_empty() {
-                return 1.0;
+            let mut total = 1.0;
+            for id in clip_ids {
+                if deferred.contains(id) {
+                    continue;
+                }
+                if let Some(rc) = clips_by_id.get(id.as_str())
+                    && let Some(alpha_comps) = &rc.alpha_components
+                    && alpha_comps.iter().any(|ac| ac.fill_bitmap.is_some())
+                {
+                    let mut comp_complement = 1.0;
+                    for ac in alpha_comps {
+                        let ca = if let Some(bp) = &ac.fill_bitmap {
+                            if let Some(inv_m) = invert_affine(ac.matrix) {
+                                let lx = inv_m[0] * px + inv_m[2] * py + inv_m[4];
+                                let ly = inv_m[1] * px + inv_m[3] * py + inv_m[5];
+                                if crate::hit_test_path(
+                                    &ac.commands,
+                                    ac.fill_rule,
+                                    [lx, ly],
+                                    true,
+                                    0.0,
+                                    Default::default(),
+                                )
+                                .unwrap_or(false)
+                                {
+                                    let rgba = sample_bitmap_paint(bp, lx, ly);
+                                    let ct_a = (f64::from(rgba[3])
+                                        * bp.color_transform.multipliers[3]
+                                        + bp.color_transform.offsets[3])
+                                        .clamp(0.0, 255.0)
+                                        / 255.0;
+                                    ct_a * ac.alpha.clamp(0.0, 1.0)
+                                } else {
+                                    0.0
+                                }
+                            } else {
+                                0.0
+                            }
+                        } else {
+                            coverage
+                                .as_ref()
+                                .map_or(1.0, |cov| cov.alpha(std::slice::from_ref(id), [px, py]))
+                        };
+                        comp_complement *= 1.0 - ca.clamp(0.0, 1.0);
+                    }
+                    let union_a = 1.0 - comp_complement;
+                    total *= if rc.invert { 1.0 - union_a } else { union_a };
+                } else {
+                    total *= coverage
+                        .as_ref()
+                        .map_or(1.0, |cov| cov.alpha(std::slice::from_ref(id), [px, py]));
+                }
+                if total <= 0.0 {
+                    return 0.0;
+                }
             }
-            coverage
-                .as_ref()
-                .map_or(1.0, |cov| cov.alpha(&active, [px, py]))
+            total
         };
 
         let world_bbox =
@@ -1207,27 +1336,84 @@ impl crate::Player {
                     Entry::Group(child_idx) => {
                         let child_buf = render_node(*child_idx, ctx)?;
                         let child = &ctx.nodes[*child_idx];
-                        let mode = operation_to_blend_mode(&child.composite_operation);
-                        for py in 0..ctx.height {
-                            for px in 0..ctx.width {
-                                let i = (py as usize * ctx.width as usize + px as usize) * 4;
-                                let ca = (ctx.clip_alpha_at)(
-                                    &child.clip_ids,
-                                    &node.clip_ids,
-                                    f64::from(px) + 0.5,
-                                    f64::from(py) + 0.5,
-                                );
-                                let s_straight = straight(&child_buf[i..i + 4]);
-                                let sa = (f64::from(s_straight[3]) * ca.clamp(0.0, 1.0))
-                                    .round()
-                                    .clamp(0.0, 255.0)
-                                    as u8;
-                                let s_raw = [s_straight[0], s_straight[1], s_straight[2], sa];
-                                let sp = premul(
-                                    u32::from_be_bytes([sa, s_raw[0], s_raw[1], s_raw[2]]),
+                        if let Some(spec_json) = child.composite_operation.strip_prefix("shader:") {
+                            #[derive(serde::Deserialize)]
+                            struct InlineShaderSpec {
+                                #[serde(default)]
+                                bytecode_base64: String,
+                                #[serde(default)]
+                                precision_hint: String,
+                                #[serde(default)]
+                                params_json: String,
+                            }
+                            let spec: InlineShaderSpec =
+                                serde_json::from_str(spec_json).map_err(|e| {
+                                    BitmapError(format!("Invalid shader blend spec: {e}"))
+                                })?;
+                            let mut bg_straight = Vec::with_capacity(pixel_len);
+                            let mut fg_straight = Vec::with_capacity(pixel_len);
+                            for py in 0..ctx.height {
+                                for px in 0..ctx.width {
+                                    let i = (py as usize * ctx.width as usize + px as usize) * 4;
+                                    bg_straight.extend_from_slice(&straight(&buf[i..i + 4]));
+                                    let ca = (ctx.clip_alpha_at)(
+                                        &child.clip_ids,
+                                        &node.clip_ids,
+                                        f64::from(px) + 0.5,
+                                        f64::from(py) + 0.5,
+                                    );
+                                    let mut s_st = straight(&child_buf[i..i + 4]);
+                                    s_st[3] = (f64::from(s_st[3]) * ca.clamp(0.0, 1.0))
+                                        .round()
+                                        .clamp(0.0, 255.0)
+                                        as u8;
+                                    fg_straight.extend_from_slice(&s_st);
+                                }
+                            }
+                            let blended = crate::as3_fte_3d::evaluate_blend_shader_rgba(
+                                &bg_straight,
+                                &fg_straight,
+                                ctx.width,
+                                ctx.height,
+                                &spec.bytecode_base64,
+                                &spec.precision_hint,
+                                &spec.params_json,
+                            )
+                            .map_err(|e| BitmapError(e.to_string()))?;
+                            for (dst, p) in buf
+                                .as_chunks_mut::<4>()
+                                .0
+                                .iter_mut()
+                                .zip(blended.as_chunks::<4>().0)
+                            {
+                                dst.copy_from_slice(&premul(
+                                    u32::from_be_bytes([p[3], p[0], p[1], p[2]]),
                                     true,
-                                );
-                                blend_pixel(&mut buf[i..i + 4], sp, &s_raw, mode, true);
+                                ));
+                            }
+                        } else {
+                            let mode = operation_to_blend_mode(&child.composite_operation);
+                            for py in 0..ctx.height {
+                                for px in 0..ctx.width {
+                                    let i = (py as usize * ctx.width as usize + px as usize) * 4;
+                                    let ca = (ctx.clip_alpha_at)(
+                                        &child.clip_ids,
+                                        &node.clip_ids,
+                                        f64::from(px) + 0.5,
+                                        f64::from(py) + 0.5,
+                                    );
+                                    let s_straight = straight(&child_buf[i..i + 4]);
+                                    let sa = (f64::from(s_straight[3]) * ca.clamp(0.0, 1.0))
+                                        .round()
+                                        .clamp(0.0, 255.0)
+                                        as u8;
+                                    let s_raw = [s_straight[0], s_straight[1], s_straight[2], sa];
+                                    let sp = premul(
+                                        u32::from_be_bytes([sa, s_raw[0], s_raw[1], s_raw[2]]),
+                                        true,
+                                    );
+                                    blend_pixel(&mut buf[i..i + 4], sp, &s_raw, mode, true);
+                                }
                             }
                         }
                     }
@@ -1696,5 +1882,37 @@ mod jpegxr_tests {
         assert_ne!(jxr_422, jxr_420);
         assert_ne!(jxr_auto, jxr_420);
         assert!(!BitmapRect::decode_jpegxr_rgba(&jxr_420).unwrap().2);
+    }
+
+    #[test]
+    fn pixel_arena_draw_rgba_shader_blends_bg_and_fg_via_pixel_bender() {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        let mut arena = PixelArena::default();
+        let dst = arena.create(2, 1, true, 0xFF40_2010).unwrap();
+        let rev = arena.info(&dst).unwrap().revision;
+        let pb_json = r#"{"op":"add","inputs":[{"name":"bg"},{"name":"fg"}]}"#;
+        let pb_b64 = STANDARD.encode(pb_json.as_bytes());
+        // Pixel 0: fg=(32, 64, 16, 255) -> bg(64,32,16) + fg(32,64,16) = (96, 96, 32, 255)
+        // Pixel 1: fg=(100, 100, 100, 0) -> transparent fg preserves bg (64, 32, 16, 255)
+        let fg_rgba = [32u8, 64, 16, 255, 100, 100, 100, 0];
+        arena
+            .draw_rgba_shader(&dst, 2, 1, &fg_rgba, None, &rev, &pb_b64, "full", "{}")
+            .unwrap();
+        let out_rgba = arena.pixels(&dst).unwrap();
+        assert_eq!(&out_rgba[0..4], &[0x60, 0x60, 0x20, 0xFF]);
+        assert_eq!(&out_rgba[4..8], &[0x40, 0x20, 0x10, 0xFF]);
+        assert!(
+            arena
+                .draw_rgba_blended(
+                    &dst,
+                    2,
+                    1,
+                    &fg_rgba,
+                    None,
+                    &arena.info(&dst).unwrap().revision,
+                    "shader"
+                )
+                .is_err()
+        );
     }
 }

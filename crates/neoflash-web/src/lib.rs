@@ -35,12 +35,14 @@ mod as_events;
 mod as_math;
 mod as_number_format;
 mod as_timers;
+pub mod swf_loader;
 
 pub use as2_strings::{as2_string_json, legacy_case_name_json};
 pub use as3_air::AirKernel;
 pub use as3_fte_3d::As3Fte3dKernel;
 pub use as3_media_events::As3MediaEventsKernel;
 pub use as3_net_sys::As3NetSysKernel;
+pub use swf_loader::decode_swf_bundle_json;
 
 use neoflash_core::{
     ColorTransform, DisplayMutation, DynamicKind, GotoRequest, GraphicsOp, ObjectRef, PixelRef,
@@ -1149,6 +1151,18 @@ impl WebPlayer {
             .render_runtime_snapshot_rgba(&self.project, &snapshot, width, height)
             .map_err(display_error)
     }
+    pub fn bitmap_render_runtime_snapshot(
+        &self,
+        snapshot_json: &str,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<u8>, JsValue> {
+        let snapshot: neoflash_core::RuntimeSnapshot =
+            serde_json::from_str(snapshot_json).map_err(display_error)?;
+        self.player
+            .render_runtime_snapshot_rgba(&self.project, &snapshot, width, height)
+            .map_err(display_error)
+    }
     pub fn bitmap_get_pixels(
         &self,
         target: &str,
@@ -1419,6 +1433,99 @@ impl WebPlayer {
                 blend_mode,
             )
             .map_err(display_error)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn bitmap_draw_rgba_shader(
+        &mut self,
+        target: &str,
+        width: u32,
+        height: u32,
+        fg_rgba: &[u8],
+        clip_rect: &str,
+        expected_revision: &str,
+        bytecode_base64: &str,
+        precision_hint: &str,
+        params_json: &str,
+    ) -> Result<(), JsValue> {
+        if clip_rect.len() > 4096 || expected_revision.len() > 32 || precision_hint.len() > 32 {
+            return Err(JsValue::from_str(
+                "BitmapData draw arguments exceed their input bounds",
+            ));
+        }
+        let pref = pixel_ref(target)?;
+        let info = self.player.bitmap_info(&pref).map_err(display_error)?;
+        if info.width != width
+            || info.height != height
+            || fg_rgba.len() != width as usize * height as usize * 4
+        {
+            return Err(JsValue::from_str(
+                "BitmapData: draw raster must match destination dimensions and RGBA byte length",
+            ));
+        }
+        if info.revision != expected_revision {
+            return Err(JsValue::from_str(
+                "BitmapData: draw destination changed during raster capture",
+            ));
+        }
+        let rect: Option<neoflash_core::BitmapRect> =
+            serde_json::from_str(clip_rect).map_err(display_error)?;
+        let effective = rect.unwrap_or(neoflash_core::BitmapRect {
+            x: 0,
+            y: 0,
+            width: width as i32,
+            height: height as i32,
+        });
+        let (x0, y0, x1, y1) = effective.clipped_dims(width, height);
+        if x0 >= x1 || y0 >= y1 {
+            return Ok(());
+        }
+        let sub_w = (x1 - x0) as u32;
+        let sub_h = (y1 - y0) as u32;
+        let sub_rect = neoflash_core::BitmapRect {
+            x: x0 as i32,
+            y: y0 as i32,
+            width: sub_w as i32,
+            height: sub_h as i32,
+        };
+        let bg_argb = self
+            .player
+            .bitmap_get_pixels(&pref, sub_rect, false)
+            .map_err(display_error)?;
+        let px_count = (sub_w * sub_h) as usize;
+        let mut bg_sub = Vec::with_capacity(px_count * 4);
+        let mut fg_sub = Vec::with_capacity(px_count * 4);
+        for sy in 0..sub_h as usize {
+            for sx in 0..sub_w as usize {
+                let bi = (sy * sub_w as usize + sx) * 4;
+                bg_sub.extend_from_slice(&[
+                    bg_argb[bi + 1],
+                    bg_argb[bi + 2],
+                    bg_argb[bi + 3],
+                    bg_argb[bi],
+                ]);
+                let fi = ((y0 + sy) * width as usize + (x0 + sx)) * 4;
+                fg_sub.extend_from_slice(&fg_rgba[fi..fi + 4]);
+            }
+        }
+        let blended = neoflash_core::as3_fte_3d::evaluate_blend_shader_rgba(
+            &bg_sub,
+            &fg_sub,
+            sub_w,
+            sub_h,
+            bytecode_base64,
+            precision_hint,
+            params_json,
+        )
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let mut out_argb = Vec::with_capacity(px_count * 4);
+        for p in blended.as_chunks::<4>().0 {
+            let a = if info.transparent { p[3] } else { 255 };
+            out_argb.extend_from_slice(&[a, p[0], p[1], p[2]]);
+        }
+        self.player
+            .bitmap_set_pixels(&pref, sub_rect, &out_argb, false)
+            .map_err(display_error)?;
+        Ok(())
     }
     pub fn bitmap_draw_snapshot(
         &self,

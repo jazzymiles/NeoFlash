@@ -195,9 +195,9 @@ fn as2_owner_diagnostics_flag_invalid_callbacks_html_string_and_unknown_members(
             "BitmapData",
         ),
         (
-            "var ns:NetStream;\nns.publish('live');",
-            "publish",
-            "NetStream.play(url)",
+            "var nc = new NetConnection();\nvar ns = new NetStream(nc);\nns.attachCamera(null);",
+            "attachCamera",
+            "attachVideo(camera)",
         ),
         (
             "var so = SharedObject.getLocal('prefs');\nso.save();",

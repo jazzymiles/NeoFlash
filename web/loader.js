@@ -281,7 +281,7 @@
       if(bytes.length>=12&&bytes[0]===0x52&&bytes[1]===0x49&&bytes[2]===0x46&&bytes[3]===0x46&&bytes[8]===0x57&&bytes[9]===0x45&&bytes[10]===0x42&&bytes[11]===0x50)return 'image/webp';
       if(bytes.length>=14&&bytes[0]===0x42&&bytes[1]===0x4d)return 'image/bmp';
       if(bytes.length>=8&&((bytes[0]===0x49&&bytes[1]===0x49&&bytes[2]===0x2a&&bytes[3]===0x00)||(bytes[0]===0x4d&&bytes[1]===0x4d&&bytes[2]===0x00&&bytes[3]===0x2a)))return 'image/tiff';
-      if(bytes.length>=8&&(bytes[0]===0x46||bytes[0]===0x43||(as2&&bytes[0]===0x5a))&&bytes[1]===0x57&&bytes[2]===0x53)return 'application/x-shockwave-flash';
+      if(bytes.length>=8&&(bytes[0]===0x46||bytes[0]===0x43||bytes[0]===0x5a)&&bytes[1]===0x57&&bytes[2]===0x53)return 'application/x-shockwave-flash';
       if(bytes.length>=5&&bytes.length<=32*1024*1024){
         const head=utf8Decoder.decode(bytes.subarray(0,Math.min(bytes.length,65536))).replace(/^\uFEFF/,'').trimStart();
         if(/^(?:<\?xml\b[\s\S]*?\?>\s*)?(?:<!DOCTYPE\b[^>]*>\s*)?<svg\b/i.test(head))return 'image/svg+xml';
@@ -373,7 +373,8 @@
       const record=op.record;
       record.publishedMounted=true;record.pixel=null;
       record.content=mounted.contentRef?proxyForRef(mounted.contentRef):(record.as2?record.target:null);
-      record.width=mounted.width;record.height=mounted.height;record.frameRate=mounted.frameRate;
+      record.width=op.swfInfo?.width||mounted.width;record.height=op.swfInfo?.height||mounted.height;record.frameRate=op.swfInfo?.frameRate||mounted.frameRate;
+      if(op.swfInfo){record.swfVersion=op.swfInfo.swfVersion;record.actionScriptVersion=op.swfInfo.actionScriptVersion;}
       record.contentType='application/x-shockwave-flash';
       if(record.content&&!record.as2)contentInfos.set(record.content,record.info);
       guarded(()=>options.onMutation?.(mounted.events||[]));if(!current(op))return;
@@ -464,6 +465,14 @@
           return;
         }
         if(mime==='application/x-shockwave-flash'){
+          if(bytes.length>=12&&typeof options.decodeSwfBundle==='function'&&typeof options.mountPublishedBundle==='function'&&!(record.as2&&findProjectSymbol(record.url)?.linkage_id)){
+            const swfBundle=options.decodeSwfBundle(bytes);
+            if(swfBundle&&swfBundle.project){
+              op.swfInfo=swfBundle.swfInfo||null;
+              commitPublishedBundle(op,swfBundle,bytes);
+              return;
+            }
+          }
           if(!record.as2||!findProjectSymbol(record.url)?.linkage_id){
             const diagnostic=new Error(`Loader '${record.url||'loadBytes'}' loaded only a SWF header placeholder. SWF display, timeline and bytecode execution are unavailable here; publish the child as a NeoFlash HTML5 bundle to run it.`);
             try{if(options.onDiagnostic)options.onDiagnostic(diagnostic);else global.console?.warn?.('NeoFlash Loader:',diagnostic);}catch(_){/* Diagnostics cannot replace a load result. */}

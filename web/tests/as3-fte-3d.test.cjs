@@ -502,10 +502,41 @@ test('Pixel Bender Shaders, ShaderJob, ShaderFilter, GraphicsShaderFill, 3D Disp
     sp.filters = [sf];
     assert.equal(sp.filters.length, 1);
 
-    // blendShader + BlendMode.SHADER
+    // blendShader + BlendMode.SHADER (constant + two-input Pixel Bender blending)
+    const BlendMode = prog.type('flash.display.BlendMode');
+    assert.equal(BlendMode.SHADER, 'shader');
     sp.blendShader = shader;
-    sp.blendMode = 'shader';
+    sp.blendMode = BlendMode.SHADER;
     assert.equal(sp.blendMode, 'shader');
+    assert.equal(sp.blendShader, shader);
+    {
+      const blendShaderBytes = new ByteArray();
+      blendShaderBytes.writeUTFBytes(JSON.stringify({
+        name: 'ScreenBlendKernel',
+        op: 'difference',
+        inputs: [{ name: 'bg', channels: 4 }, { name: 'fg', channels: 4 }],
+        parameters: [],
+      }));
+      const diffBlendShader = new Shader(blendShaderBytes);
+      const holder = new Sprite();
+      const bgLayer = new Sprite();
+      bgLayer.graphics.beginFill(0xa04080, 1);
+      bgLayer.graphics.drawRect(0, 0, 8, 8);
+      bgLayer.graphics.endFill();
+      const fgLayer = new Sprite();
+      fgLayer.graphics.beginFill(0x309020, 1);
+      fgLayer.graphics.drawRect(0, 0, 4, 8);
+      fgLayer.graphics.endFill();
+      fgLayer.blendShader = diffBlendShader;
+      fgLayer.blendMode = BlendMode.SHADER;
+      holder.addChild(bgLayer);
+      holder.addChild(fgLayer);
+      const outBmp = new BitmapData(8, 8, true, 0x00000000);
+      outBmp.draw(holder);
+      assert.equal(outBmp.getPixel32(1, 1) >>> 0, 0xff705060, '2-input blendShader difference(|bg - fg|) insidefg');
+      assert.equal(outBmp.getPixel32(6, 1) >>> 0, 0xffa04080, 'outside fg preserves bg');
+      outBmp.dispose();
+    }
 
     // 3D DisplayObject & Transform
     const rootClip = host.proxyFor([]);

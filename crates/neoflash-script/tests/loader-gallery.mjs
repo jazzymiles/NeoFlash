@@ -16,7 +16,7 @@ export async function verifyLoaderGallery(root,cargo){
   const directory=mkdtempSync(resolve(root,'target/loader-gallery-'));
   const fixture=JSON.parse(readFileSync(resolve(root,'examples/loader-gallery.nflash'),'utf8'));
   const encoded=Buffer.from(fixture.resources[1].data_base64,'base64'),held=[],requests=[];
-  const server=createServer((request,response)=>{requests.push(request.url);if(request.url==='/held.png'){held.push(response);return;}response.writeHead(200,{'Content-Type':'image/png'});response.end(encoded);});
+  const server=createServer((request,response)=>{requests.push(request.url);if(request.url==='/held.png'){held.push(response);return;}if(request.url==='/mini.swf'){const swf=Buffer.from([0x46,0x57,0x53,10,30,0,0,0,0x70,0x00,0x0c,0x80,0x00,0x00,0x96,0x00,0x00,24,2,0,0x44,0x11,0x08,0x00,0x00,0x00,0x40,0x00,0x40,0x00,0x00,0x00]);response.writeHead(200,{'Content-Type':'application/x-shockwave-flash'});response.end(swf);return;}response.writeHead(200,{'Content-Type':'image/png'});response.end(encoded);});
   let player,host;
   try{
     await new Promise((done,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',done);});
@@ -54,6 +54,28 @@ export async function verifyLoaderGallery(root,cargo){
     advance();await until(()=>scene.loads===3&&scene.byteLoads===3&&scene.legacyLoads===3,'restore settles');
     loader.load(new (host.net().URLRequest)(endpoint+'/image.png'));await until(()=>scene.loads===4,'HTTP image load settles');
     assert.equal(loader.content.bitmapData.getPixel32(10,10),0xffe0974d);assert.equal(requests[0],'/image.png');
+    {
+      const LoaderCls=host.program().type('flash.display.Loader');
+      const swfLdr=new LoaderCls();
+      scene.addChild(swfLdr);
+      let swfDone=false;
+      swfLdr.contentLoaderInfo.addEventListener('complete',()=>{swfDone=true;});
+      swfLdr.load(new (host.net().URLRequest)(endpoint+'/mini.swf'));
+      await until(()=>swfDone,'HTTP raw SWF load settles');
+      assert.equal(swfLdr.contentLoaderInfo.contentType,'application/x-shockwave-flash');
+      assert.equal(swfLdr.contentLoaderInfo.swfVersion,10);
+      assert.equal(swfLdr.contentLoaderInfo.actionScriptVersion,3);
+      assert.equal(swfLdr.contentLoaderInfo.frameRate,24);
+      assert.equal(swfLdr.contentLoaderInfo.width,320);
+      assert.equal(swfLdr.contentLoaderInfo.height,240);
+      assert.equal(host.program().is(swfLdr.content,'flash.display.MovieClip'),true);
+      assert.equal(swfLdr.content.totalFrames,2);
+      swfLdr.content.gotoAndStop(2);
+      assert.equal(swfLdr.content.currentFrame,2);
+      swfLdr.unloadAndStop(true);
+      assert.equal(swfLdr.content,null);
+      scene.removeChild(swfLdr);
+    }
     // AS2 MovieClip image aliases share the existing Rust loader transaction.
     const movie=(name,...args)=>host.legacy().nativeRef(scene.legacyTarget,name).get()(...args);
     scene.legacyTarget.imageQuery='movie-alias';

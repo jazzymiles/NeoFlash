@@ -104,12 +104,17 @@ function __nfQualifiedRef(receiver,namespace,key,as3,caller){
     const sym=Symbol.for('neoflash.ns.'+uri+'::'+name);
     const obj=Object(receiver);
     const program=__nfContainerProgram();
+    const makeProxyQName=()=>{
+        if(typeof __nfXML!=='undefined'&&typeof __nfXML?.QName==='function')return new __nfXML.QName(uri,name);
+        return Object.freeze({uri,localName:name,toString(){return uri?uri+'::'+name:name;},valueOf(){return name;}});
+    };
     return {
         get(){
             if(typeof receiver==='object'||typeof receiver==='function'){
                 const slot=program?.resolveQualifiedSlot?.(receiver,name,caller,uri);
                 if(slot)return slot.get();
                 if(sym in obj)return obj[sym];
+                if(as3&&program?.isProxy?.(receiver))return program.invokeProxy(receiver,'getProperty',[makeProxyQName()]);
             }
             return __nfContainerRef(receiver,name,true,caller).get();
         },
@@ -117,6 +122,8 @@ function __nfQualifiedRef(receiver,namespace,key,as3,caller){
             if(typeof receiver==='object'||typeof receiver==='function'){
                 const slot=program?.resolveQualifiedSlot?.(receiver,name,caller,uri);
                 if(slot){slot.set(value);return value;}
+                if(sym in obj){obj[sym]=value;return value;}
+                if(as3&&program?.isProxy?.(receiver)){program.invokeProxy(receiver,'setProperty',[makeProxyQName(),value]);return value;}
                 obj[sym]=value;
                 return value;
             }
@@ -124,14 +131,49 @@ function __nfQualifiedRef(receiver,namespace,key,as3,caller){
         },
         delete(){
             if((typeof receiver==='object'||typeof receiver==='function')&&(sym in obj))return delete obj[sym];
+            if(as3&&program?.isProxy?.(receiver))return Boolean(program.invokeProxy(receiver,'deleteProperty',[makeProxyQName()]));
             return __nfContainerRef(receiver,name,true,caller).delete();
         },
         has(){
             if((typeof receiver==='object'||typeof receiver==='function')&&(sym in obj))return true;
             if(program?.resolveQualifiedSlot?.(receiver,name,caller,uri))return true;
+            if(as3&&program?.isProxy?.(receiver))return Boolean(program.invokeProxy(receiver,'hasProperty',[makeProxyQName()]));
             return __nfContainerRef(receiver,name,true,caller).has();
         },
     };
+}
+function __nfXmlOrProxySelectRef(receiver,makeSelector,namespace,local,attribute,descendant,as3){
+    if(receiver!=null&&as3&&(typeof __nfXML==='undefined'||!__nfXML?.is?.(receiver))){
+        const program=__nfContainerProgram();
+        const isProxy=program?.isProxy?.(receiver)||(typeof __nfIsAs3Proxy==='function'&&__nfIsAs3Proxy(receiver));
+        if(isProxy){
+            const invoke=(trap,args)=>program?.isProxy?.(receiver)?program.invokeProxy(receiver,trap,args):__nfInvokeStandaloneAs3Proxy(receiver,trap,args);
+            const uri=namespace===undefined?'':__nfNamespaceUri(namespace);
+            const localName=__nfContainerKey(local);
+            let keyObj;
+            if(typeof __nfXML!=='undefined'&&typeof __nfXML?.QName==='function'){
+                keyObj=new __nfXML.QName(uri,localName);
+                if(attribute&&typeof __nfMarkProxyAttribute==='function')__nfMarkProxyAttribute(keyObj);
+            }else{
+                keyObj=Object.freeze({uri,localName,__nfAttribute:Boolean(attribute),isAttribute:Boolean(attribute),toString(){return localName;},valueOf(){return localName;}});
+            }
+            if(descendant){
+                return {
+                    get(){return invoke('getDescendants',[keyObj]);},
+                    set(){throw new __nfTypeError('Cannot assign to descendant selector on Proxy.');},
+                    delete(){return false;},
+                    has(){return false;},
+                };
+            }
+            return {
+                get(){return invoke('getProperty',[keyObj]);},
+                set(value){invoke('setProperty',[keyObj,value]);return value;},
+                delete(){return Boolean(invoke('deleteProperty',[keyObj]));},
+                has(){return Boolean(invoke('hasProperty',[keyObj]));},
+            };
+        }
+    }
+    return __nfXML.ref(receiver,makeSelector(),as3);
 }
 function __nfQualifiedMethod(receiver,namespace,key,as3,caller){
     if(receiver==null)throw new __nfTypeError('Cannot call a qualified method on null or undefined.');
@@ -155,8 +197,12 @@ function __nfQualifiedMethod(receiver,namespace,key,as3,caller){
     if((typeof receiver==='object'||typeof receiver==='function')&&typeof obj[sym]==='function'){
         return (...args)=>__nfApply(obj[sym],receiver,args);
     }
-    if(uri==='http://www.adobe.com/2006/actionscript/flash/proxy'&&program?.isProxy?.(receiver)){
+    if((uri==='http://www.adobe.com/2006/actionscript/flash/proxy'||uri==='http://www.adobe.com/2006/flex/mx/internal')&&program?.isProxy?.(receiver)){
         return (...args)=>program.invokeProxy(receiver,name,args);
+    }
+    if(as3&&program?.isProxy?.(receiver)){
+        const qn=(typeof __nfXML!=='undefined'&&typeof __nfXML?.QName==='function')?new __nfXML.QName(uri,name):Object.freeze({uri,localName:name,toString(){return uri?uri+'::'+name:name;}});
+        return (...args)=>program.invokeProxy(receiver,'callProperty',[qn,...args]);
     }
     return __nfContainerMethod(receiver,name,true,caller);
 }
@@ -257,6 +303,9 @@ function __nfContainerMethod(receiver,key,as3,caller,legacyCase){
     if(as3&&program?.isProxy?.(receiver)&&!program?.hasTrait?.(receiver,key,caller)){
         return (...args)=>program.invokeProxy(receiver,'callProperty',[key,...args]);
     }
+    if(as3&&!program&&typeof __nfIsAs3Proxy==='function'&&__nfIsAs3Proxy(receiver)&&!__nfHasStandaloneAs3ProxyTrait(receiver,key)){
+        return (...args)=>__nfInvokeStandaloneAs3Proxy(receiver,'callProperty',[key,...args]);
+    }
     const method=__nfContainerRef(receiver,key,as3,caller,legacyCase).get();
     if(key==='call'||key==='apply')return __nfFunctionMethod(receiver,key,as3,method);
     return (...args)=>__nfApply(method,receiver,args);
@@ -285,14 +334,15 @@ function __nfEnumerate(receiver,values,as3,legacyCase){
         if(keys.length>__nfContainerLimit)throw new __nfTypeError('Enumeration exceeds 1000000 entries.');
         return (function*(){for(const key of keys){const ref=__nfContainerRef(receiver,key,false,undefined,legacyCase);if(ref.has())yield values?ref.get():key;}})();
     }
-    if(as3&&program?.isProxy?.(receiver)){
+    if(as3&&(program?.isProxy?.(receiver)||(typeof __nfIsAs3Proxy==='function'&&__nfIsAs3Proxy(receiver)))){
+        const invoke=(trap,args)=>program?.isProxy?.(receiver)?program.invokeProxy(receiver,trap,args):__nfInvokeStandaloneAs3Proxy(receiver,trap,args);
         return (function*(){
             let index=0,steps=0;
             while(true){
                 if(++steps>__nfContainerLimit)throw new __nfTypeError('Proxy enumeration exceeds 1000000 entries.');
-                index=__nfNumber(program.invokeProxy(receiver,'nextNameIndex',[index]))|0;
+                index=__nfNumber(invoke('nextNameIndex',[index]))|0;
                 if(index<=0)break;
-                yield values?program.invokeProxy(receiver,'nextValue',[index]):__nfString(program.invokeProxy(receiver,'nextName',[index]));
+                yield values?invoke('nextValue',[index]):__nfString(invoke('nextName',[index]));
             }
         })();
     }

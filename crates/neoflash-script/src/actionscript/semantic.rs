@@ -1415,6 +1415,23 @@ impl Engine<'_, '_> {
             return Value::Type("Object".into());
         }
         let as3 = self.script.language == ScriptLanguage::ActionScript3;
+        if !as3
+            && !statics
+            && short_name(class) == "NetStream"
+            && matches!(
+                name,
+                "attachAudio" | "attachVideo" | "publish" | "liveDelay"
+            )
+        {
+            return if name == "liveDelay" {
+                Value::Type("Number".into())
+            } else {
+                Value::Unknown
+            };
+        }
+        if as3 && statics && short_name(class) == "BlendMode" && name == "SHADER" {
+            return Value::Type("String".into());
+        }
         if !statics && class == self.context.this_class {
             if let Some(field_ty) = self.class_fields.get(name) {
                 return Value::Type(field_ty.clone());
@@ -1837,8 +1854,11 @@ fn unsupported_member_guidance(short: &str, name: &str, as3: bool) -> &'static s
         ("ContextMenuItem", _) => {
             "construct a 'ContextMenuItem(caption)' or configure 'ContextMenu.builtInItems' instead."
         }
-        ("NetStream", "attachAudio" | "attachVideo" | "attachCamera" | "liveDelay" | "publish") => {
-            "use 'NetStream.play(url)' for local/HTTP media playback."
+        ("FLVPlayback" | "VideoPlayer", _) => {
+            "use 'Video' with 'NetConnection.connect(null)' and 'NetStream.play(url)' instead."
+        }
+        ("NetStream", "attachCamera") => {
+            "use 'NetStream.attachVideo(camera)' in AS2 or 'NetStream.play(url)' for media playback."
         }
         (_, "imeStartComposition") => {
             "listen for 'TextEvent.TEXT_INPUT' or 'Event.CHANGE' on 'TextField' instead."
@@ -2069,6 +2089,9 @@ fn curated_owner_member_hint(short: &str, statics: bool, name: &str, as3: bool) 
         ("NetStream", "resume" | "togglePause") if !as3 => Some(format!(
             "'NetStream.{name}' is ActionScript 3 only; in ActionScript 2 call 'pause(false)' or 'pause()' instead."
         )),
+        ("NetStream", "attachCamera") if !as3 => Some(
+            "'NetStream.attachCamera' is ActionScript 3 only; in ActionScript 2 call 'attachVideo(camera)' instead.".into(),
+        ),
         ("XML", "load" | "sendAndLoad") if as3 => Some(format!(
             "'XML.{name}' is ActionScript 2 only; in ActionScript 3 load text with 'URLLoader' + 'URLRequest' and parse via 'new XML(loader.data)'."
         )),

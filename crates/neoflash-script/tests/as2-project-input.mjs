@@ -2048,7 +2048,7 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
     assert.deepEqual(Array.from(sv.netChecks), [true, true, true, true, true]);
     assert.ok(videoLoads.includes('https://app.example.test/sample.mp4'));
     await until(() => Array.from(sv.nsLog).length === 4, 'NetStream publish + send callbacks settle');
-    assert.deepEqual(Array.from(sv.nsLog), ['status:NetStream.Publish.BadName', 'cue:c1', 'text:sub', 'xmp:<xmp/>']);
+    assert.deepEqual(Array.from(sv.nsLog), ['status:NetStream.Publish.Start', 'cue:c1', 'text:sub', 'xmp:<xmp/>']);
 
     assert.deepEqual(Array.from(sv.rsoChecks), [true, true, true, true, true]);
     await until(() => Array.from(sv.rsoLog).length === 2, 'Remote SharedObject onSync + send settle');
@@ -2165,9 +2165,13 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
 
     const sysStatuses = [];
     fHost.legacy().System.onStatus = info => sysStatuses.push(info.code || info.level);
+    const activePubNs = new (fHost.legacy().NetStream)( (function() { const nc = new (fHost.legacy().NetConnection)(); nc.connect(null); return nc; })() );
+    activePubNs.onStatus = () => {};
+    activePubNs.publish('dup_upstream', 'live');
     const unhandledNs = new (fHost.legacy().NetStream)( (function() { const nc = new (fHost.legacy().NetConnection)(); nc.connect(null); return nc; })() );
-    unhandledNs.publish('bad_upstream', 'live');
+    unhandledNs.publish('dup_upstream', 'live');
     await until(() => sysStatuses.includes('NetStream.Publish.BadName'), 'unhandled NetStream error status routes to System.onStatus');
+    activePubNs.publish(false);
     fHost.legacy().System.onStatus = null;
 
     const strProg = b3Root.loaderRef.getProgress('slotOk');

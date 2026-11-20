@@ -17,6 +17,14 @@ pub struct ScriptAS2Stream {
     buffer_time: f64,
     max_pause_buffer_time: f64,
     buffer_waiting: bool,
+    attached_audio: bool,
+    attached_video: bool,
+    snapshot_ms: Option<i32>,
+    published_name: Option<String>,
+    published_mode: Option<String>,
+    subscribed_live: bool,
+    last_live_packet_ms: Option<f64>,
+    live_bytes_total: u64,
 }
 impl Default for ScriptAS2Stream {
     fn default() -> Self {
@@ -31,6 +39,14 @@ impl Default for ScriptAS2Stream {
             buffer_time: 0.1,
             max_pause_buffer_time: 30.0,
             buffer_waiting: true,
+            attached_audio: false,
+            attached_video: false,
+            snapshot_ms: None,
+            published_name: None,
+            published_mode: None,
+            subscribed_live: false,
+            last_live_packet_ms: None,
+            live_bytes_total: 0,
         }
     }
 }
@@ -116,7 +132,126 @@ impl ScriptAS2Stream {
                 self.data_bytes = 0;
                 self.max_bytes_per_second = 0.;
                 self.buffer_waiting = true;
+                self.subscribed_live = false;
+                self.last_live_packet_ms = None;
+                self.live_bytes_total = 0;
                 Value::Null
+            }
+            "attach_audio" => {
+                self.attached_audio = q["attached"].as_bool().unwrap_or(false);
+                json!({ "attached": self.attached_audio })
+            }
+            "attach_video" => {
+                self.attached_video = q["attached"].as_bool().unwrap_or(false);
+                if self.attached_video && !q["snapshotMs"].is_null() {
+                    let ms = q["snapshotMs"].as_i64().ok_or(
+                        "AS2 NetStream.attachVideo snapshotMilliseconds requires an integer >= -1",
+                    )?;
+                    if ms < -1 || ms > i64::from(i32::MAX) {
+                        return Err(
+                            "AS2 NetStream.attachVideo snapshotMilliseconds requires an integer >= -1"
+                                .into(),
+                        );
+                    }
+                    self.snapshot_ms = Some(ms as i32);
+                } else {
+                    self.snapshot_ms = None;
+                }
+                json!({ "attached": self.attached_video, "snapshotMs": self.snapshot_ms })
+            }
+            "publish" => {
+                let now = q["now"]
+                    .as_f64()
+                    .filter(|v| v.is_finite() && *v >= 0.)
+                    .unwrap_or(0.);
+                if q["name"].is_null()
+                    || q["name"] == false
+                    || q["name"].as_str().is_some_and(str::is_empty)
+                {
+                    self.published_name = None;
+                    self.published_mode = None;
+                    self.last_live_packet_ms = None;
+                    json!({ "status": "NetStream.Unpublish.Success", "level": "status" })
+                } else {
+                    let name = q["name"]
+                        .as_str()
+                        .ok_or("AS2 NetStream.publish requires a stream name String or false")?;
+                    let mode = q["mode"].as_str().unwrap_or("live");
+                    if !matches!(mode, "live" | "record" | "append") {
+                        return Err(
+                            "AS2 NetStream.publish mode must be 'live', 'record', or 'append'"
+                                .into(),
+                        );
+                    }
+                    if q["conflict"].as_bool().unwrap_or(false) {
+                        json!({
+                            "status": "NetStream.Publish.BadName",
+                            "level": "error",
+                            "name": name
+                        })
+                    } else {
+                        self.published_name = Some(name.to_owned());
+                        self.published_mode = Some(mode.to_owned());
+                        self.last_live_packet_ms = Some(now);
+                        json!({
+                            "status": "NetStream.Publish.Start",
+                            "level": "status",
+                            "name": name,
+                            "mode": mode
+                        })
+                    }
+                }
+            }
+            "subscribe_live" => {
+                let active = q["active"].as_bool().unwrap_or(false);
+                let now = q["now"]
+                    .as_f64()
+                    .filter(|v| v.is_finite() && *v >= 0.)
+                    .unwrap_or(0.);
+                self.subscribed_live = active;
+                self.last_live_packet_ms = if active { Some(now) } else { None };
+                json!(self.subscribed_live)
+            }
+            "live_packet" => {
+                let now = finite(&q["now"], "Live packet timestamp", 0., 1e16)?;
+                let added = q["bytes"].as_u64().unwrap_or(0);
+                self.live_bytes_total = self.live_bytes_total.saturating_add(added);
+                self.last_live_packet_ms = Some(now);
+                self.record_bytes(now, self.live_bytes_total);
+                json!(self.live_bytes_total)
+            }
+            "live_delay" => {
+                let now = q["now"]
+                    .as_f64()
+                    .filter(|v| v.is_finite() && *v >= 0.)
+                    .unwrap_or(0.);
+                let delay = if !self.subscribed_live && self.published_name.is_none() {
+                    0.0
+                } else {
+                    let fps = q["fps"]
+                        .as_f64()
+                        .filter(|v| v.is_finite() && *v >= 1.0)
+                        .unwrap_or(30.0);
+                    let pub_buf = q["publisherBufferTime"]
+                        .as_f64()
+                        .filter(|v| v.is_finite() && *v >= 0.0)
+                        .unwrap_or(0.0);
+                    let frame_interval = match self.snapshot_ms {
+                        Some(ms) if ms > 0 => (ms as f64) / 1000.0,
+                        _ => 1.0 / fps,
+                    };
+                    let transit = self
+                        .last_live_packet_ms
+                        .map(|t| ((now - t).max(0.0) / 1000.0).min(2.0))
+                        .unwrap_or(0.0);
+                    let raw = if self.subscribed_live {
+                        self.buffer_time.max(0.0) + pub_buf * 0.5 + frame_interval + transit * 0.1
+                    } else {
+                        self.buffer_time.max(0.0) + frame_interval
+                    };
+                    (raw * 1000.0).round() / 1000.0
+                };
+                json!(delay)
             }
             "bytes" => {
                 let now = finite(&q["now"], "Byte sample timestamp", 0., 1e16)?;
@@ -1143,5 +1278,73 @@ mod tests {
         assert_eq!(info["droppedFrames"], 3);
         assert_eq!(info["srtt"], 12.5);
         assert_eq!(info["resourceName"], "media/motion.mp4");
+    }
+
+    #[test]
+    fn stream_publish_attach_and_live_delay() {
+        let invoke = |s: &mut ScriptAS2Stream, q: Value| -> Value {
+            serde_json::from_str(&s.execute(&q.to_string()).unwrap()).unwrap()
+        };
+        let mut pub_stream = ScriptAS2Stream::new();
+        let mut sub_stream = ScriptAS2Stream::new();
+        assert_eq!(
+            invoke(&mut pub_stream, json!({"op":"live_delay","now":100}))["value"],
+            0.0
+        );
+        let aud = invoke(
+            &mut pub_stream,
+            json!({"op":"attach_audio","attached":true}),
+        );
+        assert_eq!(aud["value"]["attached"], true);
+        let vid = invoke(
+            &mut pub_stream,
+            json!({"op":"attach_video","attached":true,"snapshotMs":250}),
+        );
+        assert_eq!(vid["value"]["snapshotMs"], 250);
+        let start = invoke(
+            &mut pub_stream,
+            json!({"op":"publish","name":"camFeed","mode":"live","now":1000,"conflict":false}),
+        );
+        assert_eq!(start["value"]["status"], "NetStream.Publish.Start");
+        let conflict = invoke(
+            &mut sub_stream,
+            json!({"op":"publish","name":"camFeed","mode":"live","now":1010,"conflict":true}),
+        );
+        assert_eq!(conflict["value"]["status"], "NetStream.Publish.BadName");
+        invoke(
+            &mut sub_stream,
+            json!({"op":"set_buffer_time","seconds":0.2}),
+        );
+        invoke(
+            &mut sub_stream,
+            json!({"op":"subscribe_live","active":true,"now":1020}),
+        );
+        invoke(
+            &mut sub_stream,
+            json!({"op":"live_packet","now":1050,"bytes":4096}),
+        );
+        let pub_delay = invoke(
+            &mut pub_stream,
+            json!({"op":"live_delay","now":1050,"fps":25}),
+        )["value"]
+            .as_f64()
+            .unwrap();
+        assert!(pub_delay > 0.3);
+        let sub_delay = invoke(
+            &mut sub_stream,
+            json!({"op":"live_delay","now":1060,"publisherBufferTime":0.1,"fps":25}),
+        )["value"]
+            .as_f64()
+            .unwrap();
+        assert!(sub_delay > 0.25);
+        let stop = invoke(
+            &mut pub_stream,
+            json!({"op":"publish","name":false,"now":1100}),
+        );
+        assert_eq!(stop["value"]["status"], "NetStream.Unpublish.Success");
+        assert_eq!(
+            invoke(&mut pub_stream, json!({"op":"live_delay","now":1100}))["value"],
+            0.0
+        );
     }
 }

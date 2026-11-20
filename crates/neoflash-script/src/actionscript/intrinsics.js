@@ -61,9 +61,36 @@ const __nfClassMetaclass = (() => {
     return Object.freeze(facade);
 })();
 const __nfFunctionClass = (() => {
+    function buildDynamicFunction(args) {
+        if (args.length === 0) {
+            return __nfSourceFunction(function() {}, { as3: true, length: 0, required: 0, allowExtra: true, constructible: true, defaultReceiver: {} });
+        }
+        const rawParams = [];
+        for (let i = 0; i < args.length - 1; i++) {
+            const segment = __nfString(args[i]);
+            for (const part of segment.split(',')) {
+                const trimmed = part.trim();
+                if (!trimmed) continue;
+                const colonIdx = trimmed.indexOf(':');
+                const eqIdx = trimmed.indexOf('=');
+                let clean = trimmed;
+                if (colonIdx !== -1 && (eqIdx === -1 || colonIdx < eqIdx)) {
+                    clean = trimmed.slice(0, colonIdx).trim() + (eqIdx !== -1 ? ' ' + trimmed.slice(eqIdx) : '');
+                }
+                rawParams.push(clean);
+            }
+        }
+        const arity = rawParams.filter(p => !p.startsWith('...')).length;
+        const bodyStr = __nfString(args[args.length - 1]);
+        const compiled = __nfApply(__nfNativeFunctionConstructor, undefined, [...rawParams, bodyStr]);
+        return __nfSourceFunction(function(activation) {
+            return __nfApply(compiled, this, activation.values);
+        }, { as3: true, length: arity, required: 0, allowExtra: true, constructible: true, defaultReceiver: {} });
+    }
     const facade = function(...args) {
+        if (new.target) return buildDynamicFunction(args);
         if (args.length > 1) throw __nfMakeError('ArgumentError', true, ['Function() accepts at most 1 argument.', 1063]);
-        if (args.length === 0) return __nfSourceFunction(function() {}, { as3: true, length: 0, required: 0, allowExtra: false });
+        if (args.length === 0) return __nfSourceFunction(function() {}, { as3: true, length: 0, required: 0, allowExtra: true, constructible: true, defaultReceiver: {} });
         const v = args[0];
         if (typeof v === 'function' && __nfNumericClassName(v) === null) return v;
         throw new __nfTypeError('Cannot convert value to Function.');
@@ -72,10 +99,330 @@ const __nfFunctionClass = (() => {
         name: { value: 'Function' },
         length: { value: 1 },
         prototype: { value: Function.prototype, writable: false },
+        __nfConstruct: { value: args => buildDynamicFunction(args) },
         __nfIs: { value: value => typeof value === 'function' && __nfNumericClassName(value) === null },
         [Symbol.hasInstance]: { value: value => typeof value === 'function' && __nfNumericClassName(value) === null },
     });
     return Object.freeze(facade);
+})();
+const __nfSharedProxyRegistry = (() => {
+    const key = Symbol.for('neoflash.actionscript.proxy-registry.v1');
+    const existing = globalThis[key];
+    if (existing && existing.rawMap instanceof WeakMap) return existing;
+    const reg = Object.freeze({
+        rawMap: new WeakMap(),
+        wrapMap: new WeakMap(),
+        adapters: new WeakMap(),
+        attrKeys: new WeakSet(),
+    });
+    Object.defineProperty(globalThis, key, { value: reg, configurable: true });
+    return reg;
+})();
+const __nfAs3ProxyRawMap = __nfSharedProxyRegistry.rawMap;
+const __nfAs3ProxyWrapMap = __nfSharedProxyRegistry.wrapMap;
+const __nfAs3ProxyAdapters = __nfSharedProxyRegistry.adapters;
+const __nfProxyAttrKeys = __nfSharedProxyRegistry.attrKeys;
+function __nfMarkProxyAttribute(obj) {
+    if (obj !== null && typeof obj === 'object') __nfProxyAttrKeys.add(obj);
+    return obj;
+}
+const __nfAs3ProxyBypassProps = new Set(['isAttribute', 'hasOwnProperty', 'propertyIsEnumerable', 'setPropertyIsEnumerable', 'isPrototypeOf', 'toString', 'valueOf', 'toLocaleString', 'constructor']);
+function __nfUnwrapAs3Proxy(value) {
+    return value !== null && (typeof value === 'object' || typeof value === 'function') ? (__nfAs3ProxyRawMap.get(value) || value) : value;
+}
+function __nfIsAs3Proxy(value) {
+    if (value === null || (typeof value !== 'object' && typeof value !== 'function')) return false;
+    return __nfAs3ProxyRawMap.has(value) || __nfAs3ProxyWrapMap.has(value);
+}
+function __nfHasStandaloneAs3ProxyTrait(value, key) {
+    const raw = __nfUnwrapAs3Proxy(value);
+    return __nfAs3ProxyBypassProps.has(key) || Boolean(__nfAs3ProxyAdapters.get(raw)?.hasFixedTrait?.(key));
+}
+function __nfInvokeStandaloneAs3Proxy(value, trap, args) {
+    const raw = __nfUnwrapAs3Proxy(value);
+    const adapter = __nfAs3ProxyAdapters.get(raw);
+    if (adapter) return adapter.invokeTrap(trap, args);
+    throw new __nfTypeError(`Proxy trap ${trap} is unavailable.`);
+}
+function __nfCreateAs3Proxy(rawTarget, adapter) {
+    if (__nfAs3ProxyRawMap.has(rawTarget)) return rawTarget;
+    if (__nfAs3ProxyWrapMap.has(rawTarget)) return __nfAs3ProxyWrapMap.get(rawTarget);
+    __nfAs3ProxyAdapters.set(rawTarget, adapter);
+    const proxy = new Proxy(rawTarget, {
+        get(target, prop, _receiver) {
+            if (typeof prop === 'symbol' || prop === '__proto__' || __nfAs3ProxyBypassProps.has(prop)) {
+                return Reflect.get(target, prop, target);
+            }
+            if (adapter.hasFixedTrait(prop)) return adapter.getFixedTrait(prop);
+            return adapter.invokeTrap('getProperty', [prop]);
+        },
+        set(target, prop, value, _receiver) {
+            if (typeof prop === 'symbol' || prop === '__proto__') {
+                return Reflect.set(target, prop, value, target);
+            }
+            if (adapter.hasFixedTrait(prop)) {
+                adapter.setFixedTrait(prop, value);
+                return true;
+            }
+            adapter.invokeTrap('setProperty', [prop, value]);
+            return true;
+        },
+        has(target, prop) {
+            if (typeof prop === 'symbol' || __nfAs3ProxyBypassProps.has(prop) || adapter.hasFixedTrait(prop) || prop in Object.prototype) {
+                return Reflect.has(target, prop);
+            }
+            return Boolean(adapter.invokeTrap('hasProperty', [prop]));
+        },
+        deleteProperty(target, prop) {
+            if (typeof prop === 'symbol') return Reflect.deleteProperty(target, prop);
+            if (adapter.hasFixedTrait(prop)) return false;
+            return Boolean(adapter.invokeTrap('deleteProperty', [prop]));
+        },
+        ownKeys(target) {
+            const seen = new Set(), keys = [];
+            let index = 0, guard = 0;
+            while (guard++ < 100000) {
+                index = Number(adapter.invokeTrap('nextNameIndex', [index])) | 0;
+                if (index <= 0) break;
+                const k = String(adapter.invokeTrap('nextName', [index]));
+                if (!seen.has(k)) { seen.add(k); keys.push(k); }
+            }
+            for (const k of Reflect.ownKeys(target)) {
+                if (!seen.has(k)) {
+                    const d = Object.getOwnPropertyDescriptor(target, k);
+                    if (typeof k === 'symbol' || (d && (!d.configurable || d.enumerable))) {
+                        seen.add(k);
+                        keys.push(k);
+                    }
+                }
+            }
+            return keys;
+        },
+        getOwnPropertyDescriptor(target, prop) {
+            if (typeof prop === 'symbol' || Object.hasOwn(target, prop)) {
+                return Reflect.getOwnPropertyDescriptor(target, prop);
+            }
+            if (adapter.hasFixedTrait(prop)) {
+                return { configurable: true, enumerable: false, writable: true, value: adapter.getFixedTrait(prop) };
+            }
+            if (Boolean(adapter.invokeTrap('hasProperty', [prop]))) {
+                return { configurable: true, enumerable: true, writable: true, value: adapter.invokeTrap('getProperty', [prop]) };
+            }
+            return undefined;
+        },
+    });
+    __nfAs3ProxyRawMap.set(proxy, rawTarget);
+    __nfAs3ProxyWrapMap.set(rawTarget, proxy);
+    return proxy;
+}
+const __nfFlashProxyBase = (() => {
+    function FlashProxy() {}
+    FlashProxy.prototype = Object.create(Object.prototype);
+    Object.defineProperties(FlashProxy.prototype, {
+        constructor: { value: FlashProxy, writable: true, configurable: true },
+        getProperty: { value: function(name) {
+            const Err = typeof __nfFlashErrors !== 'undefined' && __nfFlashErrors?.['flash.errors.IllegalOperationError'] ? __nfFlashErrors['flash.errors.IllegalOperationError'] : Error;
+            throw new Err(`Proxy.getProperty(${name}) is not implemented.`);
+        }, writable: true, configurable: true },
+        setProperty: { value: function(name, _value) {
+            const Err = typeof __nfFlashErrors !== 'undefined' && __nfFlashErrors?.['flash.errors.IllegalOperationError'] ? __nfFlashErrors['flash.errors.IllegalOperationError'] : Error;
+            throw new Err(`Proxy.setProperty(${name}) is not implemented.`);
+        }, writable: true, configurable: true },
+        callProperty: { value: function(name) {
+            const Err = typeof __nfFlashErrors !== 'undefined' && __nfFlashErrors?.['flash.errors.IllegalOperationError'] ? __nfFlashErrors['flash.errors.IllegalOperationError'] : Error;
+            throw new Err(`Proxy.callProperty(${name}) is not implemented.`);
+        }, writable: true, configurable: true },
+        hasProperty: { value: function(_name) { return false; }, writable: true, configurable: true },
+        deleteProperty: { value: function(_name) { return false; }, writable: true, configurable: true },
+        getDescendants: { value: function(name) {
+            const Err = typeof __nfFlashErrors !== 'undefined' && __nfFlashErrors?.['flash.errors.IllegalOperationError'] ? __nfFlashErrors['flash.errors.IllegalOperationError'] : Error;
+            throw new Err(`Proxy.getDescendants(${name}) is not implemented.`);
+        }, writable: true, configurable: true },
+        isAttribute: { value: function(name) {
+            if (typeof name === 'object' && name !== null && (__nfProxyAttrKeys.has(name) || name.isAttribute === true || name.__nfAttribute === true)) return true;
+            return typeof name === 'string' && name.startsWith('@');
+        }, writable: true, configurable: true },
+        nextNameIndex: { value: function(_index) { return 0; }, writable: true, configurable: true },
+        nextName: { value: function(_index) { return ''; }, writable: true, configurable: true },
+        nextValue: { value: function(_index) { return undefined; }, writable: true, configurable: true },
+    });
+    Object.defineProperty(FlashProxy, '__nfInitialize', { value: function() {} });
+    Object.defineProperty(FlashProxy, '__nfIs', { value: function(v) {
+        const raw = __nfUnwrapAs3Proxy(v);
+        return raw instanceof FlashProxy;
+    } });
+    return FlashProxy;
+})();
+const __nfMxObjectProxyClass = (() => {
+    const stateMap = new WeakMap();
+    const fixedMethods = new Set(['addEventListener', 'removeEventListener', 'dispatchEvent', 'hasEventListener', 'willTrigger', 'readExternal', 'writeExternal']);
+    const nsObjectSym = Symbol.for('neoflash.ns.http://www.adobe.com/2006/flex/mx/internal::object');
+    const nsUidSym = Symbol.for('neoflash.ns.http://www.adobe.com/2006/flex/mx/internal::uid');
+    function ensureState(self, args = []) {
+        const raw = __nfUnwrapAs3Proxy(self);
+        let st = stateMap.get(raw);
+        if (!st) {
+            const item = args.length > 0 && args[0] !== null && typeof args[0] === 'object' ? args[0] : {};
+            const uid = args.length > 1 && args[1] != null ? String(args[1]) : 'object-proxy-' + Math.random().toString(36).slice(2, 10);
+            st = { object: item, uid, keysSnapshot: [], listeners: new Map() };
+            stateMap.set(raw, st);
+        }
+        return st;
+    }
+    function notifyPropertyChange(self, kind, property, oldValue, newValue) {
+        const st = ensureState(self);
+        const bucket = st.listeners.get('propertyChange');
+        if (!bucket || bucket.length === 0) return;
+        const proxySelf = __nfAs3ProxyWrapMap.get(__nfUnwrapAs3Proxy(self)) || self;
+        let EventCls = typeof __nfBuiltins !== 'undefined' && __nfBuiltins?.['flash.events.Event'] ? __nfBuiltins['flash.events.Event'] : null;
+        if (!EventCls && typeof __nfProgram !== 'undefined' && typeof __nfProgram?.type === 'function') {
+            try { EventCls = __nfProgram.type('flash.events.Event'); } catch (_) { EventCls = null; }
+        }
+        let evt;
+        if (typeof EventCls === 'function') {
+            evt = new EventCls('propertyChange', false, false);
+            try {
+                Object.defineProperties(evt, {
+                    kind: { value: kind, enumerable: true, configurable: true },
+                    property: { value: property, enumerable: true, configurable: true },
+                    oldValue: { value: oldValue, enumerable: true, configurable: true },
+                    newValue: { value: newValue, enumerable: true, configurable: true },
+                    source: { value: proxySelf, enumerable: true, configurable: true },
+                });
+            } catch (_) {}
+        } else {
+            evt = { type: 'propertyChange', bubbles: false, cancelable: false, kind, property, oldValue, newValue, source: proxySelf, target: proxySelf, currentTarget: proxySelf };
+        }
+        for (const entry of [...bucket]) entry.fn(evt);
+    }
+    function ObjectProxy(...args) {
+        ensureState(this, args);
+        if (new.target === ObjectProxy) {
+            const raw = this;
+            const proxy = __nfCreateAs3Proxy(raw, {
+                hasFixedTrait: prop => fixedMethods.has(prop),
+                getFixedTrait: prop => {
+                    const fn = ObjectProxy.prototype[prop];
+                    return typeof fn === 'function' ? fn.bind(proxy) : fn;
+                },
+                setFixedTrait: () => { throw new __nfTypeError('Cannot overwrite ObjectProxy method.'); },
+                invokeTrap: (trap, trapArgs) => {
+                    const fn = ObjectProxy.prototype[trap] || __nfFlashProxyBase.prototype[trap];
+                    return Reflect.apply(fn, proxy, trapArgs);
+                },
+            });
+            return proxy;
+        }
+    }
+    ObjectProxy.prototype = Object.create(__nfFlashProxyBase.prototype);
+    Object.defineProperties(ObjectProxy.prototype, {
+        constructor: { value: ObjectProxy, writable: true, configurable: true },
+        [nsObjectSym]: {
+            configurable: true,
+            get() { return ensureState(this).object; },
+            set(v) { ensureState(this).object = v !== null && typeof v === 'object' ? v : {}; },
+        },
+        [nsUidSym]: {
+            configurable: true,
+            get() { return ensureState(this).uid; },
+            set(v) { ensureState(this).uid = String(v ?? ''); },
+        },
+        uid: {
+            configurable: true,
+            get() { return ensureState(this).uid; },
+            set(v) { ensureState(this).uid = String(v ?? ''); },
+        },
+        getProperty: { value: function(name) {
+            const key = typeof name === 'object' && name !== null && 'localName' in name ? String(name.localName) : String(name);
+            return ensureState(this).object[key];
+        }, writable: true, configurable: true },
+        setProperty: { value: function(name, value) {
+            const st = ensureState(this);
+            const key = typeof name === 'object' && name !== null && 'localName' in name ? String(name.localName) : String(name);
+            const oldValue = st.object[key];
+            st.object[key] = value;
+            if (oldValue !== value) notifyPropertyChange(this, 'update', key, oldValue, value);
+        }, writable: true, configurable: true },
+        callProperty: { value: function(name, ...rest) {
+            const st = ensureState(this);
+            const key = typeof name === 'object' && name !== null && 'localName' in name ? String(name.localName) : String(name);
+            const fn = st.object[key];
+            if (typeof fn === 'function') return __nfApply(fn, st.object, rest);
+            throw new __nfTypeError(`Property ${key} is not a function.`);
+        }, writable: true, configurable: true },
+        hasProperty: { value: function(name) {
+            const key = typeof name === 'object' && name !== null && 'localName' in name ? String(name.localName) : String(name);
+            return key in ensureState(this).object;
+        }, writable: true, configurable: true },
+        deleteProperty: { value: function(name) {
+            const st = ensureState(this);
+            const key = typeof name === 'object' && name !== null && 'localName' in name ? String(name.localName) : String(name);
+            const had = Object.hasOwn(st.object, key);
+            const oldValue = st.object[key];
+            const removed = delete st.object[key];
+            if (had && removed) notifyPropertyChange(this, 'delete', key, oldValue, undefined);
+            return removed;
+        }, writable: true, configurable: true },
+        nextNameIndex: { value: function(index) {
+            const st = ensureState(this);
+            const idx = Number(index) | 0;
+            if (idx <= 0) st.keysSnapshot = Object.keys(st.object);
+            return idx < st.keysSnapshot.length ? idx + 1 : 0;
+        }, writable: true, configurable: true },
+        nextName: { value: function(index) {
+            const st = ensureState(this);
+            return st.keysSnapshot[(Number(index) | 0) - 1] ?? '';
+        }, writable: true, configurable: true },
+        nextValue: { value: function(index) {
+            const st = ensureState(this);
+            const k = st.keysSnapshot[(Number(index) | 0) - 1];
+            return k === undefined ? undefined : st.object[k];
+        }, writable: true, configurable: true },
+        addEventListener: { value: function(type, listener, useCapture = false, priority = 0) {
+            if (typeof listener !== 'function') return;
+            const st = ensureState(this), t = String(type);
+            let list = st.listeners.get(t);
+            if (!list) st.listeners.set(t, list = []);
+            if (!list.some(e => e.fn === listener && e.capture === Boolean(useCapture))) {
+                list.push({ fn: listener, capture: Boolean(useCapture), priority: Number(priority) | 0 });
+                list.sort((a, b) => b.priority - a.priority);
+            }
+        }, writable: true, configurable: true },
+        removeEventListener: { value: function(type, listener, useCapture = false) {
+            const st = ensureState(this), list = st.listeners.get(String(type));
+            if (!list) return;
+            const idx = list.findIndex(e => e.fn === listener && e.capture === Boolean(useCapture));
+            if (idx >= 0) list.splice(idx, 1);
+        }, writable: true, configurable: true },
+        dispatchEvent: { value: function(event) {
+            if (!event || typeof event.type !== 'string') return false;
+            const st = ensureState(this), list = st.listeners.get(event.type);
+            if (!list || list.length === 0) return true;
+            for (const entry of [...list]) entry.fn(event);
+            return !event.defaultPrevented;
+        }, writable: true, configurable: true },
+        hasEventListener: { value: function(type) {
+            const list = ensureState(this).listeners.get(String(type));
+            return Boolean(list && list.length > 0);
+        }, writable: true, configurable: true },
+        willTrigger: { value: function(type) { return this.hasEventListener(type); }, writable: true, configurable: true },
+        readExternal: { value: function(input) {
+            if (input && typeof input.readObject === 'function') {
+                const v = input.readObject();
+                ensureState(this).object = v !== null && typeof v === 'object' ? v : {};
+            }
+        }, writable: true, configurable: true },
+        writeExternal: { value: function(output) {
+            if (output && typeof output.writeObject === 'function') output.writeObject(ensureState(this).object);
+        }, writable: true, configurable: true },
+    });
+    Object.defineProperty(ObjectProxy, '__nfInitialize', { value: function(receiver, args) { ensureState(receiver, args); } });
+    Object.defineProperty(ObjectProxy, '__nfHasFixedMethod', { value: prop => fixedMethods.has(prop) || prop === 'uid' });
+    Object.defineProperty(ObjectProxy, '__nfIs', { value: function(v) {
+        const raw = __nfUnwrapAs3Proxy(v);
+        return raw instanceof ObjectProxy || stateMap.has(raw);
+    } });
+    return ObjectProxy;
 })();
 function __nfClassIs(value) {
     if (typeof value !== 'function') return false;
@@ -96,7 +443,7 @@ function __nfClassConstruct(value,args) {
     const name=__nfNumericClassName(value);
     if(name)return __nfNumericCreate(name,args);
     if(value===__nfClassMetaclass)throw new __nfTypeError('Class is not constructible.');
-    if(value===__nfFunctionClass)return __nfFunctionClass(...args);
+    if(value===__nfFunctionClass||value===__nfNativeFunctionConstructor)return __nfFunctionClass.__nfConstruct(args);
     if(value===__nfObjectClass(true))return __nfObjectCreate(true,args,true);
     if(value===__nfStringClass(true))return __nfStringCreate(true,args,true);
     if(value===__nfArrayClass(true))return __nfArrayCreate(true,args);
@@ -107,7 +454,9 @@ function __nfClassConstruct(value,args) {
     if(typeof __nfXML!=='undefined'&&__nfXML&&(value===__nfXML.XML||value===__nfXML.XMLList||value===__nfXML.Namespace||value===__nfXML.QName))return new value(...args);
     if(typeof value?.name==='string'&&Object.hasOwn(__nfErrorTypes,value.name)&&value===__nfErrorClass(value.name,true))return __nfMakeError(value.name,true,args);
     if(typeof __nfProgram!=='undefined' && __nfProgram?.isClass?.(value)===true)return __nfProgram.constructClass(value,args);
-    throw new __nfTypeError('Constructor alias must reference a supported AS3 class; arbitrary Function construction is unsupported.');
+    const fnRecord=typeof __nfFunctionRecord==='function'?__nfFunctionRecord(value):null;
+    if(fnRecord&&fnRecord.constructible)return fnRecord.construct(args);
+    throw new __nfTypeError('Constructor alias must reference a supported AS3 class or constructible Function.');
 }
 function __nfAs3InstanceOf(value, ctor) {
     if (typeof ctor !== 'function') throw new __nfTypeError('Right-hand side of instanceof must be a class or function.');
@@ -1046,6 +1395,7 @@ function __nfInstallWave7Legacy(legacy, frame) {
     }
 
     if (typeof legacy.NetStream !== 'function') {
+        const loopbackStreams = new Map();
         function NetStream(connection) {
             this.connection = connection || null;
             this.bufferTime = 0.1;
@@ -1054,13 +1404,15 @@ function __nfInstallWave7Legacy(legacy, frame) {
             this.bytesTotal = 0;
             this.checkPolicyFile = false;
             this.currentFps = 0;
-            this.liveDelay = 0;
+            this._liveActive = false;
+            this._subscribedStream = null;
             this.maxPauseBufferTime = 30;
             this.time = 0;
             this.audioEnabled = true;
             this.videoEnabled = true;
             this.attachedAudio = null;
             this.attachedVideo = null;
+            this.snapshotMilliseconds = -1;
             this.publishedName = null;
             this.publishedHow = null;
             this.paused = false;
@@ -1070,6 +1422,15 @@ function __nfInstallWave7Legacy(legacy, frame) {
             this.onPlayStatus = undefined;
             this.onStatus = undefined;
         }
+        Object.defineProperty(NetStream.prototype, 'liveDelay', {
+            configurable: true,
+            get() {
+                if (!this._liveActive && !this.publishedName) return 0;
+                const fps = Number(this.attachedVideo?.fps) || 30;
+                const frameInterval = this.snapshotMilliseconds > 0 ? this.snapshotMilliseconds / 1000 : 1 / Math.max(1, fps);
+                return Math.round(((Number(this.bufferTime) || 0.1) + frameInterval) * 1000) / 1000;
+            },
+        });
         NetStream.prototype.setBufferTime = function(bufferTime) {
             this.bufferTime = Math.max(0, Number(bufferTime) || 0);
         };
@@ -1082,6 +1443,11 @@ function __nfInstallWave7Legacy(legacy, frame) {
         };
         NetStream.prototype.play = function(name, start, len, reset) {
             if (name === false) {
+                if (this._subscribedStream && loopbackStreams.has(this._subscribedStream)) {
+                    loopbackStreams.get(this._subscribedStream).subscribers.delete(this);
+                }
+                this._subscribedStream = null;
+                this._liveActive = false;
                 this.playingUrl = null;
                 this.currentFps = 0;
                 if (typeof this.onStatus === 'function') {
@@ -1089,14 +1455,35 @@ function __nfInstallWave7Legacy(legacy, frame) {
                 }
                 return;
             }
-            this.playingUrl = String(name ?? '');
+            const streamKey = String(name ?? '');
+            this.playingUrl = streamKey;
             this.paused = false;
             this.time = start !== undefined && Number(start) > 0 ? Number(start) : 0;
             this.bufferLength = this.bufferTime;
             this.bytesTotal = 1024;
             this.bytesLoaded = 1024;
-            this.currentFps = 30;
             this.resetMode = reset !== undefined ? reset : true;
+            if (loopbackStreams.has(streamKey)) {
+                const entry = loopbackStreams.get(streamKey);
+                entry.subscribers.add(this);
+                this._subscribedStream = streamKey;
+                this._liveActive = Boolean(entry.active && entry.mode === 'live');
+                this.currentFps = entry.metadata.framerate || 30;
+                if (typeof this.onStatus === 'function') {
+                    this.onStatus({ level: 'status', code: 'NetStream.Play.Reset', details: streamKey });
+                    this.onStatus({ level: 'status', code: 'NetStream.Play.Start', details: streamKey });
+                    if (entry.active) this.onStatus({ level: 'status', code: 'NetStream.Play.PublishNotify', details: streamKey });
+                }
+                if (typeof this.onMetaData === 'function') {
+                    this.onMetaData({ ...entry.metadata });
+                }
+                for (const msg of entry.messages) {
+                    if (typeof this[msg.handlerName] === 'function') this[msg.handlerName](...msg.args);
+                }
+                return;
+            }
+            this._liveActive = false;
+            this.currentFps = 30;
             if (typeof this.onStatus === 'function') {
                 this.onStatus({ level: 'status', code: 'NetStream.Play.Start', details: this.playingUrl });
             }
@@ -1140,8 +1527,18 @@ function __nfInstallWave7Legacy(legacy, frame) {
             }
         };
         NetStream.prototype.close = function() {
+            if (this.publishedName && loopbackStreams.get(this.publishedName)?.publisher === this) {
+                const entry = loopbackStreams.get(this.publishedName);
+                entry.active = false;
+                entry.publisher = null;
+            }
+            if (this._subscribedStream && loopbackStreams.has(this._subscribedStream)) {
+                loopbackStreams.get(this._subscribedStream).subscribers.delete(this);
+            }
             this.playingUrl = null;
             this.publishedName = null;
+            this._subscribedStream = null;
+            this._liveActive = false;
             this.currentFps = 0;
             this.bufferLength = 0;
             this.time = 0;
@@ -1151,17 +1548,62 @@ function __nfInstallWave7Legacy(legacy, frame) {
         };
         NetStream.prototype.publish = function(name, how) {
             if (name === false || name === null || name === '') {
+                const prev = this.publishedName;
                 this.publishedName = null;
                 this.publishedHow = null;
+                this._liveActive = false;
+                if (prev && loopbackStreams.get(prev)?.publisher === this) {
+                    const entry = loopbackStreams.get(prev);
+                    entry.active = false;
+                    entry.publisher = null;
+                    for (const sub of entry.subscribers) {
+                        sub._liveActive = false;
+                        if (typeof sub.onStatus === 'function') {
+                            sub.onStatus({ level: 'status', code: 'NetStream.Play.UnpublishNotify', details: prev });
+                        }
+                    }
+                    if (entry.mode === 'live' && entry.subscribers.size === 0) loopbackStreams.delete(prev);
+                }
                 if (typeof this.onStatus === 'function') {
                     this.onStatus({ level: 'status', code: 'NetStream.Unpublish.Success' });
                 }
                 return;
             }
-            this.publishedName = String(name);
-            this.publishedHow = String(how || 'live');
+            const streamKey = String(name).trim();
+            const mode = String(how || 'live');
+            const existing = loopbackStreams.get(streamKey);
+            if (!streamKey || (existing && existing.active && existing.publisher && existing.publisher !== this)) {
+                if (typeof this.onStatus === 'function') {
+                    this.onStatus({ level: 'error', code: 'NetStream.Publish.BadName', details: streamKey });
+                }
+                return;
+            }
+            this.publishedName = streamKey;
+            this.publishedHow = mode;
+            this._liveActive = mode === 'live';
+            const entry = existing || { subscribers: new Set(), messages: [] };
+            if (mode !== 'append') entry.messages = [];
+            entry.publisher = this;
+            entry.mode = mode;
+            entry.active = true;
+            entry.metadata = {
+                width: Number(this.attachedVideo?.width) || 320,
+                height: Number(this.attachedVideo?.height) || 240,
+                framerate: Number(this.attachedVideo?.fps) || 30,
+                audiosamplerate: (Number(this.attachedAudio?.rate) || 22) * 1000,
+                live: mode === 'live',
+                mode,
+            };
+            loopbackStreams.set(streamKey, entry);
             if (typeof this.onStatus === 'function') {
                 this.onStatus({ level: 'status', code: 'NetStream.Publish.Start', details: this.publishedName });
+            }
+            for (const sub of entry.subscribers) {
+                sub._liveActive = mode === 'live';
+                if (typeof sub.onStatus === 'function') {
+                    sub.onStatus({ level: 'status', code: 'NetStream.Play.PublishNotify', details: streamKey });
+                }
+                if (typeof sub.onMetaData === 'function') sub.onMetaData({ ...entry.metadata });
             }
         };
         NetStream.prototype.receiveAudio = function(flag) {
@@ -1182,6 +1624,13 @@ function __nfInstallWave7Legacy(legacy, frame) {
             this.sentMessages.push(msg);
             if (typeof this[msg.handlerName] === 'function') {
                 this[msg.handlerName](...args);
+            }
+            if (this.publishedName && loopbackStreams.get(this.publishedName)?.publisher === this) {
+                const entry = loopbackStreams.get(this.publishedName);
+                if (entry.mode === 'record' || entry.mode === 'append') entry.messages.push(msg);
+                for (const sub of entry.subscribers) {
+                    if (typeof sub[msg.handlerName] === 'function') sub[msg.handlerName](...args);
+                }
             }
         };
         NetStream.prototype.getInfo = function() {
@@ -2607,6 +3056,15 @@ const __nfWave7Registry = (() => {
         ['flash.display.AVM1Movie', AVM1Movie],
         ['Stage', Stage],
         ['flash.display.Stage', Stage],
+        ['Proxy', __nfFlashProxyBase],
+        ['flash.utils.Proxy', __nfFlashProxyBase],
+        ['flash_proxy', Object.freeze({ prefix: 'flash_proxy', uri: 'http://www.adobe.com/2006/actionscript/flash/proxy', toString() { return this.uri; } })],
+        ['flash.utils.flash_proxy', Object.freeze({ prefix: 'flash_proxy', uri: 'http://www.adobe.com/2006/actionscript/flash/proxy', toString() { return this.uri; } })],
+        ['object_proxy', Object.freeze({ prefix: 'object_proxy', uri: 'http://www.adobe.com/2006/flex/mx/internal', toString() { return this.uri; } })],
+        ['flash.utils.object_proxy', Object.freeze({ prefix: 'object_proxy', uri: 'http://www.adobe.com/2006/flex/mx/internal', toString() { return this.uri; } })],
+        ['mx.utils.object_proxy', Object.freeze({ prefix: 'object_proxy', uri: 'http://www.adobe.com/2006/flex/mx/internal', toString() { return this.uri; } })],
+        ['ObjectProxy', __nfMxObjectProxyClass],
+        ['mx.utils.ObjectProxy', __nfMxObjectProxyClass],
     ];
     for (const [k, v] of entries) classes.set(k, v);
 
@@ -2618,9 +3076,10 @@ const __nfWave7Registry = (() => {
         net: { Responder, NetStreamPlayTransitions, NetStreamPlayOptions, NetConnection: As3NetConnection, NetStream: As3NetStream, SharedObject: As3SharedObject },
         display: { ColorCorrection, ColorCorrectionSupport, InteractiveObject, AVM1Movie, Stage },
         geom: { Rectangle },
-        utils: { ByteArray },
+        utils: { ByteArray, Proxy: __nfFlashProxyBase, flash_proxy: classes.get('flash.utils.flash_proxy'), object_proxy: classes.get('flash.utils.object_proxy') },
     };
     classes.set('flash', flashNs);
+    classes.set('mx', { utils: { ObjectProxy: __nfMxObjectProxyClass, object_proxy: classes.get('mx.utils.object_proxy') } });
 
     return { classes, parseCompressedAtf };
 })();

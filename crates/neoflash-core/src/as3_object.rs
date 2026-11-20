@@ -470,6 +470,7 @@ const NATIVE_BASES: &[(&str, &str)] = &[
     ("flash.ui.GameInputControl", "flash.events.EventDispatcher"),
     ("flash.utils.Timer", "flash.events.EventDispatcher"),
     ("flash.xml.XMLDocument", "flash.xml.XMLNode"),
+    ("mx.utils.ObjectProxy", "flash.utils.Proxy"),
 ];
 
 fn native_base_lookup(name: &str) -> Option<&'static str> {
@@ -489,7 +490,9 @@ fn native_base_lookup(name: &str) -> Option<&'static str> {
 
 fn native_interfaces_for(name: &str) -> Vec<String> {
     match name {
-        "flash.events.EventDispatcher" => vec!["flash.events.IEventDispatcher".into()],
+        "flash.events.EventDispatcher" | "mx.utils.ObjectProxy" => {
+            vec!["flash.events.IEventDispatcher".into()]
+        }
         "flash.display.DisplayObject" | "flash.display.BitmapData" => {
             vec!["flash.display.IBitmapDrawable".into()]
         }
@@ -550,6 +553,7 @@ fn native_is_dynamic(name: &str) -> bool {
             | "flash.net.URLVariables"
             | "flash.net.NetConnection"
             | "flash.text.StyleSheet"
+            | "mx.utils.ObjectProxy"
     )
 }
 
@@ -757,6 +761,70 @@ fn build_native_class(name: &str) -> Class {
             members.push(m_const("MIN_VALUE", name, true));
         }
         "Boolean" => ctor.push(param("*", true)),
+        "Function" => {
+            members.push(m_get("length", "int"));
+            members.extend(m_rw("prototype", "*"));
+            members.push(m_fn("call", "*", &[("*", true)], false));
+            members.push(m_fn("apply", "*", &[("*", true), ("*", true)], false));
+        }
+        "flash.display.BlendMode" => {
+            for c in [
+                "ADD",
+                "ALPHA",
+                "DARKEN",
+                "DIFFERENCE",
+                "ERASE",
+                "HARDLIGHT",
+                "INVERT",
+                "LAYER",
+                "LIGHTEN",
+                "MULTIPLY",
+                "NORMAL",
+                "OVERLAY",
+                "SCREEN",
+                "SHADER",
+                "SUBTRACT",
+            ] {
+                members.push(m_const(c, "String", true));
+            }
+        }
+        "mx.utils.ObjectProxy" => {
+            ctor.push(param("Object", true));
+            ctor.push(param("String", true));
+            ctor.push(param("int", true));
+            members.extend(m_rw("uid", "String"));
+            members.push(m_fn(
+                "addEventListener",
+                "void",
+                &[
+                    ("String", false),
+                    ("Function", false),
+                    ("Boolean", true),
+                    ("int", true),
+                    ("Boolean", true),
+                ],
+                false,
+            ));
+            members.push(m_fn(
+                "removeEventListener",
+                "void",
+                &[("String", false), ("Function", false), ("Boolean", true)],
+                false,
+            ));
+            members.push(m_fn(
+                "dispatchEvent",
+                "Boolean",
+                &[("flash.events.Event", false)],
+                false,
+            ));
+            members.push(m_fn(
+                "hasEventListener",
+                "Boolean",
+                &[("String", false)],
+                false,
+            ));
+            members.push(m_fn("willTrigger", "Boolean", &[("String", false)], false));
+        }
         "String" => {
             ctor.push(param("*", true));
             members.push(m_get("length", "int"));
@@ -905,6 +973,7 @@ fn build_native_class(name: &str) -> Class {
             members.extend(m_rw("cacheAsBitmap", "Boolean"));
             members.extend(m_rw("name", "String"));
             members.extend(m_rw("blendMode", "String"));
+            members.extend(m_rw("blendShader", "flash.display.Shader"));
             members.extend(m_rw("filters", "Array"));
             members.extend(m_rw("mask", "flash.display.DisplayObject"));
             members.extend(m_rw("scrollRect", "flash.geom.Rectangle"));

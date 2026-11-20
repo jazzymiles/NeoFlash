@@ -59,7 +59,147 @@ export async function verifyClippedScene(root,cargo) {
     host.stage().handlePointer('click',{},scene.cards[0]);assert.equal(scene.cards[0].hits,1);
   } finally {host?.disposeFamily();player?.free();rmSync(directory,{recursive:true,force:true});}
   await verifySoftMaskSources(root,cargo);
-  console.log('Clipped scene: published compound mask unions, nested scroll clips, copied Rectangle state, AS2 absence/setMask, linked identity and Restart passed.');
+  await verifyDynamicMaskSemantics(root,cargo);
+  console.log('Clipped scene: published compound mask unions, nested scroll clips, dynamic/nested/TextField/Video/Bitmap masks, hitTestPoint, and Restart passed.');
+}
+
+async function verifyDynamicMaskSemantics(root,cargo) {
+  const directory=mkdtempSync(resolve(root,'target/clipped-dynamic-mask-'));
+  let player,host;
+  const project={
+    format_version:2,name:'Dynamic Mask Semantics',width:200,height:150,fps:24,background:[0,0,0,0],root:'scene',
+    symbols:[{id:'scene',name:'Scene',kind:'movie_clip',timeline:{frame_count:1,layers:[],scripts:[{frame:0,script:{language:'action_script3',source:'stop();'}}]}}],
+    sources:[],
+  };
+  try {
+    const file=resolve(directory,'dyn-mask.nflash'),output=resolve(directory,'out');
+    writeFileSync(file,JSON.stringify(project));
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--',file,'--output',output],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    assert.equal(exported.status,0,exported.error?.message||exported.stderr);
+    const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
+    vm.runInContext(readFileSync(resolve(output,'bundle.js'),'utf8'),sandbox);
+    const bundle=vm.runInContext('NeoFlashBundle',sandbox);
+    vm.runInContext(readFileSync(resolve(output,'neoflash_web.js'),'utf8'),sandbox);
+    sandbox.wasmBytes=Buffer.from(bundle.wasm,'base64');
+    const wasm=await vm.runInContext('NeoFlashWasm({module_or_path:wasmBytes}).then(()=>NeoFlashWasm)',sandbox);
+    player=new wasm.WebPlayer(JSON.stringify(bundle.project));
+    ({host}=createRuntimeHost(root,player,Array.from(bundle.scripts,item=>({script:{language:item.language,source:item.source},code:item.code,location:item.location})),{bundle,context:{measureText:line=>({width:line.length*8})}}));
+    host.dispatchScripts();
+    const scene=host.proxyFor([]),prog=host.program();
+    const Sprite=prog.type('flash.display.Sprite');
+    const Shape=prog.type('flash.display.Shape');
+    const Bitmap=prog.type('flash.display.Bitmap');
+    const BitmapData=prog.type('flash.display.BitmapData');
+    const TextField=prog.type('flash.text.TextField');
+    const Video=prog.type('flash.media.Video');
+    const BlurFilter=prog.type('flash.filters.BlurFilter');
+
+    // 1. Dynamic mask assignment, single-target reassignment, nulling, unmasked getBounds/getRect, and hitTestPoint(x,y,true)
+    const stageHolder=new Sprite();scene.addChild(stageHolder);
+    const t1=new Sprite();t1.graphics.beginFill(0xff0000,1);t1.graphics.drawRect(0,0,80,80);t1.graphics.endFill();
+    const t2=new Sprite();t2.graphics.beginFill(0x00ff00,1);t2.graphics.drawRect(0,0,80,80);t2.graphics.endFill();
+    const geomMask=new Shape();geomMask.graphics.beginFill(0x0000ff,1);geomMask.graphics.drawRect(10,10,30,30);geomMask.graphics.endFill();
+    stageHolder.addChild(t1);stageHolder.addChild(t2);stageHolder.addChild(geomMask);
+
+    t1.mask=geomMask;
+    assert.equal(t1.mask,geomMask);
+    // Bounds remain unmasked in Flash Player:
+    assert.deepEqual([t1.getBounds(stageHolder).x,t1.getBounds(stageHolder).y,t1.getBounds(stageHolder).width,t1.getBounds(stageHolder).height],[0,0,80,80]);
+    assert.deepEqual([t1.getRect(stageHolder).width,t1.getRect(stageHolder).height],[80,80]);
+    // hitTestPoint(x,y,true) clips to active mask, while shapeFlag=false tests unmasked bounding box:
+    assert.equal(t1.hitTestPoint(20,20,true),true);
+    assert.equal(t1.hitTestPoint(60,60,true),false);
+    assert.equal(t1.hitTestPoint(60,60,false),true);
+
+    // Mask itself is excluded from normal unmasked draw pass while active:
+    const drawSnap1=new BitmapData(80,80,true,0x00000000);
+    drawSnap1.draw(stageHolder);
+    assert.equal(drawSnap1.getPixel32(20,20)>>>0,0xff00ff00,'t2 paints on top, geomMask blue does NOT paint independently');
+    t2.visible=false;
+    const drawSnap2=new BitmapData(80,80,true,0x00000000);
+    drawSnap2.draw(stageHolder);
+    assert.equal(drawSnap2.getPixel32(20,20)>>>0,0xffff0000,'t1 paints inside geomMask');
+    assert.equal(drawSnap2.getPixel32(60,60)>>>0,0x00000000,'t1 clipped outside geomMask');
+
+    // Reassigning mask to t2 detaches t1.mask:
+    t2.visible=true;
+    t2.mask=geomMask;
+    assert.equal(t1.mask,null);
+    assert.equal(t2.mask,geomMask);
+    assert.equal(t1.hitTestPoint(60,60,true),true,'detached t1 hits outside former mask');
+    assert.equal(t2.hitTestPoint(60,60,true),false,'t2 now clipped by geomMask');
+
+    // Nulling mask restores normal unmasked drawing of geomMask:
+    t1.visible=false;t2.visible=false;
+    t2.mask=null;
+    const drawRestored=new BitmapData(80,80,true,0x00000000);
+    drawRestored.draw(stageHolder);
+    assert.equal(drawRestored.getPixel32(20,20)>>>0,0xff0000ff,'nulled mask renders normally again');
+
+    // 2. External sibling mask respected by BitmapData.draw(t1) directly!
+    t1.visible=true;t1.mask=geomMask;
+    const extDraw=new BitmapData(80,80,true,0x00000000);
+    extDraw.draw(t1);
+    assert.equal(extDraw.getPixel32(20,20)>>>0,0xffff0000,'BitmapData.draw(target) applies external sibling mask');
+    assert.equal(extDraw.getPixel32(60,60)>>>0,0x00000000,'BitmapData.draw(target) clips outside external sibling mask');
+    t1.mask=null;
+
+    // 3. Soft alpha Bitmap mask + hitTestPoint(x,y,true) respecting alpha=0 vs alpha>0 + filter-only cacheAsBitmap=false downgrade
+    const alphaMaskData=new BitmapData(40,40,true,0x00000000);
+    for(let y=0;y<20;y++)for(let x=0;x<20;x++)alphaMaskData.setPixel32(x,y,0x80ffffff);
+    const bmpMask=new Bitmap(alphaMaskData);
+    stageHolder.addChild(bmpMask);
+    t1.cacheAsBitmap=true;bmpMask.cacheAsBitmap=true;
+    t1.mask=bmpMask;
+    assert.equal(t1.hitTestPoint(10,10,true),true,'hitTestPoint hits non-zero alpha region of Bitmap mask');
+    assert.equal(t1.hitTestPoint(30,30,true),false,'hitTestPoint misses zero-alpha region of Bitmap mask');
+    const softDraw=new BitmapData(40,40,true,0x00000000);
+    softDraw.draw(t1);
+    const softCenterA=(softDraw.getPixel32(10,10)>>>24)&0xff;
+    assert.ok(softCenterA>=125&&softCenterA<=131,`soft alpha mask modulates alpha (~128), got ${softCenterA}`);
+    assert.equal(softDraw.getPixel32(30,30)>>>0,0,'zero-alpha region of soft Bitmap mask clips completely');
+    // Explicit cacheAsBitmap=false even when filtered downgrades from soft alpha mask to geometric silhouette:
+    t1.filters=[new BlurFilter(0,0,1)];
+    t1.cacheAsBitmap=false;bmpMask.cacheAsBitmap=false;
+    const hardBmpDraw=new BitmapData(40,40,true,0x00000000);
+    hardBmpDraw.draw(t1);
+    assert.equal((hardBmpDraw.getPixel32(10,10)>>>24)&0xff,255,'cacheAsBitmap=false uses hard silhouette instead of soft alpha');
+    t1.mask=null;t1.filters=[];
+
+    // 4. Nested scripted mask chain: m1.mask = m2; target.mask = m1 (intersection [0..30] n [15..45] = [15..30])
+    const m1=new Sprite();m1.graphics.beginFill(0xffffff,1);m1.graphics.drawRect(0,0,30,30);m1.graphics.endFill();
+    const m2=new Sprite();m2.graphics.beginFill(0xffffff,1);m2.graphics.drawRect(15,15,30,30);m2.graphics.endFill();
+    stageHolder.addChild(m1);stageHolder.addChild(m2);
+    m1.mask=m2;
+    t1.mask=m1;
+    assert.equal(t1.hitTestPoint(20,20,true),true,'inside m1 n m2');
+    assert.equal(t1.hitTestPoint(5,5,true),false,'inside m1 but outside m2');
+    assert.equal(t1.hitTestPoint(35,35,true),false,'inside m2 but outside m1');
+    const nestedDraw=new BitmapData(50,50,true,0x00000000);
+    nestedDraw.draw(t1);
+    assert.equal(nestedDraw.getPixel32(20,20)>>>0,0xffff0000);
+    assert.equal(nestedDraw.getPixel32(5,5)>>>0,0);
+    assert.equal(nestedDraw.getPixel32(35,35)>>>0,0);
+    m1.mask=null;t1.mask=null;
+
+    // 5. TextField & Video mask sources
+    const tfMask=new TextField();tfMask.x=10;tfMask.y=10;tfMask.width=25;tfMask.height=20;tfMask.text='MASK';
+    const vidMask=new Video(24,18);vidMask.x=5;vidMask.y=5;
+    stageHolder.addChild(tfMask);stageHolder.addChild(vidMask);
+    t1.mask=tfMask;
+    assert.equal(t1.mask,tfMask);
+    assert.equal(t1.hitTestPoint(20,20,true),true);
+    assert.equal(t1.hitTestPoint(50,50,true),false);
+    t1.mask=vidMask;
+    assert.equal(t1.mask,vidMask);
+    assert.equal(t1.hitTestPoint(10,10,true),true);
+    assert.equal(t1.hitTestPoint(40,40,true),false);
+    t1.mask=null;
+
+    for(const bmp of [drawSnap1,drawSnap2,drawRestored,extDraw,alphaMaskData,softDraw,hardBmpDraw,nestedDraw])bmp.dispose();
+  } finally {
+    host?.disposeFamily();player?.free();rmSync(directory,{recursive:true,force:true});
+  }
 }
 
 

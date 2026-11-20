@@ -202,6 +202,41 @@ export async function verifyBitmapPixels(root,cargo) {
     const blendSrc=new BitmapData(2,2,true,0xff201010);
     blendDst.draw(blendSrc,null,null,'add');
     assert.equal(blendDst.getPixel32(0,0),0xff6090d0,'BitmapData.draw supports BlendMode.ADD');
+    {
+      const BlendModeCls=host.program().type('flash.display.BlendMode');
+      const ShaderCls=host.program().type('flash.display.Shader');
+      const ByteArrayCls=host.program().type('flash.utils.ByteArray');
+      assert.equal(BlendModeCls.SHADER,'shader');
+      const pbj2=new ByteArrayCls();
+      // Binary .pbj 2-input BlendShader: r1 = sampleNearest(bg, outCoord); r2 = sampleNearest(fg, outCoord); r1.rgb += r2.rgb
+      pbj2.writeByte(0xA5);pbj2.writeByte(1);pbj2.writeByte(0);pbj2.writeByte(0);pbj2.writeByte(0);
+      pbj2.writeByte(0xA4);pbj2.writeByte(9);pbj2.writeByte(0);pbj2.writeUTFBytes('BlendAdd2');
+      pbj2.writeByte(0xA3);pbj2.writeByte(0);pbj2.writeByte(4);pbj2.writeUTFBytes('bg');pbj2.writeByte(0);
+      pbj2.writeByte(0xA3);pbj2.writeByte(1);pbj2.writeByte(4);pbj2.writeUTFBytes('fg');pbj2.writeByte(0);
+      pbj2.writeByte(0x30);pbj2.writeByte(1);pbj2.writeByte(0);pbj2.writeByte(0xF0);pbj2.writeByte(0);pbj2.writeByte(0);pbj2.writeByte(0x10);pbj2.writeByte(0);
+      pbj2.writeByte(0x30);pbj2.writeByte(2);pbj2.writeByte(0);pbj2.writeByte(0xF0);pbj2.writeByte(0);pbj2.writeByte(0);pbj2.writeByte(0x10);pbj2.writeByte(1);
+      pbj2.writeByte(0x01);pbj2.writeByte(1);pbj2.writeByte(0);pbj2.writeByte(0xFC);pbj2.writeByte(2);pbj2.writeByte(0);pbj2.writeByte(0x1B);pbj2.writeByte(0);
+      const twoInputShader=new ShaderCls(pbj2);
+      const fgSp=new Sprite();
+      fgSp.graphics.beginFill(0x203010,1);fgSp.graphics.drawRect(0,0,4,4);fgSp.graphics.endFill();
+      fgSp.blendShader=twoInputShader;
+      fgSp.blendMode=BlendModeCls.SHADER;
+      assert.equal(fgSp.blendShader,twoInputShader);
+      assert.equal(fgSp.blendMode,'shader');
+      const directShaderDst=new BitmapData(6,6,true,0xff104020);
+      directShaderDst.draw(fgSp,null,null,BlendModeCls.SHADER);
+      assert.equal(directShaderDst.getPixel32(2,2)>>>0,0xff307030,'BitmapData.draw(..., BlendMode.SHADER) blends destination bg + foreground via 2-input Pixel Bender shader');
+      assert.equal(directShaderDst.getPixel32(5,5)>>>0,0xff104020,'transparent foreground leaves destination pixels untouched');
+      const parentComposite=new Sprite();
+      const bgShape=new Shape();bgShape.graphics.beginFill(0x401050,1);bgShape.graphics.drawRect(0,0,6,6);bgShape.graphics.endFill();
+      parentComposite.addChild(bgShape);
+      parentComposite.addChild(fgSp);
+      const stageShaderDst=new BitmapData(6,6,true,0x00000000);
+      stageShaderDst.draw(parentComposite);
+      assert.equal(stageShaderDst.getPixel32(2,2)>>>0,0xff604060,'DisplayObject child with blendMode=BlendMode.SHADER + blendShader composites against backdrop');
+      assert.equal(stageShaderDst.getPixel32(5,5)>>>0,0xff401050);
+      directShaderDst.dispose();stageShaderDst.dispose();
+    }
     const DisplacementMapFilter=host.program().type('flash.filters.DisplacementMapFilter');
     const ShaderFilter=host.program().type('flash.filters.ShaderFilter');
     const mapBmp=new BitmapData(4,4,false,0x808080);

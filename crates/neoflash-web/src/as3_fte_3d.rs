@@ -425,6 +425,29 @@ impl As3Fte3dKernel {
         serde_json::to_string(&res).map_err(display_error)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn evaluate_blend_shader_rgba(
+        &self,
+        bg_rgba: &[u8],
+        fg_rgba: &[u8],
+        width: u32,
+        height: u32,
+        bytecode_base64: &str,
+        precision_hint: &str,
+        params_json: &str,
+    ) -> Result<Vec<u8>, JsValue> {
+        neoflash_core::as3_fte_3d::evaluate_blend_shader_rgba(
+            bg_rgba,
+            fg_rgba,
+            width,
+            height,
+            bytecode_base64,
+            precision_hint,
+            params_json,
+        )
+        .map_err(fte3d_js_err)
+    }
+
     // ---- 3D DisplayObject & Transform ----
     pub fn compose_display_matrix3d_json(&self, pose_json: &str) -> Result<String, JsValue> {
         let pose: neoflash_core::as3_fte_3d::Display3dPose = serde_json::from_str(pose_json)

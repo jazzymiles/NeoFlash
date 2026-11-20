@@ -377,7 +377,7 @@
   }
   // The Stage and BitmapData.draw share this exact painter. Rust supplies
   // the authoritative snapshot; this adapter never reconstructs a scene graph.
-  function createScenePainter({global,paths,gradients,clippings,bitmapHost,textHost,filterHost,videoHost,context,matrix=item=>item.transform,hidden=()=>false,snapBitmaps=true}) {
+  function createScenePainter({global,paths,gradients,clippings,bitmapHost,textHost,filterHost,videoHost,fte3dHost,context,matrix=item=>item.transform,hidden=()=>false,snapBitmaps=true}) {
     const bitmapMatrix=matrix;
     let blendScratch=null;
     const font=kind=>`${kind.font_size}px ${global.NeoFlashText?.cssFontFamily?global.NeoFlashText.cssFontFamily(kind.font_family):`${JSON.stringify(kind.font_family)}, sans-serif`}`;
@@ -458,6 +458,29 @@
         if(readBounds)clippedBounds.set(item,visible||null);
       };
       const composite=(target,surface,bounds,clip_ids,operation='source-over')=>{
+        if(typeof operation==='string'&&operation.startsWith('shader:')){
+          const spec=JSON.parse(operation.slice(7));
+          const evalBlend=fte3dHost?.evaluateBlendShaderRgba||global.NeoFlashFte3D?.evaluateBlendShaderRgba;
+          if(typeof evalBlend!=='function')throw new Error('Pixel Bender blendShader evaluator is unavailable.');
+          const tm=target.getTransform();
+          const pts=[[bounds.left,bounds.top],[bounds.right,bounds.top],[bounds.right,bounds.bottom],[bounds.left,bounds.bottom]].map(([x,y])=>[tm.a*x+tm.c*y+tm.e,tm.b*x+tm.d*y+tm.f]);
+          const dx0=Math.max(0,Math.floor(Math.min(...pts.map(p=>p[0])))),dy0=Math.max(0,Math.floor(Math.min(...pts.map(p=>p[1]))));
+          const dx1=Math.min(target.canvas.width,Math.ceil(Math.max(...pts.map(p=>p[0])))),dy1=Math.min(target.canvas.height,Math.ceil(Math.max(...pts.map(p=>p[1]))));
+          const dw=dx1-dx0,dh=dy1-dy0;
+          if(!(dw>0&&dh>0))return;
+          const sc=blendScratch||(blendScratch=typeof OffscreenCanvas==='function'?new OffscreenCanvas(1,1):global.document.createElement('canvas'));
+          if(sc.width!==dw||sc.height!==dh){sc.width=1;sc.height=dh;sc.width=dw;}
+          const sctx=sc.getContext('2d');
+          sctx.setTransform(1,0,0,1,0,0);sctx.globalAlpha=1;sctx.globalCompositeOperation='source-over';sctx.clearRect(0,0,dw,dh);
+          sctx.setTransform(tm.a,tm.b,tm.c,tm.d,tm.e-dx0,tm.f-dy0);
+          const drawSrc=canvas=>canvas.drawImage(surface,bounds.left,bounds.top);
+          if(clip_ids.length)clippings.draw(sctx,{clip_ids},clips,paths,drawSrc,{bounds,bitmaps:bitmapHost?.cache});else drawSrc(sctx);
+          const fgData=sctx.getImageData(0,0,dw,dh).data,dstImg=target.getImageData(dx0,dy0,dw,dh),bgData=dstImg.data;
+          const outBytes=evalBlend(bgData,fgData,dw,dh,spec);
+          dstImg.data.set(outBytes);
+          target.save();try{target.setTransform(1,0,0,1,0,0);target.putImageData(dstImg,dx0,dy0);}finally{target.restore();}
+          return;
+        }
         if(operation==='subtract'||operation==='invert'){
           const tm=target.getTransform();
           const pts=[[bounds.left,bounds.top],[bounds.right,bounds.top],[bounds.right,bounds.bottom],[bounds.left,bounds.bottom]].map(([x,y])=>[tm.a*x+tm.c*y+tm.e,tm.b*x+tm.d*y+tm.f]);
@@ -2185,14 +2208,19 @@
       geometryHost=global.NeoFlashGeom.create(wasm,{getVector3D:()=>geometry3dHost.Vector3D});
       if(global.NeoFlashGeom3D)geometry3dHost=global.NeoFlashGeom3D.create(wasm,{getPoint:()=>geometryHost.Point});
       if(global.NeoFlashBitmap)bitmapHost=global.NeoFlashBitmap.create({player,geometry:geometryHost,as2,
-        getBinary:()=>binaryHost,getFilters:()=>filterHost,
+        getBinary:()=>binaryHost,getFilters:()=>filterHost,getFte3D:()=>fte3dHost,
         onInvalidate:()=>{if(typeof requestTimerRender==='function')requestTimerRender();},
         displayRef:source=>{const ref=references.get(source);if(!ref)return null;display.descriptor(source);return ref.objectRef;},
+        buildDisplayDrawSnapshot:{
+          needsCustom:source=>Boolean(display?.needsCustomDrawSnapshot?.(source)),
+          build:(source,m,ct)=>display.buildDrawSnapshot(source,m,ct),
+          enrich:snap=>display?.enrichSnapshot?.(snap)||snap,
+        },
         paintScene:(target,snapshot)=>{
           if(!global.NeoFlashPaths)throw new Error('BitmapData.draw requires the shared path renderer.');
           if(!capturePainter)capturePainter=createScenePainter({global,paths:new global.NeoFlashPaths.PathCache(),
             gradients:new global.NeoFlashPaths.GradientRenderer({createCanvas:()=>bitmapHost.createCanvas(1,1)}),
-            clippings:new global.NeoFlashPaths.ClipRenderer({createCanvas:()=>bitmapHost.createCanvas(1,1)}),bitmapHost,textHost,filterHost,videoHost,context:target,snapBitmaps:false});
+            clippings:new global.NeoFlashPaths.ClipRenderer({createCanvas:()=>bitmapHost.createCanvas(1,1)}),bitmapHost,textHost,filterHost,videoHost,fte3dHost,context:target,snapBitmaps:false});
           snapshot=videoHost?videoHost.prepareSnapshot(snapshot):snapshot;
           bitmapHost.cache.beginFrame();try{capturePainter.draw(target,snapshot,{semantic:false});}finally{bitmapHost.cache.endFrame();}
         }});
@@ -2209,7 +2237,7 @@
       if(textHost&&global.NeoFlashAS2Text)as2TextHost=global.NeoFlashAS2Text.create({broadcaster:global.NeoFlashBroadcaster,wasm,player,text:textHost,getNet:()=>netHost,onAsfunction:(ref,spec)=>{const tf=proxyForRef(JSON.parse(ref));invokeAsfunction(tf?._parent||proxyFor([]),spec);afterTimerEvent();},targetForRef:key=>proxyForRef(JSON.parse(key)),afterCallback:afterTimerEvent,project:typeof project==='undefined'?null:project,document:activeDoc});
       display=global.NeoFlashDisplay.create({player,geometry:geometryHost,getGeom3D:()=>geometry3dHost,proxyFor,proxyForRef,onObserveUnload:observeTimelineEvents,onMutation:deliverDisplayEvents,onSuperConstruct:handleSuperConstruct,isRetiring:target=>retiringTargets.has(target),isRetiringReference:key=>pendingRetirementRefs.has(key)||retiringTargets.has(proxies.get(key)?.proxy),onTabChange:(target,type)=>{if(eventHub&&global.NeoFlashEvents)eventHub.dispatch(target,new global.NeoFlashEvents.Event(type,true,false));},onTextLink:(target,text)=>{if(eventHub&&global.NeoFlashEvents&&display.alive(target)){eventHub.dispatch(target,new global.NeoFlashEvents.TextEvent('link',true,false,text));afterTimerEvent();}},project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,getNetSys:()=>as3NetSysHost,getAudio:()=>audioHost,getFte3D:()=>fte3dHost,as2,getLegacyCaller:()=>activeLegacyCaller,onRedrawRegionsChange:next=>{if(!next?.redraw_regions)clearRedrawRegions();else{prevRedrawSignatures.clear();lastRedrawFrame=-1;}if(!inDispatch&&typeof context!=='undefined'&&typeof render==='function')render();},
         shapeContains:(kind,x,y,world)=>{const hasCanvas=typeof context!=='undefined'&&typeof context.isPointInPath==='function'&&typeof Path2D==='function';if(hasCanvas)inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.contains(hasCanvas?context:null,kind,x,y,hasCanvas?inputPaths.get(kind.commands):null,world);},
-        clipsContain:(snapshot,ids,x,y)=>{if(typeof context==='undefined')throw new Error('Clipped input requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.clipsContain(context,ids,global.NeoFlashPaths.clipTable(snapshot.clips||[],snapshot.filter_groups||[]),x,y,inputPaths);},
+        clipsContain:(snapshot,ids,x,y)=>{const hasCanvas=typeof context!=='undefined'&&typeof context.isPointInPath==='function'&&typeof Path2D==='function';if(hasCanvas)inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.clipsContain(hasCanvas?context:null,ids,global.NeoFlashPaths.clipTable(snapshot.clips||[],snapshot.filter_groups||[]),x,y,hasCanvas?inputPaths:null,bitmapHost?.cache);},
         beforeRaster:target=>assertUnfilteredEditing(stageHost?.stage.focus,target),beforeFilters:(target,specs)=>{if(specs.length)assertUnfilteredEditing(stageHost?.stage.focus,target);},referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,getStageHost:()=>stageHost||null,
         measureText:(line,kind)=>{if(typeof context==='undefined')throw new Error('Text bounds require the Canvas font measurement service.');context.font=font(kind);return context.measureText(line).width;},
         pathBounds:(commands,matrix)=>global.NeoFlashAccessibility.pathBounds(commands,matrix)});
@@ -2619,6 +2647,7 @@
           getRoot:()=>proxyFor([]),
           getBuiltin:qname=>{try{return program?.type?.(qname);}catch(_){return as3MediaEventsHost?.builtins?.[qname]||as3NetSysHost?.builtins?.[qname]||fte3dHost?.builtins?.[qname]||null;}},
           inspectSwfBytes:bytes=>fte3dHost?fte3dHost.inspectSwfBytes(bytes):null,
+          decodeSwfBundle:bytes=>typeof wasm?.decode_swf_bundle_json==='function'?JSON.parse(wasm.decode_swf_bundle_json(bytes)):null,
           getFrameRate:()=>runtimeFrameRate,getRootDisplay:()=>proxyFor([]),
           getStageSize:()=>{const [w,h]=logicalSize();return {width:w,height:h};},
           mountPublishedBundle:(record,childBundle,childUrl='',isCurrent)=>{
@@ -4393,7 +4422,7 @@
       for (let index = scene.length - 1; index >= 0; index--) {
         const item = scene[index];
         if (item.alpha <= 0) continue;
-        if(item.clip_ids?.length&&!global.NeoFlashPaths.clipsContain(context,item.clip_ids,clips,x,y,paths))continue;
+        if(item.clip_ids?.length&&!global.NeoFlashPaths.clipsContain(context,item.clip_ids,clips,x,y,paths,bitmapHost?.cache))continue;
         const local = localPoint(bitmapMatrix(item), x, y);
         if (!local) continue;
         if (hitShape(item.kind, ...local, (line, kind) => {

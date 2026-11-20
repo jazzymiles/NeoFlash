@@ -25,7 +25,7 @@
   function create(options={}){
     const {player,net,events=global.NeoFlashEvents,referenceOf,proxyForRef}=options;
     if(!player?.object_video_info||!net?.mediaSource||!events?.create)throw new TypeError('Video requires the shared display, resource and Event services.');
-    const connections=new WeakMap(),streams=new WeakMap(),disposedStreams=new WeakSet(),connectionRecords=new Set(),streamRecords=new Set(),bindings=new Map(),timelineControllers=new Map(),frames=new Set(),derived=new Map();
+    const connections=new WeakMap(),streams=new WeakMap(),disposedStreams=new WeakSet(),connectionRecords=new Set(),streamRecords=new Set(),bindings=new Map(),timelineControllers=new Map(),frames=new Set(),derived=new Map(),publishedStreams=new Map();
     const statusTypes=new WeakSet(),schedule=options.schedule||(fn=>queueMicrotask(fn));
     const gesture=options.isUserGesture||(()=>global.navigator?.userActivation?.isActive===true);
     let generation=1,disposed=false,resetting=false,serial=0,used=false,unlocked=false,muted=false,errorText='',framePixels=0,ownAudioContext=null,mixerUnsub=null;
@@ -437,7 +437,113 @@
       if(errors.length)throw new AggregateError(errors,'Multiple video cleanup operations failed.',{cause:errors[0]});
     }
     function clearClipTimer(r){const timer=r.clipTimer;r.clipTimer=null;if(timer)clearTimeout(timer);}
+    function clearPublishTimersAndLeases(r){
+      if(r.publishSnapshotTimer){clearInterval(r.publishSnapshotTimer);r.publishSnapshotTimer=null;}
+      if(r.publishCameraLease){try{r.publishCameraLease.release();}catch(_){}r.publishCameraLease=null;}
+    }
+    function unpublishRecord(r,notifySubscribers=true){
+      clearPublishTimersAndLeases(r);
+      const prevName=r.publishedName;
+      r.publishedName=null;r.publishedType=null;
+      if(r.receivePolicy){try{streamPolicy(r,{op:'publish',name:false,now:nowPerfMs()});}catch(_){}}
+      if(!prevName)return;
+      const entry=publishedStreams.get(prevName);
+      if(!entry||entry.publisher!==r)return;
+      entry.active=false;entry.publisher=null;
+      if(notifySubscribers&&entry.subscribers?.size){
+        for(const sub of [...entry.subscribers]){
+          if(sub.disposed||sub.generation!==generation)continue;
+          sub.isLiveStream=false;
+          if(sub.receivePolicy){try{streamPolicy(sub,{op:'subscribe_live',active:false,now:nowPerfMs()});}catch(_){}}
+          later(sub,()=>emit(sub,'NetStream.Play.UnpublishNotify','status',{details:prevName}));
+        }
+      }
+      if(entry.mode==='live'&&(!entry.subscribers||entry.subscribers.size===0)){
+        publishedStreams.delete(prevName);
+      }
+    }
+    function unsubscribeRecord(r){
+      const subName=r.subscribedStreamName;
+      r.subscribedStreamName=null;
+      if(subName){
+        const entry=publishedStreams.get(subName);
+        if(entry){
+          entry.subscribers?.delete(r);
+          if(!entry.active&&entry.mode==='live'&&(!entry.subscribers||entry.subscribers.size===0))publishedStreams.delete(subName);
+        }
+      }
+    }
+    function buildPublishedMetadata(r,mode){
+      const cam=r.attachedCamera,mic=r.attachedAudio;
+      const hasVideo=Boolean(cam),hasAudio=Boolean(mic);
+      const width=hasVideo?(Math.max(1,Math.trunc(Number(cam.width)||320))):0;
+      const height=hasVideo?(Math.max(1,Math.trunc(Number(cam.height)||240))):0;
+      const fps=hasVideo?(Math.max(1,Number(cam.fps)||30)):0;
+      const audioRate=hasAudio?(Math.max(1,Number(mic.rate)||22)*1000):0;
+      return {
+        width,
+        height,
+        framerate:fps,
+        audiosamplerate:audioRate,
+        videocodecid:hasVideo?2:0,
+        audiocodecid:hasAudio?2:0,
+        hasVideo,
+        hasAudio,
+        live:mode==='live',
+        mode,
+        snapshotMilliseconds:r.snapshotMilliseconds??-1,
+      };
+    }
+    function pushPublishedFrameToEntry(entry){
+      if(!entry?.publisher)return;
+      const pub=entry.publisher;
+      entry.frameCount=(entry.frameCount||0)+1;
+      const now=nowPerfMs();
+      const meta=buildPublishedMetadata(pub,entry.mode);
+      entry.metadata=meta;
+      const packetBytes=(meta.hasVideo?Math.max(512,Math.round((meta.width*meta.height)/8)):0)+(meta.hasAudio?256:0)+64;
+      entry.byteCount=(entry.byteCount||0)+packetBytes;
+      pub.totalBytes=entry.byteCount;pub.encodedBytes=entry.byteCount;
+      recordByteSample(pub,entry.byteCount,now);
+      if(pub.receivePolicy){try{streamPolicy(pub,{op:'live_packet',now,bytes:packetBytes});}catch(_){}}
+      let liveCanvasFrame=null;
+      if(pub.publishCameraLease){
+        try{
+          const cf=pub.publishCameraLease.read();
+          if(cf?.image&&cf.width>0&&cf.height>0){
+            const out=frame(cf.width,cf.height),ctx=out.canvas.getContext('2d');
+            if(ctx){ctx.drawImage(cf.image,0,0,cf.width,cf.height);liveCanvasFrame=out;}
+          }
+        }catch(_){}
+      }
+      if(meta.hasVideo){
+        if(liveCanvasFrame){
+          entry.lastFrame=liveCanvasFrame;
+          pub.width=liveCanvasFrame.width;pub.height=liveCanvasFrame.height;pub.appendFrame=liveCanvasFrame;
+        }else{
+          setAppendFrame(pub,meta.width,meta.height,entry.frameCount);
+          entry.lastFrame=pub.appendFrame;
+        }
+      }
+      for(const sub of (entry.subscribers||[])){
+        if(sub.disposed||sub.generation!==generation)continue;
+        sub.totalBytes=entry.byteCount;sub.encodedBytes=entry.byteCount;
+        recordByteSample(sub,entry.byteCount,now);
+        if(sub.receivePolicy){try{streamPolicy(sub,{op:'live_packet',now,bytes:packetBytes});}catch(_){}}
+        if(meta.hasVideo&&sub.receiveState?.video!==false){
+          if(entry.lastFrame?.canvas){
+            sub.width=meta.width;sub.height=meta.height;sub.metadata=true;sub.appendFrame=entry.lastFrame;sub.serial=++serial;
+          }else{
+            setAppendFrame(sub,meta.width,meta.height,entry.frameCount);
+          }
+          recordFrameTick(sub,now);
+        }
+      }
+      repaint();changed();
+    }
     function stopMedia(r,retain,keepQueue=false){
+      unpublishRecord(r,true);
+      unsubscribeRecord(r);
       const errors=[];let frozen=null;
       if(retain)try{frozen=freeze(r);}catch(error){errors.push(error);}
       const {media,listeners,frameCallback,objectURL,clipTimer,probeAbort,streamAbort,aviLoad,aviTimer,aviHandle,aviAudio,aviAudioUrl}=r;
@@ -1132,6 +1238,59 @@
           stopMedia(r,false,false);
           return;
         }
+        if(typeof url==='string'&&publishedStreams.has(url.trim())){
+          const streamName=url.trim(),entry=publishedStreams.get(streamName);
+          stopMedia(r,false,false);
+          r.url=streamName;r.wanted=true;r.playing=true;r.started=true;
+          r.subscribedStreamName=streamName;
+          r.isLiveStream=Boolean(entry.active&&entry.mode==='live');
+          if(!entry.subscribers)entry.subscribers=new Set();
+          entry.subscribers.add(r);
+          const now=nowPerfMs();
+          if(r.receivePolicy){
+            try{
+              streamPolicy(r,{op:'subscribe_live',active:r.isLiveStream,now});
+              streamPolicy(r,{op:'live_packet',now,bytes:Math.max(512,entry.byteCount||2048)});
+            }catch(_){}
+          }
+          r.totalBytes=Math.max(512,entry.byteCount||2048);
+          r.encodedBytes=r.totalBytes;
+          recordByteSample(r,r.totalBytes,now);
+          const meta=entry.metadata||{width:320,height:240,framerate:30,live:r.isLiveStream,mode:entry.mode||'live'};
+          r.metadata=true;r.duration=r.isLiveStream?Infinity:Math.max(0.1,(entry.frameCount||1)/Math.max(1,meta.framerate||30));
+          if(meta.width>0&&meta.height>0&&r.receiveState?.video!==false){
+            if(entry.lastFrame?.canvas){
+              r.width=meta.width;r.height=meta.height;r.appendFrame=entry.lastFrame;r.serial=++serial;
+            }else{
+              setAppendFrame(r,meta.width,meta.height,Math.max(1,entry.frameCount||1));
+            }
+            recordFrameTick(r,now);
+          }
+          const replayMessages=Array.isArray(entry.messages)?entry.messages.map(m=>({handlerName:m.handlerName,args:[...m.args]})):[];
+          const isActiveLive=Boolean(entry.active);
+          later(r,()=>{
+            if(!emit(r,'NetStream.Play.Reset','status',{details:streamName}))return;
+            if(!emit(r,'NetStream.Play.Start','status',{details:streamName}))return;
+            if(isActiveLive&&!emit(r,'NetStream.Play.PublishNotify','status',{details:streamName}))return;
+            r.bufferFull=true;
+            if(!emit(r,'NetStream.Buffer.Full','status',{details:streamName}))return;
+            invokeStreamCallback(r,'onMetaData',{...meta});
+            for(const msg of replayMessages){
+              recordDataBytes(r,msg);
+              const targetObj=r.legacy?r.receiver:(r.client||r.receiver);
+              const fn=targetObj?.[msg.handlerName];
+              if(typeof fn==='function')Reflect.apply(fn,targetObj,msg.args);
+            }
+            if(!isActiveLive){
+              r.playing=false;r.wanted=false;
+              invokeStreamCallback(r,'onPlayStatus',{level:'status',code:'NetStream.Play.Complete',duration:r.duration,bytes:r.encodedBytes});
+              emit(r,'NetStream.Play.Stop','status',{details:streamName});
+            }
+            after(generation);
+          });
+          repaint();changed();
+          return;
+        }
         if(!r.connection.local)throw new Error('Call NetConnection.connect(null) before playing local video.');
         const isBusy=Boolean((r.wanted||r.playing||(r.media&&!r.media.ended&&!r.clipCompleted))&&!r.clipCompleted);
         if(plan.reset_mode==='append'||plan.reset_mode==='appendAndAggregateMessages'){
@@ -1266,7 +1425,17 @@
       get bufferLength(){const r=state(this,streams);return streamPolicy(r,{op:'buffer',...bufferFacts(r)});}
       get bufferTime(){return streamPolicy(state(this,streams),{op:'buffer_time'});}
       setBufferTime(seconds){const r=state(this,streams);streamPolicy(r,{op:'set_buffer_time',seconds});r.bufferTimeVal=Math.max(0,Number(seconds)||0);playNative(r);}
-      get liveDelay(){state(this,streams);return 0;}
+      get liveDelay(){
+        const r=state(this,streams);
+        const pubEntry=r.subscribedStreamName?publishedStreams.get(r.subscribedStreamName):(r.publishedName?publishedStreams.get(r.publishedName):null);
+        const pubBuf=pubEntry?.publisher?.bufferTimeVal??0;
+        const fps=pubEntry?.metadata?.framerate||Number(r.attachedCamera?.fps)||30;
+        if(r.receivePolicy){
+          return streamPolicy(r,{op:'live_delay',now:nowPerfMs(),publisherBufferTime:pubBuf,fps});
+        }
+        if(!r.isLiveStream&&!r.publishedName)return 0;
+        return Math.round(((r.bufferTimeVal||0.1)+1/Math.max(1,fps))*1000)/1000;
+      }
       get maxPauseBufferTime(){return streamPolicy(state(this,streams),{op:'max_pause_buffer_time'});}
       set maxPauseBufferTime(seconds){streamPolicy(state(this,streams),{op:'set_max_pause_buffer_time',seconds});}
       getInfo(){return streamInfo(state(this,streams));}
@@ -1278,27 +1447,123 @@
       }
       attachAudio(source){
         const r=state(this,streams),capture=options.getCapture?.();
-        if(source!==false&&source!==null&&!capture?.isMicrophone?.(source))throw new TypeError('AS2 NetStream.attachAudio requires a Microphone, false or null.');
-        r.attachedAudio=source||null;
+        const isMic=Boolean(source&&typeof source==='object'&&(capture?.isMicrophone?.(source)||source.__nfBrand==='Microphone'));
+        if(source!==false&&source!==null&&!isMic)throw new TypeError('AS2 NetStream.attachAudio requires a Microphone, false or null.');
+        r.attachedAudio=(source===false||source===null)?null:source;
+        if(r.receivePolicy)streamPolicy(r,{op:'attach_audio',attached:Boolean(r.attachedAudio)});
+        if(r.publishedName){
+          const entry=publishedStreams.get(r.publishedName);
+          if(entry&&entry.publisher===r)pushPublishedFrameToEntry(entry);
+        }
       }
       attachVideo(source,snapshotMilliseconds=undefined){
         const r=state(this,streams),capture=options.getCapture?.();
-        if(source!==false&&source!==null&&!capture?.isCamera?.(source))throw new TypeError('AS2 NetStream.attachVideo requires a Camera, false or null.');
+        const isCam=Boolean(source&&typeof source==='object'&&(capture?.isCamera?.(source)||source.__nfBrand==='Camera'));
+        if(source!==false&&source!==null&&!isCam)throw new TypeError('AS2 NetStream.attachVideo requires a Camera, false or null.');
         if(snapshotMilliseconds!==undefined&&(!Number.isInteger(snapshotMilliseconds)||snapshotMilliseconds<-1))throw new RangeError('AS2 NetStream.attachVideo snapshotMilliseconds requires an integer >= -1.');
-        r.attachedCamera=source||null;
+        clearPublishTimersAndLeases(r);
+        r.attachedCamera=(source===false||source===null)?null:source;
+        r.snapshotMilliseconds=r.attachedCamera?(snapshotMilliseconds===undefined?-1:snapshotMilliseconds):null;
+        if(r.receivePolicy){
+          streamPolicy(r,{op:'attach_video',attached:Boolean(r.attachedCamera),snapshotMs:r.snapshotMilliseconds});
+        }
+        if(r.attachedCamera&&capture?.isCamera?.(r.attachedCamera)&&gesture()){
+          try{
+            r.publishCameraLease=capture.attachVideo(r.attachedCamera,()=>{
+              const entry=r.publishedName?publishedStreams.get(r.publishedName):null;
+              if(entry&&entry.publisher===r&&r.snapshotMilliseconds===-1)pushPublishedFrameToEntry(entry);
+            });
+          }catch(_){r.publishCameraLease=null;}
+        }
+        if(r.publishedName){
+          const entry=publishedStreams.get(r.publishedName);
+          if(entry&&entry.publisher===r){
+            pushPublishedFrameToEntry(entry);
+            if(r.attachedCamera&&r.snapshotMilliseconds>0){
+              const interval=Math.max(20,r.snapshotMilliseconds);
+              r.publishSnapshotTimer=setInterval(()=>{
+                if(disposed||r.disposed||r.generation!==generation||entry.publisher!==r){clearPublishTimersAndLeases(r);return;}
+                pushPublishedFrameToEntry(entry);
+              },interval);
+              r.publishSnapshotTimer.unref?.();
+            }
+          }
+        }
       }
       publish(name=false,type='live'){
         const r=state(this,streams);
-        if(name===false||name===null||name===''){r.publishedName=null;r.publishedType=null;later(r,()=>emit(r,'NetStream.Unpublish.Success'));return;}
+        if(name===false||name===null||name===''){
+          unpublishRecord(r,true);
+          later(r,()=>emit(r,'NetStream.Unpublish.Success'));
+          return;
+        }
         if(typeof name!=='string'||!['live','record','append'].includes(type))throw new TypeError('AS2 NetStream.publish requires a stream name String (or false) and live/record/append type.');
-        r.publishedName=name;r.publishedType=type;
-        later(r,()=>emit(r,'NetStream.Publish.BadName','error',{description:'HTML5 NetStream plays progressive media and has no RTMP media server for upstream publishing.'}));
+        const trimmed=name.trim();
+        if(!trimmed){
+          later(r,()=>emit(r,'NetStream.Publish.BadName','error',{details:name,description:'AS2 NetStream.publish stream name cannot be blank.'}));
+          return;
+        }
+        const existing=publishedStreams.get(trimmed);
+        const conflict=Boolean(existing&&existing.active&&existing.publisher&&existing.publisher!==r&&!existing.publisher.disposed&&existing.publisher.generation===generation);
+        if(r.receivePolicy){
+          streamPolicy(r,{op:'publish',name:trimmed,mode:type,now:nowPerfMs(),conflict});
+        }
+        if(conflict){
+          later(r,()=>emit(r,'NetStream.Publish.BadName','error',{details:trimmed,description:`Stream '${trimmed}' is already being published.`}));
+          return;
+        }
+        if(r.publishedName&&r.publishedName!==trimmed)unpublishRecord(r,true);
+        if(r.publishSnapshotTimer){clearInterval(r.publishSnapshotTimer);r.publishSnapshotTimer=null;}
+        r.publishedName=trimmed;r.publishedType=type;r.isLiveStream=(type==='live');
+        const keepHistory=Boolean(existing&&type==='append');
+        const entry=existing||{name:trimmed,subscribers:new Set(),messages:[],frameCount:0,byteCount:0,lastFrame:null};
+        entry.publisher=r;entry.mode=type;entry.active=true;entry.startedAt=nowPerfMs();
+        if(!keepHistory){entry.messages=[];entry.frameCount=0;entry.byteCount=0;}
+        entry.metadata=buildPublishedMetadata(r,type);
+        publishedStreams.set(trimmed,entry);
+        pushPublishedFrameToEntry(entry);
+        if(r.attachedCamera&&r.snapshotMilliseconds>0){
+          const interval=Math.max(20,r.snapshotMilliseconds);
+          r.publishSnapshotTimer=setInterval(()=>{
+            if(disposed||r.disposed||r.generation!==generation||entry.publisher!==r){clearPublishTimersAndLeases(r);return;}
+            pushPublishedFrameToEntry(entry);
+          },interval);
+          r.publishSnapshotTimer.unref?.();
+        }
+        const subs=[...(entry.subscribers||[])];
+        later(r,()=>{
+          if(!emit(r,'NetStream.Publish.Start','status',{details:trimmed}))return;
+          for(const sub of subs){
+            if(sub.disposed||sub.generation!==generation)continue;
+            sub.isLiveStream=(type==='live');
+            if(sub.receivePolicy){try{streamPolicy(sub,{op:'subscribe_live',active:sub.isLiveStream,now:nowPerfMs()});}catch(_){}}
+            emit(sub,'NetStream.Play.PublishNotify','status',{details:trimmed});
+            invokeStreamCallback(sub,'onMetaData',{...entry.metadata});
+          }
+          after(generation);
+        });
       }
       send(handlerName,...args){
         const r=state(this,streams);
         if(typeof handlerName!=='string'||!handlerName||['__proto__','prototype','constructor'].includes(handlerName))throw new TypeError('AS2 NetStream.send requires a valid handler name String.');
         recordDataBytes(r,{handlerName,args});
-        later(r,()=>{const fn=r.receiver[handlerName];if(typeof fn==='function')Reflect.apply(fn,r.receiver,args);after(generation);});
+        const entry=r.publishedName?publishedStreams.get(r.publishedName):null;
+        if(entry&&entry.publisher===r&&(entry.mode==='record'||entry.mode==='append')){
+          entry.messages.push({handlerName,args:[...args]});
+        }
+        const subs=entry&&entry.publisher===r?[...(entry.subscribers||[])]:[];
+        later(r,()=>{
+          const fn=r.receiver[handlerName];
+          if(typeof fn==='function')Reflect.apply(fn,r.receiver,args);
+          for(const sub of subs){
+            if(sub.disposed||sub.generation!==generation)continue;
+            recordDataBytes(sub,{handlerName,args});
+            const targetObj=sub.legacy?sub.receiver:(sub.client||sub.receiver);
+            const subFn=targetObj?.[handlerName];
+            if(typeof subFn==='function')Reflect.apply(subFn,targetObj,args);
+          }
+          after(generation);
+        });
       }
       get currentFps(){
         const r=state(this,streams);
@@ -1466,7 +1731,7 @@
           ()=>{const closing=context?.close?.();closing?.catch?.(()=>{});},()=>hub.clear(),
         ]);
       }finally{
-        streamRecords.clear();connectionRecords.clear();timelineControllers.clear();diagnosticsList.length=0;
+        streamRecords.clear();connectionRecords.clear();timelineControllers.clear();publishedStreams.clear();diagnosticsList.length=0;
         bindings.clear();derived.clear();frames.clear();framePixels=0;
         unlocked=false;muted=false;used=false;errorText='';resetting=false;
       }

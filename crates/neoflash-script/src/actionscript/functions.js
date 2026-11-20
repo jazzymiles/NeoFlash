@@ -35,12 +35,36 @@ function __nfSourceFunction(body,configuration){
     if(typeof body!=='function'||!configuration)throw new __nfTypeError('Invalid source function definition.');
     const length=__nfFunctionCount(configuration.length),required=__nfFunctionCount(configuration.required);
     if(required>length)throw new __nfTypeError('Source function required count exceeds its declared parameters.');
-    const as3=configuration.as3===true,allowExtra=configuration.allowExtra===true,defaultReceiver=configuration.defaultReceiver;
+    const as3=configuration.as3===true,allowExtra=configuration.allowExtra===true,constructible=configuration.constructible!==false,defaultReceiver=configuration.defaultReceiver;
     const bound=new WeakMap();
     function make(receiver,isBound){
+        function invokeConstruct(rawArgs){
+            if(isBound||!constructible)throw new __nfTypeError('Constructing a bound method or typed non-constructor function is not supported.');
+            __nfFunctionCount(rawArgs.length);
+            const values=__nfApply(__nfFunctionSlice,rawArgs,[]);
+            if(as3&&(values.length<required||(!allowExtra&&values.length>length))){
+                __nfFunctionArity(`AS3 function expects ${required===length?String(length):`${required} through ${length}`} arguments${allowExtra?' or more':''}; received ${values.length}.`);
+            }
+            const proto=callable.prototype;
+            const inst=Object.create(proto!==null&&(typeof proto==='object'||typeof proto==='function')?proto:Object.prototype);
+            const stack=__nfCallerStack(),caller=stack.length?stack[stack.length-1]:null;
+            if(stack.length>=1024)throw new RangeError('Source function call stack exceeds 1024 frames.');
+            const selfFn=!as3&&callable.__nfPublicFunction?callable.__nfPublicFunction:callable;
+            stack.push(selfFn);
+            const hasXmlNs=as3&&typeof __nfXML!=='undefined'&&typeof __nfXML?.getDefaultNamespace==='function'&&typeof __nfXML?.setDefaultNamespace==='function';
+            const prevXmlNs=hasXmlNs?__nfXML.getDefaultNamespace():'';
+            if(hasXmlNs&&prevXmlNs!=='')__nfXML.setDefaultNamespace('');
+            try{
+                const res=__nfApply(body,inst,[{values,callee:selfFn,caller,as3}]);
+                return res!==null&&(typeof res==='object'||typeof res==='function')?res:inst;
+            }finally{
+                stack.pop();
+                if(hasXmlNs)__nfXML.setDefaultNamespace(prevXmlNs);
+            }
+        }
         const callable=function(){
             'use strict';
-            if(new.target)throw new __nfTypeError('Constructing a source function is not supported; use a declared project class.');
+            if(new.target)return invokeConstruct(arguments);
             __nfFunctionCount(arguments.length);
             const values=__nfApply(__nfFunctionSlice,arguments,[]);
             if(as3&&(values.length<required||(!allowExtra&&values.length>length))){
@@ -48,7 +72,6 @@ function __nfSourceFunction(body,configuration){
             }
             const actual=isBound?receiver:this==null?defaultReceiver:this;
             if(actual==null)throw new __nfTypeError('This unbound source function has no source-frame receiver. Supply an explicit object to call/apply.');
-            if(typeof actual!=='object'&&typeof actual!=='function')throw new __nfTypeError('Source Function.call/apply currently requires an object receiver; primitive receiver boxing is not supported.');
             const stack=__nfCallerStack(),caller=stack.length?stack[stack.length-1]:null;
             if(stack.length>=1024)throw new RangeError('Source function call stack exceeds 1024 frames.');
             const selfFn=!as3&&callable.__nfPublicFunction?callable.__nfPublicFunction:callable;
@@ -60,8 +83,15 @@ function __nfSourceFunction(body,configuration){
             finally{stack.pop();if(hasXmlNs)__nfXML.setDefaultNamespace(prevXmlNs);}
         };
         __nfDefineProperty(callable,'length',{value:length,writable:false,configurable:false});
+        if(!isBound){
+            const proto={};
+            __nfDefineProperty(proto,'constructor',{value:callable,writable:true,configurable:true,enumerable:false});
+            __nfDefineProperty(callable,'prototype',{value:proto,writable:true,configurable:false,enumerable:false});
+        }
         __nfDefineProperty(callable,__nfSourceFunctionBrand,{value:Object.freeze({
             bound:isBound,
+            constructible:!isBound&&constructible,
+            construct(args){return invokeConstruct(args);},
             bind(target){
                 if(isBound)return callable;
                 if(target===null||(typeof target!=='object'&&typeof target!=='function'))throw new __nfTypeError('A bound source method requires an object receiver.');
@@ -83,9 +113,7 @@ function __nfFunctionArguments(activation,normalizedPrefix=[]){
     const length=__nfFunctionCount(activation.values.length),result=new Array(length);
     for(let i=0;i<length;i++)result[i]=i<normalizedPrefix.length?normalizedPrefix[i]:activation.values[i];
     __nfDefineProperty(result,'callee',{value:activation.callee,writable:true,configurable:true,enumerable:false});
-    if(activation.as3){
-        __nfDefineProperty(result,'caller',{enumerable:false,configurable:false,get(){throw new __nfTypeError('arguments.caller is not supported. Pass the calling function explicitly.');}});
-    }else{
+    if(!activation.as3){
         __nfDefineProperty(result,'caller',{value:activation.caller??null,writable:true,configurable:true,enumerable:false});
     }
     return result;
@@ -113,6 +141,5 @@ function __nfFunctionMethod(receiver,key,as3,resolvedMethod){
     };
 }
 function __nfFunctionMethodValue(value){
-    if(value===__nfNativeFunctionCall||value===__nfNativeFunctionApply)throw new __nfTypeError('Extracted native Function.call/apply aliases are not supported; invoke the method directly on the function.');
     return value;
 }

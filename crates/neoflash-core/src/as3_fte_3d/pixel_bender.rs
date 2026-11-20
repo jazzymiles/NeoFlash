@@ -1343,6 +1343,33 @@ fn evaluate_portable_shader_pixel(
                 s0[3] * (1.0 - t) + other[3] * t,
             ]
         }
+        "screen" => {
+            let other = s1.unwrap_or([0.0, 0.0, 0.0, 1.0]);
+            [
+                1.0 - (1.0 - s0[0]) * (1.0 - other[0]),
+                1.0 - (1.0 - s0[1]) * (1.0 - other[1]),
+                1.0 - (1.0 - s0[2]) * (1.0 - other[2]),
+                (s0[3] + other[3] - s0[3] * other[3]).clamp(0.0, 1.0),
+            ]
+        }
+        "difference" => {
+            let other = s1.unwrap_or([0.0, 0.0, 0.0, 1.0]);
+            [
+                (s0[0] - other[0]).abs(),
+                (s0[1] - other[1]).abs(),
+                (s0[2] - other[2]).abs(),
+                s0[3].max(other[3]),
+            ]
+        }
+        "subtract" => {
+            let other = s1.unwrap_or([0.0, 0.0, 0.0, 0.0]);
+            [
+                (s0[0] - other[0]).clamp(0.0, 1.0),
+                (s0[1] - other[1]).clamp(0.0, 1.0),
+                (s0[2] - other[2]).clamp(0.0, 1.0),
+                s0[3].max(other[3]),
+            ]
+        }
         "threshold" => {
             let th = get_p("threshold", &[0.5])[0];
             let lum = 0.2126 * s0[0] + 0.7152 * s0[1] + 0.0722 * s0[2];
@@ -1500,6 +1527,140 @@ pub fn evaluate_shader_filter_rgba(
     }
 }
 
+pub fn evaluate_blend_shader_rgba(
+    bg_rgba: &[u8],
+    fg_rgba: &[u8],
+    width: u32,
+    height: u32,
+    bytecode_base64: &str,
+    precision_hint: &str,
+    params_json: &str,
+) -> Result<Vec<u8>, Fte3dError> {
+    let pixel_count = (width as usize)
+        .checked_mul(height as usize)
+        .ok_or_else(|| Fte3dError::Range("Blend shader dimensions overflow.".into()))?;
+    if pixel_count == 0 {
+        return Ok(Vec::new());
+    }
+    if pixel_count > MAX_SHADER_PIXELS {
+        return Err(Fte3dError::Range(
+            "Blend shader dimensions exceed 4 Mi-pixel limit.".into(),
+        ));
+    }
+    let expected_len = pixel_count * 4;
+    if bg_rgba.len() != expected_len || fg_rgba.len() != expected_len {
+        return Err(Fte3dError::Argument(
+            "Blend shader bg/fg RGBA byte length mismatch.".into(),
+        ));
+    }
+    if bytecode_base64.is_empty() {
+        return Err(Fte3dError::Argument(
+            "BlendMode.SHADER requires non-empty Shader byteCode.".into(),
+        ));
+    }
+    let bc = BASE64
+        .decode(bytecode_base64.as_bytes())
+        .map_err(|e| Fte3dError::Argument(format!("Invalid blendShader base64 bytecode: {e}")))?;
+    let meta = parse_shader_bytecode(&bc)?;
+
+    let raw_json: serde_json::Value =
+        serde_json::from_str(params_json).unwrap_or(serde_json::Value::Null);
+    let mut parameters: BTreeMap<String, Vec<f64>> = BTreeMap::new();
+    let mut extra_inputs: BTreeMap<String, ShaderRuntimeInput> = BTreeMap::new();
+    if let Some(obj) = raw_json.as_object() {
+        for (k, v) in obj {
+            if k == "__extra_inputs__" {
+                if let Some(arr) = v.as_array() {
+                    for item in arr {
+                        if let Ok(inp) = serde_json::from_value::<ShaderRuntimeInput>(item.clone())
+                        {
+                            extra_inputs.insert(inp.name.clone(), inp);
+                        }
+                    }
+                }
+            } else if let Some(arr) = v.as_array() {
+                let vals: Vec<f64> = arr.iter().filter_map(|x| x.as_f64()).collect();
+                parameters.insert(k.clone(), vals);
+            }
+        }
+    }
+
+    let bg_b64 = BASE64.encode(bg_rgba);
+    let fg_b64 = BASE64.encode(fg_rgba);
+    let mut inputs = Vec::with_capacity(meta.inputs.len());
+    if meta.inputs.len() >= 2 {
+        inputs.push(ShaderRuntimeInput {
+            name: meta.inputs[0].name.clone(),
+            width,
+            height,
+            channels: meta.inputs[0].channels,
+            floats: Vec::new(),
+            rgba_base64: Some(bg_b64),
+        });
+        inputs.push(ShaderRuntimeInput {
+            name: meta.inputs[1].name.clone(),
+            width,
+            height,
+            channels: meta.inputs[1].channels,
+            floats: Vec::new(),
+            rgba_base64: Some(fg_b64.clone()),
+        });
+        for extra in meta.inputs.iter().skip(2) {
+            if let Some(supplied) = extra_inputs.remove(&extra.name) {
+                inputs.push(supplied);
+            } else {
+                inputs.push(ShaderRuntimeInput {
+                    name: extra.name.clone(),
+                    width,
+                    height,
+                    channels: extra.channels,
+                    floats: Vec::new(),
+                    rgba_base64: Some(fg_b64.clone()),
+                });
+            }
+        }
+    } else if let Some(single) = meta.inputs.first() {
+        inputs.push(ShaderRuntimeInput {
+            name: single.name.clone(),
+            width,
+            height,
+            channels: single.channels,
+            floats: Vec::new(),
+            rgba_base64: Some(fg_b64),
+        });
+    }
+
+    let req = ShaderEvalRequest {
+        bytecode_base64: bytecode_base64.to_string(),
+        precision_hint: if matches!(precision_hint, "full" | "fast") {
+            precision_hint.to_string()
+        } else {
+            "full".into()
+        },
+        width,
+        height,
+        inputs,
+        parameters,
+    };
+    let res = evaluate_shader(&req)?;
+    let shader_rgba = BASE64
+        .decode(res.rgba_base64.as_bytes())
+        .map_err(|e| Fte3dError::Argument(format!("Invalid shader output base64: {e}")))?;
+    if shader_rgba.len() != expected_len {
+        return Err(Fte3dError::Argument(
+            "Blend shader output length mismatch.".into(),
+        ));
+    }
+    let mut out = bg_rgba.to_vec();
+    for px in 0..pixel_count {
+        let i = px * 4;
+        if fg_rgba[i + 3] > 0 {
+            out[i..i + 4].copy_from_slice(&shader_rgba[i..i + 4]);
+        }
+    }
+    Ok(out)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SwfHeaderInfo {
@@ -1544,9 +1705,30 @@ pub fn inspect_swf_bytes(bytes: &[u8]) -> Result<SwfHeaderInfo, Fte3dError> {
         }
         out
     } else {
-        return Err(Fte3dError::Argument(
-            "LZMA-compressed ZWS SWF requires an external LZMA stream.".into(),
-        ));
+        const MAX_ZWS_DECOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
+        if bytes.len() < 17 {
+            return Err(Fte3dError::Argument(
+                "Truncated ZWS LZMA header (requires at least 17 bytes).".into(),
+            ));
+        }
+        let uncompressed_body_len = _file_len.saturating_sub(8) as u64;
+        if uncompressed_body_len as usize > MAX_ZWS_DECOMPRESSED_BYTES {
+            return Err(Fte3dError::Argument(
+                "Decompressed ZWS SWF payload exceeds 16 MiB limit.".into(),
+            ));
+        }
+        let mut lzma_stream = Vec::with_capacity(13 + (bytes.len() - 17));
+        lzma_stream.extend_from_slice(&bytes[12..17]);
+        lzma_stream.extend_from_slice(&uncompressed_body_len.to_le_bytes());
+        lzma_stream.extend_from_slice(&bytes[17..]);
+        crate::as_binary::binary_transform(
+            "uncompress",
+            &lzma_stream,
+            "",
+            "lzma",
+            MAX_ZWS_DECOMPRESSED_BYTES,
+        )
+        .map_err(|e| Fte3dError::Argument(format!("Invalid ZWS LZMA stream: {e}")))?
     };
 
     if body.len() < 5 {

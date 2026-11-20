@@ -164,20 +164,31 @@ const fixtures = [
       omitted=defaults();explicit=defaults(undefined,undefined);
       function gather(head:int=3,...items:Array):Array {return [head,items.length,items.join(":")];}
       noRest=gather();rest=gather("4.8","a","b");
-      function inspect(value:int):Array {var count:int=arguments.length;var supplied:int=arguments[0];value=99;arguments[0]=66;return [count,supplied,value,arguments[0],arguments[1],arguments.callee===inspect];}
+      function inspect(value:int):Array {var count:int=arguments.length;var supplied:int=arguments[0];value=99;arguments[0]=66;return [count,supplied,value,arguments[0],arguments[1],arguments.callee===inspect,arguments.caller===undefined];}
       original=inspect("4.8","raw");
       var dynamic:Function=function(step:int=1):int {return this.value+step;};
       called=dynamic.call({value:8});applied=dynamic["apply"]({value:10},[]);
       var custom={call:function(value:int):int{return value+10;}};customCall=custom.call(5);
-      var aliasFailed:Boolean=false;try{var alias:Function=dynamic.apply;}catch(e:TypeError){aliasFailed=true;}
+      var alias:Function=dynamic.apply;aliasResult=alias.call(dynamic,{value:10},[5]);
+      var dynAdd:Function=new Function("a","b","return a * b + 1;");
+      var dynEmpty:Function=new Function();
+      var Ctor:Function=function(label:String){this.label=label;};
+      Ctor.prototype.prefix="item";
+      Ctor.prototype.describe=function():String{return this.prefix+":"+this.label;};
+      var built:Object=new Ctor("ok");
+      var descMethod:Function=built.describe;
+      var primEcho:Function=function():*{return this;};
+      fnMeta=[dynAdd.length,dynAdd(3,4),dynEmpty()===undefined,descMethod.call(built),built instanceof Ctor,primEcho.call(42)];
       var missingArgument:Boolean=false;try{expects();}catch(e:ArgumentError){missingArgument=true;}
       var arrayLikeFailed:Boolean=false;try{dynamic.apply(this,{length:0});}catch(e:TypeError){arrayLikeFailed=true;}
       var nativeConstructorFailed:Boolean=false;try{Function.call(null,"return 1");}catch(e:TypeError){nativeConstructorFailed=true;}`,
     context: {},
     verify(c) { assert.throws(() => c.expects(), /expects 1 arguments/); assert.throws(() => c.expects(1,2), /expects 1 arguments/); assert.equal(c.expects('12.8'), 12);
       assert.deepEqual(c.omitted,[7,'ready']);assert.ok(Number.isNaN(c.explicit[0]));assert.equal(c.explicit[1],null);
-      assert.deepEqual(c.noRest,[3,0,'']);assert.deepEqual(c.rest,[4,2,'a:b']);assert.deepEqual(c.original,[2,4,99,66,'raw',true]);
-      assert.equal(c.called,9);assert.equal(c.applied,11);assert.equal(c.customCall,15);assert.ok(c.aliasFailed&&c.missingArgument&&c.arrayLikeFailed&&c.nativeConstructorFailed);
+      assert.deepEqual(c.noRest,[3,0,'']);assert.deepEqual(c.rest,[4,2,'a:b']);assert.deepEqual(c.original,[2,4,99,66,'raw',true,true]);
+      assert.equal(c.called,9);assert.equal(c.applied,11);assert.equal(c.customCall,15);assert.equal(c.aliasResult,15);
+      assert.deepEqual(c.fnMeta,[2,13,true,'item:ok',true,42]);
+      assert.ok(c.missingArgument&&c.arrayLikeFailed&&c.nativeConstructorFailed);
     },
   },
   {

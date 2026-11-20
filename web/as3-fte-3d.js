@@ -409,6 +409,7 @@
 
   // Global weak registry for Shader instances so NeoFlashFilters.ShaderFilter can inspect them without circular host initialization.
   const globalShaderStates = new WeakMap();
+  let lastActiveKernel = null;
 
   function inspectShaderForFilter(shader) {
     const st = globalShaderStates.get(shader);
@@ -434,6 +435,24 @@
       precision_hint: st.precisionHint || 'full',
       params_json: JSON.stringify(params),
     };
+  }
+
+  function evaluateBlendShaderRgbaStatic(bgRgba, fgRgba, width, height, spec, kernelOverride = null) {
+    const k = kernelOverride || lastActiveKernel;
+    if (!k || typeof k.evaluate_blend_shader_rgba !== 'function') {
+      throw new Error('Pixel Bender blendShader kernel is unavailable.');
+    }
+    const bg = bgRgba instanceof Uint8Array ? bgRgba : new Uint8Array(bgRgba.buffer, bgRgba.byteOffset, bgRgba.byteLength);
+    const fg = fgRgba instanceof Uint8Array ? fgRgba : new Uint8Array(fgRgba.buffer, fgRgba.byteOffset, fgRgba.byteLength);
+    return k.evaluate_blend_shader_rgba(
+      bg,
+      fg,
+      width >>> 0,
+      height >>> 0,
+      String(spec?.bytecode_base64 || ''),
+      String(spec?.precision_hint || 'full'),
+      String(spec?.params_json || '{}')
+    );
   }
 
   function create(options = {}) {
@@ -463,6 +482,7 @@
     const onError = options.onError || (err => { throw err; });
 
     let kernel = new wasm.As3Fte3dKernel();
+    lastActiveKernel = kernel;
     let generation = 1;
     let disposed = false;
     let vectorFactory = (_typeName, values) => Array.from(values);
@@ -3823,6 +3843,7 @@
     let pose3DMap = new WeakMap();
     let projMap = new WeakMap();
     let blendShaderMap = new WeakMap();
+    let blendShaderByKey = new Map();
     let softKeyboardMap = new WeakMap();
     let activeSoftKeyboardRect = null;
     let activeSoftKeyboardTarget = null;
@@ -4064,10 +4085,15 @@
         if (value !== null && value !== undefined && !globalShaderStates.has(value)) {
           throw new TypeError('DisplayObject.blendShader requires a flash.display.Shader instance.');
         }
+        const refKey = referenceOf(target)?.key || null;
         if (value === null || value === undefined) {
           blendShaderMap.delete(target);
+          if (refKey) blendShaderByKey.delete(refKey);
         } else {
-          blendShaderMap.set(target, { shader: value, active: false });
+          const prev = blendShaderMap.get(target);
+          const entry = { shader: value, active: Boolean(prev?.active) };
+          blendShaderMap.set(target, entry);
+          if (refKey) blendShaderByKey.set(refKey, entry);
         }
         return true;
       }
@@ -4095,11 +4121,33 @@
 
     function setBlendModeShaderActive(target, active) {
       const entry = blendShaderMap.get(target);
-      if (entry) entry.active = Boolean(active);
+      const refKey = referenceOf(target)?.key || null;
+      if (entry) {
+        entry.active = Boolean(active);
+        if (refKey) blendShaderByKey.set(refKey, entry);
+      } else if (refKey && !active) {
+        blendShaderByKey.delete(refKey);
+      }
     }
 
     function isBlendModeShaderActive(target) {
       return Boolean(blendShaderMap.get(target)?.active);
+    }
+
+    function getActiveBlendShaderSpecForKey(refKey) {
+      const entry = blendShaderByKey.get(refKey);
+      if (!entry?.active || !entry.shader) return null;
+      return inspectShaderForFilter(entry.shader);
+    }
+
+    function getBlendShaderSpecForDrawable(target) {
+      const entry = blendShaderMap.get(target);
+      if (!entry?.shader) return null;
+      return inspectShaderForFilter(entry.shader);
+    }
+
+    function evaluateBlendShaderRgba(bgRgba, fgRgba, width, height, spec) {
+      return kcall(() => evaluateBlendShaderRgbaStatic(bgRgba, fgRgba, width, height, spec, kernel));
     }
 
     function makeSoftKeyboardEvent(type, cancelable, relatedObject, triggerType = 'contentTriggered') {
@@ -4368,6 +4416,7 @@
       pose3DMap = new WeakMap();
       projMap = new WeakMap();
       blendShaderMap = new WeakMap();
+      blendShaderByKey = new Map();
       softKeyboardMap = new WeakMap();
       activeSoftKeyboardRect = null;
       generation++;
@@ -4490,6 +4539,9 @@
       hasBlendShader,
       setBlendModeShaderActive,
       isBlendModeShaderActive,
+      getActiveBlendShaderSpecForKey,
+      getBlendShaderSpecForDrawable,
+      evaluateBlendShaderRgba,
       getMatrix3DForDisplay,
       setMatrix3DForDisplay,
       getPerspectiveProjectionForDisplay,
@@ -4522,6 +4574,7 @@
   const api = Object.freeze({
     create,
     inspectShaderForFilter,
+    evaluateBlendShaderRgba: evaluateBlendShaderRgbaStatic,
     ActionScriptVersion,
     SWFVersion,
     ColorCorrection,

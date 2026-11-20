@@ -1,0 +1,815 @@
+//! Font, text, sprite, placement, and timeline reconstruction for SWF Loader bundles.
+
+use super::vm::compile_avm1_actions;
+use super::{
+    ActivePlacement, BitReader, MAX_SWF_FRAMES, SwfDecodeCtx, SwfFontRecord,
+    attach_compiled_frame_script, make_default_element, parse_tag_slice,
+};
+use neoflash_core::{
+    Color, ColorTransform, ElementKind, InstancePlayback, Keyframe, Layer, LayerProperties,
+    LayerRole, Symbol, SymbolKind, TextFormat, Timeline, Transform,
+};
+use std::collections::{BTreeMap, HashMap};
+
+pub(super) fn decode_font_tag(
+    ctx: &mut SwfDecodeCtx,
+    data: &[u8],
+    tag_code: u16,
+) -> Result<(), String> {
+    if data.len() < 4 {
+        return Ok(());
+    }
+    let font_id = u16::from_le_bytes([data[0], data[1]]);
+    if tag_code == 10 {
+        ctx.fonts.entry(font_id).or_insert_with(|| SwfFontRecord {
+            name: "sans-serif".into(),
+            codes: Vec::new(),
+        });
+        return Ok(());
+    }
+    let flags = data[2];
+    let wide_offsets = (flags & 0x08) != 0;
+    let wide_codes = (flags & 0x04) != 0 || tag_code == 75;
+    let name_len = usize::from(data[4]);
+    if 5 + name_len + 2 > data.len() {
+        return Ok(());
+    }
+    let raw_name = String::from_utf8_lossy(&data[5..5 + name_len])
+        .trim_end_matches('\0')
+        .trim()
+        .to_owned();
+    let mut pos = 5 + name_len;
+    let num_glyphs = usize::from(u16::from_le_bytes([data[pos], data[pos + 1]]));
+    pos += 2;
+    if num_glyphs == 0 {
+        ctx.fonts.insert(
+            font_id,
+            SwfFontRecord {
+                name: if raw_name.is_empty() {
+                    "sans-serif".into()
+                } else {
+                    raw_name
+                },
+                codes: Vec::new(),
+            },
+        );
+        return Ok(());
+    }
+    let offset_table_base = pos;
+    let code_table_offset = if wide_offsets {
+        let need = (num_glyphs + 1) * 4;
+        if pos + need > data.len() {
+            return Ok(());
+        }
+        let off_pos = pos + num_glyphs * 4;
+        u32::from_le_bytes([
+            data[off_pos],
+            data[off_pos + 1],
+            data[off_pos + 2],
+            data[off_pos + 3],
+        ]) as usize
+    } else {
+        let need = (num_glyphs + 1) * 2;
+        if pos + need > data.len() {
+            return Ok(());
+        }
+        let off_pos = pos + num_glyphs * 2;
+        usize::from(u16::from_le_bytes([data[off_pos], data[off_pos + 1]]))
+    };
+    let ct_start = offset_table_base + code_table_offset;
+    let mut codes = Vec::with_capacity(num_glyphs);
+    if wide_codes {
+        for i in 0..num_glyphs {
+            let p = ct_start + i * 2;
+            if p + 2 > data.len() {
+                break;
+            }
+            codes.push(u16::from_le_bytes([data[p], data[p + 1]]));
+        }
+    } else {
+        for i in 0..num_glyphs {
+            let p = ct_start + i;
+            if p >= data.len() {
+                break;
+            }
+            codes.push(u16::from(data[p]));
+        }
+    }
+    ctx.fonts.insert(
+        font_id,
+        SwfFontRecord {
+            name: if raw_name.is_empty() {
+                "sans-serif".into()
+            } else {
+                raw_name
+            },
+            codes,
+        },
+    );
+    Ok(())
+}
+
+pub(super) fn decode_font_name_tag(ctx: &mut SwfDecodeCtx, data: &[u8]) -> Result<(), String> {
+    let mut r = BitReader::new(data, 0);
+    let font_id = r.read_u16()?;
+    let font_name = r.read_c_string()?;
+    if !font_name.trim().is_empty()
+        && let Some(rec) = ctx.fonts.get_mut(&font_id)
+    {
+        rec.name = font_name;
+    }
+    Ok(())
+}
+
+pub(super) fn decode_static_text_tag(
+    ctx: &mut SwfDecodeCtx,
+    data: &[u8],
+    with_alpha: bool,
+) -> Result<(), String> {
+    let mut r = BitReader::new(data, 0);
+    let char_id = r.read_u16()?;
+    let _bounds = r.read_rect_twips()?;
+    let text_matrix = r.read_matrix()?;
+    let glyph_bits = r.read_u8()? as usize;
+    let advance_bits = r.read_u8()? as usize;
+
+    let mut cur_font_id = 0u16;
+    let mut cur_color: Color = [0, 0, 0, 255];
+    let mut cur_height = 12.0;
+    let mut cur_x = 0.0;
+    let mut cur_y = 0.0;
+    let mut elements = Vec::new();
+    let mut run_idx = 0usize;
+
+    while r.remaining_bytes() > 0 {
+        let flags = r.read_u8()?;
+        if flags == 0 {
+            break;
+        }
+        if (flags & 0x08) != 0 {
+            cur_font_id = r.read_u16()?;
+        }
+        if (flags & 0x04) != 0 {
+            cur_color = if with_alpha {
+                r.read_rgba()?
+            } else {
+                r.read_rgb()?
+            };
+        }
+        if (flags & 0x01) != 0 {
+            cur_x = f64::from(r.read_i16()?) / 20.0;
+        }
+        if (flags & 0x02) != 0 {
+            cur_y = f64::from(r.read_i16()?) / 20.0;
+        }
+        if (flags & 0x08) != 0 {
+            let raw_h = f64::from(r.read_u16()?) / 20.0;
+            cur_height = if tag_uses_em_divide(&ctx.fonts, cur_font_id, raw_h) {
+                (raw_h / 20.0).max(6.0)
+            } else {
+                raw_h.max(6.0)
+            };
+        }
+        let glyph_count = usize::from(r.read_u8()?);
+        let mut units = Vec::with_capacity(glyph_count);
+        for _ in 0..glyph_count {
+            let g_idx = r.read_ubits(glyph_bits)? as usize;
+            let _adv = r.read_sbits(advance_bits)?;
+            let code = ctx
+                .fonts
+                .get(&cur_font_id)
+                .and_then(|f| f.codes.get(g_idx).copied())
+                .unwrap_or(b'?' as u16);
+            units.push(code);
+        }
+        r.align();
+        let text = String::from_utf16_lossy(&units);
+        if !text.is_empty() {
+            run_idx += 1;
+            let font_family = ctx
+                .fonts
+                .get(&cur_font_id)
+                .map_or_else(|| "sans-serif".to_owned(), |f| f.name.clone());
+            let mut el = make_default_element(
+                format!("swf-{}-txt{char_id}-{run_idx}", ctx.mount_seq),
+                ElementKind::Text {
+                    text,
+                    font_family,
+                    font_size: cur_height,
+                    color: cur_color,
+                },
+                cur_x,
+                (cur_y - cur_height * 0.85).max(0.0),
+            );
+            if let Some(mut tf) = Transform::from_matrix(text_matrix) {
+                tf.x += el.transform.x;
+                tf.y += el.transform.y;
+                el.transform = tf;
+            }
+            elements.push(el);
+        }
+    }
+
+    let sym_id = format!("swf-{}-char-{char_id}", ctx.mount_seq);
+    let kf = Keyframe {
+        elements,
+        ..Default::default()
+    };
+    ctx.symbols.push(Symbol {
+        id: sym_id.clone(),
+        name: format!("Text_{char_id}"),
+        folder: String::new(),
+        kind: SymbolKind::Graphic,
+        timeline: Timeline {
+            frame_count: 1,
+            layers: vec![Layer {
+                id: format!("swf-{}-txtlyr-{char_id}", ctx.mount_seq),
+                name: "Text".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![kf],
+                properties: LayerProperties::default(),
+            }],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+        class_name: None,
+        linkage_id: None,
+    });
+    ctx.char_symbols.insert(char_id, sym_id);
+    Ok(())
+}
+
+fn tag_uses_em_divide(_fonts: &HashMap<u16, SwfFontRecord>, _font_id: u16, raw_h: f64) -> bool {
+    raw_h > 400.0
+}
+
+fn strip_basic_html(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for ch in s.chars() {
+        if ch == '<' {
+            in_tag = true;
+        } else if ch == '>' {
+            in_tag = false;
+        } else if !in_tag {
+            out.push(ch);
+        }
+    }
+    out.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+}
+
+pub(super) fn decode_edit_text_tag(ctx: &mut SwfDecodeCtx, data: &[u8]) -> Result<(), String> {
+    let mut r = BitReader::new(data, 0);
+    let char_id = r.read_u16()?;
+    let bounds = r.read_rect_twips()?;
+    let flags1 = r.read_u8()?;
+    let flags2 = r.read_u8()?;
+    let has_text = (flags1 & 0x80) != 0;
+    let word_wrap = (flags1 & 0x40) != 0;
+    let multiline = (flags1 & 0x20) != 0;
+    let has_text_color = (flags1 & 0x04) != 0;
+    let has_max_length = (flags1 & 0x02) != 0;
+    let has_font = (flags1 & 0x01) != 0;
+    let has_font_class = (flags2 & 0x80) != 0;
+    let is_html = (flags2 & 0x02) != 0;
+    let has_layout = (flags2 & 0x20) != 0;
+
+    let mut font_id = 0u16;
+    let mut font_height = 12.0;
+    if has_font {
+        font_id = r.read_u16()?;
+    }
+    if has_font_class {
+        let _ = r.read_c_string()?;
+    }
+    if has_font {
+        font_height = (f64::from(r.read_u16()?) / 20.0).max(6.0);
+    }
+    let mut color = [0, 0, 0, 255];
+    if has_text_color {
+        color = r.read_rgba()?;
+    }
+    if has_max_length {
+        let _ = r.read_u16()?;
+    }
+    if has_layout {
+        let _align = r.read_u8()?;
+        let _lm = r.read_u16()?;
+        let _rm = r.read_u16()?;
+        let _ind = r.read_u16()?;
+        let _lead = r.read_i16()?;
+    }
+    let _var_name = r.read_c_string()?;
+    let raw_text = if has_text {
+        r.read_c_string()?
+    } else {
+        String::new()
+    };
+    let clean_text = if is_html {
+        strip_basic_html(&raw_text)
+    } else {
+        raw_text
+    };
+    let font_family = ctx
+        .fonts
+        .get(&font_id)
+        .map_or_else(|| "sans-serif".to_owned(), |f| f.name.clone());
+    let bx = f64::from(bounds[0]) / 20.0;
+    let by = f64::from(bounds[2]) / 20.0;
+    let bw = (f64::from(bounds[1] - bounds[0]) / 20.0).max(20.0);
+    let bh = (f64::from(bounds[3] - bounds[2]) / 20.0).max(font_height * 1.4);
+
+    let fmt = TextFormat {
+        font: font_family,
+        size: font_height,
+        color: (u32::from(color[0]) << 16) | (u32::from(color[1]) << 8) | u32::from(color[2]),
+        ..Default::default()
+    };
+
+    let tb_kind = ElementKind::TextBox {
+        text: clean_text,
+        width: bw,
+        height: bh,
+        format: fmt,
+        word_wrap,
+        multiline,
+    };
+    ctx.char_edit_texts
+        .insert(char_id, (tb_kind.clone(), bx, by));
+
+    let sym_id = format!("swf-{}-char-{char_id}", ctx.mount_seq);
+    let mut kf = Keyframe::default();
+    kf.elements.push(make_default_element(
+        format!("swf-{}-edtxt-{char_id}", ctx.mount_seq),
+        tb_kind,
+        bx,
+        by,
+    ));
+    ctx.symbols.push(Symbol {
+        id: sym_id.clone(),
+        name: format!("EditText_{char_id}"),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        timeline: Timeline {
+            frame_count: 1,
+            layers: vec![Layer {
+                id: format!("swf-{}-edlyr-{char_id}", ctx.mount_seq),
+                name: "EditText".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![kf],
+                properties: LayerProperties::default(),
+            }],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+        class_name: None,
+        linkage_id: None,
+    });
+    ctx.char_symbols.insert(char_id, sym_id);
+    Ok(())
+}
+
+pub(super) fn decode_sprite_tag(ctx: &mut SwfDecodeCtx, data: &[u8]) -> Result<(), String> {
+    if data.len() < 4 {
+        return Ok(());
+    }
+    let sprite_id = u16::from_le_bytes([data[0], data[1]]);
+    let declared_frames =
+        u32::from(u16::from_le_bytes([data[2], data[3]])).clamp(1, MAX_SWF_FRAMES);
+    let sub_tags = parse_tag_slice(&data[4..])?;
+    let label = format!("spr{sprite_id}");
+    let timeline = build_timeline_from_tags(ctx, &sub_tags, Some(declared_frames), &label);
+    let sym_id = format!("swf-{}-char-{sprite_id}", ctx.mount_seq);
+    ctx.symbols.push(Symbol {
+        id: sym_id.clone(),
+        name: format!("Sprite_{sprite_id}"),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        timeline,
+        class_name: None,
+        linkage_id: None,
+    });
+    ctx.char_symbols.insert(sprite_id, sym_id);
+    Ok(())
+}
+
+pub(super) fn decode_export_assets_tag(ctx: &mut SwfDecodeCtx, data: &[u8]) -> Result<(), String> {
+    let mut r = BitReader::new(data, 0);
+    let count = usize::from(r.read_u16()?);
+    for _ in 0..count.min(4096) {
+        if r.remaining_bytes() < 3 {
+            break;
+        }
+        let cid = r.read_u16()?;
+        let name = r.read_c_string()?;
+        if !name.is_empty() {
+            ctx.export_assets.insert(cid, name);
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn decode_symbol_class_tag(ctx: &mut SwfDecodeCtx, data: &[u8]) -> Result<(), String> {
+    let mut r = BitReader::new(data, 0);
+    let count = usize::from(r.read_u16()?);
+    for _ in 0..count.min(4096) {
+        if r.remaining_bytes() < 3 {
+            break;
+        }
+        let cid = r.read_u16()?;
+        let name = r.read_c_string()?;
+        if !name.is_empty() {
+            ctx.symbol_classes.insert(cid, name);
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn build_timeline_from_tags(
+    ctx: &mut SwfDecodeCtx,
+    tags: &[(u16, &[u8])],
+    declared_frames: Option<u32>,
+    scope_prefix: &str,
+) -> Timeline {
+    let mut active: BTreeMap<u16, ActivePlacement> = BTreeMap::new();
+    let mut snapshots: Vec<BTreeMap<u16, ActivePlacement>> = Vec::new();
+    let mut frame_labels: BTreeMap<u32, String> = BTreeMap::new();
+    let mut frame_actions: BTreeMap<u32, Vec<String>> = BTreeMap::new();
+    let mut cur_frame = 0u32;
+
+    for &(code, payload) in tags {
+        match code {
+            4 => {
+                let _ = apply_place_object1(&mut active, payload);
+            }
+            26 | 70 => {
+                let _ = apply_place_object2_or_3(&mut active, payload, code == 70);
+            }
+            5 if payload.len() >= 4 => {
+                let depth = u16::from_le_bytes([payload[2], payload[3]]);
+                active.remove(&depth);
+            }
+            28 if payload.len() >= 2 => {
+                let depth = u16::from_le_bytes([payload[0], payload[1]]);
+                active.remove(&depth);
+            }
+            43 => {
+                let mut r = BitReader::new(payload, 0);
+                if let Ok(lbl) = r.read_c_string()
+                    && !lbl.is_empty()
+                {
+                    frame_labels.entry(cur_frame).or_insert(lbl);
+                }
+            }
+            12 => {
+                ctx.saw_do_action = true;
+                if let Some(js) = compile_avm1_actions(payload) {
+                    frame_actions.entry(cur_frame).or_default().push(js);
+                }
+            }
+            1 if (snapshots.len() as u32) < MAX_SWF_FRAMES => {
+                snapshots.push(active.clone());
+                cur_frame += 1;
+            }
+            _ => {}
+        }
+    }
+
+    if snapshots.is_empty() {
+        snapshots.push(active);
+    }
+    let total_frames = declared_frames
+        .unwrap_or(snapshots.len() as u32)
+        .max(snapshots.len() as u32)
+        .clamp(1, MAX_SWF_FRAMES);
+    while (snapshots.len() as u32) < total_frames {
+        let last = snapshots.last().cloned().unwrap_or_default();
+        snapshots.push(last);
+    }
+
+    let mut all_depths = std::collections::BTreeSet::new();
+    for snap in &snapshots {
+        for &d in snap.keys() {
+            all_depths.insert(d);
+        }
+    }
+
+    let mut layers = Vec::new();
+    let mut clip_ranges: Vec<(u16, u16, String)> = Vec::new();
+
+    for &depth in &all_depths {
+        let layer_id = format!("swf-{}-{scope_prefix}-d{depth}", ctx.mount_seq);
+        let max_clip_depth = snapshots
+            .iter()
+            .filter_map(|s| s.get(&depth).map(|p| p.clip_depth))
+            .max()
+            .unwrap_or(0);
+        if max_clip_depth > depth {
+            clip_ranges.push((depth, max_clip_depth, layer_id.clone()));
+        }
+
+        let mut keyframes: Vec<Keyframe> = Vec::new();
+        for (f_idx, snap) in snapshots.iter().enumerate() {
+            let placement = snap.get(&depth);
+            let element = placement.and_then(|p| {
+                let mut tf = Transform::from_matrix(p.matrix).unwrap_or_default();
+                tf.alpha = p.cxform.multipliers[3].clamp(0.0, 1.0);
+                tf.color_transform = p.cxform;
+                let kind = if let Some((tb_kind, bx, by)) = ctx.char_edit_texts.get(&p.char_id) {
+                    tf.x += *bx;
+                    tf.y += *by;
+                    tb_kind.clone()
+                } else {
+                    let sym_id = ctx.char_symbols.get(&p.char_id)?.clone();
+                    ElementKind::Instance {
+                        symbol_id: sym_id,
+                        playback: InstancePlayback::Independent,
+                    }
+                };
+                let mut el = make_default_element(
+                    format!(
+                        "swf-{}-{scope_prefix}-d{depth}-c{}",
+                        ctx.mount_seq, p.char_id
+                    ),
+                    kind,
+                    tf.x,
+                    tf.y,
+                );
+                el.name = p.name.clone();
+                el.transform = tf;
+                el.visible = p.visible;
+                Some(el)
+            });
+
+            let same_as_prev = keyframes.last().is_some_and(|prev_kf| {
+                match (prev_kf.elements.first(), element.as_ref()) {
+                    (None, None) => true,
+                    (Some(a), Some(b)) => a == b,
+                    _ => false,
+                }
+            });
+            let has_label_on_first_layer =
+                layers.is_empty() && frame_labels.contains_key(&(f_idx as u32));
+            if f_idx == 0 || !same_as_prev || has_label_on_first_layer {
+                let mut kf = Keyframe {
+                    frame: f_idx as u32,
+                    ..Default::default()
+                };
+                if let Some(el) = element {
+                    kf.elements.push(el);
+                }
+                if layers.is_empty()
+                    && let Some(lbl) = frame_labels.get(&(f_idx as u32))
+                {
+                    kf.label = lbl.clone();
+                }
+                keyframes.push(kf);
+            }
+        }
+
+        let mut props = LayerProperties::default();
+        if max_clip_depth > depth {
+            props.role = LayerRole::Mask;
+        }
+        layers.push((
+            depth,
+            Layer {
+                id: layer_id,
+                name: format!("Depth {depth}"),
+                visible: true,
+                locked: false,
+                keyframes,
+                properties: props,
+            },
+        ));
+    }
+
+    for (clip_start, clip_end, mask_layer_id) in clip_ranges {
+        for (d, layer) in &mut layers {
+            if *d > clip_start && *d <= clip_end && layer.properties.role == LayerRole::Normal {
+                layer.properties.mask = Some(mask_layer_id.clone());
+            }
+        }
+    }
+
+    let mut final_layers: Vec<Layer> = layers.into_iter().map(|(_, l)| l).collect();
+    if final_layers.is_empty() {
+        let mut kfs = Vec::new();
+        for f in 0..total_frames {
+            if f == 0 || frame_labels.contains_key(&f) {
+                let mut kf = Keyframe {
+                    frame: f,
+                    ..Default::default()
+                };
+                if let Some(lbl) = frame_labels.get(&f) {
+                    kf.label = lbl.clone();
+                }
+                kfs.push(kf);
+            }
+        }
+        final_layers.push(Layer {
+            id: format!("swf-{}-{scope_prefix}-empty", ctx.mount_seq),
+            name: "Layer 1".into(),
+            visible: true,
+            locked: false,
+            keyframes: kfs,
+            properties: LayerProperties::default(),
+        });
+    } else if !frame_labels.is_empty() {
+        let first_layer = &mut final_layers[0];
+        for (&f, lbl) in &frame_labels {
+            if let Some(kf) = first_layer.keyframes.iter_mut().find(|k| k.frame == f)
+                && kf.label.is_empty()
+            {
+                kf.label = lbl.clone();
+            }
+        }
+    }
+
+    let mut timeline = Timeline {
+        frame_count: total_frames,
+        layers: final_layers,
+        scripts: Vec::new(),
+        guides: Vec::new(),
+    };
+
+    for (frame, blocks) in frame_actions {
+        if frame < total_frames {
+            let joined = blocks.join("\n");
+            attach_compiled_frame_script(ctx, &mut timeline, frame, &joined, scope_prefix);
+        }
+    }
+
+    timeline
+}
+
+fn apply_place_object1(
+    active: &mut BTreeMap<u16, ActivePlacement>,
+    data: &[u8],
+) -> Result<(), String> {
+    let mut r = BitReader::new(data, 0);
+    let char_id = r.read_u16()?;
+    let depth = r.read_u16()?;
+    let matrix = r.read_matrix()?;
+    let cxform = if r.remaining_bytes() > 0 {
+        r.read_cxform(false).unwrap_or_default()
+    } else {
+        ColorTransform::default()
+    };
+    active.insert(
+        depth,
+        ActivePlacement {
+            char_id,
+            matrix,
+            cxform,
+            name: String::new(),
+            clip_depth: 0,
+            visible: true,
+        },
+    );
+    Ok(())
+}
+
+fn apply_place_object2_or_3(
+    active: &mut BTreeMap<u16, ActivePlacement>,
+    data: &[u8],
+    is_v3: bool,
+) -> Result<(), String> {
+    let mut r = BitReader::new(data, 0);
+    let flags1 = r.read_u8()?;
+    let flags2 = if is_v3 { r.read_u8()? } else { 0 };
+    let depth = r.read_u16()?;
+
+    let has_move = (flags1 & 0x01) != 0;
+    let has_character = (flags1 & 0x02) != 0;
+    let has_matrix = (flags1 & 0x04) != 0;
+    let has_cxform = (flags1 & 0x08) != 0;
+    let has_ratio = (flags1 & 0x10) != 0;
+    let has_name = (flags1 & 0x20) != 0;
+    let has_clip_depth = (flags1 & 0x40) != 0;
+
+    let has_class_name = (flags2 & 0x08) != 0;
+    let has_image = (flags2 & 0x10) != 0;
+    let has_filter_list = (flags2 & 0x01) != 0;
+    let has_blend_mode = (flags2 & 0x02) != 0;
+    let has_cache_bitmap = (flags2 & 0x04) != 0;
+    let has_visible = (flags2 & 0x20) != 0;
+    let has_bg_color = (flags2 & 0x40) != 0;
+
+    if has_class_name || (has_image && has_character) {
+        let _ = r.read_c_string()?;
+    }
+    let char_id = if has_character {
+        Some(r.read_u16()?)
+    } else {
+        None
+    };
+    let matrix = if has_matrix {
+        Some(r.read_matrix()?)
+    } else {
+        None
+    };
+    let cxform = if has_cxform {
+        Some(r.read_cxform(true)?)
+    } else {
+        None
+    };
+    if has_ratio {
+        let _ = r.read_u16()?;
+    }
+    let name = if has_name {
+        Some(r.read_c_string()?)
+    } else {
+        None
+    };
+    let clip_depth = if has_clip_depth {
+        Some(r.read_u16()?)
+    } else {
+        None
+    };
+    if has_filter_list {
+        skip_swf_filter_list(&mut r)?;
+    }
+    if has_blend_mode {
+        let _ = r.read_u8()?;
+    }
+    if has_cache_bitmap {
+        let _ = r.read_u8()?;
+    }
+    let visible = if has_visible {
+        Some(r.read_u8()? != 0)
+    } else {
+        None
+    };
+    if has_bg_color {
+        let _ = r.read_rgba()?;
+    }
+
+    if has_move && let Some(existing) = active.get_mut(&depth) {
+        if let Some(cid) = char_id {
+            existing.char_id = cid;
+        }
+        if let Some(m) = matrix {
+            existing.matrix = m;
+        }
+        if let Some(cx) = cxform {
+            existing.cxform = cx;
+        }
+        if let Some(n) = name {
+            existing.name = n;
+        }
+        if let Some(cd) = clip_depth {
+            existing.clip_depth = cd;
+        }
+        if let Some(v) = visible {
+            existing.visible = v;
+        }
+    } else if let Some(cid) = char_id {
+        active.insert(
+            depth,
+            ActivePlacement {
+                char_id: cid,
+                matrix: matrix.unwrap_or([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]),
+                cxform: cxform.unwrap_or_default(),
+                name: name.unwrap_or_default(),
+                clip_depth: clip_depth.unwrap_or(0),
+                visible: visible.unwrap_or(true),
+            },
+        );
+    }
+    Ok(())
+}
+
+fn skip_swf_filter_list(r: &mut BitReader<'_>) -> Result<(), String> {
+    let count = usize::from(r.read_u8()?);
+    for _ in 0..count {
+        let filter_id = r.read_u8()?;
+        let skip_bytes = match filter_id {
+            0 => 23, // DropShadow
+            1 => 9,  // Blur
+            2 => 15, // Glow
+            3 => 27, // Bevel
+            4 | 7 => {
+                let n = usize::from(r.read_u8()?);
+                n * 5 + 19
+            }
+            5 => {
+                let mx = usize::from(r.read_u8()?);
+                let my = usize::from(r.read_u8()?);
+                mx * my * 4 + 13
+            }
+            6 => 80, // ColorMatrix
+            _ => return Ok(()),
+        };
+        for _ in 0..skip_bytes {
+            let _ = r.read_u8()?;
+        }
+    }
+    Ok(())
+}

@@ -171,6 +171,7 @@
       return staticTextLifetimes.get(id);
     }
     let snapshotCache=null,nodesCache=null,childMapCache=null,as2SettingsCache=null;
+    const extMasks=new Map(),explicitBitmapCache=new Map();
     const ownerCache=new Map(),descriptorCache=new Map();
     const readOnlyPlayerMethods=new Set([
       'runtime_snapshot_json','display_nodes_json','scene_json','accessibility_json',
@@ -190,7 +191,7 @@
       'as2_target_path','as2_resolve_target','as2_resolve_target_case','as2_root',
       'as2_is_frame_loaded','bitmap_info','bitmap_pixels','bitmap_pixels_transformed',
       'bitmap_get_pixels','bitmap_get_pixel','bitmap_histogram_json','bitmap_encode_png',
-      'bitmap_encode_jpeg','bitmap_generate_filter_rect','bitmap_draw_snapshot','bitmap_render_snapshot',
+      'bitmap_encode_jpeg','bitmap_generate_filter_rect','bitmap_draw_snapshot','bitmap_render_snapshot','bitmap_render_runtime_snapshot',
       'filter_padding','filter_rgba','amf_encode','amf_decode','sol_encode','sol_decode',
       'text_layout_json','text_query_json','portable_measure_text_json',
       'parse_html_text_json','serialize_html_text_json','text_to_outlines_json',
@@ -207,7 +208,7 @@
       'graphics_apply','graphics_copy_from','set_morph_shape_ops','set_text_line_draws',
       'stop_all_sounds','object_set_button_sound_transform',
       'bitmap_create','bitmap_set_pixels','bitmap_color_transform','bitmap_apply_filter',
-      'bitmap_draw_rgba','bitmap_draw_rgba_blended','bitmap_set_pixel','bitmap_fill_rect',
+      'bitmap_draw_rgba','bitmap_draw_rgba_blended','bitmap_draw_rgba_shader','bitmap_set_pixel','bitmap_fill_rect',
       'bitmap_copy_pixels','bitmap_clone','bitmap_scroll','bitmap_dispose','pixel_decode','pixel_release',
     ]);
     if(!player.__nfInvalidators){
@@ -312,8 +313,198 @@
         nodesCache=null;
       }
       if(!visualOnly)childMapCache=null;
-      if(isReset){ownerCache.clear();descriptorCache.clear();as2SettingsCache=null;}
+      if(isReset){ownerCache.clear();descriptorCache.clear();as2SettingsCache=null;extMasks.clear();explicitBitmapCache.clear();}
     });
+    function invalidateDisplayCaches(){
+      snapshotCache=null;
+      nodesCache=null;
+      for(const inv of (player.__nfInvalidators||[])){
+        try{inv(true,false,'js_display_state',[],true,false);}catch(_){}
+      }
+    }
+    function rectCommands(x,y,w,h){
+      return [{op:'move_to',x,y},{op:'line_to',x:x+w,y},{op:'line_to',x:x+w,y:y+h},{op:'line_to',x,y:y+h},{op:'close'}];
+    }
+    function ellipseCommands(w,h){
+      const rx=w/2,ry=h/2,cx=rx,cy=ry,k=0.5522847498307936,kx=rx*k,ky=ry*k;
+      return [
+        {op:'move_to',x:cx+rx,y:cy},
+        {op:'cubic_to',cx1:cx+rx,cy1:cy+ky,cx2:cx+kx,cy2:cy+ry,x:cx,y:cy+ry},
+        {op:'cubic_to',cx1:cx-kx,cy1:cy+ry,cx2:cx-rx,cy2:cy+ky,x:cx-rx,y:cy},
+        {op:'cubic_to',cx1:cx-rx,cy1:cy-ky,cx2:cx-kx,cy2:cy-ry,x:cx,y:cy-ry},
+        {op:'cubic_to',cx1:cx+kx,cy1:cy-ry,cx2:cx+rx,cy2:cy-ky,x:cx+rx,y:cy},
+        {op:'close'},
+      ];
+    }
+    function buildMaskComponentsForNode(n,inheritedClips){
+      const geom=[],alpha=[];
+      let hasSoftAlpha=false;
+      const nodeAlpha=Number.isFinite(n.transform?.alpha)?n.transform.alpha:1;
+      const baseClips=[...new Set([...(n.clip_ids||[]),...inheritedClips])];
+      for(const kind of [...nodeShapes(n),...(n.graphics||[])]){
+        if(kind.type==='rectangle'){
+          const hasFill=Boolean((kind.fill&&kind.fill[3]>0)||kind.fill_gradient||kind.fill_bitmap);
+          if(!hasFill||!(kind.width>0&&kind.height>0))continue;
+          const cmds=rectCommands(0,0,kind.width,kind.height);
+          geom.push({commands:cmds,fill_rule:'nonzero',matrix:n.world,clip_ids:baseClips});
+          const ac={commands:cmds,fill_rule:'nonzero',matrix:n.world,alpha:nodeAlpha,clip_ids:baseClips};
+          if(kind.fill_gradient){ac.fill_gradient=kind.fill_gradient;hasSoftAlpha=true;}
+          if(kind.fill_bitmap){ac.fill_bitmap=kind.fill_bitmap;hasSoftAlpha=true;}
+          alpha.push(ac);
+        }else if(kind.type==='ellipse'){
+          const hasFill=Boolean((kind.fill&&kind.fill[3]>0)||kind.fill_gradient||kind.fill_bitmap);
+          if(!hasFill||!(kind.width>0&&kind.height>0))continue;
+          const cmds=ellipseCommands(kind.width,kind.height);
+          geom.push({commands:cmds,fill_rule:'nonzero',matrix:n.world,clip_ids:baseClips});
+          const ac={commands:cmds,fill_rule:'nonzero',matrix:n.world,alpha:nodeAlpha,clip_ids:baseClips};
+          if(kind.fill_gradient){ac.fill_gradient=kind.fill_gradient;hasSoftAlpha=true;}
+          if(kind.fill_bitmap){ac.fill_bitmap=kind.fill_bitmap;hasSoftAlpha=true;}
+          alpha.push(ac);
+        }else if(kind.type==='path'||kind.type==='gradient_path'){
+          const hasFill=Boolean((kind.fill&&kind.fill[3]>0)||kind.fill_gradient||kind.fill_bitmap);
+          if(!hasFill||!kind.commands?.length)continue;
+          const rule=kind.fill_rule||'nonzero';
+          geom.push({commands:kind.commands,fill_rule:rule,matrix:n.world,clip_ids:baseClips});
+          const ac={commands:kind.commands,fill_rule:rule,matrix:n.world,alpha:nodeAlpha,clip_ids:baseClips};
+          if(kind.fill_gradient){ac.fill_gradient=kind.fill_gradient;hasSoftAlpha=true;}
+          if(kind.fill_bitmap){ac.fill_bitmap=kind.fill_bitmap;hasSoftAlpha=true;}
+          alpha.push(ac);
+        }else if(kind.type==='bitmap_pixels'){
+          if(!(kind.width>0&&kind.height>0))continue;
+          const cmds=rectCommands(0,0,kind.width,kind.height);
+          const fb={pixel_ref:kind.pixel_ref,width:kind.width,height:kind.height,revision:kind.revision,color_transform:kind.color_transform||identityColor,matrix:[1,0,0,1,0,0],repeat:false,smoothing:Boolean(kind.smoothing)};
+          geom.push({commands:cmds,fill_rule:'nonzero',matrix:n.world,clip_ids:baseClips});
+          alpha.push({commands:cmds,fill_rule:'nonzero',matrix:n.world,alpha:nodeAlpha,clip_ids:baseClips,fill_bitmap:fb});
+          hasSoftAlpha=true;
+        }else if(kind.type==='video_frame'){
+          if(!(kind.width>0&&kind.height>0))continue;
+          const cmds=rectCommands(0,0,kind.width,kind.height);
+          geom.push({commands:cmds,fill_rule:'nonzero',matrix:n.world,clip_ids:baseClips});
+          alpha.push({commands:cmds,fill_rule:'nonzero',matrix:n.world,alpha:nodeAlpha,clip_ids:baseClips});
+        }else if(kind.type==='text_field'){
+          let added=false;
+          const th=getText?.();
+          if(th?.layout){
+            try{
+              const lay=th.layout(kind.field);
+              const fh=Math.max(1,(kind.field.format?.size||12)*1.2);
+              for(const line of (lay?.lines||[])){
+                const lw=Number.isFinite(line.width)&&line.width>0?line.width:(line.text?line.text.length*(kind.field.format?.size||12)*0.6:0);
+                const lh=Number.isFinite(line.height)&&line.height>0?line.height:fh;
+                if(!(lw>0&&lh>0))continue;
+                let x0=line.x||0,y0=line.y||0,x1=x0+lw,y1=y0+lh;
+                if(kind.field.box){x0=Math.max(0,x0);y0=Math.max(0,y0);x1=Math.min(kind.field.box.width,x1);y1=Math.min(kind.field.box.height,y1);}
+                if(x1>x0&&y1>y0){
+                  const cmds=rectCommands(x0,y0,x1-x0,y1-y0);
+                  geom.push({commands:cmds,fill_rule:'nonzero',matrix:n.world,clip_ids:baseClips});
+                  alpha.push({commands:cmds,fill_rule:'nonzero',matrix:n.world,alpha:nodeAlpha,clip_ids:baseClips});
+                  added=true;
+                }
+              }
+            }catch(_){}
+          }
+          if(!added){
+            const b=kind.field.box?{left:0,top:0,right:kind.field.box.width,bottom:kind.field.box.height}:th?.bounds?.({...kind.field,alpha:255},true);
+            if(b&&b.right>b.left&&b.bottom>b.top){
+              const cmds=rectCommands(b.left,b.top,b.right-b.left,b.bottom-b.top);
+              geom.push({commands:cmds,fill_rule:'nonzero',matrix:n.world,clip_ids:baseClips});
+              alpha.push({commands:cmds,fill_rule:'nonzero',matrix:n.world,alpha:nodeAlpha,clip_ids:baseClips});
+            }
+          }
+        }else if(kind.type==='text'){
+          const lines=(kind.text||'').split('\n'),lh=Math.max(1,(kind.font_size||12)*1.2);
+          for(let li=0;li<lines.length;li++){
+            if(!lines[li])continue;
+            const lw=measureText?measureText(lines[li],kind):lines[li].length*(kind.font_size||12)*0.6;
+            if(lw>0){
+              const cmds=rectCommands(0,li*lh,lw,lh);
+              geom.push({commands:cmds,fill_rule:'nonzero',matrix:n.world,clip_ids:baseClips});
+              alpha.push({commands:cmds,fill_rule:'nonzero',matrix:n.world,alpha:nodeAlpha,clip_ids:baseClips});
+            }
+          }
+        }
+      }
+      return {geom,alpha,hasSoftAlpha};
+    }
+    function enrichSnapshot(snap){
+      if(!snap)return snap;
+      const objs=indexNodes(snap.objects||[]),byKey=objs.__byKey;
+      if(extMasks.size>0){
+        for(const [tKey,mKey] of [...extMasks.entries()]){
+          if(!player.object_alive(tKey)||!player.object_alive(mKey))extMasks.delete(tKey);
+        }
+        const ordered=[],visited=new Set(),visiting=new Set();
+        const visitTarget=tKey=>{
+          if(visited.has(tKey)||visiting.has(tKey))return;
+          const mKey=extMasks.get(tKey);if(!mKey)return;
+          visiting.add(tKey);
+          for(const [otherT] of extMasks.entries()){
+            const otherNode=byKey.get(otherT),mNode=byKey.get(mKey);
+            if(otherNode&&mNode&&descendant(mNode,otherNode,snap.objects))visitTarget(otherT);
+          }
+          visiting.delete(tKey);visited.add(tKey);ordered.push([tKey,mKey]);
+        };
+        for(const tKey of extMasks.keys())visitTarget(tKey);
+        const consumedMaskNodes=new Set();
+        snap.clips=snap.clips||[];
+        for(const [tKey,mKey] of ordered){
+          const tNode=byKey.get(tKey),mNode=byKey.get(mKey);
+          if(!tNode||!mNode)continue;
+          const clipId=`ext-mask-${tNode.object_ref.generation}-${tNode.object_ref.id}`;
+          const geom=[],alpha=[];let hasSoft=false;
+          for(const n of snap.objects){
+            if(!descendant(n,mNode,snap.objects))continue;
+            consumedMaskNodes.add(nodeKey(n));
+            const built=buildMaskComponentsForNode(n,[]);
+            geom.push(...built.geom);
+            alpha.push(...built.alpha);
+            if(built.hasSoftAlpha)hasSoft=true;
+          }
+          const clipObj={id:clipId,invert:false,components:geom};
+          const targetCached=explicitBitmapCache.has(tKey)?explicitBitmapCache.get(tKey):Boolean(tNode.cache_as_bitmap||tNode.filters?.length);
+          const maskCached=explicitBitmapCache.has(mKey)?explicitBitmapCache.get(mKey):Boolean(mNode.cache_as_bitmap||mNode.filters?.length);
+          if(hasSoft&&targetCached&&maskCached)clipObj.alpha_components=alpha;
+          if(!snap.clips.some(c=>c.id===clipId))snap.clips.push(clipObj);
+          const targetSubKeys=new Set();
+          for(const n of snap.objects){
+            if(descendant(n,tNode,snap.objects)){
+              targetSubKeys.add(nodeKey(n));
+              n.clip_ids=n.clip_ids?[...n.clip_ids,clipId]:[clipId];
+            }
+          }
+          for(const draw of (snap.draws||[])){
+            if(targetSubKeys.has(refKey(draw.owner_ref))){
+              draw.clip_ids=draw.clip_ids?[...draw.clip_ids,clipId]:[clipId];
+            }
+          }
+          for(const fg of (snap.filter_groups||[])){
+            if(targetSubKeys.has(refKey(fg.owner_ref))){
+              fg.clip_ids=fg.clip_ids?[...fg.clip_ids,clipId]:[clipId];
+            }
+          }
+          for(const sem of (snap.semantics||[])){
+            if(targetSubKeys.has(refKey(sem.owner_ref))){
+              sem.clip_ids=sem.clip_ids?[...sem.clip_ids,clipId]:[clipId];
+            }
+          }
+        }
+        if(consumedMaskNodes.size>0){
+          for(const n of snap.objects){
+            if(consumedMaskNodes.has(nodeKey(n)))n.effective_visible=false;
+          }
+          snap.draws=(snap.draws||[]).filter(d=>!consumedMaskNodes.has(refKey(d.owner_ref)));
+          snap.semantics=(snap.semantics||[]).filter(s=>!consumedMaskNodes.has(refKey(s.owner_ref)));
+        }
+      }
+      const fte=getFte3D?.();
+      if(fte&&snap.filter_groups?.length){
+        for(const fg of snap.filter_groups){
+          const spec=fte.getActiveBlendShaderSpecForKey?.(refKey(fg.owner_ref));
+          if(spec)fg.composite_operation='shader:'+JSON.stringify(spec);
+        }
+      }
+      return snap;
+    }
     function indexNodes(list){
       if(!list.__byKey){
         const byKey=new Map();
@@ -339,6 +530,7 @@
       if(!snapshotCache){
         snapshotCache=JSON.parse(player.runtime_snapshot_json());
         nodesCache=indexNodes(snapshotCache.objects);
+        enrichSnapshot(snapshotCache);
       }
       return snapshotCache;
     }
@@ -1672,9 +1864,14 @@
       }
       if(['blendMode','cacheAsBitmap','opaqueBackground'].includes(name)){
         ownerInfo(target);
+        const key=referenceOf(target).key;
         if(name==='blendMode'&&getFte3D()?.isBlendModeShaderActive(target))return 'shader';
+        if(name==='cacheAsBitmap'&&typeof player.object_filters==='function'){
+          try{if(JSON.parse(player.object_filters(key)).length>0)return true;}catch(_){}
+          if(explicitBitmapCache.has(key))return explicitBitmapCache.get(key);
+        }
         if(typeof player.as2_render_command!=='function')return name==='blendMode'?'normal':name==='cacheAsBitmap'?false:null;
-        return JSON.parse(player.as2_render_command(referenceOf(target).key,JSON.stringify({op:'get',as3:true})))[name];
+        return JSON.parse(player.as2_render_command(key,JSON.stringify({op:'get',as3:true})))[name];
       }
       if(name==='scale9Grid'){
         ownerInfo(target);
@@ -1686,7 +1883,14 @@
       if(['content','contentLoaderInfo','uncaughtErrorEvents'].includes(name)&&owner==='loader')return getLoader().get(target,name);
       if(name==='transform')return transform(target);
       if(name==='mask'){
-        ownerInfo(target);const value=JSON.parse(player.object_mask(referenceOf(target).key));
+        ownerInfo(target);
+        const key=referenceOf(target).key;
+        if(extMasks.has(key)){
+          const mKey=extMasks.get(key);
+          if(player.object_alive(mKey))return proxyForRef(JSON.parse(mKey));
+          extMasks.delete(key);
+        }
+        const value=JSON.parse(player.object_mask(key));
         return value===null?null:proxyForRef(value);
       }
       if(name==='scrollRect'){
@@ -1791,7 +1995,10 @@
       if(owner==='text_line'&&getFte3D()?.textLineSet(target,name,value))return true;
       if(owner==='morph_shape'&&getFte3D()?.morphShapeSet(target,name,value))return true;
       if(['z','scaleZ','rotationX','rotationY','rotationZ','blendShader'].includes(name)){
-        descriptor(target);return Boolean(getFte3D()?.displaySet(target,name,value));
+        descriptor(target);
+        const ok=Boolean(getFte3D()?.displaySet(target,name,value));
+        if(ok&&name==='blendShader')invalidateDisplayCaches();
+        return ok;
       }
       if(['needsSoftKeyboard','softKeyboardInputAreaOfInterest'].includes(name)){
         if(staticText||!interactiveOwners.includes(owner))return false;descriptor(target);
@@ -1807,24 +2014,62 @@
       }
       if(['blendMode','cacheAsBitmap','opaqueBackground'].includes(name)){
         descriptor(target);
+        const key=referenceOf(target).key;
+        let effectiveValue=value;
         if(name==='blendMode'){
           if(value==='shader'){
             if(!getFte3D()?.hasBlendShader(target)){
               const err=new RangeError('DisplayObject.blendMode = BlendMode.SHADER requires blendShader to be assigned first.');
               err.name='ArgumentError';throw err;
             }
+            getFte3D().getBlendShaderSpecForDrawable?.(target);
             getFte3D().setBlendModeShaderActive(target,true);
-            return true;
+            effectiveValue='layer';
+          }else{
+            getFte3D()?.setBlendModeShaderActive(target,false);
           }
-          getFte3D()?.setBlendModeShaderActive(target,false);
+        }
+        if(name==='cacheAsBitmap'){
+          if(typeof value!=='boolean')throw new TypeError('DisplayObject.cacheAsBitmap requires a Boolean.');
+          explicitBitmapCache.set(key,value);
+          if(value===false&&typeof player.object_filters==='function'){
+            try{
+              if(JSON.parse(player.object_filters(key)).length>0){
+                try{player.as2_render_command(key,JSON.stringify({op:'set',as3:true,name:'cacheAsBitmap',value:false}));}catch(_){}
+                invalidateDisplayCaches();
+                return true;
+              }
+            }catch(_){}
+          }
         }
         if(typeof player.as2_render_command!=='function')throw new Error('Display compositing requires the shared Rust render state.');
-        const key=referenceOf(target).key;
         let next;
-        try{next=JSON.parse(player.as2_render_command(key,JSON.stringify({op:'prepare',as3:true,name,value})));}
-        catch(error){throw error instanceof Error?error:new TypeError(String(error));}
+        try{
+          next=JSON.parse(player.as2_render_command(key,JSON.stringify({op:'prepare',as3:true,name,value:effectiveValue})));
+        }catch(error){
+          const msg=String(error);
+          if(name==='cacheAsBitmap'&&value===false&&/mask|cache/i.test(msg)){
+            const curMask=JSON.parse(player.object_mask(key));
+            if(curMask!==null){
+              player.object_set_mask(key,'null');
+              extMasks.set(key,refKey(curMask));
+            }
+            for(const n of nodes()){
+              const nk=nodeKey(n);
+              const nm=JSON.parse(player.object_mask(nk));
+              if(nm&&refKey(nm)===key){
+                player.object_set_mask(nk,'null');
+                extMasks.set(nk,key);
+              }
+            }
+            next=JSON.parse(player.as2_render_command(key,JSON.stringify({op:'prepare',as3:true,name,value:effectiveValue})));
+          }else{
+            throw error instanceof Error?error:new TypeError(msg);
+          }
+        }
         if(next.isolated)beforeRaster(target);
-        player.as2_render_command(key,JSON.stringify({op:'set',as3:true,name,value}));
+        player.as2_render_command(key,JSON.stringify({op:'set',as3:true,name,value:effectiveValue}));
+        invalidateDisplayCaches();
         return true;
       }
       if(name==='scale9Grid'){
@@ -1840,7 +2085,65 @@
       if(name==='transform')throw new TypeError('Replacing DisplayObject.transform is not supported; set transform.matrix or transform.colorTransform.');
       if(name==='mask'){
         descriptor(target);if(value!==null)descriptor(value);
-        player.object_set_mask(referenceOf(target).key,JSON.stringify(value===null?null:referenceOf(value).objectRef));return true;
+        const tKey=referenceOf(target).key;
+        if(value===null){
+          extMasks.delete(tKey);
+          player.object_set_mask(tKey,'null');
+          invalidateDisplayCaches();
+          return true;
+        }
+        const mRef=referenceOf(value),mKey=mRef.key;
+        const list=nodes(),tNode=descriptor(target,list),mNode=descriptor(value,list);
+        if(tKey===mKey||descendant(tNode,mNode,list)||descendant(mNode,tNode,list)){
+          throw new Error('mask target and source subtrees must not overlap');
+        }
+        const getMaskKey=k=>{
+          if(extMasks.has(k))return extMasks.get(k);
+          try{const rm=JSON.parse(player.object_mask(k));return rm?refKey(rm):null;}catch(_){return null;}
+        };
+        for(let cur=mKey,depth=0;cur;cur=getMaskKey(cur),depth++){
+          if(cur===tKey||depth>=32)throw new Error('Runtime mask dependencies are cyclic or exceed 32 levels.');
+        }
+        for(const [otherT,otherM] of [...extMasks.entries()]){
+          if(otherM===mKey)extMasks.delete(otherT);
+        }
+        let targetIsMaskSource=false;
+        for(const [,otherM] of extMasks.entries())if(otherM===tKey)targetIsMaskSource=true;
+        const migratedTargets=[];
+        for(const n of list){
+          const nk=nodeKey(n);
+          try{
+            const rm=JSON.parse(player.object_mask(nk));
+            if(rm&&refKey(rm)===tKey){
+              targetIsMaskSource=true;
+              migratedTargets.push(nk);
+            }
+          }catch(_){}
+        }
+        const maskHasOwnMask=Boolean(getMaskKey(mKey));
+        if(!targetIsMaskSource&&!maskHasOwnMask){
+          try{
+            extMasks.delete(tKey);
+            player.object_set_mask(tKey,JSON.stringify(mRef.objectRef));
+            invalidateDisplayCaches();
+            return true;
+          }catch(_){}
+        }
+        for(const nk of migratedTargets){
+          player.object_set_mask(nk,'null');
+          extMasks.set(nk,tKey);
+        }
+        for(const n of list){
+          const nk=nodeKey(n);
+          try{
+            const rm=JSON.parse(player.object_mask(nk));
+            if(rm&&refKey(rm)===mKey)player.object_set_mask(nk,'null');
+          }catch(_){}
+        }
+        player.object_set_mask(tKey,'null');
+        extMasks.set(tKey,mKey);
+        invalidateDisplayCaches();
+        return true;
       }
       if(name==='scrollRect'){
         descriptor(target);
@@ -2225,7 +2528,88 @@
       if(!text?.isFontCompatible)throw new Error('TextField.isFontCompatible requires the shared text service.');
       return text.isFontCompatible(fontName,fontStyle);
     };
-    return {methods,get,set,builtins,stageContainer,setGraphicsVectorFactories,setSecuritySandbox,isObjectInaccessible:target=>{if(!target||target===getStage()||!alive(target))return false;const list=nodes();return isNodeInaccessible(descriptor(target,list),list);},as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2RedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,ownerOf,ownerInfo,childByName,hasChild,snapshot,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,addLegacyEvent,flushClipLoads,notifyData,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{snapshotCache=null;nodesCache=null;childMapCache=null;as2SettingsCache=null;ownerCache.clear();descriptorCache.clear();legacy.clear();pendingClipLoads.length=0;staticTextLifetimes.clear();accProps=new WeakMap();spriteSoundTransforms=new WeakMap();securitySandboxes=new WeakMap();touchDragId=null;contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();softKeyboardNeeds=new WeakMap();softKeyboardRects=new WeakMap();transformMatrix3D=new WeakMap();transformPerspective=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
+    function needsCustomDrawSnapshot(source){
+      if(!graph||!alive(source)||extMasks.size===0)return false;
+      const full=snapshot();
+      return Boolean(full?.objects?.__byKey?.has(referenceOf(source)?.key));
+    }
+    function buildDrawSnapshot(source,m,ct){
+      const full=snapshot(),list=full.objects,srcNode=descriptor(source,list);
+      const invWorld=inverse(srcNode.world),affine=multiply(m,invWorld);
+      const subKeys=new Set();
+      for(const n of list)if(descendant(n,srcNode,list))subKeys.add(nodeKey(n));
+      const composeRgba=rgba=>{
+        if(!rgba)return rgba;
+        const clampB=v=>v<=0?0:v>=255?255:Math.round(v);
+        return [
+          clampB(rgba[0]*ct.multipliers[0]+ct.offsets[0]),
+          clampB(rgba[1]*ct.multipliers[1]+ct.offsets[1]),
+          clampB(rgba[2]*ct.multipliers[2]+ct.offsets[2]),
+          clampB(rgba[3]*ct.multipliers[3]+ct.offsets[3]),
+        ];
+      };
+      const composeCt=inner=>{
+        const base=inner||identityColor;
+        return {
+          multipliers:[base.multipliers[0]*ct.multipliers[0],base.multipliers[1]*ct.multipliers[1],base.multipliers[2]*ct.multipliers[2],base.multipliers[3]*ct.multipliers[3]],
+          offsets:[base.offsets[0]*ct.multipliers[0]+ct.offsets[0],base.offsets[1]*ct.multipliers[1]+ct.offsets[1],base.offsets[2]*ct.multipliers[2]+ct.offsets[2],base.offsets[3]*ct.multipliers[3]+ct.offsets[3]],
+        };
+      };
+      const isIdentityCt=ct.multipliers.every(v=>v===1)&&ct.offsets.every(v=>v===0);
+      const subGroups=(full.filter_groups||[]).filter(fg=>subKeys.has(refKey(fg.owner_ref)));
+      const subGroupIds=new Set(subGroups.map(fg=>fg.id));
+      const mappedGroups=subGroups.map(fg=>({
+        ...fg,
+        parent_id:fg.parent_id&&subGroupIds.has(fg.parent_id)?fg.parent_id:null,
+        opaque_background:fg.opaque_background&&!isIdentityCt?composeRgba(fg.opaque_background):fg.opaque_background,
+      }));
+      const neededClipIds=new Set();
+      const collectClip=cid=>{
+        if(!cid||neededClipIds.has(cid))return;
+        neededClipIds.add(cid);
+        const c=(full.clips||[]).find(item=>item.id===cid);
+        if(c){
+          for(const comp of [...(c.components||[]),...(c.alpha_components||[])]){
+            for(const dep of (comp.clip_ids||[]))collectClip(dep);
+          }
+        }
+      };
+      const mappedDraws=(full.draws||[]).filter(d=>subKeys.has(refKey(d.owner_ref))).map(d=>{
+        for(const cid of (d.clip_ids||[]))collectClip(cid);
+        let kind=d.kind;
+        let alpha=d.alpha;
+        if(!isIdentityCt){
+          if(kind.type==='rectangle'||kind.type==='ellipse'||kind.type==='path'||kind.type==='gradient_path'){
+            kind={...kind,fill:composeRgba(kind.fill),stroke:composeRgba(kind.stroke)};
+            if(kind.fill_gradient)kind.fill_gradient={...kind.fill_gradient,stops:kind.fill_gradient.stops.map(s=>({...s,color:composeRgba(s.color)}))};
+          }else if(kind.type==='bitmap_pixels'){
+            kind={...kind,color_transform:composeCt(kind.color_transform)};
+          }else if(kind.type==='text'){
+            kind={...kind,color:composeRgba(kind.color)};
+          }else if(kind.type==='text_field'){
+            alpha=Math.max(0,Math.min(1,(d.alpha*ct.multipliers[3])+(ct.offsets[3]/255)));
+          }
+        }
+        return {
+          ...d,
+          transform:multiply(affine,d.transform),
+          alpha,
+          filter_id:d.filter_id&&subGroupIds.has(d.filter_id)?d.filter_id:null,
+          kind,
+        };
+      });
+      for(const fg of mappedGroups){
+        for(const cid of (fg.clip_ids||[]))collectClip(cid);
+      }
+      const mapComp=comp=>({...comp,matrix:multiply(affine,comp.matrix)});
+      const mappedClips=(full.clips||[]).filter(c=>neededClipIds.has(c.id)).map(c=>({
+        ...c,
+        components:(c.components||[]).map(mapComp),
+        ...(c.alpha_components?{alpha_components:c.alpha_components.map(mapComp)}:{}),
+      }));
+      return {objects:[],semantics:[],clips:mappedClips,filter_groups:mappedGroups,draws:mappedDraws};
+    }
+    return {methods,get,set,builtins,stageContainer,setGraphicsVectorFactories,setSecuritySandbox,isObjectInaccessible:target=>{if(!target||target===getStage()||!alive(target))return false;const list=nodes();return isNodeInaccessible(descriptor(target,list),list);},as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2RedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,ownerOf,ownerInfo,childByName,hasChild,snapshot,enrichSnapshot,needsCustomDrawSnapshot,buildDrawSnapshot,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,addLegacyEvent,flushClipLoads,notifyData,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{snapshotCache=null;nodesCache=null;childMapCache=null;as2SettingsCache=null;extMasks.clear();explicitBitmapCache.clear();ownerCache.clear();descriptorCache.clear();legacy.clear();pendingClipLoads.length=0;staticTextLifetimes.clear();accProps=new WeakMap();spriteSoundTransforms=new WeakMap();securitySandboxes=new WeakMap();touchDragId=null;contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();softKeyboardNeeds=new WeakMap();softKeyboardRects=new WeakMap();transformMatrix3D=new WeakMap();transformPerspective=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
   }
   const api={create,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;

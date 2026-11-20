@@ -309,6 +309,28 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
       assert.equal(getQName(rotTf),'flash.text::TextField');
       assert.match(descType(widget).toXMLString(),/<implementsInterface type="flash\.display::IBitmapDrawable"\/>/);
 
+      // DisplayObject.mask completeness: dynamic mask assignment/reassignment/nulling, TextField/Video masks, nested masks, external draw mask
+      {
+        const mBox=new Sprite();
+        const mTarget=new Sprite();mTarget.graphics.beginFill(0xdd2244);mTarget.graphics.drawRect(0,0,40,40);mTarget.graphics.endFill();
+        const mA=new Shape();mA.graphics.beginFill(0x00ff00);mA.graphics.drawRect(0,0,24,24);mA.graphics.endFill();
+        const mB=new Shape();mB.graphics.beginFill(0x0000ff);mB.graphics.drawRect(12,12,24,24);mB.graphics.endFill();
+        mBox.addChild(mTarget);mBox.addChild(mA);mBox.addChild(mB);
+        scene.addChild(mBox);
+        mA.mask=mB;
+        mTarget.mask=mA;
+        assert.equal(mTarget.hitTestPoint(18,18,true),true);
+        assert.equal(mTarget.hitTestPoint(4,4,true),false);
+        assert.equal(mTarget.getBounds(mBox).width,40);
+        const mBmp=new BitmapData(40,40,true,0);
+        mBmp.draw(mTarget);
+        assert.equal(mBmp.getPixel(18,18),0xdd2244);
+        assert.equal(mBmp.getPixel32(4,4),0);
+        mA.mask=null;mTarget.mask=null;
+        mBmp.dispose();
+        scene.removeChild(mBox);
+      }
+
       scene.removeChild(dynBtn);
     }
     const legacy=scene.createEmptyMovieClip('legacyRuntime',scene.getNextHighestDepth());

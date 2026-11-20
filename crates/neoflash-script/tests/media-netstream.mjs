@@ -963,11 +963,21 @@ var as2RtmpRet:Boolean = as2RtmpNc.connect("rtmp://live.example.test/as2");
 
 var as2Nc:NetConnection = new NetConnection();
 var as2Ns:NetStream = null;
+var as2PubNs:NetStream = null;
+var as2ConflictNs:NetStream = null;
+var as2SubNs:NetStream = null;
 var as2Ready:Boolean = false;
 var as2Statuses:Array = [];
 var as2PlayStatuses:Array = [];
 var as2Metas:Array = [];
 var as2Cues:Array = [];
+var as2PubStatuses:Array = [];
+var as2ConflictStatuses:Array = [];
+var as2SubStatuses:Array = [];
+var as2SubMetas:Array = [];
+var as2SubMessages:Array = [];
+var as2PubLiveDelay:Number = -1;
+var as2SubLiveDelay:Number = -1;
 
 as2Nc.onStatus = function(info:Object):Void {
   if (info.code == "NetConnection.Connect.Success") {
@@ -977,8 +987,37 @@ as2Nc.onStatus = function(info:Object):Void {
     as2Ns.onMetaData = function(md:Object):Void { as2Metas.push(md); };
     as2Ns.onCuePoint = function(cp:Object):Void { as2Cues.push(cp.name); };
     as2Video.attachVideo(as2Ns);
+
+    as2PubNs = new NetStream(as2Nc);
+    as2PubNs.onStatus = function(st:Object):Void { as2PubStatuses.push(st.code + ":" + st.level); };
+    as2ConflictNs = new NetStream(as2Nc);
+    as2ConflictNs.onStatus = function(st:Object):Void { as2ConflictStatuses.push(st.code + ":" + st.level); };
+    as2SubNs = new NetStream(as2Nc);
+    as2SubNs.onStatus = function(st:Object):Void { as2SubStatuses.push(st.code + ":" + st.level); };
+    as2SubNs.onMetaData = function(md:Object):Void { as2SubMetas.push(md); };
+    as2SubNs.onLiveTag = function(msg:String, seq:Number):Void { as2SubMessages.push(msg + ":" + seq); };
     as2Ready = true;
   }
+};
+this.startAs2PublishLoopback = function():Void {
+  var mic:Microphone = Microphone.get();
+  var cam:Camera = Camera.get();
+  if (cam != null) cam.setMode(240, 180, 20);
+  as2PubNs.attachAudio(mic);
+  as2PubNs.attachVideo(cam, 80);
+  as2PubNs.publish("studioFeed", "live");
+  as2ConflictNs.publish("studioFeed", "live");
+  as2Video.attachVideo(as2SubNs);
+  as2SubNs.play("studioFeed");
+  as2PubNs.send("onLiveTag", "beat", 7);
+};
+this.sampleAs2LiveDelaysAndUnpublish = function():Void {
+  as2PubLiveDelay = as2PubNs.liveDelay;
+  as2SubLiveDelay = as2SubNs.liveDelay;
+  as2PubNs.attachAudio(false);
+  as2PubNs.attachVideo(null);
+  as2PubNs.publish(false);
+  as2Video.attachVideo(as2Ns);
 };
 as2Nc.connect(null);
 
@@ -1241,6 +1280,28 @@ var as2MatrixRead:Array = [tfRead.ll, tfRead.lr, tfRead.rl, tfRead.rr];
         () => Array.from(scene.as2Statuses).includes('NetStream.Play.Stop')
           && Array.from(scene.as2PlayStatuses).includes('NetStream.Play.Complete'),
         'AS2 bounded data: URI playback stops at start+len and fires onPlayStatus(Complete)'
+      );
+
+      // AS2 NetStream.{attachAudio, attachVideo, publish, liveDelay} live loopback verification
+      scene.startAs2PublishLoopback();
+      await until(
+        () => Array.from(scene.as2PubStatuses).includes('NetStream.Publish.Start:status')
+          && Array.from(scene.as2ConflictStatuses).includes('NetStream.Publish.BadName:error')
+          && Array.from(scene.as2SubStatuses).includes('NetStream.Play.Start:status')
+          && Array.from(scene.as2SubMetas).length >= 1
+          && Array.from(scene.as2SubMessages).includes('beat:7'),
+        'AS2 NetStream publish/play loopback delivers Publish.Start, BadName, subscriber metadata & send() messages'
+      );
+      scene.sampleAs2LiveDelaysAndUnpublish();
+      assert.equal(typeof scene.as2PubLiveDelay, 'number');
+      assert.equal(typeof scene.as2SubLiveDelay, 'number');
+      assert.ok(scene.as2PubLiveDelay > 0, `expected positive publisher liveDelay, got ${scene.as2PubLiveDelay}`);
+      assert.ok(scene.as2SubLiveDelay > 0, `expected positive subscriber liveDelay, got ${scene.as2SubLiveDelay}`);
+      assert.equal(scene.as2SubMetas[0].live, true);
+      await until(
+        () => Array.from(scene.as2PubStatuses).includes('NetStream.Unpublish.Success:status')
+          && Array.from(scene.as2SubStatuses).includes('NetStream.Play.UnpublishNotify:status'),
+        'AS2 NetStream publish(false) emits Unpublish.Success and subscriber UnpublishNotify'
       );
 
       // -----------------------------------------------------------------------

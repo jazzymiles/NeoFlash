@@ -83,7 +83,7 @@
     if(mode==='auto'&&b===0&&c===0&&Math.abs(a-1)<=0.001&&Math.abs(d-1)<=0.001)return [1,0,0,1,Math.round(e),Math.round(f)];
     return [...matrix];
   }
-  function create({player,geometry,createCanvas,getBinary,getFilters,displayRef,paintScene,onInvalidate,as2,maxCacheBytes=128*1024*1024,maxCacheEntries=256}={}){
+  function create({player,geometry,createCanvas,getBinary,getFilters,getFte3D,displayRef,buildDisplayDrawSnapshot,paintScene,onInvalidate,as2,maxCacheBytes=128*1024*1024,maxCacheEntries=256}={}){
     if(!player||!geometry?.Rectangle)throw new TypeError('BitmapData requires the shared Rust Player and Rectangle type.');
     if(!Number.isSafeInteger(maxCacheBytes)||maxCacheBytes<0||!Number.isSafeInteger(maxCacheEntries)||maxCacheEntries<0)throw new RangeError('Bitmap cache budgets must be nonnegative safe integers.');
     const references=new WeakMap(),facades=new Map(),uploads=new Map(),locks=new Map(),partialDisplay=new Map();
@@ -336,11 +336,21 @@
         if(ct.multipliers.some(value=>Math.abs(value)>1e4)||ct.offsets.some(value=>Math.abs(value)>255))throw new RangeError('BitmapData.draw ColorTransform exceeds the shared multiplier/offset bounds.');
         const as2BlendNames=['','normal','layer','multiply','screen','lighten','darken','difference','add','subtract','invert','alpha','erase','overlay','hardlight'];
         const normalizedBlend=typeof blendMode==='number'&&Number.isInteger(blendMode)&&blendMode>=0&&blendMode<=14?(as2BlendNames[blendMode]||'normal'):blendMode;
-        const validBlendModes=new Set(['normal','layer','multiply','screen','lighten','darken','difference','add','subtract','invert','alpha','erase','overlay','hardlight']);
+        const validBlendModes=new Set(['normal','layer','multiply','screen','lighten','darken','difference','add','subtract','invert','alpha','erase','overlay','hardlight','shader']);
         if(normalizedBlend!==null&&!validBlendModes.has(normalizedBlend)){const err=new TypeError(`BitmapData.draw blendMode is invalid: '${blendMode}'.`);err.name='ArgumentError';throw err;}
         const drawBlend=normalizedBlend===null?'normal':normalizedBlend;
+        let shaderSpec=null;
+        if(drawBlend==='shader'){
+          shaderSpec=getFte3D?.()?.getBlendShaderSpecForDrawable?.(source)||null;
+          if(!shaderSpec){
+            const err=new RangeError('BitmapData.draw with BlendMode.SHADER requires source.blendShader to reference a valid Shader.');
+            err.name='ArgumentError';throw err;
+          }
+        }
         const commitDraw=rgba=>{
-          if(drawBlend!=='normal'&&typeof player.bitmap_draw_rgba_blended==='function')native('bitmap_draw_rgba_blended',ref,info.width,info.height,rgba,clipJSON,info.revision,drawBlend);
+          if(drawBlend==='shader'&&shaderSpec&&typeof player.bitmap_draw_rgba_shader==='function'){
+            native('bitmap_draw_rgba_shader',ref,info.width,info.height,rgba,clipJSON,info.revision,shaderSpec.bytecode_base64,shaderSpec.precision_hint,shaderSpec.params_json);
+          }else if(drawBlend!=='normal'&&typeof player.bitmap_draw_rgba_blended==='function')native('bitmap_draw_rgba_blended',ref,info.width,info.height,rgba,clipJSON,info.revision,drawBlend);
           else native('bitmap_draw_rgba',ref,info.width,info.height,rgba,clipJSON,info.revision);
         };
         if(typeof smoothing!=='boolean')throw new TypeError('BitmapData.draw smoothing requires a Boolean.');
@@ -380,13 +390,36 @@
         };
         const clip=clipRect===null?null:rectangle(clipRect),clipJSON=JSON.stringify(clip&&{x:clip[0],y:clip[1],width:clip[2],height:clip[3]});
         if(info.width*info.height>4*1024*1024)throw new RangeError('BitmapData.draw staging exceeds the 4 Mi-pixel raster budget.');
-        let snapshot;
+        let snapshot,usedFallbackSnapshot=false;
         if(references.has(source)){
           const input=descriptor(source);
           snapshot={objects:[],semantics:[],clips:[],filter_groups:[],draws:[{transform:m,alpha:1,clip_ids:[],filter_id:null,kind:{type:'bitmap_pixels',pixel_ref:reference(source),width:input.width,height:input.height,revision:input.revision,color_transform:ct,smoothing:effectiveSmoothing,pixel_snapping:'never'}}]};
         }else{
           const sourceRef=displayRef?.(source);if(!sourceRef)throw new TypeError('BitmapData.draw requires BitmapData or a live DisplayObject from this publication.');
-          snapshot=JSON.parse(native('bitmap_draw_snapshot',key(sourceRef),JSON.stringify(m),JSON.stringify(ct)));
+          const srcKey=key(sourceRef);
+          if(buildDisplayDrawSnapshot?.needsCustom?.(source)){
+            snapshot=buildDisplayDrawSnapshot.build(source,m,ct);
+            usedFallbackSnapshot=true;
+          }else{
+            try{
+              snapshot=JSON.parse(native('bitmap_draw_snapshot',srcKey,JSON.stringify(m),JSON.stringify(ct)));
+              if(buildDisplayDrawSnapshot?.enrich)snapshot=buildDisplayDrawSnapshot.enrich(snapshot);
+            }catch(err){
+              if(buildDisplayDrawSnapshot?.build&&/external mask dependencies/i.test(String(err?.message||err))){
+                snapshot=buildDisplayDrawSnapshot.build(source,m,ct);
+                usedFallbackSnapshot=true;
+              }else{
+                throw err;
+              }
+            }
+          }
+          if(Array.isArray(snapshot?.filter_groups)){
+            for(const fg of snapshot.filter_groups){
+              if(key(fg.owner_ref)===srcKey&&String(fg.composite_operation||'').startsWith('shader:')){
+                fg.composite_operation='source-over';
+              }
+            }
+          }
           if(qNorm==='low'||effectiveSmoothing){
             for(const d of (snapshot?.draws||[])){
               const k=d?.kind;
@@ -455,9 +488,29 @@
           const mScaled=scale===1?m:[m[0]*scale,m[1]*scale,m[2]*scale,m[3]*scale,m[4]*scale,m[5]*scale];
           const hasBitmapDraws=(snapshot?.draws||[]).some(d=>d?.kind&&(d.kind.type==='bitmap_pixels'||d.kind.fill_bitmap||d.kind.stroke_bitmap));
           const needSmoothingOverride=(qNorm==='low'||effectiveSmoothing)&&hasBitmapDraws;
-          const usedRust=!references.has(source)&&!needSmoothingOverride&&typeof player.bitmap_render_snapshot==='function';
+          const hasCustomSnapshot=usedFallbackSnapshot||Boolean(
+            snapshot?.filter_groups?.some(g=>String(g?.composite_operation||'').startsWith('shader:'))
+            ||snapshot?.clips?.some(c=>String(c?.id||'').startsWith('ext-mask-'))
+          );
+          const scaleSnapshotForSub=snap=>{
+            if(scale<=1||!snap)return snap;
+            const scaleMat=mat=>Array.isArray(mat)?[mat[0]*scale,mat[1]*scale,mat[2]*scale,mat[3]*scale,mat[4]*scale,mat[5]*scale]:mat;
+            const mapComp=comp=>({...comp,matrix:scaleMat(comp.matrix)});
+            return {
+              ...snap,
+              draws:(snap.draws||[]).map(d=>({...d,transform:scaleMat(d.transform)})),
+              clips:(snap.clips||[]).map(c=>({
+                ...c,
+                components:(c.components||[]).map(mapComp),
+                ...(c.alpha_components?{alpha_components:c.alpha_components.map(mapComp)}:{}),
+              })),
+            };
+          };
+          const usedRust=!references.has(source)&&!needSmoothingOverride&&(hasCustomSnapshot?typeof player.bitmap_render_runtime_snapshot==='function':typeof player.bitmap_render_snapshot==='function');
           const hiRgba=usedRust
-            ?new Uint8Array(player.bitmap_render_snapshot(key(displayRef(source)),JSON.stringify(mScaled),JSON.stringify(ct),rw,rh))
+            ?(hasCustomSnapshot
+              ?new Uint8Array(player.bitmap_render_runtime_snapshot(JSON.stringify(scaleSnapshotForSub(snapshot)),rw,rh))
+              :new Uint8Array(player.bitmap_render_snapshot(key(displayRef(source)),JSON.stringify(mScaled),JSON.stringify(ct),rw,rh)))
             :new Uint8Array(rw*rh*4);
           const clampByte=v=>v<=0?0:v>=255?255:Math.round(v);
           const blendPixel=(x,y,r,g,b,a,applyRootCt=true)=>{

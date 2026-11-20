@@ -378,9 +378,11 @@
   function clipGroups(ids,table) {
     return [...new Set(ids||[])].map(id=>{const clip=table.get(id);if(!clip)throw new Error(`Runtime clip '${id}' is missing; re-export this project.`);return clip;});
   }
-  function clipsContain(context,ids,table,x,y,cache) {
-    context.save();try{
-      context.setTransform(1,0,0,1,0,0);
+  function clipsContain(context,ids,table,x,y,cache,bitmaps=null) {
+    const hasPath2D=Boolean(context&&typeof context.isPointInPath==='function'&&cache);
+    if(hasPath2D)context.save();
+    try{
+      if(hasPath2D)context.setTransform(1,0,0,1,0,0);
       const containsGroup=(clip,ancestors)=>{
         if(ancestors.has(clip.id)||ancestors.size>=32)throw new Error('Runtime mask dependencies are cyclic or exceed 32 levels.');
         const next=new Set(ancestors);next.add(clip.id);
@@ -389,13 +391,25 @@
           const m=component.matrix,det=m[0]*m[3]-m[1]*m[2];if(!Number.isFinite(det)||det===0)return false;
           const p=point(inverse(m),x,y);
           if(component.fill_gradient&&paintAlpha(component,'fill',p[0],p[1])<=0)return false;
-          return context.isPointInPath(cache.get(component.commands),p[0],p[1],component.fill_rule||'nonzero')
-            &&clipGroups(component.clip_ids,table).every(child=>containsGroup(child,next));
+          const inGeom=hasPath2D
+            ?context.isPointInPath(cache.get(component.commands),p[0],p[1],component.fill_rule||'nonzero')
+            :containsFallback({...component,fill:[255,255,255,255],stroke_width:0},p[0],p[1]);
+          if(!inGeom)return false;
+          if(component.fill_bitmap&&bitmaps&&typeof bitmaps.hit==='function'){
+            const bm=component.fill_bitmap.matrix||[1,0,0,1,0,0],bdet=bm[0]*bm[3]-bm[1]*bm[2];
+            if(!Number.isFinite(bdet)||bdet===0)return false;
+            const bp=point(inverse(bm),p[0],p[1]),bw=component.fill_bitmap.width,bh=component.fill_bitmap.height;
+            if(!(bw>0&&bh>0))return false;
+            const bx=component.fill_bitmap.repeat?(((bp[0]%bw)+bw)%bw):Math.max(0,Math.min(bw-1e-6,bp[0]));
+            const by=component.fill_bitmap.repeat?(((bp[1]%bh)+bh)%bh):Math.max(0,Math.min(bh-1e-6,bp[1]));
+            if(!bitmaps.hit(component.fill_bitmap,bx,by))return false;
+          }
+          return clipGroups(component.clip_ids,table).every(child=>containsGroup(child,next));
         });
         return clip.invert?!hit:hit;
       };
       return clipGroups(ids,table).every(clip=>containsGroup(clip,new Set()));
-    }finally{context.restore();}
+    }finally{if(hasPath2D)context.restore();}
   }
   // Each clip is a UNION of independently filled components. Combining their
   // commands into one Path2D changes overlap/winding semantics. Nested clips are

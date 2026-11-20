@@ -2,7 +2,7 @@
 // descriptors together. Runtime/WASM evidence; visual browser QA is separate.
 import assert from 'node:assert/strict';
 import { runCargo } from '../../../scripts/test-cargo.cjs';
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
 import { createRuntimeHost } from './host-integration.mjs';
@@ -71,5 +71,194 @@ export async function verifyInterfacesAccessors(root,cargo) {
   } finally {
     host?.disposeFamily();player?.free();rmSync(directory,{recursive:true,force:true});
   }
-  console.log('Interfaces/accessors: published typed components, inherited contracts/properties, coercion, method binding, input and Restart passed.');
+  await verifyObjectProxyAndFunction(root,cargo);
+  console.log('Interfaces/accessors: published typed components, inherited contracts/properties, object_proxy/Function, coercion, method binding, input and Restart passed.');
+}
+
+async function verifyObjectProxyAndFunction(root,cargo) {
+  const directory=mkdtempSync(resolve(root,'target/object-proxy-fn-'));
+  let player,host;
+  const bagProxySource=`package app {
+import flash.utils.Proxy;
+import flash.utils.object_proxy;
+use namespace object_proxy;
+
+public dynamic class BagProxy extends Proxy {
+  private var keys:Array = [];
+  private var vals:Object = {};
+  private var attrs:Object = {};
+  public var log:Array = [];
+
+  public function BagProxy() {
+    super();
+  }
+
+  object_proxy override function isAttribute(name:*):Boolean {
+    return super.isAttribute(name);
+  }
+
+  object_proxy override function getProperty(name:*):* {
+    var k:String = String(name);
+    if (isAttribute(name)) {
+      log.push("get@" + k);
+      return "attr:" + String(attrs[k]);
+    }
+    log.push("get:" + k);
+    return vals[k];
+  }
+
+  object_proxy override function setProperty(name:*, value:*):void {
+    var k:String = String(name);
+    if (isAttribute(name)) {
+      log.push("set@" + k);
+      attrs[k] = value;
+      return;
+    }
+    log.push("set:" + k);
+    if (keys.indexOf(k) < 0) keys.push(k);
+    vals[k] = value;
+  }
+
+  object_proxy override function callProperty(name:*, ...rest):* {
+    var k:String = String(name);
+    log.push("call:" + k + ":" + rest.length);
+    var total:int = 0;
+    for (var i:int = 0; i < rest.length; i++) total += int(rest[i]);
+    return k + ":" + total;
+  }
+
+  object_proxy override function hasProperty(name:*):Boolean {
+    var k:String = String(name);
+    log.push("has:" + k);
+    return keys.indexOf(k) >= 0;
+  }
+
+  object_proxy override function deleteProperty(name:*):Boolean {
+    var k:String = String(name);
+    if (isAttribute(name)) {
+      log.push("del@" + k);
+      var hadAttr:Boolean = k in attrs;
+      delete attrs[k];
+      return hadAttr;
+    }
+    log.push("del:" + k);
+    var idx:int = keys.indexOf(k);
+    if (idx < 0) return false;
+    keys.splice(idx, 1);
+    delete vals[k];
+    return true;
+  }
+
+  object_proxy override function nextNameIndex(index:int):int {
+    return index < keys.length ? index + 1 : 0;
+  }
+
+  object_proxy override function nextName(index:int):String {
+    return String(keys[index - 1]);
+  }
+
+  object_proxy override function nextValue(index:int):* {
+    return vals[keys[index - 1]];
+  }
+}
+}
+`;
+  const frameSource=`import app.BagProxy;
+import flash.events.Event;
+import flash.utils.object_proxy;
+import mx.utils.ObjectProxy;
+use namespace object_proxy;
+
+var bag:BagProxy = new BagProxy();
+bag.alpha = 10;
+bag.beta = 25;
+this.readSum = int(bag.alpha) + int(bag.beta);
+this.callOut = bag.sum(3, 4, 5);
+this.hasBefore = ("alpha" in bag) && !("missing" in bag);
+
+var names:Array = [];
+for (var k:String in bag) names.push(k);
+this.iterNames = names.join(",");
+
+var values:Array = [];
+for each (var v:* in bag) values.push(v);
+this.iterValues = values.join(",");
+
+bag.@badge = "gold";
+this.attrRead = bag.@badge;
+this.attrDeleted = delete bag.@badge;
+
+this.alphaDeleted = delete bag.alpha;
+this.hasAfter = ("alpha" in bag);
+this.proxyLog = bag.log.join("|");
+
+var rawObj:Object = { title: "Neo" };
+var wrapped:ObjectProxy = new ObjectProxy(rawObj);
+var propEvents:int = 0;
+wrapped.addEventListener("propertyChange", function(ev:Event):void { propEvents++; });
+wrapped.count = 4;
+wrapped.count = 9;
+this.objectProxySummary = wrapped.title + ":" + wrapped.count + ":" + propEvents + ":" + ("count" in wrapped) + ":" + (wrapped.object === rawObj);
+
+var fnDyn:Function = new Function("a", "b", "return a * b + 2;");
+var fnEmpty:Function = new Function();
+var fnPrim:Function = new Function("return Number(this) + 5;");
+var extractedCall:Function = Function.prototype.call;
+var extractedApply:Function = Function.prototype.apply;
+function checkCaller():* { return arguments.caller; }
+function outerCaller():* { return checkCaller(); }
+var BoxCtor:Function = function(label:String):void { this.label = label; };
+BoxCtor.prototype = { prefix: "box", format: function():String { return this.prefix + ":" + this.label; } };
+var dynCtor:* = BoxCtor;
+var boxInst:* = new dynCtor("ready");
+this.fnSummary = [
+  fnDyn(6, 7),
+  fnDyn.length,
+  fnEmpty() === undefined,
+  fnEmpty.length,
+  fnDyn.call(null, 3, 5),
+  fnDyn.apply(null, [4, 6]),
+  fnPrim.call(37),
+  extractedCall.call(fnDyn, null, 2, 8),
+  extractedApply.call(fnDyn, null, [5, 5]),
+  outerCaller() === undefined,
+  boxInst.format()
+].join("|");
+`;
+  const project={
+    format_version:2,name:'ObjectProxy and Function',width:320,height:240,fps:24,background:[255,255,255,255],root:'scene',
+    symbols:[{id:'scene',name:'Scene',kind:'movie_clip',timeline:{frame_count:1,layers:[],scripts:[{frame:0,script:{language:'action_script3',source:frameSource}}]}}],
+    sources:[{id:'bag-proxy',path:'app/BagProxy.as',language:'action_script3',source:bagProxySource}],
+  };
+  try {
+    const srcFile=resolve(directory,'object-proxy.nflash'),outDir=resolve(directory,'out');
+    writeFileSync(srcFile,JSON.stringify(project));
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--',srcFile,'--output',outDir],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    assert.equal(exported.status,0,exported.error?.message||exported.stderr);
+    const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
+    vm.runInContext(readFileSync(resolve(outDir,'bundle.js'),'utf8'),sandbox);
+    const bundle=vm.runInContext('NeoFlashBundle',sandbox);
+    vm.runInContext(readFileSync(resolve(outDir,'neoflash_web.js'),'utf8'),sandbox);
+    sandbox.wasmBytes=Buffer.from(bundle.wasm,'base64');
+    const wasm=await vm.runInContext('NeoFlashWasm({module_or_path:wasmBytes}).then(()=>NeoFlashWasm)',sandbox);
+    player=new wasm.WebPlayer(JSON.stringify(bundle.project));
+    ({host}=createRuntimeHost(root,player,Array.from(bundle.scripts,item=>({script:{language:item.language,source:item.source},code:item.code,location:item.location})),{bundle}));
+    host.dispatchScripts();
+    const scene=host.proxyFor([]);
+    assert.equal(scene.readSum,35);
+    assert.equal(scene.callOut,'sum:12');
+    assert.equal(scene.hasBefore,true);
+    assert.equal(scene.iterNames,'alpha,beta');
+    assert.equal(scene.iterValues,'10,25');
+    assert.equal(scene.attrRead,'attr:gold');
+    assert.equal(scene.attrDeleted,true);
+    assert.equal(scene.alphaDeleted,true);
+    assert.equal(scene.hasAfter,false);
+    assert.match(scene.proxyLog,/set:alpha\|set:beta\|get:alpha\|get:beta\|call:sum:3\|has:alpha\|has:missing/);
+    assert.match(scene.proxyLog,/set@badge\|get@badge\|del@badge\|del:alpha\|has:alpha/);
+    assert.equal(scene.objectProxySummary,'Neo:9:2:true:true');
+    assert.equal(scene.fnSummary,'44|2|true|0|17|26|42|18|27|true|box:ready');
+  } finally {
+    host?.disposeFamily();player?.free();rmSync(directory,{recursive:true,force:true});
+  }
 }
