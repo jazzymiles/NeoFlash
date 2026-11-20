@@ -3128,13 +3128,36 @@ impl Editor {
             }
         };
 
+        let standalone_as = self.is_standalone_script_session();
         let enabled = match cmd {
             CommandId::FileNew
             | CommandId::FileOpen
             | CommandId::FileImportLegacyFlash
             | CommandId::EditPreferences
             | CommandId::EditKeyboardShortcuts
-            | CommandId::WindowTimeline
+            | CommandId::HelpSearchFunctions
+            | CommandId::HelpManual
+            | CommandId::HelpScriptingReference
+            | CommandId::HelpOpenExample
+            | CommandId::HelpCheckForUpdates
+            | CommandId::HelpAbout => true,
+            CommandId::HelpSendBetaFeedback => crate::panels::beta_feedback::is_beta_build(),
+            _ if standalone_as => match cmd {
+                CommandId::FileClose
+                | CommandId::FileSave
+                | CommandId::FileSaveAs
+                | CommandId::EditFindAndReplace => true,
+                CommandId::FileRevert => self.can_revert(),
+                CommandId::EditUndo => self.history.can_undo(),
+                CommandId::EditRedo => self.history.can_redo(),
+                CommandId::EditCut
+                | CommandId::EditCopy
+                | CommandId::EditPaste
+                | CommandId::EditSelectAll => text_target(),
+                CommandId::EditSendToAi => self.has_ready_ai_connection(),
+                _ => false,
+            },
+            CommandId::WindowTimeline
             | CommandId::WindowTools
             | CommandId::WindowProperties
             | CommandId::WindowLibrary
@@ -3159,14 +3182,7 @@ impl Editor {
             | CommandId::WindowBrushes
             | CommandId::WindowHidePanels
             | CommandId::WindowInspectorPriority
-            | CommandId::WindowLibraryPriority
-            | CommandId::HelpSearchFunctions
-            | CommandId::HelpManual
-            | CommandId::HelpScriptingReference
-            | CommandId::HelpOpenExample
-            | CommandId::HelpCheckForUpdates
-            | CommandId::HelpAbout => true,
-            CommandId::HelpSendBetaFeedback => crate::panels::beta_feedback::is_beta_build(),
+            | CommandId::WindowLibraryPriority => true,
             _ if !has_doc => false,
             CommandId::FileClose
             | CommandId::FileSave

@@ -12,6 +12,7 @@ mod dialogs;
 mod export;
 mod screenshot_boot;
 mod shortcuts;
+pub(crate) mod standalone_script;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
@@ -92,6 +93,8 @@ pub struct Editor {
     pub path: Option<PathBuf>,
     /// Session-only identity of an imported source; independent of its converted Save As path.
     pub(crate) import_source: Option<PathBuf>,
+    /// True when this session edits a standalone `.as` script file in a pure Script Editor tab (`T-412`).
+    pub standalone_script: bool,
     pub saved_project: Option<Project>,
     pub(crate) edit_session: crate::symbol_edit::SymbolEditSession,
     /// Compatibility mirror for code being migrated to `edit_session`. Never infer
@@ -313,6 +316,7 @@ impl Editor {
             history: History::new(150),
             path: None,
             import_source: None,
+            standalone_script: false,
             saved_project,
             edit_session: crate::symbol_edit::SymbolEditSession::for_scene(
                 root.clone(),
@@ -634,11 +638,17 @@ impl Editor {
     /// Inspector / Library priority (R-054): show `panel` and give its stacked dock group the larger
     /// share of the side dock. Layout only; the document is untouched.
     pub(crate) fn give_dock_priority(&mut self, panel: PanelId) {
+        if self.is_standalone_script_session() {
+            return;
+        }
         self.show_panel(panel);
         self.workspace.dock.give_priority(panel);
         self.persist_workspace_requested = true;
     }
     fn reveal_panel(&mut self, panel: PanelId) {
+        if self.is_standalone_script_session() {
+            return;
+        }
         self.panels_hidden = false;
         if self.workspace.show_panel(panel) {
             self.persist_workspace_requested = true;
@@ -649,16 +659,25 @@ impl Editor {
         }
     }
     pub(crate) fn show_panel(&mut self, panel: PanelId) {
+        if self.is_standalone_script_session() {
+            return;
+        }
         if panel == PanelId::Actions {
             self.sync_actions_context_for_activation();
         }
         self.reveal_panel(panel);
     }
     pub(crate) fn open_frame_actions(&mut self) {
+        if self.is_standalone_script_session() {
+            return;
+        }
         self.script_target = ScriptTarget::Frame;
         self.open_actions();
     }
     pub(crate) fn open_actions(&mut self) {
+        if self.is_standalone_script_session() {
+            return;
+        }
         self.set_playing(false);
         if self.script_target == ScriptTarget::Object && !self.selected_editable() {
             self.script_target = ScriptTarget::Frame;
@@ -668,6 +687,9 @@ impl Editor {
         self.detached.focus_docked_actions = self.workspace.is_panel_docked(PanelId::Actions);
     }
     pub(crate) fn set_panel_visible(&mut self, panel: PanelId, visible: bool) {
+        if self.is_standalone_script_session() {
+            return;
+        }
         if visible {
             self.panels_hidden = false;
             if panel == PanelId::Actions {
@@ -1148,13 +1170,14 @@ impl Editor {
             Pending::Open | Pending::Import => {
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter(
-                        "NeoFlash, Flash, Figma or Vector/PSD document",
+                        "NeoFlash, ActionScript, Flash, Figma or Vector/PSD document",
                         &[
-                            "nflash", "json", "fla", "xfl", "xml", "swf", "swc", "fig", "figma",
-                            "svg", "psd", "psb", "pdf", "ai", "eps", "fxg",
+                            "nflash", "json", "as", "fla", "xfl", "xml", "swf", "swc", "fig",
+                            "figma", "svg", "psd", "psb", "pdf", "ai", "eps", "fxg",
                         ],
                     )
                     .add_filter("NeoFlash project", &["nflash", "json"])
+                    .add_filter("ActionScript source (.as)", &["as"])
                     .add_filter(
                         "Flash source or movie",
                         &["fla", "xfl", "xml", "swf", "swc"],
@@ -1247,6 +1270,13 @@ impl Editor {
             self.switch_session_tab(ctx, index);
             return true;
         }
+        if Self::is_actionscript_source_path(&path) {
+            if self.open_path_in_session(ctx, path) {
+                self.message("ActionScript file opened.");
+                return true;
+            }
+            return false;
+        }
         if Self::is_non_native_graphic_document_path(&path) || Self::is_legacy_flash_path(&path) {
             return self.try_import_legacy(path, ctx);
         }
@@ -1285,6 +1315,8 @@ impl Editor {
         let Some(disk_path) = self.tracked_disk_path().map(PathBuf::from) else {
             return false;
         };
+        let was_standalone_script =
+            self.standalone_script || Self::is_actionscript_source_path(&disk_path);
         let canonical_path = self.path.clone();
         let preserved_import_source = self.import_source.clone();
         match Self::load_project_from_disk_path(&disk_path) {
@@ -1345,6 +1377,11 @@ impl Editor {
                 self.workspace.general.push_recent(&disk_path);
                 self.path = canonical_path;
                 self.import_source = preserved_import_source;
+                if was_standalone_script {
+                    self.configure_active_standalone_script_state();
+                } else {
+                    self.standalone_script = false;
+                }
                 self.clear_and_retarget_recovery();
                 self.sync_disk_mtime();
                 self.history = History::new(self.workspace.undo_levels as usize);
@@ -1355,8 +1392,13 @@ impl Editor {
                 };
                 self.playing = false;
                 self.sync_session_tabs_to_prefs();
-                self.load_project_fonts(ctx);
-                self.message("Project reverted to saved version.");
+                if was_standalone_script {
+                    self.invalidate_include_dependents_across_sessions();
+                    self.message("ActionScript file reverted to saved version.");
+                } else {
+                    self.load_project_fonts(ctx);
+                    self.message("Project reverted to saved version.");
+                }
                 true
             }
             Err(e) => {
@@ -1602,6 +1644,32 @@ impl Editor {
         if !self.has_document() {
             return false;
         }
+        if self.is_standalone_script_session() {
+            let current_path = self.path.clone();
+            let needs_save_as = save_as
+                || !current_path
+                    .as_deref()
+                    .is_some_and(Self::is_actionscript_source_path);
+            if !needs_save_as && !self.guard_save_on_external_conflict(current_path.as_deref()) {
+                return false;
+            }
+            let path = if needs_save_as {
+                let (default_dir, default_name) = self.default_standalone_script_save_target();
+                let mut dialog = rfd::FileDialog::new()
+                    .add_filter("ActionScript source", &["as"])
+                    .set_file_name(&default_name);
+                if let Some(dir) = default_dir {
+                    dialog = dialog.set_directory(dir);
+                }
+                dialog.save_file()
+            } else {
+                current_path
+            };
+            let Some(path) = path else {
+                return false;
+            };
+            return self.save_standalone_script_to_path(path);
+        }
         let current_path = self.path.clone();
         let needs_save_as = save_as
             || !current_path
@@ -1739,6 +1807,9 @@ impl Editor {
         if !self.has_document() {
             return false;
         }
+        if self.is_standalone_script_session() {
+            return self.save_standalone_script_to_path(path);
+        }
         let path = if !path.is_dir() && path.extension().is_none() {
             path.with_extension("nflash")
         } else {
@@ -1787,10 +1858,11 @@ impl Editor {
         }
         let result: Result<Option<neoflash_export::FlaCompatibilityReport>, String> =
             if let Some(profile) = fla_profile {
-                let resolved_fla_project = derived_project
-                    .as_ref()
-                    .unwrap_or(&self.project)
-                    .with_resolved_script_language();
+                let base_proj = derived_project.as_ref().unwrap_or(&self.project);
+                let hydrated = self
+                    .hydrate_arbitrary_project_with_editor_context(base_proj)
+                    .0;
+                let resolved_fla_project = hydrated.with_resolved_script_language();
                 neoflash_export::export_fla_with_profile(
                     resolved_fla_project.as_ref(),
                     profile,
@@ -2068,57 +2140,77 @@ impl eframe::App for Editor {
             ctx.request_repaint_after(wait);
         }
         self.shortcuts(ctx);
-        self.sync_authored_preview();
-        if self.playing {
-            let elapsed = self.last_tick.elapsed().as_secs_f64().min(0.25);
-            self.last_tick = Instant::now();
-            self.accumulator += elapsed;
-            let step = 1. / self.project.fps.max(1) as f64;
-            while self.playing && self.accumulator >= step {
-                let before = self.frame;
-                self.tick_authored_preview();
-                let keep_1frame_live = self.symbol().timeline.frame_count <= 1
-                    && !(self.editing_scene()
-                        && self.timeline_edit.play_all_scenes
-                        && self.project.scene_ids().len() > 1)
-                    && self.live_script_preview
-                    && crate::preview::symbol_has_continuous_preview_activity(
-                        &self.project,
-                        self.symbol_id(),
-                    );
-                if !keep_1frame_live {
-                    self.after_playback_tick(before);
+        let _ = self.handle_window_document_or_as_file_drop(ctx);
+        let standalone_as = self.is_standalone_script_session();
+        if !standalone_as {
+            self.sync_authored_preview();
+            if self.playing {
+                let elapsed = self.last_tick.elapsed().as_secs_f64().min(0.25);
+                self.last_tick = Instant::now();
+                self.accumulator += elapsed;
+                let step = 1. / self.project.fps.max(1) as f64;
+                while self.playing && self.accumulator >= step {
+                    let before = self.frame;
+                    self.tick_authored_preview();
+                    let keep_1frame_live = self.symbol().timeline.frame_count <= 1
+                        && !(self.editing_scene()
+                            && self.timeline_edit.play_all_scenes
+                            && self.project.scene_ids().len() > 1)
+                        && self.live_script_preview
+                        && crate::preview::symbol_has_continuous_preview_activity(
+                            &self.project,
+                            self.symbol_id(),
+                        );
+                    if !keep_1frame_live {
+                        self.after_playback_tick(before);
+                    }
+                    self.accumulator -= step;
                 }
-                self.accumulator -= step;
+                ctx.request_repaint_after(std::time::Duration::from_millis(8));
             }
-            ctx.request_repaint_after(std::time::Duration::from_millis(8));
-        }
-        self.pump_timeline_video();
-        self.pump_timeline_audio();
-        if !self.playing && self.timeline_video.has_playing_events() {
-            ctx.request_repaint_after(std::time::Duration::from_millis(8));
+            self.pump_timeline_video();
+            self.pump_timeline_audio();
+            if !self.playing && self.timeline_video.has_playing_events() {
+                ctx.request_repaint_after(std::time::Duration::from_millis(8));
+            }
         }
         self.normalize_selection();
-        self.sync_closed_detached_panels(ctx);
+        if standalone_as {
+            crate::native_windows::set_panel_window_levels(
+                true,
+                true,
+                std::collections::HashSet::new(),
+                std::collections::HashSet::new(),
+            );
+        } else {
+            self.sync_closed_detached_panels(ctx);
+        }
         self.menu(ctx);
         self.status_bar(ctx);
-        self.bitmap_textures.begin_frame(&self.project);
-        let project_base_dir = self
-            .tracked_disk_path()
-            .and_then(std::path::Path::parent)
-            .map(std::path::Path::to_path_buf);
-        self.video_textures.begin_frame(
-            &self.project,
-            project_base_dir.as_deref(),
-            self.history.revision(),
-        );
-        self.prepare_docked_panel_focus(ctx);
+        if !standalone_as {
+            self.bitmap_textures.begin_frame(&self.project);
+            let project_base_dir = self
+                .tracked_disk_path()
+                .and_then(std::path::Path::parent)
+                .map(std::path::Path::to_path_buf);
+            self.video_textures.begin_frame(
+                &self.project,
+                project_base_dir.as_deref(),
+                self.history.revision(),
+            );
+            self.prepare_docked_panel_focus(ctx);
+        }
         if self.has_document() {
-            if !self.panels_hidden {
-                self.dock_grid(ctx);
+            if standalone_as {
+                self.document_bar(ctx);
+                self.standalone_script_editor_central(ctx);
+            } else {
+                if !self.panels_hidden {
+                    self.dock_grid(ctx);
+                }
+                self.document_bar(ctx);
+                self.stage(ctx);
             }
-            self.document_bar(ctx);
-            self.stage(ctx);
         } else {
             self.no_document_view(ctx);
         }
@@ -2128,7 +2220,7 @@ impl eframe::App for Editor {
         self.customize_tools_dialog(ctx);
         self.trace_bitmap_dialog(ctx);
         self.symbol_creation_dialog(ctx);
-        if self.has_document() {
+        if self.has_document() && !standalone_as {
             self.detached_panels(ctx);
         }
         if self.property_edit.is_some() {
@@ -2136,8 +2228,13 @@ impl eframe::App for Editor {
         }
         self.test_movie_preview_window(ctx);
         crate::panels::ui_studio::show_studio_window(ctx);
-        self.update_publish_estimate(ctx);
-        self.notification_host(ctx, self.has_document().then_some(self.stage_view.canvas));
+        if !standalone_as {
+            self.update_publish_estimate(ctx);
+        }
+        self.notification_host(
+            ctx,
+            (self.has_document() && !standalone_as).then_some(self.stage_view.canvas),
+        );
         self.reconcile_stage_cursor_after_overlays(ctx);
         crate::native_windows::configure_panels();
         let win_state = crate::macos_menu::sync(self, ctx);

@@ -2147,8 +2147,10 @@ fn run_cmd_validate<W1: Write>(
             "'validate' requires --project <file.nflash>",
         )
     })?;
-    let project = load_project_lenient(Path::new(&path_str))?;
-    let report = validate_project_full(&project, strict)?;
+    let project_file = Path::new(&path_str);
+    let base_dir = project_file.parent().filter(|p| !p.as_os_str().is_empty());
+    let project = load_project_lenient(project_file)?;
+    let report = validate_project_full_with_base_dir(&project, base_dir, strict)?;
 
     match format {
         OutputFormat::Json => {
@@ -2179,11 +2181,21 @@ fn run_cmd_validate<W1: Write>(
 }
 
 pub(crate) fn validate_project_full(project: &Project, strict: bool) -> Result<Value, CliError> {
+    validate_project_full_with_base_dir(project, None, strict)
+}
+
+fn validate_project_full_with_base_dir(
+    project: &Project,
+    base_dir: Option<&Path>,
+    strict: bool,
+) -> Result<Value, CliError> {
     let model_issues: Vec<Value> = validate_project_model(project)
         .into_iter()
         .map(|issue| json!({ "path": issue.path, "message": issue.message }))
         .collect();
-    let resolved = project.with_resolved_script_language();
+    let hydrated =
+        crate::app::standalone_script::hydrate_project_includes_from_disk(project, base_dir);
+    let resolved = hydrated.with_resolved_script_language();
     let script_diags = collect_located_script_diagnostics(&resolved);
     let script_errors: Vec<Value> = script_diags
         .iter()
@@ -2271,8 +2283,12 @@ fn run_cmd_compile<W1: Write>(
     let path_str = project_path.ok_or_else(|| {
         CliError::usage("missing_flag", "'compile' requires --project <file.nflash>")
     })?;
-    let project = load_project_valid(Path::new(&path_str))?;
-    let report = collect_compile_summary(&project);
+    let project_file = Path::new(&path_str);
+    let base_dir = project_file.parent().filter(|p| !p.as_os_str().is_empty());
+    let project = load_project_valid(project_file)?;
+    let hydrated =
+        crate::app::standalone_script::hydrate_project_includes_from_disk(&project, base_dir);
+    let report = collect_compile_summary(&hydrated);
     let error_count = report["error_count"].as_u64().unwrap_or(0);
     let warning_count = report["warning_count"].as_u64().unwrap_or(0);
     if error_count > 0 || (strict && warning_count > 0) {
@@ -2312,7 +2328,8 @@ fn run_cmd_compile<W1: Write>(
 }
 
 pub(crate) fn collect_compile_summary(project: &Project) -> Value {
-    let resolved = project.with_resolved_script_language();
+    let hydrated = crate::app::standalone_script::hydrate_project_includes_from_disk(project, None);
+    let resolved = hydrated.with_resolved_script_language();
     let eff_lang = resolved.effective_script_language();
     let also_compat = resolved.also_compile_compatible_scripts;
     let diags = collect_located_script_diagnostics(&resolved);
@@ -2480,9 +2497,13 @@ fn run_cmd_eval<W1: Write>(
         _ => (0, 0),
     };
 
-    let project = load_project_valid(Path::new(&path_str))?;
+    let project_file = Path::new(&path_str);
+    let base_dir = project_file.parent().filter(|p| !p.as_os_str().is_empty());
+    let project = load_project_valid(project_file)?;
+    let hydrated =
+        crate::app::standalone_script::hydrate_project_includes_from_disk(&project, base_dir);
     let report = evaluate_project(
-        &project,
+        &hydrated,
         &EvalOptions {
             scene,
             symbol,
@@ -2535,6 +2556,8 @@ pub(crate) fn evaluate_project(project: &Project, opts: &EvalOptions) -> Result<
             "--scene and --symbol cannot both be set",
         ));
     }
+    let hydrated = crate::app::standalone_script::hydrate_project_includes_from_disk(project, None);
+    let project = hydrated.as_ref();
     let (eval_project, sym_id): (Cow<'_, Project>, String) = if let Some(ref sym_sel) = opts.symbol
     {
         let sym = resolve_symbol(project, sym_sel)?;

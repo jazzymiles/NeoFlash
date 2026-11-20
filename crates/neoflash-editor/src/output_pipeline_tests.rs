@@ -2311,3 +2311,207 @@ fn t382_multilayer_tetris_safari_error_and_preflight_compile_error_highlight_exa
         "TypeError: 'foo' is not a function (attempted to call a non-function value)"
     );
 }
+
+#[test]
+fn t412_hydrated_includes_check_play_export_live_tab_override_and_output_jump() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(1);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!(
+        "neoflash-t412-includes-{}-{seq}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+
+    // External `.as` files on disk next to `tetris.nflash` (NOT imported into `project.resources`!).
+    let rotate_path = dir.join("sub").join("rotate.as");
+    std::fs::write(&rotate_path, "var ROT_COUNT:Number = 4;\n").unwrap();
+
+    let figures_path = dir.join("figures.as");
+    std::fs::write(
+        &figures_path,
+        "#include \"sub/rotate.as\"\nvar FIGURES:Array = [\"T\", \"I\", \"O\"];\n",
+    )
+    .unwrap();
+
+    let mut project = Project::blank();
+    project.name = "TetrisIncludes".into();
+    project.script_language = Some(ScriptLanguage::ActionScript2);
+    let root_id = project.root.clone();
+    let frame_script = Script {
+        language: ScriptLanguage::ActionScript2,
+        source: "#include \"figures.as\"\ntrace(\"SPAWN=\" + FIGURES[0] + \":\" + ROT_COUNT);\nstop();\n"
+            .into(),
+    };
+    project
+        .symbol_mut(&root_id)
+        .unwrap()
+        .timeline
+        .scripts
+        .push(FrameScript {
+            layer: None,
+            frame: 0,
+            script: frame_script.clone(),
+        });
+    crate::timeline_commands::upgrade_all_format_versions(&mut project);
+    let nflash_path = dir.join("tetris.nflash");
+    std::fs::write(&nflash_path, project.to_json().unwrap()).unwrap();
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.sessions.clear();
+    assert!(editor.try_open_path(nflash_path.clone(), &ctx));
+    assert!(
+        editor.project.resources.is_empty(),
+        "authored project.resources must stay clean without mutating Undo history"
+    );
+
+    // 1. `Check script` & `Compiler errors` resolve disk `#include "figures.as"` + nested `sub/rotate.as`!
+    editor.check_action_source(&frame_script, true);
+    assert_eq!(
+        editor.status, "Code accepted for current language support.",
+        "expected Check script success, got: {}",
+        editor.status
+    );
+    editor.refresh_compiler_diagnostics();
+    assert!(
+        !editor.compiler_errors.items.iter().any(|i| i.is_error),
+        "expected 0 compiler errors: {:?}",
+        editor.compiler_errors.items
+    );
+    assert!(!editor.history.can_undo());
+
+    // 2. In-editor `Play` (`AuthoredPlayback`) executes `#include "figures.as"` + nested `sub/rotate.as`!
+    editor.clear_output(Some(&ctx));
+    editor.set_playing(true);
+    editor.sync_authored_preview();
+    assert!(
+        editor
+            .output
+            .iter()
+            .any(|line| line.contains("[trace] SPAWN=T:4")),
+        "expected AuthoredPlayback trace SPAWN=T:4, got: {:?}",
+        editor.output.events()
+    );
+    editor.set_playing(false);
+
+    // 3. SWF export and HTML5 export both hydrate disk includes automatically!
+    let swf_out = dir.join("tetris.swf");
+    assert!(editor.export_swf_dialog(Some(swf_out.clone())));
+    assert!(swf_out.is_file());
+
+    let fake_runtime = dir.join("fake-web-runtime");
+    std::fs::create_dir_all(&fake_runtime).unwrap();
+    std::fs::write(
+        fake_runtime.join("neoflash_web.js"),
+        "let NeoFlashWasm = function() {};\n",
+    )
+    .unwrap();
+    std::fs::write(
+        fake_runtime.join("neoflash_web_bg.wasm"),
+        b"\0asm\x01\0\0\0",
+    )
+    .unwrap();
+    let html_out = dir.join("html-out");
+    let hydrated = editor.project_with_hydrated_includes();
+    let index_html = neoflash_export::export_project_with_config(
+        &hydrated,
+        &html_out,
+        &fake_runtime,
+        &neoflash_export::PublishOptions::default(),
+        &editor.workspace.publish.preview_html_config(),
+    )
+    .expect("HTML5 export with hydrated disk includes must succeed");
+    assert!(index_html.is_file());
+    let bundle_js = std::fs::read_to_string(html_out.join("bundle.js")).unwrap();
+    assert!(
+        bundle_js.contains("SPAWN="),
+        "exported HTML5 bundle.js must contain compiled #include script"
+    );
+
+    // 4. Open `figures.as` in Tab 1, edit in-memory (unsaved) -> Tier-1 override updates Tab 0 `Play` immediately!
+    assert!(editor.open_path_in_session(&ctx, figures_path.clone()));
+    assert_eq!(editor.active_session, 1);
+    assert!(editor.is_standalone_script_session());
+    editor.transact_named("Edit script", |ed| {
+        ed.project.sources[0].source =
+            "#include \"sub/rotate.as\"\nvar FIGURES:Array = [\"Z_LIVE\"];\n".into();
+    });
+    editor.invalidate_include_dependents_across_sessions();
+
+    assert!(editor.switch_session_tab(&ctx, 0));
+    editor.clear_output(Some(&ctx));
+    editor.set_playing(true);
+    editor.sync_authored_preview();
+    assert!(
+        editor
+            .output
+            .iter()
+            .any(|line| line.contains("[trace] SPAWN=Z_LIVE:4")),
+        "open standalone .as tab buffer must override disk file during Play: {:?}",
+        editor.output.events()
+    );
+    editor.set_playing(false);
+
+    // 5. Introduce syntax error on line 5, col 10 of `figures.as`, save `figures.as`, check Tab 0,
+    //    and click the Output diagnostic -> jumps straight to Tab 1 (`figures.as`) at line 5, col 10!
+    assert!(editor.switch_session_tab(&ctx, 1));
+    let broken_figures = "// line 1\n// line 2\n// line 3\n// line 4\nvar bad = ;\n";
+    editor.transact_named("Edit script", |ed| {
+        ed.project.sources[0].source = broken_figures.into();
+    });
+    assert!(editor.save(false));
+    // Close Tab 1 first so we also prove clicking Output opens `figures.as` from disk when closed!
+    assert!(editor.close_session_tab(&ctx, 1));
+    assert_eq!(editor.session_count(), 1);
+    assert_eq!(editor.active_session, 0);
+
+    editor.clear_output(Some(&ctx));
+    editor.check_action_source(&frame_script, true);
+    let err_event = editor
+        .output
+        .events()
+        .iter()
+        .find(|ev| ev.severity == OutputSeverity::Error && ev.location.is_some())
+        .expect("expected located Compiler error in Output")
+        .clone();
+    let err_loc = err_event.location.unwrap();
+    assert_eq!(err_loc.line, Some(5));
+
+    assert!(editor.navigate_to_output_location(&ctx, &err_loc));
+    assert!(
+        editor.is_standalone_script_session(),
+        "clicking Output error in included figures.as must open standalone .as tab"
+    );
+    assert_eq!(editor.session_count(), 2);
+    let state = egui::text_edit::TextEditState::load(&ctx, editor.actions_editor_id()).unwrap();
+    let caret_idx = state.cursor.char_range().unwrap().primary.index;
+    let (caret_line, caret_col) =
+        neoflash_ui::components::code::line_col(broken_figures, caret_idx);
+    assert_eq!(caret_line, 5);
+    assert_eq!(caret_col, err_loc.column.unwrap_or(1));
+
+    // Also verify runtime error location resolution for `"figures.as"` navigates into the `.as` tab!
+    assert!(editor.switch_session_tab(&ctx, 0));
+    let runtime_loc = crate::output_pipeline::resolve_runtime_output_location_with_snippet(
+        &editor.project,
+        &editor.clipboard.session,
+        Some("figures.as"),
+        Some(5),
+        Some(10),
+        "TypeError: bad is undefined",
+        None,
+    )
+    .expect("runtime location for external .as file must resolve");
+    assert!(editor.navigate_to_output_location(&ctx, &runtime_loc));
+    assert!(editor.is_standalone_script_session());
+    let rt_state = egui::text_edit::TextEditState::load(&ctx, editor.actions_editor_id()).unwrap();
+    let rt_caret = rt_state.cursor.char_range().unwrap().primary.index;
+    assert_eq!(
+        neoflash_ui::components::code::line_col(broken_figures, rt_caret),
+        (5, 10)
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

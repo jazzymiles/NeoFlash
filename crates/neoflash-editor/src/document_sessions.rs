@@ -224,6 +224,7 @@ macro_rules! document_state {
                 project: Project,
                 path: Option<PathBuf>,
                 import_source: Option<PathBuf>,
+                standalone_script: bool,
                 undo_levels: usize,
                 recovery: crate::recovery::RecoveryManager,
                 onion_before: u32,
@@ -235,6 +236,11 @@ macro_rules! document_state {
                     session.saved_project = None;
                 }
                 session.import_source = import_source;
+                session.standalone_script = standalone_script;
+                if standalone_script {
+                    session.script_target = ScriptTarget::Source;
+                    session.selected_source = session.project.sources.first().map(|u| u.id.clone());
+                }
                 session.onion_before = onion_before;
                 session.onion_after = onion_after;
                 session.stage_view.prefs = stage_prefs;
@@ -249,6 +255,7 @@ document_state! { project, path, undo_levels, recovery, saved_project, root;
     history: History = History::new(undo_levels),
     path: Option<PathBuf> = path,
     import_source: Option<PathBuf> = None,
+    standalone_script: bool = false,
     saved_project: Option<Project> = saved_project,
     dirty_cache: Cell<DirtyCacheState> = Cell::new(DirtyCacheState::default()),
     edit_session: crate::symbol_edit::SymbolEditSession = crate::symbol_edit::SymbolEditSession::for_scene(root.clone(), 0.75, Vec2::ZERO),
@@ -514,6 +521,9 @@ impl Editor {
         if let Some(index) = self.session_for_open_path(&path) {
             self.switch_session_tab(ctx, index);
             return true;
+        }
+        if Self::is_actionscript_source_path(&path) {
+            return self.open_standalone_script_session(ctx, path);
         }
         if Self::is_non_native_graphic_document_path(&path) || Self::is_legacy_flash_path(&path) {
             return self.try_import_legacy(path, ctx);

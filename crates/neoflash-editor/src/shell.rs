@@ -17,6 +17,7 @@ impl Editor {
         let ctx = ui.ctx().clone();
         let publish_sc = self.tooltip_sc(CommandId::FilePublish);
         let test_sc = self.tooltip_sc(CommandId::ControlTestMovie);
+        let can_export_movie = self.has_document() && !self.is_standalone_script_session();
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = space::s2();
             let mut publish = nf::Button::primary("Publish").icon(i16::UPLOAD);
@@ -24,7 +25,7 @@ impl Editor {
                 publish = publish.shortcut(sc);
             }
             if ui
-                .add_enabled_ui_semantic(self.has_document(), |ui| ui.add(publish))
+                .add_enabled_ui_semantic(can_export_movie, |ui| ui.add(publish))
                 .inner
                 .clicked()
             {
@@ -35,7 +36,7 @@ impl Editor {
                 test = test.shortcut(sc);
             }
             if ui
-                .add_enabled_ui_semantic(self.has_document(), |ui| ui.add(test))
+                .add_enabled_ui_semantic(can_export_movie, |ui| ui.add(test))
                 .inner
                 .clicked()
             {
@@ -44,7 +45,7 @@ impl Editor {
             // Publish and Test Movie are placed first from the right edge, so they keep their
             // place when the workspace select (one fixed `width/field-m` slot) does not fit.
             let slot = neoflash_ui::metrics::field_m();
-            if ui.available_width() >= slot {
+            if !self.is_standalone_script_session() && ui.available_width() >= slot {
                 let label = self.workspace.active_workspace_label().to_owned();
                 nf::Select::new("workspace", &label)
                     .width(slot)
@@ -63,8 +64,18 @@ impl Editor {
     /// NF2 status bar (24 pt): state, document summary, shortcut chips.
     pub(crate) fn status_bar(&mut self, ctx: &egui::Context) {
         let p = palette(ctx);
-        let frames = self.symbol().timeline.frame_count.max(1);
-        let summary = if self.has_document() {
+        let standalone_as = self.is_standalone_script_session();
+        let summary = if standalone_as {
+            let lang = self
+                .standalone_script_language()
+                .unwrap_or(neoflash_core::ScriptLanguage::ActionScript2);
+            let lines = self
+                .standalone_script_source()
+                .map_or(1, |src| src.bytes().filter(|&b| b == b'\n').count() + 1);
+            let line_word = if lines == 1 { "line" } else { "lines" };
+            format!("{} · {lines} {line_word} · UTF-8", lang.display_label())
+        } else if self.has_document() {
+            let frames = self.symbol().timeline.frame_count.max(1);
             format!(
                 "Stage {} × {} · {} fps · {} frames",
                 self.project.width, self.project.height, self.project.fps, frames
@@ -81,21 +92,31 @@ impl Editor {
             .to_owned();
         let ok =
             !message.to_lowercase().contains("error") && !message.to_lowercase().contains("fail");
-        let raw_hints = [
-            (self.sc(crate::commands::CommandId::InsertFrame), "frame"),
-            (
-                self.sc(crate::commands::CommandId::InsertKeyframe),
-                "keyframe",
-            ),
-            (
-                self.sc(crate::commands::CommandId::InsertBlankKeyframe),
-                "blank keyframe",
-            ),
-            (
-                self.sc(crate::commands::CommandId::ControlTestMovie),
-                "Test Movie",
-            ),
-        ];
+        let raw_hints = if standalone_as {
+            vec![
+                (self.sc(crate::commands::CommandId::FileSave), "save"),
+                (
+                    self.sc(crate::commands::CommandId::EditFindAndReplace),
+                    "find",
+                ),
+            ]
+        } else {
+            vec![
+                (self.sc(crate::commands::CommandId::InsertFrame), "frame"),
+                (
+                    self.sc(crate::commands::CommandId::InsertKeyframe),
+                    "keyframe",
+                ),
+                (
+                    self.sc(crate::commands::CommandId::InsertBlankKeyframe),
+                    "blank keyframe",
+                ),
+                (
+                    self.sc(crate::commands::CommandId::ControlTestMovie),
+                    "Test Movie",
+                ),
+            ]
+        };
         egui::TopBottomPanel::bottom("status-bar")
             .exact_height(neoflash_ui::metrics::status_bar())
             .show_separator_line(false)

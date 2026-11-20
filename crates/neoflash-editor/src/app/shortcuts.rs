@@ -68,6 +68,36 @@ impl Editor {
             crate::commands::clear_queued_commands(ctx);
             return;
         }
+        if self.is_standalone_script_session() {
+            let clipboard_generation = crate::clipboard::paste_generation(ctx);
+            self.clipboard_events_with_generation(ctx, || clipboard_generation);
+            let typing = self.blocks_unmodified_shortcuts(ctx);
+            for &cmd in C::ALL {
+                if typing
+                    && matches!(
+                        cmd,
+                        C::EditUndo
+                            | C::EditRedo
+                            | C::EditCut
+                            | C::EditCopy
+                            | C::EditPaste
+                            | C::EditSelectAll
+                    )
+                {
+                    continue;
+                }
+                if self.command_menu_state(Some(ctx), cmd).enabled
+                    && self.take_command_shortcut(ctx, cmd)
+                {
+                    let _ = self.execute_menu_command(ctx, cmd);
+                    if !self.is_standalone_script_session() {
+                        break;
+                    }
+                }
+            }
+            crate::commands::clear_queued_commands(ctx);
+            return;
+        }
         let clipboard_generation = crate::clipboard::paste_generation(ctx);
         self.handle_stage_text_edit_keys(ctx);
         self.menu_shortcuts(ctx);

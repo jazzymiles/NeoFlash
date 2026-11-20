@@ -2094,3 +2094,234 @@ fn t322_failed_revert_preserves_an_uncommitted_path_draft_and_history() {
     assert_eq!(editor.history.undo_label(), undo_label.as_deref());
     assert!(editor.vector.draft.is_some());
 }
+
+#[test]
+fn t412_standalone_as_tab_full_window_layout_save_revert_dirty_and_workspace_preservation() {
+    use crate::commands::CommandId;
+    use crate::recovery::ExternalFileChange;
+    use eframe::App as _;
+
+    let (mut editor, ctx, dir) = setup("t412-standalone-as-tab");
+    ctx.enable_accesskit();
+
+    let nflash_path = dir.join("tetris.nflash");
+    let mut tetris = Project::blank();
+    tetris.name = "Tetris".into();
+    std::fs::write(&nflash_path, tetris.to_json().unwrap()).unwrap();
+
+    let figures_src = "// Tetris figures\nvar FIGURES:Array = [\"I\", \"O\", \"T\", \"L\"];\nfunction figureCount():Number {\n    return FIGURES.length;\n}\n";
+    let figures_path = dir.join("figures.as");
+    std::fs::write(&figures_path, figures_src).unwrap();
+
+    let as3_src = "package game {\n    import flash.display.Sprite;\n    public class Main extends Sprite {\n        public function Main() {}\n    }\n}\n";
+    let as3_path = dir.join("Main.as");
+    std::fs::write(&as3_path, as3_src).unwrap();
+
+    let sub_dir = dir.join("sub");
+    std::fs::create_dir_all(&sub_dir).unwrap();
+    let sub_figures_path = sub_dir.join("figures.as");
+    std::fs::write(&sub_figures_path, "var SUB_FIG:Number = 7;\n").unwrap();
+
+    // Start from an empty tab bar, open `tetris.nflash` in Tab 0, and capture authoring WorkspacePrefs.
+    editor.sessions.clear();
+    assert!(editor.try_open_path(nflash_path.clone(), &ctx));
+    assert_eq!(editor.active_session, 0);
+    assert!(!editor.is_standalone_script_session());
+    let workspace_before = editor.workspace.clone();
+
+    let assert_layout_preserved = |ws: &crate::workspace::WorkspacePrefs| {
+        assert_eq!(ws.panels, workspace_before.panels);
+        assert_eq!(ws.dock, workspace_before.dock);
+        assert_eq!(ws.detached, workspace_before.detached);
+        assert_eq!(ws.sizes, workspace_before.sizes);
+        assert_eq!(ws.active_bottom, workspace_before.active_bottom);
+        assert_eq!(ws.stage_toolbar, workspace_before.stage_toolbar);
+    };
+
+    // Open `figures.as` in Tab 1 via `try_open_path` -> standalone AS2 script tab!
+    assert!(editor.try_open_path(figures_path.clone(), &ctx));
+    assert_eq!(editor.session_count(), 2);
+    assert_eq!(editor.active_session, 1);
+    assert!(editor.is_standalone_script_session());
+    assert!(!editor.dirty());
+    assert_eq!(
+        editor.standalone_script_language(),
+        Some(neoflash_core::ScriptLanguage::ActionScript2)
+    );
+    assert_layout_preserved(&editor.workspace);
+
+    // Dialect switcher changes language cleanly without marking unmodified disk file dirty.
+    editor.set_standalone_script_language(neoflash_core::ScriptLanguage::ActionScript1);
+    assert_eq!(
+        editor.standalone_script_language(),
+        Some(neoflash_core::ScriptLanguage::ActionScript1)
+    );
+    assert!(!editor.dirty());
+    editor.set_standalone_script_language(neoflash_core::ScriptLanguage::ActionScript2);
+
+    // Render full 1920x1080 frame on standalone `.as` tab -> pure Script Editor, NO Stage/Timeline/Tools!
+    let mut dummy_frame = eframe::Frame::_new_kittest();
+    let full_out = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1920.0, 1080.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            editor.update(ctx, &mut dummy_frame);
+        },
+    );
+    let ak_labels: Vec<String> = full_out
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .map(|u| {
+            u.nodes
+                .iter()
+                .filter_map(|(_, n)| n.label().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    fn collect_painted_texts(shapes: &[egui::epaint::ClippedShape], out: &mut Vec<String>) {
+        fn walk_shape(shape: &egui::epaint::Shape, out: &mut Vec<String>) {
+            match shape {
+                egui::epaint::Shape::Text(t) => out.push(t.galley.job.text.clone()),
+                egui::epaint::Shape::Vec(v) => {
+                    for s in v {
+                        walk_shape(s, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+        for cs in shapes {
+            walk_shape(&cs.shape, out);
+        }
+    }
+    let mut painted_texts = Vec::new();
+    collect_painted_texts(&full_out.shapes, &mut painted_texts);
+    assert!(
+        ak_labels.iter().any(|l| l.contains("Check syntax")),
+        "standalone .as view must render Check syntax tool: {ak_labels:?}"
+    );
+    assert!(
+        painted_texts
+            .iter()
+            .any(|t| t.contains("ActionScript 2.0 · 6 lines · UTF-8")),
+        "status bar must paint standalone script summary: {painted_texts:?}"
+    );
+    assert!(
+        !painted_texts.iter().any(|t| t.starts_with("Stage 550"))
+            && !ak_labels.iter().any(|l| l == "Insert layer"),
+        "Stage summary and Timeline controls must NOT render on standalone .as tab: {painted_texts:?}"
+    );
+    assert!(
+        !editor
+            .command_menu_state(Some(&ctx), CommandId::ControlTestMovie)
+            .enabled
+    );
+    assert!(
+        !editor
+            .command_menu_state(Some(&ctx), CommandId::FilePublish)
+            .enabled
+    );
+    assert_layout_preserved(&editor.workspace);
+
+    // Open `Main.as` via `open_path_in_session` -> auto-detects ActionScript 3.0!
+    assert!(editor.open_path_in_session(&ctx, as3_path.clone()));
+    assert_eq!(editor.session_count(), 3);
+    assert!(editor.is_standalone_script_session());
+    assert_eq!(
+        editor.standalone_script_language(),
+        Some(neoflash_core::ScriptLanguage::ActionScript3)
+    );
+
+    // Drag-and-drop `sub/figures.as` onto window -> opens Tab 3 with folder disambiguation!
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1920.0, 1080.0),
+            )),
+            dropped_files: vec![egui::DroppedFile {
+                path: Some(sub_figures_path.clone()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+        |ctx| {
+            editor.update(ctx, &mut dummy_frame);
+        },
+    );
+    assert_eq!(editor.session_count(), 4);
+    assert!(editor.is_standalone_script_session());
+
+    // Switch back to `tetris.nflash` (Tab 0) -> authoring workspace is 100% preserved!
+    assert!(editor.switch_session_tab(&ctx, 0));
+    assert!(!editor.is_standalone_script_session());
+    assert_layout_preserved(&editor.workspace);
+    assert!(
+        editor
+            .command_menu_state(Some(&ctx), CommandId::ControlTestMovie)
+            .enabled
+    );
+
+    // Switch to `figures.as` (Tab 1), edit, verify dirty close prompt, then Save (`⌘S`) raw UTF-8!
+    assert!(editor.switch_session_tab(&ctx, 1));
+    let updated_src = format!("{figures_src}var EXTRA_PIECE:String = \"Z\";\n");
+    editor.transact_named("Edit script", |ed| {
+        ed.project.sources[0].source = updated_src.clone();
+    });
+    assert!(editor.dirty());
+    assert!(editor.close_session_tab(&ctx, 1));
+    assert_eq!(editor.confirm, Some(Pending::CloseSession(1)));
+    editor.confirm = None;
+    editor.close_origin = None;
+
+    assert!(editor.save(false));
+    assert!(!editor.dirty());
+    let disk_raw = std::fs::read_to_string(&figures_path).unwrap();
+    assert_eq!(disk_raw, updated_src);
+    assert!(
+        !disk_raw.trim_start().starts_with('{'),
+        "standalone .as Save must write plain UTF-8 ActionScript, NEVER .nflash JSON!"
+    );
+
+    // Refuses overwriting `.nflash` path from a standalone `.as` session; Save As `.as` succeeds!
+    assert!(!editor.save_to_path(dir.join("wrong.nflash")));
+    let copy_as_path = dir.join("figures_copy.as");
+    assert!(editor.save_to_path(copy_as_path.clone()));
+    assert_eq!(std::fs::read_to_string(&copy_as_path).unwrap(), updated_src);
+
+    // Edit buffer and `Revert` reloads saved `.as` text from disk.
+    editor.transact_named("Edit script", |ed| {
+        ed.project.sources[0].source = "// temporary unsaved edit\n".into();
+    });
+    assert!(editor.dirty());
+    assert!(editor.revert_to_saved(&ctx));
+    assert!(!editor.dirty());
+    assert_eq!(
+        editor.standalone_script_source(),
+        Some(updated_src.as_str())
+    );
+
+    // External modification on disk triggers notification + reloads raw `.as` text cleanly.
+    let external_src = "// modified externally\nvar FIGURES:Array = [\"S\", \"Z\"];\n";
+    std::fs::write(&copy_as_path, external_src).unwrap();
+    let conflicts = editor.check_external_file_changes();
+    assert_eq!(conflicts, vec![(1, ExternalFileChange::Modified)]);
+    assert!(editor.has_external_change_prompt());
+    assert!(
+        editor
+            .output
+            .iter()
+            .any(|line| line.contains("External change") && line.contains("figures_copy.as")),
+        "expected external-change notification in Output, got: {:?}",
+        editor.output.events()
+    );
+    assert!(editor.reload_external_modification(&ctx));
+    assert!(!editor.dirty());
+    assert_eq!(editor.standalone_script_source(), Some(external_src));
+}

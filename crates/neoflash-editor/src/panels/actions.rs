@@ -1685,6 +1685,629 @@ pub(crate) fn js_ts_toolbox_insertion(entry: &JsTsApiEntry) -> CodeCommand {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StandaloneScriptTool {
+    Check,
+    AutoFormat,
+    ShowHints,
+    FindReplace,
+    Collapse,
+    ExpandAll,
+    BlockComment,
+    LineComment,
+    Uncomment,
+    Sidebar,
+}
+
+const STANDALONE_TOOL_GROUPS: [&[StandaloneScriptTool]; 4] = [
+    &[
+        StandaloneScriptTool::Check,
+        StandaloneScriptTool::AutoFormat,
+        StandaloneScriptTool::ShowHints,
+        StandaloneScriptTool::FindReplace,
+    ],
+    &[
+        StandaloneScriptTool::Collapse,
+        StandaloneScriptTool::ExpandAll,
+    ],
+    &[
+        StandaloneScriptTool::BlockComment,
+        StandaloneScriptTool::LineComment,
+        StandaloneScriptTool::Uncomment,
+    ],
+    &[StandaloneScriptTool::Sidebar],
+];
+
+const STANDALONE_TOOL_OVERFLOW: [usize; 4] = [2, 1, 0, 3];
+
+fn standalone_member_icon(member: &crate::script_api::Member) -> Icon {
+    match member.kind.as_str() {
+        "class" | "interface" => i16::CLASS,
+        "property" | "constant" => i16::VARIABLE,
+        "event" | "callback" => i16::FLAG,
+        _ => i16::CODE,
+    }
+}
+
+fn standalone_member_tooltip(member: &crate::script_api::Member) -> String {
+    let mut text = match &member.params {
+        Some(params) => format!("{}({params})", member.name),
+        None => member.name.clone(),
+    };
+    if !member.ty.is_empty() && member.kind != "class" {
+        text.push_str(&format!(" : {}", member.ty));
+    }
+    if !member.owner.is_empty() {
+        text.push_str(&format!("\n{}", member.owner));
+    }
+    text.push_str(&format!("\n{}", member.kind));
+    text
+}
+
+impl Editor {
+    /// Full-window pure ActionScript editor view for standalone `.as` tabs (`T-412`).
+    /// Renders no Stage, Timeline, Tools, Library, Properties, or Breakpoints/Watch drawer,
+    /// and never mutates `self.workspace` dock/panel visibility.
+    pub(crate) fn standalone_script_editor_central(&mut self, ctx: &egui::Context) {
+        self.script_target = ScriptTarget::Source;
+        self.actions_ui.active_pinned = None;
+        self.actions_ui.pinned_tabs.clear();
+        if !self
+            .project
+            .sources
+            .iter()
+            .any(|s| Some(&s.id) == self.selected_source.as_ref())
+        {
+            self.selected_source = self.project.sources.first().map(|s| s.id.clone());
+        }
+
+        let p = neoflash_ui::palette(ctx);
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(p.bg_panel))
+            .show(ctx, |ui| {
+                let Some(original) = self.project.sources.first().cloned() else {
+                    let _ = (nf::EmptyState {
+                        icon: i16::FILE_CODE,
+                        title: "No ActionScript source loaded",
+                        body: "Open an ActionScript (.as) file to edit it here.",
+                        action: None,
+                    })
+                    .show(ui);
+                    return;
+                };
+                let mut unit = original.clone();
+                let saved_y_spacing = ui.spacing().item_spacing.y;
+                ui.spacing_mut().item_spacing.y = 0.0;
+
+                self.standalone_actions_toolbar(ui, &mut unit);
+                let line_y = ui.cursor().top();
+                ui.painter().hline(
+                    ui.max_rect().x_range(),
+                    line_y,
+                    egui::Stroke::new(1.0_f32, neoflash_ui::palette(ui.ctx()).border_subtle),
+                );
+
+                if !self.has_external_change_prompt()
+                    && let Some(change) = self.external_file_change()
+                {
+                    let name = self.document_display_name();
+                    let can_reload = change != crate::recovery::ExternalFileChange::Deleted
+                        && self
+                            .tracked_disk_path()
+                            .is_some_and(std::path::Path::exists);
+                    let notice_text =
+                        format!("“{name}” was {} on disk outside NeoFlash.", change.label());
+                    let mut reload_clicked = false;
+                    let mut keep_clicked = false;
+                    egui::Frame::new()
+                        .inner_margin(egui::Margin::symmetric(
+                            space::s4() as i8,
+                            space::s2() as i8,
+                        ))
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.spacing_mut().item_spacing.x = space::s2();
+                                    if ui.add(nf::Button::ghost("Keep editing")).clicked() {
+                                        keep_clicked = true;
+                                    }
+                                    if can_reload && ui.add(nf::Button::ghost("Reload")).clicked() {
+                                        reload_clicked = true;
+                                    }
+                                    let msg_w = ui.available_width();
+                                    ui.add(nf::InlineMessage::warning(&notice_text).width(msg_w));
+                                },
+                            );
+                        });
+                    let banner_line_y = ui.cursor().top();
+                    ui.painter().hline(
+                        ui.max_rect().x_range(),
+                        banner_line_y,
+                        egui::Stroke::new(1.0_f32, neoflash_ui::palette(ui.ctx()).border_subtle),
+                    );
+                    if reload_clicked {
+                        ui.spacing_mut().item_spacing.y = saved_y_spacing;
+                        let _ = self.reload_external_modification(ui.ctx());
+                        ui.ctx().request_repaint();
+                        return;
+                    }
+                    if keep_clicked {
+                        let _ = self.keep_editing_external_change();
+                    }
+                }
+
+                ui.spacing_mut().item_spacing.y = saved_y_spacing;
+                let raw_rest = ui.available_rect_before_wrap();
+                let bound_right = ui.max_rect().right().min(ui.clip_rect().right());
+                let bound_bottom = ui.max_rect().bottom().min(ui.clip_rect().bottom());
+                let rest = egui::Rect::from_min_max(
+                    raw_rest.min,
+                    egui::pos2(
+                        bound_right.max(raw_rest.left()),
+                        bound_bottom.max(raw_rest.top()),
+                    ),
+                );
+                ui.advance_cursor_after_rect(rest);
+
+                let main = if self.actions_ui.sidebar && rest.width() >= sidebar_min_panel() {
+                    let side = egui::Rect::from_min_size(
+                        rest.min,
+                        egui::vec2(sidebar_width(), rest.height()),
+                    );
+                    let mut side_ui = ui.new_child(
+                        egui::UiBuilder::new()
+                            .id_salt(("standalone-actions-sidebar", &self.clipboard.session))
+                            .max_rect(
+                                side.shrink(space::s2())
+                                    .with_max_x(side.right() - 1. - space::s2()),
+                            ),
+                    );
+                    self.standalone_toolbox_sidebar(&mut side_ui, unit.language);
+                    ui.painter().vline(
+                        side.right() - 0.5,
+                        side.y_range(),
+                        egui::Stroke::new(1.0_f32, neoflash_ui::palette(ui.ctx()).border_subtle),
+                    );
+                    egui::Rect::from_min_max(egui::pos2(side.right(), rest.top()), rest.max)
+                } else {
+                    rest
+                };
+
+                let mut main_ui = ui.new_child(
+                    egui::UiBuilder::new()
+                        .id_salt(("standalone-actions-main", &self.clipboard.session))
+                        .max_rect(main),
+                );
+                let tab = unit.path.clone();
+                let _ =
+                    self.script_workspace(&mut main_ui, &mut unit.source, unit.language, "", &tab);
+                if unit.source != original.source
+                    && self
+                        .project
+                        .sources
+                        .first()
+                        .is_some_and(|cur| cur.source == original.source)
+                {
+                    let edited_source = unit.source;
+                    self.transact_named("Edit script", |editor| {
+                        if let Some(first) = editor.project.sources.first_mut() {
+                            first.source = edited_source;
+                        }
+                    });
+                    self.invalidate_include_dependents_across_sessions();
+                }
+            });
+    }
+
+    fn standalone_actions_toolbar(&mut self, ui: &mut egui::Ui, unit: &mut SourceUnit) {
+        use neoflash_ui::metrics;
+
+        let language = unit.language;
+        let has_api = crate::script_api::api(language).is_some();
+        let sidebar_open = self.actions_ui.sidebar;
+
+        let gap = space::s2();
+        let btn = metrics::control();
+        let divider = 1. + space::s2();
+        let text_width = |text: &str, style: TextStyle| {
+            ui.painter()
+                .layout_no_wrap(
+                    text.to_owned(),
+                    neoflash_ui::typography::font(style),
+                    egui::Color32::PLACEHOLDER,
+                )
+                .size()
+                .x
+        };
+        let assist_text_w = text_width("Script assist", TextStyle::Body)
+            + 2. * nf::button::button_padding()
+            + metrics::ICON_UI
+            + space::s2();
+        let lang_min = metrics::field_m();
+        let needed = |hidden: usize, assist_w: f32| {
+            let mut width = lang_min;
+            for group in STANDALONE_TOOL_GROUPS
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| !STANDALONE_TOOL_OVERFLOW[..hidden].contains(index))
+                .map(|(_, group)| group)
+            {
+                width += gap + divider + group.len() as f32 * (btn + gap);
+            }
+            if hidden > 0 {
+                width += gap + btn;
+            }
+            width + gap + assist_w + gap + btn
+        };
+
+        let (bar, _) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), metrics::timeline_controls()),
+            egui::Sense::hover(),
+        );
+        let inner = bar.shrink2(egui::vec2(space::s4(), 0.));
+        let (hidden, assist_text) = if needed(0, assist_text_w) <= inner.width() {
+            (0, true)
+        } else {
+            let hidden = (0..STANDALONE_TOOL_OVERFLOW.len())
+                .find(|hidden| needed(*hidden, btn) <= inner.width())
+                .unwrap_or(STANDALONE_TOOL_OVERFLOW.len());
+            (hidden, false)
+        };
+        let assist_w = if assist_text { assist_text_w } else { btn };
+        let rest = needed(hidden, assist_w) - lang_min;
+        let lang_width = (inner.width() - rest).clamp(metrics::field_s(), metrics::field_l());
+        let flex = (inner.width() - rest - lang_width).max(0.);
+
+        ui.scope_builder(
+            egui::UiBuilder::new()
+                .max_rect(inner)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+            |ui| {
+                ui.set_clip_rect(bar.intersect(ui.clip_rect()));
+                ui.spacing_mut().item_spacing = egui::vec2(gap, 0.);
+                let (lang_resp, _) =
+                    nf::Select::new("standalone_script_language", language.display_label())
+                        .icon(i16::FILE_CODE)
+                        .width(lang_width)
+                        .show(ui, |ui| {
+                            for candidate in [
+                                ScriptLanguage::ActionScript1,
+                                ScriptLanguage::ActionScript2,
+                                ScriptLanguage::ActionScript3,
+                            ] {
+                                let item = nf::MenuItem::new(candidate.display_label())
+                                    .checked(language == candidate);
+                                if ui.add(item).clicked() {
+                                    self.set_standalone_script_language(candidate);
+                                    unit.language = candidate;
+                                }
+                            }
+                        });
+                nf::tooltip(lang_resp, "ActionScript dialect", None);
+
+                let overflow = &STANDALONE_TOOL_OVERFLOW[..hidden];
+                for (index, group) in STANDALONE_TOOL_GROUPS.iter().enumerate() {
+                    if overflow.contains(&index) {
+                        continue;
+                    }
+                    nf::divider(ui, true);
+                    for tool in *group {
+                        self.standalone_script_tool(
+                            ui,
+                            *tool,
+                            false,
+                            &unit.source,
+                            has_api,
+                            sidebar_open,
+                        );
+                    }
+                }
+                ui.add_space(flex);
+                if hidden > 0 {
+                    let more = ui.add(
+                        nf::IconButton::new(i16::MORE, "More script tools")
+                            .kind(nf::IconButtonType::Selected),
+                    );
+                    nf::popup_below(&more, metrics::menu_width(), |ui| {
+                        let mut first = true;
+                        for (index, group) in STANDALONE_TOOL_GROUPS.iter().enumerate() {
+                            if !overflow.contains(&index) {
+                                continue;
+                            }
+                            if !first {
+                                nf::menu_separator(ui);
+                            }
+                            first = false;
+                            for tool in *group {
+                                self.standalone_script_tool(
+                                    ui,
+                                    *tool,
+                                    true,
+                                    &unit.source,
+                                    has_api,
+                                    sidebar_open,
+                                );
+                            }
+                        }
+                    });
+                }
+
+                let assist = if assist_text {
+                    ui.add(nf::Button::ghost("Script assist").icon(i16::WAND))
+                } else {
+                    ui.add(nf::IconButton::new(i16::WAND, "Script assist"))
+                };
+                nf::popup_below(&assist, metrics::menu_width(), |ui| {
+                    for (item_label, template) in
+                        crate::sources::ScriptAssistTemplate::default_menu_items()
+                    {
+                        if ui.add(nf::MenuItem::new(item_label)).clicked() {
+                            self.insert_script_assist_snippet(template);
+                            if let Some(updated) = self.project.sources.first() {
+                                unit.source = updated.source.clone();
+                            }
+                            self.invalidate_include_dependents_across_sessions();
+                        }
+                    }
+                    if self.has_ready_ai_connection() {
+                        nf::menu_separator(ui);
+                        if ui.add(nf::MenuItem::new("Send to AI…")).clicked() {
+                            let _ = self.open_send_to_ai();
+                            ui.close();
+                        }
+                    }
+                });
+
+                if ui
+                    .add(nf::IconButton::new(i16::HELP, "Scripting Reference"))
+                    .clicked()
+                {
+                    crate::panels::help_manual::open_scripting_reference(ui.ctx());
+                }
+            },
+        );
+    }
+
+    fn standalone_script_tool(
+        &mut self,
+        ui: &mut egui::Ui,
+        tool: StandaloneScriptTool,
+        menu: bool,
+        source_snapshot: &str,
+        has_api: bool,
+        sidebar_open: bool,
+    ) {
+        let has_folds = !self.folded_lines().is_empty();
+        let (icon, label, shortcut, enabled, checked) = match tool {
+            StandaloneScriptTool::Check => (i16::CHECK, "Check syntax", None, true, None),
+            StandaloneScriptTool::AutoFormat => (i16::AUTOFORMAT, "Auto-format", None, true, None),
+            StandaloneScriptTool::ShowHints => (
+                i16::CODEHINT,
+                "Show code hint",
+                Some("⌃Space"),
+                has_api,
+                None,
+            ),
+            StandaloneScriptTool::FindReplace => {
+                (i16::SEARCH, "Find and Replace", Some("⌘F"), true, None)
+            }
+            StandaloneScriptTool::Collapse => {
+                (i16::COLLAPSE, "Collapse between braces", None, true, None)
+            }
+            StandaloneScriptTool::ExpandAll => (i16::EXPAND, "Expand all", None, has_folds, None),
+            StandaloneScriptTool::BlockComment => {
+                (i16::COMMENT_BLOCK, "Apply block comment", None, true, None)
+            }
+            StandaloneScriptTool::LineComment => {
+                (i16::COMMENT_LINE, "Apply line comment", None, true, None)
+            }
+            StandaloneScriptTool::Uncomment => (i16::UNCOMMENT, "Remove comment", None, true, None),
+            StandaloneScriptTool::Sidebar => (
+                i16::SIDEBAR,
+                "Show toolbox sidebar",
+                None,
+                true,
+                Some(sidebar_open),
+            ),
+        };
+
+        let clicked = if menu {
+            let mut item = nf::MenuItem::new(label).icon(icon);
+            if let Some(sc) = shortcut {
+                item = item.shortcut(sc);
+            }
+            if let Some(chk) = checked {
+                item = item.checked(chk);
+            }
+            let c = ui.add_enabled(enabled, item).clicked();
+            if c {
+                ui.close();
+            }
+            c
+        } else {
+            let mut button = nf::IconButton::new(icon, label).selected(checked == Some(true));
+            if let Some(sc) = shortcut {
+                button = button.shortcut(sc);
+            }
+            ui.add_enabled_semantic(enabled, button).clicked()
+        };
+        if !clicked {
+            return;
+        }
+        match tool {
+            StandaloneScriptTool::Check => self.check_standalone_script(true),
+            StandaloneScriptTool::AutoFormat => {
+                self.actions_ui.pending = Some(CodeCommand::AutoFormat);
+            }
+            StandaloneScriptTool::ShowHints => {
+                self.actions_ui.pending = Some(CodeCommand::ShowHints);
+            }
+            StandaloneScriptTool::FindReplace => self.open_find_replace(),
+            StandaloneScriptTool::Collapse => {
+                self.collapse_between_braces_in_current_editor(ui.ctx(), source_snapshot);
+            }
+            StandaloneScriptTool::ExpandAll => self.expand_all_folds(),
+            StandaloneScriptTool::BlockComment => {
+                self.actions_ui.pending = Some(CodeCommand::BlockComment);
+            }
+            StandaloneScriptTool::LineComment => {
+                self.actions_ui.pending = Some(CodeCommand::LineComment);
+            }
+            StandaloneScriptTool::Uncomment => {
+                self.actions_ui.pending = Some(CodeCommand::Uncomment);
+            }
+            StandaloneScriptTool::Sidebar => {
+                self.actions_ui.sidebar = !sidebar_open;
+            }
+        }
+    }
+
+    fn standalone_toolbox_sidebar(&mut self, ui: &mut egui::Ui, language: ScriptLanguage) {
+        ui.add(nf::Search::new(
+            &mut self.actions_ui.search,
+            "Search toolbox",
+        ));
+        ui.add_space(space::s1());
+        egui::ScrollArea::vertical()
+            .id_salt(("standalone-actions-toolbox", &self.clipboard.session))
+            .auto_shrink([false, false])
+            .themed()
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                let Some(api) = crate::script_api::api(language) else {
+                    return;
+                };
+                let project = crate::script_api::project_classes(&self.project, language);
+                let needle = self.actions_ui.search.trim().to_owned();
+                if !needle.is_empty() {
+                    let results = crate::script_api::search(&project, api, &needle, 200);
+                    if results.is_empty() {
+                        let p = neoflash_ui::palette(ui.ctx());
+                        ui.label(
+                            neoflash_ui::typography::rich(
+                                format!("No toolbox entries match “{needle}”."),
+                                TextStyle::Small,
+                            )
+                            .color(p.text_tertiary),
+                        );
+                        return;
+                    }
+                    for member in results {
+                        let owner = crate::script_api::short_name(&member.owner).to_owned();
+                        let meta = if member.kind == "class" {
+                            String::new()
+                        } else {
+                            owner
+                        };
+                        self.standalone_toolbox_leaf(ui, &member, 0, &meta, language);
+                    }
+                    return;
+                }
+
+                for folder in crate::script_api::toolbox(&project, api) {
+                    let key = format!("box:{}", folder.label);
+                    let icon = if folder.label == crate::script_api::PROJECT_CLASSES {
+                        i16::FILE_CODE
+                    } else {
+                        i16::PACKAGE
+                    };
+                    let open = self.actions_ui.open.contains(&key);
+                    let kind = if open {
+                        TreeItemType::FolderOpen
+                    } else {
+                        TreeItemType::FolderClosed
+                    };
+                    let row = nf::TreeItem::new(&folder.label, kind)
+                        .icon(icon)
+                        .depth(0)
+                        .show(ui);
+                    if row.toggle || row.row.clicked() {
+                        if open {
+                            self.actions_ui.open.remove(&key);
+                        } else {
+                            self.actions_ui.open.insert(key);
+                        }
+                    }
+                    if !open {
+                        continue;
+                    }
+                    for class in &folder.classes {
+                        let class_key = format!("box:class:{class}");
+                        let c_open = self.actions_ui.open.contains(&class_key);
+                        let c_kind = if c_open {
+                            TreeItemType::FolderOpen
+                        } else {
+                            TreeItemType::FolderClosed
+                        };
+                        let c_row = nf::TreeItem::new(crate::script_api::short_name(class), c_kind)
+                            .icon(i16::CLASS)
+                            .depth(1)
+                            .show(ui);
+                        if c_row.toggle || c_row.row.clicked() {
+                            if c_open {
+                                self.actions_ui.open.remove(&class_key);
+                            } else {
+                                self.actions_ui.open.insert(class_key);
+                            }
+                        }
+                        let tip =
+                            format!("{class}\n{}", crate::script_api::class_support(api, class));
+                        nf::tooltip(c_row.row, tip.trim_end_matches('.'), None);
+                        if c_open {
+                            for member in crate::script_api::own_members(&project, api, class) {
+                                let meta = member.ty.clone();
+                                self.standalone_toolbox_leaf(
+                                    ui,
+                                    &member,
+                                    2,
+                                    crate::script_api::short_name(&meta),
+                                    language,
+                                );
+                            }
+                        }
+                    }
+                    for member in &folder.entries {
+                        self.standalone_toolbox_leaf(
+                            ui,
+                            member,
+                            1,
+                            crate::script_api::short_name(&member.ty),
+                            language,
+                        );
+                    }
+                }
+            });
+    }
+
+    fn standalone_toolbox_leaf(
+        &mut self,
+        ui: &mut egui::Ui,
+        member: &crate::script_api::Member,
+        depth: usize,
+        meta: &str,
+        language: ScriptLanguage,
+    ) {
+        let key = format!("box:{}:{}:{}", member.owner, member.name, member.kind);
+        let label = member.label();
+        let row = nf::TreeItem::new(&label, TreeItemType::Symbol(standalone_member_icon(member)))
+            .depth(depth)
+            .meta(meta)
+            .selected(self.actions_ui.selected.as_deref() == Some(&key))
+            .show(ui);
+        let tip = standalone_member_tooltip(member);
+        let row = nf::tooltip(row.row, tip.trim_end_matches('.'), None);
+        if row.clicked() {
+            self.actions_ui.selected = Some(key);
+        }
+        if row.double_clicked() {
+            self.actions_ui.pending =
+                Some(super::actions_sidebar::toolbox_insertion(member, language));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

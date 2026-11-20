@@ -1382,6 +1382,10 @@ impl Editor {
         let mut loc = if let Some(path) = diagnostic.and_then(|d| d.path.as_deref()) {
             if let Some(unit) = self.project.sources.iter().find(|u| u.path == path) {
                 OutputLocation::for_source(unit.id.clone(), PathBuf::from(&unit.path))
+            } else if let Some(disk_path) =
+                self.resolve_external_as_path_for_navigation(None, Path::new(path))
+            {
+                OutputLocation::for_file(disk_path)
             } else {
                 OutputLocation::for_file(PathBuf::from(path))
             }
@@ -1560,6 +1564,27 @@ impl Editor {
                 ctx,
                 editor_id,
                 &unit.source,
+                loc.line.unwrap_or(1),
+                loc.column.unwrap_or(1),
+                loc.end_line,
+                loc.end_column,
+            );
+            return true;
+        }
+
+        // 1b. External `#include`d or disk `.as` file -> open/focus standalone `.as` tab (`T-412`).
+        if let Some(raw_path) = loc.file_path.as_deref()
+            && let Some(disk_path) =
+                self.resolve_external_as_path_for_navigation(loc.document_id.as_deref(), raw_path)
+            && self.open_standalone_script_session(ctx, disk_path)
+        {
+            self.sync_actions_diagnostics_after_navigation();
+            let source = self.standalone_script_source().unwrap_or("").to_owned();
+            let editor_id = self.actions_editor_id();
+            jump_to_span(
+                ctx,
+                editor_id,
+                &source,
                 loc.line.unwrap_or(1),
                 loc.column.unwrap_or(1),
                 loc.end_line,
@@ -1970,6 +1995,10 @@ pub(crate) fn resolve_runtime_output_location_with_snippet(
                 .filter(|head| {
                     resolve_script_location_in_project_with_hint(project, head, line, source_line)
                         .is_some()
+                        || Path::new(head)
+                            .extension()
+                            .and_then(|s| s.to_str())
+                            .is_some_and(|ext| ext.eq_ignore_ascii_case("as"))
                 })
         });
     let raw = inferred_prefix?;
@@ -2030,6 +2059,20 @@ pub(crate) fn resolve_runtime_output_location_with_snippet(
                 ));
             }
         }
+    }
+    if Path::new(raw)
+        .extension()
+        .and_then(|s| s.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("as"))
+    {
+        let mut loc = OutputLocation::for_file(PathBuf::from(raw));
+        if !document_id.is_empty() {
+            loc.document_id = Some(document_id.to_owned());
+        }
+        if let Some(l) = line {
+            loc = loc.with_line_col(l.max(1), column.unwrap_or(1).max(1));
+        }
+        return Some(loc);
     }
     None
 }

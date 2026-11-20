@@ -286,12 +286,9 @@ impl Editor {
         }
         if let Some(demand) = self.publish_controller.demand.clone() {
             // The dialog owns a draft: saved workspace defaults must not replace its selection.
-            self.publish_controller.refresh(
-                &self.project,
-                &demand.preferences,
-                &demand.runtime,
-                ctx,
-            );
+            let hydrated = self.project_with_hydrated_includes().into_owned();
+            self.publish_controller
+                .refresh(&hydrated, &demand.preferences, &demand.runtime, ctx);
         } else {
             // Drain a cancelled worker without resurrecting an estimate after the dialog closes.
             self.publish_controller.poll(ctx);
@@ -330,14 +327,30 @@ impl Editor {
                         continue;
                     }
                     emitted_any = true;
-                    let loc = item.script.as_ref().map(|script_loc| {
-                        script_location_to_output_location(
-                            resolved_project,
-                            script_loc,
-                            item.line,
-                            item.column,
-                        )
-                    });
+                    let loc = if let Some(inc) = item.included_path.as_deref() {
+                        let file_path = self
+                            .resolve_external_as_path_for_navigation(
+                                None,
+                                std::path::Path::new(inc),
+                            )
+                            .unwrap_or_else(|| std::path::PathBuf::from(inc));
+                        let mut out_loc = OutputLocation::for_file(file_path)
+                            .with_document(self.clipboard.session.clone());
+                        if item.line > 0 {
+                            out_loc = out_loc.with_line_col(item.line, item.column.max(1));
+                        }
+                        Some(out_loc)
+                    } else {
+                        item.script.as_ref().map(|script_loc| {
+                            script_location_to_output_location(
+                                resolved_project,
+                                script_loc,
+                                item.line,
+                                item.column,
+                            )
+                            .with_document(self.clipboard.session.clone())
+                        })
+                    };
                     if first_err_loc.is_none() {
                         first_err_loc = loc.clone();
                     }
@@ -385,6 +398,7 @@ impl Editor {
                             message: formatted.clone(),
                             location_label: diag.location.clone(),
                             script: script_loc,
+                            included_path: None,
                             line: 1,
                             column: 1,
                             quick_fixes: Vec::new(),
@@ -433,7 +447,10 @@ impl Editor {
         use crate::workspace::{PanelId, PublishProfilePreset};
 
         self.finish_edits();
-        let mut resolved_project = self.project.with_resolved_script_language().into_owned();
+        let mut resolved_project = self
+            .project_with_hydrated_includes()
+            .with_resolved_script_language()
+            .into_owned();
         resolved_project.set_html_render_mode(settings.render_mode);
 
         if settings.profile == PublishProfilePreset::WebBannerNative {

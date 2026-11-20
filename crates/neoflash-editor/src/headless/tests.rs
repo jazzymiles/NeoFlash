@@ -3400,3 +3400,79 @@ fn headless_and_editor_import_font_files_into_library_and_embedding_metadata() {
         "failed font import must not replace malformed existing metadata"
     );
 }
+
+#[test]
+fn t412_headless_cli_hydrates_disk_includes_across_validate_compile_eval_and_export() {
+    let tmp = TempDirGuard::new("t412-headless-includes");
+    let run_json = |args: &[&str]| -> (i32, Value, String) {
+        let (code, out, err) = run_args(args, "");
+        let parsed: Value = serde_json::from_str(out.trim())
+            .unwrap_or_else(|e| panic!("invalid JSON stdout={out:?} stderr={err:?}: {e}"));
+        (code, parsed, err)
+    };
+    fs::create_dir_all(tmp.path.join("sub")).unwrap();
+    fs::write(
+        tmp.path.join("sub").join("rotate.as"),
+        "var ROT_STEP:Number = 90;\n",
+    )
+    .unwrap();
+    fs::write(
+        tmp.path.join("figures.as"),
+        "#include \"sub/rotate.as\"\nvar PIECE_NAME:String = \"L\";\n",
+    )
+    .unwrap();
+
+    let mut project = Project::blank();
+    project.name = "HeadlessTetris".into();
+    project.script_language = Some(ScriptLanguage::ActionScript2);
+    let root_id = project.root.clone();
+    project
+        .symbol_mut(&root_id)
+        .unwrap()
+        .timeline
+        .scripts
+        .push(neoflash_core::FrameScript {
+            layer: None,
+            frame: 0,
+            script: neoflash_core::Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "#include \"figures.as\"\ntrace(PIECE_NAME + \":\" + ROT_STEP);\nstop();\n"
+                    .into(),
+            },
+        });
+    crate::timeline_commands::upgrade_all_format_versions(&mut project);
+    let proj_path = tmp.path.join("game.nflash");
+    fs::write(&proj_path, project.to_json().unwrap()).unwrap();
+    let proj_str = proj_path.to_string_lossy().into_owned();
+
+    // 1. validate
+    let (code, val, err) = run_json(&["--headless", "validate", "--project", &proj_str]);
+    assert_eq!(code, 0, "validate failed: {val} stderr={err}");
+    assert_eq!(val["script_error_count"], 0);
+
+    // 2. compile
+    let (code, val, err) = run_json(&["--headless", "compile", "--project", &proj_str]);
+    assert_eq!(code, 0, "compile failed: {val} stderr={err}");
+    assert_eq!(val["error_count"], 0);
+
+    // 3. eval --scripts
+    let (code, val, err) = run_json(&["--headless", "eval", "--project", &proj_str, "--scripts"]);
+    assert_eq!(code, 0, "eval failed: {val} stderr={err}");
+    assert_eq!(val["trace_lines"], serde_json::json!(["L:90"]));
+
+    // 4. export --target swf
+    let swf_out = tmp.path.join("game.swf");
+    let swf_str = swf_out.to_string_lossy().into_owned();
+    let (code, val, err) = run_json(&[
+        "--headless",
+        "export",
+        "--project",
+        &proj_str,
+        "--target",
+        "swf",
+        "--out",
+        &swf_str,
+    ]);
+    assert_eq!(code, 0, "export swf failed: {val} stderr={err}");
+    assert!(swf_out.is_file());
+}

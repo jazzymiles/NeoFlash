@@ -222,6 +222,7 @@ $icon_plist_keys
     <array>
       <string>fla</string>
       <string>xfl</string>
+      <string>as</string>
       <string>swf</string>
       <string>swc</string>
       <string>fig</string>

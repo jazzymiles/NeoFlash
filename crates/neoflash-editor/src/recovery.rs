@@ -930,6 +930,14 @@ impl Editor {
             .as_deref()
             .and_then(|p| self.session_for_open_path(p))
             .is_some();
+        let is_standalone_as = original
+            .as_deref()
+            .is_some_and(Self::is_actionscript_source_path)
+            || (cand
+                .document_name
+                .rsplit_once('.')
+                .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("as"))
+                && cand.project.sources.len() == 1);
         let mut path = None;
         let mut restored_import_source = None;
         let mut independent_recovery = None;
@@ -948,7 +956,7 @@ impl Editor {
             }
             independent_recovery = Some(recovery);
         } else if let Some(orig) = original {
-            if Self::is_native_nflash_path(&orig) {
+            if Self::is_native_nflash_path(&orig) || Self::is_actionscript_source_path(&orig) {
                 path = Some(orig);
             } else {
                 restored_import_source = Some(std::fs::canonicalize(&orig).unwrap_or(orig));
@@ -964,6 +972,9 @@ impl Editor {
             self.recovery.move_prompts_to(&mut fresh);
             self.recovery = fresh;
             self.install_document(ctx, cand.project, path, false);
+        }
+        if is_standalone_as {
+            self.configure_active_standalone_script_state();
         }
         if let Some(import_src) = restored_import_source {
             self.import_source = Some(import_src);
@@ -1121,6 +1132,9 @@ impl Editor {
             }
         }
 
+        if !newly_detected.is_empty() {
+            self.invalidate_include_dependents_across_sessions();
+        }
         for (index, name, change) in newly_detected {
             let tab_note = if index == self.active_session {
                 String::new()
@@ -1377,7 +1391,9 @@ impl Editor {
             ));
         }
         let mut diagnostics = Vec::new();
-        let project = if Self::is_non_native_graphic_document_path(path) {
+        let project = if Self::is_actionscript_source_path(path) {
+            Self::load_standalone_script_project_from_path(path)?
+        } else if Self::is_non_native_graphic_document_path(path) {
             let (project, _label, diags) = Self::import_non_native_graphic_document(path)?;
             diagnostics = diags.into_iter().map(|(_, msg)| msg).collect();
             project
@@ -1454,6 +1470,8 @@ impl Editor {
         let Some(disk_path) = self.tracked_disk_path().map(Path::to_path_buf) else {
             return false;
         };
+        let was_standalone_script =
+            self.standalone_script || Self::is_actionscript_source_path(&disk_path);
         let canonical_path = self.path.clone();
         let preserved_import_source = self.import_source.clone();
         let saved = canonical_path.is_some();
@@ -1463,12 +1481,20 @@ impl Editor {
             Ok((project, diagnostics)) => {
                 self.install_document(ctx, project, canonical_path, saved);
                 self.import_source = preserved_import_source;
+                if was_standalone_script {
+                    self.configure_active_standalone_script_state();
+                    self.invalidate_include_dependents_across_sessions();
+                }
                 self.sync_disk_mtime();
                 self.sync_session_tabs_to_prefs();
                 for diagnostic in diagnostics {
                     self.message(diagnostic);
                 }
-                self.message("Project reloaded from disk.");
+                if was_standalone_script {
+                    self.message("ActionScript file reloaded from disk.");
+                } else {
+                    self.message("Project reloaded from disk.");
+                }
                 true
             }
             Err(error) => {
@@ -1499,12 +1525,16 @@ impl Editor {
         if index == self.active_session {
             return self.reload_external_modification(ctx);
         }
-        let Some((disk_path, canonical_path, preserved_import_source)) =
+        let Some((disk_path, canonical_path, preserved_import_source, was_standalone_script)) =
             self.sessions[index].as_ref().and_then(|session| {
+                let dp = session.tracked_disk_path()?.to_path_buf();
+                let standalone =
+                    session.standalone_script || Self::is_actionscript_source_path(&dp);
                 Some((
-                    session.tracked_disk_path()?.to_path_buf(),
+                    dp,
                     session.path.clone(),
                     session.import_source.clone(),
+                    standalone,
                 ))
             })
         else {
@@ -1526,6 +1556,7 @@ impl Editor {
                         project,
                         canonical_path,
                         preserved_import_source,
+                        was_standalone_script,
                         self.workspace.undo_levels as usize,
                         recovery,
                         slot.onion_before,
@@ -1534,10 +1565,17 @@ impl Editor {
                     );
                     std::mem::swap(slot, &mut replacement);
                 }
+                if was_standalone_script {
+                    self.invalidate_include_dependents_across_sessions();
+                }
                 for diagnostic in diagnostics {
                     self.message(diagnostic);
                 }
-                self.message("Project reloaded from disk.");
+                if was_standalone_script {
+                    self.message("ActionScript file reloaded from disk.");
+                } else {
+                    self.message("Project reloaded from disk.");
+                }
                 true
             }
             Err(error) => {

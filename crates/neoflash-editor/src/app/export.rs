@@ -50,13 +50,25 @@ impl Editor {
                 } else {
                     OutputSeverity::Warning
                 };
-                let location = item.script.as_ref().map(|script| {
-                    self.output_location_from_script(
-                        script,
-                        (item.line > 0).then_some(item.line),
-                        (item.column > 0).then_some(item.column),
-                    )
-                });
+                let location = if let Some(inc) = item.included_path.as_deref() {
+                    let file_path = self
+                        .resolve_external_as_path_for_navigation(None, std::path::Path::new(inc))
+                        .unwrap_or_else(|| PathBuf::from(inc));
+                    let mut loc = crate::output_pipeline::OutputLocation::for_file(file_path)
+                        .with_document(self.clipboard.session.clone());
+                    if item.line > 0 {
+                        loc = loc.with_line_col(item.line, item.column.max(1));
+                    }
+                    Some(loc)
+                } else {
+                    item.script.as_ref().map(|script| {
+                        self.output_location_from_script(
+                            script,
+                            (item.line > 0).then_some(item.line),
+                            (item.column > 0).then_some(item.column),
+                        )
+                    })
+                };
                 let msg = if item.location_label.is_empty() {
                     item.message.clone()
                 } else {
@@ -90,7 +102,10 @@ impl Editor {
         use crate::output_pipeline::{OutputLocation, OutputSeverity, OutputSource};
 
         self.finish_edits();
-        let mut resolved_project = self.project.with_resolved_script_language().into_owned();
+        let mut resolved_project = self
+            .project_with_hydrated_includes()
+            .with_resolved_script_language()
+            .into_owned();
         resolved_project.set_html_render_mode(settings.render_mode);
         let options = match settings.export_options(&resolved_project) {
             Ok(options) => options,
@@ -444,7 +459,7 @@ impl Editor {
     pub fn export(&mut self, test: bool) {
         use crate::output_pipeline::{OutputLocation, OutputSeverity, OutputSource};
 
-        if !self.has_document() {
+        if !self.has_document() || self.is_standalone_script_session() {
             return;
         }
         if test {
@@ -455,7 +470,10 @@ impl Editor {
                 .join("neoflash-preview")
                 .join(std::process::id().to_string());
             self.finish_edits();
-            let resolved_project = self.project.with_resolved_script_language().into_owned();
+            let resolved_project = self
+                .project_with_hydrated_includes()
+                .with_resolved_script_language()
+                .into_owned();
             let preview_config = self.workspace.publish.preview_html_config();
             let preview_options = self
                 .workspace
@@ -828,7 +846,8 @@ impl Editor {
             outline_text: true,
             ..neoflash_export::SwfPublishOptions::default()
         };
-        let resolved_project = self.project.with_resolved_script_language();
+        let hydrated = self.project_with_hydrated_includes();
+        let resolved_project = hydrated.with_resolved_script_language();
         match neoflash_export::publish_swf_to_path(&resolved_project, &swf_path, &opts) {
             Ok(report) => {
                 let _ = self.message_event(
@@ -891,7 +910,8 @@ impl Editor {
             file
         };
         let opts = neoflash_export::FlaExportOptions::default();
-        let resolved_project = self.project.with_resolved_script_language();
+        let hydrated = self.project_with_hydrated_includes();
+        let resolved_project = hydrated.with_resolved_script_language();
         match neoflash_export::export_fla_with_profile(
             &resolved_project,
             profile,
@@ -1045,7 +1065,7 @@ impl Editor {
     }
     /// Single-scene copy of `self.project` rooted at the currently edited scene (`Control ▸ Test scene`).
     pub(crate) fn test_scene_project(&self) -> Project {
-        let mut cloned = self.project.clone();
+        let mut cloned = self.project_with_hydrated_includes().into_owned();
         cloned.script_language = Some(self.project.effective_script_language());
         let scene_id = self.current_scene().to_owned();
         cloned
@@ -1070,7 +1090,7 @@ impl Editor {
 
     /// `Control ▸ Test scene` (`⌥⌘↵`): export and open only the currently edited scene in the browser.
     pub fn test_scene(&mut self) {
-        if !self.has_document() {
+        if !self.has_document() || self.is_standalone_script_session() {
             return;
         }
         self.finish_edits();

@@ -275,6 +275,8 @@ impl Editor {
                 resource.data_base64.hash(&mut hash);
             }
         }
+        self.standalone_script.hash(&mut hash);
+        self.hydrated_project_and_fingerprint().1.hash(&mut hash);
         for symbol in &self.project.symbols {
             symbol.id.hash(&mut hash);
             std::mem::discriminant(&symbol.kind).hash(&mut hash);
@@ -364,6 +366,125 @@ impl Editor {
         });
     }
 
+    pub(crate) fn is_standalone_class_or_package_unit(unit: &SourceUnit) -> bool {
+        if unit.language == ScriptLanguage::ActionScript1 {
+            return false;
+        }
+        if crate::script_api::scan_class(unit).is_some() {
+            return true;
+        }
+        let skeleton =
+            crate::app::standalone_script::strip_comments_and_strings_for_detection(&unit.source);
+        let mut brace_depth = 0usize;
+        for line in skeleton.lines() {
+            let trimmed = line.trim();
+            if brace_depth <= 1 {
+                if let Some(rest) = trimmed.strip_prefix("package")
+                    && (rest.is_empty()
+                        || rest.starts_with(|c: char| c.is_whitespace() || c == '{'))
+                {
+                    return true;
+                }
+                let mut rest_decl = trimmed;
+                loop {
+                    let mut stripped = false;
+                    for kw in ["public ", "internal ", "dynamic ", "final ", "intrinsic "] {
+                        if let Some(next) = rest_decl.strip_prefix(kw) {
+                            rest_decl = next.trim_start();
+                            stripped = true;
+                        }
+                    }
+                    if !stripped {
+                        break;
+                    }
+                }
+                if rest_decl.starts_with("class ") || rest_decl.starts_with("interface ") {
+                    return true;
+                }
+            }
+            for ch in trimmed.chars() {
+                match ch {
+                    '{' => brace_depth += 1,
+                    '}' => brace_depth = brace_depth.saturating_sub(1),
+                    _ => {}
+                }
+            }
+        }
+        false
+    }
+
+    /// Check syntax of a standalone `.as` file tab (`T-412`), handling both class/package
+    /// definitions (`compile_project`) and pure top-level / `#include` ActionScript files
+    /// (`compile_with_program` against hydrated includes).
+    pub(crate) fn check_standalone_script(&mut self, announce: bool) {
+        let Some(unit) = self.project.sources.first().cloned() else {
+            return;
+        };
+        let script = Script {
+            language: unit.language,
+            source: unit.source.clone(),
+        };
+        let (hydrated, _) = self.hydrated_project_and_fingerprint();
+        let mut diagnostics = if Self::is_standalone_class_or_package_unit(&unit) {
+            let mut check_proj = hydrated.into_owned();
+            check_proj.script_language = Some(unit.language);
+            let mut diags = neoflash_script::compile_project(&check_proj)
+                .err()
+                .unwrap_or_default();
+            diags.extend(
+                neoflash_script::check_warnings_with_path(&script, Some(&unit.path))
+                    .iter()
+                    .map(|warning| warning.to_diagnostic_with_source(&script.source)),
+            );
+            if let Some(context) = self.source_hint_context(&unit) {
+                diags.extend(
+                    context
+                        .semantic_analysis(&script.source)
+                        .diagnostics()
+                        .iter()
+                        .cloned()
+                        .map(|mut d| {
+                            if d.path.is_none() {
+                                d.path = Some(unit.path.clone());
+                            }
+                            d
+                        }),
+                );
+            }
+            diags
+        } else {
+            let mut check_proj = hydrated.into_owned();
+            check_proj.sources.clear();
+            check_proj.document_class = None;
+            check_proj.script_language = Some(unit.language);
+            let mut diags = match neoflash_script::compile_project(&check_proj) {
+                Ok(program) => neoflash_script::compile_with_program(&script, &program)
+                    .err()
+                    .unwrap_or_default(),
+                Err(_) => neoflash_script::compile(&script).err().unwrap_or_default(),
+            };
+            diags.extend(
+                neoflash_script::check_warnings(&script)
+                    .iter()
+                    .map(|warning| warning.to_diagnostic_with_source(&script.source)),
+            );
+            if let Some(context) =
+                HintContext::new(&self.project, unit.language, ThisKind::MovieClip)
+            {
+                diags.extend(
+                    context
+                        .semantic_analysis(&script.source)
+                        .diagnostics()
+                        .iter()
+                        .cloned(),
+                );
+            }
+            diags
+        };
+        diagnostics.dedup();
+        self.record_code_check(&script, diagnostics, announce);
+    }
+
     pub(crate) fn check_action_source(&mut self, script: &Script, announce: bool) {
         // R-102 item 7: `Check script` checks the open script in its own language (`script.language`).
         let proj_lang = self.project.effective_script_language();
@@ -372,17 +493,45 @@ impl Editor {
             self.project.also_compile_compatible_scripts,
             script.language,
         ) == neoflash_core::ScriptDisposition::SkippedForeign;
-        let mut lang_project = self.project.clone();
-        lang_project.script_language = Some(script.language);
+        let mut probe_project = self.project.clone();
+        probe_project.script_language = Some(script.language);
         if is_skipped_foreign {
-            lang_project.document_class = None;
+            probe_project.document_class = None;
         }
+        if script.language.is_actionscript()
+            && script.source.contains("include")
+            && let Some(first_sym) = probe_project.symbols.first_mut()
+        {
+            first_sym.timeline.scripts.push(neoflash_core::FrameScript {
+                layer: None,
+                frame: 0,
+                script: script.clone(),
+            });
+        }
+        let mut lang_project = self
+            .hydrate_arbitrary_project_with_editor_context(&probe_project)
+            .0
+            .into_owned();
+        lang_project.symbols = self.project.symbols.clone();
+
+        let compile_script_against_resources = |proj: &neoflash_core::Project| {
+            let mut res_only = proj.clone();
+            res_only.sources.clear();
+            res_only.document_class = None;
+            match neoflash_script::compile_project(&res_only) {
+                Ok(res_prog) => neoflash_script::compile_with_program(script, &res_prog)
+                    .err()
+                    .unwrap_or_default(),
+                Err(_) => neoflash_script::compile(script).err().unwrap_or_default(),
+            }
+        };
+
         let mut diagnostics = match neoflash_script::compile_project(&lang_project) {
             Ok(program) => neoflash_script::compile_with_program(script, &program)
                 .err()
                 .unwrap_or_default(),
             Err(mut proj_errs) => {
-                let own_errs = neoflash_script::compile(script).err().unwrap_or_default();
+                let own_errs = compile_script_against_resources(&lang_project);
                 if is_skipped_foreign {
                     own_errs
                 } else {
@@ -411,6 +560,10 @@ impl Editor {
     /// "Check project": compile project sources; when the selected file is in a foreign language,
     /// check it under its own language so editing feedback in Actions follows the file's language.
     pub(crate) fn check_project_sources(&mut self, announce: bool) {
+        if self.is_standalone_script_session() {
+            self.check_standalone_script(announce);
+            return;
+        }
         let active_source_id = match self.effective_actions_location() {
             Some(crate::panels::actions_sidebar::ScriptLocation::Source(id)) => Some(id),
             _ => self.selected_source.clone(),
@@ -438,6 +591,10 @@ impl Editor {
         if is_skipped_foreign {
             check_proj.document_class = None;
         }
+        let check_proj = self
+            .hydrate_arbitrary_project_with_editor_context(&check_proj)
+            .0
+            .into_owned();
         let mut diagnostics = neoflash_script::compile_project(&check_proj)
             .err()
             .unwrap_or_default();
@@ -496,6 +653,16 @@ impl Editor {
     }
 
     fn diagnostic_is_current(&self, diagnostic: &Diagnostic) -> bool {
+        if self.is_standalone_script_session() {
+            return match diagnostic.path.as_deref() {
+                None => true,
+                Some(path) => self
+                    .project
+                    .sources
+                    .first()
+                    .is_some_and(|unit| unit.path == path),
+            };
+        }
         match (
             diagnostic.path.as_deref(),
             self.effective_actions_location(),
@@ -531,6 +698,18 @@ impl Editor {
                     ctx,
                     self.actions_editor_id(),
                     &unit.source,
+                    diagnostic.line,
+                    diagnostic.column,
+                );
+            } else if let Some(disk_path) =
+                self.resolve_external_as_path_for_navigation(None, std::path::Path::new(path))
+                && self.open_standalone_script_session(ctx, disk_path)
+            {
+                let target_source = self.standalone_script_source().unwrap_or("").to_owned();
+                jump_to(
+                    ctx,
+                    self.actions_editor_id(),
+                    &target_source,
                     diagnostic.line,
                     diagnostic.column,
                 );
@@ -715,12 +894,16 @@ impl Editor {
                     .map(|d| (d.line, diagnostic_severity(d.severity)))
             })
             .collect();
-        let breakpoint_lines: Vec<usize> = self
-            .breakpoints_for(&tab_key)
-            .into_iter()
-            .filter(|bp| bp.enabled)
-            .map(|bp| bp.line)
-            .collect();
+        let standalone_session = self.is_standalone_script_session();
+        let breakpoint_lines: Vec<usize> = if standalone_session {
+            Vec::new()
+        } else {
+            self.breakpoints_for(&tab_key)
+                .into_iter()
+                .filter(|bp| bp.enabled)
+                .map(|bp| bp.line)
+                .collect()
+        };
         let bar_h = neoflash_ui::metrics::script_tab() + 2.;
         let raw_full = ui.available_rect_before_wrap();
         let bound_right = ui.max_rect().right().min(ui.clip_rect().right());
@@ -732,7 +915,7 @@ impl Editor {
                 bound_bottom.max(raw_full.top()),
             ),
         );
-        let show_dbg = self.actions_debugger_inspector_visible(&tab_key);
+        let show_dbg = !standalone_session && self.actions_debugger_inspector_visible(&tab_key);
         let dbg_h = if show_dbg {
             (10. * neoflash_ui::metrics::row()).min(full.height() * 0.50)
         } else {
@@ -791,7 +974,7 @@ impl Editor {
             self.status = status;
         }
         if let Some((clicked_line, shift_held)) = gutter_click {
-            if shift_held {
+            if shift_held || standalone_session {
                 let fold_key = self.active_fold_tab_key();
                 self.toggle_fold_line_for(&fold_key, clicked_line);
             } else {
@@ -889,6 +1072,39 @@ impl Editor {
         fallback_tab: &str,
     ) {
         use crate::panels::actions_sidebar::ScriptLocation;
+        if self.is_standalone_script_session() {
+            let label = self
+                .project
+                .sources
+                .first()
+                .map(|u| u.path.as_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or(fallback_tab);
+            ui.scope_builder(
+                egui::UiBuilder::new()
+                    .max_rect(tabs_rect)
+                    .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                |ui| {
+                    ui.set_clip_rect(ui.clip_rect().intersect(tabs_rect));
+                    ui.push_id(
+                        ("nf2-standalone-script-tab", &self.clipboard.session),
+                        |ui| {
+                            let _ = (nf::ScriptTab {
+                                label,
+                                pinned: false,
+                                active: true,
+                            })
+                            .show_interactive(
+                                ui,
+                                neoflash_ui::icons::i16::FILE_CODE,
+                                false,
+                            );
+                        },
+                    );
+                },
+            );
+            return;
+        }
         self.prune_stale_pinned_script_tabs();
         let active_loc = self.effective_actions_location();
         let live_loc = self

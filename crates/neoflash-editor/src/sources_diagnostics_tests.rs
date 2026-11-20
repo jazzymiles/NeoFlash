@@ -1282,6 +1282,7 @@ fn t382_runtime_and_preflight_compile_diagnostics_highlight_actions_line_and_cle
         script: Some(crate::panels::actions_sidebar::ScriptLocation::Source(
             "unit-board".into(),
         )),
+        included_path: None,
         line: 3,
         column: 19,
         quick_fixes: Vec::new(),

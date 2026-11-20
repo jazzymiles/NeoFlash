@@ -3227,7 +3227,11 @@ pub(crate) fn export_project_with_spec(
     project
         .validate()
         .map_err(|e| CliError::runtime("validation_failed", e.to_string()))?;
-    let resolved_project = project.with_resolved_script_language();
+    let hydrated = crate::app::standalone_script::hydrate_project_includes_from_disk(
+        project,
+        spec.project_base_dir.as_deref(),
+    );
+    let resolved_project = hydrated.with_resolved_script_language();
     let project = resolved_project.as_ref();
     let target = ExportTarget::parse(&spec.target)?;
     let symbol_id = match spec.symbol.as_deref() {

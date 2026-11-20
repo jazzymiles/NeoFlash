@@ -423,6 +423,7 @@ impl TimelineVideoPreview {
 
 pub(crate) struct AuthoringPreview {
     project: Project,
+    include_fp: u64,
     symbol: Id,
     pub(crate) playback: AuthoredPlayback,
     pub(crate) swf_player: Option<neoflash_import::SwfBytecodePlayer>,
@@ -505,6 +506,15 @@ pub(crate) fn symbol_has_continuous_preview_activity(project: &Project, symbol_i
     {
         return true;
     }
+    if project.resources.iter().any(|r| {
+        r.path.to_ascii_lowercase().ends_with(".as")
+            && r.decoded_bytes()
+                .ok()
+                .and_then(|b| String::from_utf8(b).ok())
+                .is_some_and(|text| source_mentions_enter_frame(&text))
+    }) {
+        return true;
+    }
     let mut visited = HashSet::new();
     walk(project, symbol_id, true, &mut visited)
 }
@@ -532,6 +542,7 @@ fn next_preview_epoch() -> u64 {
 
 impl Editor {
     fn valid_authored_preview(&self) -> Option<&AuthoringPreview> {
+        let include_fp = self.hydrated_project_and_fingerprint().1;
         self.authored_preview.as_ref().filter(|preview| {
             let frame_matches = preview
                 .swf_player
@@ -539,7 +550,10 @@ impl Editor {
                 .map_or(preview.playback.frame() == self.frame, |swf| {
                     swf.presented_frame() == self.frame
                 });
-            preview.symbol == self.symbol_id() && frame_matches && preview.project == self.project
+            preview.symbol == self.symbol_id()
+                && frame_matches
+                && preview.project == self.project
+                && preview.include_fp == include_fp
         })
     }
 
@@ -604,8 +618,10 @@ impl Editor {
         }
         if self.playing && self.authored_preview.is_none() {
             let symbol = self.symbol_id().to_owned();
+            let (hydrated_cow, include_fp) = self.hydrated_project_and_fingerprint();
+            let hydrated = hydrated_cow.into_owned();
             let mut playback = AuthoredPlayback::with_live_scripts(
-                &self.project,
+                &hydrated,
                 &symbol,
                 self.frame,
                 self.live_script_preview,
@@ -652,12 +668,13 @@ impl Editor {
             }
             let keep_live_heartbeat = swf_player.is_none()
                 && self.live_script_preview
-                && symbol_has_continuous_preview_activity(&self.project, &playback_symbol);
+                && symbol_has_continuous_preview_activity(&hydrated, &playback_symbol);
             let stop_transport = halted && !keep_live_heartbeat;
             self.authored_preview = Some(AuthoringPreview {
                 playback,
                 swf_player,
                 project: self.project.clone(),
+                include_fp,
                 symbol: playback_symbol,
                 epoch: next_preview_epoch(),
                 halted_transport: stop_transport,
@@ -726,11 +743,12 @@ impl Editor {
         let mut halted = false;
         let mut tick_video_commands = Vec::new();
         let mut scene_switched_to: Option<(Id, u32)> = None;
+        let hydrated = self.project_with_hydrated_includes().into_owned();
         if let Some(preview) = &mut self.authored_preview {
             preview
                 .playback
-                .set_live_scripts(&self.project, self.live_script_preview);
-            preview.playback.tick(&self.project);
+                .set_live_scripts(&hydrated, self.live_script_preview);
+            preview.playback.tick(&hydrated);
             self.frame = preview.playback.frame();
             let next_sym = preview.playback.symbol().to_owned();
             if next_sym != preview.symbol {
@@ -819,7 +837,7 @@ impl Editor {
         let keep_live_heartbeat = self.authored_preview.as_ref().is_some_and(|p| {
             p.swf_player.is_none()
                 && self.live_script_preview
-                && symbol_has_continuous_preview_activity(&self.project, &p.symbol)
+                && symbol_has_continuous_preview_activity(&hydrated, &p.symbol)
         });
         let stop_transport = halted && !keep_live_heartbeat;
         if let Some(preview) = &mut self.authored_preview {
@@ -848,8 +866,9 @@ impl Editor {
         let state = swf.seek_to_frame(clamped_target);
         self.frame = state.frame.min(max_frame);
         self.playing = false;
+        let (hydrated_cow, include_fp) = self.hydrated_project_and_fingerprint();
         let playback = AuthoredPlayback::with_live_scripts(
-            &self.project,
+            &hydrated_cow,
             &symbol,
             self.frame,
             self.live_script_preview,
@@ -876,6 +895,7 @@ impl Editor {
             playback,
             swf_player: Some(swf),
             project: self.project.clone(),
+            include_fp,
             symbol,
             epoch: next_preview_epoch(),
             halted_transport: false,
@@ -934,8 +954,9 @@ impl Editor {
             );
         }
         let symbol = self.symbol_id().to_owned();
+        let (hydrated_cow, include_fp) = self.hydrated_project_and_fingerprint();
         let playback = AuthoredPlayback::with_live_scripts(
-            &self.project,
+            &hydrated_cow,
             &symbol,
             self.frame,
             self.live_script_preview,
@@ -944,6 +965,7 @@ impl Editor {
             playback,
             swf_player: Some(swf_player),
             project: self.project.clone(),
+            include_fp,
             symbol,
             epoch: next_preview_epoch(),
             halted_transport: !self.playing,
@@ -960,12 +982,13 @@ impl Editor {
         let mut halted = false;
         let mut clicked = false;
         let mut scene_switched_to: Option<(Id, u32)> = None;
+        let hydrated = self.project_with_hydrated_includes().into_owned();
         if let Some(preview) = &mut self.authored_preview {
             was_halted = preview.playback.is_root_halted_by_script();
             preview
                 .playback
-                .set_live_scripts(&self.project, self.live_script_preview);
-            preview.playback.click(&self.project, path);
+                .set_live_scripts(&hydrated, self.live_script_preview);
+            preview.playback.click(&hydrated, path);
             self.frame = preview.playback.frame();
             let next_sym = preview.playback.symbol().to_owned();
             if next_sym != preview.symbol {
@@ -1022,7 +1045,7 @@ impl Editor {
         let keep_live_heartbeat = self.authored_preview.as_ref().is_some_and(|p| {
             p.swf_player.is_none()
                 && self.live_script_preview
-                && symbol_has_continuous_preview_activity(&self.project, &p.symbol)
+                && symbol_has_continuous_preview_activity(&hydrated, &p.symbol)
         });
         let stop_transport = halted && !keep_live_heartbeat;
         if let Some(preview) = &mut self.authored_preview {
