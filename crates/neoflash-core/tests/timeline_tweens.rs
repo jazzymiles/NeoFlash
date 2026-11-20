@@ -2792,3 +2792,726 @@ fn shape_hints_ignore_unplaced_partition_contours_weld_merge_strokes_and_survive
     );
     assert!(reversed_keys[1].shape_hints.is_empty());
 }
+
+#[test]
+fn t399_reverse_easing_exact_time_symmetry_and_double_reverse_restores_all_variants() {
+    use neoflash_core::motion_tools::reverse_easing;
+    use neoflash_core::{
+        ClassicRotateDirection, FrameRange, LayerRole, MotionPathOverride, MotionPropertyKey,
+        MotionTrackOverride, TimelineEdit, easing, edit_frames, sample_layer_in,
+    };
+
+    let eases = [
+        Easing::Linear,
+        Easing::EaseIn,
+        Easing::EaseOut,
+        Easing::EaseInOut,
+        Easing::Flash {
+            acceleration: -75.0,
+        },
+        Easing::Flash { acceleration: 65.0 },
+        Easing::CubicBezier {
+            x1: 0.25,
+            y1: 0.1,
+            x2: 0.25,
+            y2: 1.0,
+        },
+        Easing::CubicBezier {
+            x1: 0.34,
+            y1: 1.56,
+            x2: 0.64,
+            y2: -0.45,
+        },
+        Easing::CubicBezier {
+            x1: 0.15,
+            y1: -12.0,
+            x2: 0.85,
+            y2: 14.5,
+        },
+    ];
+
+    // 1. Direct mathematical identity: f_rev(u) == 1.0 - f(1.0 - u) within 1e-6 for all u in [0, 1].
+    for ease in eases {
+        let rev = reverse_easing(ease);
+        let roundtrip = reverse_easing(rev);
+        for step in 0..=200 {
+            let u = f64::from(step) / 200.0;
+            let lhs = easing(u, rev);
+            let rhs = 1.0 - easing(1.0 - u, ease);
+            assert!(
+                (lhs - rhs).abs() < 1e-6,
+                "reverse_easing({ease:?}) failed at u={u}: {lhs} vs {rhs}"
+            );
+            assert!(
+                (easing(u, roundtrip) - easing(u, ease)).abs() < 1e-12,
+                "double reverse_easing({ease:?}) drifted at u={u}"
+            );
+        }
+    }
+
+    // 2. Classic tween reversal across all invertible eases + CW <-> CCW + classic_rotate_turns + tween_scale.
+    for ease in eases {
+        let mut start = key(0, vec![rect("spin", 10.0, 20.0)]);
+        start.elements[0].transform.rotation = 15.0;
+        start.elements[0].transform.scale_x = 2.0;
+        start.tween = Some(ease);
+        start.classic_rotate_dir = ClassicRotateDirection::Cw;
+        start.classic_rotate_turns = 2;
+        start.tween_scale = false;
+        let mut end = key(12, vec![rect("spin", 210.0, -60.0)]);
+        end.elements[0].transform.rotation = 105.0;
+        end.elements[0].transform.scale_x = 0.5;
+        let mut orig = project(13, vec![layer("classic", vec![start, end])]);
+        orig.upgrade_format_for_features();
+        orig.validate().unwrap();
+
+        let mut rev = orig.clone();
+        let root = rev.root.clone();
+        edit_frames(
+            &mut rev,
+            &root,
+            TimelineEdit::Reverse {
+                range: FrameRange {
+                    layers: vec!["classic".into()],
+                    start: 0,
+                    end: 12,
+                },
+            },
+        )
+        .unwrap();
+        rev.validate().unwrap();
+        let rev_layer = &rev.symbols[0].timeline.layers[0];
+        assert_eq!(
+            rev_layer.keyframes.len(),
+            2,
+            "invertible classic tween ({ease:?}) must not bake on Reverse"
+        );
+        assert_eq!(
+            rev_layer.keyframes[0].classic_rotate_dir,
+            ClassicRotateDirection::Ccw
+        );
+        assert_eq!(rev_layer.keyframes[0].classic_rotate_turns, 2);
+        assert!(!rev_layer.keyframes[0].tween_scale);
+        assert_eq!(rev_layer.keyframes[1].tween, None);
+
+        for k in 0..=12 {
+            let before = sample_layer(&orig.symbols[0].timeline.layers[0], 12 - k)[0].transform;
+            let after = sample_layer(rev_layer, k)[0].transform;
+            assert!((before.x - after.x).abs() < 1e-6, "{ease:?} x at {k}");
+            assert!((before.y - after.y).abs() < 1e-6, "{ease:?} y at {k}");
+            let b_rad = before.rotation.to_radians();
+            let a_rad = after.rotation.to_radians();
+            assert!(
+                (b_rad.cos() - a_rad.cos()).abs() < 1e-6
+                    && (b_rad.sin() - a_rad.sin()).abs() < 1e-6,
+                "{ease:?} rotation angle at {k}: {} vs {}",
+                before.rotation,
+                after.rotation
+            );
+        }
+
+        // Reversing a second time restores original poses, CW direction, turns, and ease!
+        let mut twice = rev.clone();
+        edit_frames(
+            &mut twice,
+            &root,
+            TimelineEdit::Reverse {
+                range: FrameRange {
+                    layers: vec!["classic".into()],
+                    start: 0,
+                    end: 12,
+                },
+            },
+        )
+        .unwrap();
+        twice.validate().unwrap();
+        let twice_layer = &twice.symbols[0].timeline.layers[0];
+        assert_eq!(
+            twice_layer.keyframes[0].classic_rotate_dir,
+            ClassicRotateDirection::Cw
+        );
+        assert_eq!(twice_layer.keyframes[0].classic_rotate_turns, 2);
+        for f in 0..=12 {
+            let p0 = sample_layer(&orig.symbols[0].timeline.layers[0], f)[0].transform;
+            let p2 = sample_layer(twice_layer, f)[0].transform;
+            assert!((p0.x - p2.x).abs() < 1e-6);
+            assert!((p0.y - p2.y).abs() < 1e-6);
+            assert!((p0.rotation - p2.rotation).abs() < 1e-6);
+        }
+    }
+
+    // 3. Guided Classic tween with QuadraticTo + CubicTo guide stroke and orient_to_path + snap_to_guide.
+    let mut guide_layer = layer(
+        "guide",
+        vec![key(
+            0,
+            vec![Element {
+                id: "gpath".into(),
+                kind: ElementKind::Path {
+                    commands: vec![
+                        PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                        PathCommand::QuadraticTo {
+                            cx: 60.0,
+                            cy: 120.0,
+                            x: 120.0,
+                            y: 40.0,
+                        },
+                        PathCommand::CubicTo {
+                            cx1: 160.0,
+                            cy1: -20.0,
+                            cx2: 200.0,
+                            cy2: 80.0,
+                            x: 240.0,
+                            y: 20.0,
+                        },
+                    ],
+                    fill: [0; 4],
+                    stroke: [0, 128, 255, 255],
+                    stroke_width: 1.0,
+                    fill_rule: neoflash_core::FillRule::NonZero,
+                },
+                ..Element::default()
+            }],
+        )],
+    );
+    guide_layer.properties.role = LayerRole::Guide;
+    let mut g0 = key(0, vec![rect("rider", 0.0, 0.0)]);
+    g0.tween = Some(Easing::Flash { acceleration: 65.0 });
+    g0.orient_to_path = true;
+    g0.snap_to_guide = true;
+    let g10 = key(10, vec![rect("rider", 240.0, 20.0)]);
+    let mut guided = layer("guided", vec![g0, g10]);
+    guided.properties.motion_guide = Some("guide".into());
+    let mut gproj = project(11, vec![guide_layer, guided]);
+    gproj.upgrade_format_for_features();
+    gproj.validate().unwrap();
+    let mut grev = gproj.clone();
+    let groot = grev.root.clone();
+    edit_frames(
+        &mut grev,
+        &groot,
+        TimelineEdit::Reverse {
+            range: FrameRange {
+                layers: vec!["guide".into(), "guided".into()],
+                start: 0,
+                end: 10,
+            },
+        },
+    )
+    .unwrap();
+    grev.validate().unwrap();
+    let ElementKind::Path {
+        commands: gcmds, ..
+    } = &grev.symbols[0].timeline.layers[0].keyframes[0].elements[0].kind
+    else {
+        panic!("expected guide path");
+    };
+    assert!(
+        gcmds
+            .iter()
+            .any(|c| matches!(c, PathCommand::QuadraticTo { .. }))
+    );
+    assert!(
+        gcmds
+            .iter()
+            .any(|c| matches!(c, PathCommand::CubicTo { .. }))
+    );
+    for k in 0..=10 {
+        let b = sample_layer_in(
+            &gproj.symbols[0].timeline,
+            &gproj.symbols[0].timeline.layers[1],
+            10 - k,
+        )[0]
+        .transform;
+        let a = sample_layer_in(
+            &grev.symbols[0].timeline,
+            &grev.symbols[0].timeline.layers[1],
+            k,
+        )[0]
+        .transform;
+        assert!((b.x - a.x).abs() < 1e-6 && (b.y - a.y).abs() < 1e-6);
+        if (1..10).contains(&k) {
+            assert!((b.rotation - a.rotation).abs() < 1e-6);
+        }
+    }
+
+    // 4. Motion tween with per-property eases, per-object motion_tracks, CubicTo path, and orient_to_path.
+    let mut m_start = key(0, vec![rect("lead", 0.0, 0.0), rect("orbiter", 20.0, 50.0)]);
+    m_start.tween = Some(Easing::EaseIn);
+    m_start.tween_kind = TweenKind::Motion;
+    m_start.property_eases = vec![
+        (
+            TweenProperty::X,
+            Easing::Flash {
+                acceleration: -75.0,
+            },
+        ),
+        (
+            TweenProperty::Y,
+            Easing::CubicBezier {
+                x1: 0.3,
+                y1: 1.4,
+                x2: 0.7,
+                y2: -0.3,
+            },
+        ),
+        (TweenProperty::ScaleX, Easing::EaseOut),
+    ];
+    let mut orb_track = MotionTrackOverride::new("orbiter");
+    orb_track.easing = Some(Easing::Flash { acceleration: 65.0 });
+    orb_track.orient_to_path = Some(true);
+    orb_track.property_eases = Some(vec![
+        (TweenProperty::X, Easing::EaseInOut),
+        (TweenProperty::Y, Easing::EaseInOut),
+    ]);
+    orb_track.motion_path = Some(MotionPathOverride::Path {
+        commands: vec![
+            PathCommand::MoveTo { x: 20.0, y: 50.0 },
+            PathCommand::CubicTo {
+                cx1: 80.0,
+                cy1: 190.0,
+                cx2: 180.0,
+                cy2: -40.0,
+                x: 260.0,
+                y: 90.0,
+            },
+        ],
+    });
+    m_start.motion_tracks = vec![orb_track];
+
+    let mut m_end = key(
+        16,
+        vec![rect("lead", 180.0, 120.0), rect("orbiter", 260.0, 90.0)],
+    );
+    m_end.elements[0].transform.scale_x = 2.5;
+    m_end.keyed_properties = Some(vec![
+        TweenProperty::X,
+        TweenProperty::Y,
+        TweenProperty::ScaleX,
+    ]);
+    m_end.motion_keys = Some(vec![
+        MotionPropertyKey {
+            element_id: "lead".into(),
+            properties: vec![TweenProperty::X, TweenProperty::Y, TweenProperty::ScaleX],
+            roving: false,
+        },
+        MotionPropertyKey {
+            element_id: "orbiter".into(),
+            properties: vec![TweenProperty::X, TweenProperty::Y],
+            roving: false,
+        },
+    ]);
+
+    let mut m_orig = project(17, vec![layer("motion", vec![m_start, m_end])]);
+    m_orig.upgrade_format_for_features();
+    m_orig.validate().unwrap();
+
+    let mut m_rev = m_orig.clone();
+    let m_root = m_rev.root.clone();
+    edit_frames(
+        &mut m_rev,
+        &m_root,
+        TimelineEdit::Reverse {
+            range: FrameRange {
+                layers: vec!["motion".into()],
+                start: 0,
+                end: 16,
+            },
+        },
+    )
+    .unwrap();
+    m_rev.validate().unwrap();
+
+    let m_rev_layer = &m_rev.symbols[0].timeline.layers[0];
+    assert_eq!(
+        m_rev_layer.keyframes.len(),
+        2,
+        "invertible Motion span must stay a 2-key Motion span on Reverse instead of baking"
+    );
+    assert_eq!(m_rev_layer.keyframes[0].tween_kind, TweenKind::Motion);
+    assert_eq!(m_rev_layer.keyframes[0].tween, Some(Easing::EaseOut));
+    assert!(
+        m_rev_layer.keyframes[0]
+            .property_eases
+            .contains(&(TweenProperty::X, Easing::Flash { acceleration: 75.0 }))
+    );
+    let rev_orb_path = m_rev_layer.keyframes[0]
+        .motion_track("orbiter")
+        .and_then(|t| t.motion_path.as_ref());
+    assert!(matches!(
+        rev_orb_path,
+        Some(MotionPathOverride::Path { commands })
+            if commands.iter().any(|c| matches!(c, PathCommand::CubicTo { .. }))
+    ));
+
+    for k in 0..=16 {
+        for id in ["lead", "orbiter"] {
+            let b = object_pose(&m_orig.symbols[0].timeline.layers[0], 16 - k, id);
+            let a = object_pose(m_rev_layer, k, id);
+            assert!(
+                (b.x - a.x).abs() < 1e-6
+                    && (b.y - a.y).abs() < 1e-6
+                    && (b.scale_x - a.scale_x).abs() < 1e-6
+                    && (b.rotation - a.rotation).abs() < 1e-6,
+                "motion reverse mismatch for {id} at {k}: {b:?} vs {a:?}"
+            );
+        }
+    }
+
+    let mut m_twice = m_rev.clone();
+    edit_frames(
+        &mut m_twice,
+        &m_root,
+        TimelineEdit::Reverse {
+            range: FrameRange {
+                layers: vec!["motion".into()],
+                start: 0,
+                end: 16,
+            },
+        },
+    )
+    .unwrap();
+    m_twice.validate().unwrap();
+    assert_eq!(
+        m_twice.symbols[0].timeline.layers[0].keyframes[0].tween,
+        Some(Easing::EaseIn)
+    );
+    for f in 0..=16 {
+        for id in ["lead", "orbiter"] {
+            let p0 = object_pose(&m_orig.symbols[0].timeline.layers[0], f, id);
+            let p2 = object_pose(&m_twice.symbols[0].timeline.layers[0], f, id);
+            assert!(
+                (p0.x - p2.x).abs() < 1e-6
+                    && (p0.y - p2.y).abs() < 1e-6
+                    && (p0.scale_x - p2.scale_x).abs() < 1e-6
+                    && (p0.rotation - p2.rotation).abs() < 1e-6
+            );
+        }
+    }
+}
+
+#[test]
+fn t399_de_casteljau_subdivide_and_reverse_preserve_quadratic_and_cubic_bezier_paths() {
+    use neoflash_core::motion_tools::{
+        ExactMotionCurve, reverse_path_commands, subdivide_path_commands,
+    };
+    use neoflash_core::{
+        FrameRange, MotionPathOverride, MotionPropertyKey, MotionTrackOverride, TimelineEdit,
+        edit_frames,
+    };
+
+    // 1. Direct QuadraticTo + CubicTo + LineTo exact subdivision & reversal.
+    let mixed = vec![
+        PathCommand::MoveTo { x: 10.0, y: 20.0 },
+        PathCommand::QuadraticTo {
+            cx: 70.0,
+            cy: 150.0,
+            x: 130.0,
+            y: 30.0,
+        },
+        PathCommand::CubicTo {
+            cx1: 170.0,
+            cy1: -60.0,
+            cx2: 240.0,
+            cy2: 140.0,
+            x: 300.0,
+            y: 50.0,
+        },
+        PathCommand::LineTo { x: 360.0, y: 80.0 },
+    ];
+    let rev_mixed = reverse_path_commands(&mixed).unwrap();
+    assert_eq!(
+        rev_mixed,
+        vec![
+            PathCommand::MoveTo { x: 360.0, y: 80.0 },
+            PathCommand::LineTo { x: 300.0, y: 50.0 },
+            PathCommand::CubicTo {
+                cx1: 240.0,
+                cy1: 140.0,
+                cx2: 170.0,
+                cy2: -60.0,
+                x: 130.0,
+                y: 30.0,
+            },
+            PathCommand::QuadraticTo {
+                cx: 70.0,
+                cy: 150.0,
+                x: 10.0,
+                y: 20.0,
+            },
+        ]
+    );
+    assert_eq!(reverse_path_commands(&rev_mixed).unwrap(), mixed);
+
+    let full_curve = ExactMotionCurve::from_commands(&mixed).unwrap();
+    let sub_mid = subdivide_path_commands(&mixed, 0.15, 0.78).unwrap();
+    assert!(
+        sub_mid
+            .iter()
+            .any(|c| matches!(c, PathCommand::QuadraticTo { .. }))
+    );
+    assert!(
+        sub_mid
+            .iter()
+            .any(|c| matches!(c, PathCommand::CubicTo { .. }))
+    );
+    let sub_curve = ExactMotionCurve::from_commands(&sub_mid).unwrap();
+    for step in 0..=50 {
+        let u = f64::from(step) / 50.0;
+        let orig_pt = full_curve.point_at((0.15 + (0.78 - 0.15) * u) * full_curve.length());
+        let sub_pt = sub_curve.point_at(u * sub_curve.length());
+        assert!(
+            (orig_pt[0] - sub_pt[0]).hypot(orig_pt[1] - sub_pt[1]) < 1e-9,
+            "De Casteljau sub-curve drifted at u={u}: {orig_pt:?} vs {sub_pt:?}"
+        );
+    }
+
+    // 2. Both legacy `Keyframe.motion_path` AND format-10 `MotionPathOverride::Path` across
+    //    SplitClip, Delete (head, middle, tail), Clear, Insert, Move, and Reverse!
+    for use_object_path in [false, true] {
+        let mut start = key(0, vec![rect("actor", 0.0, 0.0)]);
+        start.tween = Some(Easing::Linear);
+        start.tween_kind = TweenKind::Motion;
+        start.orient_to_path = !use_object_path;
+        let bezier_cmds = vec![
+            PathCommand::MoveTo { x: 0.0, y: 0.0 },
+            PathCommand::CubicTo {
+                cx1: 30.0,
+                cy1: 160.0,
+                cx2: 170.0,
+                cy2: -80.0,
+                x: 220.0,
+                y: 60.0,
+            },
+        ];
+        if use_object_path {
+            let mut tr = MotionTrackOverride::new("actor");
+            tr.orient_to_path = Some(true);
+            tr.motion_path = Some(MotionPathOverride::Path {
+                commands: bezier_cmds,
+            });
+            start.motion_tracks = vec![tr];
+        } else {
+            start.motion_path = Some(bezier_cmds);
+        }
+        let mut end = key(20, vec![rect("actor", 220.0, 60.0)]);
+        end.keyed_properties = Some(vec![TweenProperty::X, TweenProperty::Y]);
+        if use_object_path {
+            end.motion_keys = Some(vec![MotionPropertyKey {
+                element_id: "actor".into(),
+                properties: vec![TweenProperty::X, TweenProperty::Y],
+                roving: false,
+            }]);
+        }
+        let mut base = project(21, vec![layer("curve", vec![start, end])]);
+        base.upgrade_format_for_features();
+        base.validate().unwrap();
+        let root = base.root.clone();
+
+        let assert_has_cubic = |k: &Keyframe| {
+            let cmds = if use_object_path {
+                match k.motion_track("actor").and_then(|t| t.motion_path.as_ref()) {
+                    Some(MotionPathOverride::Path { commands }) => commands.as_slice(),
+                    other => panic!(
+                        "expected object motion path on frame {}, got {other:?}",
+                        k.frame
+                    ),
+                }
+            } else {
+                k.motion_path
+                    .as_deref()
+                    .unwrap_or_else(|| panic!("expected legacy motion_path on frame {}", k.frame))
+            };
+            assert!(
+                cmds.iter()
+                    .any(|c| matches!(c, PathCommand::CubicTo { .. })),
+                "expected editable CubicTo on frame {}, got {cmds:?}",
+                k.frame
+            );
+        };
+
+        // 2a. SplitClip at frame 9
+        let mut split_proj = base.clone();
+        edit_frames(
+            &mut split_proj,
+            &root,
+            TimelineEdit::SplitClip {
+                layers: vec!["curve".into()],
+                at: 9,
+            },
+        )
+        .unwrap();
+        split_proj.validate().unwrap();
+        let sl = &split_proj.symbols[0].timeline.layers[0];
+        let left_k = sl
+            .keyframes
+            .iter()
+            .find(|k| k.frame == 0 && k.keyed_properties.is_none())
+            .unwrap();
+        let right_k = sl
+            .keyframes
+            .iter()
+            .find(|k| k.frame == 9 && k.keyed_properties.is_none())
+            .unwrap();
+        assert_has_cubic(left_k);
+        assert_has_cubic(right_k);
+        for f in 0..=20 {
+            let b = object_pose(&base.symbols[0].timeline.layers[0], f, "actor");
+            let a = object_pose(sl, f, "actor");
+            assert!(
+                (b.x - a.x).abs() < 1e-6
+                    && (b.y - a.y).abs() < 1e-6
+                    && (b.rotation - a.rotation).abs() < 1e-6,
+                "SplitClip (obj={use_object_path}) drift at {f}: {b:?} vs {a:?}"
+            );
+        }
+
+        // 2b. Delete head (0..=4), middle (7..=10), and tail (15..=20)
+        for (del_start, del_end) in [(0u32, 4u32), (7, 10), (15, 20)] {
+            let mut del_proj = base.clone();
+            edit_frames(
+                &mut del_proj,
+                &root,
+                TimelineEdit::Delete {
+                    range: FrameRange {
+                        layers: vec!["curve".into()],
+                        start: del_start,
+                        end: del_end,
+                    },
+                    include_scripts: false,
+                },
+            )
+            .unwrap();
+            del_proj.validate().unwrap();
+            let dl = &del_proj.symbols[0].timeline.layers[0];
+            let ord_starts: Vec<&Keyframe> = dl
+                .keyframes
+                .iter()
+                .filter(|k| k.keyed_properties.is_none() && k.tween.is_some())
+                .collect();
+            assert!(
+                !ord_starts.is_empty(),
+                "Delete {del_start}..={del_end} must preserve editable motion span(s)"
+            );
+            for sk in &ord_starts {
+                assert_has_cubic(sk);
+            }
+            let del_len = del_end - del_start + 1;
+            for f in 0..(21 - del_len) {
+                let src_f = if f < del_start { f } else { f + del_len };
+                let b = object_pose(&base.symbols[0].timeline.layers[0], src_f, "actor");
+                let a = object_pose(dl, f, "actor");
+                assert!(
+                    (b.x - a.x).abs() < 1e-6
+                        && (b.y - a.y).abs() < 1e-6
+                        && (b.rotation - a.rotation).abs() < 1e-6,
+                    "Delete {del_start}..={del_end} (obj={use_object_path}) drift at {f}"
+                );
+            }
+        }
+
+        // 2c. Clear middle (6..=9)
+        let mut clr_proj = base.clone();
+        edit_frames(
+            &mut clr_proj,
+            &root,
+            TimelineEdit::Clear {
+                range: FrameRange {
+                    layers: vec!["curve".into()],
+                    start: 6,
+                    end: 9,
+                },
+                include_scripts: false,
+            },
+        )
+        .unwrap();
+        clr_proj.validate().unwrap();
+        let cl = &clr_proj.symbols[0].timeline.layers[0];
+        assert_has_cubic(cl.keyframes.iter().find(|k| k.frame == 0).unwrap());
+        assert_has_cubic(cl.keyframes.iter().find(|k| k.frame == 10).unwrap());
+        for f in (0..6).chain(10..=20) {
+            let b = object_pose(&base.symbols[0].timeline.layers[0], f, "actor");
+            let a = object_pose(cl, f, "actor");
+            assert!(
+                (b.x - a.x).abs() < 1e-6
+                    && (b.y - a.y).abs() < 1e-6
+                    && (b.rotation - a.rotation).abs() < 1e-6
+            );
+        }
+
+        // 2d. Insert frames (at 8, count 4) & Move sub-range (4..=12 -> at 22)
+        let mut ins_proj = base.clone();
+        edit_frames(
+            &mut ins_proj,
+            &root,
+            TimelineEdit::Insert {
+                layers: vec!["curve".into()],
+                at: 8,
+                count: 4,
+                include_scripts: false,
+            },
+        )
+        .unwrap();
+        ins_proj.validate().unwrap();
+        assert_has_cubic(&ins_proj.symbols[0].timeline.layers[0].keyframes[0]);
+
+        let mut mov_proj = base.clone();
+        edit_frames(
+            &mut mov_proj,
+            &root,
+            TimelineEdit::Move {
+                range: FrameRange {
+                    layers: vec!["curve".into()],
+                    start: 4,
+                    end: 12,
+                },
+                layers: vec!["curve".into()],
+                at: 24,
+                copy: true,
+                include_scripts: false,
+            },
+        )
+        .unwrap();
+        mov_proj.validate().unwrap();
+        let ml = &mov_proj.symbols[0].timeline.layers[0];
+        assert_has_cubic(
+            ml.keyframes
+                .iter()
+                .find(|k| k.frame == 24 && k.keyed_properties.is_none())
+                .unwrap(),
+        );
+        for offset in 0..=8 {
+            let b = object_pose(&base.symbols[0].timeline.layers[0], 4 + offset, "actor");
+            let a = object_pose(ml, 24 + offset, "actor");
+            assert!((b.x - a.x).abs() < 1e-6 && (b.y - a.y).abs() < 1e-6);
+        }
+
+        // 2e. Reverse (0..=20)
+        let mut rev_proj = base.clone();
+        edit_frames(
+            &mut rev_proj,
+            &root,
+            TimelineEdit::Reverse {
+                range: FrameRange {
+                    layers: vec!["curve".into()],
+                    start: 0,
+                    end: 20,
+                },
+            },
+        )
+        .unwrap();
+        rev_proj.validate().unwrap();
+        let rl = &rev_proj.symbols[0].timeline.layers[0];
+        assert_eq!(rl.keyframes.len(), 2);
+        assert_has_cubic(&rl.keyframes[0]);
+        for k in 0..=20 {
+            let b = object_pose(&base.symbols[0].timeline.layers[0], 20 - k, "actor");
+            let a = object_pose(rl, k, "actor");
+            assert!(
+                (b.x - a.x).abs() < 1e-6
+                    && (b.y - a.y).abs() < 1e-6
+                    && (b.rotation - a.rotation).abs() < 1e-6
+            );
+        }
+    }
+}

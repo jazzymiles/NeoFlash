@@ -263,6 +263,177 @@ pub(crate) fn upgrade_all_format_versions(project: &mut Project) {
     project.upgrade_format_for_features();
 }
 
+fn path_command_endpoint(command: PathCommand) -> Option<[f64; 2]> {
+    match command {
+        PathCommand::MoveTo { x, y }
+        | PathCommand::LineTo { x, y }
+        | PathCommand::QuadraticTo { x, y, .. }
+        | PathCommand::CubicTo { x, y, .. } => Some([x, y]),
+        PathCommand::Close => None,
+    }
+}
+
+/// Subdivide format-10 `MotionPathOverride::Path` segments when a positional ◆ keyframe (such as
+/// `F6` / `make_key(false)`) is inserted onto an existing curve without moving the sampled pose.
+fn subdivide_inserted_object_motion_waypoints(before: &Project, project: &mut Project) {
+    use neoflash_core::motion_tools::{ExactMotionCurve, subdivide_bezier_segment};
+    let fps = f64::from(project.fps);
+    for symbol in &mut project.symbols {
+        let Some(old_symbol) = before.symbol(&symbol.id) else {
+            continue;
+        };
+        for layer in &mut symbol.timeline.layers {
+            if layer.properties.motion_guide.is_some() {
+                continue;
+            }
+            let Some(old_layer) = old_symbol
+                .timeline
+                .layers
+                .iter()
+                .find(|old| old.id == layer.id)
+            else {
+                continue;
+            };
+            let start_frames: Vec<u32> = layer
+                .keyframes
+                .iter()
+                .filter(|k| {
+                    k.tween.is_some()
+                        && k.tween_kind == TweenKind::Motion
+                        && k.keyed_properties.is_none()
+                        && !k.motion_tracks.is_empty()
+                })
+                .map(|k| k.frame)
+                .collect();
+            for start_frame in start_frames {
+                let Some(start_index) = layer
+                    .keyframes
+                    .iter()
+                    .position(|k| k.frame == start_frame && k.keyed_properties.is_none())
+                else {
+                    continue;
+                };
+                let Some(old_start) = old_layer.keyframes.iter().find(|k| {
+                    k.frame == start_frame
+                        && k.tween.is_some()
+                        && k.tween_kind == TweenKind::Motion
+                        && k.keyed_properties.is_none()
+                }) else {
+                    continue;
+                };
+                let span_end = layer.keyframes[start_index + 1..]
+                    .iter()
+                    .find(|k| k.keyed_properties.is_none())
+                    .map_or(u32::MAX, |k| k.frame);
+                let track_ids: Vec<Id> = layer.keyframes[start_index]
+                    .motion_tracks
+                    .iter()
+                    .map(|t| t.element_id.clone())
+                    .collect();
+                for element_id in track_ids {
+                    let Some(MotionPathOverride::Path { commands: old_cmds }) = old_start
+                        .motion_track(&element_id)
+                        .and_then(|t| t.motion_path.as_ref())
+                    else {
+                        continue;
+                    };
+                    let Some(MotionPathOverride::Path { commands: cur_cmds }) = layer.keyframes
+                        [start_index]
+                        .motion_track(&element_id)
+                        .and_then(|t| t.motion_path.as_ref())
+                    else {
+                        continue;
+                    };
+                    if cur_cmds != old_cmds {
+                        continue;
+                    }
+                    let mut frames: Vec<u32> =
+                        motion_path_waypoints(old_layer, start_frame, &element_id)
+                            .into_iter()
+                            .map(|(f, _)| f)
+                            .collect();
+                    if old_cmds.len() != frames.len() || frames.len() < 2 {
+                        continue;
+                    }
+                    let mut path = cur_cmds.clone();
+                    let inserted: Vec<(u32, [f64; 2])> = layer.keyframes[start_index + 1..]
+                        .iter()
+                        .take_while(|k| k.frame < span_end && k.keyed_properties.is_some())
+                        .filter_map(|k| {
+                            if frames.contains(&k.frame) {
+                                return None;
+                            }
+                            let props = k.motion_key_properties_for(&element_id);
+                            if !(props.contains(&TweenProperty::X)
+                                || props.contains(&TweenProperty::Y))
+                            {
+                                return None;
+                            }
+                            let cur_el = k.elements.iter().find(|e| e.id == element_id)?;
+                            let old_pos = sample_layer_at_fps(old_layer, k.frame, fps)
+                                .into_iter()
+                                .find(|e| e.id == element_id)
+                                .map(|e| [e.transform.x, e.transform.y])?;
+                            if (cur_el.transform.x - old_pos[0])
+                                .hypot(cur_el.transform.y - old_pos[1])
+                                > 1e-5
+                            {
+                                return None;
+                            }
+                            Some((k.frame, old_pos))
+                        })
+                        .collect();
+                    if inserted.is_empty() {
+                        continue;
+                    }
+                    let mut changed_path = false;
+                    for (new_frame, old_pos) in inserted {
+                        let index = frames.partition_point(|&f| f < new_frame);
+                        if index == 0 {
+                            continue;
+                        }
+                        if index == frames.len() {
+                            if let Some([x, y]) =
+                                path.last().copied().and_then(path_command_endpoint)
+                            {
+                                path.push(PathCommand::LineTo { x, y });
+                                frames.push(new_frame);
+                                changed_path = true;
+                            }
+                        } else if let Some(prev_end) = path_command_endpoint(path[index - 1]) {
+                            let seg_cmd = path[index];
+                            let Some(seg_curve) =
+                                ExactMotionCurve::from_single_segment(prev_end, seg_cmd)
+                            else {
+                                continue;
+                            };
+                            let s_near = seg_curve.nearest(old_pos);
+                            let u = seg_curve.parameter_on_single_segment_at(s_near);
+                            let (Some((_, left_cmd)), Some((_, right_cmd))) = (
+                                subdivide_bezier_segment(prev_end, seg_cmd, 0.0, u),
+                                subdivide_bezier_segment(prev_end, seg_cmd, u, 1.0),
+                            ) else {
+                                continue;
+                            };
+                            path[index] = left_cmd;
+                            path.insert(index + 1, right_cmd);
+                            frames.insert(index, new_frame);
+                            changed_path = true;
+                        }
+                    }
+                    if changed_path
+                        && motion_path_polyline(&path).is_some()
+                        && let Some(track) =
+                            layer.keyframes[start_index].motion_track_mut(&element_id)
+                    {
+                        track.motion_path = Some(MotionPathOverride::Path { commands: path });
+                    }
+                }
+            }
+        }
+    }
+}
+
 impl Editor {
     /// Commit the open Undo step after document housekeeping that depends on what changed.
     pub(crate) fn commit_history(&mut self) -> bool {
@@ -271,6 +442,7 @@ impl Editor {
             .commit_with(&mut self.project, |before, project| {
                 prune_modified_timeline_side_tables(before, project);
                 crate::timeline_motion_curve::rebase_motion_paths(before, project);
+                subdivide_inserted_object_motion_waypoints(before, project);
                 record_motion_property_keys(before, project);
                 project.prune_authoring_groups();
                 project.prune_motion_guides();

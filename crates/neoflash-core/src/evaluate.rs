@@ -191,7 +191,7 @@ pub fn easing(t: f64, ease: Easing) -> f64 {
                 3. * (1. - u).powi(2) * u * p1 + 3. * (1. - u) * u * u * p2 + u.powi(3)
             };
             let (mut low, mut high) = (0., 1.);
-            for _ in 0..40 {
+            for _ in 0..56 {
                 let mid = (low + high) / 2.;
                 if bez(mid, x1, x2) < t {
                     low = mid;
@@ -1614,36 +1614,149 @@ fn sample_motion(layer: &Layer, frame: u32) -> Vec<Element> {
                 // Orient to path: turn with the direction of travel, relative to the
                 // direction at the span start (the authored rotation stays the base).
                 if x_ease == y_ease {
-                    let xy_time = start.frame as f64 + easing(progress, x_ease) * length;
-                    let heading = |at: f64| {
-                        let a = motion_pose_at_time(start, &properties, element, at);
-                        let b = motion_pose_at_time(start, &properties, element, at + 0.5);
-                        let (dx, dy) = (b.x - a.x, b.y - a.y);
-                        (dx.hypot(dy) > 1e-9).then(|| dy.atan2(dx).to_degrees())
-                    };
-                    let initial = heading(start.frame as f64);
-                    let now = heading(xy_time).or_else(|| heading(xy_time - 0.5));
-                    if let (Some(initial), Some(now)) = (initial, now) {
-                        out.transform.rotation += now - initial;
+                    let t0 = start.frame as f64;
+                    let xy_time = t0 + easing(progress, x_ease) * length;
+                    if let Some(delta_deg) = unwrapped_motion_heading_delta_time(
+                        start,
+                        &properties,
+                        element,
+                        t0,
+                        xy_time,
+                    ) {
+                        out.transform.rotation += delta_deg;
                     }
-                } else {
-                    let dp = (0.5 / length).min(0.25);
-                    let heading_p = |p: f64| {
-                        let p1 = (p + dp).min(1.0);
-                        let p0 = if p1 - p > 1e-6 { p } else { (p1 - dp).max(0.0) };
-                        let a = motion_pose(start, &properties, element, p0, length);
-                        let b = motion_pose(start, &properties, element, p1, length);
-                        let (dx, dy) = (b.x - a.x, b.y - a.y);
-                        (dx.hypot(dy) > 1e-9).then(|| dy.atan2(dx).to_degrees())
-                    };
-                    if let (Some(initial), Some(now)) = (heading_p(0.0), heading_p(progress)) {
-                        out.transform.rotation += now - initial;
-                    }
+                } else if let Some(delta_deg) = unwrapped_motion_heading_delta_progress(
+                    start,
+                    &properties,
+                    element,
+                    progress,
+                    length,
+                ) {
+                    out.transform.rotation += delta_deg;
                 }
             }
             out
         })
         .collect()
+}
+
+pub(crate) fn sample_motion_base_rotation(
+    layer: &Layer,
+    frame: u32,
+    element_id: &str,
+) -> Option<f64> {
+    let (start, properties, end) = motion_span(layer, frame)?;
+    let element = start.elements.iter().find(|e| e.id == element_id)?;
+    let last = properties.last().map_or(start.frame, |k| k.frame);
+    let span_end = end.unwrap_or(last).max(last).max(start.frame + 1);
+    let length = (span_end - start.frame) as f64;
+    let progress = ((frame - start.frame) as f64 / length).min(1.);
+    Some(motion_pose(start, &properties, element, progress, length).rotation)
+}
+
+fn unwrap_angle_deg(prev: f64, raw: f64) -> f64 {
+    let mut diff = (raw - prev) % 360.0;
+    if diff > 180.0 {
+        diff -= 360.0;
+    } else if diff <= -180.0 {
+        diff += 360.0;
+    }
+    prev + diff
+}
+
+fn motion_heading_at_time(
+    start: &Keyframe,
+    properties: &[&Keyframe],
+    element: &Element,
+    at: f64,
+) -> Option<f64> {
+    if let Some(dir) = motion_curve_velocity_at_time(start, properties, element, at) {
+        return Some(dir[1].atan2(dir[0]).to_degrees());
+    }
+    let last_pos = properties
+        .iter()
+        .rev()
+        .find(|key| {
+            let kp = key.motion_key_properties_for(&element.id);
+            kp.contains(&TweenProperty::X) || kp.contains(&TweenProperty::Y)
+        })
+        .map_or(start.frame, |k| k.frame);
+    let t_min = start.frame as f64;
+    let t_max = (last_pos.max(start.frame + 1)) as f64;
+    for eps in [1e-6, 1e-3, 0.25] {
+        let t0 = (at - eps).clamp(t_min, t_max);
+        let t1 = (at + eps).clamp(t_min, t_max);
+        if t1 - t0 <= 1e-12 {
+            continue;
+        }
+        let a = motion_pose_at_time(start, properties, element, t0);
+        let b = motion_pose_at_time(start, properties, element, t1);
+        let (dx, dy) = (b.x - a.x, b.y - a.y);
+        if dx.hypot(dy) > 1e-12 {
+            return Some(dy.atan2(dx).to_degrees());
+        }
+    }
+    None
+}
+
+fn unwrapped_motion_heading_delta_time(
+    start: &Keyframe,
+    properties: &[&Keyframe],
+    element: &Element,
+    t0: f64,
+    t1: f64,
+) -> Option<f64> {
+    let initial = motion_heading_at_time(start, properties, element, t0)?;
+    if (t1 - t0).abs() <= 1e-12 {
+        return Some(0.0);
+    }
+    const STEPS: usize = 32;
+    let mut current = initial;
+    for step in 1..=STEPS {
+        let tau = lerp(t0, t1, step as f64 / STEPS as f64);
+        if let Some(raw) = motion_heading_at_time(start, properties, element, tau) {
+            current = unwrap_angle_deg(current, raw);
+        }
+    }
+    Some(current - initial)
+}
+
+fn unwrapped_motion_heading_delta_progress(
+    start: &Keyframe,
+    properties: &[&Keyframe],
+    element: &Element,
+    progress: f64,
+    length: f64,
+) -> Option<f64> {
+    let heading_p = |p: f64| -> Option<f64> {
+        for dp in [1e-6, 1e-3, (0.25 / length.max(1.0)).min(0.25)] {
+            let p0 = (p - dp).clamp(0.0, 1.0);
+            let p1 = (p + dp).clamp(0.0, 1.0);
+            if p1 - p0 <= 1e-12 {
+                continue;
+            }
+            let a = motion_pose(start, properties, element, p0, length);
+            let b = motion_pose(start, properties, element, p1, length);
+            let (dx, dy) = (b.x - a.x, b.y - a.y);
+            if dx.hypot(dy) > 1e-12 {
+                return Some(dy.atan2(dx).to_degrees());
+            }
+        }
+        None
+    };
+    let initial = heading_p(0.0)?;
+    if progress.abs() <= 1e-12 {
+        return Some(0.0);
+    }
+    const STEPS: usize = 32;
+    let mut current = initial;
+    for step in 1..=STEPS {
+        let p = progress * (step as f64 / STEPS as f64);
+        if let Some(raw) = heading_p(p) {
+            current = unwrap_angle_deg(current, raw);
+        }
+    }
+    Some(current - initial)
 }
 
 fn interpolate_motion_property(
@@ -1890,6 +2003,90 @@ pub fn motion_path_segment(start: [f64; 2], command: PathCommand) -> Option<Guid
     ])
 }
 
+fn motion_curve_lengths(
+    commands: &[PathCommand],
+    points: &[(u32, [f64; 2])],
+) -> Option<(crate::motion_tools::ExactMotionCurve, Vec<f64>)> {
+    if points.len() < 2 {
+        return None;
+    }
+    // Preserve the exact flatten_path complexity and open-contour guard shared with validation.
+    motion_path_polyline(commands)?;
+    let curve = crate::motion_tools::ExactMotionCurve::from_commands(commands)?;
+    let lengths = if commands.len() == points.len() {
+        curve.cumulative_segment_lengths().to_vec()
+    } else {
+        let mut out = Vec::with_capacity(points.len());
+        out.push(0.0);
+        out.extend(
+            points[1..points.len() - 1]
+                .iter()
+                .map(|(_, p)| curve.nearest(*p)),
+        );
+        out.push(curve.length());
+        out
+    };
+    Some((curve, lengths))
+}
+
+fn motion_curve_velocity_at_time(
+    start: &Keyframe,
+    properties: &[&Keyframe],
+    element: &Element,
+    time: f64,
+) -> Option<[f64; 2]> {
+    let (commands, reference) = match start.motion_path_for(&element.id) {
+        MotionPathSource::None => return None,
+        MotionPathSource::Legacy(commands) => (commands, start.elements.first()?),
+        MotionPathSource::Object(commands) => (commands, element),
+    };
+    let points = position_waypoints(start, properties, reference);
+    let (curve, lengths) = motion_curve_lengths(commands, &points)?;
+    let seg_idx = if time <= points[0].0 as f64 {
+        0
+    } else {
+        points
+            .partition_point(|(frame, _)| (*frame as f64) <= time)
+            .saturating_sub(1)
+            .min(points.len() - 2)
+    };
+    let dt = ((points[seg_idx + 1].0 - points[seg_idx].0).max(1)) as f64;
+    let fraction = ((time - points[seg_idx].0 as f64) / dt).clamp(0.0, 1.0);
+    let s = lerp(lengths[seg_idx], lengths[seg_idx + 1], fraction);
+    let raw_tan = curve.tangent_vector_at(s)?;
+    let norm = raw_tan[0].hypot(raw_tan[1]);
+    if norm <= 1e-12 {
+        return None;
+    }
+    if reference.id == element.id {
+        let sign = if lengths[seg_idx + 1] + 1e-12 < lengths[seg_idx] {
+            -1.0
+        } else {
+            1.0
+        };
+        return Some([sign * raw_tan[0] / norm, sign * raw_tan[1] / norm]);
+    }
+    let ds_dt = (lengths[seg_idx + 1] - lengths[seg_idx]) / dt;
+    let curve_vx = ds_dt * (raw_tan[0] / norm);
+    let curve_vy = ds_dt * (raw_tan[1] / norm);
+    let t_max = points.last().unwrap().0 as f64;
+    let eps = 1e-6;
+    let t0 = (time - eps).clamp(start.frame as f64, t_max);
+    let t1 = (time + eps).clamp(start.frame as f64, t_max);
+    if t1 - t0 > 1e-12 {
+        let el0 = motion_pose_at_time_linear(start, properties, element, t0);
+        let el1 = motion_pose_at_time_linear(start, properties, element, t1);
+        let ref0 = motion_pose_at_time_linear(start, properties, reference, t0);
+        let ref1 = motion_pose_at_time_linear(start, properties, reference, t1);
+        let vx = curve_vx + ((el1.x - el0.x) - (ref1.x - ref0.x)) / (t1 - t0);
+        let vy = curve_vy + ((el1.y - el0.y) - (ref1.y - ref0.y)) / (t1 - t0);
+        if vx.hypot(vy) > 1e-12 {
+            return Some([vx, vy]);
+        }
+    }
+    Some([raw_tan[0] / norm, raw_tan[1] / norm])
+}
+
 fn apply_motion_curve(
     transform: &mut Transform,
     start: &Keyframe,
@@ -1909,45 +2106,19 @@ fn apply_motion_curve(
         MotionPathSource::Object(commands) => (commands, element),
     };
     let points = position_waypoints(start, properties, reference);
-    if points.len() < 2 {
-        return;
-    }
-    let Some(path) = motion_path_polyline(commands) else {
+    let Some((curve, lengths)) = motion_curve_lengths(commands, &points) else {
         return;
     };
-    // Initially one segment ends at each position key. If authoring inserts or removes a
-    // key later, project it onto the retained curve so the editable geometry is not lost.
-    let mut lengths = vec![0.];
-    if commands.len() == points.len() {
-        let mut previous = match commands[0] {
-            PathCommand::MoveTo { x, y } => [x, y],
-            _ => return,
-        };
-        for command in &commands[1..] {
-            let Some(segment) = motion_path_segment(previous, *command) else {
-                return;
-            };
-            lengths.push(lengths.last().unwrap() + segment.length());
-            previous = segment.point_at(segment.length());
-        }
-    } else {
-        lengths.extend(
-            points[1..points.len() - 1]
-                .iter()
-                .map(|(_, p)| path.nearest(*p)),
-        );
-        lengths.push(path.length());
-    }
     let point_at_time = |time: f64| {
         let i = points
             .partition_point(|(frame, _)| (*frame as f64) <= time)
             .saturating_sub(1);
         if i + 1 >= points.len() {
-            return path.point_at(path.length());
+            return curve.point_at(curve.length());
         }
         let fraction =
             ((time - points[i].0 as f64) / (points[i + 1].0 - points[i].0) as f64).clamp(0., 1.);
-        path.point_at(lerp(lengths[i], lengths[i + 1], fraction))
+        curve.point_at(lerp(lengths[i], lengths[i + 1], fraction))
     };
     let base_x = motion_pose_at_time_linear(start, properties, reference, x_time).x;
     let base_y = motion_pose_at_time_linear(start, properties, reference, y_time).y;

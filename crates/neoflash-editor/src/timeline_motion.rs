@@ -188,6 +188,12 @@ pub(crate) fn translate_motion_path(path: &[PathCommand], delta: [f64; 2]) -> Ve
                 *x += delta[0];
                 *y += delta[1];
             }
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                *cx += delta[0];
+                *cy += delta[1];
+                *x += delta[0];
+                *y += delta[1];
+            }
             PathCommand::CubicTo {
                 cx1,
                 cy1,
@@ -203,7 +209,7 @@ pub(crate) fn translate_motion_path(path: &[PathCommand], delta: [f64; 2]) -> Ve
                 *x += delta[0];
                 *y += delta[1];
             }
-            _ => {}
+            PathCommand::Close => {}
         }
     }
     translated
@@ -560,39 +566,14 @@ impl Editor {
                     key.orient_to_path = clip.orient_to_path;
                     key.motion_path = clip.source.layers[clip.source_layer]
                         .key_at(clip.source_start)
-                        .and_then(|k| k.motion_path.clone())
-                        .map(|mut path| {
+                        .and_then(|k| k.motion_path.as_ref())
+                        .map(|path| {
                             let first = &clip.source.layers[clip.source_layer]
                                 .key_at(clip.source_start)
                                 .unwrap()
                                 .elements[0]
                                 .transform;
-                            let delta = [target.x - first.x, target.y - first.y];
-                            for command in &mut path {
-                                match command {
-                                    PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => {
-                                        *x += delta[0];
-                                        *y += delta[1];
-                                    }
-                                    PathCommand::CubicTo {
-                                        cx1,
-                                        cy1,
-                                        cx2,
-                                        cy2,
-                                        x,
-                                        y,
-                                    } => {
-                                        *cx1 += delta[0];
-                                        *cy1 += delta[1];
-                                        *cx2 += delta[0];
-                                        *cy2 += delta[1];
-                                        *x += delta[0];
-                                        *y += delta[1];
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            path
+                            translate_motion_path(path, [target.x - first.x, target.y - first.y])
                         });
                     key.keyed_properties = None;
                 } else if clip.kind == TweenKind::Motion {
@@ -710,8 +691,22 @@ impl Editor {
                     let start = &mut layer.keyframes[start_index];
                     place(start, &template, target);
                     let inherits_legacy_path = start.motion_path.is_some();
-                    let path = clip.motion_path.as_ref().map(|path| {
-                        translate_motion_path(path, [target.x - base.x, target.y - base.y])
+                    let path = clip.motion_path.as_ref().and_then(|path| {
+                        let translated =
+                            translate_motion_path(path, [target.x - base.x, target.y - base.y]);
+                        if effective_end < desired_end && clip.length > 1 {
+                            let frac = ((effective_end - at - 1) as f64
+                                / (clip.length - 1).max(1) as f64)
+                                .clamp(0.0, 1.0);
+                            neoflash_core::motion_tools::subdivide_path_commands(
+                                &translated,
+                                0.0,
+                                frac,
+                            )
+                            .filter(|cmds| motion_path_polyline(cmds).is_some())
+                        } else {
+                            Some(translated)
+                        }
                     });
                     let track = start.ensure_motion_track(&id);
                     track.easing = Some(clip.ease);

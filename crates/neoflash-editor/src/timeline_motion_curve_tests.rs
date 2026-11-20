@@ -553,3 +553,198 @@ fn deleting_or_reordering_a_curve_reference_preserves_surviving_animation() {
         assert_eq!(editor.project, before);
     }
 }
+
+#[test]
+fn t399_editor_f6_split_clip_cuts_and_reverse_preserve_editable_bezier_motion_curves() {
+    for legacy_shared_path in [false, true] {
+        let (mut editor, _ctx, _page) = fixture();
+        editor.symbol_mut().timeline.frame_count = 21;
+        editor.symbol_mut().timeline.layers[0]
+            .keyframes
+            .retain(|k| k.frame == 0 || k.frame == 20);
+        let cubic_cmds = vec![
+            PathCommand::MoveTo { x: 50.0, y: 100.0 },
+            PathCommand::CubicTo {
+                cx1: 90.0,
+                cy1: 230.0,
+                cx2: 190.0,
+                cy2: -20.0,
+                x: 250.0,
+                y: 100.0,
+            },
+        ];
+        if legacy_shared_path {
+            editor.symbol_mut().timeline.layers[0].keyframes[0].motion_path = Some(cubic_cmds);
+        } else {
+            let mut tr = MotionTrackOverride::new("moving");
+            tr.orient_to_path = Some(true);
+            tr.motion_path = Some(MotionPathOverride::Path {
+                commands: cubic_cmds,
+            });
+            editor.symbol_mut().timeline.layers[0].keyframes[0].motion_tracks = vec![tr];
+            editor.symbol_mut().timeline.layers[0].keyframes[1].motion_keys =
+                Some(vec![MotionPropertyKey {
+                    element_id: "moving".into(),
+                    properties: vec![TweenProperty::X, TweenProperty::Y],
+                    roving: false,
+                }]);
+        }
+        editor.project.upgrade_format_for_features();
+        editor.project.validate().unwrap();
+        editor.clear_history();
+
+        let layer_id = editor.symbol().timeline.layers[0].id.clone();
+        let before = editor.project.clone();
+        let orig_poses: Vec<Transform> = (0..=20).map(|f| pose(&editor, f)).collect();
+
+        let span_has_cubic = |ed: &Editor, start_frame: u32| -> Vec<PathCommand> {
+            let k = ed.symbol().timeline.layers[0]
+                .keyframes
+                .iter()
+                .find(|k| k.frame == start_frame && k.keyed_properties.is_none())
+                .unwrap_or_else(|| panic!("missing ordinary key at {start_frame}"));
+            let cmds = match k.motion_path_for("moving") {
+                MotionPathSource::Legacy(p) | MotionPathSource::Object(p) => p.to_vec(),
+                MotionPathSource::None => {
+                    panic!("expected editable motion path on key {start_frame}")
+                }
+            };
+            assert!(
+                cmds.iter()
+                    .any(|c| matches!(c, PathCommand::CubicTo { .. })),
+                "expected CubicTo on key {start_frame}, got {cmds:?}"
+            );
+            cmds
+        };
+
+        // 1. F6 (`make_key(false)`) at frame 8 subdivides CubicTo into 2 CubicTo segments + single Undo.
+        editor.frame = 8;
+        editor.make_key(false);
+        editor.project.validate().unwrap();
+        let f6_cmds = span_has_cubic(&editor, 0);
+        assert_eq!(
+            f6_cmds.len(),
+            3,
+            "F6 at frame 8 must subdivide CubicTo into 2 CubicTo segments (shared={legacy_shared_path})"
+        );
+        assert!(
+            f6_cmds[1..]
+                .iter()
+                .all(|c| matches!(c, PathCommand::CubicTo { .. }))
+        );
+        for (f, orig) in orig_poses.iter().enumerate() {
+            let cur = pose(&editor, f as u32);
+            assert!(
+                (orig.x - cur.x).abs() < 1e-4 && (orig.y - cur.y).abs() < 1e-4,
+                "F6 drifted at frame {f} (shared={legacy_shared_path}): {orig:?} vs {cur:?}"
+            );
+        }
+        editor.undo();
+        assert_eq!(editor.project, before);
+        assert!(!editor.history.can_undo());
+
+        // 2. `split_clip_at` at frame 9 preserves editable CubicTo on both halves + single Undo.
+        assert!(editor.split_clip_at(vec![layer_id.clone()], 9));
+        editor.project.validate().unwrap();
+        span_has_cubic(&editor, 0);
+        span_has_cubic(&editor, 9);
+        for (f, orig) in orig_poses.iter().enumerate() {
+            let cur = pose(&editor, f as u32);
+            assert!(
+                (orig.x - cur.x).abs() < 1e-6
+                    && (orig.y - cur.y).abs() < 1e-6
+                    && (orig.rotation - cur.rotation).abs() < 1e-6
+            );
+        }
+        editor.undo();
+        assert_eq!(editor.project, before);
+
+        // 3. Delete middle (6..=9), head (0..=4), tail (16..=20) & Clear (5..=8) + single Undo each.
+        for (del_start, del_end) in [(6u32, 9u32), (0, 4), (16, 20)] {
+            assert!(editor.apply_frame_edit(TimelineEdit::Delete {
+                range: FrameRange {
+                    layers: vec![layer_id.clone()],
+                    start: del_start,
+                    end: del_end,
+                },
+                include_scripts: false,
+            }));
+            editor.project.validate().unwrap();
+            let starts: Vec<u32> = editor.symbol().timeline.layers[0]
+                .keyframes
+                .iter()
+                .filter(|k| k.keyed_properties.is_none() && k.tween.is_some())
+                .map(|k| k.frame)
+                .collect();
+            assert!(!starts.is_empty());
+            for sf in starts {
+                span_has_cubic(&editor, sf);
+            }
+            let del_len = del_end - del_start + 1;
+            for f in 0..(21 - del_len) {
+                let src = if f < del_start { f } else { f + del_len } as usize;
+                let cur = pose(&editor, f);
+                assert!(
+                    (orig_poses[src].x - cur.x).abs() < 1e-6
+                        && (orig_poses[src].y - cur.y).abs() < 1e-6
+                );
+            }
+            editor.undo();
+            assert_eq!(editor.project, before);
+        }
+
+        assert!(editor.apply_frame_edit(TimelineEdit::Clear {
+            range: FrameRange {
+                layers: vec![layer_id.clone()],
+                start: 5,
+                end: 8,
+            },
+            include_scripts: false,
+        }));
+        editor.project.validate().unwrap();
+        span_has_cubic(&editor, 0);
+        span_has_cubic(&editor, 9);
+        for f in (0..5).chain(9..=20) {
+            let cur = pose(&editor, f);
+            let orig = &orig_poses[f as usize];
+            assert!((orig.x - cur.x).abs() < 1e-6 && (orig.y - cur.y).abs() < 1e-6);
+        }
+        editor.undo();
+        assert_eq!(editor.project, before);
+
+        // 4. `reverse_frames()` swaps CubicTo handles and mirrors poses in time + single Undo.
+        editor.select_frame_range(FrameRange {
+            layers: vec![layer_id.clone()],
+            start: 0,
+            end: 20,
+        });
+        editor.reverse_frames();
+        editor.project.validate().unwrap();
+        let rev_cmds = span_has_cubic(&editor, 0);
+        assert_eq!(
+            rev_cmds,
+            vec![
+                PathCommand::MoveTo { x: 250.0, y: 100.0 },
+                PathCommand::CubicTo {
+                    cx1: 190.0,
+                    cy1: -20.0,
+                    cx2: 90.0,
+                    cy2: 230.0,
+                    x: 50.0,
+                    y: 100.0,
+                },
+            ]
+        );
+        for k in 0..=20 {
+            let cur = pose(&editor, k);
+            let orig = &orig_poses[(20 - k) as usize];
+            assert!(
+                (orig.x - cur.x).abs() < 1e-6
+                    && (orig.y - cur.y).abs() < 1e-6
+                    && (orig.rotation - cur.rotation).abs() < 1e-6
+            );
+        }
+        editor.undo();
+        assert_eq!(editor.project, before);
+    }
+}

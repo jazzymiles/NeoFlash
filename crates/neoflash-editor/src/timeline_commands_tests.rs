@@ -7917,3 +7917,195 @@ fn t318_undo_new_edit_clears_redo_and_element_deletion_prunes_keyframe_side_tabl
     editor.project.validate().unwrap();
     assert_eq!(editor.project.name, "Branched History");
 }
+
+#[test]
+fn t399_editor_reverse_frames_preserves_nonlinear_property_eases_cw_ccw_and_motion_spans_with_single_undo()
+ {
+    let mut project = Project::blank();
+    let tl = &mut project.symbols[0].timeline;
+    tl.frame_count = 13;
+    let classic_id: Id = "classic-layer".into();
+    let motion_id: Id = "motion-layer".into();
+
+    let mut c0 = Keyframe {
+        frame: 0,
+        elements: vec![element("wheel", rectangle(), 20.0)],
+        tween: Some(Easing::Flash {
+            acceleration: -75.0,
+        }),
+        classic_rotate_dir: ClassicRotateDirection::Cw,
+        classic_rotate_turns: 1,
+        tween_scale: false,
+        ..Default::default()
+    };
+    c0.elements[0].transform.rotation = 10.0;
+    c0.elements[0].transform.scale_x = 1.75;
+    let mut c12 = Keyframe {
+        frame: 12,
+        elements: vec![element("wheel", rectangle(), 200.0)],
+        ..Default::default()
+    };
+    c12.elements[0].transform.rotation = 100.0;
+    c12.elements[0].transform.scale_x = 0.5;
+
+    let mut m0 = Keyframe {
+        frame: 0,
+        elements: vec![element("glider", rectangle(), 0.0)],
+        tween: Some(Easing::EaseIn),
+        tween_kind: TweenKind::Motion,
+        property_eases: vec![
+            (
+                TweenProperty::X,
+                Easing::CubicBezier {
+                    x1: 0.3,
+                    y1: 1.35,
+                    x2: 0.7,
+                    y2: -0.25,
+                },
+            ),
+            (TweenProperty::ScaleY, Easing::EaseOut),
+        ],
+        ..Default::default()
+    };
+    let mut track = MotionTrackOverride::new("glider");
+    track.orient_to_path = Some(true);
+    track.property_eases = Some(vec![
+        (TweenProperty::X, Easing::EaseInOut),
+        (TweenProperty::Y, Easing::EaseInOut),
+    ]);
+    track.motion_path = Some(MotionPathOverride::Path {
+        commands: vec![
+            PathCommand::MoveTo { x: 0.0, y: 0.0 },
+            PathCommand::CubicTo {
+                cx1: 40.0,
+                cy1: 140.0,
+                cx2: 140.0,
+                cy2: -60.0,
+                x: 180.0,
+                y: 40.0,
+            },
+        ],
+    });
+    m0.motion_tracks = vec![track];
+
+    let mut m12 = Keyframe {
+        frame: 12,
+        elements: vec![element("glider", rectangle(), 180.0)],
+        keyed_properties: Some(vec![
+            TweenProperty::X,
+            TweenProperty::Y,
+            TweenProperty::ScaleY,
+        ]),
+        motion_keys: Some(vec![MotionPropertyKey {
+            element_id: "glider".into(),
+            properties: vec![TweenProperty::X, TweenProperty::Y, TweenProperty::ScaleY],
+            roving: false,
+        }]),
+        ..Default::default()
+    };
+    m12.elements[0].transform.y = 40.0;
+    m12.elements[0].transform.scale_y = 2.0;
+
+    tl.layers = vec![
+        Layer {
+            id: classic_id.clone(),
+            name: "Classic".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![c0, c12],
+            properties: LayerProperties::default(),
+        },
+        Layer {
+            id: motion_id.clone(),
+            name: "Motion".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![m0, m12],
+            properties: LayerProperties::default(),
+        },
+    ];
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+
+    let mut editor = Editor::from_project(&egui::Context::default(), project);
+    editor.clear_history();
+    let before = editor.project.clone();
+
+    editor.select_frame_range(FrameRange {
+        layers: vec![classic_id.clone(), motion_id.clone()],
+        start: 0,
+        end: 12,
+    });
+    editor.reverse_frames();
+    editor.project.validate().unwrap();
+
+    let rev_classic = &editor.symbol().timeline.layers[0];
+    let rev_motion = &editor.symbol().timeline.layers[1];
+    assert_eq!(rev_classic.keyframes.len(), 2);
+    assert_eq!(
+        rev_classic.keyframes[0].tween,
+        Some(Easing::Flash { acceleration: 75.0 })
+    );
+    assert_eq!(
+        rev_classic.keyframes[0].classic_rotate_dir,
+        ClassicRotateDirection::Ccw
+    );
+    assert_eq!(rev_classic.keyframes[0].classic_rotate_turns, 1);
+    assert!(!rev_classic.keyframes[0].tween_scale);
+
+    assert_eq!(rev_motion.keyframes.len(), 2);
+    assert_eq!(rev_motion.keyframes[0].tween_kind, TweenKind::Motion);
+    assert_eq!(rev_motion.keyframes[0].tween, Some(Easing::EaseOut));
+    assert!(matches!(
+        rev_motion.keyframes[0]
+            .motion_track("glider")
+            .and_then(|t| t.motion_path.as_ref()),
+        Some(MotionPathOverride::Path { commands })
+            if commands.iter().any(|c| matches!(c, PathCommand::CubicTo { .. }))
+    ));
+
+    for k in 0..=12 {
+        let orig_c = sample_layer(&before.symbols[0].timeline.layers[0], 12 - k)[0].transform;
+        let cur_c = sample_layer(rev_classic, k)[0].transform;
+        assert!((orig_c.x - cur_c.x).abs() < 1e-6);
+        let r0 = orig_c.rotation.to_radians();
+        let r1 = cur_c.rotation.to_radians();
+        assert!((r0.cos() - r1.cos()).abs() < 1e-6 && (r0.sin() - r1.sin()).abs() < 1e-6);
+
+        let orig_m = sample_layer(&before.symbols[0].timeline.layers[1], 12 - k)[0].transform;
+        let cur_m = sample_layer(rev_motion, k)[0].transform;
+        assert!(
+            (orig_m.x - cur_m.x).abs() < 1e-6
+                && (orig_m.y - cur_m.y).abs() < 1e-6
+                && (orig_m.scale_y - cur_m.scale_y).abs() < 1e-6
+                && (orig_m.rotation - cur_m.rotation).abs() < 1e-6
+        );
+    }
+
+    // Reversing a second time restores original poses, CW direction, and EaseIn!
+    editor.select_frame_range(FrameRange {
+        layers: vec![classic_id.clone(), motion_id.clone()],
+        start: 0,
+        end: 12,
+    });
+    editor.reverse_frames();
+    editor.project.validate().unwrap();
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0].classic_rotate_dir,
+        ClassicRotateDirection::Cw
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[1].keyframes[0].tween,
+        Some(Easing::EaseIn)
+    );
+    for f in 0..=12 {
+        let p0 = sample_layer(&before.symbols[0].timeline.layers[1], f)[0].transform;
+        let p2 = sample_layer(&editor.symbol().timeline.layers[1], f)[0].transform;
+        assert!((p0.x - p2.x).abs() < 1e-6 && (p0.y - p2.y).abs() < 1e-6);
+    }
+
+    // Undo twice (one per Reverse) restores exact `before`!
+    editor.undo();
+    editor.undo();
+    assert_eq!(editor.project, before);
+}

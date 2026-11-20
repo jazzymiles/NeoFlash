@@ -446,23 +446,128 @@ fn subdivide_cubic_bezier([x1, y1, x2, y2]: [f64; 4], t0: f64, t1: f64) -> Optio
     })
 }
 
-fn reverse_easing(ease: Easing) -> Easing {
-    match ease {
-        Easing::Linear => Easing::Linear,
-        Easing::EaseIn => Easing::EaseOut,
-        Easing::EaseOut => Easing::EaseIn,
-        Easing::EaseInOut => Easing::EaseInOut,
-        Easing::Flash { acceleration } => Easing::Flash {
-            acceleration: -acceleration,
-        },
-        Easing::CubicBezier { x1, y1, x2, y2 } => Easing::CubicBezier {
-            x1: 1.0 - x2,
-            y1: 1.0 - y2,
-            x2: 1.0 - x1,
-            y2: 1.0 - y1,
-        },
-        Easing::Bounce | Easing::Elastic => ease,
+use crate::motion_tools::{ExactMotionCurve, reverse_easing, reverse_path_commands};
+
+fn fit_cubic_bezier_samples(samples: &[(f64, f64)]) -> Option<Easing> {
+    if samples.is_empty() {
+        return Some(Easing::Linear);
     }
+    let eval_fit = |x1: f64, x2: f64| -> (f64, f64, [f64; 4]) {
+        let mut a00 = 0.0;
+        let mut a01 = 0.0;
+        let mut a11 = 0.0;
+        let mut b0 = 0.0;
+        let mut b1 = 0.0;
+        let mut rows = Vec::with_capacity(samples.len());
+        for &(x, target) in samples {
+            let u = solve_bezier_x(x, x1, x2);
+            let inv = 1.0 - u;
+            let ca = 3.0 * inv * inv * u;
+            let cb = 3.0 * inv * u * u;
+            let rhs = target - u * u * u;
+            rows.push((ca, cb, rhs));
+            a00 += ca * ca;
+            a01 += ca * cb;
+            a11 += cb * cb;
+            b0 += ca * rhs;
+            b1 += cb * rhs;
+        }
+        let det = a00 * a11 - a01 * a01;
+        let (raw_y1, raw_y2) = if det.abs() <= 1e-18 {
+            let y1 = if a00 > 1e-18 { b0 / a00 } else { 1.0 / 3.0 };
+            (y1, 2.0 / 3.0)
+        } else {
+            ((b0 * a11 - b1 * a01) / det, (a00 * b1 - a01 * b0) / det)
+        };
+        let y1 = raw_y1.clamp(-100.0, 100.0);
+        let y2 = raw_y2.clamp(-100.0, 100.0);
+        let mut sum_sq = 0.0;
+        let mut max_err = 0.0_f64;
+        for &(ca, cb, rhs) in &rows {
+            let err = (ca * y1 + cb * y2 - rhs).abs();
+            sum_sq += err * err;
+            max_err = max_err.max(err);
+        }
+        (sum_sq, max_err, [x1, y1, x2, y2])
+    };
+
+    let mut best = eval_fit(1.0 / 3.0, 2.0 / 3.0);
+    for g1 in [0.05, 0.15, 0.3, 0.5, 0.7, 0.85, 0.98] {
+        for g2 in [0.05, 0.2, 0.4, 0.6, 0.8, 0.95, 0.999] {
+            let cand = eval_fit(g1, g2);
+            if cand.0 < best.0 {
+                best = cand;
+            }
+        }
+    }
+    let (mut x1, _, mut x2, _) = (best.2[0], best.2[1], best.2[2], best.2[3]);
+    let mut step = 0.08;
+    for _ in 0..36 {
+        let mut improved = false;
+        for (dx1, dx2) in [
+            (step, 0.0),
+            (-step, 0.0),
+            (0.0, step),
+            (0.0, -step),
+            (step, step),
+            (-step, -step),
+            (step, -step),
+            (-step, step),
+        ] {
+            let nx1 = (x1 + dx1).clamp(0.0, 1.0);
+            let nx2 = (x2 + dx2).clamp(0.0, 1.0);
+            let cand = eval_fit(nx1, nx2);
+            if cand.0 < best.0 {
+                best = cand;
+                x1 = nx1;
+                x2 = nx2;
+                improved = true;
+            }
+        }
+        if !improved {
+            step *= 0.5;
+            if step < 1e-7 {
+                break;
+            }
+        }
+    }
+    let [fx1, fy1, fx2, fy2] = best.2;
+    if ![fx1, fy1, fx2, fy2].iter().all(|v| v.is_finite()) || best.1 > 5e-3 {
+        return None;
+    }
+    Some(Easing::CubicBezier {
+        x1: fx1,
+        y1: fy1,
+        x2: fx2,
+        y2: fy2,
+    })
+}
+
+fn subdivide_left_single_motion_ease(
+    ease: Easing,
+    left_frame_count: u32,
+    eval_span_len: f64,
+) -> Option<Easing> {
+    if matches!(ease, Easing::Bounce | Easing::Elastic) || left_frame_count < 2 {
+        return None;
+    }
+    if ease == Easing::Linear || left_frame_count == 2 {
+        return Some(Easing::Linear);
+    }
+    let n = left_frame_count as f64;
+    let d_last = (left_frame_count - 1) as f64;
+    let e_last = easing(d_last / eval_span_len.max(1.0), ease);
+    if e_last.abs() <= 1e-6 {
+        return None;
+    }
+    let scale = d_last / n;
+    let mut samples = Vec::with_capacity((left_frame_count - 1) as usize);
+    for k in 1..left_frame_count {
+        let x = k as f64 / n;
+        let frac = easing(k as f64 / eval_span_len.max(1.0), ease) / e_last;
+        samples.push((x, scale * frac));
+    }
+    fit_cubic_bezier_samples(&samples)
 }
 
 fn subdivide_single_ease(ease: Easing, t0: f64, t1: f64) -> Option<Easing> {
@@ -528,6 +633,38 @@ fn subdivide_motion_eases(first_key: &Keyframe, t0: f64, t1: f64) -> Option<Subd
     Some((base, prop_eases, tracks))
 }
 
+fn subdivide_left_motion_eases(
+    first_key: &Keyframe,
+    left_frame_count: u32,
+    eval_span_len: f64,
+) -> Option<SubdividedMotionEases> {
+    let base =
+        subdivide_left_single_motion_ease(first_key.tween?, left_frame_count, eval_span_len)?;
+    let mut prop_eases = Vec::with_capacity(first_key.property_eases.len());
+    for &(prop, ease) in &first_key.property_eases {
+        prop_eases.push((
+            prop,
+            subdivide_left_single_motion_ease(ease, left_frame_count, eval_span_len)?,
+        ));
+    }
+    let mut tracks = first_key.motion_tracks.clone();
+    for track in &mut tracks {
+        if let Some(ease) = track.easing {
+            track.easing = Some(subdivide_left_single_motion_ease(
+                ease,
+                left_frame_count,
+                eval_span_len,
+            )?);
+        }
+        if let Some(property_eases) = &mut track.property_eases {
+            for (_, ease) in property_eases {
+                *ease = subdivide_left_single_motion_ease(*ease, left_frame_count, eval_span_len)?;
+            }
+        }
+    }
+    Some((base, prop_eases, tracks))
+}
+
 fn has_object_motion_path(key: &Keyframe) -> bool {
     key.motion_path.is_some()
         || key
@@ -552,23 +689,227 @@ fn has_noninvertible_motion_ease(key: &Keyframe) -> bool {
         })
 }
 
-fn has_object_motion_timing(layer: &Layer, start_idx: usize, end_frame: u32) -> bool {
-    let start = &layer.keyframes[start_idx];
-    start.motion_tracks.iter().any(|track| {
-        track.easing.is_some_and(|ease| ease != Easing::Linear)
-            || track.property_eases.as_ref().is_some_and(|property_eases| {
-                property_eases
-                    .iter()
-                    .any(|(_, ease)| *ease != Easing::Linear)
-            })
-    }) || layer.keyframes[start_idx + 1..]
+fn has_roving_motion_keys(layer: &Layer, start_idx: usize, end_frame: u32) -> bool {
+    layer.keyframes[start_idx + 1..]
         .iter()
         .take_while(|key| key.frame < end_frame && key.keyed_properties.is_some())
         .any(|key| {
-            key.motion_keys
-                .as_ref()
-                .is_some_and(|object_keys| object_keys.iter().any(|object_key| object_key.roving))
+            key.roving
+                || key.motion_keys.as_ref().is_some_and(|object_keys| {
+                    object_keys.iter().any(|object_key| object_key.roving)
+                })
         })
+}
+
+fn effective_motion_ease_on_start(
+    start: &Keyframe,
+    element_id: &str,
+    property: TweenProperty,
+) -> Easing {
+    if let Some(track) = start.motion_track(element_id) {
+        if let Some(property_eases) = &track.property_eases
+            && let Some((_, ease)) = property_eases.iter().find(|(p, _)| *p == property)
+        {
+            return *ease;
+        }
+        if let Some(ease) = track.easing {
+            return ease;
+        }
+    }
+    start
+        .property_eases
+        .iter()
+        .find(|(p, _)| *p == property)
+        .map(|(_, ease)| *ease)
+        .or(start.tween)
+        .unwrap_or(Easing::Linear)
+}
+
+fn ease_stays_within_unit_range(ease: Easing) -> bool {
+    match ease {
+        Easing::CubicBezier { y1, y2, .. } => {
+            (0.0..=1.0).contains(&y1) && (0.0..=1.0).contains(&y2)
+        }
+        Easing::Bounce | Easing::Elastic => false,
+        _ => true,
+    }
+}
+
+fn curved_tracks_compatible_with_subdivision(first_key: &Keyframe, all_linear: bool) -> bool {
+    if all_linear {
+        return true;
+    }
+    if first_key.motion_path.is_some() {
+        let Some(ref_el) = first_key.elements.first() else {
+            return false;
+        };
+        let xe = effective_motion_ease_on_start(first_key, &ref_el.id, TweenProperty::X);
+        let ye = effective_motion_ease_on_start(first_key, &ref_el.id, TweenProperty::Y);
+        if xe != ye || !ease_stays_within_unit_range(xe) {
+            return false;
+        }
+        for el in first_key.elements.iter().skip(1) {
+            if matches!(
+                first_key.motion_path_for(&el.id),
+                MotionPathSource::Legacy(_)
+            ) {
+                let ex = effective_motion_ease_on_start(first_key, &el.id, TweenProperty::X);
+                let ey = effective_motion_ease_on_start(first_key, &el.id, TweenProperty::Y);
+                if ex != xe || ey != ye {
+                    return false;
+                }
+            }
+        }
+    }
+    for track in &first_key.motion_tracks {
+        if matches!(track.motion_path, Some(MotionPathOverride::Path { .. })) {
+            let xe = effective_motion_ease_on_start(first_key, &track.element_id, TweenProperty::X);
+            let ye = effective_motion_ease_on_start(first_key, &track.element_id, TweenProperty::Y);
+            if xe != ye || !ease_stays_within_unit_range(xe) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn subdivide_single_motion_curve(
+    commands: &[PathCommand],
+    reference_id: &str,
+    original: &Layer,
+    first_key: &Keyframe,
+    eval_end: u32,
+    sub_waypoint_frames: &[u32],
+) -> Option<Option<Vec<PathCommand>>> {
+    let first = first_key.frame;
+    let orig_waypoints = motion_path_waypoints(original, first, reference_id);
+    if orig_waypoints.len() < 2 || sub_waypoint_frames.len() < 2 {
+        return Some(None);
+    }
+    motion_path_polyline(commands)?;
+    let curve = ExactMotionCurve::from_commands(commands)?;
+    let orig_lengths: Vec<f64> = if commands.len() == orig_waypoints.len() {
+        curve.cumulative_segment_lengths().to_vec()
+    } else {
+        let mut lens = Vec::with_capacity(orig_waypoints.len());
+        lens.push(0.0);
+        lens.extend(
+            orig_waypoints[1..orig_waypoints.len() - 1]
+                .iter()
+                .map(|(_, p)| curve.nearest(*p)),
+        );
+        lens.push(curve.length());
+        lens
+    };
+    let s_at_time = |time: f64| -> f64 {
+        if time <= orig_waypoints[0].0 as f64 {
+            return orig_lengths[0];
+        }
+        let idx = orig_waypoints
+            .partition_point(|(f, _)| (*f as f64) <= time)
+            .saturating_sub(1);
+        if idx + 1 >= orig_waypoints.len() {
+            return *orig_lengths.last().unwrap_or(&0.0);
+        }
+        let dt = ((orig_waypoints[idx + 1].0 - orig_waypoints[idx].0).max(1)) as f64;
+        let frac = ((time - orig_waypoints[idx].0 as f64) / dt).clamp(0.0, 1.0);
+        lerp_f64(orig_lengths[idx], orig_lengths[idx + 1], frac)
+    };
+    let x_ease = effective_motion_ease_on_start(first_key, reference_id, TweenProperty::X);
+    let eval_len = (eval_end - first).max(1) as f64;
+    let arc_targets: Vec<f64> = sub_waypoint_frames
+        .iter()
+        .map(|&f| {
+            let prog = ((f.saturating_sub(first)) as f64 / eval_len).clamp(0.0, 1.0);
+            let eff_t = first as f64 + easing(prog, x_ease) * eval_len;
+            s_at_time(eff_t)
+        })
+        .collect();
+    let s_first = *arc_targets.first()?;
+    let s_last = *arc_targets.last()?;
+    let out = if commands.len() == orig_waypoints.len() {
+        let mut combined = Vec::with_capacity(sub_waypoint_frames.len());
+        let mut single_per_interval = true;
+        for pair in arc_targets.windows(2) {
+            let sub = curve.subdivide_arc_range(pair[0], pair[1])?;
+            if sub.len() != 2 {
+                single_per_interval = false;
+                break;
+            }
+            if combined.is_empty() {
+                combined.push(sub[0]);
+            }
+            combined.push(sub[1]);
+        }
+        if single_per_interval && combined.len() >= 2 {
+            combined
+        } else {
+            curve.subdivide_arc_range(s_first, s_last)?
+        }
+    } else {
+        curve.subdivide_arc_range(s_first, s_last)?
+    };
+    motion_path_polyline(&out)?;
+    Some(Some(out))
+}
+
+fn collect_subspan_pos_waypoints(
+    sub_start_frame: u32,
+    sub_prop_keys: &[Keyframe],
+    element_id: &str,
+) -> Vec<u32> {
+    let mut frames = vec![sub_start_frame];
+    for key in sub_prop_keys {
+        let kp = key.motion_key_properties_for(element_id);
+        if (kp.contains(&TweenProperty::X) || kp.contains(&TweenProperty::Y))
+            && key.elements.iter().any(|e| e.id == element_id)
+        {
+            frames.push(key.frame);
+        }
+    }
+    frames
+}
+
+fn subdivide_keyframe_motion_paths(
+    sub_start: &mut Keyframe,
+    sub_props: &[Keyframe],
+    original: &Layer,
+    first_key: &Keyframe,
+    eval_end: u32,
+) -> Option<()> {
+    if let Some(legacy_cmds) = &first_key.motion_path {
+        let ref_el = first_key.elements.first()?;
+        let wps = collect_subspan_pos_waypoints(sub_start.frame, sub_props, &ref_el.id);
+        sub_start.motion_path = subdivide_single_motion_curve(
+            legacy_cmds,
+            &ref_el.id,
+            original,
+            first_key,
+            eval_end,
+            &wps,
+        )?;
+    }
+    let inherits_legacy = sub_start.motion_path.is_some();
+    for track in &mut sub_start.motion_tracks {
+        let orig_override = first_key
+            .motion_track(&track.element_id)
+            .and_then(|t| t.motion_path.as_ref());
+        if let Some(MotionPathOverride::Path { commands }) = orig_override {
+            let wps = collect_subspan_pos_waypoints(sub_start.frame, sub_props, &track.element_id);
+            track.motion_path = match subdivide_single_motion_curve(
+                commands,
+                &track.element_id,
+                original,
+                first_key,
+                eval_end,
+                &wps,
+            )? {
+                Some(sub_cmds) => Some(MotionPathOverride::Path { commands: sub_cmds }),
+                None => inherits_legacy.then_some(MotionPathOverride::Disabled),
+            };
+        }
+    }
+    Some(())
 }
 
 /// Subdivide a classic tween `[first, last]` onto `[sub_start, sub_end]`, returning
@@ -597,6 +938,11 @@ fn subdivide_classic_subrange(
     if sub_start == first && sub_end == last {
         return Some(vec![first_key.clone()]);
     }
+    if first_key.classic_rotate_turns > 0
+        || first_key.classic_rotate_dir != ClassicRotateDirection::Auto
+    {
+        return None;
+    }
     let make_start_key = |frame: u32, tween: Easing| -> Keyframe {
         if frame == first {
             let mut k = first_key.clone();
@@ -607,6 +953,9 @@ fn subdivide_classic_subrange(
             k.tween = Some(tween);
             k.tween_kind = TweenKind::Classic;
             k.orient_to_path = first_key.orient_to_path;
+            k.tween_scale = first_key.tween_scale;
+            k.sync_symbols = first_key.sync_symbols;
+            k.snap_to_guide = first_key.snap_to_guide;
             k
         }
     };
@@ -723,11 +1072,19 @@ fn isolate_range_impl(
     let sampling = TimelineSampleContext { timeline, fps };
     layer.keyframes.sort_by_key(|key| key.frame);
     let original = layer.clone();
-    let effective_end = original.properties.end_frame.unwrap_or(MAX_FRAME);
+    let effective_end = exposure(&original, timeline.frame_count);
 
     enum SpanKind {
-        Motion { start_idx: usize, end_frame: u32 },
-        ClassicOrShape { start_idx: usize, last_frame: u32 },
+        Motion {
+            start_idx: usize,
+            end_frame: u32,
+            eval_end: u32,
+            last_prop: u32,
+        },
+        ClassicOrShape {
+            start_idx: usize,
+            last_frame: u32,
+        },
     }
     let mut spans = Vec::new();
     let mut i = 0;
@@ -741,14 +1098,23 @@ fn isolate_range_impl(
                 {
                     j += 1;
                 }
-                let end_frame = original
-                    .keyframes
-                    .get(j)
-                    .map_or(effective_end, |k| k.frame)
+                let next_ordinary = original.keyframes.get(j).map(|k| k.frame);
+                let last_prop = if j > i + 1 {
+                    original.keyframes[j - 1].frame
+                } else {
+                    key.frame
+                };
+                let eval_end = next_ordinary
+                    .or(original.properties.end_frame)
+                    .unwrap_or(last_prop)
+                    .max(last_prop)
                     .max(key.frame + 1);
+                let end_frame = next_ordinary.unwrap_or(effective_end).max(key.frame + 1);
                 spans.push(SpanKind::Motion {
                     start_idx: i,
                     end_frame,
+                    eval_end,
+                    last_prop,
                 });
                 i = j;
                 continue;
@@ -838,6 +1204,8 @@ fn isolate_range_impl(
             SpanKind::Motion {
                 start_idx,
                 end_frame,
+                eval_end,
+                last_prop,
             } => {
                 let first_key = &original.keyframes[start_idx];
                 let first = first_key.frame;
@@ -857,31 +1225,22 @@ fn isolate_range_impl(
                                     .all(|(_, ease)| *ease == Easing::Linear)
                             })
                     });
-                let span_len = (end_frame - first).max(1) as f64;
-                let can_subdivide_nonlinear = !all_linear
-                    && !bake_interior
-                    && original.properties.motion_guide.is_none()
-                    && (first >= cut_start
-                        || cut_start - 1 == first
-                        || subdivide_motion_eases(
-                            first_key,
-                            0.0,
-                            (cut_start - first) as f64 / span_len,
-                        )
-                        .is_some())
-                    && (cut_end >= end_frame
-                        || cut_end + 1 == end_frame
-                        || subdivide_motion_eases(
-                            first_key,
-                            (cut_end - first) as f64 / span_len,
-                            1.0,
-                        )
-                        .is_some());
-                if (all_linear || can_subdivide_nonlinear)
-                    && original.properties.motion_guide.is_none()
-                    && !has_object_motion_path(first_key)
-                    && !has_object_motion_timing(&original, start_idx, end_frame)
-                {
+                let has_interior_props = original.keyframes[start_idx + 1..]
+                    .iter()
+                    .take_while(|key| key.frame < end_frame && key.keyed_properties.is_some())
+                    .any(|key| key.frame < last_prop);
+                let eval_span_len = (eval_end - first).max(1) as f64;
+                let build_motion = || -> Option<Vec<Keyframe>> {
+                    if original.properties.motion_guide.is_some()
+                        || first_key.property_expressions.iter().any(|e| e.enabled)
+                        || has_roving_motion_keys(&original, start_idx, end_frame)
+                        || !curved_tracks_compatible_with_subdivision(first_key, all_linear)
+                    {
+                        return None;
+                    }
+                    if !all_linear && (has_interior_props || last_prop != eval_end) {
+                        return None;
+                    }
                     let mut replacement = Vec::new();
                     if first < cut_start {
                         let left_last = cut_start - 1;
@@ -899,25 +1258,24 @@ fn isolate_range_impl(
                             replacement.push(k);
                         } else {
                             let mut left_start = first_key.clone();
-                            if !all_linear
-                                && let Some((sub_tween, sub_props, sub_tracks)) =
-                                    subdivide_motion_eases(
+                            if !all_linear {
+                                let (sub_tween, sub_props, sub_tracks) =
+                                    subdivide_left_motion_eases(
                                         first_key,
-                                        0.0,
-                                        (cut_start - first) as f64 / span_len,
-                                    )
-                            {
+                                        cut_start - first,
+                                        eval_span_len,
+                                    )?;
                                 left_start.tween = Some(sub_tween);
                                 left_start.property_eases = sub_props;
                                 left_start.motion_tracks = sub_tracks;
                             }
-                            replacement.push(left_start.clone());
+                            let mut left_props = Vec::new();
                             for k in &original.keyframes[start_idx + 1..] {
                                 if k.frame >= end_frame || k.keyed_properties.is_none() {
                                     break;
                                 }
                                 if k.frame > first && k.frame < left_last {
-                                    replacement.push(k.clone());
+                                    left_props.push(k.clone());
                                 }
                             }
                             let mut end_prop = original
@@ -930,15 +1288,26 @@ fn isolate_range_impl(
                                 });
                             end_prop.elements =
                                 sample_layer_in_at_fps(timeline, &original, left_last, fps);
+                            for el in &mut end_prop.elements {
+                                if left_start.motion_orient_to_path_for(&el.id)
+                                    && let Some(base_rot) =
+                                        crate::evaluate::sample_motion_base_rotation(
+                                            &original, left_last, &el.id,
+                                        )
+                                {
+                                    el.transform.rotation = base_rot;
+                                }
+                            }
                             end_prop.tween = left_start.tween;
                             end_prop.tween_kind = TweenKind::Motion;
                             end_prop.keyed_properties = Some(TweenProperty::ALL.to_vec());
-                            if original.keyframes[start_idx + 1..]
-                                .iter()
-                                .take_while(|key| {
-                                    key.frame < end_frame && key.keyed_properties.is_some()
-                                })
-                                .any(|key| key.motion_keys.is_some())
+                            if !left_start.motion_tracks.is_empty()
+                                || original.keyframes[start_idx + 1..]
+                                    .iter()
+                                    .take_while(|key| {
+                                        key.frame < end_frame && key.keyed_properties.is_some()
+                                    })
+                                    .any(|key| key.motion_keys.is_some())
                             {
                                 end_prop.motion_keys = Some(
                                     end_prop
@@ -959,19 +1328,27 @@ fn isolate_range_impl(
                             end_prop.property_eases.clear();
                             end_prop.sync_symbols = false;
                             end_prop.snap_to_guide = false;
-                            replacement.push(end_prop);
+                            left_props.push(end_prop);
+                            subdivide_keyframe_motion_paths(
+                                &mut left_start,
+                                &left_props,
+                                &original,
+                                first_key,
+                                eval_end,
+                            )?;
+                            replacement.push(left_start);
+                            replacement.extend(left_props);
                         }
                     }
                     if bake_interior {
                         let b0 = first.max(cut_start);
                         let b1 = end_frame.min(cut_end);
-                        charge_bake_budget(&original, b0, b1, budget)?;
                         for f in b0..b1 {
                             replacement.push(sampled_key(timeline, &original, f, fps));
                         }
                     }
                     if cut_end < end_frame {
-                        if cut_end + 1 == end_frame {
+                        if cut_end + 1 >= end_frame {
                             let mut k = sampled_key(timeline, &original, cut_end, fps);
                             if let Some(old) =
                                 original.keyframes.iter().find(|old| old.frame == cut_end)
@@ -986,39 +1363,81 @@ fn isolate_range_impl(
                             {
                                 right_start.sound = old.sound.clone();
                             }
-                            let (right_tween, right_props, right_tracks) = if !all_linear
-                                && let Some((sub_t, sub_p, sub_tracks)) = subdivide_motion_eases(
-                                    first_key,
-                                    (cut_end - first) as f64 / span_len,
-                                    1.0,
-                                ) {
-                                (Some(sub_t), sub_p, sub_tracks)
+                            let mut right_props: Vec<Keyframe> = original.keyframes
+                                [start_idx + 1..]
+                                .iter()
+                                .take_while(|k| k.frame < end_frame && k.keyed_properties.is_some())
+                                .filter(|k| k.frame > cut_end)
+                                .cloned()
+                                .collect();
+                            if right_props.is_empty() {
+                                replacement.push(right_start);
                             } else {
-                                (
-                                    first_key.tween,
-                                    first_key.property_eases.clone(),
-                                    first_key.motion_tracks.clone(),
-                                )
-                            };
-                            right_start.tween = right_tween;
-                            right_start.tween_kind = TweenKind::Motion;
-                            right_start.keyed_properties = None;
-                            right_start.orient_to_path = first_key.orient_to_path;
-                            right_start.property_eases = right_props;
-                            right_start.motion_tracks = right_tracks;
-                            right_start.motion_keys = None;
-                            right_start.sync_symbols = first_key.sync_symbols;
-                            right_start.snap_to_guide = first_key.snap_to_guide;
-                            replacement.push(right_start);
-                            for k in &original.keyframes[start_idx + 1..] {
-                                if k.frame >= end_frame || k.keyed_properties.is_none() {
-                                    break;
+                                let (right_tween, right_prop_eases, right_tracks) = if !all_linear {
+                                    let (sub_t, sub_p, sub_tracks) = subdivide_motion_eases(
+                                        first_key,
+                                        (cut_end - first) as f64 / eval_span_len,
+                                        1.0,
+                                    )?;
+                                    (Some(sub_t), sub_p, sub_tracks)
+                                } else {
+                                    (
+                                        first_key.tween,
+                                        first_key.property_eases.clone(),
+                                        first_key.motion_tracks.clone(),
+                                    )
+                                };
+                                right_start.tween = right_tween;
+                                right_start.tween_kind = TweenKind::Motion;
+                                right_start.keyed_properties = None;
+                                right_start.orient_to_path = first_key.orient_to_path;
+                                right_start.property_eases = right_prop_eases;
+                                right_start.motion_tracks = right_tracks;
+                                right_start.motion_keys = None;
+                                right_start.sync_symbols = first_key.sync_symbols;
+                                right_start.snap_to_guide = first_key.snap_to_guide;
+                                for el in &right_start.elements {
+                                    if right_start.motion_orient_to_path_for(&el.id)
+                                        && let Some(base_cut_rot) =
+                                            crate::evaluate::sample_motion_base_rotation(
+                                                &original, cut_end, &el.id,
+                                            )
+                                    {
+                                        let delta_rot = el.transform.rotation - base_cut_rot;
+                                        for rk in &mut right_props {
+                                            if rk
+                                                .motion_key_properties_for(&el.id)
+                                                .contains(&TweenProperty::Rotation)
+                                                && let Some(rel) =
+                                                    rk.elements.iter_mut().find(|e| e.id == el.id)
+                                            {
+                                                rel.transform.rotation += delta_rot;
+                                            }
+                                        }
+                                    }
                                 }
-                                if k.frame > cut_end && k.frame < end_frame {
-                                    replacement.push(k.clone());
-                                }
+                                subdivide_keyframe_motion_paths(
+                                    &mut right_start,
+                                    &right_props,
+                                    &original,
+                                    first_key,
+                                    eval_end,
+                                )?;
+                                replacement.push(right_start);
+                                replacement.extend(right_props);
                             }
                         }
+                    }
+                    Some(replacement)
+                };
+                if let Some(replacement) = build_motion() {
+                    if bake_interior {
+                        charge_bake_budget(
+                            &original,
+                            first.max(cut_start),
+                            end_frame.min(cut_end),
+                            budget,
+                        )?;
                     }
                     layer
                         .keyframes
@@ -1065,7 +1484,7 @@ fn bake_touched(
     isolate_range_impl(timeline, layer, start, end, true, budget, fps)
 }
 fn split(timeline: &Timeline, layer: &mut Layer, frame: u32, fps: f64) {
-    if frame >= layer.properties.end_frame.unwrap_or(MAX_FRAME)
+    if frame >= exposure(layer, timeline.frame_count)
         || layer
             .keyframes
             .iter()
@@ -1220,40 +1639,98 @@ pub fn copy_frames(
     for index in indices {
         let mut layer = timeline.layers[index].clone();
         let effective_end = exposure(&layer, timeline.frame_count);
-        layer.properties.end_frame = Some(effective_end);
         let original = layer.clone();
         let (_, head_video) = video_cut_on_layer(&original, effective_end, range.start, fps)?;
         if end < effective_end {
             let _ = video_cut_on_layer(&original, effective_end, end, fps)?;
         }
-        bake_touched(timeline, &mut layer, range.start, end, &mut budget, fps)?;
-        split(timeline, &mut layer, range.start, fps);
-        let keyframes = layer
-            .keyframes
-            .into_iter()
-            .filter(|key| key.frame >= range.start && key.frame < end)
-            .map(|mut key| {
-                if key.frame == range.start {
-                    if head_video.is_some() {
-                        key.video = head_video.clone();
+        let clip_end = effective_end.min(end).saturating_sub(range.start);
+        let preserve_curves = original.properties.motion_guide.is_none()
+            && clip_end >= 2
+            && original.keyframes.iter().any(has_object_motion_path)
+            && !original
+                .keyframes
+                .iter()
+                .any(|k| k.property_expressions.iter().any(|e| e.enabled));
+        let keyframes = if preserve_curves {
+            isolate_range(
+                timeline,
+                &mut layer,
+                range.start,
+                range.start,
+                &mut budget,
+                fps,
+            )?;
+            if end < effective_end {
+                isolate_range(timeline, &mut layer, end, end, &mut budget, fps)?;
+            }
+            split(timeline, &mut layer, range.start, fps);
+            let mut extracted: Vec<Keyframe> = layer
+                .keyframes
+                .into_iter()
+                .filter(|key| key.frame >= range.start && key.frame < end)
+                .map(|mut key| {
+                    if key.frame == range.start {
+                        if head_video.is_some() {
+                            key.video = head_video.clone();
+                        }
+                    } else if key.keyed_properties.is_none()
+                        && let Some(orig_key) = original
+                            .keyframes
+                            .iter()
+                            .find(|k| k.frame == key.frame && k.keyed_properties.is_none())
+                        && orig_key.video.is_some()
+                    {
+                        key.video = orig_key.video.clone();
                     }
-                } else if let Some(orig_key) = original
-                    .keyframes
-                    .iter()
-                    .find(|k| k.frame == key.frame && k.keyed_properties.is_none())
-                    && orig_key.video.is_some()
-                {
-                    key.video = orig_key.video.clone();
-                }
-                key.frame -= range.start;
-                key.tween = None;
-                key
-            })
-            .collect();
+                    key.frame -= range.start;
+                    key
+                })
+                .collect();
+            let mut temp = Layer {
+                id: layer.id.clone(),
+                name: layer.name.clone(),
+                visible: true,
+                locked: false,
+                keyframes: std::mem::take(&mut extracted),
+                properties: LayerProperties {
+                    end_frame: Some(clip_end),
+                    ..Default::default()
+                },
+            };
+            temp.normalize_motion_keys();
+            temp.keyframes
+        } else {
+            layer.properties.end_frame = Some(effective_end);
+            bake_touched(timeline, &mut layer, range.start, end, &mut budget, fps)?;
+            split(timeline, &mut layer, range.start, fps);
+            layer
+                .keyframes
+                .into_iter()
+                .filter(|key| key.frame >= range.start && key.frame < end)
+                .map(|mut key| {
+                    if key.frame == range.start {
+                        if head_video.is_some() {
+                            key.video = head_video.clone();
+                        }
+                    } else if let Some(orig_key) = original
+                        .keyframes
+                        .iter()
+                        .find(|k| k.frame == key.frame && k.keyed_properties.is_none())
+                        && orig_key.video.is_some()
+                    {
+                        key.video = orig_key.video.clone();
+                    }
+                    key.frame -= range.start;
+                    key.tween = None;
+                    key
+                })
+                .collect()
+        };
         layers.push(FrameLayerClip {
             source_layer: layer.id,
             keyframes,
-            end_frame: effective_end.min(end).saturating_sub(range.start),
+            end_frame: clip_end,
         });
     }
     let scripts = if include_scripts {
@@ -1288,9 +1765,10 @@ fn clear_rows(
     fps: f64,
 ) -> Result<(), String> {
     let end = range_end(timeline, range)?;
+    let fallback_count = timeline.frame_count;
     for index in layer_indices(timeline, &range.layers)? {
         let mut layer = timeline.layers[index].clone();
-        let effective_end = layer.properties.end_frame.unwrap_or(0);
+        let effective_end = exposure(&layer, fallback_count);
         let original = layer.clone();
         let (left_split, _) = video_cut_on_layer(&original, effective_end, range.start, fps)?;
         let (_, tail_video) = video_cut_on_layer(&original, effective_end, end, fps)?;
@@ -1315,7 +1793,7 @@ fn clear_rows(
         layer
             .keyframes
             .retain(|key| key.frame < range.start || key.frame >= end);
-        if range.start < layer.properties.end_frame.unwrap_or(0) {
+        if range.start < effective_end {
             layer.keyframes.push(blank(range.start));
         }
         layer.keyframes.sort_by_key(|key| key.frame);
@@ -1428,6 +1906,7 @@ fn paste_rows(
         );
     }
     let timeline = &mut project.symbol_mut(symbol).unwrap().timeline;
+    let prev_count = timeline.frame_count;
     timeline.frame_count = timeline.frame_count.max(end);
     for (source, index) in clip.layers.iter().zip(indices) {
         if source.end_frame > clip.frame_count
@@ -1445,7 +1924,7 @@ fn paste_rows(
             );
         }
         let mut layer = timeline.layers[index].clone();
-        let old_end = layer.properties.end_frame.unwrap_or(0);
+        let old_end = exposure(&layer, prev_count);
         let original = layer.clone();
         let (left_split, _) = video_cut_on_layer(&original, old_end, at, fps)?;
         let (_, tail_video) = video_cut_on_layer(&original, old_end, end, fps)?;
@@ -1496,23 +1975,7 @@ fn paste_rows(
         for key in &source.keyframes {
             let mut key = key.clone();
             key.frame += at;
-            for track in &mut key.motion_tracks {
-                if let Some(id) = remap.get(&track.element_id) {
-                    track.element_id = id.clone();
-                }
-            }
-            if let Some(object_keys) = &mut key.motion_keys {
-                for object_key in object_keys {
-                    if let Some(id) = remap.get(&object_key.element_id) {
-                        object_key.element_id = id.clone();
-                    }
-                }
-            }
-            for element in &mut key.elements {
-                if let Some(id) = remap.get(&element.id) {
-                    element.id = id.clone();
-                }
-            }
+            key.remap_all_ids(&remap, None, None);
             layer.keyframes.push(key);
         }
         let pasted_end = at + source.end_frame;
@@ -1872,9 +2335,503 @@ pub fn convert_layer_to_keyframes_stepped(
     stepped_frames.len()
 }
 
+#[derive(Clone)]
+struct ClassicSpanSource {
+    tween: Option<Easing>,
+    tween_kind: TweenKind,
+    shape_hints: Vec<ShapeHint>,
+    orient_to_path: bool,
+    property_eases: Vec<(TweenProperty, Easing)>,
+    sync_symbols: bool,
+    snap_to_guide: bool,
+    classic_rotate_turns: u32,
+    classic_rotate_dir: ClassicRotateDirection,
+    tween_scale: bool,
+    start_elements: Vec<Element>,
+    start_frame: u32,
+}
+
+fn reverse_rotate_direction(dir: ClassicRotateDirection) -> ClassicRotateDirection {
+    match dir {
+        ClassicRotateDirection::Cw => ClassicRotateDirection::Ccw,
+        ClassicRotateDirection::Ccw => ClassicRotateDirection::Cw,
+        other => other,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fit_reversed_single_motion_ease(
+    ease: Easing,
+    m_start: u32,
+    last_frame: u32,
+    orig_last_prop: u32,
+    orig_eval_end: u32,
+    rev_start_frame: u32,
+    rev_last_frame: u32,
+    rev_eval_end: u32,
+) -> Option<Easing> {
+    if matches!(ease, Easing::Bounce | Easing::Elastic) {
+        return None;
+    }
+    let d = last_frame.saturating_sub(m_start);
+    if ease == Easing::Linear || d <= 1 {
+        return Some(Easing::Linear);
+    }
+    let orig_len = (orig_eval_end - m_start).max(1) as f64;
+    let prop_span = (orig_last_prop - m_start).max(1) as f64;
+    let alpha_at = |k: u32| -> f64 {
+        let f_orig = last_frame - k;
+        let p_orig = ((f_orig - m_start) as f64 / orig_len).clamp(0.0, 1.0);
+        let t_orig = m_start as f64 + easing(p_orig, ease) * orig_len;
+        ((t_orig - m_start as f64) / prop_span).clamp(0.0, 1.0)
+    };
+    let alpha_0 = alpha_at(0);
+    if alpha_0.abs() <= 1e-6 {
+        return None;
+    }
+    let rev_len = (rev_eval_end - rev_start_frame).max(1) as f64;
+    let d_rev = (rev_last_frame - rev_start_frame).max(1) as f64;
+    let scale = d_rev / rev_len;
+    let mut samples = Vec::with_capacity(d as usize);
+    for k in 1..=d {
+        let x = k as f64 / rev_len;
+        let frac = (alpha_0 - alpha_at(k)) / alpha_0;
+        samples.push((x, scale * frac));
+    }
+    fit_cubic_bezier_samples(&samples)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn reverse_single_motion_span(
+    timeline: &Timeline,
+    original: &Layer,
+    m_start: u32,
+    m_excl_end: u32,
+    first: u32,
+    final_frame: u32,
+    last: u32,
+    layer_exposure: u32,
+    fps: f64,
+) -> Option<Vec<Keyframe>> {
+    if m_excl_end <= m_start + 1 || original.properties.motion_guide.is_some() {
+        return None;
+    }
+    let start_idx = original.keyframes.iter().position(|k| {
+        k.frame == m_start && k.keyed_properties.is_none() && k.tween_kind == TweenKind::Motion
+    })?;
+    let orig_start = &original.keyframes[start_idx];
+    orig_start.tween?;
+    if has_noninvertible_motion_ease(orig_start)
+        || orig_start.property_expressions.iter().any(|e| e.enabled)
+    {
+        return None;
+    }
+    let orig_props: Vec<&Keyframe> = original.keyframes[start_idx + 1..]
+        .iter()
+        .take_while(|k| k.frame < m_excl_end && k.keyed_properties.is_some())
+        .collect();
+    let last_frame = m_excl_end - 1;
+    let rev_f = |f: u32| first + final_frame - f;
+    let rev_start_frame = rev_f(last_frame);
+    let rev_last_frame = rev_f(m_start);
+
+    let all_linear = orig_start.tween == Some(Easing::Linear)
+        && orig_start
+            .property_eases
+            .iter()
+            .all(|(_, e)| *e == Easing::Linear)
+        && orig_start.motion_tracks.iter().all(|track| {
+            track.easing.is_none_or(|ease| ease == Easing::Linear)
+                && track
+                    .property_eases
+                    .as_ref()
+                    .is_none_or(|pe| pe.iter().all(|(_, ease)| *ease == Easing::Linear))
+        });
+
+    let next_ordinary = original.keyframes[start_idx + 1..]
+        .iter()
+        .find(|k| k.keyed_properties.is_none())
+        .map(|k| k.frame);
+    let orig_last_prop = orig_props.last().map_or(m_start, |k| k.frame);
+    let orig_eval_end = next_ordinary
+        .or(original.properties.end_frame)
+        .unwrap_or(orig_last_prop)
+        .max(orig_last_prop)
+        .max(m_start + 1);
+    let rev_has_following_end =
+        (m_start > first) || (last < layer_exposure) || original.properties.end_frame.is_some();
+    let rev_eval_end = if rev_has_following_end {
+        rev_last_frame + 1
+    } else {
+        rev_last_frame
+    }
+    .max(rev_start_frame + 1);
+
+    let (rev_tween, rev_prop_eases, mut rev_tracks) = if all_linear || orig_props.is_empty() {
+        let base = orig_start.tween.map(reverse_easing)?;
+        let props = orig_start
+            .property_eases
+            .iter()
+            .map(|&(p, e)| (p, reverse_easing(e)))
+            .collect();
+        let mut tracks = orig_start.motion_tracks.clone();
+        for track in &mut tracks {
+            track.easing = track.easing.map(reverse_easing);
+            if let Some(pe) = &mut track.property_eases {
+                for (_, ease) in pe {
+                    *ease = reverse_easing(*ease);
+                }
+            }
+        }
+        (base, props, tracks)
+    } else if orig_eval_end == last_frame && rev_eval_end == rev_last_frame {
+        let base = orig_start.tween.map(reverse_easing)?;
+        let props = orig_start
+            .property_eases
+            .iter()
+            .map(|&(p, e)| (p, reverse_easing(e)))
+            .collect();
+        let mut tracks = orig_start.motion_tracks.clone();
+        for track in &mut tracks {
+            track.easing = track.easing.map(reverse_easing);
+            if let Some(pe) = &mut track.property_eases {
+                for (_, ease) in pe {
+                    *ease = reverse_easing(*ease);
+                }
+            }
+        }
+        (base, props, tracks)
+    } else {
+        if orig_props.iter().any(|k| k.frame != orig_last_prop)
+            || has_roving_motion_keys(original, start_idx, m_excl_end)
+            || !curved_tracks_compatible_with_subdivision(orig_start, false)
+        {
+            return None;
+        }
+        let fit_one = |e: Easing| {
+            fit_reversed_single_motion_ease(
+                e,
+                m_start,
+                last_frame,
+                orig_last_prop,
+                orig_eval_end,
+                rev_start_frame,
+                rev_last_frame,
+                rev_eval_end,
+            )
+        };
+        let base = fit_one(orig_start.tween?)?;
+        let mut props = Vec::with_capacity(orig_start.property_eases.len());
+        for &(p, e) in &orig_start.property_eases {
+            props.push((p, fit_one(e)?));
+        }
+        let mut tracks = orig_start.motion_tracks.clone();
+        for track in &mut tracks {
+            if let Some(e) = track.easing {
+                track.easing = Some(fit_one(e)?);
+            }
+            if let Some(pe) = &mut track.property_eases {
+                for (_, ease) in pe {
+                    *ease = fit_one(*ease)?;
+                }
+            }
+        }
+        (base, props, tracks)
+    };
+
+    let mut rev_start = sampled_key(timeline, original, last_frame, fps);
+    if let Some(old_last) = orig_props.iter().find(|k| k.frame == last_frame) {
+        rev_start.sound = old_last.sound.clone();
+    }
+    rev_start.frame = rev_start_frame;
+    rev_start.keyed_properties = None;
+    rev_start.motion_keys = None;
+    rev_start.roving = false;
+    rev_start.tween = Some(rev_tween);
+    rev_start.tween_kind = TweenKind::Motion;
+    rev_start.orient_to_path = orig_start.orient_to_path;
+    rev_start.sync_symbols = orig_start.sync_symbols;
+    rev_start.snap_to_guide = orig_start.snap_to_guide;
+    rev_start.property_eases = rev_prop_eases;
+
+    let mut orient_deltas: HashMap<Id, f64> = HashMap::new();
+    for el in &rev_start.elements {
+        if orig_start.motion_orient_to_path_for(&el.id)
+            && let Some(base_end_rot) =
+                crate::evaluate::sample_motion_base_rotation(original, last_frame, &el.id)
+        {
+            orient_deltas.insert(el.id.clone(), el.transform.rotation - base_end_rot);
+        }
+    }
+
+    let mut rev_prop_keys: Vec<Keyframe> = Vec::new();
+    for &k in orig_props.iter().rev() {
+        if k.frame >= last_frame || k.frame <= m_start {
+            continue;
+        }
+        let mut rk = k.clone();
+        rk.frame = rev_f(k.frame);
+        rk.tween = Some(rev_tween);
+        rk.tween_kind = TweenKind::Motion;
+        for el_idx in 0..rk.elements.len() {
+            let el_id = rk.elements[el_idx].id.clone();
+            if rk
+                .motion_key_properties_for(&el_id)
+                .contains(&TweenProperty::Rotation)
+                && let Some(&dh) = orient_deltas.get(&el_id)
+            {
+                rk.elements[el_idx].transform.rotation += dh;
+            }
+        }
+        rev_prop_keys.push(rk);
+    }
+
+    if !orig_props.is_empty() {
+        let mut rev_end = orig_start.clone();
+        rev_end.frame = rev_last_frame;
+        rev_end.tween = Some(rev_tween);
+        rev_end.tween_kind = TweenKind::Motion;
+        rev_end.motion_tracks.clear();
+        rev_end.motion_path = None;
+        rev_end.property_eases.clear();
+        rev_end.sync_symbols = false;
+        rev_end.snap_to_guide = false;
+        rev_end.orient_to_path = false;
+        rev_end.roving = false;
+        for el in &mut rev_end.elements {
+            if let Some(&dh) = orient_deltas.get(&el.id) {
+                el.transform.rotation += dh;
+            }
+        }
+        let uses_object_keys = !orig_start.motion_tracks.is_empty()
+            || orig_props.iter().any(|k| k.motion_keys.is_some());
+        if uses_object_keys {
+            let mut obj_keys = Vec::new();
+            for el in &orig_start.elements {
+                let mut union_props: Vec<TweenProperty> = Vec::new();
+                for p in TweenProperty::ALL {
+                    if orig_props
+                        .iter()
+                        .any(|k| k.motion_key_properties_for(&el.id).contains(&p))
+                    {
+                        union_props.push(p);
+                    }
+                }
+                if !union_props.is_empty() {
+                    obj_keys.push(MotionPropertyKey {
+                        element_id: el.id.clone(),
+                        properties: union_props,
+                        roving: false,
+                    });
+                }
+            }
+            rev_end.motion_keys = Some(obj_keys);
+            rev_end.sync_motion_key_union();
+        } else {
+            let mut union_props: Vec<TweenProperty> = Vec::new();
+            for p in TweenProperty::ALL {
+                if orig_props.iter().any(|k| {
+                    k.keyed_properties
+                        .as_ref()
+                        .is_some_and(|kp| kp.contains(&p))
+                }) {
+                    union_props.push(p);
+                }
+            }
+            if union_props.is_empty() {
+                union_props = TweenProperty::ALL.to_vec();
+            }
+            rev_end.motion_keys = None;
+            rev_end.keyed_properties = Some(union_props);
+        }
+        rev_prop_keys.push(rev_end);
+    }
+
+    let reverse_curve_with_held_tail =
+        |cmds: &[PathCommand], ref_id: &str| -> Option<Vec<PathCommand>> {
+            let orig_wps = motion_path_waypoints(original, m_start, ref_id);
+            let mut rev_cmds = reverse_path_commands(cmds)?;
+            let rev_wps = collect_subspan_pos_waypoints(rev_start.frame, &rev_prop_keys, ref_id);
+            if cmds.len() == orig_wps.len()
+                && rev_wps.len() == rev_cmds.len() + 1
+                && let Some(PathCommand::MoveTo { x, y }) = rev_cmds.first().copied()
+            {
+                rev_cmds.insert(1, PathCommand::LineTo { x, y });
+            }
+            motion_path_polyline(&rev_cmds)?;
+            Some(rev_cmds)
+        };
+
+    if let Some(legacy_cmds) = &orig_start.motion_path {
+        let ref_el = orig_start.elements.first()?;
+        rev_start.motion_path = Some(reverse_curve_with_held_tail(legacy_cmds, &ref_el.id)?);
+    } else {
+        rev_start.motion_path = None;
+    }
+    for track in &mut rev_tracks {
+        if let Some(MotionPathOverride::Path { commands }) = &track.motion_path {
+            let rev_cmds = reverse_curve_with_held_tail(commands, &track.element_id)?;
+            track.motion_path = Some(MotionPathOverride::Path { commands: rev_cmds });
+        }
+    }
+    rev_start.motion_tracks = rev_tracks;
+
+    let mut out = Vec::with_capacity(1 + rev_prop_keys.len());
+    out.push(rev_start);
+    out.extend(rev_prop_keys);
+    Some(out)
+}
+
+fn reverse_classic_subinterval(
+    timeline: &Timeline,
+    guide_layer: Option<&Layer>,
+    inside: &mut [Keyframe],
+    first: u32,
+    final_frame: u32,
+) {
+    let count = inside.len();
+    if count == 0 {
+        return;
+    }
+    let span_sources: Vec<ClassicSpanSource> = inside
+        .iter()
+        .map(|key| ClassicSpanSource {
+            tween: key.tween,
+            tween_kind: if key.tween_kind == TweenKind::Shape {
+                TweenKind::Shape
+            } else {
+                TweenKind::Classic
+            },
+            shape_hints: key.shape_hints.clone(),
+            orient_to_path: key.orient_to_path,
+            property_eases: key.property_eases.clone(),
+            sync_symbols: key.sync_symbols,
+            snap_to_guide: key.snap_to_guide,
+            classic_rotate_turns: key.classic_rotate_turns,
+            classic_rotate_dir: key.classic_rotate_dir,
+            tween_scale: key.tween_scale,
+            start_elements: key.elements.clone(),
+            start_frame: key.frame,
+        })
+        .collect();
+    let _ = timeline;
+    for (i, key) in inside.iter_mut().enumerate() {
+        let src = &span_sources[if i == 0 { count - 1 } else { i - 1 }];
+        key.tween = if i == 0 {
+            src.tween
+        } else {
+            src.tween.map(reverse_easing)
+        };
+        if key.tween.is_some() {
+            key.tween_kind = src.tween_kind;
+            key.orient_to_path = src.orient_to_path;
+            key.property_eases = if i == 0 {
+                src.property_eases.clone()
+            } else {
+                src.property_eases
+                    .iter()
+                    .map(|&(p, e)| (p, reverse_easing(e)))
+                    .collect()
+            };
+            key.sync_symbols = src.sync_symbols;
+            key.snap_to_guide = src.snap_to_guide;
+            key.classic_rotate_turns = src.classic_rotate_turns;
+            key.classic_rotate_dir = if i == 0 {
+                src.classic_rotate_dir
+            } else {
+                reverse_rotate_direction(src.classic_rotate_dir)
+            };
+            key.tween_scale = src.tween_scale;
+            key.shape_hints = if key.tween_kind == TweenKind::Shape {
+                if i == 0 {
+                    src.shape_hints.clone()
+                } else {
+                    src.shape_hints
+                        .iter()
+                        .map(|h| ShapeHint {
+                            label: h.label,
+                            start_uv: h.end_uv,
+                            end_uv: h.start_uv,
+                        })
+                        .collect()
+                }
+            } else {
+                Vec::new()
+            };
+            if i > 0
+                && key.tween_kind == TweenKind::Classic
+                && let Some(guide) = guide_layer
+                && let Some(path) = crate::guide_polyline(guide, src.start_frame)
+            {
+                let was_snapped = src.snap_to_guide;
+                if was_snapped {
+                    key.snap_to_guide = false;
+                }
+                for el in &mut key.elements {
+                    if let Some(orig_a) = src.start_elements.iter().find(|e| e.id == el.id) {
+                        let s0 = if was_snapped {
+                            0.0
+                        } else {
+                            path.nearest([orig_a.transform.x, orig_a.transform.y])
+                        };
+                        let s1 = if was_snapped {
+                            path.length()
+                        } else {
+                            path.nearest([el.transform.x, el.transform.y])
+                        };
+                        if was_snapped {
+                            let [x1, y1] = path.point_at(s1);
+                            el.transform.x = x1;
+                            el.transform.y = y1;
+                        }
+                        if key.orient_to_path {
+                            el.transform.rotation = orig_a.transform.rotation + path.tangent_at(s1)
+                                - path.tangent_at(s0);
+                        }
+                    }
+                }
+            }
+        } else {
+            key.tween_kind = TweenKind::Classic;
+            key.orient_to_path = false;
+            key.property_eases.clear();
+            key.sync_symbols = false;
+            key.snap_to_guide = false;
+            key.classic_rotate_turns = 0;
+            key.classic_rotate_dir = ClassicRotateDirection::Auto;
+            key.tween_scale = true;
+            key.shape_hints.clear();
+        }
+        key.keyed_properties = None;
+        key.motion_keys = None;
+        key.motion_tracks.clear();
+        key.motion_path = None;
+        key.frame = first + final_frame - key.frame;
+    }
+    if let Some(guide) = guide_layer {
+        for idx in 1..inside.len() {
+            let src = &span_sources[idx - 1];
+            if src.tween.is_some()
+                && src.tween_kind == TweenKind::Classic
+                && src.snap_to_guide
+                && let Some(path) = crate::guide_polyline(guide, src.start_frame)
+            {
+                let [x0, y0] = path.point_at(0.0);
+                for el in &mut inside[idx - 1].elements {
+                    if src.start_elements.iter().any(|e| e.id == el.id) {
+                        el.transform.x = x0;
+                        el.transform.y = y0;
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> Result<(), String> {
     let mut candidate = project.clone();
     let fps = f64::from(candidate.fps);
+    let is_set_end = matches!(edit, TimelineEdit::SetEnd { .. });
     // Symbols and their frame counts (Synchronise symbols and Razor / SplitClip).
     let symbols_for_sync: HashMap<Id, (SymbolKind, u32)> = match &edit {
         TimelineEdit::SyncSymbols { .. } | TimelineEdit::SplitClip { .. } => candidate
@@ -1889,11 +2846,12 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
         .ok_or("The edited symbol no longer exists.")?
         .timeline;
     let old_count = timeline.frame_count;
-    for layer in &mut timeline.layers {
-        if layer.properties.end_frame.is_none() {
-            layer.properties.end_frame = Some(old_count);
-        }
-    }
+    let originally_open_end: HashSet<Id> = timeline
+        .layers
+        .iter()
+        .filter(|l| l.properties.role != LayerRole::Folder && l.properties.end_frame.is_none())
+        .map(|l| l.id.clone())
+        .collect();
     let mut budget = 0;
     match edit {
         TimelineEdit::Clear {
@@ -1913,7 +2871,7 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
             let count = end - range.start;
             for index in layer_indices(timeline, &range.layers)? {
                 let mut layer = timeline.layers[index].clone();
-                let old_end = layer.properties.end_frame.unwrap_or(0);
+                let old_end = exposure(&layer, old_count);
                 let original = layer.clone();
                 let (left_split, _) = video_cut_on_layer(&original, old_end, range.start, fps)?;
                 let (end_mid_split, tail_video) = video_cut_on_layer(&original, old_end, end, fps)?;
@@ -1993,7 +2951,7 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
             }
             for index in layer_indices(timeline, &layers)? {
                 let mut layer = timeline.layers[index].clone();
-                let old_end = layer.properties.end_frame.unwrap_or(0);
+                let old_end = exposure(&layer, old_count);
                 if at <= old_end {
                     let has_key_at_or_before = layer.keyframes.iter().any(|k| k.frame <= at);
                     for key in &mut layer.keyframes {
@@ -2072,127 +3030,173 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
             let end = range_end(timeline, &range)?;
             for index in layer_indices(timeline, &range.layers)? {
                 let mut layer = timeline.layers[index].clone();
-                let last = end.min(layer.properties.end_frame.unwrap_or(0));
+                let layer_exposure = exposure(&layer, old_count);
+                let last = end.min(layer_exposure);
                 if last <= range.start + 1 {
                     continue;
                 }
-                // Tweens crossing either boundary are baked; tweens inside are kept.
-                bake_touched(
-                    timeline,
-                    &mut layer,
-                    range.start,
-                    range.start,
-                    &mut budget,
-                    fps,
-                )?;
-                bake_touched(timeline, &mut layer, last, last, &mut budget, fps)?;
-                // Motion curves and one-way Bounce/Elastic eases inside the range need sampled
-                // poses before reversing; otherwise reversing keys would replace a spatial curve by
-                // chords or play Bounce/Elastic ease-out forward instead of time-reversed.
+                let (first, final_frame) = (range.start, last - 1);
+                isolate_range(timeline, &mut layer, first, first, &mut budget, fps)?;
+                isolate_range(timeline, &mut layer, last, last, &mut budget, fps)?;
+
                 let mut bake_ranges: Vec<(u32, u32)> = Vec::new();
                 for (i, key) in layer.keyframes.iter().enumerate() {
-                    let has_explicit_object_data = key.tween_kind == TweenKind::Motion
-                        && (!key.motion_tracks.is_empty()
-                            || layer.keyframes[i + 1..]
-                                .iter()
-                                .take_while(|candidate| candidate.keyed_properties.is_some())
-                                .any(|candidate| candidate.motion_keys.is_some()));
-                    if has_object_motion_path(key) || has_explicit_object_data {
-                        if let Some((_, _, span_end)) = motion_span(&layer, key.frame) {
-                            let span_end = span_end.unwrap_or(last);
-                            if key.frame < last && span_end > range.start {
-                                bake_ranges.push((key.frame, span_end));
-                            }
-                        }
-                    } else if has_noninvertible_motion_ease(key) {
+                    if key.keyed_properties.is_some() || key.tween.is_none() {
+                        continue;
+                    }
+                    let must_bake = has_noninvertible_motion_ease(key)
+                        || key.property_expressions.iter().any(|e| e.enabled)
+                        || (key.tween_kind == TweenKind::Motion
+                            && layer.properties.motion_guide.is_some());
+                    if must_bake {
                         let span_end = if key.tween_kind == TweenKind::Motion {
-                            motion_span(&layer, key.frame)
-                                .and_then(|(_, _, end)| end)
-                                .unwrap_or(last)
+                            layer.keyframes[i + 1..]
+                                .iter()
+                                .find(|k| k.keyed_properties.is_none())
+                                .map_or(last, |next| next.frame)
                         } else {
                             layer.keyframes.get(i + 1).map_or(last, |next| next.frame)
                         };
-                        if key.frame < last && span_end > range.start {
+                        if key.frame < last && span_end > first {
                             bake_ranges.push((key.frame, span_end));
                         }
                     }
                 }
-                for (start, span_end) in bake_ranges {
-                    bake_touched(timeline, &mut layer, start, span_end, &mut budget, fps)?;
+                for (b_start, b_end) in bake_ranges {
+                    bake_touched(timeline, &mut layer, b_start, b_end, &mut budget, fps)?;
                 }
-                let original = layer.clone();
-                for frame in [range.start, last - 1, last] {
-                    split(timeline, &mut layer, frame, fps);
-                }
-                let (first, final_frame) = (range.start, last - 1);
-                let mut inside: Vec<Keyframe> = layer
-                    .keyframes
-                    .iter()
-                    .filter(|key| (first..=final_frame).contains(&key.frame))
-                    .cloned()
-                    .collect();
-                layer
-                    .keyframes
-                    .retain(|key| !(first..=final_frame).contains(&key.frame));
-                let span_sources: Vec<(Option<Easing>, TweenKind, Vec<ShapeHint>)> = inside
-                    .iter()
-                    .map(|key| {
-                        let effective_kind = if key.keyed_properties.is_some()
-                            || key.tween_kind == TweenKind::Motion
+
+                // Discover remaining Motion spans inside `[first .. last)`.
+                let mut motion_windows: Vec<(u32, u32)> = Vec::new();
+                {
+                    let mut idx = 0;
+                    while idx < layer.keyframes.len() {
+                        let key = &layer.keyframes[idx];
+                        if key.frame >= first
+                            && key.frame < last
+                            && key.keyed_properties.is_none()
+                            && key.tween.is_some()
+                            && key.tween_kind == TweenKind::Motion
                         {
-                            TweenKind::Classic
-                        } else {
-                            key.tween_kind
-                        };
-                        (key.tween, effective_kind, key.shape_hints.clone())
-                    })
-                    .collect();
-                let count = inside.len();
-                for (i, key) in inside.iter_mut().enumerate() {
-                    // A segment a→b becomes b'→a' and keeps a's tween with time-reversed easing.
-                    // Motion tween tracks do not survive reversal; their poses become classic keys.
-                    if key.keyed_properties.take().is_some() || key.tween_kind == TweenKind::Motion
-                    {
-                        key.elements = sample_layer_in_at_fps(timeline, &original, key.frame, fps);
-                        key.tween_kind = TweenKind::Classic;
-                        key.motion_keys = None;
-                        key.motion_tracks.clear();
-                        key.motion_path = None;
-                    }
-                    let (source_tween, source_kind, source_hints) =
-                        &span_sources[if i == 0 { count - 1 } else { i - 1 }];
-                    key.tween = if i == 0 {
-                        *source_tween
-                    } else {
-                        source_tween.map(reverse_easing)
-                    };
-                    key.tween_kind = if key.tween.is_some() {
-                        *source_kind
-                    } else {
-                        TweenKind::Classic
-                    };
-                    key.shape_hints = if key.tween.is_some() && key.tween_kind == TweenKind::Shape {
-                        if i == 0 {
-                            source_hints.clone()
-                        } else {
-                            source_hints
-                                .iter()
-                                .map(|h| ShapeHint {
-                                    label: h.label,
-                                    start_uv: h.end_uv,
-                                    end_uv: h.start_uv,
-                                })
-                                .collect()
+                            let mut next_idx = idx + 1;
+                            while next_idx < layer.keyframes.len()
+                                && layer.keyframes[next_idx].keyed_properties.is_some()
+                            {
+                                next_idx += 1;
+                            }
+                            let excl_end = layer
+                                .keyframes
+                                .get(next_idx)
+                                .map_or(last, |k| k.frame.min(last));
+                            motion_windows.push((key.frame, excl_end));
+                            idx = next_idx;
+                            continue;
                         }
-                    } else {
-                        Vec::new()
-                    };
-                    for (_, ease) in &mut key.property_eases {
-                        *ease = reverse_easing(*ease);
+                        idx += 1;
                     }
-                    key.frame = first + final_frame - key.frame;
                 }
-                layer.keyframes.extend(inside);
+
+                for &(m_start, m_excl_end) in &motion_windows {
+                    isolate_range(timeline, &mut layer, m_start, m_start, &mut budget, fps)?;
+                    isolate_range(
+                        timeline,
+                        &mut layer,
+                        m_excl_end,
+                        m_excl_end,
+                        &mut budget,
+                        fps,
+                    )?;
+                }
+
+                let mut reversed_motion_blocks: Vec<Keyframe> = Vec::new();
+                let mut preserved_motion_windows: Vec<(u32, u32)> = Vec::new();
+                for (m_start, m_excl_end) in motion_windows {
+                    if m_excl_end <= m_start + 1 {
+                        bake_touched(timeline, &mut layer, m_start, m_excl_end, &mut budget, fps)?;
+                        continue;
+                    }
+                    if let Some(rev_keys) = reverse_single_motion_span(
+                        timeline,
+                        &layer,
+                        m_start,
+                        m_excl_end,
+                        first,
+                        final_frame,
+                        last,
+                        layer_exposure,
+                        fps,
+                    ) {
+                        if m_start > first {
+                            split(timeline, &mut layer, m_start - 1, fps);
+                        }
+                        if m_excl_end < last {
+                            split(timeline, &mut layer, m_excl_end, fps);
+                        }
+                        preserved_motion_windows.push((m_start, m_excl_end));
+                        reversed_motion_blocks.extend(rev_keys);
+                    } else {
+                        bake_touched(timeline, &mut layer, m_start, m_excl_end, &mut budget, fps)?;
+                    }
+                }
+
+                let in_preserved_motion = |f: u32| {
+                    preserved_motion_windows
+                        .iter()
+                        .any(|&(ms, me)| f >= ms && f < me)
+                };
+                for boundary in [first, final_frame, last] {
+                    if !in_preserved_motion(boundary) {
+                        split(timeline, &mut layer, boundary, fps);
+                    }
+                }
+                layer.keyframes.retain(|k| !in_preserved_motion(k.frame));
+
+                // Partition `[first ..= final_frame]` into maximal non-Motion sub-intervals and
+                // reverse Classic / Shape / Hold spans within each sub-interval.
+                let guide_layer = layer
+                    .properties
+                    .motion_guide
+                    .as_ref()
+                    .and_then(|gid| timeline.layers.iter().find(|l| &l.id == gid))
+                    .cloned();
+                let mut cursor = first;
+                let mut non_motion_intervals: Vec<(u32, u32)> = Vec::new();
+                for &(ms, me) in &preserved_motion_windows {
+                    if cursor < ms {
+                        non_motion_intervals.push((cursor, ms - 1));
+                    }
+                    cursor = me;
+                }
+                if cursor <= final_frame {
+                    non_motion_intervals.push((cursor, final_frame));
+                }
+
+                let mut reversed_non_motion: Vec<Keyframe> = Vec::new();
+                for (sub_first, sub_final) in non_motion_intervals {
+                    for b in [sub_first, sub_final] {
+                        split(timeline, &mut layer, b, fps);
+                    }
+                    let mut sub_inside: Vec<Keyframe> = layer
+                        .keyframes
+                        .iter()
+                        .filter(|k| (sub_first..=sub_final).contains(&k.frame))
+                        .cloned()
+                        .collect();
+                    layer
+                        .keyframes
+                        .retain(|k| !(sub_first..=sub_final).contains(&k.frame));
+                    reverse_classic_subinterval(
+                        timeline,
+                        guide_layer.as_ref(),
+                        &mut sub_inside,
+                        first,
+                        final_frame,
+                    );
+                    reversed_non_motion.extend(sub_inside);
+                }
+
+                layer.keyframes.extend(reversed_non_motion);
+                layer.keyframes.extend(reversed_motion_blocks);
                 layer.keyframes.sort_by_key(|key| key.frame);
                 timeline.layers[index] = layer;
             }
@@ -2210,17 +3214,19 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                 if layer.keyframes.is_empty() && end > 0 {
                     layer.keyframes.push(blank(0));
                 }
-                let old_end = layer.properties.end_frame.unwrap_or(0);
+                let old_end = exposure(&layer, old_count);
                 let new_end = old_end.max(end);
-                layer.properties.end_frame = Some(new_end);
-                timeline.frame_count = timeline.frame_count.max(new_end);
-                let last = end.min(new_end);
-                if last <= range.start {
-                    continue;
-                }
                 let original = layer.clone();
                 let (left_split, _) = video_cut_on_layer(&original, new_end, range.start, fps)?;
-                let (_, tail_video) = video_cut_on_layer(&original, new_end, last, fps)?;
+                let (_, tail_video) =
+                    video_cut_on_layer(&original, new_end, end.min(new_end), fps)?;
+                let last = end.min(new_end);
+                if last <= range.start {
+                    layer.properties.end_frame = Some(new_end);
+                    timeline.frame_count = timeline.frame_count.max(new_end);
+                    timeline.layers[index] = layer;
+                    continue;
+                }
                 let mut per_frame_videos: HashMap<u32, TimelineVideoSpan> = HashMap::new();
                 if !to_blank {
                     for frame in range.start..last {
@@ -2240,6 +3246,8 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                 if budget > MAX_BAKED_RECORDS {
                     return Err("This edit would create more than 100000 frame/object records. Select a shorter range.".into());
                 }
+                layer.properties.end_frame = Some(new_end);
+                timeline.frame_count = timeline.frame_count.max(new_end);
                 split(timeline, &mut layer, last, fps);
                 if let Some((left_frame, left_video)) = left_split
                     && let Some(left_key) = layer
@@ -2301,7 +3309,7 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
             }
             for index in layer_indices(timeline, &layers)? {
                 let mut layer = timeline.layers[index].clone();
-                let old_end = layer.properties.end_frame.unwrap_or(0);
+                let old_end = exposure(&layer, old_count);
                 if end_frame < old_end {
                     let _ = video_cut_on_layer(&layer, old_end, end_frame, fps)?;
                     isolate_range(timeline, &mut layer, end_frame, old_end, &mut budget, fps)?;
@@ -2322,7 +3330,7 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
             let mut split_count = 0usize;
             for index in indices {
                 let mut layer = timeline.layers[index].clone();
-                let layer_end = layer.properties.end_frame.unwrap_or(0);
+                let layer_end = exposure(&layer, old_count);
                 if at >= layer_end {
                     continue;
                 }
@@ -2424,6 +3432,11 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
         }
     }
     let timeline = &mut candidate.symbol_mut(symbol).unwrap().timeline;
+    for layer in &mut timeline.layers {
+        if layer.properties.role != LayerRole::Folder && layer.properties.end_frame.is_none() {
+            layer.properties.end_frame = Some(old_count);
+        }
+    }
     timeline.frame_count = timeline
         .layers
         .iter()
@@ -2433,6 +3446,17 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
         .max()
         .unwrap_or(1)
         .max(1);
+    if !is_set_end {
+        let new_count = timeline.frame_count;
+        for layer in &mut timeline.layers {
+            if layer.properties.role != LayerRole::Folder
+                && originally_open_end.contains(&layer.id)
+                && layer.properties.end_frame == Some(new_count)
+            {
+                layer.properties.end_frame = None;
+            }
+        }
+    }
     for layer in &mut timeline.layers {
         if layer.properties.role == LayerRole::Folder {
             layer.properties.end_frame = Some(timeline.frame_count);

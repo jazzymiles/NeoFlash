@@ -7,7 +7,8 @@
 //!   comparison snapshots (`StageSnapshotAB`).
 
 use crate::{
-    Element, Id, Keyframe, Layer, Timeline, Transform, TweenProperty, sample_layer_at_fps,
+    Easing, Element, Id, Keyframe, Layer, PathCommand, Timeline, Transform, TweenProperty,
+    sample_layer_at_fps,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -1019,6 +1020,718 @@ impl Timeline {
             first_key.markers = markers;
         }
     }
+}
+
+// ============================================================================
+// 5. Exact Easing Time-Reversal & De Casteljau Motion-Path Geometry (`T-399`)
+// ============================================================================
+
+/// Invert an [`Easing`] curve in time so that `easing(u, reverse_easing(e)) == 1.0 - easing(1.0 - u, e)`
+/// for every invertible variant (`Linear`, `EaseIn`, `EaseOut`, `EaseInOut`, `Flash`, `CubicBezier`).
+pub fn reverse_easing(ease: Easing) -> Easing {
+    match ease {
+        Easing::Linear => Easing::Linear,
+        Easing::EaseIn => Easing::EaseOut,
+        Easing::EaseOut => Easing::EaseIn,
+        Easing::EaseInOut => Easing::EaseInOut,
+        Easing::Flash { acceleration } => Easing::Flash {
+            acceleration: -acceleration,
+        },
+        Easing::CubicBezier { x1, y1, x2, y2 } => Easing::CubicBezier {
+            x1: (1.0 - x2).clamp(0.0, 1.0),
+            y1: 1.0 - y2,
+            x2: (1.0 - x1).clamp(0.0, 1.0),
+            y2: 1.0 - y1,
+        },
+        Easing::Bounce | Easing::Elastic => ease,
+    }
+}
+
+#[inline]
+fn lerp_pt(a: [f64; 2], b: [f64; 2], t: f64) -> [f64; 2] {
+    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
+}
+
+fn command_endpoint(command: PathCommand) -> Option<[f64; 2]> {
+    let pt = match command {
+        PathCommand::MoveTo { x, y }
+        | PathCommand::LineTo { x, y }
+        | PathCommand::QuadraticTo { x, y, .. }
+        | PathCommand::CubicTo { x, y, .. } => [x, y],
+        PathCommand::Close => return None,
+    };
+    (pt[0].is_finite() && pt[1].is_finite()).then_some(pt)
+}
+
+fn command_controls_finite(command: PathCommand) -> bool {
+    match command {
+        PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => {
+            x.is_finite() && y.is_finite()
+        }
+        PathCommand::QuadraticTo { cx, cy, x, y } => {
+            cx.is_finite() && cy.is_finite() && x.is_finite() && y.is_finite()
+        }
+        PathCommand::CubicTo {
+            cx1,
+            cy1,
+            cx2,
+            cy2,
+            x,
+            y,
+        } => [cx1, cy1, cx2, cy2, x, y].iter().all(|v| v.is_finite()),
+        PathCommand::Close => false,
+    }
+}
+
+fn eval_bezier_segment(p0: [f64; 2], command: PathCommand, u: f64) -> [f64; 2] {
+    let u = u.clamp(0.0, 1.0);
+    let inv = 1.0 - u;
+    match command {
+        PathCommand::LineTo { x, y } => lerp_pt(p0, [x, y], u),
+        PathCommand::QuadraticTo { cx, cy, x, y } => [
+            inv * inv * p0[0] + 2.0 * inv * u * cx + u * u * x,
+            inv * inv * p0[1] + 2.0 * inv * u * cy + u * u * y,
+        ],
+        PathCommand::CubicTo {
+            cx1,
+            cy1,
+            cx2,
+            cy2,
+            x,
+            y,
+        } => {
+            let i2 = inv * inv;
+            let u2 = u * u;
+            [
+                i2 * inv * p0[0] + 3.0 * i2 * u * cx1 + 3.0 * inv * u2 * cx2 + u2 * u * x,
+                i2 * inv * p0[1] + 3.0 * i2 * u * cy1 + 3.0 * inv * u2 * cy2 + u2 * u * y,
+            ]
+        }
+        PathCommand::MoveTo { x, y } => [x, y],
+        PathCommand::Close => p0,
+    }
+}
+
+fn deriv_bezier_segment(p0: [f64; 2], command: PathCommand, u: f64) -> [f64; 2] {
+    let u = u.clamp(0.0, 1.0);
+    let inv = 1.0 - u;
+    match command {
+        PathCommand::LineTo { x, y } => [x - p0[0], y - p0[1]],
+        PathCommand::QuadraticTo { cx, cy, x, y } => [
+            2.0 * inv * (cx - p0[0]) + 2.0 * u * (x - cx),
+            2.0 * inv * (cy - p0[1]) + 2.0 * u * (y - cy),
+        ],
+        PathCommand::CubicTo {
+            cx1,
+            cy1,
+            cx2,
+            cy2,
+            x,
+            y,
+        } => {
+            let i2 = inv * inv;
+            let u2 = u * u;
+            [
+                3.0 * i2 * (cx1 - p0[0]) + 6.0 * inv * u * (cx2 - cx1) + 3.0 * u2 * (x - cx2),
+                3.0 * i2 * (cy1 - p0[1]) + 6.0 * inv * u * (cy2 - cy1) + 3.0 * u2 * (y - cy2),
+            ]
+        }
+        PathCommand::MoveTo { .. } | PathCommand::Close => [0.0, 0.0],
+    }
+}
+
+/// Reverse an open `MoveTo` + (`LineTo` / `QuadraticTo` / `CubicTo`) path exactly without baking
+/// or flattening: reverses anchor order, swaps `CubicTo` `(cx1, cy1) <-> (cx2, cy2)`, and keeps
+/// `QuadraticTo` `(cx, cy)`.
+pub fn reverse_path_commands(commands: &[PathCommand]) -> Option<Vec<PathCommand>> {
+    if commands.len() < 2 {
+        return None;
+    }
+    let PathCommand::MoveTo { x: x0, y: y0 } = commands[0] else {
+        return None;
+    };
+    if !x0.is_finite() || !y0.is_finite() {
+        return None;
+    }
+    let mut anchors = Vec::with_capacity(commands.len());
+    anchors.push([x0, y0]);
+    for &cmd in &commands[1..] {
+        if matches!(cmd, PathCommand::MoveTo { .. } | PathCommand::Close)
+            || !command_controls_finite(cmd)
+        {
+            return None;
+        }
+        anchors.push(command_endpoint(cmd)?);
+    }
+    let last = *anchors.last()?;
+    let mut out = Vec::with_capacity(commands.len());
+    out.push(PathCommand::MoveTo {
+        x: last[0],
+        y: last[1],
+    });
+    for (idx, &cmd) in commands[1..].iter().enumerate().rev() {
+        let prev = anchors[idx];
+        let rev_cmd = match cmd {
+            PathCommand::LineTo { .. } => PathCommand::LineTo {
+                x: prev[0],
+                y: prev[1],
+            },
+            PathCommand::QuadraticTo { cx, cy, .. } => PathCommand::QuadraticTo {
+                cx,
+                cy,
+                x: prev[0],
+                y: prev[1],
+            },
+            PathCommand::CubicTo {
+                cx1, cy1, cx2, cy2, ..
+            } => PathCommand::CubicTo {
+                cx1: cx2,
+                cy1: cy2,
+                cx2: cx1,
+                cy2: cy1,
+                x: prev[0],
+                y: prev[1],
+            },
+            PathCommand::MoveTo { .. } | PathCommand::Close => return None,
+        };
+        out.push(rev_cmd);
+    }
+    Some(out)
+}
+
+/// Exact De Casteljau sub-segment extraction on parameter interval `[u0, u1]` (`0 <= u0 <= u1 <= 1`)
+/// for a single `LineTo`, `QuadraticTo`, or `CubicTo` segment starting at `p0`.
+pub fn subdivide_bezier_segment(
+    p0: [f64; 2],
+    command: PathCommand,
+    u0: f64,
+    u1: f64,
+) -> Option<([f64; 2], PathCommand)> {
+    if !p0[0].is_finite()
+        || !p0[1].is_finite()
+        || !u0.is_finite()
+        || !u1.is_finite()
+        || !command_controls_finite(command)
+    {
+        return None;
+    }
+    let u0 = u0.clamp(0.0, 1.0);
+    let u1 = u1.clamp(0.0, 1.0);
+    if u1 + 1e-15 < u0 {
+        return None;
+    }
+    if u0 == 0.0 && u1 == 1.0 {
+        return match command {
+            PathCommand::LineTo { .. }
+            | PathCommand::QuadraticTo { .. }
+            | PathCommand::CubicTo { .. } => Some((p0, command)),
+            PathCommand::MoveTo { .. } | PathCommand::Close => None,
+        };
+    }
+    if u1 - u0 <= 1e-15 {
+        let pt = eval_bezier_segment(p0, command, u0);
+        let deg = match command {
+            PathCommand::LineTo { .. } => PathCommand::LineTo { x: pt[0], y: pt[1] },
+            PathCommand::QuadraticTo { .. } => PathCommand::QuadraticTo {
+                cx: pt[0],
+                cy: pt[1],
+                x: pt[0],
+                y: pt[1],
+            },
+            PathCommand::CubicTo { .. } => PathCommand::CubicTo {
+                cx1: pt[0],
+                cy1: pt[1],
+                cx2: pt[0],
+                cy2: pt[1],
+                x: pt[0],
+                y: pt[1],
+            },
+            PathCommand::MoveTo { .. } | PathCommand::Close => return None,
+        };
+        return Some((pt, deg));
+    }
+    let denom = 1.0 - u0;
+    let w = if denom > 1e-15 {
+        ((u1 - u0) / denom).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    match command {
+        PathCommand::LineTo { x, y } => {
+            let p1 = [x, y];
+            let q0 = lerp_pt(p0, p1, u0);
+            let q1 = lerp_pt(p0, p1, u1);
+            Some((q0, PathCommand::LineTo { x: q1[0], y: q1[1] }))
+        }
+        PathCommand::QuadraticTo { cx, cy, x, y } => {
+            let c = [cx, cy];
+            let p2 = [x, y];
+            let a01 = lerp_pt(p0, c, u0);
+            let a12 = lerp_pt(c, p2, u0);
+            let r0 = lerp_pt(a01, a12, u0);
+            let b01 = lerp_pt(r0, a12, w);
+            let b12 = lerp_pt(a12, p2, w);
+            let q2 = lerp_pt(b01, b12, w);
+            Some((
+                r0,
+                PathCommand::QuadraticTo {
+                    cx: b01[0],
+                    cy: b01[1],
+                    x: q2[0],
+                    y: q2[1],
+                },
+            ))
+        }
+        PathCommand::CubicTo {
+            cx1,
+            cy1,
+            cx2,
+            cy2,
+            x,
+            y,
+        } => {
+            let c1 = [cx1, cy1];
+            let c2 = [cx2, cy2];
+            let p3 = [x, y];
+            let a01 = lerp_pt(p0, c1, u0);
+            let a12 = lerp_pt(c1, c2, u0);
+            let a23 = lerp_pt(c2, p3, u0);
+            let a012 = lerp_pt(a01, a12, u0);
+            let a123 = lerp_pt(a12, a23, u0);
+            let r0 = lerp_pt(a012, a123, u0);
+            let b01 = lerp_pt(r0, a123, w);
+            let b12 = lerp_pt(a123, a23, w);
+            let b23 = lerp_pt(a23, p3, w);
+            let b012 = lerp_pt(b01, b12, w);
+            let b123 = lerp_pt(b12, b23, w);
+            let q3 = lerp_pt(b012, b123, w);
+            Some((
+                r0,
+                PathCommand::CubicTo {
+                    cx1: b01[0],
+                    cy1: b01[1],
+                    cx2: b012[0],
+                    cy2: b012[1],
+                    x: q3[0],
+                    y: q3[1],
+                },
+            ))
+        }
+        PathCommand::MoveTo { .. } | PathCommand::Close => None,
+    }
+}
+
+const GL8_HALF_NODES: [f64; 4] = [
+    0.183_434_642_495_649_8,
+    0.525_532_409_916_329,
+    0.796_666_477_413_626_7,
+    0.960_289_856_497_536_3,
+];
+const GL8_HALF_WEIGHTS: [f64; 4] = [
+    0.362_683_783_378_362,
+    0.313_706_645_877_887_3,
+    0.222_381_034_453_374_5,
+    0.101_228_536_290_376_3,
+];
+const ARC_SUB_INTERVALS: usize = 16;
+
+fn bezier_speed(p0: [f64; 2], cmd: PathCommand, u: f64) -> f64 {
+    let d = deriv_bezier_segment(p0, cmd, u);
+    d[0].hypot(d[1])
+}
+
+fn integrate_segment_gl8(p0: [f64; 2], cmd: PathCommand, a: f64, b: f64) -> f64 {
+    let span = b - a;
+    if span <= 0.0 {
+        return 0.0;
+    }
+    let mid = 0.5 * (a + b);
+    let half = 0.5 * span;
+    let mut sum = 0.0;
+    for (&node, &weight) in GL8_HALF_NODES.iter().zip(&GL8_HALF_WEIGHTS) {
+        let dl = bezier_speed(p0, cmd, mid - half * node);
+        let dr = bezier_speed(p0, cmd, mid + half * node);
+        sum += weight * (dl + dr);
+    }
+    half * sum
+}
+
+#[derive(Clone, Debug)]
+struct ExactSegment {
+    p0: [f64; 2],
+    cmd: PathCommand,
+    sub_lengths: [f64; ARC_SUB_INTERVALS + 1],
+    length: f64,
+}
+
+impl ExactSegment {
+    fn new(p0: [f64; 2], cmd: PathCommand) -> Option<Self> {
+        if !p0[0].is_finite() || !p0[1].is_finite() || !command_controls_finite(cmd) {
+            return None;
+        }
+        match cmd {
+            PathCommand::LineTo { x, y } => {
+                let len = (x - p0[0]).hypot(y - p0[1]);
+                let mut sub_lengths = [0.0; ARC_SUB_INTERVALS + 1];
+                for (i, slot) in sub_lengths.iter_mut().enumerate() {
+                    *slot = len * (i as f64 / ARC_SUB_INTERVALS as f64);
+                }
+                Some(Self {
+                    p0,
+                    cmd,
+                    sub_lengths,
+                    length: len,
+                })
+            }
+            PathCommand::QuadraticTo { .. } | PathCommand::CubicTo { .. } => {
+                let mut sub_lengths = [0.0; ARC_SUB_INTERVALS + 1];
+                let mut acc = 0.0;
+                for i in 0..ARC_SUB_INTERVALS {
+                    let a = i as f64 / ARC_SUB_INTERVALS as f64;
+                    let b = (i + 1) as f64 / ARC_SUB_INTERVALS as f64;
+                    acc += integrate_segment_gl8(p0, cmd, a, b);
+                    sub_lengths[i + 1] = acc;
+                }
+                Some(Self {
+                    p0,
+                    cmd,
+                    sub_lengths,
+                    length: acc,
+                })
+            }
+            PathCommand::MoveTo { .. } | PathCommand::Close => None,
+        }
+    }
+
+    fn arc_length_to(&self, u: f64) -> f64 {
+        if u <= 0.0 {
+            return 0.0;
+        }
+        if u >= 1.0 {
+            return self.length;
+        }
+        if matches!(self.cmd, PathCommand::LineTo { .. }) {
+            return self.length * u;
+        }
+        let scaled = u * ARC_SUB_INTERVALS as f64;
+        let idx = (scaled.floor() as usize).min(ARC_SUB_INTERVALS - 1);
+        let base_u = idx as f64 / ARC_SUB_INTERVALS as f64;
+        self.sub_lengths[idx] + integrate_segment_gl8(self.p0, self.cmd, base_u, u)
+    }
+
+    fn solve_u_for_arc_length(&self, target_s: f64) -> f64 {
+        if self.length <= 1e-15 || target_s <= 0.0 {
+            return 0.0;
+        }
+        if target_s >= self.length {
+            return 1.0;
+        }
+        if matches!(self.cmd, PathCommand::LineTo { .. }) {
+            return (target_s / self.length).clamp(0.0, 1.0);
+        }
+        let m = self
+            .sub_lengths
+            .partition_point(|&s| s < target_s)
+            .saturating_sub(1)
+            .min(ARC_SUB_INTERVALS - 1);
+        let mut low = m as f64 / ARC_SUB_INTERVALS as f64;
+        let mut high = (m + 1) as f64 / ARC_SUB_INTERVALS as f64;
+        let ds = (self.sub_lengths[m + 1] - self.sub_lengths[m]).max(1e-15);
+        let mut u = low + (high - low) * ((target_s - self.sub_lengths[m]) / ds).clamp(0.0, 1.0);
+        let tol = 1e-14 * self.length.max(1.0);
+        for _ in 0..32 {
+            let err = self.arc_length_to(u) - target_s;
+            if err.abs() <= tol {
+                break;
+            }
+            if err < 0.0 {
+                low = u;
+            } else {
+                high = u;
+            }
+            let spd = bezier_speed(self.p0, self.cmd, u);
+            let cand = if spd > 1e-12 {
+                u - err / spd
+            } else {
+                0.5 * (low + high)
+            };
+            u = if cand > low && cand < high {
+                cand
+            } else {
+                0.5 * (low + high)
+            };
+        }
+        u.clamp(0.0, 1.0)
+    }
+
+    fn tangent_at_u(&self, u: f64) -> Option<[f64; 2]> {
+        let d = deriv_bezier_segment(self.p0, self.cmd, u);
+        if d[0].hypot(d[1]) > 1e-9 {
+            return Some(d);
+        }
+        let du = 1e-5;
+        let u0 = (u - du).max(0.0);
+        let u1 = (u + du).min(1.0);
+        if u1 > u0 {
+            let a = eval_bezier_segment(self.p0, self.cmd, u0);
+            let b = eval_bezier_segment(self.p0, self.cmd, u1);
+            let sec = [b[0] - a[0], b[1] - a[1]];
+            if sec[0].hypot(sec[1]) > 1e-12 {
+                return Some(sec);
+            }
+        }
+        None
+    }
+}
+
+/// High-precision arc-length sampler and De Casteljau sub-curve extractor for open Bézier motion paths.
+#[derive(Clone, Debug)]
+pub struct ExactMotionCurve {
+    segments: Vec<ExactSegment>,
+    cum_lengths: Vec<f64>,
+}
+
+impl ExactMotionCurve {
+    pub fn from_commands(commands: &[PathCommand]) -> Option<Self> {
+        if commands.len() < 2 {
+            return None;
+        }
+        let PathCommand::MoveTo { x: x0, y: y0 } = commands[0] else {
+            return None;
+        };
+        if !x0.is_finite() || !y0.is_finite() {
+            return None;
+        }
+        let mut prev = [x0, y0];
+        let mut segments = Vec::with_capacity(commands.len() - 1);
+        let mut cum_lengths = Vec::with_capacity(commands.len());
+        cum_lengths.push(0.0);
+        for &cmd in &commands[1..] {
+            if matches!(cmd, PathCommand::MoveTo { .. } | PathCommand::Close) {
+                return None;
+            }
+            let seg = ExactSegment::new(prev, cmd)?;
+            let next_len = cum_lengths.last().copied().unwrap_or(0.0) + seg.length;
+            cum_lengths.push(next_len);
+            prev = command_endpoint(cmd)?;
+            segments.push(seg);
+        }
+        Some(Self {
+            segments,
+            cum_lengths,
+        })
+    }
+
+    pub fn from_single_segment(start: [f64; 2], command: PathCommand) -> Option<Self> {
+        Self::from_commands(&[
+            PathCommand::MoveTo {
+                x: start[0],
+                y: start[1],
+            },
+            command,
+        ])
+    }
+
+    pub fn length(&self) -> f64 {
+        self.cum_lengths.last().copied().unwrap_or(0.0)
+    }
+
+    pub fn segment_count(&self) -> usize {
+        self.segments.len()
+    }
+
+    pub fn cumulative_segment_lengths(&self) -> &[f64] {
+        &self.cum_lengths
+    }
+
+    fn locate(&self, s: f64) -> (usize, f64) {
+        let total = self.length();
+        if total <= 1e-15 || s <= 0.0 {
+            return (0, 0.0);
+        }
+        if s >= total {
+            return (self.segments.len() - 1, 1.0);
+        }
+        let idx = self
+            .cum_lengths
+            .partition_point(|&len| len <= s)
+            .saturating_sub(1)
+            .min(self.segments.len() - 1);
+        let local_s = (s - self.cum_lengths[idx]).clamp(0.0, self.segments[idx].length);
+        let u = self.segments[idx].solve_u_for_arc_length(local_s);
+        (idx, u)
+    }
+
+    pub fn point_at(&self, s: f64) -> [f64; 2] {
+        let (idx, u) = self.locate(s);
+        let seg = &self.segments[idx];
+        eval_bezier_segment(seg.p0, seg.cmd, u)
+    }
+
+    pub fn tangent_vector_at(&self, s: f64) -> Option<[f64; 2]> {
+        let (idx, u) = self.locate(s);
+        if let Some(d) = self.segments[idx].tangent_at_u(u) {
+            return Some(d);
+        }
+        for k in (0..idx).rev() {
+            if let Some(d) = self.segments[k].tangent_at_u(1.0) {
+                return Some(d);
+            }
+        }
+        for k in idx + 1..self.segments.len() {
+            if let Some(d) = self.segments[k].tangent_at_u(0.0) {
+                return Some(d);
+            }
+        }
+        None
+    }
+
+    pub fn parameter_on_single_segment_at(&self, s: f64) -> f64 {
+        self.segments
+            .first()
+            .map_or(0.0, |seg| seg.solve_u_for_arc_length(s))
+    }
+
+    pub fn nearest(&self, pt: [f64; 2]) -> f64 {
+        const SAMPLES: usize = 64;
+        let mut best_dist_sq = f64::INFINITY;
+        let mut best_seg = 0usize;
+        let mut best_u = 0.0;
+        for (idx, seg) in self.segments.iter().enumerate() {
+            let steps = if matches!(seg.cmd, PathCommand::LineTo { .. }) {
+                1
+            } else {
+                SAMPLES
+            };
+            let mut local_best_i = 0usize;
+            let mut local_best_d2 = f64::INFINITY;
+            for i in 0..=steps {
+                let u = i as f64 / steps as f64;
+                let p = eval_bezier_segment(seg.p0, seg.cmd, u);
+                let dx = p[0] - pt[0];
+                let dy = p[1] - pt[1];
+                let d2 = dx * dx + dy * dy;
+                if d2 < local_best_d2 {
+                    local_best_d2 = d2;
+                    local_best_i = i;
+                }
+            }
+            let mut lo = (local_best_i.saturating_sub(1)) as f64 / steps as f64;
+            let mut hi = ((local_best_i + 1).min(steps)) as f64 / steps as f64;
+            for _ in 0..32 {
+                let m1 = lo + (hi - lo) / 3.0;
+                let m2 = hi - (hi - lo) / 3.0;
+                let p1 = eval_bezier_segment(seg.p0, seg.cmd, m1);
+                let p2 = eval_bezier_segment(seg.p0, seg.cmd, m2);
+                let d1 = (p1[0] - pt[0]).powi(2) + (p1[1] - pt[1]).powi(2);
+                let d2 = (p2[0] - pt[0]).powi(2) + (p2[1] - pt[1]).powi(2);
+                if d1 <= d2 {
+                    hi = m2;
+                } else {
+                    lo = m1;
+                }
+            }
+            let u = 0.5 * (lo + hi);
+            let p = eval_bezier_segment(seg.p0, seg.cmd, u);
+            let d2 = (p[0] - pt[0]).powi(2) + (p[1] - pt[1]).powi(2);
+            if d2 < best_dist_sq {
+                best_dist_sq = d2;
+                best_seg = idx;
+                best_u = u;
+            }
+        }
+        self.cum_lengths[best_seg] + self.segments[best_seg].arc_length_to(best_u)
+    }
+
+    pub fn subdivide_arc_range(&self, s0: f64, s1: f64) -> Option<Vec<PathCommand>> {
+        if !s0.is_finite() || !s1.is_finite() {
+            return None;
+        }
+        let total = self.length();
+        let s0 = s0.clamp(0.0, total);
+        let s1 = s1.clamp(0.0, total);
+        if s1 + 1e-12 < s0 {
+            return None;
+        }
+        if total <= 1e-12 || s1 - s0 <= 1e-12 {
+            let (idx, u) = self.locate(s0);
+            let seg = &self.segments[idx];
+            let (start_pt, sub_cmd) = subdivide_bezier_segment(seg.p0, seg.cmd, u, u)?;
+            return Some(vec![
+                PathCommand::MoveTo {
+                    x: start_pt[0],
+                    y: start_pt[1],
+                },
+                sub_cmd,
+            ]);
+        }
+        let mut out = Vec::new();
+        let eps = 1e-12 * total.max(1.0);
+        for (idx, seg) in self.segments.iter().enumerate() {
+            let seg_s0 = self.cum_lengths[idx];
+            let seg_s1 = self.cum_lengths[idx + 1];
+            if seg_s1 <= s0 + eps || seg_s0 >= s1 - eps {
+                continue;
+            }
+            let local_s0 = (s0 - seg_s0).clamp(0.0, seg.length);
+            let local_s1 = (s1 - seg_s0).clamp(0.0, seg.length);
+            let u0 = if local_s0 <= eps {
+                0.0
+            } else {
+                seg.solve_u_for_arc_length(local_s0)
+            };
+            let u1 = if local_s1 + eps >= seg.length {
+                1.0
+            } else {
+                seg.solve_u_for_arc_length(local_s1)
+            };
+            let (start_pt, sub_cmd) = subdivide_bezier_segment(seg.p0, seg.cmd, u0, u1)?;
+            if out.is_empty() {
+                out.push(PathCommand::MoveTo {
+                    x: start_pt[0],
+                    y: start_pt[1],
+                });
+            }
+            out.push(sub_cmd);
+        }
+        if out.len() < 2 {
+            let (idx, u) = self.locate(s0);
+            let seg = &self.segments[idx];
+            let (start_pt, sub_cmd) = subdivide_bezier_segment(seg.p0, seg.cmd, u, u)?;
+            return Some(vec![
+                PathCommand::MoveTo {
+                    x: start_pt[0],
+                    y: start_pt[1],
+                },
+                sub_cmd,
+            ]);
+        }
+        Some(out)
+    }
+}
+
+/// Subdivide an open `MoveTo` + (`LineTo` / `QuadraticTo` / `CubicTo`) path onto the normalized
+/// arc-length interval `[frac0, frac1]` (`0 <= frac0 <= frac1 <= 1`), preserving exact Bézier
+/// curve commands via De Casteljau subdivision.
+pub fn subdivide_path_commands(
+    commands: &[PathCommand],
+    frac0: f64,
+    frac1: f64,
+) -> Option<Vec<PathCommand>> {
+    if !frac0.is_finite() || !frac1.is_finite() {
+        return None;
+    }
+    let frac0 = frac0.clamp(0.0, 1.0);
+    let frac1 = frac1.clamp(0.0, 1.0);
+    if frac1 + 1e-12 < frac0 {
+        return None;
+    }
+    let curve = ExactMotionCurve::from_commands(commands)?;
+    if frac0 == 0.0 && frac1 == 1.0 {
+        return Some(commands.to_vec());
+    }
+    let total = curve.length();
+    curve.subdivide_arc_range(frac0 * total, frac1 * total)
 }
 
 #[cfg(test)]
