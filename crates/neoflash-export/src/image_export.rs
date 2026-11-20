@@ -11,8 +11,9 @@ use crate::{
 };
 use image::{ImageFormat, RgbaImage};
 use neoflash_core::{
-    AuthoredDraw, AuthoredScene, Color, ColorTransform, ElementKind, FillRule, LayerRole,
-    PathCommand, Project, evaluate_scene, flatten_scenes_with_ranges, layer_effectively_visible,
+    AuthoredDraw, AuthoredScene, Color, ColorTransform, ElementKind, FillRule, GradientKind,
+    GradientPaint, GradientSpread, LayerRole, PathCommand, Project, evaluate_scene,
+    flatten_scenes_with_ranges, layer_effectively_visible,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -950,6 +951,167 @@ fn ellipse_path(width: f64, height: f64) -> [PathCommand; 6] {
     ]
 }
 
+fn ps_gradient_supported(grad: &GradientPaint, transform: ColorTransform) -> bool {
+    grad.spread == GradientSpread::Extend
+        && matches!(grad.kind, GradientKind::Linear | GradientKind::Radial)
+        && !grad.stops.is_empty()
+        && grad.validate().is_ok()
+        && grad
+            .stops
+            .iter()
+            .all(|s| transform.apply(s.color)[3] == 255)
+}
+
+fn normalized_shading_stops(
+    grad: &GradientPaint,
+    transform: ColorTransform,
+) -> Vec<(f64, [f64; 3])> {
+    let mut raw: Vec<(f64, [f64; 3])> = grad
+        .stops
+        .iter()
+        .map(|s| {
+            let c = transform.apply(s.color);
+            (
+                (f64::from(s.ratio) / 255.0).clamp(0.0, 1.0),
+                [
+                    f64::from(c[0]) / 255.0,
+                    f64::from(c[1]) / 255.0,
+                    f64::from(c[2]) / 255.0,
+                ],
+            )
+        })
+        .collect();
+    if raw.is_empty() {
+        return vec![(0.0, [0.0, 0.0, 0.0]), (1.0, [0.0, 0.0, 0.0])];
+    }
+    raw.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut out: Vec<(f64, [f64; 3])> = Vec::with_capacity(raw.len() + 2);
+    if raw[0].0 > 1e-6 {
+        out.push((0.0, raw[0].1));
+    } else {
+        raw[0].0 = 0.0;
+    }
+    for (mut pos, col) in raw {
+        if let Some(&(prev_pos, prev_col)) = out.last()
+            && (pos - prev_pos).abs() < 1e-5
+        {
+            if prev_col == col {
+                continue;
+            }
+            let nudged = (prev_pos + 1e-4).min(0.9999);
+            if nudged > prev_pos + 1e-7 {
+                pos = nudged;
+            } else if let Some(last) = out.last_mut() {
+                last.1 = col;
+                continue;
+            }
+        }
+        out.push((pos, col));
+    }
+    if let Some(&(last_pos, last_col)) = out.last() {
+        if last_pos < 1.0 - 1e-6 {
+            out.push((1.0, last_col));
+        } else if let Some(last) = out.last_mut() {
+            last.0 = 1.0;
+        }
+    }
+    if out.len() == 1 {
+        let col = out[0].1;
+        out.push((1.0, col));
+    }
+    out
+}
+
+fn format_shading_function_dict(stops: &[(f64, [f64; 3])]) -> String {
+    let rgb_arr = |c: [f64; 3]| format!("[{} {} {}]", ps_num(c[0]), ps_num(c[1]), ps_num(c[2]));
+    if stops.len() <= 2 {
+        let c0 = stops.first().map(|s| s.1).unwrap_or([0.0; 3]);
+        let c1 = stops.last().map(|s| s.1).unwrap_or(c0);
+        return format!(
+            "<< /FunctionType 2 /Domain [0 1] /N 1 /C0 {} /C1 {} >>",
+            rgb_arr(c0),
+            rgb_arr(c1)
+        );
+    }
+    let k = stops.len() - 1;
+    let mut fns = String::new();
+    let mut bounds = String::new();
+    let mut encode = String::new();
+    for i in 0..k {
+        if i > 0 {
+            fns.push(' ');
+        }
+        let _ = write!(
+            fns,
+            "<< /FunctionType 2 /Domain [0 1] /N 1 /C0 {} /C1 {} >>",
+            rgb_arr(stops[i].1),
+            rgb_arr(stops[i + 1].1)
+        );
+        if i + 1 < k {
+            if !bounds.is_empty() {
+                bounds.push(' ');
+            }
+            bounds.push_str(&ps_num(stops[i + 1].0));
+        }
+        if i > 0 {
+            encode.push(' ');
+        }
+        encode.push_str("0 1");
+    }
+    format!(
+        "<< /FunctionType 3 /Domain [0 1] /Functions [{fns}] /Bounds [{bounds}] /Encode [{encode}] >>"
+    )
+}
+
+fn format_shading_dict(grad: &GradientPaint, transform: ColorTransform) -> String {
+    let stops = normalized_shading_stops(grad, transform);
+    let func = format_shading_function_dict(&stops);
+    match grad.kind {
+        GradientKind::Radial => {
+            let fx = grad.focal_point_ratio.clamp(-0.999, 0.999) * 819.2;
+            format!(
+                "<< /ShadingType 3 /ColorSpace /DeviceRGB /Coords [{} 0 0 0 0 819.2] /Extend [true true] /Function {} >>",
+                ps_num(fx),
+                func
+            )
+        }
+        _ => format!(
+            "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [-819.2 0 819.2 0] /Extend [true true] /Function {} >>",
+            func
+        ),
+    }
+}
+
+fn ps_shfill_clipped(
+    out: &mut String,
+    commands: &[PathCommand],
+    rule: FillRule,
+    grad: &GradientPaint,
+    transform: ColorTransform,
+) {
+    out.push_str("gsave\n");
+    if ps_path(out, commands) {
+        out.push_str(if rule == FillRule::EvenOdd {
+            "eoclip\nnewpath\n"
+        } else {
+            "clip\nnewpath\n"
+        });
+        let m = grad.matrix;
+        let _ = writeln!(
+            out,
+            "[{} {} {} {} {} {}] concat",
+            ps_num(m[0]),
+            ps_num(m[1]),
+            ps_num(m[2]),
+            ps_num(m[3]),
+            ps_num(m[4]),
+            ps_num(m[5])
+        );
+        let _ = writeln!(out, "{} shfill", format_shading_dict(grad, transform));
+    }
+    out.push_str("grestore\n");
+}
+
 fn ps_draw_supported(draw: &AuthoredDraw, options: &ImageExportOptions) -> bool {
     let transform = draw.item.color_transform;
     let opaque = |color: Color| matches!(transform.apply(color)[3], 0 | 255);
@@ -971,7 +1133,16 @@ fn ps_draw_supported(draw: &AuthoredDraw, options: &ImageExportOptions) -> bool 
             stroke_gradient,
             ..
         } => {
-            fill_gradient.is_none() && stroke_gradient.is_none() && opaque(*fill) && opaque(*stroke)
+            let fg_ok = fill_gradient
+                .as_ref()
+                .is_none_or(|g| ps_gradient_supported(g, transform));
+            let sg_ok = stroke_gradient
+                .as_ref()
+                .is_none_or(|g| ps_gradient_supported(g, transform));
+            fg_ok
+                && sg_ok
+                && (fill_gradient.is_some() || opaque(*fill))
+                && (stroke_gradient.is_some() || opaque(*stroke))
         }
         ElementKind::Text {
             text,
@@ -1039,52 +1210,73 @@ fn ps_scene_supported(
 }
 
 #[derive(Clone, Copy)]
-struct PsShapeStyle {
+struct PsShapeStyle<'a> {
     rule: FillRule,
     fill: Color,
     stroke: Color,
+    fill_gradient: Option<&'a GradientPaint>,
+    stroke_gradient: Option<&'a GradientPaint>,
     stroke_width: f64,
     transform: ColorTransform,
     strokes_as_strokes: bool,
 }
 
-fn ps_shape(out: &mut String, commands: &[PathCommand], style: PsShapeStyle) {
-    if ps_path(out, commands) {
+fn ps_shape(out: &mut String, commands: &[PathCommand], style: PsShapeStyle<'_>) {
+    if let Some(fg) = style.fill_gradient {
+        ps_shfill_clipped(out, commands, style.rule, fg, style.transform);
+    }
+    let solid_fill = if style.fill_gradient.is_some() {
+        [0; 4]
+    } else {
+        style.fill
+    };
+    let solid_stroke = if style.strokes_as_strokes && style.stroke_gradient.is_none() {
+        style.stroke
+    } else {
+        [0; 4]
+    };
+    let solid_sw = if style.strokes_as_strokes && style.stroke_gradient.is_none() {
+        style.stroke_width
+    } else {
+        0.0
+    };
+    if (style.transform.apply(solid_fill)[3] > 0
+        || (solid_sw > 0.0 && style.transform.apply(solid_stroke)[3] > 0))
+        && ps_path(out, commands)
+    {
         ps_paint(
             out,
             style.rule,
-            style.fill,
-            if style.strokes_as_strokes {
-                style.stroke
-            } else {
-                [0; 4]
-            },
-            if style.strokes_as_strokes {
-                style.stroke_width
-            } else {
-                0.0
-            },
+            solid_fill,
+            solid_stroke,
+            solid_sw,
             style.transform,
         );
     }
-    if !style.strokes_as_strokes
-        && style.stroke_width > 0.0
-        && style.transform.apply(style.stroke)[3] > 0
-    {
-        let outline = neoflash_core::expand_variable_width_stroke(
-            commands,
-            style.stroke_width,
-            &neoflash_core::StrokeWidthProfile::default(),
-        );
-        if ps_path(out, &outline) {
-            ps_paint(
-                out,
-                FillRule::NonZero,
-                style.stroke,
-                [0; 4],
-                0.0,
-                style.transform,
+    if style.stroke_width > 0.0 {
+        if let Some(sg) = style.stroke_gradient {
+            let outline = neoflash_core::expand_variable_width_stroke(
+                commands,
+                style.stroke_width,
+                &neoflash_core::StrokeWidthProfile::default(),
             );
+            ps_shfill_clipped(out, &outline, FillRule::NonZero, sg, style.transform);
+        } else if !style.strokes_as_strokes && style.transform.apply(style.stroke)[3] > 0 {
+            let outline = neoflash_core::expand_variable_width_stroke(
+                commands,
+                style.stroke_width,
+                &neoflash_core::StrokeWidthProfile::default(),
+            );
+            if ps_path(out, &outline) {
+                ps_paint(
+                    out,
+                    FillRule::NonZero,
+                    style.stroke,
+                    [0; 4],
+                    0.0,
+                    style.transform,
+                );
+            }
         }
     }
 }
@@ -1144,6 +1336,8 @@ fn ps_draw(out: &mut String, draw: &AuthoredDraw, options: &ImageExportOptions) 
                     rule: FillRule::NonZero,
                     fill: *fill,
                     stroke: *stroke,
+                    fill_gradient: None,
+                    stroke_gradient: None,
                     stroke_width: *stroke_width,
                     transform: item.color_transform,
                     strokes_as_strokes: options.ai_strokes_as_strokes,
@@ -1164,6 +1358,8 @@ fn ps_draw(out: &mut String, draw: &AuthoredDraw, options: &ImageExportOptions) 
                     rule: FillRule::NonZero,
                     fill: *fill,
                     stroke: *stroke,
+                    fill_gradient: None,
+                    stroke_gradient: None,
                     stroke_width: *stroke_width,
                     transform: item.color_transform,
                     strokes_as_strokes: options.ai_strokes_as_strokes,
@@ -1176,14 +1372,6 @@ fn ps_draw(out: &mut String, draw: &AuthoredDraw, options: &ImageExportOptions) 
             fill,
             stroke,
             stroke_width,
-        }
-        | ElementKind::PaintedPath {
-            commands,
-            fill_rule,
-            fill,
-            stroke,
-            stroke_width,
-            ..
         } => {
             ps_shape(
                 out,
@@ -1192,6 +1380,32 @@ fn ps_draw(out: &mut String, draw: &AuthoredDraw, options: &ImageExportOptions) 
                     rule: *fill_rule,
                     fill: *fill,
                     stroke: *stroke,
+                    fill_gradient: None,
+                    stroke_gradient: None,
+                    stroke_width: *stroke_width,
+                    transform: item.color_transform,
+                    strokes_as_strokes: options.ai_strokes_as_strokes,
+                },
+            );
+        }
+        ElementKind::PaintedPath {
+            commands,
+            fill_rule,
+            fill,
+            stroke,
+            fill_gradient,
+            stroke_gradient,
+            stroke_width,
+        } => {
+            ps_shape(
+                out,
+                commands,
+                PsShapeStyle {
+                    rule: *fill_rule,
+                    fill: *fill,
+                    stroke: *stroke,
+                    fill_gradient: fill_gradient.as_ref(),
+                    stroke_gradient: stroke_gradient.as_ref(),
                     stroke_width: *stroke_width,
                     transform: item.color_transform,
                     strokes_as_strokes: options.ai_strokes_as_strokes,
@@ -1348,13 +1562,26 @@ fn build_ai_bytes_with_scene(
         .map(|symbol| symbol.timeline.layers.len().max(1))
         .unwrap_or(1);
     let path_count = scene.draws.len();
+    let has_gradients = scene.draws.iter().any(|d| {
+        matches!(
+            &d.item.kind,
+            ElementKind::PaintedPath {
+                fill_gradient: Some(_),
+                ..
+            } | ElementKind::PaintedPath {
+                stroke_gradient: Some(_),
+                ..
+            }
+        )
+    });
+    let lang_level = if has_gradients { 3 } else { 2 };
     let mut content = format!(
         "%!PS-Adobe-3.0 EPSF-3.0\n\
          %%Creator: NeoFlash ({})\n\
          %%Title: {}\n\
          %%BoundingBox: 0 0 {} {}\n\
          %%HiResBoundingBox: 0.0 0.0 {}.0 {}.0\n\
-         %%LanguageLevel: 2\n\
+         %%LanguageLevel: {}\n\
          %%Pages: 1\n\
          %AI5_FileFormat 12.0\n\
          %%EndComments\n\
@@ -1365,6 +1592,7 @@ fn build_ai_bytes_with_scene(
         height,
         width,
         height,
+        lang_level,
     );
     if !ps_scene_supported(eval_project, scene, options) {
         let bytes = ps_raster_fallback(
@@ -1432,6 +1660,440 @@ fn build_ai_bytes_with_scene(
     }
     content.push_str("grestore\nshowpage\n%%EOF\n");
     Ok((content.into_bytes(), layer_count, path_count))
+}
+
+fn pdf_path(out: &mut String, commands: &[PathCommand]) -> bool {
+    if commands.is_empty() {
+        return false;
+    }
+    let mut current = (0.0, 0.0);
+    let mut start = current;
+    for command in commands {
+        match *command {
+            PathCommand::MoveTo { x, y } => {
+                let _ = writeln!(out, "{} {} m", ps_num(x), ps_num(y));
+                current = (x, y);
+                start = current;
+            }
+            PathCommand::LineTo { x, y } => {
+                let _ = writeln!(out, "{} {} l", ps_num(x), ps_num(y));
+                current = (x, y);
+            }
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                let c1 = (
+                    current.0 + (cx - current.0) * 2.0 / 3.0,
+                    current.1 + (cy - current.1) * 2.0 / 3.0,
+                );
+                let c2 = (x + (cx - x) * 2.0 / 3.0, y + (cy - y) * 2.0 / 3.0);
+                let _ = writeln!(
+                    out,
+                    "{} {} {} {} {} {} c",
+                    ps_num(c1.0),
+                    ps_num(c1.1),
+                    ps_num(c2.0),
+                    ps_num(c2.1),
+                    ps_num(x),
+                    ps_num(y)
+                );
+                current = (x, y);
+            }
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => {
+                let _ = writeln!(
+                    out,
+                    "{} {} {} {} {} {} c",
+                    ps_num(cx1),
+                    ps_num(cy1),
+                    ps_num(cx2),
+                    ps_num(cy2),
+                    ps_num(x),
+                    ps_num(y)
+                );
+                current = (x, y);
+            }
+            PathCommand::Close => {
+                out.push_str("h\n");
+                current = start;
+            }
+        }
+    }
+    true
+}
+
+fn pdf_shading_clipped(
+    out: &mut String,
+    shadings: &mut Vec<String>,
+    commands: &[PathCommand],
+    rule: FillRule,
+    grad: &GradientPaint,
+    transform: ColorTransform,
+) {
+    let sh_idx = shadings.len();
+    shadings.push(format_shading_dict(grad, transform));
+    out.push_str("q\n");
+    if pdf_path(out, commands) {
+        out.push_str(if rule == FillRule::EvenOdd {
+            "W* n\n"
+        } else {
+            "W n\n"
+        });
+        let m = grad.matrix;
+        let _ = writeln!(
+            out,
+            "{} {} {} {} {} {} cm\n/Sh{sh_idx} sh",
+            ps_num(m[0]),
+            ps_num(m[1]),
+            ps_num(m[2]),
+            ps_num(m[3]),
+            ps_num(m[4]),
+            ps_num(m[5])
+        );
+    }
+    out.push_str("Q\n");
+}
+
+fn pdf_shape(
+    out: &mut String,
+    shadings: &mut Vec<String>,
+    commands: &[PathCommand],
+    style: PsShapeStyle<'_>,
+) {
+    if let Some(fg) = style.fill_gradient {
+        pdf_shading_clipped(out, shadings, commands, style.rule, fg, style.transform);
+    } else {
+        let fill = style.transform.apply(style.fill);
+        if fill[3] > 0 && pdf_path(out, commands) {
+            let _ = writeln!(
+                out,
+                "{} {} {} rg {}",
+                ps_num(f64::from(fill[0]) / 255.0),
+                ps_num(f64::from(fill[1]) / 255.0),
+                ps_num(f64::from(fill[2]) / 255.0),
+                if style.rule == FillRule::EvenOdd {
+                    "f*"
+                } else {
+                    "f"
+                }
+            );
+        }
+    }
+
+    if style.stroke_width > 0.0 {
+        if let Some(sg) = style.stroke_gradient {
+            let outline = neoflash_core::expand_variable_width_stroke(
+                commands,
+                style.stroke_width,
+                &neoflash_core::StrokeWidthProfile::default(),
+            );
+            pdf_shading_clipped(
+                out,
+                shadings,
+                &outline,
+                FillRule::NonZero,
+                sg,
+                style.transform,
+            );
+        } else {
+            let stroke = style.transform.apply(style.stroke);
+            if stroke[3] > 0 {
+                if style.strokes_as_strokes {
+                    if pdf_path(out, commands) {
+                        let _ = writeln!(
+                            out,
+                            "{} {} {} RG {} w 1 J 1 j S",
+                            ps_num(f64::from(stroke[0]) / 255.0),
+                            ps_num(f64::from(stroke[1]) / 255.0),
+                            ps_num(f64::from(stroke[2]) / 255.0),
+                            ps_num(style.stroke_width)
+                        );
+                    }
+                } else {
+                    let outline = neoflash_core::expand_variable_width_stroke(
+                        commands,
+                        style.stroke_width,
+                        &neoflash_core::StrokeWidthProfile::default(),
+                    );
+                    if pdf_path(out, &outline) {
+                        let _ = writeln!(
+                            out,
+                            "{} {} {} rg f",
+                            ps_num(f64::from(stroke[0]) / 255.0),
+                            ps_num(f64::from(stroke[1]) / 255.0),
+                            ps_num(f64::from(stroke[2]) / 255.0),
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn build_vector_pdf_bytes_with_scene(
+    eval_project: &Project,
+    scene: &AuthoredScene,
+    width: u32,
+    height: u32,
+    options: &ImageExportOptions,
+) -> Vec<u8> {
+    let mut stream_body = String::new();
+    let mut shadings: Vec<String> = Vec::new();
+
+    stream_body.push_str("q\n");
+    let scale_x = f64::from(width) / f64::from(eval_project.width.max(1));
+    let scale_y = f64::from(height) / f64::from(eval_project.height.max(1));
+    let _ = writeln!(
+        stream_body,
+        "{} 0 0 -{} 0 {height} cm",
+        ps_num(scale_x),
+        ps_num(scale_y)
+    );
+    if !options.transparent_background && eval_project.background[3] == 255 {
+        let bg = eval_project.background;
+        let _ = writeln!(
+            stream_body,
+            "{} {} {} rg 0 0 {} {} re f",
+            ps_num(f64::from(bg[0]) / 255.0),
+            ps_num(f64::from(bg[1]) / 255.0),
+            ps_num(f64::from(bg[2]) / 255.0),
+            eval_project.width.max(1),
+            eval_project.height.max(1)
+        );
+    }
+
+    for draw in &scene.draws {
+        let item = &draw.item;
+        let m = item.transform;
+        let _ = writeln!(
+            stream_body,
+            "q\n{} {} {} {} {} {} cm",
+            ps_num(m[0]),
+            ps_num(m[1]),
+            ps_num(m[2]),
+            ps_num(m[3]),
+            ps_num(m[4]),
+            ps_num(m[5])
+        );
+        match &item.kind {
+            ElementKind::Rectangle {
+                width,
+                height,
+                fill,
+                stroke,
+                stroke_width,
+            } => {
+                pdf_shape(
+                    &mut stream_body,
+                    &mut shadings,
+                    &rectangle_path(*width, *height),
+                    PsShapeStyle {
+                        rule: FillRule::NonZero,
+                        fill: *fill,
+                        stroke: *stroke,
+                        fill_gradient: None,
+                        stroke_gradient: None,
+                        stroke_width: *stroke_width,
+                        transform: item.color_transform,
+                        strokes_as_strokes: options.ai_strokes_as_strokes,
+                    },
+                );
+            }
+            ElementKind::Ellipse {
+                width,
+                height,
+                fill,
+                stroke,
+                stroke_width,
+            } => {
+                pdf_shape(
+                    &mut stream_body,
+                    &mut shadings,
+                    &ellipse_path(*width, *height),
+                    PsShapeStyle {
+                        rule: FillRule::NonZero,
+                        fill: *fill,
+                        stroke: *stroke,
+                        fill_gradient: None,
+                        stroke_gradient: None,
+                        stroke_width: *stroke_width,
+                        transform: item.color_transform,
+                        strokes_as_strokes: options.ai_strokes_as_strokes,
+                    },
+                );
+            }
+            ElementKind::Path {
+                commands,
+                fill_rule,
+                fill,
+                stroke,
+                stroke_width,
+            } => {
+                pdf_shape(
+                    &mut stream_body,
+                    &mut shadings,
+                    commands,
+                    PsShapeStyle {
+                        rule: *fill_rule,
+                        fill: *fill,
+                        stroke: *stroke,
+                        fill_gradient: None,
+                        stroke_gradient: None,
+                        stroke_width: *stroke_width,
+                        transform: item.color_transform,
+                        strokes_as_strokes: options.ai_strokes_as_strokes,
+                    },
+                );
+            }
+            ElementKind::PaintedPath {
+                commands,
+                fill_rule,
+                fill,
+                stroke,
+                fill_gradient,
+                stroke_gradient,
+                stroke_width,
+            } => {
+                pdf_shape(
+                    &mut stream_body,
+                    &mut shadings,
+                    commands,
+                    PsShapeStyle {
+                        rule: *fill_rule,
+                        fill: *fill,
+                        stroke: *stroke,
+                        fill_gradient: fill_gradient.as_ref(),
+                        stroke_gradient: stroke_gradient.as_ref(),
+                        stroke_width: *stroke_width,
+                        transform: item.color_transform,
+                        strokes_as_strokes: options.ai_strokes_as_strokes,
+                    },
+                );
+            }
+            ElementKind::Text {
+                text,
+                font_family,
+                font_size,
+                color,
+            } => {
+                let cmds = neoflash_core::TextFieldState::static_text_to_outline_commands(
+                    text,
+                    font_family,
+                    *font_size,
+                    None,
+                );
+                pdf_shape(
+                    &mut stream_body,
+                    &mut shadings,
+                    &cmds,
+                    PsShapeStyle {
+                        rule: FillRule::NonZero,
+                        fill: *color,
+                        stroke: [0; 4],
+                        fill_gradient: None,
+                        stroke_gradient: None,
+                        stroke_width: 0.0,
+                        transform: item.color_transform,
+                        strokes_as_strokes: true,
+                    },
+                );
+            }
+            ElementKind::TextBox { text, format, .. } => {
+                let color = [
+                    ((format.color >> 16) & 0xff) as u8,
+                    ((format.color >> 8) & 0xff) as u8,
+                    (format.color & 0xff) as u8,
+                    255,
+                ];
+                let cmds = neoflash_core::TextFieldState::static_text_to_outline_commands(
+                    text,
+                    &format.font,
+                    format.size,
+                    None,
+                );
+                pdf_shape(
+                    &mut stream_body,
+                    &mut shadings,
+                    &cmds,
+                    PsShapeStyle {
+                        rule: FillRule::NonZero,
+                        fill: color,
+                        stroke: [0; 4],
+                        fill_gradient: None,
+                        stroke_gradient: None,
+                        stroke_width: 0.0,
+                        transform: item.color_transform,
+                        strokes_as_strokes: true,
+                    },
+                );
+            }
+            ElementKind::Instance { .. }
+            | ElementKind::Bitmap { .. }
+            | ElementKind::Video { .. } => {}
+        }
+        stream_body.push_str("Q\n");
+    }
+    stream_body.push_str("Q\n");
+
+    let mut pdf = Vec::new();
+    pdf.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
+
+    let total_objs = 5 + shadings.len();
+    let mut offsets = vec![0usize; total_objs];
+
+    offsets[1] = pdf.len();
+    pdf.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+
+    offsets[2] = pdf.len();
+    pdf.extend_from_slice(b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+
+    offsets[3] = pdf.len();
+    let shading_res = if shadings.is_empty() {
+        String::new()
+    } else {
+        let mut entries = String::new();
+        for idx in 0..shadings.len() {
+            if idx > 0 {
+                entries.push(' ');
+            }
+            let _ = write!(entries, "/Sh{idx} {} 0 R", 5 + idx);
+        }
+        format!("/Shading << {entries} >> ")
+    };
+    let page_obj = format!(
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] \
+         /Resources << {shading_res}>> /Contents 4 0 R >>\nendobj\n"
+    );
+    pdf.extend_from_slice(page_obj.as_bytes());
+
+    offsets[4] = pdf.len();
+    let content_obj = format!(
+        "4 0 obj\n<< /Length {} >>\nstream\n{}endstream\nendobj\n",
+        stream_body.len(),
+        stream_body
+    );
+    pdf.extend_from_slice(content_obj.as_bytes());
+
+    for (idx, sh_dict) in shadings.iter().enumerate() {
+        let obj_num = 5 + idx;
+        offsets[obj_num] = pdf.len();
+        let sh_obj = format!("{obj_num} 0 obj\n{sh_dict}\nendobj\n");
+        pdf.extend_from_slice(sh_obj.as_bytes());
+    }
+
+    let xref_offset = pdf.len();
+    pdf.extend_from_slice(format!("xref\n0 {total_objs}\n0000000000 65535 f \n").as_bytes());
+    for off in &offsets[1..total_objs] {
+        pdf.extend_from_slice(format!("{off:010} 00000 n \n").as_bytes());
+    }
+    let trailer =
+        format!("trailer\n<< /Size {total_objs} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n");
+    pdf.extend_from_slice(trailer.as_bytes());
+    pdf
 }
 
 fn build_pdf_bytes_from_rgba(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ExportError> {
@@ -1758,8 +2420,21 @@ where
                     ai
                 }
                 ImageExportFormat::Pdf => {
-                    let rgba = render_rgba(&mut bitmap_cache)?;
-                    build_pdf_bytes_from_rgba(&rgba, width, height)?
+                    if !has_timeline_video
+                        && ps_scene_supported(&eval_proj, &stepped_scene, options)
+                    {
+                        path_count += stepped_scene.draws.len();
+                        build_vector_pdf_bytes_with_scene(
+                            &eval_proj,
+                            &stepped_scene,
+                            width,
+                            height,
+                            options,
+                        )
+                    } else {
+                        let rgba = render_rgba(&mut bitmap_cache)?;
+                        build_pdf_bytes_from_rgba(&rgba, width, height)?
+                    }
                 }
             };
             total_bytes += bytes.len();
@@ -2145,6 +2820,7 @@ mod tests {
                 ..Keyframe::default()
             },
         ];
+        project.format_version = 5;
         project.upgrade_format_for_features();
 
         let dir = std::env::temp_dir().join(format!(
@@ -2290,6 +2966,202 @@ mod tests {
                 .and_then(|entry| entry.file_name().into_string().ok())
                 .is_some_and(|name| name.starts_with(SEQUENCE_STAGE_PREFIX))
         }));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn ai_and_pdf_export_preserve_linear_and_radial_vector_shadings_and_round_trip() {
+        use neoflash_core::GradientStop;
+
+        let mut project = Project::blank();
+        project.width = 200;
+        project.height = 120;
+        let root_id = project.root.clone();
+
+        let linear_paint = GradientPaint {
+            kind: GradientKind::Linear,
+            matrix: [100.0 / 1638.4, 0.0, 0.0, 100.0 / 1638.4, 60.0, 40.0],
+            stops: vec![
+                GradientStop {
+                    ratio: 0,
+                    color: [255, 0, 0, 255],
+                },
+                GradientStop {
+                    ratio: 128,
+                    color: [0, 255, 0, 255],
+                },
+                GradientStop {
+                    ratio: 255,
+                    color: [0, 0, 255, 255],
+                },
+            ],
+            ..GradientPaint::default()
+        };
+        let radial_paint = GradientPaint {
+            kind: GradientKind::Radial,
+            matrix: [30.0 / 819.2, 0.0, 0.0, 30.0 / 819.2, 150.0, 60.0],
+            stops: vec![
+                GradientStop {
+                    ratio: 0,
+                    color: [255, 255, 0, 255],
+                },
+                GradientStop {
+                    ratio: 255,
+                    color: [128, 0, 255, 255],
+                },
+            ],
+            focal_point_ratio: 0.35,
+            ..GradientPaint::default()
+        };
+
+        project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0].elements = vec![
+            Element {
+                id: new_id("element"),
+                name: "Linear box".into(),
+                transform: Transform::default(),
+                kind: ElementKind::PaintedPath {
+                    commands: rectangle_path(100.0, 60.0)
+                        .into_iter()
+                        .map(|cmd| match cmd {
+                            PathCommand::MoveTo { x, y } => PathCommand::MoveTo {
+                                x: x + 10.0,
+                                y: y + 10.0,
+                            },
+                            PathCommand::LineTo { x, y } => PathCommand::LineTo {
+                                x: x + 10.0,
+                                y: y + 10.0,
+                            },
+                            other => other,
+                        })
+                        .collect(),
+                    fill_rule: FillRule::NonZero,
+                    fill: [0; 4],
+                    stroke: [0; 4],
+                    fill_gradient: Some(linear_paint),
+                    stroke_gradient: None,
+                    stroke_width: 0.0,
+                },
+                ..Element::default()
+            },
+            Element {
+                id: new_id("element"),
+                name: "Radial orb".into(),
+                transform: Transform::default(),
+                kind: ElementKind::PaintedPath {
+                    commands: rectangle_path(60.0, 60.0)
+                        .into_iter()
+                        .map(|cmd| match cmd {
+                            PathCommand::MoveTo { x, y } => PathCommand::MoveTo {
+                                x: x + 120.0,
+                                y: y + 30.0,
+                            },
+                            PathCommand::LineTo { x, y } => PathCommand::LineTo {
+                                x: x + 120.0,
+                                y: y + 30.0,
+                            },
+                            other => other,
+                        })
+                        .collect(),
+                    fill_rule: FillRule::NonZero,
+                    fill: [0; 4],
+                    stroke: [0; 4],
+                    fill_gradient: Some(radial_paint),
+                    stroke_gradient: None,
+                    stroke_width: 0.0,
+                },
+                ..Element::default()
+            },
+        ];
+        project.format_version = 5;
+        project.upgrade_format_for_features();
+
+        let dir = std::env::temp_dir().join(format!(
+            "neoflash-shading-export-roundtrip-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // 1) AI / EPS vector shading (`shfill`, LanguageLevel 3)
+        let mut ai_opts = ImageExportOptions::for_project(&project, 0);
+        ai_opts.format = ImageExportFormat::Ai;
+        ai_opts.transparent_background = true;
+        let ai_report = export_project_image(&project, &dir.join("shadings.ai"), &ai_opts).unwrap();
+        let ai_text = fs::read_to_string(&ai_report.files[0]).unwrap();
+        assert!(!ai_text.contains("NeoFlashRasterFallback"));
+        assert!(ai_text.contains("%%LanguageLevel: 3"));
+        assert!(ai_text.contains("/ShadingType 2"));
+        assert!(ai_text.contains("/ShadingType 3"));
+        assert!(ai_text.contains("/FunctionType 3"));
+        assert!(ai_text.contains("shfill"));
+
+        // 2) PDF vector shading (`/ShadingType 2`, `/ShadingType 3`, `/FunctionType 3`, `sh`) + round-trip import
+        let mut pdf_opts = ImageExportOptions::for_project(&project, 0);
+        pdf_opts.format = ImageExportFormat::Pdf;
+        pdf_opts.transparent_background = true;
+        let pdf_report =
+            export_project_image(&project, &dir.join("shadings.pdf"), &pdf_opts).unwrap();
+        let pdf_bytes = fs::read(&pdf_report.files[0]).unwrap();
+        let pdf_text = String::from_utf8_lossy(&pdf_bytes);
+        assert!(
+            !pdf_text.contains("/Im0 Do"),
+            "expected vector PDF, not raster fallback"
+        );
+        assert!(pdf_text.contains("/ShadingType 2"));
+        assert!(pdf_text.contains("/ShadingType 3"));
+        assert!(pdf_text.contains("/Sh0 sh"));
+        assert!(pdf_text.contains("/Sh1 sh"));
+
+        let (reimported, _) = neoflash_import::import_pdf_ai_with_options(
+            &pdf_bytes,
+            "shadings.pdf",
+            &neoflash_import::VectorImportOptions::default(),
+        )
+        .expect("re-import exported vector PDF");
+        reimported.validate().unwrap();
+        let imported_grads: Vec<&GradientPaint> = reimported
+            .symbol(&reimported.root)
+            .unwrap()
+            .timeline
+            .layers
+            .iter()
+            .flat_map(|l| &l.keyframes)
+            .flat_map(|k| &k.elements)
+            .filter_map(|e| match &e.kind {
+                ElementKind::PaintedPath {
+                    fill_gradient: Some(g),
+                    ..
+                } => Some(g),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(imported_grads.len(), 2);
+        let imp_lin = imported_grads
+            .iter()
+            .find(|g| g.kind == GradientKind::Linear)
+            .expect("re-imported linear shading");
+        assert_eq!(imp_lin.stops.len(), 3);
+        assert_eq!(imp_lin.stops[1].ratio, 128);
+        assert_eq!(imp_lin.stops[1].color, [0, 255, 0, 255]);
+        assert_eq!(imp_lin.sample(10.0, 40.0), [255, 0, 0, 255]);
+        assert_eq!(
+            imp_lin.sample(10.0 + 100.0 * (128.0 / 255.0), 40.0),
+            [0, 255, 0, 255]
+        );
+        assert_eq!(imp_lin.sample(110.0, 40.0), [0, 0, 255, 255]);
+
+        let imp_rad = imported_grads
+            .iter()
+            .find(|g| g.kind == GradientKind::Radial)
+            .expect("re-imported radial shading");
+        assert!(
+            (imp_rad.focal_point_ratio - 0.35).abs() < 0.02,
+            "focal ratio round-trip: {}",
+            imp_rad.focal_point_ratio
+        );
+        assert_eq!(imp_rad.stops.first().unwrap().color, [255, 255, 0, 255]);
+        assert_eq!(imp_rad.stops.last().unwrap().color, [128, 0, 255, 255]);
+
         let _ = fs::remove_dir_all(dir);
     }
 }

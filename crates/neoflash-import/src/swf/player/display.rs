@@ -256,6 +256,11 @@ impl SwfBytecodePlayer {
         } else {
             (0.0, 0.0)
         };
+        let root_drawn = if symbol_id == project.root {
+            self.root_graphics.materialized_elements("swf-rt-root")
+        } else {
+            Vec::new()
+        };
         if let Some(target_sym) = Self::build_overridden_symbol(
             project,
             &overrides,
@@ -266,6 +271,7 @@ impl SwfBytecodePlayer {
             "",
             offset,
             &instance_symbols,
+            &root_drawn,
             true,
         ) {
             overrides.insert(symbol_id.to_owned(), target_sym);
@@ -342,6 +348,14 @@ impl SwfBytecodePlayer {
         for entry in entries {
             let entry_identity =
                 join_target_path(parent_identity, &format!("depth{}", entry.depth));
+            let slot_drawn = self
+                .target_slot(&entry_identity)
+                .filter(|s| !s.graphics.is_empty())
+                .map(|s| {
+                    s.graphics
+                        .materialized_elements(&format!("swf-rt-{}", entry.depth))
+                })
+                .unwrap_or_default();
             if entry.character_id == 0 {
                 if runtime_depth >= MAX_RUNTIME_SPRITE_DEPTH {
                     continue;
@@ -403,6 +417,7 @@ impl SwfBytecodePlayer {
                     &entry_identity,
                     (0.0, 0.0),
                     &child_symbols,
+                    &slot_drawn,
                     false,
                 );
                 overrides.remove(&template_id);
@@ -417,8 +432,11 @@ impl SwfBytecodePlayer {
 
             let base_symbol_id = format!("swf-sym-{}", entry.character_id);
             let has_dynamic_children = !entry.children.is_empty();
+            let has_drawn = !slot_drawn.is_empty();
             if runtime_depth >= MAX_RUNTIME_SPRITE_DEPTH
-                || (!self.sprites.contains_key(&entry.character_id) && !has_dynamic_children)
+                || (!self.sprites.contains_key(&entry.character_id)
+                    && !has_dynamic_children
+                    && !has_drawn)
             {
                 symbols.insert(entry.depth, base_symbol_id);
                 continue;
@@ -453,6 +471,7 @@ impl SwfBytecodePlayer {
                 &entry_identity,
                 (0.0, 0.0),
                 &child_symbols,
+                &slot_drawn,
                 false,
             ) {
                 runtime_symbol.class_name = None;
@@ -475,15 +494,47 @@ impl SwfBytecodePlayer {
         parent_identity: &str,
         offset: (f64, f64),
         instance_symbols: &BTreeMap<u16, String>,
+        drawn_elements: &[Element],
         match_existing_layer_elements: bool,
     ) -> Option<Symbol> {
         let base_sym = overrides
             .get(source_symbol_id)
             .or_else(|| project.symbol(source_symbol_id))?;
-        let mut layers: Vec<Layer> = Vec::with_capacity(entries.len().max(1));
+        let mut layers: Vec<Layer> =
+            Vec::with_capacity(entries.len() + usize::from(!drawn_elements.is_empty()).max(1));
+        if !drawn_elements.is_empty() {
+            let mut shifted = Vec::with_capacity(drawn_elements.len());
+            for (idx, raw_el) in drawn_elements.iter().enumerate() {
+                let mut el = raw_el.clone();
+                el.id = format!("{target_symbol_id}-rt-draw-{}", idx + 1);
+                el.transform.x += offset.0;
+                el.transform.y += offset.1;
+                shifted.push(el);
+            }
+            let mut keyframes = Vec::with_capacity(2);
+            if frame > 0 {
+                keyframes.push(Keyframe {
+                    frame: 0,
+                    ..Default::default()
+                });
+            }
+            keyframes.push(Keyframe {
+                frame,
+                elements: shifted,
+                ..Default::default()
+            });
+            layers.push(Layer {
+                id: format!("{target_symbol_id}-rt-graphics"),
+                name: "Runtime Graphics".into(),
+                visible: true,
+                locked: false,
+                keyframes,
+                properties: LayerProperties::default(),
+            });
+        }
         let mut depth_to_layer_idx: BTreeMap<u16, usize> = BTreeMap::new();
         let mut identity_to_layer_idx: HashMap<String, usize> = HashMap::new();
-        let mut layer_char_sym_ids: Vec<String> = Vec::with_capacity(entries.len());
+        let mut layer_char_sym_ids: Vec<String> = vec![String::new(); layers.len()];
         let mut mask_requests: Vec<(u16, u16, usize)> = Vec::new();
         let mut dynamic_mask_requests: Vec<(usize, String)> = Vec::new();
 
@@ -1276,6 +1327,7 @@ pub(super) fn apply_place_tag_to_map(
                 children: BTreeMap::new(),
                 props: HashMap::new(),
                 clip_handlers: Vec::new(),
+                graphics: RuntimeGraphicsState::default(),
             },
         );
         return (load_scripts, false);
@@ -1395,6 +1447,7 @@ pub(super) fn apply_place_tag_to_map(
                 children: BTreeMap::new(),
                 props: HashMap::new(),
                 clip_handlers: new_handlers,
+                graphics: RuntimeGraphicsState::default(),
             };
             return (load_scripts, unmodeled_filter);
         }
@@ -1488,6 +1541,7 @@ pub(super) fn apply_place_tag_to_map(
             children: BTreeMap::new(),
             props: HashMap::new(),
             clip_handlers: new_handlers,
+            graphics: RuntimeGraphicsState::default(),
         },
     );
     (load_scripts, unmodeled_filter)

@@ -76,6 +76,88 @@ fn encode_jpeg_composited(
     Ok((buf, has_alpha))
 }
 
+fn build_lottie_audio_level(
+    sound: &neoflash_core::FrameSound,
+    ip: f64,
+    op: f64,
+) -> serde_json::Value {
+    let mut pts = sound.envelope_points();
+    if pts.is_empty() {
+        return json!({"a": 0, "k": [100]});
+    }
+    pts.sort_by(|a, b| a[0].total_cmp(&b[0]));
+    let to_lr = |p: &[f64; 3]| -> [f64; 2] {
+        [round4(p[1].max(0.0) * 100.0), round4(p[2].max(0.0) * 100.0)]
+    };
+    let span = (op - ip).max(0.0);
+    let mut keyframes: Vec<(f64, [f64; 2])> = Vec::with_capacity(pts.len() + 2);
+
+    let first_pos = pts[0][0].clamp(0.0, 1.0);
+    if first_pos > 1e-6 {
+        keyframes.push((round4(ip), to_lr(&pts[0])));
+    }
+    for p in &pts {
+        let t = round4(ip + p[0].clamp(0.0, 1.0) * span);
+        let lr = to_lr(p);
+        if let Some(last) = keyframes.last_mut()
+            && (t - last.0).abs() < 1e-4
+        {
+            if last.1 == lr {
+                continue;
+            }
+            if t + 0.001 < op {
+                keyframes.push((round4(t + 0.001), lr));
+            } else {
+                last.1 = lr;
+            }
+        } else {
+            keyframes.push((t, lr));
+        }
+    }
+    if let Some(last_pt) = pts.last()
+        && last_pt[0].clamp(0.0, 1.0) < 1.0 - 1e-6
+    {
+        let t_end = round4(op);
+        if keyframes
+            .last()
+            .is_none_or(|last| (t_end - last.0).abs() >= 1e-4)
+        {
+            keyframes.push((t_end, to_lr(last_pt)));
+        }
+    }
+
+    let varies = keyframes.windows(2).any(|w| w[0].1 != w[1].1);
+    let explicit_multi = sound.envelope.as_ref().is_some_and(|env| env.len() >= 2)
+        || (sound.effect == neoflash_core::SoundEffect::Custom && keyframes.len() >= 2);
+    if keyframes.len() < 2 || (!varies && !explicit_multi) {
+        let lr = keyframes.first().map(|k| k.1).unwrap_or([100.0, 100.0]);
+        return json!({"a": 0, "k": lr});
+    }
+
+    let kfs: Vec<serde_json::Value> = keyframes
+        .iter()
+        .enumerate()
+        .map(|(idx, (t, lr))| {
+            if idx + 1 < keyframes.len() {
+                let next_lr = keyframes[idx + 1].1;
+                json!({
+                    "t": *t,
+                    "s": lr,
+                    "e": next_lr,
+                    "o": {"x": [0.0, 0.0], "y": [0.0, 0.0]},
+                    "i": {"x": [1.0, 1.0], "y": [1.0, 1.0]}
+                })
+            } else {
+                json!({
+                    "t": *t,
+                    "s": lr
+                })
+            }
+        })
+        .collect();
+    json!({"a": 1, "k": kfs})
+}
+
 impl<'a> LottieBuilder<'a> {
     pub(super) fn alloc_unique_asset_id(&mut self, prefix: &str, raw: &str) -> String {
         let slug = sanitize_id(raw);
@@ -135,10 +217,8 @@ impl<'a> LottieBuilder<'a> {
         let sound = key.sound.as_ref()?;
         if self.options.player != super::LottieTargetPlayer::LottieWeb
             || sound.sync != neoflash_core::SoundSync::Stream
-            || sound.effect != neoflash_core::SoundEffect::None
             || sound.loop_forever
             || sound.loops > 1
-            || sound.envelope.as_ref().is_some_and(|p| !p.is_empty())
         {
             return None;
         }
@@ -163,9 +243,10 @@ impl<'a> LottieBuilder<'a> {
         });
         // An explicit media clock also keeps lottie-web rendering audio-only compositions.
         let to = from + (op - f64::from(key.frame)) / self.fps;
+        let lv = build_lottie_audio_level(sound, f64::from(key.frame), op);
         Some(json!({
             "ty":6, "ind":index, "refId":id, "nm":layer.name, "ip":key.frame, "op":op, "st":key.frame,
-            "sr":1, "au":{"lv":{"a":0,"k":[100]}},
+            "sr":1, "au":{"lv":lv},
             "tm":{"a":1,"k":[
                 {"t":key.frame,"s":[from],"e":[to],"o":{"x":[0.0],"y":[0.0]},"i":{"x":[1.0],"y":[1.0]}},
                 {"t":op,"s":[to]}

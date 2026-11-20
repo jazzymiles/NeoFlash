@@ -4,8 +4,8 @@
 use neoflash_core::{
     AuthoredBitmapFill, BlendMode, ColorTransform, Element, ElementKind, FillRule, FilterSpec,
     FrameScript, InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, MaskMode,
-    ObjectEvent, ObjectScript, PathCommand, Project, ResourceUnit, Script, ScriptLanguage, Symbol,
-    SymbolKind, Timeline, Transform,
+    ObjectEvent, ObjectScript, PathCommand, Project, ResourceUnit, Script, ScriptLanguage,
+    SourceUnit, Symbol, SymbolKind, Timeline, Transform,
 };
 use neoflash_export::{
     FlaFeatureDisposition, SwfCompression, SwfPublishOptions, SwfPublishProfile, export_project,
@@ -1421,4 +1421,721 @@ fn full_stage_bitmap_larger_than_a_swf_edge_record_remains_visible() {
         })
         .expect("one fitted bitmap with a closed, subdivided rectangle");
     assert_eq!(poster.item.transform, [30., 0., 0., 30., 0., 0.]);
+}
+
+#[test]
+fn t409_as3_and_as2_include_directives_with_project_sources_fallback_and_dedup() {
+    // 1. AS3: `include "path.as";`, `include "PATH.AS"` (no semicolon, case-insensitive),
+    //    and `#include 'path.as'`, pulling from both `project.resources` and `project.sources`
+    //    without requiring package/class on included snippet `SourceUnit`s or double-running them.
+    let mut as3_proj = Project::blank();
+    as3_proj.script_language = Some(ScriptLanguage::ActionScript3);
+    as3_proj.document_class = Some("app.IncludeMain".to_owned());
+    as3_proj.resources.push(
+        ResourceUnit::from_bytes(
+            "res_inc_1",
+            "inc/res_constants.as",
+            "text/plain",
+            b"var resBase:int = 100;\n",
+        )
+        .unwrap(),
+    );
+    as3_proj.sources = vec![
+        SourceUnit {
+            id: "src_inc_semi".to_owned(),
+            path: "inc/SharedDefs.AS".to_owned(),
+            language: ScriptLanguage::ActionScript3,
+            source: "\u{FEFF}var srcBonus:int = 25;\ninclude \" no_semi_helper.as \"\n".to_owned(),
+        },
+        SourceUnit {
+            id: "src_inc_nosemi".to_owned(),
+            path: "inc/no_semi_helper.as".to_owned(),
+            language: ScriptLanguage::ActionScript3,
+            source: "var noSemiStep:int = 7;\n".to_owned(),
+        },
+        SourceUnit {
+            id: "src_frame_inc".to_owned(),
+            path: "frame_snippet.as".to_owned(),
+            language: ScriptLanguage::ActionScript3,
+            source: "trace(\"frame-inc:\" + (this.bootTotal + 3));\n".to_owned(),
+        },
+        SourceUnit {
+            id: "src_doc_main".to_owned(),
+            path: "app/IncludeMain.as".to_owned(),
+            language: ScriptLanguage::ActionScript3,
+            source: r#"package app {
+                import flash.display.MovieClip;
+                public dynamic class IncludeMain extends MovieClip {
+                    public function IncludeMain() {
+                        #include "../inc/res_constants.as"
+                        include "../inc/shareddefs.as"; // case-insensitive + nested include without ';'
+                        this.bootTotal = resBase + srcBonus + noSemiStep;
+                        trace("ctor-inc:" + this.bootTotal);
+                    }
+                }
+            }"#
+            .to_owned(),
+        },
+    ];
+    as3_proj.symbols[0].timeline.frame_count = 1;
+    as3_proj.symbols[0].timeline.scripts = vec![FrameScript {
+        layer: None,
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript3,
+            source: "include 'FRAME_SNIPPET.AS'\nstop();\n".to_owned(),
+        },
+    }];
+    as3_proj.upgrade_format_for_features();
+    as3_proj.validate().unwrap();
+
+    let avm2_opts = SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer10Avm2);
+    let (as3_swf, as3_rep) =
+        publish_swf_bytes(&as3_proj, &avm2_opts).expect("publish AS3 include SWF");
+    assert!(as3_rep.can_proceed(), "{as3_rep:?}");
+    let as3_play = play_swf_bytes(&as3_swf, 2).expect("play AS3 include SWF");
+    assert!(as3_play.unsupported_diagnostics.is_empty());
+    assert_eq!(as3_play.trace_output, vec!["ctor-inc:132", "frame-inc:135"]);
+
+    // 2. AS2: case-insensitive `#include` fallback to `project.sources` without duplicate DoInitAction
+    let mut as2_proj = Project::blank();
+    as2_proj.script_language = Some(ScriptLanguage::ActionScript2);
+    as2_proj.sources = vec![SourceUnit {
+        id: "as2_inc_src".to_owned(),
+        path: "scripts/CounterInit.AS".to_owned(),
+        language: ScriptLanguage::ActionScript2,
+        source: "if (bootHits == undefined) { var bootHits = 0; }\nbootHits += 1;\n".to_owned(),
+    }];
+    as2_proj.symbols[0].timeline.frame_count = 1;
+    as2_proj.symbols[0].timeline.scripts = vec![FrameScript {
+        layer: None,
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source:
+                "#include \"SCRIPTS/counterinit.as\"\ntrace(\"as2-hits:\" + bootHits);\nstop();\n"
+                    .to_owned(),
+        },
+    }];
+    as2_proj.upgrade_format_for_features();
+    as2_proj.validate().unwrap();
+
+    let avm1_opts = SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer8Avm1);
+    let (as2_swf, as2_rep) =
+        publish_swf_bytes(&as2_proj, &avm1_opts).expect("publish AS2 include SWF");
+    assert!(as2_rep.can_proceed(), "{as2_rep:?}");
+    let as2_play = play_swf_bytes(&as2_swf, 2).expect("play AS2 include SWF");
+    assert_eq!(as2_play.trace_output, vec!["as2-hits:1"]);
+}
+
+#[test]
+fn t409_avm1_try_catch_finally_switch_for_in_operators_and_super_inheritance_roundtrip() {
+    let mut proj = Project::blank();
+    proj.script_language = Some(ScriptLanguage::ActionScript2);
+    proj.sources = vec![
+        SourceUnit {
+            id: "as2_v1".to_owned(),
+            path: "sim/Vehicle.as".to_owned(),
+            language: ScriptLanguage::ActionScript2,
+            source: r#"class sim.Vehicle {
+                var baseSpeed:Number;
+                function Vehicle(seed:Number) {
+                    this.baseSpeed = seed + 10;
+                }
+                function describe():String {
+                    return "V" + this.baseSpeed;
+                }
+            }"#
+            .to_owned(),
+        },
+        SourceUnit {
+            id: "as2_v2".to_owned(),
+            path: "sim/Craft.as".to_owned(),
+            language: ScriptLanguage::ActionScript2,
+            source: r#"class sim.Craft extends sim.Vehicle {
+                var wingBoost:Number;
+                function Craft(seed:Number, boost:Number) {
+                    super(seed);
+                    this.wingBoost = boost;
+                }
+                function describe():String {
+                    return super.describe() + ":C" + this.wingBoost;
+                }
+            }"#
+            .to_owned(),
+        },
+        SourceUnit {
+            id: "as2_v3".to_owned(),
+            path: "sim/Interceptor.as".to_owned(),
+            language: ScriptLanguage::ActionScript2,
+            source: r#"class sim.Interceptor extends sim.Craft {
+                var callsign:String;
+                function Interceptor(seed:Number, boost:Number, sign:String) {
+                    super(seed, boost);
+                    this.callsign = sign;
+                }
+                function describe():String {
+                    return super.describe() + ":I-" + this.callsign;
+                }
+            }"#
+            .to_owned(),
+        },
+    ];
+    proj.symbols[0].timeline.frame_count = 1;
+    proj.symbols[0].timeline.scripts = vec![FrameScript {
+        layer: None,
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: r#"
+                var ship = new Interceptor(5, 3, "alpha");
+                trace(ship.describe());
+                trace((ship instanceof Interceptor) + "," + (ship instanceof Craft) + "," + (ship instanceof Vehicle));
+
+                var log = "";
+                function innerThrow(flag) {
+                    try {
+                        log += "T";
+                        if (flag) {
+                            throw new TypeError("bad-type");
+                        }
+                        return "ok";
+                    } finally {
+                        log += "F";
+                    }
+                }
+                try {
+                    innerThrow(true);
+                } catch (re:RangeError) {
+                    log += "R";
+                } catch (te:TypeError) {
+                    log += "C(" + te.message + ")";
+                } finally {
+                    log += "O";
+                }
+                var normalRes = innerThrow(false);
+                trace(log + ":" + normalRes);
+
+                function routeSwitch(code) {
+                    var out = "";
+                    switch (code) {
+                        case 1:
+                            out += "one";
+                            break;
+                        case 2:
+                        case 3:
+                            out += "twoThree";
+                            break;
+                        default:
+                            out += "def";
+                    }
+                    return out;
+                }
+                trace(routeSwitch(1) + "|" + routeSwitch(2) + "|" + routeSwitch(9));
+
+                var sum = 0;
+                for (var i = 0; i < 6; i++) {
+                    if (i == 1) {
+                        continue;
+                    }
+                    if (i == 5) {
+                        break;
+                    }
+                    sum += i;
+                }
+                var arr = [10, 20, 30];
+                var delOk = delete arr[1];
+                var eachSum = 0;
+                for each (var v in arr) {
+                    eachSum += v;
+                }
+                var bag = { a: 3, b: 4, temp: 9 };
+                delete bag.temp;
+                var keyCount = 0;
+                for (var k in bag) {
+                    keyCount++;
+                }
+                var bit = (~5 == -6) ? "yes" : "no";
+                trace(sum + ":" + delOk + ":" + (1 in arr) + ":" + (0 in arr) + ":" + eachSum + ":" + keyCount + ":" + typeof ship + ":" + bit);
+                stop();
+            "#
+            .to_owned(),
+        },
+    }];
+    proj.upgrade_format_for_features();
+    proj.validate().unwrap();
+
+    let opts = SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer8Avm1);
+    let (swf_bytes, rep) = publish_swf_bytes(&proj, &opts).expect("publish AVM1 SWF");
+    assert!(rep.can_proceed(), "{rep:?}");
+
+    let play = play_swf_bytes(&swf_bytes, 2).expect("play AVM1 SWF");
+    assert!(
+        play.unsupported_diagnostics.is_empty(),
+        "unexpected AVM1 diagnostics: {:?}",
+        play.unsupported_diagnostics
+    );
+    assert_eq!(
+        play.trace_output,
+        vec![
+            "V15:C3:I-alpha",
+            "true,true,true",
+            "TFC(bad-type)OTF:ok",
+            "one|twoThree|def",
+            "9:true:false:true:40:2:object:yes",
+        ]
+    );
+
+    let reimported = import_swf_bytes(&swf_bytes).expect("re-import AVM1 SWF");
+    reimported
+        .validate()
+        .expect("re-imported AVM1 project must validate");
+}
+
+#[test]
+fn t409_avm2_try_catch_finally_switch_hasnext2_operators_and_multilevel_super_roundtrip() {
+    let mut proj = Project::blank();
+    proj.script_language = Some(ScriptLanguage::ActionScript3);
+    proj.document_class = Some("app.MainApp".to_owned());
+    // Intentionally place subclasses BEFORE base classes in `project.sources` to verify
+    // topological class ordering in `build_abc_bytes`.
+    proj.sources = vec![
+        SourceUnit {
+            id: "s_boss".to_owned(),
+            path: "model/BossActor.as".to_owned(),
+            language: ScriptLanguage::ActionScript3,
+            source: r#"package model {
+                public class BossActor extends Actor {
+                    public var phase:int = 2;
+                    public static var tagPrefix:String = "BOSS";
+                    public static function formatTag(n:int):String {
+                        return tagPrefix + "-" + n;
+                    }
+                    public function BossActor(hp:int, armor:int) {
+                        super(hp, armor);
+                    }
+                    public override function compute(mult:int):int {
+                        return super.compute(mult) + this.phase;
+                    }
+                }
+            }"#
+            .to_owned(),
+        },
+        SourceUnit {
+            id: "s_actor".to_owned(),
+            path: "model/Actor.as".to_owned(),
+            language: ScriptLanguage::ActionScript3,
+            source: r#"package model {
+                public class Actor extends Entity {
+                    public var armor:int;
+                    public function Actor(hp:int, armor:int) {
+                        super(hp);
+                        this.armor = armor;
+                    }
+                    public override function compute(mult:int):int {
+                        return super.compute(mult) + this.armor;
+                    }
+                }
+            }"#
+            .to_owned(),
+        },
+        SourceUnit {
+            id: "s_entity".to_owned(),
+            path: "model/Entity.as".to_owned(),
+            language: ScriptLanguage::ActionScript3,
+            source: r#"package model {
+                public class Entity {
+                    public var hp:int = 1;
+                    public function Entity(hp:int) {
+                        this.hp = hp;
+                    }
+                    public function compute(mult:int):int {
+                        return this.hp * mult;
+                    }
+                }
+            }"#
+            .to_owned(),
+        },
+        SourceUnit {
+            id: "s_main".to_owned(),
+            path: "app/MainApp.as".to_owned(),
+            language: ScriptLanguage::ActionScript3,
+            source: r#"package app {
+                import flash.display.MovieClip;
+                import flash.display.Sprite;
+                import model.*;
+                public dynamic class MainApp extends MovieClip {
+                    public function MainApp() {
+                        var boss:BossActor = new BossActor(10, 5);
+                        trace(BossActor.formatTag(boss.compute(3)));
+                        var checks:String = (boss is BossActor) + "," + (boss is Actor) + "," + (boss is Entity) + "," + (boss is Sprite) + "," + ((boss as Actor) !== null) + "," + ((boss as Sprite) === null) + "," + (boss instanceof Entity);
+                        trace(checks);
+                    }
+                }
+            }"#
+            .to_owned(),
+        },
+    ];
+    proj.symbols[0].timeline.frame_count = 1;
+    proj.symbols[0].timeline.scripts = vec![FrameScript {
+        layer: None,
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript3,
+            source: r#"
+                var flow:String = "";
+                function runStep(mode:int):String {
+                    try {
+                        flow += "A";
+                        if (mode == 1) {
+                            throw new TypeError("type-fail");
+                        }
+                        if (mode == 2) {
+                            return "early";
+                        }
+                        flow += "B";
+                    } finally {
+                        flow += "F";
+                    }
+                    return "done";
+                }
+                try {
+                    runStep(1);
+                } catch (re:RangeError) {
+                    flow += "R";
+                } catch (te:TypeError) {
+                    flow += "T(" + te.message + ")";
+                } finally {
+                    flow += "Z";
+                }
+                var r2:String = runStep(2);
+                trace(flow + ":" + r2);
+
+                function classify(v:int):String {
+                    var res:String = "";
+                    switch (v) {
+                        case 10:
+                            res = "ten";
+                            break;
+                        case 20:
+                        case 30:
+                            res = "twentyThirty";
+                            break;
+                        default:
+                            res = "other";
+                    }
+                    return res;
+                }
+                trace(classify(10) + "/" + classify(30) + "/" + classify(99));
+
+                var acc:int = 0;
+                for (var i:int = 0; i < 6; i++) {
+                    if (i == 2) {
+                        continue;
+                    }
+                    if (i == 5) {
+                        break;
+                    }
+                    acc += i;
+                }
+
+                var nums:Array = [4, 8, 12];
+                var idx:int = 1;
+                var dynRead:int = nums[idx];
+                nums[idx] = 99;
+                var removed:Boolean = delete nums[idx];
+                var valTotal:int = 0;
+                for each (var n:int in nums) {
+                    valTotal += n;
+                }
+
+                var dict:Object = { x: 1, y: 2, drop: 3 };
+                delete dict.drop;
+                var keysCount:int = 0;
+                for (var k:String in dict) {
+                    keysCount++;
+                }
+                var tern:String = (~0 == -1) ? "maskOk" : "maskBad";
+                trace(acc + ":" + dynRead + ":" + removed + ":" + (1 in nums) + ":" + (2 in nums) + ":" + valTotal + ":" + keysCount + ":" + typeof nums + ":" + tern);
+                stop();
+            "#
+            .to_owned(),
+        },
+    }];
+    proj.upgrade_format_for_features();
+    proj.validate().unwrap();
+
+    let opts = SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer10Avm2);
+    let (swf_bytes, rep) = publish_swf_bytes(&proj, &opts).expect("publish AVM2 SWF");
+    assert!(rep.can_proceed(), "{rep:?}");
+
+    let play = play_swf_bytes(&swf_bytes, 2).expect("play AVM2 SWF");
+    assert!(
+        play.unsupported_diagnostics.is_empty(),
+        "unexpected AVM2 diagnostics: {:?}",
+        play.unsupported_diagnostics
+    );
+    assert_eq!(
+        play.trace_output,
+        vec![
+            "BOSS-37",
+            "true,true,true,false,true,true,true",
+            "AFT(type-fail)ZAF:early",
+            "ten/twentyThirty/other",
+            "8:8:true:false:true:16:2:object:maskOk",
+        ]
+    );
+
+    let reimported = import_swf_bytes(&swf_bytes).expect("re-import AVM2 SWF");
+    reimported
+        .validate()
+        .expect("re-imported AVM2 project must validate");
+}
+
+#[test]
+fn t409_dynamic_movieclip_and_sprite_stage_projection_avm1_and_avm2() {
+    // 1. AVM1 dynamic `createEmptyMovieClip` + runtime vector drawing + `attachMovie` with
+    //    `Object.registerClass` + `duplicateMovieClip` + `removeMovieClip` Stage projection!
+    let mut avm1_proj = Project::blank();
+    avm1_proj.script_language = Some(ScriptLanguage::ActionScript2);
+    avm1_proj.symbols.push(Symbol {
+        id: "sym_badge".to_owned(),
+        name: "BadgeClip".to_owned(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        class_name: None,
+        linkage_id: Some("linked_badge".to_owned()),
+        timeline: Timeline {
+            frame_count: 1,
+            layers: vec![Layer {
+                id: "badge_l".to_owned(),
+                name: "Art".to_owned(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: "badge_rect".to_owned(),
+                        kind: ElementKind::Rectangle {
+                            width: 18.0,
+                            height: 18.0,
+                            fill: [40, 200, 90, 255],
+                            stroke: [0, 0, 0, 0],
+                            stroke_width: 0.0,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Keyframe::default()
+                }],
+            }],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+    });
+    avm1_proj.sources = vec![SourceUnit {
+        id: "src_badge_ctrl".to_owned(),
+        path: "BadgeController.as".to_owned(),
+        language: ScriptLanguage::ActionScript2,
+        source: r#"class BadgeController {
+            function BadgeController() {
+                this._x = 140;
+                trace("badge-ctor:" + this._name);
+            }
+        }"#
+        .to_owned(),
+    }];
+    avm1_proj.symbols[0].timeline.frame_count = 2;
+    avm1_proj.symbols[0].timeline.scripts = vec![
+        FrameScript {
+            layer: None,
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: r#"
+                    Object.registerClass("linked_badge", BadgeController);
+                    var canvas = this.createEmptyMovieClip("canvasClip", 10);
+                    canvas._x = 25;
+                    canvas._y = 35;
+                    canvas.lineStyle(2, 0x112233, 100);
+                    canvas.beginFill(0x2288FF, 100);
+                    canvas.moveTo(0, 0);
+                    canvas.lineTo(40, 0);
+                    canvas.lineTo(40, 30);
+                    canvas.lineTo(0, 30);
+                    canvas.endFill();
+
+                    var attached = this.attachMovie("linked_badge", "b1", 20);
+                    duplicateMovieClip("canvasClip", "canvasCopy", 30);
+                    this.canvasCopy._x = 90;
+                    trace("f0-dyn:" + attached._x + ":" + this.canvasCopy._x);
+                "#
+                .to_owned(),
+            },
+        },
+        FrameScript {
+            layer: None,
+            frame: 1,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: r#"
+                    this.b1.removeMovieClip();
+                    stop();
+                "#
+                .to_owned(),
+            },
+        },
+    ];
+    avm1_proj.upgrade_format_for_features();
+    avm1_proj.validate().unwrap();
+
+    let avm1_opts = SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer8Avm1);
+    let (avm1_swf, _) = publish_swf_bytes(&avm1_proj, &avm1_opts).unwrap();
+    let avm1_reimported = import_swf_bytes(&avm1_swf).unwrap();
+    let mut avm1_player = SwfBytecodePlayer::from_bytes(&avm1_swf).unwrap();
+
+    let f0 = avm1_player.step_frame();
+    assert_eq!(
+        avm1_player.trace_output(),
+        &["badge-ctor:b1", "f0-dyn:140:90"]
+    );
+    assert_eq!(f0.display_list.len(), 3);
+    let scene_f0 =
+        avm1_player.evaluate_stage_scene(&avm1_reimported, &avm1_reimported.root, 0, true);
+    assert!(
+        scene_f0.draws.len() >= 3,
+        "runtime drawn canvasClip, duplicated canvasCopy, and attached b1 must project onto Stage: {}",
+        scene_f0.draws.len()
+    );
+    let overlay_f0 =
+        avm1_player.project_with_display_list_overlay(&avm1_reimported, &avm1_reimported.root, 0);
+    overlay_f0
+        .validate()
+        .expect("AVM1 dynamic overlay project must validate");
+
+    let f1 = avm1_player.step_frame();
+    assert_eq!(f1.display_list.len(), 2, "b1 must be removed on frame 1");
+    assert!(f1.display_list.iter().all(|e| e.name != "b1"));
+
+    // 2. AVM2 dynamic `new Sprite()` + `graphics.drawRect(...)` + `new LinkedCard()` (`SymbolClass`)
+    //    + `addChild` / `removeChild` Stage projection!
+    let mut avm2_proj = Project::blank();
+    avm2_proj.script_language = Some(ScriptLanguage::ActionScript3);
+    avm2_proj.symbols.push(Symbol {
+        id: "sym_card".to_owned(),
+        name: "LinkedCard".to_owned(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        class_name: Some("ui.LinkedCard".to_owned()),
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 1,
+            layers: vec![Layer {
+                id: "card_l".to_owned(),
+                name: "Art".to_owned(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: "card_rect".to_owned(),
+                        kind: ElementKind::Rectangle {
+                            width: 24.0,
+                            height: 16.0,
+                            fill: [250, 180, 30, 255],
+                            stroke: [0, 0, 0, 0],
+                            stroke_width: 0.0,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Keyframe::default()
+                }],
+            }],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+    });
+    avm2_proj.sources = vec![SourceUnit {
+        id: "src_card".to_owned(),
+        path: "ui/LinkedCard.as".to_owned(),
+        language: ScriptLanguage::ActionScript3,
+        source: r#"package ui {
+            import flash.display.MovieClip;
+            public class LinkedCard extends MovieClip {
+                public function LinkedCard() {
+                    super();
+                    this.x = 160;
+                }
+            }
+        }"#
+        .to_owned(),
+    }];
+    avm2_proj.symbols[0].timeline.frame_count = 2;
+    avm2_proj.symbols[0].timeline.scripts = vec![
+        FrameScript {
+            layer: None,
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: r#"
+                    var sp:Sprite = new Sprite();
+                    sp.name = "drawnSprite";
+                    sp.x = 30;
+                    sp.y = 45;
+                    sp.graphics.beginFill(0xFF4422, 1.0);
+                    sp.graphics.drawRect(0, 0, 50, 25);
+                    sp.graphics.endFill();
+                    addChild(sp);
+
+                    this.card = new ui.LinkedCard();
+                    this.card.name = "cardInst";
+                    addChild(this.card);
+                    trace("avm2-dyn:" + numChildren + ":" + this.card.x + ":" + sp.x);
+                "#
+                .to_owned(),
+            },
+        },
+        FrameScript {
+            layer: None,
+            frame: 1,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: r#"
+                    removeChild(this.card);
+                    trace("avm2-after-rm:" + numChildren);
+                    stop();
+                "#
+                .to_owned(),
+            },
+        },
+    ];
+    avm2_proj.upgrade_format_for_features();
+    avm2_proj.validate().unwrap();
+
+    let avm2_opts = SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer10Avm2);
+    let (avm2_swf, _) = publish_swf_bytes(&avm2_proj, &avm2_opts).unwrap();
+    let avm2_reimported = import_swf_bytes(&avm2_swf).unwrap();
+    let mut avm2_player = SwfBytecodePlayer::from_bytes(&avm2_swf).unwrap();
+
+    let af0 = avm2_player.step_frame();
+    assert_eq!(af0.traces, vec!["avm2-dyn:2:160:30"]);
+    assert_eq!(af0.display_list.len(), 2);
+    let avm2_scene_f0 =
+        avm2_player.evaluate_stage_scene(&avm2_reimported, &avm2_reimported.root, 0, true);
+    assert!(
+        avm2_scene_f0.draws.len() >= 2,
+        "AVM2 Sprite.graphics + LinkedCard SymbolClass instance must project onto Stage: {}",
+        avm2_scene_f0.draws.len()
+    );
+    let avm2_overlay_f0 =
+        avm2_player.project_with_display_list_overlay(&avm2_reimported, &avm2_reimported.root, 0);
+    avm2_overlay_f0
+        .validate()
+        .expect("AVM2 dynamic overlay project must validate");
+
+    let af1 = avm2_player.step_frame();
+    assert_eq!(af1.traces, vec!["avm2-after-rm:1"]);
+    assert_eq!(af1.display_list.len(), 1);
+    assert_eq!(af1.display_list[0].name, "drawnSprite");
 }

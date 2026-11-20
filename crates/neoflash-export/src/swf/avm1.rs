@@ -1,0 +1,1826 @@
+//! AVM1 (SWF 8 ActionScript 1/2) expression, statement, closure, button, and clip-action compiler.
+
+use super::*;
+
+pub(super) fn avm1_push_string(out: &mut Vec<u8>, s: &str) -> Result<(), String> {
+    let bytes: Vec<u8> = s.bytes().filter(|&b| b != 0).collect();
+    let payload_len = bytes
+        .len()
+        .checked_add(2)
+        .and_then(|len| u16::try_from(len).ok())
+        .ok_or_else(|| {
+            format!(
+                "AVM1 string value encodes {} bytes; ActionPush supports at most {} bytes",
+                bytes.len(),
+                usize::from(u16::MAX) - 2
+            )
+        })?;
+    out.push(0x96); // ActionPush
+    out.extend_from_slice(&payload_len.to_le_bytes());
+    out.push(0x00); // type 0 = String
+    out.extend_from_slice(&bytes);
+    out.push(0);
+    Ok(())
+}
+
+pub(super) fn avm1_push_int(out: &mut Vec<u8>, v: i32) {
+    out.push(0x96); // ActionPush
+    out.extend_from_slice(&5u16.to_le_bytes());
+    out.push(0x07); // type 7 = Integer (i32)
+    out.extend_from_slice(&v.to_le_bytes());
+}
+
+pub(super) fn avm1_push_double(out: &mut Vec<u8>, v: f64) {
+    out.push(0x96); // ActionPush
+    out.extend_from_slice(&9u16.to_le_bytes());
+    out.push(0x06); // type 6 = Double (SWF word-swapped f64: high 4 bytes LE, then low 4 bytes LE)
+    let bits = v.to_bits();
+    let hi = ((bits >> 32) as u32).to_le_bytes();
+    let lo = (bits as u32).to_le_bytes();
+    out.extend_from_slice(&hi);
+    out.extend_from_slice(&lo);
+}
+
+pub(super) fn avm1_push_bool(out: &mut Vec<u8>, v: bool) {
+    out.push(0x96); // ActionPush
+    out.extend_from_slice(&2u16.to_le_bytes());
+    out.push(0x05); // type 5 = Boolean
+    out.push(u8::from(v));
+}
+
+pub(super) fn avm1_push_register(out: &mut Vec<u8>, reg: u8) {
+    out.push(0x96); // ActionPush
+    out.extend_from_slice(&2u16.to_le_bytes());
+    out.push(0x04); // type 4 = Register
+    out.push(reg);
+}
+
+pub(super) fn collect_direct_decls_in_stmts(
+    stmts: &[SwfStmt],
+    vars: &mut Vec<String>,
+    funcs: &mut Vec<String>,
+) {
+    for stmt in stmts {
+        match stmt {
+            SwfStmt::VarDecl { name, .. } => {
+                if !vars.contains(name) {
+                    vars.push(name.clone());
+                }
+            }
+            SwfStmt::FunctionDecl { name, .. } => {
+                if !funcs.contains(name) {
+                    funcs.push(name.clone());
+                }
+            }
+            SwfStmt::Block(inner) | SwfStmt::While { body: inner, .. } => {
+                collect_direct_decls_in_stmts(inner, vars, funcs);
+            }
+            SwfStmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                collect_direct_decls_in_stmts(then_branch, vars, funcs);
+                if let Some(eb) = else_branch {
+                    collect_direct_decls_in_stmts(eb, vars, funcs);
+                }
+            }
+            SwfStmt::For {
+                init, update, body, ..
+            } => {
+                if let Some(i) = init {
+                    collect_direct_decls_in_stmts(std::slice::from_ref(i.as_ref()), vars, funcs);
+                }
+                if let Some(u) = update {
+                    collect_direct_decls_in_stmts(std::slice::from_ref(u.as_ref()), vars, funcs);
+                }
+                collect_direct_decls_in_stmts(body, vars, funcs);
+            }
+            SwfStmt::ForIn {
+                is_var_decl,
+                var_name,
+                body,
+                ..
+            } => {
+                if *is_var_decl && !vars.contains(var_name) {
+                    vars.push(var_name.clone());
+                }
+                collect_direct_decls_in_stmts(body, vars, funcs);
+            }
+            SwfStmt::Switch { cases, .. } => {
+                for (_, cbody) in cases {
+                    collect_direct_decls_in_stmts(cbody, vars, funcs);
+                }
+            }
+            SwfStmt::Try {
+                try_body,
+                catches,
+                finally_body,
+            } => {
+                collect_direct_decls_in_stmts(try_body, vars, funcs);
+                for (cname, _, cbody) in catches {
+                    if !cname.is_empty() && !vars.contains(cname) {
+                        vars.push(cname.clone());
+                    }
+                    collect_direct_decls_in_stmts(cbody, vars, funcs);
+                }
+                if let Some(fbody) = finally_body {
+                    collect_direct_decls_in_stmts(fbody, vars, funcs);
+                }
+            }
+            SwfStmt::ClassDecl { name, .. } => {
+                if !vars.contains(name) {
+                    vars.push(name.clone());
+                }
+            }
+            SwfStmt::EventHandler { body, .. } => {
+                collect_direct_decls_in_stmts(body, vars, funcs);
+            }
+            SwfStmt::Assign { .. }
+            | SwfStmt::IncDec { .. }
+            | SwfStmt::Expr(_)
+            | SwfStmt::Return(_)
+            | SwfStmt::Break
+            | SwfStmt::Continue
+            | SwfStmt::Throw(_) => {}
+        }
+    }
+}
+
+pub(super) fn collect_refs_and_child_free_in_expr(
+    expr: &SwfExpr,
+    direct_refs: &mut HashSet<String>,
+    child_free: &mut HashSet<String>,
+) {
+    match expr {
+        SwfExpr::Null
+        | SwfExpr::Undefined
+        | SwfExpr::Bool(_)
+        | SwfExpr::Int(_)
+        | SwfExpr::Float(_)
+        | SwfExpr::Str(_) => {}
+        SwfExpr::Ident(name) => {
+            direct_refs.insert(name.clone());
+        }
+        SwfExpr::ArrayLit(elems) => {
+            for el in elems {
+                collect_refs_and_child_free_in_expr(el, direct_refs, child_free);
+            }
+        }
+        SwfExpr::ObjectLit(props) => {
+            for (_, val) in props {
+                collect_refs_and_child_free_in_expr(val, direct_refs, child_free);
+            }
+        }
+        SwfExpr::Function { name, params, body } => {
+            collect_free_vars_of_function(name.as_deref(), params, body, child_free);
+        }
+        SwfExpr::Member(obj, _) => {
+            collect_refs_and_child_free_in_expr(obj, direct_refs, child_free);
+        }
+        SwfExpr::Index(obj, idx) => {
+            collect_refs_and_child_free_in_expr(obj, direct_refs, child_free);
+            collect_refs_and_child_free_in_expr(idx, direct_refs, child_free);
+        }
+        SwfExpr::Unary { expr, .. } => {
+            collect_refs_and_child_free_in_expr(expr, direct_refs, child_free);
+        }
+        SwfExpr::Binary { lhs, rhs, .. } => {
+            collect_refs_and_child_free_in_expr(lhs, direct_refs, child_free);
+            collect_refs_and_child_free_in_expr(rhs, direct_refs, child_free);
+        }
+        SwfExpr::Call { callee, args } | SwfExpr::New { callee, args } => {
+            collect_refs_and_child_free_in_expr(callee, direct_refs, child_free);
+            for a in args {
+                collect_refs_and_child_free_in_expr(a, direct_refs, child_free);
+            }
+        }
+        SwfExpr::Delete(lv) => {
+            collect_refs_and_child_free_in_lvalue(lv, direct_refs, child_free);
+        }
+        SwfExpr::Ternary {
+            cond,
+            then_expr,
+            else_expr,
+        } => {
+            collect_refs_and_child_free_in_expr(cond, direct_refs, child_free);
+            collect_refs_and_child_free_in_expr(then_expr, direct_refs, child_free);
+            collect_refs_and_child_free_in_expr(else_expr, direct_refs, child_free);
+        }
+    }
+}
+
+pub(super) fn collect_refs_and_child_free_in_lvalue(
+    target: &SwfLValue,
+    direct_refs: &mut HashSet<String>,
+    child_free: &mut HashSet<String>,
+) {
+    match target {
+        SwfLValue::Ident(name) => {
+            direct_refs.insert(name.clone());
+        }
+        SwfLValue::Member(obj, _) => {
+            collect_refs_and_child_free_in_expr(obj, direct_refs, child_free);
+        }
+        SwfLValue::Index(obj, idx) => {
+            collect_refs_and_child_free_in_expr(obj, direct_refs, child_free);
+            collect_refs_and_child_free_in_expr(idx, direct_refs, child_free);
+        }
+    }
+}
+
+pub(super) fn collect_refs_and_child_free_in_stmts(
+    stmts: &[SwfStmt],
+    direct_refs: &mut HashSet<String>,
+    child_free: &mut HashSet<String>,
+) {
+    for stmt in stmts {
+        match stmt {
+            SwfStmt::VarDecl { name, init } => {
+                direct_refs.insert(name.clone());
+                if let Some(rhs) = init {
+                    collect_refs_and_child_free_in_expr(rhs, direct_refs, child_free);
+                }
+            }
+            SwfStmt::Assign { target, value, .. } => {
+                collect_refs_and_child_free_in_lvalue(target, direct_refs, child_free);
+                collect_refs_and_child_free_in_expr(value, direct_refs, child_free);
+            }
+            SwfStmt::IncDec { target, .. } => {
+                collect_refs_and_child_free_in_lvalue(target, direct_refs, child_free);
+            }
+            SwfStmt::Expr(expr) => {
+                collect_refs_and_child_free_in_expr(expr, direct_refs, child_free);
+            }
+            SwfStmt::Block(inner) => {
+                collect_refs_and_child_free_in_stmts(inner, direct_refs, child_free);
+            }
+            SwfStmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                collect_refs_and_child_free_in_expr(cond, direct_refs, child_free);
+                collect_refs_and_child_free_in_stmts(then_branch, direct_refs, child_free);
+                if let Some(eb) = else_branch {
+                    collect_refs_and_child_free_in_stmts(eb, direct_refs, child_free);
+                }
+            }
+            SwfStmt::While { cond, body } => {
+                collect_refs_and_child_free_in_expr(cond, direct_refs, child_free);
+                collect_refs_and_child_free_in_stmts(body, direct_refs, child_free);
+            }
+            SwfStmt::For {
+                init,
+                cond,
+                update,
+                body,
+            } => {
+                if let Some(i) = init {
+                    collect_refs_and_child_free_in_stmts(
+                        std::slice::from_ref(i.as_ref()),
+                        direct_refs,
+                        child_free,
+                    );
+                }
+                if let Some(c) = cond {
+                    collect_refs_and_child_free_in_expr(c, direct_refs, child_free);
+                }
+                if let Some(u) = update {
+                    collect_refs_and_child_free_in_stmts(
+                        std::slice::from_ref(u.as_ref()),
+                        direct_refs,
+                        child_free,
+                    );
+                }
+                collect_refs_and_child_free_in_stmts(body, direct_refs, child_free);
+            }
+            SwfStmt::ForIn {
+                var_name,
+                object,
+                body,
+                ..
+            } => {
+                direct_refs.insert(var_name.clone());
+                collect_refs_and_child_free_in_expr(object, direct_refs, child_free);
+                collect_refs_and_child_free_in_stmts(body, direct_refs, child_free);
+            }
+            SwfStmt::Switch {
+                discriminant,
+                cases,
+            } => {
+                collect_refs_and_child_free_in_expr(discriminant, direct_refs, child_free);
+                for (ce, cb) in cases {
+                    if let Some(e) = ce {
+                        collect_refs_and_child_free_in_expr(e, direct_refs, child_free);
+                    }
+                    collect_refs_and_child_free_in_stmts(cb, direct_refs, child_free);
+                }
+            }
+            SwfStmt::Try {
+                try_body,
+                catches,
+                finally_body,
+            } => {
+                collect_refs_and_child_free_in_stmts(try_body, direct_refs, child_free);
+                for (cname, ctype, cbody) in catches {
+                    direct_refs.insert(cname.clone());
+                    if let Some(ct) = ctype {
+                        direct_refs.insert(ct.clone());
+                    }
+                    collect_refs_and_child_free_in_stmts(cbody, direct_refs, child_free);
+                }
+                if let Some(fbody) = finally_body {
+                    collect_refs_and_child_free_in_stmts(fbody, direct_refs, child_free);
+                }
+            }
+            SwfStmt::Throw(expr) => {
+                collect_refs_and_child_free_in_expr(expr, direct_refs, child_free);
+            }
+            SwfStmt::Break | SwfStmt::Continue => {}
+            SwfStmt::ClassDecl {
+                name,
+                super_name,
+                ctor,
+                methods,
+                fields,
+            } => {
+                direct_refs.insert(name.clone());
+                if let Some(sup) = super_name {
+                    direct_refs.insert(sup.clone());
+                }
+                if let Some((cparams, cbody)) = ctor {
+                    collect_free_vars_of_function(None, cparams, cbody, child_free);
+                }
+                for (_, _, mparams, mbody) in methods {
+                    collect_free_vars_of_function(None, mparams, mbody, child_free);
+                }
+                for (_, _, finit) in fields {
+                    if let Some(fe) = finit {
+                        collect_refs_and_child_free_in_expr(fe, direct_refs, child_free);
+                    }
+                }
+            }
+            SwfStmt::FunctionDecl { name, params, body } => {
+                direct_refs.insert(name.clone());
+                collect_free_vars_of_function(Some(name.as_str()), params, body, child_free);
+            }
+            SwfStmt::Return(Some(expr)) => {
+                collect_refs_and_child_free_in_expr(expr, direct_refs, child_free);
+            }
+            SwfStmt::Return(None) => {}
+            SwfStmt::EventHandler { body, .. } => {
+                collect_refs_and_child_free_in_stmts(body, direct_refs, child_free);
+            }
+        }
+    }
+}
+
+pub(super) fn collect_free_vars_of_function(
+    self_name: Option<&str>,
+    params: &[String],
+    body: &[SwfStmt],
+    out_free: &mut HashSet<String>,
+) {
+    let mut own_vars = Vec::new();
+    let mut own_funcs = Vec::new();
+    collect_direct_decls_in_stmts(body, &mut own_vars, &mut own_funcs);
+    let mut direct_refs = HashSet::new();
+    let mut child_free = HashSet::new();
+    collect_refs_and_child_free_in_stmts(body, &mut direct_refs, &mut child_free);
+
+    let mut own_bound: HashSet<&str> = HashSet::new();
+    if let Some(sn) = self_name
+        && !sn.is_empty()
+    {
+        own_bound.insert(sn);
+    }
+    for p in params {
+        own_bound.insert(p.as_str());
+    }
+    for v in &own_vars {
+        own_bound.insert(v.as_str());
+    }
+    for f in &own_funcs {
+        own_bound.insert(f.as_str());
+    }
+    for r in direct_refs.into_iter().chain(child_free) {
+        if !own_bound.contains(r.as_str()) {
+            out_free.insert(r);
+        }
+    }
+}
+
+pub(super) fn is_avm1_mc_builtin_prop(name: &str) -> bool {
+    matches!(
+        name,
+        "_x" | "_y" | "_xscale" | "_yscale" | "_alpha" | "_visible" | "_rotation" | "_name"
+    )
+}
+
+pub(super) fn avm1_compile_expr(
+    out: &mut Vec<u8>,
+    expr: &SwfExpr,
+    reg_map: &HashMap<String, u8>,
+) -> Result<(), String> {
+    match expr {
+        SwfExpr::Null => {
+            out.push(0x96);
+            out.extend_from_slice(&1u16.to_le_bytes());
+            out.push(0x02); // Null
+        }
+        SwfExpr::Undefined => {
+            out.push(0x96);
+            out.extend_from_slice(&1u16.to_le_bytes());
+            out.push(0x03); // Undefined
+        }
+        SwfExpr::Bool(b) => avm1_push_bool(out, *b),
+        SwfExpr::Int(iv) => avm1_push_int(out, *iv),
+        SwfExpr::Float(fv) => avm1_push_double(out, *fv),
+        SwfExpr::Str(s) => avm1_push_string(out, s)?,
+        SwfExpr::Ident(name) => {
+            if let Some(&reg) = reg_map.get(name) {
+                avm1_push_register(out, reg);
+            } else {
+                avm1_push_string(out, name)?;
+                out.push(0x1c); // ActionGetVariable
+            }
+        }
+        SwfExpr::ArrayLit(elems) => {
+            for el in elems.iter().rev() {
+                avm1_compile_expr(out, el, reg_map)?;
+            }
+            avm1_push_int(out, elems.len() as i32);
+            out.push(0x42); // ActionInitArray
+        }
+        SwfExpr::ObjectLit(props) => {
+            for (key, val) in props {
+                avm1_push_string(out, key)?;
+                avm1_compile_expr(out, val, reg_map)?;
+            }
+            avm1_push_int(out, props.len() as i32);
+            out.push(0x43); // ActionInitObject
+        }
+        SwfExpr::Function { name, params, body } => {
+            // An unnamed ActionDefineFunction2 pushes the function value onto the stack;
+            // if a function-expression self-name is present (`function fact(n)`), bind it
+            // inside the function's own local activation scope via `arguments.callee`.
+            avm1_compile_function(out, "", name.as_deref(), params, body)?;
+        }
+        SwfExpr::Member(obj, prop) => {
+            if matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "this")
+                && is_avm1_mc_builtin_prop(prop)
+            {
+                avm1_push_string(out, prop)?;
+                out.push(0x1c); // ActionGetVariable
+            } else {
+                avm1_compile_expr(out, obj, reg_map)?;
+                avm1_push_string(out, prop)?;
+                out.push(0x4e); // ActionGetMember
+            }
+        }
+        SwfExpr::Index(obj, idx) => {
+            avm1_compile_expr(out, obj, reg_map)?;
+            avm1_compile_expr(out, idx, reg_map)?;
+            out.push(0x4e); // ActionGetMember
+        }
+        SwfExpr::Unary { op, expr } => match op {
+            SwfUnaryOp::Not => {
+                avm1_compile_expr(out, expr, reg_map)?;
+                out.push(0x12); // ActionNot
+            }
+            SwfUnaryOp::Neg => {
+                avm1_push_int(out, 0);
+                avm1_compile_expr(out, expr, reg_map)?;
+                out.push(0x0b); // ActionSubtract
+            }
+            SwfUnaryOp::Pos => {
+                avm1_compile_expr(out, expr, reg_map)?;
+                out.push(0x4a); // ActionToNumber
+            }
+            SwfUnaryOp::BitNot => {
+                avm1_compile_expr(out, expr, reg_map)?;
+                avm1_push_int(out, -1);
+                out.push(0x62); // ActionBitXor
+            }
+            SwfUnaryOp::Typeof => {
+                avm1_compile_expr(out, expr, reg_map)?;
+                out.push(0x44); // ActionTypeOf
+            }
+        },
+        SwfExpr::Delete(target) => match target.as_ref() {
+            SwfLValue::Ident(name) => {
+                avm1_push_string(out, name)?;
+                out.push(0x3b); // ActionDelete2
+            }
+            SwfLValue::Member(obj, prop) => {
+                avm1_compile_expr(out, obj, reg_map)?;
+                avm1_push_string(out, prop)?;
+                out.push(0x3a); // ActionDelete
+            }
+            SwfLValue::Index(obj, idx) => {
+                avm1_compile_expr(out, obj, reg_map)?;
+                avm1_compile_expr(out, idx, reg_map)?;
+                out.push(0x3a); // ActionDelete
+            }
+        },
+        SwfExpr::Ternary {
+            cond,
+            then_expr,
+            else_expr,
+        } => {
+            avm1_compile_expr(out, cond, reg_map)?;
+            out.push(0x12); // ActionNot
+            let mut then_bytes = Vec::new();
+            avm1_compile_expr(&mut then_bytes, then_expr, reg_map)?;
+            let mut else_bytes = Vec::new();
+            avm1_compile_expr(&mut else_bytes, else_expr, reg_map)?;
+            let skip_else = i16::try_from(else_bytes.len())
+                .map_err(|_| "AVM1 ternary branch exceeds i16 jump offset limit".to_owned())?;
+            then_bytes.push(0x99); // ActionJump
+            then_bytes.extend_from_slice(&2u16.to_le_bytes());
+            then_bytes.extend_from_slice(&skip_else.to_le_bytes());
+            let skip_then = i16::try_from(then_bytes.len())
+                .map_err(|_| "AVM1 ternary branch exceeds i16 jump offset limit".to_owned())?;
+            out.push(0x9d); // ActionIf
+            out.extend_from_slice(&2u16.to_le_bytes());
+            out.extend_from_slice(&skip_then.to_le_bytes());
+            out.extend_from_slice(&then_bytes);
+            out.extend_from_slice(&else_bytes);
+        }
+        SwfExpr::Binary { op, lhs, rhs } => {
+            if matches!(op, SwfBinaryOp::And | SwfBinaryOp::Or) {
+                avm1_compile_expr(out, lhs, reg_map)?;
+                out.push(0x4c); // ActionPushDuplicate
+                if *op == SwfBinaryOp::And {
+                    out.push(0x12); // ActionNot: branch when lhs is false
+                }
+                let mut rhs_bytes = Vec::new();
+                avm1_compile_expr(&mut rhs_bytes, rhs, reg_map)?;
+                let skip_rhs = rhs_bytes
+                    .len()
+                    .checked_add(1)
+                    .and_then(|len| i16::try_from(len).ok())
+                    .ok_or_else(|| "AVM1 logical RHS exceeds i16 branch range".to_owned())?;
+                out.push(0x9d); // ActionIf
+                out.extend_from_slice(&2u16.to_le_bytes());
+                out.extend_from_slice(&skip_rhs.to_le_bytes());
+                out.push(0x17); // ActionPop the non-short-circuit lhs
+                out.extend_from_slice(&rhs_bytes);
+                return Ok(());
+            }
+            if *op == SwfBinaryOp::In {
+                // Evaluate `rhs[lhs] !== undefined` in AVM1
+                avm1_compile_expr(out, rhs, reg_map)?;
+                avm1_compile_expr(out, lhs, reg_map)?;
+                out.push(0x4e); // ActionGetMember
+                out.push(0x96);
+                out.extend_from_slice(&1u16.to_le_bytes());
+                out.push(0x03); // Undefined
+                out.push(0x66); // ActionStrictEquals
+                out.push(0x12); // ActionNot
+                return Ok(());
+            }
+            if matches!(op, SwfBinaryOp::Is | SwfBinaryOp::As) {
+                return Err(
+                    "ActionScript 3 'is'/'as' type operators are not supported in AVM1 SWF"
+                        .to_owned(),
+                );
+            }
+            avm1_compile_expr(out, lhs, reg_map)?;
+            avm1_compile_expr(out, rhs, reg_map)?;
+            match op {
+                SwfBinaryOp::Add => out.push(0x47), // ActionAdd2
+                SwfBinaryOp::Sub => out.push(0x0b), // ActionSubtract
+                SwfBinaryOp::Mul => out.push(0x0c), // ActionMultiply
+                SwfBinaryOp::Div => out.push(0x0d), // ActionDivide
+                SwfBinaryOp::Mod => out.push(0x3f), // ActionModulo
+                SwfBinaryOp::Eq => out.push(0x49),  // ActionEquals2
+                SwfBinaryOp::Ne => {
+                    out.push(0x49); // ActionEquals2
+                    out.push(0x12); // ActionNot
+                }
+                SwfBinaryOp::StrictEq => out.push(0x66), // ActionStrictEquals
+                SwfBinaryOp::StrictNe => {
+                    out.push(0x66); // ActionStrictEquals
+                    out.push(0x12); // ActionNot
+                }
+                SwfBinaryOp::Lt => out.push(0x48), // ActionLess2
+                SwfBinaryOp::Ge => {
+                    out.push(0x48); // ActionLess2
+                    out.push(0x12); // ActionNot
+                }
+                SwfBinaryOp::Gt => out.push(0x67), // ActionGreater
+                SwfBinaryOp::Le => {
+                    out.push(0x67); // ActionGreater
+                    out.push(0x12); // ActionNot
+                }
+                SwfBinaryOp::And
+                | SwfBinaryOp::Or
+                | SwfBinaryOp::In
+                | SwfBinaryOp::Is
+                | SwfBinaryOp::As => unreachable!("handled above"),
+                SwfBinaryOp::BitAnd => out.push(0x60), // ActionBitAnd
+                SwfBinaryOp::BitOr => out.push(0x61),  // ActionBitOr
+                SwfBinaryOp::BitXor => out.push(0x62), // ActionBitXor
+                SwfBinaryOp::Shl => out.push(0x63),    // ActionBitLShift
+                SwfBinaryOp::Shr => out.push(0x64),    // ActionBitRShift
+                SwfBinaryOp::UShr => out.push(0x65),   // ActionBitURShift
+                SwfBinaryOp::InstanceOf => out.push(0x54), // ActionInstanceOf
+            }
+        }
+        SwfExpr::Call { callee, args } => {
+            avm1_compile_call(out, callee, args, false, reg_map)?;
+        }
+        SwfExpr::New { callee, args } => {
+            for a in args.iter().rev() {
+                avm1_compile_expr(out, a, reg_map)?;
+            }
+            avm1_push_int(out, args.len() as i32);
+            match callee.as_ref() {
+                SwfExpr::Ident(name) => {
+                    if let Some(&reg) = reg_map.get(name) {
+                        avm1_push_register(out, reg);
+                        out.push(0x96);
+                        out.extend_from_slice(&1u16.to_le_bytes());
+                        out.push(0x03); // Undefined method name
+                        out.push(0x53); // ActionNewMethod
+                        return Ok(());
+                    }
+                    avm1_push_string(out, name)?;
+                }
+                SwfExpr::Member(_, prop) => avm1_push_string(out, prop)?,
+                _ => return Err("unsupported 'new' constructor expression in AVM1".to_owned()),
+            }
+            out.push(0x40); // ActionNewObject
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn avm1_compile_call(
+    out: &mut Vec<u8>,
+    callee: &SwfExpr,
+    args: &[SwfExpr],
+    discard_result: bool,
+    reg_map: &HashMap<String, u8>,
+) -> Result<(), String> {
+    if let SwfExpr::Ident(name) = callee
+        && let Some(&reg) = reg_map.get(name)
+    {
+        for a in args.iter().rev() {
+            avm1_compile_expr(out, a, reg_map)?;
+        }
+        avm1_push_int(out, args.len() as i32);
+        avm1_push_register(out, reg);
+        out.push(0x96);
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.push(0x03); // Undefined method name -> invoke function object directly
+        out.push(0x52); // ActionCallMethod
+        if discard_result {
+            out.push(0x17); // ActionPop
+        }
+        return Ok(());
+    }
+
+    if let SwfExpr::Ident(name) = callee
+        && name == "super"
+    {
+        for a in args.iter().rev() {
+            avm1_compile_expr(out, a, reg_map)?;
+        }
+        avm1_push_int(out, args.len() as i32);
+        avm1_compile_expr(out, callee, reg_map)?;
+        out.push(0x96);
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.push(0x03); // Undefined method name -> invoke super constructor
+        out.push(0x52); // ActionCallMethod
+        if discard_result {
+            out.push(0x17); // ActionPop
+        }
+        return Ok(());
+    }
+
+    let direct_fn = match callee {
+        SwfExpr::Ident(name) => Some(name.as_str()),
+        SwfExpr::Member(recv, prop) if matches!(recv.as_ref(), SwfExpr::Ident(id) if id == "this") => {
+            Some(prop.as_str())
+        }
+        _ => None,
+    };
+
+    if let Some(short_fn) = direct_fn {
+        match short_fn {
+            "stop" if args.is_empty() && discard_result => {
+                out.push(0x07); // ActionStop
+                return Ok(());
+            }
+            "play" if args.is_empty() && discard_result => {
+                out.push(0x06); // ActionPlay
+                return Ok(());
+            }
+            "nextFrame" if args.is_empty() && discard_result => {
+                out.push(0x04); // ActionNextFrame
+                return Ok(());
+            }
+            "prevFrame" if args.is_empty() && discard_result => {
+                out.push(0x05); // ActionPrevFrame
+                return Ok(());
+            }
+            "stopAllSounds" if args.is_empty() && discard_result => {
+                out.push(0x09); // ActionStopSounds
+                return Ok(());
+            }
+            "gotoAndStop" | "gotoAndPlay" if !args.is_empty() && discard_result => {
+                let is_play = short_fn == "gotoAndPlay";
+                let target_arg = args.last().unwrap();
+                match target_arg {
+                    SwfExpr::Int(frame_i32) => {
+                        let frame_1based = u32::try_from(*frame_i32).map_err(|_| {
+                            format!(
+                                "AVM1 numeric {short_fn} target {frame_i32} must be a one-based frame"
+                            )
+                        })?;
+                        if frame_1based == 0 {
+                            return Err(format!(
+                                "AVM1 numeric {short_fn} target 0 must be a one-based frame"
+                            ));
+                        }
+                        let frame_0 =
+                            u16::try_from(frame_1based - 1).map_err(|_| {
+                                format!(
+                                    "AVM1 numeric {short_fn} target {frame_1based} exceeds the ActionGotoFrame limit of 65536 one-based frames"
+                                )
+                            })?;
+                        out.push(0x81); // ActionGotoFrame
+                        out.extend_from_slice(&2u16.to_le_bytes());
+                        out.extend_from_slice(&frame_0.to_le_bytes());
+                        if is_play {
+                            out.push(0x06); // ActionPlay
+                        }
+                    }
+                    SwfExpr::Float(fv) if fv.fract() == 0.0 => {
+                        if !(1.0..=65536.0).contains(fv) {
+                            return Err(format!(
+                                "AVM1 numeric {short_fn} target {fv} must be within 1..=65536 one-based frames"
+                            ));
+                        }
+                        let frame_0 = ((*fv as u32) - 1) as u16;
+                        out.push(0x81); // ActionGotoFrame
+                        out.extend_from_slice(&2u16.to_le_bytes());
+                        out.extend_from_slice(&frame_0.to_le_bytes());
+                        if is_play {
+                            out.push(0x06); // ActionPlay
+                        }
+                    }
+                    SwfExpr::Str(lbl) => {
+                        if !is_play {
+                            let lbl_bytes: Vec<u8> = lbl.bytes().filter(|&b| b != 0).collect();
+                            let len = lbl_bytes
+                                .len()
+                                .checked_add(1)
+                                .and_then(|len| u16::try_from(len).ok())
+                                .ok_or_else(|| {
+                                    format!(
+                                        "AVM1 frame label encodes {} bytes; ActionGotoLabel supports at most {} bytes",
+                                        lbl_bytes.len(),
+                                        usize::from(u16::MAX) - 1
+                                    )
+                                })?;
+                            out.push(0x8c); // ActionGotoLabel
+                            out.extend_from_slice(&len.to_le_bytes());
+                            out.extend_from_slice(&lbl_bytes);
+                            out.push(0);
+                        } else {
+                            avm1_push_string(out, lbl)?;
+                            out.push(0x9f); // ActionGotoFrame2
+                            out.extend_from_slice(&1u16.to_le_bytes());
+                            out.push(0x01); // play = true
+                        }
+                    }
+                    SwfExpr::Unary {
+                        op: SwfUnaryOp::Neg,
+                        expr,
+                    } if matches!(expr.as_ref(), SwfExpr::Int(_) | SwfExpr::Float(_)) => {
+                        return Err(format!(
+                            "AVM1 numeric {short_fn} target must be a positive one-based frame"
+                        ));
+                    }
+                    other => {
+                        avm1_compile_expr(out, other, reg_map)?;
+                        out.push(0x9f); // ActionGotoFrame2
+                        out.extend_from_slice(&1u16.to_le_bytes());
+                        out.push(u8::from(is_play));
+                    }
+                }
+                return Ok(());
+            }
+            "trace" if discard_result => {
+                if let Some(first) = args.first() {
+                    avm1_compile_expr(out, first, reg_map)?;
+                } else {
+                    avm1_push_string(out, "")?;
+                }
+                out.push(0x26); // ActionTrace
+                return Ok(());
+            }
+            _ => {
+                for a in args.iter().rev() {
+                    avm1_compile_expr(out, a, reg_map)?;
+                }
+                avm1_push_int(out, args.len() as i32);
+                avm1_push_string(out, short_fn)?;
+                out.push(0x3d); // ActionCallFunction
+                if discard_result {
+                    out.push(0x17); // ActionPop
+                }
+                return Ok(());
+            }
+        }
+    }
+
+    if let SwfExpr::Member(recv, method_name) = callee {
+        for a in args.iter().rev() {
+            avm1_compile_expr(out, a, reg_map)?;
+        }
+        avm1_push_int(out, args.len() as i32);
+        avm1_compile_expr(out, recv, reg_map)?;
+        avm1_push_string(out, method_name)?;
+        out.push(0x52); // ActionCallMethod
+        if discard_result {
+            out.push(0x17); // ActionPop
+        }
+        return Ok(());
+    }
+
+    // Arbitrary callable expression (e.g. `makeAdder(10)(5)`, `(x => x * 2)(4)`, `fns[0](3)`):
+    for a in args.iter().rev() {
+        avm1_compile_expr(out, a, reg_map)?;
+    }
+    avm1_push_int(out, args.len() as i32);
+    avm1_compile_expr(out, callee, reg_map)?;
+    out.push(0x96);
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.push(0x03); // Undefined method name -> call function value directly
+    out.push(0x52); // ActionCallMethod
+    if discard_result {
+        out.push(0x17); // ActionPop
+    }
+    Ok(())
+}
+
+pub(super) fn avm1_load_lvalue(
+    out: &mut Vec<u8>,
+    target: &SwfLValue,
+    reg_map: &HashMap<String, u8>,
+) -> Result<(), String> {
+    match target {
+        SwfLValue::Ident(name) => {
+            if let Some(&reg) = reg_map.get(name) {
+                avm1_push_register(out, reg);
+            } else {
+                avm1_push_string(out, name)?;
+                out.push(0x1c); // ActionGetVariable
+            }
+        }
+        SwfLValue::Member(obj, prop) => {
+            if matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "this")
+                && is_avm1_mc_builtin_prop(prop)
+            {
+                avm1_push_string(out, prop)?;
+                out.push(0x1c); // ActionGetVariable
+            } else {
+                avm1_compile_expr(out, obj, reg_map)?;
+                avm1_push_string(out, prop)?;
+                out.push(0x4e); // ActionGetMember
+            }
+        }
+        SwfLValue::Index(obj, idx) => {
+            avm1_compile_expr(out, obj, reg_map)?;
+            avm1_compile_expr(out, idx, reg_map)?;
+            out.push(0x4e); // ActionGetMember
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn avm1_store_lvalue_with_rhs<F>(
+    out: &mut Vec<u8>,
+    target: &SwfLValue,
+    reg_map: &HashMap<String, u8>,
+    emit_rhs: F,
+) -> Result<(), String>
+where
+    F: FnOnce(&mut Vec<u8>) -> Result<(), String>,
+{
+    match target {
+        SwfLValue::Ident(name) => {
+            if let Some(&reg) = reg_map.get(name) {
+                emit_rhs(out)?;
+                out.push(0x87); // ActionStoreRegister
+                out.extend_from_slice(&1u16.to_le_bytes());
+                out.push(reg);
+                out.push(0x17); // ActionPop
+            } else {
+                avm1_push_string(out, name)?;
+                emit_rhs(out)?;
+                out.push(0x1d); // ActionSetVariable
+                if is_avm1_mc_builtin_prop(name) {
+                    avm1_push_string(out, "this")?;
+                    out.push(0x1c); // ActionGetVariable
+                    avm1_push_string(out, name)?;
+                    avm1_push_string(out, name)?;
+                    out.push(0x1c); // ActionGetVariable
+                    out.push(0x4f); // ActionSetMember
+                }
+            }
+        }
+        SwfLValue::Member(obj, prop) => {
+            if matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "this")
+                && is_avm1_mc_builtin_prop(prop)
+            {
+                avm1_push_string(out, prop)?;
+                emit_rhs(out)?;
+                out.push(0x1d); // ActionSetVariable
+                avm1_push_string(out, "this")?;
+                out.push(0x1c); // ActionGetVariable
+                avm1_push_string(out, prop)?;
+                avm1_push_string(out, prop)?;
+                out.push(0x1c); // ActionGetVariable
+                out.push(0x4f); // ActionSetMember
+            } else {
+                avm1_compile_expr(out, obj, reg_map)?;
+                avm1_push_string(out, prop)?;
+                emit_rhs(out)?;
+                out.push(0x4f); // ActionSetMember
+            }
+        }
+        SwfLValue::Index(obj, idx) => {
+            avm1_compile_expr(out, obj, reg_map)?;
+            avm1_compile_expr(out, idx, reg_map)?;
+            emit_rhs(out)?;
+            out.push(0x4f); // ActionSetMember
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn avm1_compile_function(
+    out: &mut Vec<u8>,
+    name: &str,
+    self_expr_name: Option<&str>,
+    params: &[String],
+    body: &[SwfStmt],
+) -> Result<(), String> {
+    let mut own_vars = Vec::new();
+    let mut own_funcs = Vec::new();
+    collect_direct_decls_in_stmts(body, &mut own_vars, &mut own_funcs);
+    let mut direct_refs = HashSet::new();
+    let mut child_free = HashSet::new();
+    collect_refs_and_child_free_in_stmts(body, &mut direct_refs, &mut child_free);
+
+    let needs_self_binding = self_expr_name.is_some_and(|sn| {
+        !sn.is_empty()
+            && !params.iter().any(|p| p == sn)
+            && (direct_refs.contains(sn) || child_free.contains(sn))
+    });
+    let mut flags = 0u16;
+    if !needs_self_binding
+        && !direct_refs.contains("arguments")
+        && !child_free.contains("arguments")
+    {
+        flags |= 0x0008; // suppress_arguments
+    }
+    if !direct_refs.contains("super") && !child_free.contains("super") {
+        flags |= 0x0020; // suppress_super
+    }
+
+    let mut fn_reg_map = HashMap::new();
+    let mut next_reg = 1u8;
+    let mut param_specs: Vec<(u8, &str)> = Vec::with_capacity(params.len());
+    let mut seen_params = HashSet::new();
+    for param in params {
+        // Any parameter captured by a nested closure, shadowed by `var`/`function`, or duplicated
+        // MUST use `reg = 0` so AVM1 binds it on the activation scope chain instead of a register!
+        let must_use_activation = child_free.contains(param)
+            || own_vars.contains(param)
+            || own_funcs.contains(param)
+            || !seen_params.insert(param.as_str())
+            || next_reg >= 250;
+        if must_use_activation {
+            param_specs.push((0, param.as_str()));
+        } else {
+            let reg = next_reg;
+            next_reg += 1;
+            fn_reg_map.insert(param.clone(), reg);
+            param_specs.push((reg, param.as_str()));
+        }
+    }
+
+    let mut body_bytes = Vec::new();
+    if needs_self_binding && let Some(self_name) = self_expr_name {
+        avm1_push_string(&mut body_bytes, self_name)?;
+        avm1_push_string(&mut body_bytes, "arguments")?;
+        body_bytes.push(0x1c); // ActionGetVariable
+        avm1_push_string(&mut body_bytes, "callee")?;
+        body_bytes.push(0x4e); // ActionGetMember
+        body_bytes.push(0x3c); // ActionDefineLocal
+    }
+    avm1_compile_stmt_list(&mut body_bytes, body, true, &fn_reg_map)?;
+    let code_size = u16::try_from(body_bytes.len())
+        .map_err(|_| "AVM1 function body exceeds 65535 bytes".to_owned())?;
+
+    let mut header = Vec::new();
+    header.extend(name.bytes().filter(|&b| b != 0));
+    header.push(0);
+    let num_params = u16::try_from(param_specs.len())
+        .map_err(|_| "AVM1 function has too many parameters".to_owned())?;
+    header.extend_from_slice(&num_params.to_le_bytes());
+    header.push(next_reg); // register_count
+    header.extend_from_slice(&flags.to_le_bytes());
+    for (reg, pname) in param_specs {
+        header.push(reg);
+        header.extend(pname.bytes().filter(|&b| b != 0));
+        header.push(0);
+    }
+    header.extend_from_slice(&code_size.to_le_bytes());
+    let header_len = u16::try_from(header.len())
+        .map_err(|_| "AVM1 function header exceeds 65535 bytes".to_owned())?;
+    out.push(0x8e); // ActionDefineFunction2
+    out.extend_from_slice(&header_len.to_le_bytes());
+    out.extend_from_slice(&header);
+    out.extend_from_slice(&body_bytes);
+    Ok(())
+}
+
+pub(super) struct Avm1ControlFrame {
+    pub(super) is_switch: bool,
+    pub(super) continue_target: Option<usize>,
+    pub(super) continue_patches: Vec<usize>,
+    pub(super) break_patches: Vec<usize>,
+}
+
+fn emit_avm1_branch_placeholder(out: &mut Vec<u8>, op: u8) -> usize {
+    out.push(op);
+    out.extend_from_slice(&2u16.to_le_bytes());
+    let patch_pos = out.len();
+    out.extend_from_slice(&0i16.to_le_bytes());
+    patch_pos
+}
+
+fn patch_avm1_branch(out: &mut [u8], patch_pos: usize, target_pos: usize) -> Result<(), String> {
+    let rel = (target_pos as isize) - ((patch_pos + 2) as isize);
+    let off =
+        i16::try_from(rel).map_err(|_| "AVM1 branch offset exceeds i16 jump limit".to_owned())?;
+    out[patch_pos..patch_pos + 2].copy_from_slice(&off.to_le_bytes());
+    Ok(())
+}
+
+pub(super) fn avm1_compile_stmt_list(
+    out: &mut Vec<u8>,
+    stmts: &[SwfStmt],
+    in_function: bool,
+    reg_map: &HashMap<String, u8>,
+) -> Result<(), String> {
+    let mut flow = Vec::new();
+    avm1_compile_stmt_list_with_flow(out, stmts, in_function, reg_map, &mut flow)
+}
+
+fn avm1_compile_stmt_list_with_flow(
+    out: &mut Vec<u8>,
+    stmts: &[SwfStmt],
+    in_function: bool,
+    reg_map: &HashMap<String, u8>,
+    flow: &mut Vec<Avm1ControlFrame>,
+) -> Result<(), String> {
+    for stmt in stmts {
+        if let SwfStmt::FunctionDecl { name, params, body } = stmt {
+            avm1_compile_function(out, name, None, params, body)?;
+        }
+    }
+    for stmt in stmts {
+        if matches!(stmt, SwfStmt::FunctionDecl { .. }) {
+            continue;
+        }
+        avm1_compile_stmt_with_flow(out, stmt, in_function, reg_map, flow)?;
+    }
+    Ok(())
+}
+
+fn avm1_compile_stmt_with_flow(
+    out: &mut Vec<u8>,
+    stmt: &SwfStmt,
+    in_function: bool,
+    reg_map: &HashMap<String, u8>,
+    flow: &mut Vec<Avm1ControlFrame>,
+) -> Result<(), String> {
+    match stmt {
+        SwfStmt::VarDecl { name, init } => {
+            if let Some(rhs) = init {
+                avm1_push_string(out, name)?;
+                avm1_compile_expr(out, rhs, reg_map)?;
+                out.push(if in_function { 0x3c } else { 0x1d });
+            } else if in_function {
+                avm1_push_string(out, name)?;
+                out.push(0x41); // ActionDefineLocal2
+            } else {
+                avm1_push_string(out, name)?;
+                out.push(0x96);
+                out.extend_from_slice(&1u16.to_le_bytes());
+                out.push(0x03); // Undefined
+                out.push(0x1d); // ActionSetVariable
+            }
+        }
+        SwfStmt::Assign { target, op, value } => {
+            avm1_store_lvalue_with_rhs(out, target, reg_map, |buf| {
+                if *op == SwfAssignOp::Assign {
+                    avm1_compile_expr(buf, value, reg_map)
+                } else {
+                    avm1_load_lvalue(buf, target, reg_map)?;
+                    avm1_compile_expr(buf, value, reg_map)?;
+                    buf.push(match op {
+                        SwfAssignOp::AddAssign => 0x47,
+                        SwfAssignOp::SubAssign => 0x0b,
+                        SwfAssignOp::MulAssign => 0x0c,
+                        SwfAssignOp::DivAssign => 0x0d,
+                        SwfAssignOp::ModAssign => 0x3f,
+                        SwfAssignOp::Assign => unreachable!(),
+                    });
+                    Ok(())
+                }
+            })?;
+        }
+        SwfStmt::IncDec { target, increment } => {
+            avm1_store_lvalue_with_rhs(out, target, reg_map, |buf| {
+                avm1_load_lvalue(buf, target, reg_map)?;
+                buf.push(if *increment { 0x50 } else { 0x51 }); // ActionIncrement / ActionDecrement
+                Ok(())
+            })?;
+        }
+        SwfStmt::Expr(SwfExpr::Call { callee, args }) => {
+            avm1_compile_call(out, callee, args, true, reg_map)?;
+        }
+        SwfStmt::Expr(expr) => {
+            avm1_compile_expr(out, expr, reg_map)?;
+            out.push(0x17); // ActionPop
+        }
+        SwfStmt::Block(inner) => {
+            avm1_compile_stmt_list_with_flow(out, inner, in_function, reg_map, flow)?;
+        }
+        SwfStmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            avm1_compile_expr(out, cond, reg_map)?;
+            out.push(0x12); // ActionNot: jump if cond is false
+            let skip_then_patch = emit_avm1_branch_placeholder(out, 0x9d);
+            avm1_compile_stmt_list_with_flow(out, then_branch, in_function, reg_map, flow)?;
+            if let Some(else_stmts) = else_branch
+                && !else_stmts.is_empty()
+            {
+                let skip_else_patch = emit_avm1_branch_placeholder(out, 0x99);
+                let else_start = out.len();
+                patch_avm1_branch(out, skip_then_patch, else_start)?;
+                avm1_compile_stmt_list_with_flow(out, else_stmts, in_function, reg_map, flow)?;
+                let after_else = out.len();
+                patch_avm1_branch(out, skip_else_patch, after_else)?;
+            } else {
+                let after_then = out.len();
+                patch_avm1_branch(out, skip_then_patch, after_then)?;
+            }
+        }
+        SwfStmt::While { cond, body } => {
+            let loop_start = out.len();
+            avm1_compile_expr(out, cond, reg_map)?;
+            out.push(0x12); // ActionNot
+            let exit_patch = emit_avm1_branch_placeholder(out, 0x9d);
+            flow.push(Avm1ControlFrame {
+                is_switch: false,
+                continue_target: Some(loop_start),
+                continue_patches: Vec::new(),
+                break_patches: vec![exit_patch],
+            });
+            let body_res = avm1_compile_stmt_list_with_flow(out, body, in_function, reg_map, flow);
+            let frame = flow.pop().unwrap();
+            body_res?;
+            let back_patch = emit_avm1_branch_placeholder(out, 0x99);
+            patch_avm1_branch(out, back_patch, loop_start)?;
+            let after_loop = out.len();
+            for cp in frame.continue_patches {
+                patch_avm1_branch(out, cp, loop_start)?;
+            }
+            for bp in frame.break_patches {
+                patch_avm1_branch(out, bp, after_loop)?;
+            }
+        }
+        SwfStmt::For {
+            init,
+            cond,
+            update,
+            body,
+        } => {
+            if let Some(init_stmt) = init {
+                avm1_compile_stmt_with_flow(out, init_stmt, in_function, reg_map, flow)?;
+            }
+            let loop_start = out.len();
+            let mut break_patches = Vec::new();
+            if let Some(cond_expr) = cond {
+                avm1_compile_expr(out, cond_expr, reg_map)?;
+                out.push(0x12); // ActionNot
+                break_patches.push(emit_avm1_branch_placeholder(out, 0x9d));
+            }
+            flow.push(Avm1ControlFrame {
+                is_switch: false,
+                continue_target: None,
+                continue_patches: Vec::new(),
+                break_patches,
+            });
+            let body_res = avm1_compile_stmt_list_with_flow(out, body, in_function, reg_map, flow);
+            let frame = flow.pop().unwrap();
+            body_res?;
+            let update_start = out.len();
+            for cp in frame.continue_patches {
+                patch_avm1_branch(out, cp, update_start)?;
+            }
+            if let Some(upd_stmt) = update {
+                avm1_compile_stmt_with_flow(out, upd_stmt, in_function, reg_map, flow)?;
+            }
+            let back_patch = emit_avm1_branch_placeholder(out, 0x99);
+            patch_avm1_branch(out, back_patch, loop_start)?;
+            let after_loop = out.len();
+            for bp in frame.break_patches {
+                patch_avm1_branch(out, bp, after_loop)?;
+            }
+        }
+        SwfStmt::ForIn {
+            is_each,
+            is_var_decl,
+            var_name,
+            object,
+            body,
+        } => {
+            let depth_id = flow.len();
+            let obj_tmp = format!("__nf_fe_{depth_id}");
+            let key_tmp = format!("__nf_fk_{depth_id}");
+            if *is_each {
+                avm1_push_string(out, &obj_tmp)?;
+                avm1_compile_expr(out, object, reg_map)?;
+                out.push(if in_function { 0x3c } else { 0x1d });
+                avm1_push_string(out, &obj_tmp)?;
+                out.push(0x1c); // ActionGetVariable
+            } else {
+                avm1_compile_expr(out, object, reg_map)?;
+            }
+            out.push(0x55); // ActionEnumerate2 -> pushes [Null, k1, ..., kn]
+
+            let loop_start = out.len();
+            out.push(0x4c); // ActionPushDuplicate
+            out.push(0x96);
+            out.extend_from_slice(&1u16.to_le_bytes());
+            out.push(0x02); // Null
+            out.push(0x66); // ActionStrictEquals
+            let done_patch = emit_avm1_branch_placeholder(out, 0x9d);
+
+            if *is_each {
+                avm1_push_string(out, &key_tmp)?;
+                out.push(0x4d); // ActionSwap -> [..., key_tmp, ki]
+                out.push(if in_function { 0x3c } else { 0x1d });
+                if let Some(&reg) = reg_map.get(var_name) {
+                    avm1_push_string(out, &obj_tmp)?;
+                    out.push(0x1c);
+                    avm1_push_string(out, &key_tmp)?;
+                    out.push(0x1c);
+                    out.push(0x4e); // ActionGetMember
+                    out.push(0x87); // ActionStoreRegister
+                    out.extend_from_slice(&1u16.to_le_bytes());
+                    out.push(reg);
+                    out.push(0x17); // ActionPop
+                } else {
+                    avm1_push_string(out, var_name)?;
+                    avm1_push_string(out, &obj_tmp)?;
+                    out.push(0x1c);
+                    avm1_push_string(out, &key_tmp)?;
+                    out.push(0x1c);
+                    out.push(0x4e); // ActionGetMember
+                    out.push(if in_function && *is_var_decl {
+                        0x3c
+                    } else {
+                        0x1d
+                    });
+                }
+            } else if let Some(&reg) = reg_map.get(var_name) {
+                out.push(0x87); // ActionStoreRegister
+                out.extend_from_slice(&1u16.to_le_bytes());
+                out.push(reg);
+                out.push(0x17); // ActionPop
+            } else {
+                avm1_push_string(out, var_name)?;
+                out.push(0x4d); // ActionSwap -> [..., var_name, ki]
+                out.push(if in_function && *is_var_decl {
+                    0x3c
+                } else {
+                    0x1d
+                });
+            }
+
+            flow.push(Avm1ControlFrame {
+                is_switch: false,
+                continue_target: Some(loop_start),
+                continue_patches: Vec::new(),
+                break_patches: Vec::new(),
+            });
+            let body_res = avm1_compile_stmt_list_with_flow(out, body, in_function, reg_map, flow);
+            let frame = flow.pop().unwrap();
+            body_res?;
+
+            let back_patch = emit_avm1_branch_placeholder(out, 0x99);
+            patch_avm1_branch(out, back_patch, loop_start)?;
+            for cp in frame.continue_patches {
+                patch_avm1_branch(out, cp, loop_start)?;
+            }
+
+            let normal_exit = out.len();
+            patch_avm1_branch(out, done_patch, normal_exit)?;
+            out.push(0x17); // ActionPop the Null sentinel
+
+            if !frame.break_patches.is_empty() {
+                let skip_drain_patch = emit_avm1_branch_placeholder(out, 0x99);
+                let drain_start = out.len();
+                for bp in frame.break_patches {
+                    patch_avm1_branch(out, bp, drain_start)?;
+                }
+                // Drain remaining keys + Null sentinel on `break`
+                out.push(0x96);
+                out.extend_from_slice(&1u16.to_le_bytes());
+                out.push(0x02); // Null
+                out.push(0x66); // ActionStrictEquals
+                out.push(0x12); // ActionNot
+                let drain_back = emit_avm1_branch_placeholder(out, 0x9d);
+                patch_avm1_branch(out, drain_back, drain_start)?;
+                let after_drain = out.len();
+                patch_avm1_branch(out, skip_drain_patch, after_drain)?;
+            }
+        }
+        SwfStmt::Switch {
+            discriminant,
+            cases,
+        } => {
+            avm1_compile_expr(out, discriminant, reg_map)?;
+            let mut case_hit_patches: Vec<(usize, usize)> = Vec::new();
+            let mut default_clause_idx: Option<usize> = None;
+            for (c_idx, (case_expr_opt, _)) in cases.iter().enumerate() {
+                if let Some(case_expr) = case_expr_opt {
+                    out.push(0x4c); // ActionPushDuplicate
+                    avm1_compile_expr(out, case_expr, reg_map)?;
+                    out.push(0x66); // ActionStrictEquals
+                    let hit_patch = emit_avm1_branch_placeholder(out, 0x9d);
+                    case_hit_patches.push((c_idx, hit_patch));
+                } else if default_clause_idx.is_none() {
+                    default_clause_idx = Some(c_idx);
+                }
+            }
+            out.push(0x17); // ActionPop discriminant on miss
+            let miss_patch = emit_avm1_branch_placeholder(out, 0x99);
+
+            let mut body_jump_patches: Vec<(usize, usize)> =
+                Vec::with_capacity(case_hit_patches.len());
+            for (c_idx, hit_patch) in case_hit_patches {
+                let stub_pos = out.len();
+                patch_avm1_branch(out, hit_patch, stub_pos)?;
+                out.push(0x17); // ActionPop discriminant on hit
+                let body_jmp = emit_avm1_branch_placeholder(out, 0x99);
+                body_jump_patches.push((c_idx, body_jmp));
+            }
+
+            flow.push(Avm1ControlFrame {
+                is_switch: true,
+                continue_target: None,
+                continue_patches: Vec::new(),
+                break_patches: Vec::new(),
+            });
+            let mut body_offsets = Vec::with_capacity(cases.len());
+            let mut body_err = None;
+            for (_, case_stmts) in cases {
+                body_offsets.push(out.len());
+                if let Err(e) =
+                    avm1_compile_stmt_list_with_flow(out, case_stmts, in_function, reg_map, flow)
+                {
+                    body_err = Some(e);
+                    break;
+                }
+            }
+            let frame = flow.pop().unwrap();
+            if let Some(e) = body_err {
+                return Err(e);
+            }
+            let after_switch = out.len();
+            for (c_idx, body_jmp) in body_jump_patches {
+                patch_avm1_branch(out, body_jmp, body_offsets[c_idx])?;
+            }
+            let miss_target = default_clause_idx.map_or(after_switch, |d_idx| body_offsets[d_idx]);
+            patch_avm1_branch(out, miss_patch, miss_target)?;
+            for bp in frame.break_patches {
+                patch_avm1_branch(out, bp, after_switch)?;
+            }
+        }
+        SwfStmt::Break => {
+            let Some(frame) = flow.last_mut() else {
+                return Err("'break' is only valid inside a loop or switch statement".to_owned());
+            };
+            let patch = emit_avm1_branch_placeholder(out, 0x99);
+            frame.break_patches.push(patch);
+        }
+        SwfStmt::Continue => {
+            let Some(frame) = flow.iter_mut().rev().find(|f| !f.is_switch) else {
+                return Err("'continue' is only valid inside a loop statement".to_owned());
+            };
+            let patch = emit_avm1_branch_placeholder(out, 0x99);
+            if let Some(target) = frame.continue_target {
+                patch_avm1_branch(out, patch, target)?;
+            } else {
+                frame.continue_patches.push(patch);
+            }
+        }
+        SwfStmt::Throw(expr) => {
+            avm1_compile_expr(out, expr, reg_map)?;
+            out.push(0x2a); // ActionThrow
+        }
+        SwfStmt::Try {
+            try_body,
+            catches,
+            finally_body,
+        } => {
+            let mut try_bytes = Vec::new();
+            let mut empty_try_flow = Vec::new();
+            avm1_compile_stmt_list_with_flow(
+                &mut try_bytes,
+                try_body,
+                in_function,
+                reg_map,
+                &mut empty_try_flow,
+            )?;
+
+            let mut catch_bytes = Vec::new();
+            let catch_var_name = if catches.len() == 1 && catches[0].1.is_none() {
+                let mut empty_catch_flow = Vec::new();
+                avm1_compile_stmt_list_with_flow(
+                    &mut catch_bytes,
+                    &catches[0].2,
+                    in_function,
+                    reg_map,
+                    &mut empty_catch_flow,
+                )?;
+                catches[0].0.clone()
+            } else if !catches.is_empty() {
+                let tmp_err = "__nf_err".to_owned();
+                // Chain typed/untyped catch clauses from tail to head:
+                let mut tail_stmts = vec![SwfStmt::Throw(SwfExpr::Ident(tmp_err.clone()))];
+                for (cname, ctype_opt, cbody) in catches.iter().rev() {
+                    let mut branch_body = Vec::with_capacity(cbody.len() + 1);
+                    branch_body.push(SwfStmt::VarDecl {
+                        name: cname.clone(),
+                        init: Some(SwfExpr::Ident(tmp_err.clone())),
+                    });
+                    branch_body.extend(cbody.iter().cloned());
+                    if let Some(ctype) = ctype_opt
+                        && ctype != "*"
+                        && ctype != "Object"
+                    {
+                        let type_expr = ctype
+                            .split('.')
+                            .fold(None, |acc: Option<SwfExpr>, seg| match acc {
+                                None => Some(SwfExpr::Ident(seg.to_owned())),
+                                Some(prev) => Some(SwfExpr::Member(Box::new(prev), seg.to_owned())),
+                            })
+                            .unwrap_or_else(|| SwfExpr::Ident(ctype.clone()));
+                        tail_stmts = vec![SwfStmt::If {
+                            cond: SwfExpr::Binary {
+                                op: SwfBinaryOp::InstanceOf,
+                                lhs: Box::new(SwfExpr::Ident(tmp_err.clone())),
+                                rhs: Box::new(type_expr),
+                            },
+                            then_branch: branch_body,
+                            else_branch: Some(tail_stmts),
+                        }];
+                    } else {
+                        tail_stmts = branch_body;
+                    }
+                }
+                let mut empty_catch_flow = Vec::new();
+                avm1_compile_stmt_list_with_flow(
+                    &mut catch_bytes,
+                    &tail_stmts,
+                    in_function,
+                    reg_map,
+                    &mut empty_catch_flow,
+                )?;
+                tmp_err
+            } else {
+                String::new()
+            };
+
+            let mut finally_bytes = Vec::new();
+            if let Some(fin_stmts) = finally_body {
+                let mut empty_fin_flow = Vec::new();
+                avm1_compile_stmt_list_with_flow(
+                    &mut finally_bytes,
+                    fin_stmts,
+                    in_function,
+                    reg_map,
+                    &mut empty_fin_flow,
+                )?;
+            }
+
+            let try_size = u16::try_from(try_bytes.len())
+                .map_err(|_| "AVM1 try block exceeds 65535 bytes".to_owned())?;
+            let catch_size = u16::try_from(catch_bytes.len())
+                .map_err(|_| "AVM1 catch block exceeds 65535 bytes".to_owned())?;
+            let finally_size = u16::try_from(finally_bytes.len())
+                .map_err(|_| "AVM1 finally block exceeds 65535 bytes".to_owned())?;
+            let flags: u8 = u8::from(!catches.is_empty()) | (u8::from(finally_body.is_some()) << 1);
+            let cname_bytes: Vec<u8> = catch_var_name.bytes().filter(|&b| b != 0).collect();
+            let header_len = u16::try_from(7 + cname_bytes.len() + 1)
+                .map_err(|_| "AVM1 ActionTry header exceeds 65535 bytes".to_owned())?;
+
+            out.push(0x8f); // ActionTry
+            out.extend_from_slice(&header_len.to_le_bytes());
+            out.push(flags);
+            out.extend_from_slice(&try_size.to_le_bytes());
+            out.extend_from_slice(&catch_size.to_le_bytes());
+            out.extend_from_slice(&finally_size.to_le_bytes());
+            out.extend_from_slice(&cname_bytes);
+            out.push(0);
+            out.extend_from_slice(&try_bytes);
+            out.extend_from_slice(&catch_bytes);
+            out.extend_from_slice(&finally_bytes);
+        }
+        SwfStmt::ClassDecl {
+            name,
+            super_name,
+            ctor,
+            methods,
+            fields,
+        } => {
+            let (ctor_params, ctor_body): (&[String], &[SwfStmt]) = match ctor {
+                Some((p, b)) => (p.as_slice(), b.as_slice()),
+                None => (&[], &[]),
+            };
+            avm1_compile_function(out, name, None, ctor_params, ctor_body)?;
+            if let Some(sup) = super_name {
+                avm1_push_string(out, name)?;
+                out.push(0x1c); // ActionGetVariable(Sub)
+                avm1_push_string(out, sup)?;
+                out.push(0x1c); // ActionGetVariable(Sup)
+                out.push(0x69); // ActionExtends
+            }
+            for (is_static, m_name, m_params, m_body) in methods {
+                avm1_push_string(out, name)?;
+                out.push(0x1c); // ActionGetVariable(Cls)
+                if !*is_static {
+                    avm1_push_string(out, "prototype")?;
+                    out.push(0x4e); // ActionGetMember
+                }
+                avm1_push_string(out, m_name)?;
+                avm1_compile_function(out, "", None, m_params, m_body)?;
+                out.push(0x4f); // ActionSetMember
+            }
+            for (is_static, f_name, f_init) in fields {
+                if let Some(init_expr) = f_init {
+                    avm1_push_string(out, name)?;
+                    out.push(0x1c); // ActionGetVariable(Cls)
+                    if !*is_static {
+                        avm1_push_string(out, "prototype")?;
+                        out.push(0x4e); // ActionGetMember
+                    }
+                    avm1_push_string(out, f_name)?;
+                    avm1_compile_expr(out, init_expr, reg_map)?;
+                    out.push(0x4f); // ActionSetMember
+                }
+            }
+        }
+        SwfStmt::FunctionDecl { name, params, body } => {
+            avm1_compile_function(out, name, None, params, body)?;
+        }
+        SwfStmt::Return(expr_opt) => {
+            if let Some(expr) = expr_opt {
+                avm1_compile_expr(out, expr, reg_map)?;
+            } else {
+                out.push(0x96);
+                out.extend_from_slice(&1u16.to_le_bytes());
+                out.push(0x03); // Undefined
+            }
+            out.push(0x3e); // ActionReturn
+        }
+        SwfStmt::EventHandler { body, .. } => {
+            avm1_compile_stmt_list_with_flow(out, body, in_function, reg_map, flow)?;
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn find_event_handler_in_expr(expr: &SwfExpr) -> Option<&SwfStmt> {
+    match expr {
+        SwfExpr::Function { body, .. } => find_event_handler_in_stmts(body),
+        SwfExpr::ArrayLit(elems) => elems.iter().find_map(find_event_handler_in_expr),
+        SwfExpr::ObjectLit(props) => props
+            .iter()
+            .find_map(|(_, v)| find_event_handler_in_expr(v)),
+        SwfExpr::Member(obj, _) => find_event_handler_in_expr(obj),
+        SwfExpr::Index(obj, idx) => {
+            find_event_handler_in_expr(obj).or_else(|| find_event_handler_in_expr(idx))
+        }
+        SwfExpr::Unary { expr, .. } => find_event_handler_in_expr(expr),
+        SwfExpr::Binary { lhs, rhs, .. } => {
+            find_event_handler_in_expr(lhs).or_else(|| find_event_handler_in_expr(rhs))
+        }
+        SwfExpr::Call { callee, args } | SwfExpr::New { callee, args } => {
+            find_event_handler_in_expr(callee)
+                .or_else(|| args.iter().find_map(find_event_handler_in_expr))
+        }
+        SwfExpr::Delete(lv) => match lv.as_ref() {
+            SwfLValue::Ident(_) => None,
+            SwfLValue::Member(obj, _) => find_event_handler_in_expr(obj),
+            SwfLValue::Index(obj, idx) => {
+                find_event_handler_in_expr(obj).or_else(|| find_event_handler_in_expr(idx))
+            }
+        },
+        SwfExpr::Ternary {
+            cond,
+            then_expr,
+            else_expr,
+        } => find_event_handler_in_expr(cond)
+            .or_else(|| find_event_handler_in_expr(then_expr))
+            .or_else(|| find_event_handler_in_expr(else_expr)),
+        SwfExpr::Null
+        | SwfExpr::Undefined
+        | SwfExpr::Bool(_)
+        | SwfExpr::Int(_)
+        | SwfExpr::Float(_)
+        | SwfExpr::Str(_)
+        | SwfExpr::Ident(_) => None,
+    }
+}
+
+pub(super) fn find_event_handler_in_stmts(stmts: &[SwfStmt]) -> Option<&SwfStmt> {
+    for stmt in stmts {
+        match stmt {
+            SwfStmt::EventHandler { .. } => return Some(stmt),
+            SwfStmt::VarDecl { init: Some(e), .. }
+            | SwfStmt::Assign { value: e, .. }
+            | SwfStmt::Expr(e)
+            | SwfStmt::Return(Some(e))
+            | SwfStmt::Throw(e) => {
+                if let Some(found) = find_event_handler_in_expr(e) {
+                    return Some(found);
+                }
+            }
+            SwfStmt::Block(body) | SwfStmt::FunctionDecl { body, .. } => {
+                if let Some(found) = find_event_handler_in_stmts(body) {
+                    return Some(found);
+                }
+            }
+            SwfStmt::While { cond, body }
+            | SwfStmt::ForIn {
+                object: cond, body, ..
+            } => {
+                if let Some(found) = find_event_handler_in_expr(cond) {
+                    return Some(found);
+                }
+                if let Some(found) = find_event_handler_in_stmts(body) {
+                    return Some(found);
+                }
+            }
+            SwfStmt::Switch {
+                discriminant,
+                cases,
+            } => {
+                if let Some(found) = find_event_handler_in_expr(discriminant) {
+                    return Some(found);
+                }
+                for (ce, cb) in cases {
+                    if let Some(e) = ce
+                        && let Some(found) = find_event_handler_in_expr(e)
+                    {
+                        return Some(found);
+                    }
+                    if let Some(found) = find_event_handler_in_stmts(cb) {
+                        return Some(found);
+                    }
+                }
+            }
+            SwfStmt::Try {
+                try_body,
+                catches,
+                finally_body,
+            } => {
+                if let Some(found) = find_event_handler_in_stmts(try_body) {
+                    return Some(found);
+                }
+                for (_, _, cb) in catches {
+                    if let Some(found) = find_event_handler_in_stmts(cb) {
+                        return Some(found);
+                    }
+                }
+                if let Some(fb) = finally_body
+                    && let Some(found) = find_event_handler_in_stmts(fb)
+                {
+                    return Some(found);
+                }
+            }
+            SwfStmt::ClassDecl {
+                ctor,
+                methods,
+                fields,
+                ..
+            } => {
+                if let Some((_, cb)) = ctor
+                    && let Some(found) = find_event_handler_in_stmts(cb)
+                {
+                    return Some(found);
+                }
+                for (_, _, _, mb) in methods {
+                    if let Some(found) = find_event_handler_in_stmts(mb) {
+                        return Some(found);
+                    }
+                }
+                for (_, _, fe_opt) in fields {
+                    if let Some(fe) = fe_opt
+                        && let Some(found) = find_event_handler_in_expr(fe)
+                    {
+                        return Some(found);
+                    }
+                }
+            }
+            SwfStmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                if let Some(found) = find_event_handler_in_expr(cond) {
+                    return Some(found);
+                }
+                if let Some(found) = find_event_handler_in_stmts(then_branch) {
+                    return Some(found);
+                }
+                if let Some(eb) = else_branch
+                    && let Some(found) = find_event_handler_in_stmts(eb)
+                {
+                    return Some(found);
+                }
+            }
+            SwfStmt::For {
+                init,
+                cond,
+                update,
+                body,
+            } => {
+                if let Some(i) = init
+                    && let Some(found) =
+                        find_event_handler_in_stmts(std::slice::from_ref(i.as_ref()))
+                {
+                    return Some(found);
+                }
+                if let Some(c) = cond
+                    && let Some(found) = find_event_handler_in_expr(c)
+                {
+                    return Some(found);
+                }
+                if let Some(u) = update
+                    && let Some(found) =
+                        find_event_handler_in_stmts(std::slice::from_ref(u.as_ref()))
+                {
+                    return Some(found);
+                }
+                if let Some(found) = find_event_handler_in_stmts(body) {
+                    return Some(found);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+pub(super) fn compile_avm1_actions_mode(
+    source: &str,
+    allow_event_handlers: bool,
+) -> Result<Vec<u8>, String> {
+    let stmts = parse_swf_statements_strict(source, false)?;
+    if !allow_event_handlers && find_event_handler_in_stmts(&stmts).is_some() {
+        return Err(
+            "AVM1 object event handler 'on(...)' / 'onClipEvent(...)' is only allowed on MovieClip or Button instances, not frame or init scripts"
+                .to_owned(),
+        );
+    }
+    let mut out = Vec::new();
+    let empty_regs = HashMap::new();
+    avm1_compile_stmt_list(&mut out, &stmts, false, &empty_regs)?;
+    out.push(0x00); // ActionEndFlag
+    Ok(out)
+}
+
+/// Compile an AS1/AS2 script source into AVM1 action bytecode (terminated by `0x00`).
+pub(crate) fn compile_avm1_actions(source: &str) -> Result<Vec<u8>, String> {
+    compile_avm1_actions_mode(source, false)
+}

@@ -574,8 +574,29 @@ impl<'a> LottieBuilder<'a> {
         stack: &mut Vec<String>,
         next_ind: &mut u32,
     ) -> Result<Vec<Value>, ExportError> {
+        if let Some(outlined) = self.try_emit_outlined_text_layer(
+            symbol_id,
+            timeline,
+            layer,
+            samples,
+            representative,
+            first_frame,
+            last_frame,
+            bm,
+            orient_auto,
+            force_dense_ks,
+            mask_layer,
+            origin_offset,
+            comp_origin_offset,
+            world_samples_for_mask,
+            stack,
+            next_ind,
+        )? {
+            return Ok(outlined);
+        }
         self.emitted_text_layer = true;
         let f_name = self.register_font(font_family, false, false);
+        self.record_glyph_chars_for_text(text, font_family, font_size, false, false);
         let ks = self.build_animated_ks(
             timeline,
             layer,
@@ -661,6 +682,26 @@ impl<'a> LottieBuilder<'a> {
         stack: &mut Vec<String>,
         next_ind: &mut u32,
     ) -> Result<Vec<Value>, ExportError> {
+        if let Some(outlined) = self.try_emit_outlined_text_layer(
+            symbol_id,
+            timeline,
+            layer,
+            samples,
+            representative,
+            first_frame,
+            last_frame,
+            bm,
+            orient_auto,
+            force_dense_ks,
+            mask_layer,
+            origin_offset,
+            comp_origin_offset,
+            world_samples_for_mask,
+            stack,
+            next_ind,
+        )? {
+            return Ok(outlined);
+        }
         self.emitted_text_layer = true;
         if let Some(tf_state) = neoflash_core::TextFieldState::from_kind(&representative.kind) {
             let kind_label = match tf_state.field_type {
@@ -684,6 +725,13 @@ impl<'a> LottieBuilder<'a> {
             );
         }
         let f_name = self.register_font(&format.font, format.bold, format.italic);
+        self.record_glyph_chars_for_text(
+            text,
+            &format.font,
+            format.size,
+            format.bold,
+            format.italic,
+        );
         let ks = self.build_animated_ks(
             timeline,
             layer,
@@ -1703,7 +1751,7 @@ pub(super) fn sample_shape_tween_frame(
     sample_layer_in_at_fps(timeline, layer, frame, fps)
 }
 
-fn identity_group_tr() -> Value {
+pub(super) fn identity_group_tr() -> Value {
     json!({
         "ty": "tr",
         "p": {"a": 0, "k": [0, 0]},
@@ -1717,7 +1765,7 @@ fn identity_group_tr() -> Value {
     })
 }
 
-fn apply_rgb_only(ct: ColorTransform, color: Color, include_alpha: bool) -> Color {
+pub(super) fn apply_rgb_only(ct: ColorTransform, color: Color, include_alpha: bool) -> Color {
     let mut out = ct.apply(color);
     if !include_alpha {
         out[3] = color[3];
@@ -2099,15 +2147,15 @@ fn animated_gradient_stroke_item(grads: &[(u32, GradientPaint)], widths: &[(u32,
 }
 
 #[derive(Clone, Debug)]
-struct LottieBezier {
-    c: bool,
-    v: Vec<[f64; 2]>,
-    i: Vec<[f64; 2]>,
-    o: Vec<[f64; 2]>,
+pub(super) struct LottieBezier {
+    pub(super) c: bool,
+    pub(super) v: Vec<[f64; 2]>,
+    pub(super) i: Vec<[f64; 2]>,
+    pub(super) o: Vec<[f64; 2]>,
 }
 
 impl LottieBezier {
-    fn to_json(&self) -> Value {
+    pub(super) fn to_json(&self) -> Value {
         json!({
             "c": self.c,
             "v": self.v.iter().map(|p| [round4(p[0]), round4(p[1])]).collect::<Vec<_>>(),
@@ -2117,7 +2165,7 @@ impl LottieBezier {
     }
 
     /// Screen-space (Y-down) contour winding direction for Bodymovin `"ty": "sh"` (`1` = CW, `3` = CCW).
-    fn lottie_direction(&self) -> u8 {
+    pub(super) fn lottie_direction(&self) -> u8 {
         if !self.c || self.v.len() < 2 {
             return 1;
         }
@@ -2153,7 +2201,7 @@ impl LottieBezier {
     }
 }
 
-fn path_commands_to_lottie_beziers(commands: &[PathCommand]) -> Vec<LottieBezier> {
+pub(super) fn path_commands_to_lottie_beziers(commands: &[PathCommand]) -> Vec<LottieBezier> {
     let mut contours = Vec::new();
     let mut current: Option<LottieBezier> = None;
 

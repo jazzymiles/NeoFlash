@@ -1810,6 +1810,7 @@ pub fn import_pdf_ai_into_project(
                 bounds: [0., 0., f64::from(w), f64::from(h)],
                 rotation: 0,
                 shadings: BTreeMap::new(),
+                patterns: BTreeMap::new(),
             }]
         }
         Err(e) => return Err(e),
@@ -1843,10 +1844,13 @@ pub fn import_pdf_ai_into_project(
         ctm: [f64; 6],
         fill_color: Color,
         stroke_color: Color,
+        fill_pattern: Option<GradientPaint>,
+        stroke_pattern: Option<GradientPaint>,
         line_width: f64,
         font_size: f64,
         text_pos: (f64, f64),
         clip: Option<std::sync::Arc<Element>>,
+        clip_geom: Option<(Vec<PathCommand>, FillRule)>,
     }
 
     impl Default for PdfGState {
@@ -1855,21 +1859,50 @@ pub fn import_pdf_ai_into_project(
                 ctm: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
                 fill_color: [0, 0, 0, 255],
                 stroke_color: [0, 0, 0, 255],
+                fill_pattern: None,
+                stroke_pattern: None,
                 line_width: 1.0,
                 font_size: 16.0,
                 text_pos: (0.0, 20.0),
                 clip: None,
+                clip_geom: None,
             }
         }
+    }
+
+    fn invert_affine(m: [f64; 6]) -> Option<[f64; 6]> {
+        let det = m[0] * m[3] - m[1] * m[2];
+        if !det.is_finite() || det.abs() <= 1e-12 {
+            return None;
+        }
+        let inv_det = 1.0 / det;
+        let a = m[3] * inv_det;
+        let b = -m[1] * inv_det;
+        let c = -m[2] * inv_det;
+        let d = m[0] * inv_det;
+        let e = -(a * m[4] + c * m[5]);
+        let f = -(b * m[4] + d * m[5]);
+        Some([a, b, c, d, e, f])
+    }
+
+    fn cmyk_to_rgba(c: f64, m: f64, y: f64, k: f64) -> Color {
+        let inv_k = 1.0 - k.clamp(0.0, 1.0);
+        [
+            ((1.0 - c.clamp(0.0, 1.0)) * inv_k * 255.0).round() as u8,
+            ((1.0 - m.clamp(0.0, 1.0)) * inv_k * 255.0).round() as u8,
+            ((1.0 - y.clamp(0.0, 1.0)) * inv_k * 255.0).round() as u8,
+            255,
+        ]
     }
 
     let mut total_ops = 0usize;
 
     for (stream_idx, page) in pages.iter().enumerate() {
+        let page_matrix = page.size_and_transform().1;
         let tokens = tokenize_pdf_content(&page.content)?;
         let mut operand_stack: Vec<String> = Vec::new();
         let mut gstate = PdfGState {
-            ctm: page.size_and_transform().1,
+            ctm: page_matrix,
             ..PdfGState::default()
         };
         let mut gstate_stack: Vec<PdfGState> = Vec::new();
@@ -1942,6 +1975,7 @@ pub fn import_pdf_ai_into_project(
                         let r = (pop_f64(&mut operand_stack).unwrap_or(0.0).clamp(0.0, 1.0) * 255.0)
                             .round() as u8;
                         gstate.fill_color = [r, g, b, 255];
+                        gstate.fill_pattern = None;
                     }
                     operand_stack.clear();
                 }
@@ -1954,6 +1988,7 @@ pub fn import_pdf_ai_into_project(
                         let r = (pop_f64(&mut operand_stack).unwrap_or(0.0).clamp(0.0, 1.0) * 255.0)
                             .round() as u8;
                         gstate.stroke_color = [r, g, b, 255];
+                        gstate.stroke_pattern = None;
                     }
                     operand_stack.clear();
                 }
@@ -1961,6 +1996,7 @@ pub fn import_pdf_ai_into_project(
                     if let Some(gray) = pop_f64(&mut operand_stack) {
                         let v = (gray.clamp(0.0, 1.0) * 255.0).round() as u8;
                         gstate.fill_color = [v, v, v, 255];
+                        gstate.fill_pattern = None;
                     }
                     operand_stack.clear();
                 }
@@ -1968,6 +2004,113 @@ pub fn import_pdf_ai_into_project(
                     if let Some(gray) = pop_f64(&mut operand_stack) {
                         let v = (gray.clamp(0.0, 1.0) * 255.0).round() as u8;
                         gstate.stroke_color = [v, v, v, 255];
+                        gstate.stroke_pattern = None;
+                    }
+                    operand_stack.clear();
+                }
+                "k" => {
+                    if operand_stack.len() >= 4 {
+                        let k = pop_f64(&mut operand_stack).unwrap_or(0.0);
+                        let y = pop_f64(&mut operand_stack).unwrap_or(0.0);
+                        let m = pop_f64(&mut operand_stack).unwrap_or(0.0);
+                        let c = pop_f64(&mut operand_stack).unwrap_or(0.0);
+                        gstate.fill_color = cmyk_to_rgba(c, m, y, k);
+                        gstate.fill_pattern = None;
+                    }
+                    operand_stack.clear();
+                }
+                "K" => {
+                    if operand_stack.len() >= 4 {
+                        let k = pop_f64(&mut operand_stack).unwrap_or(0.0);
+                        let y = pop_f64(&mut operand_stack).unwrap_or(0.0);
+                        let m = pop_f64(&mut operand_stack).unwrap_or(0.0);
+                        let c = pop_f64(&mut operand_stack).unwrap_or(0.0);
+                        gstate.stroke_color = cmyk_to_rgba(c, m, y, k);
+                        gstate.stroke_pattern = None;
+                    }
+                    operand_stack.clear();
+                }
+                "cs" => {
+                    if operand_stack.last().map(String::as_str) != Some("/Pattern") {
+                        gstate.fill_pattern = None;
+                    }
+                    operand_stack.clear();
+                }
+                "CS" => {
+                    if operand_stack.last().map(String::as_str) != Some("/Pattern") {
+                        gstate.stroke_pattern = None;
+                    }
+                    operand_stack.clear();
+                }
+                "sc" | "scn" => {
+                    if let Some(pat) = operand_stack
+                        .last()
+                        .filter(|s| s.starts_with('/'))
+                        .and_then(|s| page.patterns.get(s.trim_start_matches('/')))
+                    {
+                        gstate.fill_pattern = Some(pat.clone());
+                    } else {
+                        let nums: Vec<f64> = operand_stack
+                            .iter()
+                            .filter_map(|s| s.parse::<f64>().ok())
+                            .collect();
+                        match nums.as_slice() {
+                            [gray] => {
+                                let v = (gray.clamp(0.0, 1.0) * 255.0).round() as u8;
+                                gstate.fill_color = [v, v, v, 255];
+                                gstate.fill_pattern = None;
+                            }
+                            [r, g, b] => {
+                                gstate.fill_color = [
+                                    (r.clamp(0.0, 1.0) * 255.0).round() as u8,
+                                    (g.clamp(0.0, 1.0) * 255.0).round() as u8,
+                                    (b.clamp(0.0, 1.0) * 255.0).round() as u8,
+                                    255,
+                                ];
+                                gstate.fill_pattern = None;
+                            }
+                            [c, m, y, k] => {
+                                gstate.fill_color = cmyk_to_rgba(*c, *m, *y, *k);
+                                gstate.fill_pattern = None;
+                            }
+                            _ => {}
+                        }
+                    }
+                    operand_stack.clear();
+                }
+                "SC" | "SCN" => {
+                    if let Some(pat) = operand_stack
+                        .last()
+                        .filter(|s| s.starts_with('/'))
+                        .and_then(|s| page.patterns.get(s.trim_start_matches('/')))
+                    {
+                        gstate.stroke_pattern = Some(pat.clone());
+                    } else {
+                        let nums: Vec<f64> = operand_stack
+                            .iter()
+                            .filter_map(|s| s.parse::<f64>().ok())
+                            .collect();
+                        match nums.as_slice() {
+                            [gray] => {
+                                let v = (gray.clamp(0.0, 1.0) * 255.0).round() as u8;
+                                gstate.stroke_color = [v, v, v, 255];
+                                gstate.stroke_pattern = None;
+                            }
+                            [r, g, b] => {
+                                gstate.stroke_color = [
+                                    (r.clamp(0.0, 1.0) * 255.0).round() as u8,
+                                    (g.clamp(0.0, 1.0) * 255.0).round() as u8,
+                                    (b.clamp(0.0, 1.0) * 255.0).round() as u8,
+                                    255,
+                                ];
+                                gstate.stroke_pattern = None;
+                            }
+                            [c, m, y, k] => {
+                                gstate.stroke_color = cmyk_to_rgba(*c, *m, *y, *k);
+                                gstate.stroke_pattern = None;
+                            }
+                            _ => {}
+                        }
                     }
                     operand_stack.clear();
                 }
@@ -2080,6 +2223,7 @@ pub fn import_pdf_ai_into_project(
                         && !current_path.is_empty()
                     {
                         let baked = bake_matrix_into_commands(&current_path, gstate.ctm);
+                        gstate.clip_geom = Some((baked.clone(), clip_rule));
                         match options.mask_handling {
                             VectorMaskHandling::MaskLayers => {
                                 gstate.clip = Some(std::sync::Arc::new(Element {
@@ -2122,36 +2266,82 @@ pub fn import_pdf_ai_into_project(
                         } else {
                             FillRule::NonZero
                         };
-                        let (final_cmds, elem_transform) = match options.transform_handling {
-                            VectorTransformHandling::BakeTransformsIntoPaths => (
-                                bake_matrix_into_commands(&current_path, gstate.ctm),
-                                Transform::default(),
-                            ),
-                            VectorTransformHandling::KeepElementTransforms => (
-                                current_path.clone(),
-                                Transform::from_matrix(gstate.ctm).unwrap_or_default(),
-                            ),
+                        let (final_cmds, elem_transform, elem_mat) =
+                            match options.transform_handling {
+                                VectorTransformHandling::BakeTransformsIntoPaths => (
+                                    bake_matrix_into_commands(&current_path, gstate.ctm),
+                                    Transform::default(),
+                                    identity_matrix(),
+                                ),
+                                VectorTransformHandling::KeepElementTransforms => {
+                                    if let Some(tf) = Transform::from_matrix(gstate.ctm) {
+                                        (current_path.clone(), tf, gstate.ctm)
+                                    } else {
+                                        (
+                                            bake_matrix_into_commands(&current_path, gstate.ctm),
+                                            Transform::default(),
+                                            identity_matrix(),
+                                        )
+                                    }
+                                }
+                            };
+                        let resolve_pat = |pat: &GradientPaint| -> Option<GradientPaint> {
+                            let mut p = pat.clone();
+                            let stage_mat = affine_multiply(page_matrix, p.matrix);
+                            p.matrix = if elem_mat == identity_matrix() {
+                                stage_mat
+                            } else {
+                                affine_multiply(invert_affine(elem_mat)?, stage_mat)
+                            };
+                            p.validate().ok()?;
+                            Some(p)
+                        };
+                        let fill_grad = if do_fill {
+                            gstate.fill_pattern.as_ref().and_then(resolve_pat)
+                        } else {
+                            None
+                        };
+                        let stroke_grad = if do_stroke {
+                            gstate.stroke_pattern.as_ref().and_then(resolve_pat)
+                        } else {
+                            None
                         };
                         if validate_path_commands(&final_cmds).is_ok() {
+                            let fill_col = if do_fill && fill_grad.is_none() {
+                                gstate.fill_color
+                            } else {
+                                [0, 0, 0, 0]
+                            };
+                            let stroke_col = if do_stroke && stroke_grad.is_none() {
+                                gstate.stroke_color
+                            } else {
+                                [0, 0, 0, 0]
+                            };
+                            let sw = if do_stroke { gstate.line_width } else { 0.0 };
+                            let kind = if fill_grad.is_some() || stroke_grad.is_some() {
+                                ElementKind::PaintedPath {
+                                    commands: final_cmds,
+                                    fill_rule,
+                                    fill: fill_col,
+                                    stroke: stroke_col,
+                                    fill_gradient: fill_grad,
+                                    stroke_gradient: stroke_grad,
+                                    stroke_width: sw,
+                                }
+                            } else {
+                                ElementKind::Path {
+                                    commands: final_cmds,
+                                    fill_rule,
+                                    fill: fill_col,
+                                    stroke: stroke_col,
+                                    stroke_width: sw,
+                                }
+                            };
                             current_bucket.elements.push(Element {
                                 id: new_id("element"),
                                 name: format!("PDF Path {}", current_bucket.elements.len() + 1),
                                 transform: elem_transform,
-                                kind: ElementKind::Path {
-                                    commands: final_cmds,
-                                    fill_rule,
-                                    fill: if do_fill {
-                                        gstate.fill_color
-                                    } else {
-                                        [0, 0, 0, 0]
-                                    },
-                                    stroke: if do_stroke {
-                                        gstate.stroke_color
-                                    } else {
-                                        [0, 0, 0, 0]
-                                    },
-                                    stroke_width: if do_stroke { gstate.line_width } else { 0.0 },
-                                },
+                                kind,
                                 ..Element::default()
                             });
                             report.statistics.elements += 1;
@@ -2302,54 +2492,68 @@ pub fn import_pdf_ai_into_project(
                         [operand_stack.last().unwrap().trim_start_matches('/')]
                     .clone();
                     paint.matrix = affine_multiply(gstate.ctm, paint.matrix);
-                    let (commands, rule) = if let Some(Element {
-                        kind:
-                            ElementKind::Path {
+                    if paint.validate().is_ok() {
+                        let (commands, rule) = if let Some(Element {
+                            kind:
+                                ElementKind::Path {
+                                    commands,
+                                    fill_rule,
+                                    ..
+                                },
+                            ..
+                        }) = gstate.clip.as_deref()
+                        {
+                            (commands.clone(), *fill_rule)
+                        } else if let Some((commands, fill_rule)) = &gstate.clip_geom {
+                            (commands.clone(), *fill_rule)
+                        } else {
+                            let ((w, h), _) = page.size_and_transform();
+                            (
+                                vec![
+                                    PathCommand::MoveTo { x: 0., y: 0. },
+                                    PathCommand::LineTo {
+                                        x: f64::from(w),
+                                        y: 0.,
+                                    },
+                                    PathCommand::LineTo {
+                                        x: f64::from(w),
+                                        y: f64::from(h),
+                                    },
+                                    PathCommand::LineTo {
+                                        x: 0.,
+                                        y: f64::from(h),
+                                    },
+                                    PathCommand::Close,
+                                ],
+                                FillRule::NonZero,
+                            )
+                        };
+                        let name = match paint.kind {
+                            GradientKind::Radial => "PDF radial shading",
+                            _ => "PDF axial shading",
+                        };
+                        current_bucket.elements.push(Element {
+                            id: new_id("element"),
+                            name: name.into(),
+                            kind: ElementKind::PaintedPath {
                                 commands,
-                                fill_rule,
-                                ..
+                                fill_rule: rule,
+                                fill: [0; 4],
+                                stroke: [0; 4],
+                                stroke_width: 0.,
+                                fill_gradient: Some(paint),
+                                stroke_gradient: None,
                             },
-                        ..
-                    }) = gstate.clip.as_deref()
-                    {
-                        (commands.clone(), *fill_rule)
+                            ..Default::default()
+                        });
+                        report.statistics.elements += 1;
                     } else {
-                        let ((w, h), _) = page.size_and_transform();
-                        (
-                            vec![
-                                PathCommand::MoveTo { x: 0., y: 0. },
-                                PathCommand::LineTo {
-                                    x: f64::from(w),
-                                    y: 0.,
-                                },
-                                PathCommand::LineTo {
-                                    x: f64::from(w),
-                                    y: f64::from(h),
-                                },
-                                PathCommand::LineTo {
-                                    x: 0.,
-                                    y: f64::from(h),
-                                },
-                                PathCommand::Close,
-                            ],
-                            FillRule::NonZero,
-                        )
-                    };
-                    current_bucket.elements.push(Element {
-                        id: new_id("element"),
-                        name: "PDF axial shading".into(),
-                        kind: ElementKind::PaintedPath {
-                            commands,
-                            fill_rule: rule,
-                            fill: [0; 4],
-                            stroke: [0; 4],
-                            stroke_width: 0.,
-                            fill_gradient: Some(paint),
-                            stroke_gradient: None,
-                        },
-                        ..Default::default()
-                    });
-                    report.statistics.elements += 1;
+                        report.warning(
+                            "pdf-unsupported-operator",
+                            loc,
+                            "PDF shading transform became singular and was skipped.".to_owned(),
+                        );
+                    }
                     operand_stack.clear();
                 }
                 "sh" | "Do" => {

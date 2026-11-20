@@ -1032,7 +1032,7 @@ fn t192_swf_preflight_blocks_incompatible_scripts_unless_scriptless_mode() {
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript3,
-            source: "try { trace(\"lost\"); } catch (e:Error) {}".to_owned(),
+            source: "with (stage) { trace(\"lost\"); }".to_owned(),
         },
     }];
     let unsupported_report = preflight_swf_publish(&unsupported, &avm2_opts);
@@ -1048,7 +1048,7 @@ fn t192_swf_preflight_blocks_incompatible_scripts_unless_scriptless_mode() {
         .timeline
         .scripts[0]
         .script
-        .source = "switch (mode) { case 1: trace(\"no\"); }".to_owned();
+        .source = "do { trace(\"no\"); } while (false);".to_owned();
     let lossy_subset = preflight_swf_publish(&unsupported, &avm2_opts);
     assert!(lossy_subset.items.iter().any(|item| {
         item.code == "swf_avm2_frame_script_unsupported_syntax"
@@ -2786,11 +2786,11 @@ fn t293_as3_swf_matrix_document_class_symbols_includes_and_fail_closed() {
     bad_qname.document_class = Some("bad class!".to_owned());
     assert!(!preflight_swf_publish(&bad_qname, &avm2_opts).can_proceed());
 
-    // 5. Unsupported AS3 syntax (`try/catch`) -> blocked.
+    // 5. Unsupported AS3 syntax (`with`) -> blocked.
     let mut bad_syntax = proj.clone();
     bad_syntax.symbol_mut(&root_id).unwrap().timeline.scripts[0]
         .script
-        .source = "try { trace(1); } catch (e:Error) {}".to_owned();
+        .source = "with (stage) { trace(1); }".to_owned();
     assert!(!preflight_swf_publish(&bad_syntax, &avm2_opts).can_proceed());
     assert!(publish_swf_bytes(&bad_syntax, &avm2_opts).is_err());
 }

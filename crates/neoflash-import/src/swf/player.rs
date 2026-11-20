@@ -11,10 +11,10 @@ use super::timeline::parse_swf_filter_list;
 use super::{SwfContainer, read_container, read_container_from_bytes};
 use crate::ImportError;
 use neoflash_core::{
-    AuthoredScene, BlendMode, ColorTransform, Element, ElementKind, FilterSpec, InstancePlayback,
-    Keyframe, Layer, LayerProperties, LayerRole, MaskMode, Project, SoundCommand, SoundSync,
-    Symbol, SymbolKind, Timeline, Transform, evaluate_scene_with_symbol_overrides,
-    transform_matrix,
+    AuthoredScene, BlendMode, ColorTransform, Element, ElementKind, FillRule, FilterSpec,
+    InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, MaskMode, PathCommand, Project,
+    SoundCommand, SoundSync, Symbol, SymbolKind, Timeline, Transform,
+    evaluate_scene_with_symbol_overrides, transform_matrix,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -183,6 +183,219 @@ struct ButtonCondAction {
     actions: Vec<u8>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub(super) struct RuntimeGraphicsState {
+    pub(super) elements: Vec<Element>,
+    pub(super) active_commands: Vec<PathCommand>,
+    pub(super) fill: [u8; 4],
+    pub(super) stroke: [u8; 4],
+    pub(super) stroke_width: f64,
+    pub(super) pen_x: f64,
+    pub(super) pen_y: f64,
+}
+
+impl RuntimeGraphicsState {
+    pub(super) fn is_empty(&self) -> bool {
+        self.elements.is_empty() && !Self::commands_have_segments(&self.active_commands)
+    }
+
+    fn commands_have_segments(cmds: &[PathCommand]) -> bool {
+        cmds.iter().any(|c| {
+            matches!(
+                c,
+                PathCommand::LineTo { .. }
+                    | PathCommand::QuadraticTo { .. }
+                    | PathCommand::CubicTo { .. }
+            )
+        })
+    }
+
+    pub(super) fn flush_active_path(&mut self) {
+        if Self::commands_have_segments(&self.active_commands)
+            && (self.fill[3] > 0 || (self.stroke[3] > 0 && self.stroke_width > 0.0))
+        {
+            let mut cmds = std::mem::take(&mut self.active_commands);
+            if self.fill[3] > 0 && !matches!(cmds.last(), Some(PathCommand::Close)) {
+                cmds.push(PathCommand::Close);
+            }
+            let idx = self.elements.len() + 1;
+            self.elements.push(Element {
+                id: format!("rt-gfx-{idx}"),
+                name: String::new(),
+                visible: true,
+                kind: ElementKind::Path {
+                    commands: cmds,
+                    fill_rule: FillRule::NonZero,
+                    fill: self.fill,
+                    stroke: self.stroke,
+                    stroke_width: self.stroke_width,
+                },
+                ..Element::default()
+            });
+        } else {
+            self.active_commands.clear();
+        }
+    }
+
+    fn rgb_alpha_to_color(rgb: u32, alpha_norm: f64) -> [u8; 4] {
+        let r = ((rgb >> 16) & 0xFF) as u8;
+        let g = ((rgb >> 8) & 0xFF) as u8;
+        let b = (rgb & 0xFF) as u8;
+        let a = (alpha_norm.clamp(0.0, 1.0) * 255.0).round() as u8;
+        [r, g, b, a]
+    }
+
+    pub(super) fn begin_fill(&mut self, rgb: u32, alpha_norm: f64) {
+        self.flush_active_path();
+        self.fill = Self::rgb_alpha_to_color(rgb, alpha_norm);
+        self.active_commands.push(PathCommand::MoveTo {
+            x: self.pen_x,
+            y: self.pen_y,
+        });
+    }
+
+    pub(super) fn end_fill(&mut self) {
+        self.flush_active_path();
+        self.fill = [0, 0, 0, 0];
+    }
+
+    pub(super) fn line_style(&mut self, thickness: Option<f64>, rgb: u32, alpha_norm: f64) {
+        self.flush_active_path();
+        if let Some(th) = thickness
+            && th.is_finite()
+            && th >= 0.0
+        {
+            self.stroke_width = th.max(0.1);
+            self.stroke = Self::rgb_alpha_to_color(rgb, alpha_norm);
+            self.active_commands.push(PathCommand::MoveTo {
+                x: self.pen_x,
+                y: self.pen_y,
+            });
+        } else {
+            self.stroke_width = 0.0;
+            self.stroke = [0, 0, 0, 0];
+        }
+    }
+
+    pub(super) fn move_to(&mut self, x: f64, y: f64) {
+        if x.is_finite() && y.is_finite() {
+            self.pen_x = x;
+            self.pen_y = y;
+            self.active_commands.push(PathCommand::MoveTo { x, y });
+        }
+    }
+
+    pub(super) fn line_to(&mut self, x: f64, y: f64) {
+        if x.is_finite() && y.is_finite() {
+            if self.active_commands.is_empty() {
+                self.active_commands.push(PathCommand::MoveTo {
+                    x: self.pen_x,
+                    y: self.pen_y,
+                });
+            }
+            self.pen_x = x;
+            self.pen_y = y;
+            self.active_commands.push(PathCommand::LineTo { x, y });
+        }
+    }
+
+    pub(super) fn curve_to(&mut self, cx: f64, cy: f64, x: f64, y: f64) {
+        if cx.is_finite() && cy.is_finite() && x.is_finite() && y.is_finite() {
+            if self.active_commands.is_empty() {
+                self.active_commands.push(PathCommand::MoveTo {
+                    x: self.pen_x,
+                    y: self.pen_y,
+                });
+            }
+            self.pen_x = x;
+            self.pen_y = y;
+            self.active_commands
+                .push(PathCommand::QuadraticTo { cx, cy, x, y });
+        }
+    }
+
+    pub(super) fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64) {
+        if !(x.is_finite() && y.is_finite() && w.is_finite() && h.is_finite()) {
+            return;
+        }
+        self.flush_active_path();
+        let rx = if w < 0.0 { x + w } else { x };
+        let ry = if h < 0.0 { y + h } else { y };
+        let rw = w.abs();
+        let rh = h.abs();
+        if rw <= 0.0 || rh <= 0.0 {
+            return;
+        }
+        let idx = self.elements.len() + 1;
+        let mut el = Element {
+            id: format!("rt-gfx-{idx}"),
+            name: String::new(),
+            visible: true,
+            kind: ElementKind::Rectangle {
+                width: rw,
+                height: rh,
+                fill: self.fill,
+                stroke: self.stroke,
+                stroke_width: self.stroke_width,
+            },
+            ..Element::default()
+        };
+        el.transform.x = rx;
+        el.transform.y = ry;
+        self.elements.push(el);
+    }
+
+    pub(super) fn draw_ellipse(&mut self, x: f64, y: f64, w: f64, h: f64) {
+        if !(x.is_finite() && y.is_finite() && w.is_finite() && h.is_finite()) {
+            return;
+        }
+        self.flush_active_path();
+        let ex = if w < 0.0 { x + w } else { x };
+        let ey = if h < 0.0 { y + h } else { y };
+        let ew = w.abs();
+        let eh = h.abs();
+        if ew <= 0.0 || eh <= 0.0 {
+            return;
+        }
+        let idx = self.elements.len() + 1;
+        let mut el = Element {
+            id: format!("rt-gfx-{idx}"),
+            name: String::new(),
+            visible: true,
+            kind: ElementKind::Ellipse {
+                width: ew,
+                height: eh,
+                fill: self.fill,
+                stroke: self.stroke,
+                stroke_width: self.stroke_width,
+            },
+            ..Element::default()
+        };
+        el.transform.x = ex;
+        el.transform.y = ey;
+        self.elements.push(el);
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.elements.clear();
+        self.active_commands.clear();
+        self.fill = [0, 0, 0, 0];
+        self.stroke = [0, 0, 0, 0];
+        self.stroke_width = 0.0;
+        self.pen_x = 0.0;
+        self.pen_y = 0.0;
+    }
+
+    pub(super) fn materialized_elements(&self, id_prefix: &str) -> Vec<Element> {
+        let mut tmp = self.clone();
+        tmp.flush_active_path();
+        for (idx, el) in tmp.elements.iter_mut().enumerate() {
+            el.id = format!("{id_prefix}-gfx-{}", idx + 1);
+        }
+        tmp.elements
+    }
+}
+
 #[derive(Clone, Debug)]
 struct LiveSlot {
     character_id: u16,
@@ -213,6 +426,7 @@ struct LiveSlot {
     children: BTreeMap<u16, LiveSlot>,
     props: HashMap<String, Avm1Value>,
     clip_handlers: Vec<ClipEventHandler>,
+    graphics: RuntimeGraphicsState,
 }
 
 impl LiveSlot {
@@ -345,10 +559,42 @@ impl Avm1Value {
             Self::Super { .. } => "[object Object]".to_owned(),
             Self::Object(id) => {
                 if let Some(obj) = objects.get(*id) {
+                    if let Some(err_cls) = &obj.avm2_builtin_error {
+                        let name = obj
+                            .props
+                            .get("name")
+                            .and_then(|v| match v {
+                                Self::String(s) if !s.is_empty() => Some(s.as_str()),
+                                _ => None,
+                            })
+                            .unwrap_or(err_cls.as_str());
+                        let msg = obj
+                            .props
+                            .get("message")
+                            .and_then(|v| match v {
+                                Self::String(s) => Some(s.as_str()),
+                                _ => None,
+                            })
+                            .unwrap_or("");
+                        return if msg.is_empty() {
+                            name.to_owned()
+                        } else {
+                            format!("{name}: {msg}")
+                        };
+                    }
                     if let Some(elements) = &obj.array_elements {
-                        return elements
-                            .iter()
-                            .map(|v| v.to_trace_string(swf_version, objects))
+                        return (0..elements.len())
+                            .map(|idx| {
+                                if obj.deleted_indices.contains(&idx) {
+                                    if swf_version <= 8 {
+                                        "undefined".to_owned()
+                                    } else {
+                                        String::new()
+                                    }
+                                } else {
+                                    elements[idx].to_trace_string(swf_version, objects)
+                                }
+                            })
                             .collect::<Vec<_>>()
                             .join(",");
                     }
@@ -366,10 +612,15 @@ impl Avm1Value {
 struct Avm1Object {
     props: HashMap<String, Avm1Value>,
     array_elements: Option<Vec<Avm1Value>>,
+    deleted_indices: BTreeSet<usize>,
     function: Option<Avm1Function>,
     interfaces: Vec<usize>,
     avm2_class: Option<(usize, usize)>,
     avm2_activation_method: Option<(usize, usize)>,
+    avm2_catch_var: Option<(String, usize, usize)>,
+    avm2_builtin_error: Option<String>,
+    graphics: Option<RuntimeGraphicsState>,
+    avm2_graphics_owner: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -445,6 +696,7 @@ pub struct SwfBytecodePlayer {
     last_applied_frame: Option<u32>,
     root_loop_rewind_pending: bool,
     root_props: RootClipProps,
+    root_graphics: RuntimeGraphicsState,
     display_list: BTreeMap<u16, LiveSlot>,
     removed_timeline_depths: BTreeSet<u16>,
     trace_output: Vec<String>,
@@ -461,6 +713,7 @@ pub struct SwfBytecodePlayer {
     avm1_globals: HashMap<String, Avm1Value>,
     avm1_global_obj: HashMap<String, Avm1Value>,
     avm1_functions: HashMap<String, Avm1Function>,
+    avm1_registered_classes: HashMap<String, usize>,
     avm1_objects: Vec<Avm1Object>,
     avm1_registers: [Avm1Value; 256],
     avm1_constant_pool: Vec<String>,
@@ -477,6 +730,7 @@ pub struct SwfBytecodePlayer {
     avm2_globals: HashMap<String, Avm1Value>,
     avm2_frame_scripts: HashMap<u32, Avm1Value>, // frame_idx -> callable token
     avm2_closures: Vec<Avm2Closure>,
+    avm2_thrown: Option<Avm1Value>,
 }
 
 impl SwfBytecodePlayer {
@@ -684,6 +938,7 @@ impl SwfBytecodePlayer {
             last_applied_frame: None,
             root_loop_rewind_pending: false,
             root_props: RootClipProps::default(),
+            root_graphics: RuntimeGraphicsState::default(),
             display_list: BTreeMap::new(),
             removed_timeline_depths: BTreeSet::new(),
             trace_output: Vec::new(),
@@ -698,6 +953,7 @@ impl SwfBytecodePlayer {
             avm1_globals: HashMap::new(),
             avm1_global_obj: HashMap::new(),
             avm1_functions: HashMap::new(),
+            avm1_registered_classes: HashMap::new(),
             avm1_objects: Vec::new(),
             avm1_registers: std::array::from_fn(|_| Avm1Value::Undefined),
             avm1_constant_pool: Vec::new(),
@@ -712,6 +968,7 @@ impl SwfBytecodePlayer {
             avm2_globals: HashMap::new(),
             avm2_frame_scripts: HashMap::new(),
             avm2_closures: Vec::new(),
+            avm2_thrown: None,
         })
     }
 
@@ -768,6 +1025,7 @@ impl SwfBytecodePlayer {
         self.last_applied_frame = None;
         self.root_loop_rewind_pending = false;
         self.root_props = RootClipProps::default();
+        self.root_graphics.clear();
         self.display_list.clear();
         self.removed_timeline_depths.clear();
         self.trace_output.clear();
@@ -782,6 +1040,7 @@ impl SwfBytecodePlayer {
         self.avm1_globals.clear();
         self.avm1_global_obj.clear();
         self.avm1_functions.clear();
+        self.avm1_registered_classes.clear();
         self.avm1_objects.clear();
         self.avm1_registers = std::array::from_fn(|_| Avm1Value::Undefined);
         self.avm1_constant_pool.clear();
@@ -796,6 +1055,7 @@ impl SwfBytecodePlayer {
         self.avm2_globals.clear();
         self.avm2_frame_scripts.clear();
         self.avm2_closures.clear();
+        self.avm2_thrown = None;
     }
 
     /// Reset all runtime display-list, tombstone, and VM state and evaluate frame 0 cleanly.
@@ -885,6 +1145,10 @@ impl SwfBytecodePlayer {
     }
 
     fn step_frame_inner(&mut self, jump_depth: usize, follow_frame_control: bool) -> SwfFrameState {
+        if jump_depth == 0 {
+            self.avm1_thrown = None;
+            self.avm2_thrown = None;
+        }
         self.frame_traces.clear();
         self.frame_audio_events.clear();
         self.frame_unsupported_diagnostics.clear();

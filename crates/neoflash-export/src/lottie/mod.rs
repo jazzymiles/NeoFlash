@@ -11,6 +11,7 @@
 
 mod assets;
 mod dotlottie;
+mod glyphs;
 mod preview;
 mod shapes;
 #[cfg(test)]
@@ -235,6 +236,16 @@ pub struct LottieOptions {
     pub movie_clip_mode: LottieMovieClipMode,
     /// Export text as vector glyph outlines (`Shapes`) or Lottie `"ty": 5` text layers (`TextLayers`).
     pub text_mode: LottieTextMode,
+    /// Optional explicit vector-glyph Bezier outline toggle (`None` = smart default: automatically
+    /// outlines text when embedded `FontResource` bytes match or when `text_mode == Shapes`,
+    /// `Some(true)` = outline all text via embedded/system/fallback SFNT glyphs into `ty: "gr"` /
+    /// `ty: "sh"` contours, `Some(false)` = always keep `ty: 5` `"t"` text layers).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline_text_glyphs: Option<bool>,
+    /// When emitting `"ty": 5` `"t"` text layers, also populate root `"chars"` vector glyph outline
+    /// definitions for Bodymovin glyph-mode playback.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub emit_glyph_chars: bool,
     /// Embed bitmaps as base64 Data-URIs (`Embed`) or write external files into `images/` (`Folder`).
     pub image_mode: LottieImageMode,
     /// Keep original bitmap encoding or transcode (`Original`, `Png`, `Jpeg`, `Webp`).
@@ -269,6 +280,8 @@ impl Default for LottieOptions {
             include_markers: true,
             movie_clip_mode: LottieMovieClipMode::Nested,
             text_mode: LottieTextMode::TextLayers,
+            outline_text_glyphs: None,
+            emit_glyph_chars: false,
             image_mode: LottieImageMode::Embed,
             image_format: LottieImageFormat::Original,
             max_image_dimension: None,
@@ -321,7 +334,9 @@ struct LottieBuilder<'a> {
     matte_precomps: BTreeMap<String, Option<String>>,
     used_asset_ids: BTreeSet<String>,
     fonts: BTreeMap<String, Value>,
+    glyph_chars: BTreeMap<(String, String, String, u64), Value>,
     emitted_text_layer: bool,
+    outlined_text_count: usize,
     exported_count: usize,
     notes: Vec<LottieNote>,
     warnings: Vec<String>,
@@ -607,11 +622,6 @@ where
     let image_fill_count =
         crate::image_fill_layers::prepare_image_fill_layers(&mut working_project)?;
     check_cancel_flag(cancel)?;
-    let mut text_outlined_count = 0usize;
-    if options.text_mode == LottieTextMode::Shapes {
-        text_outlined_count = crate::fonts::convert_project_text_to_outlines(&mut working_project);
-        check_cancel_flag(cancel)?;
-    }
 
     if !on_progress(&LottieProgress {
         completed_steps: 1,
@@ -671,7 +681,9 @@ where
         matte_precomps: BTreeMap::new(),
         used_asset_ids: BTreeSet::new(),
         fonts: BTreeMap::new(),
+        glyph_chars: BTreeMap::new(),
         emitted_text_layer: false,
+        outlined_text_count: 0,
         exported_count: 0,
         notes: Vec::new(),
         warnings: Vec::new(),
@@ -693,19 +705,6 @@ where
     }
     if image_fill_count > 0 {
         builder.add_note_coded(LottieNoteKind::Approximated, Some("LOTTIE_BITMAP_FILL"), "Image fills", format!("Converted {image_fill_count} bitmap brush placements to masked image layers. Tiled and edge-extended regions use raster footage."), None,None,None);
-    }
-    if text_outlined_count > 0 {
-        builder.add_note_coded(
-            LottieNoteKind::Approximated,
-            Some("LOTTIE_TEXT_OUTLINED"),
-            "Document · Text",
-            format!(
-                "Converted {text_outlined_count} text element(s) to vector shape outlines (Text: Shapes)."
-            ),
-            None,
-            None,
-            None,
-        );
     }
 
     if working_project.has_program() {
@@ -743,6 +742,18 @@ where
     if !builder.audio_ids.is_empty() {
         builder.add_note_coded(LottieNoteKind::Approximated, Some("LOTTIE_WEB_AUDIO"), "Sound",
             "Sound is embedded as a Lottie audio layer. Use lottie-web with an audio factory or Howler for playback.",None,None,None);
+    }
+    if builder.outlined_text_count > 0 {
+        let count = builder.outlined_text_count;
+        builder.add_note_coded(
+            LottieNoteKind::Approximated,
+            Some("LOTTIE_TEXT_OUTLINED"),
+            "Document · Text",
+            format!("Converted {count} text element(s) to vector glyph Bezier shape groups."),
+            None,
+            None,
+            None,
+        );
     }
     if builder.emitted_text_layer {
         builder.add_note_coded(
@@ -849,6 +860,12 @@ where
     {
         let font_list: Vec<Value> = builder.fonts.values().cloned().collect();
         root_map.insert("fonts".into(), json!({ "list": font_list }));
+    }
+    if !builder.glyph_chars.is_empty()
+        && let Some(root_map) = root.as_object_mut()
+    {
+        let chars_list: Vec<Value> = builder.glyph_chars.values().cloned().collect();
+        root_map.insert("chars".into(), Value::Array(chars_list));
     }
 
     let precision = options.precision.min(4);

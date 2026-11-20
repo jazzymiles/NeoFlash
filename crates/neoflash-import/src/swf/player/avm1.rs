@@ -479,10 +479,19 @@ impl SwfBytecodePlayer {
                         .to_trace_string(self.swf_version, &self.avm1_objects);
                     let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
                     let deleted = match obj {
-                        Avm1Value::Object(id) => self
-                            .avm1_objects
-                            .get_mut(id)
-                            .is_some_and(|o| o.props.remove(&prop).is_some() || true),
+                        Avm1Value::Object(id) => self.avm1_objects.get_mut(id).is_some_and(|o| {
+                            if let Some(elems) = &mut o.array_elements
+                                && let Ok(idx) = prop.parse::<usize>()
+                            {
+                                if idx < elems.len() {
+                                    elems[idx] = Avm1Value::Undefined;
+                                    o.deleted_indices.insert(idx);
+                                }
+                                return true;
+                            }
+                            let _ = o.props.remove(&prop);
+                            true
+                        }),
                         Avm1Value::MovieClip(mc) => {
                             let target = self.canonical_movie_target(&mc);
                             if mc == "_global" {
@@ -592,6 +601,9 @@ impl SwfBytecodePlayer {
                         args.push(stack.pop().unwrap_or(Avm1Value::Undefined));
                     }
                     let ret = self.call_avm1_function(&fn_name, args, locals, steps, depth);
+                    if self.avm1_thrown.is_some() {
+                        return None;
+                    }
                     self.push_avm_stack(stack, ret);
                 }
                 0x3E => {
@@ -624,6 +636,9 @@ impl SwfBytecodePlayer {
                     };
                     let constructed =
                         self.construct_avm1_object(&ctor_name, &resolved_ctor, args, steps, depth);
+                    if self.avm1_thrown.is_some() {
+                        return None;
+                    }
                     self.push_avm_stack(stack, constructed);
                 }
                 0x41 => {
@@ -860,6 +875,9 @@ impl SwfBytecodePlayer {
                     }
                     let ret =
                         self.call_avm1_method(&receiver, &method_name, args, locals, steps, depth);
+                    if self.avm1_thrown.is_some() {
+                        return None;
+                    }
                     self.push_avm_stack(stack, ret);
                 }
                 0x53 => {
@@ -887,6 +905,9 @@ impl SwfBytecodePlayer {
                     };
                     let constructed =
                         self.construct_avm1_object(&method_name, &ctor_val, args, steps, depth);
+                    if self.avm1_thrown.is_some() {
+                        return None;
+                    }
                     self.push_avm_stack(stack, constructed);
                 }
                 0x54 => {
@@ -1156,8 +1177,10 @@ impl SwfBytecodePlayer {
                     let finally_bytes = code[pc..finally_end].to_vec();
                     pc = finally_end;
 
+                    let saved_stack_len = stack.len();
                     let mut ret = self.run_avm1_code(&try_bytes, stack, locals, steps, depth);
                     if let Some(thrown_val) = self.avm1_thrown.take() {
+                        stack.truncate(saved_stack_len);
                         if has_catch {
                             if let Some(reg) = catch_reg {
                                 self.avm1_registers[usize::from(reg)] = thrown_val;
@@ -1176,6 +1199,9 @@ impl SwfBytecodePlayer {
                                 }
                             }
                             ret = self.run_avm1_code(&catch_bytes, stack, locals, steps, depth);
+                            if self.avm1_thrown.is_some() {
+                                stack.truncate(saved_stack_len);
+                            }
                         } else {
                             self.avm1_thrown = Some(thrown_val);
                         }
@@ -1613,6 +1639,44 @@ impl SwfBytecodePlayer {
             } else {
                 obj.array_elements = Some(args);
             }
+        } else if let Some(err_kind) = match ctor_val {
+            Avm1Value::MovieClip(s) => s.strip_prefix("__builtin_").filter(|k| {
+                matches!(
+                    *k,
+                    "Error"
+                        | "TypeError"
+                        | "RangeError"
+                        | "ReferenceError"
+                        | "SyntaxError"
+                        | "URIError"
+                        | "EvalError"
+                        | "ArgumentError"
+                )
+            }),
+            _ => None,
+        }
+        .or_else(|| {
+            matches!(
+                ctor_name,
+                "Error"
+                    | "TypeError"
+                    | "RangeError"
+                    | "ReferenceError"
+                    | "SyntaxError"
+                    | "URIError"
+                    | "EvalError"
+                    | "ArgumentError"
+            )
+            .then_some(ctor_name)
+        }) {
+            let msg = args.first().map_or_else(String::new, |v| {
+                v.to_trace_string(self.swf_version, &self.avm1_objects)
+            });
+            obj.avm2_builtin_error = Some(err_kind.to_owned());
+            obj.props
+                .insert("name".to_owned(), Avm1Value::String(err_kind.to_owned()));
+            obj.props
+                .insert("message".to_owned(), Avm1Value::String(msg));
         } else if ctor_name == "Object"
             && args.len() == 1
             && matches!(args[0], Avm1Value::Object(_))
@@ -1633,6 +1697,41 @@ impl SwfBytecodePlayer {
             }
             Avm1Value::MovieClip(b) if b == "__builtin_Array" => {
                 matches!(obj, Avm1Value::Object(id) if self.avm1_objects.get(*id).is_some_and(|o| o.array_elements.is_some()))
+            }
+            Avm1Value::MovieClip(b)
+                if b.strip_prefix("__builtin_").is_some_and(|k| {
+                    matches!(
+                        k,
+                        "Error"
+                            | "TypeError"
+                            | "RangeError"
+                            | "ReferenceError"
+                            | "SyntaxError"
+                            | "URIError"
+                            | "EvalError"
+                            | "ArgumentError"
+                    )
+                }) =>
+            {
+                let req_err = b.strip_prefix("__builtin_").unwrap_or("Error");
+                if let Avm1Value::Object(mut cur_id) = *obj {
+                    for _ in 0..32 {
+                        let Some(o) = self.avm1_objects.get(cur_id) else {
+                            break;
+                        };
+                        if let Some(actual) = o.avm2_builtin_error.as_deref()
+                            && (req_err == "Error" || actual == req_err)
+                        {
+                            return true;
+                        }
+                        if let Some(Avm1Value::Object(pid)) = o.props.get("__proto__") {
+                            cur_id = *pid;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                false
             }
             Avm1Value::MovieClip(b) if b == "__builtin_Function" => {
                 matches!(obj, Avm1Value::Object(id) if self.avm1_objects.get(*id).is_some_and(|o| o.function.is_some()))
@@ -1695,7 +1794,9 @@ impl SwfBytecodePlayer {
                 if let Some(o) = self.avm1_objects.get(*id) {
                     if let Some(elems) = &o.array_elements {
                         for idx in (0..elems.len()).rev() {
-                            keys.push(idx.to_string());
+                            if !o.deleted_indices.contains(&idx) {
+                                keys.push(idx.to_string());
+                            }
                         }
                     }
                     let mut prop_keys: Vec<String> = o

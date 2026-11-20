@@ -1,0 +1,1178 @@
+//! AVM2 expression, call, lvalue, closure, and statement bytecode emitters.
+
+use super::*;
+
+pub(super) fn compile_avm2_closure_value(
+    pool: &mut AbcPoolBuilder,
+    self_name: Option<&str>,
+    params: &[String],
+    body: &[SwfStmt],
+    code: &mut SwfBitWriter,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
+) -> Result<(), String> {
+    let param_name_indices: Vec<u32> = params.iter().map(|p| pool.add_string(p)).collect();
+    let m_idx = state.alloc_method(param_name_indices);
+
+    let mut child_outer = env.outer_slots.clone();
+    if env.needs_activation {
+        let own_outer_idx = env.init_scope_depth + 1;
+        for (vname, &slot_id) in &env.own_slots {
+            child_outer.insert(vname.clone(), (own_outer_idx, slot_id));
+        }
+    }
+
+    let mut self_slot_to_bind = None;
+    if let Some(sn) = self_name
+        && !sn.is_empty()
+        && !params.iter().any(|p| p == sn)
+    {
+        let mut d_refs = HashSet::new();
+        let mut c_free = HashSet::new();
+        collect_refs_and_child_free_in_stmts(body, &mut d_refs, &mut c_free);
+        if d_refs.contains(sn) || c_free.contains(sn) {
+            let slot_id = (env.activation_traits.len() + 1) as u32;
+            let qn = pool.add_qname("", sn);
+            env.activation_traits.push((qn, slot_id));
+            child_outer.insert(sn.to_owned(), (env.init_scope_depth + 1, slot_id));
+            self_slot_to_bind = Some(slot_id);
+        }
+    }
+
+    let child_init_scope = env.init_scope_depth + if env.needs_activation { 2 } else { 1 };
+    compile_avm2_scoped_unit(
+        pool,
+        state,
+        m_idx,
+        params,
+        body,
+        &child_outer,
+        child_init_scope,
+        true,
+        |_, _| Ok(()),
+    )?;
+
+    code.u8(0x40); // newfunction
+    code.u32_v(m_idx);
+    if let Some(slot_id) = self_slot_to_bind {
+        code.u8(0x2A); // dup
+        code.u8(0x65); // getscopeobject 1
+        code.u8(0x01);
+        code.u8(0x2B); // swap
+        code.u8(0x6D); // setslot
+        code.u32_v(slot_id);
+    }
+    Ok(())
+}
+
+pub(super) fn emit_avm2_load_ident(
+    pool: &mut AbcPoolBuilder,
+    name: &str,
+    code: &mut SwfBitWriter,
+    env: &Avm2LexicalEnv,
+) {
+    if name == "this" || name == "_root" {
+        code.u8(0xD0); // getlocal_0
+    } else if let Some(&reg) = env.local_regs.get(name) {
+        emit_avm2_getlocal(code, reg);
+    } else if let Some(&slot_id) = env.own_slots.get(name) {
+        code.u8(0x65); // getscopeobject 1
+        code.u8(0x01);
+        code.u8(0x6C); // getslot
+        code.u32_v(slot_id);
+    } else if let Some(&(outer_idx, slot_id)) = env.outer_slots.get(name) {
+        code.u8(0x67); // getouterscope
+        code.u32_v(outer_idx);
+        code.u8(0x6C); // getslot
+        code.u32_v(slot_id);
+    } else {
+        let mn = pool.add_qname("", name);
+        code.u8(0x60); // getlex
+        code.u32_v(mn);
+    }
+}
+
+fn dotted_member_chain(expr: &SwfExpr) -> Option<Vec<String>> {
+    match expr {
+        SwfExpr::Ident(id) => Some(vec![id.clone()]),
+        SwfExpr::Member(inner, prop) => {
+            let mut v = dotted_member_chain(inner)?;
+            v.push(prop.clone());
+            Some(v)
+        }
+        _ => None,
+    }
+}
+
+fn compile_avm2_type_rhs(
+    pool: &mut AbcPoolBuilder,
+    rhs: &SwfExpr,
+    code: &mut SwfBitWriter,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
+) -> Result<(), String> {
+    if let Some(parts) = dotted_member_chain(rhs)
+        && parts.len() >= 2
+    {
+        let root = &parts[0];
+        if !matches!(root.as_str(), "this" | "_root" | "super")
+            && !env.local_regs.contains_key(root)
+            && !env.own_slots.contains_key(root)
+            && !env.outer_slots.contains_key(root)
+        {
+            let cls_name = parts.last().cloned().unwrap_or_default();
+            let pkg = parts[..parts.len() - 1].join(".");
+            let mn = pool.add_qname(&pkg, &cls_name);
+            code.u8(0x60); // getlex
+            code.u32_v(mn);
+            return Ok(());
+        }
+    }
+    compile_avm2_expr(pool, rhs, code, state, env)
+}
+
+pub(super) fn compile_avm2_expr(
+    pool: &mut AbcPoolBuilder,
+    expr: &SwfExpr,
+    code: &mut SwfBitWriter,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
+) -> Result<(), String> {
+    match expr {
+        SwfExpr::Function { name, params, body } => {
+            compile_avm2_closure_value(pool, name.as_deref(), params, body, code, state, env)?;
+        }
+        SwfExpr::Null => code.u8(0x20),        // pushnull
+        SwfExpr::Undefined => code.u8(0x21),   // pushundefined
+        SwfExpr::Bool(true) => code.u8(0x26),  // pushtrue
+        SwfExpr::Bool(false) => code.u8(0x27), // pushfalse
+        SwfExpr::Int(iv) => emit_avm2_int(pool, code, *iv),
+        SwfExpr::Float(fv) => {
+            let d_idx = pool.add_double(*fv);
+            code.u8(0x2F); // pushdouble
+            code.u32_v(d_idx);
+        }
+        SwfExpr::Str(s) => {
+            let s_idx = pool.add_string(s);
+            code.u8(0x2C); // pushstring
+            code.u32_v(s_idx);
+        }
+        SwfExpr::Ident(name) => {
+            emit_avm2_load_ident(pool, name, code, env);
+        }
+        SwfExpr::ArrayLit(elems) => {
+            for el in elems {
+                compile_avm2_expr(pool, el, code, state, env)?;
+            }
+            code.u8(0x56); // newarray
+            code.u32_v(elems.len() as u32);
+        }
+        SwfExpr::ObjectLit(props) => {
+            for (key, val) in props {
+                let k_idx = pool.add_string(key);
+                code.u8(0x2C); // pushstring
+                code.u32_v(k_idx);
+                compile_avm2_expr(pool, val, code, state, env)?;
+            }
+            code.u8(0x55); // newobject
+            code.u32_v(props.len() as u32);
+        }
+        SwfExpr::Member(obj, prop) => {
+            if matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "super") {
+                code.u8(0xD0); // getlocal_0
+                let mn = pool.add_qname("", prop);
+                code.u8(0x04); // getsuper
+                code.u32_v(mn);
+            } else {
+                compile_avm2_expr(pool, obj, code, state, env)?;
+                let mn = pool.add_qname("", prop);
+                code.u8(0x66); // getproperty
+                code.u32_v(mn);
+            }
+        }
+        SwfExpr::Index(obj, idx) => {
+            if let SwfExpr::Int(iv) = idx.as_ref() {
+                compile_avm2_expr(pool, obj, code, state, env)?;
+                let mn = pool.add_qname("", &iv.to_string());
+                code.u8(0x66); // getproperty
+                code.u32_v(mn);
+            } else if let SwfExpr::Str(s) = idx.as_ref() {
+                compile_avm2_expr(pool, obj, code, state, env)?;
+                let mn = pool.add_qname("", s);
+                code.u8(0x66); // getproperty
+                code.u32_v(mn);
+            } else {
+                compile_avm2_expr(pool, obj, code, state, env)?;
+                compile_avm2_expr(pool, idx, code, state, env)?;
+                let mn_l = pool.intern_multiname_l();
+                code.u8(0x66); // getproperty (MultinameL)
+                code.u32_v(mn_l);
+            }
+        }
+        SwfExpr::Unary { op, expr } => {
+            compile_avm2_expr(pool, expr, code, state, env)?;
+            match op {
+                SwfUnaryOp::Not => code.u8(0x96),    // not
+                SwfUnaryOp::Neg => code.u8(0x90),    // negate
+                SwfUnaryOp::Pos => code.u8(0x75),    // convert_d
+                SwfUnaryOp::BitNot => code.u8(0x97), // bitnot
+                SwfUnaryOp::Typeof => code.u8(0x95), // typeof
+            }
+        }
+        SwfExpr::Delete(target) => match target.as_ref() {
+            SwfLValue::Ident(name) => {
+                if env.local_regs.contains_key(name)
+                    || env.own_slots.contains_key(name)
+                    || env.outer_slots.contains_key(name)
+                {
+                    code.u8(0x27); // pushfalse (cannot delete lexical binding)
+                } else {
+                    let mn = pool.add_qname("", name);
+                    code.u8(0x5E); // findproperty
+                    code.u32_v(mn);
+                    code.u8(0x6A); // deleteproperty
+                    code.u32_v(mn);
+                }
+            }
+            SwfLValue::Member(obj, prop) => {
+                compile_avm2_expr(pool, obj, code, state, env)?;
+                let mn = pool.add_qname("", prop);
+                code.u8(0x6A); // deleteproperty
+                code.u32_v(mn);
+            }
+            SwfLValue::Index(obj, idx) => {
+                if let SwfExpr::Int(iv) = idx.as_ref() {
+                    compile_avm2_expr(pool, obj, code, state, env)?;
+                    let mn = pool.add_qname("", &iv.to_string());
+                    code.u8(0x6A); // deleteproperty
+                    code.u32_v(mn);
+                } else if let SwfExpr::Str(s) = idx.as_ref() {
+                    compile_avm2_expr(pool, obj, code, state, env)?;
+                    let mn = pool.add_qname("", s);
+                    code.u8(0x6A); // deleteproperty
+                    code.u32_v(mn);
+                } else {
+                    compile_avm2_expr(pool, obj, code, state, env)?;
+                    compile_avm2_expr(pool, idx, code, state, env)?;
+                    let mn_l = pool.intern_multiname_l();
+                    code.u8(0x6A); // deleteproperty (MultinameL)
+                    code.u32_v(mn_l);
+                }
+            }
+        },
+        SwfExpr::Ternary {
+            cond,
+            then_expr,
+            else_expr,
+        } => {
+            compile_avm2_expr(pool, cond, code, state, env)?;
+            let else_patch = emit_avm2_s24_placeholder(code, 0x12); // iffalse
+            compile_avm2_expr(pool, then_expr, code, state, env)?;
+            code.u8(0x82); // coerce_a
+            let end_patch = emit_avm2_s24_placeholder(code, 0x10); // jump
+            let else_pos = code.buf.len();
+            patch_avm2_s24(code, else_patch, else_pos)?;
+            compile_avm2_expr(pool, else_expr, code, state, env)?;
+            code.u8(0x82); // coerce_a
+            let end_pos = code.buf.len();
+            patch_avm2_s24(code, end_patch, end_pos)?;
+        }
+        SwfExpr::Binary { op, lhs, rhs } => {
+            if matches!(op, SwfBinaryOp::And | SwfBinaryOp::Or) {
+                compile_avm2_expr(pool, lhs, code, state, env)?;
+                code.u8(0x2A); // dup
+                let skip_patch = emit_avm2_s24_placeholder(
+                    code,
+                    if *op == SwfBinaryOp::And {
+                        0x12 // iffalse
+                    } else {
+                        0x11 // iftrue
+                    },
+                );
+                code.u8(0x29); // pop
+                compile_avm2_expr(pool, rhs, code, state, env)?;
+                let end_pos = code.buf.len();
+                patch_avm2_s24(code, skip_patch, end_pos)?;
+                return Ok(());
+            }
+            if *op == SwfBinaryOp::Is && matches!(rhs.as_ref(), SwfExpr::Ident(id) if id == "*") {
+                compile_avm2_expr(pool, lhs, code, state, env)?;
+                code.u8(0xB2); // istype *
+                code.u32_v(0);
+                return Ok(());
+            }
+            compile_avm2_expr(pool, lhs, code, state, env)?;
+            if matches!(
+                op,
+                SwfBinaryOp::Is | SwfBinaryOp::As | SwfBinaryOp::InstanceOf
+            ) {
+                compile_avm2_type_rhs(pool, rhs, code, state, env)?;
+            } else {
+                compile_avm2_expr(pool, rhs, code, state, env)?;
+            }
+            match op {
+                SwfBinaryOp::Add => code.u8(0xA0),    // add
+                SwfBinaryOp::Sub => code.u8(0xA1),    // subtract
+                SwfBinaryOp::Mul => code.u8(0xA2),    // multiply
+                SwfBinaryOp::Div => code.u8(0xA3),    // divide
+                SwfBinaryOp::Mod => code.u8(0xA4),    // modulo
+                SwfBinaryOp::Shl => code.u8(0xA5),    // lshift
+                SwfBinaryOp::Shr => code.u8(0xA6),    // rshift
+                SwfBinaryOp::UShr => code.u8(0xA7),   // urshift
+                SwfBinaryOp::BitAnd => code.u8(0xA8), // bitand
+                SwfBinaryOp::BitOr => code.u8(0xA9),  // bitor
+                SwfBinaryOp::BitXor => code.u8(0xAA), // bitxor
+                SwfBinaryOp::Eq => code.u8(0xAB),     // equals
+                SwfBinaryOp::Ne => {
+                    code.u8(0xAB); // equals
+                    code.u8(0x96); // not
+                }
+                SwfBinaryOp::StrictEq => code.u8(0xAC), // strictequals
+                SwfBinaryOp::StrictNe => {
+                    code.u8(0xAC); // strictequals
+                    code.u8(0x96); // not
+                }
+                SwfBinaryOp::Lt => code.u8(0xAD), // lessthan
+                SwfBinaryOp::Le => code.u8(0xAE), // lessequals
+                SwfBinaryOp::Gt => code.u8(0xAF), // greaterthan
+                SwfBinaryOp::Ge => code.u8(0xB0), // greaterequals
+                SwfBinaryOp::InstanceOf => code.u8(0xB1), // instanceof
+                SwfBinaryOp::Is => code.u8(0xB3), // istypelate
+                SwfBinaryOp::As => code.u8(0x87), // astypelate
+                SwfBinaryOp::In => code.u8(0xB4), // in
+                SwfBinaryOp::And | SwfBinaryOp::Or => unreachable!("handled above"),
+            }
+        }
+        SwfExpr::Call { callee, args } => {
+            compile_avm2_call(pool, callee, args, false, code, state, env)?;
+        }
+        SwfExpr::New { callee, args } => {
+            let (pkg, cls_name) = if let Some(parts) = dotted_member_chain(callee) {
+                if parts.len() >= 2 {
+                    let cname = parts.last().cloned().unwrap_or_default();
+                    let p = parts[..parts.len() - 1].join(".");
+                    (p, cname)
+                } else {
+                    (String::new(), parts[0].clone())
+                }
+            } else {
+                return Err("unsupported 'new' constructor target in AVM2".to_owned());
+            };
+            let mn = pool.add_qname(&pkg, &cls_name);
+            code.u8(0x5D); // findpropstrict
+            code.u32_v(mn);
+            for a in args {
+                compile_avm2_expr(pool, a, code, state, env)?;
+            }
+            code.u8(0x4A); // constructprop
+            code.u32_v(mn);
+            code.u32_v(args.len() as u32);
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn compile_avm2_call(
+    pool: &mut AbcPoolBuilder,
+    callee: &SwfExpr,
+    args: &[SwfExpr],
+    discard_result: bool,
+    code: &mut SwfBitWriter,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
+) -> Result<(), String> {
+    if matches!(callee, SwfExpr::Ident(id) if id == "super") {
+        code.u8(0xD0); // getlocal_0
+        for a in args {
+            compile_avm2_expr(pool, a, code, state, env)?;
+        }
+        code.u8(0x49); // constructsuper
+        code.u32_v(args.len() as u32);
+        if !discard_result {
+            code.u8(0x21); // pushundefined
+        }
+        return Ok(());
+    }
+
+    if let SwfExpr::Member(recv, method_name) = callee
+        && matches!(recv.as_ref(), SwfExpr::Ident(id) if id == "super")
+    {
+        code.u8(0xD0); // getlocal_0
+        for a in args {
+            compile_avm2_expr(pool, a, code, state, env)?;
+        }
+        let mn = pool.add_qname("", method_name);
+        code.u8(if discard_result { 0x4E } else { 0x45 }); // callsupervoid / callsuper
+        code.u32_v(mn);
+        code.u32_v(args.len() as u32);
+        return Ok(());
+    }
+
+    if let SwfExpr::Ident(name) = callee
+        && (env.local_regs.contains_key(name)
+            || env.own_slots.contains_key(name)
+            || env.outer_slots.contains_key(name))
+    {
+        emit_avm2_load_ident(pool, name, code, env);
+        code.u8(0xD0); // getlocal_0 (receiver)
+        for a in args {
+            compile_avm2_expr(pool, a, code, state, env)?;
+        }
+        code.u8(0x41); // call
+        code.u32_v(args.len() as u32);
+        if discard_result {
+            code.u8(0x29); // pop
+        }
+        return Ok(());
+    }
+
+    let direct_fn = match callee {
+        SwfExpr::Ident(name) => Some(name.as_str()),
+        SwfExpr::Member(recv, prop) if matches!(recv.as_ref(), SwfExpr::Ident(id) if id == "this" || id == "_root") => {
+            Some(prop.as_str())
+        }
+        _ => None,
+    };
+
+    if let Some(short_fn) = direct_fn {
+        let is_builtin = matches!(
+            short_fn,
+            "stop"
+                | "play"
+                | "nextFrame"
+                | "prevFrame"
+                | "stopAllSounds"
+                | "gotoAndStop"
+                | "gotoAndPlay"
+                | "addFrameScript"
+                | "addChild"
+                | "removeChild"
+                | "getChildByName"
+                | "trace"
+                | "int"
+                | "uint"
+                | "Number"
+                | "String"
+                | "Boolean"
+                | "parseInt"
+                | "parseFloat"
+                | "isNaN"
+                | "isFinite"
+        );
+        if is_builtin {
+            let fn_mn = pool.add_qname("", short_fn);
+            code.u8(0x5D); // findpropstrict
+            code.u32_v(fn_mn);
+            let effective_args =
+                if matches!(short_fn, "gotoAndStop" | "gotoAndPlay") && args.len() > 2 {
+                    &args[..2]
+                } else {
+                    args
+                };
+            for a in effective_args {
+                compile_avm2_expr(pool, a, code, state, env)?;
+            }
+            code.u8(if discard_result { 0x4F } else { 0x46 }); // callpropvoid / callproperty
+            code.u32_v(fn_mn);
+            code.u32_v(effective_args.len() as u32);
+            return Ok(());
+        }
+
+        let fn_mn = pool.add_qname("", short_fn);
+        code.u8(0x60); // getlex
+        code.u32_v(fn_mn);
+        code.u8(0xD0); // getlocal_0 (receiver)
+        for a in args {
+            compile_avm2_expr(pool, a, code, state, env)?;
+        }
+        code.u8(0x41); // call
+        code.u32_v(args.len() as u32);
+        if discard_result {
+            code.u8(0x29); // pop
+        }
+        return Ok(());
+    }
+
+    if let SwfExpr::Member(recv, method_name) = callee {
+        compile_avm2_expr(pool, recv, code, state, env)?;
+        for a in args {
+            compile_avm2_expr(pool, a, code, state, env)?;
+        }
+        let mn = pool.add_qname("", method_name);
+        code.u8(if discard_result { 0x4F } else { 0x46 }); // callpropvoid / callproperty
+        code.u32_v(mn);
+        code.u32_v(args.len() as u32);
+        return Ok(());
+    }
+
+    compile_avm2_expr(pool, callee, code, state, env)?;
+    code.u8(0xD0); // getlocal_0 (receiver)
+    for a in args {
+        compile_avm2_expr(pool, a, code, state, env)?;
+    }
+    code.u8(0x41); // call
+    code.u32_v(args.len() as u32);
+    if discard_result {
+        code.u8(0x29); // pop
+    }
+    Ok(())
+}
+
+pub(super) fn compile_avm2_load_lvalue(
+    pool: &mut AbcPoolBuilder,
+    target: &SwfLValue,
+    code: &mut SwfBitWriter,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
+) -> Result<(), String> {
+    match target {
+        SwfLValue::Ident(name) => {
+            emit_avm2_load_ident(pool, name, code, env);
+        }
+        SwfLValue::Member(obj, prop) => {
+            if matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "super") {
+                code.u8(0xD0); // getlocal_0
+                let mn = pool.add_qname("", prop);
+                code.u8(0x04); // getsuper
+                code.u32_v(mn);
+            } else {
+                compile_avm2_expr(pool, obj, code, state, env)?;
+                let mn = pool.add_qname("", prop);
+                code.u8(0x66); // getproperty
+                code.u32_v(mn);
+            }
+        }
+        SwfLValue::Index(obj, idx) => {
+            let expr = SwfExpr::Index(obj.clone(), idx.clone());
+            compile_avm2_expr(pool, &expr, code, state, env)?;
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn compile_avm2_store_lvalue_with_rhs<F>(
+    pool: &mut AbcPoolBuilder,
+    target: &SwfLValue,
+    code: &mut SwfBitWriter,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
+    emit_rhs: F,
+) -> Result<(), String>
+where
+    F: FnOnce(
+        &mut AbcPoolBuilder,
+        &mut SwfBitWriter,
+        &mut Avm2CompilerState,
+        &mut Avm2LexicalEnv,
+    ) -> Result<(), String>,
+{
+    match target {
+        SwfLValue::Ident(name) => {
+            if let Some(&reg) = env.local_regs.get(name) {
+                emit_rhs(pool, code, state, env)?;
+                emit_avm2_setlocal(code, reg);
+            } else if let Some(&slot_id) = env.own_slots.get(name) {
+                code.u8(0x65); // getscopeobject 1
+                code.u8(0x01);
+                emit_rhs(pool, code, state, env)?;
+                code.u8(0x6D); // setslot
+                code.u32_v(slot_id);
+            } else if let Some(&(outer_idx, slot_id)) = env.outer_slots.get(name) {
+                code.u8(0x67); // getouterscope
+                code.u32_v(outer_idx);
+                emit_rhs(pool, code, state, env)?;
+                code.u8(0x6D); // setslot
+                code.u32_v(slot_id);
+            } else {
+                let prop_mn = pool.add_qname("", name);
+                code.u8(0xD0); // getlocal_0
+                emit_rhs(pool, code, state, env)?;
+                code.u8(0x61); // setproperty
+                code.u32_v(prop_mn);
+            }
+        }
+        SwfLValue::Member(obj, prop) => {
+            let prop_mn = pool.add_qname("", prop);
+            if matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "super") {
+                code.u8(0xD0); // getlocal_0
+                emit_rhs(pool, code, state, env)?;
+                code.u8(0x05); // setsuper
+                code.u32_v(prop_mn);
+            } else {
+                compile_avm2_expr(pool, obj, code, state, env)?;
+                emit_rhs(pool, code, state, env)?;
+                code.u8(0x61); // setproperty
+                code.u32_v(prop_mn);
+            }
+        }
+        SwfLValue::Index(obj, idx) => {
+            if let SwfExpr::Int(iv) = idx.as_ref() {
+                let prop_mn = pool.add_qname("", &iv.to_string());
+                compile_avm2_expr(pool, obj, code, state, env)?;
+                emit_rhs(pool, code, state, env)?;
+                code.u8(0x61); // setproperty
+                code.u32_v(prop_mn);
+            } else if let SwfExpr::Str(s) = idx.as_ref() {
+                let prop_mn = pool.add_qname("", s);
+                compile_avm2_expr(pool, obj, code, state, env)?;
+                emit_rhs(pool, code, state, env)?;
+                code.u8(0x61); // setproperty
+                code.u32_v(prop_mn);
+            } else {
+                compile_avm2_expr(pool, obj, code, state, env)?;
+                compile_avm2_expr(pool, idx, code, state, env)?;
+                emit_rhs(pool, code, state, env)?;
+                let mn_l = pool.intern_multiname_l();
+                code.u8(0x61); // setproperty (MultinameL)
+                code.u32_v(mn_l);
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn compile_avm2_function_decl_binding(
+    pool: &mut AbcPoolBuilder,
+    name: &str,
+    params: &[String],
+    body: &[SwfStmt],
+    code: &mut SwfBitWriter,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
+) -> Result<(), String> {
+    if let Some(&reg) = env.local_regs.get(name) {
+        compile_avm2_closure_value(pool, None, params, body, code, state, env)?;
+        emit_avm2_setlocal(code, reg);
+    } else if let Some(&slot_id) = env.own_slots.get(name) {
+        code.u8(0x65); // getscopeobject 1
+        code.u8(0x01);
+        compile_avm2_closure_value(pool, None, params, body, code, state, env)?;
+        code.u8(0x6D); // setslot
+        code.u32_v(slot_id);
+    } else {
+        let fn_mn = pool.add_qname("", name);
+        code.u8(0xD0); // getlocal_0
+        compile_avm2_closure_value(pool, None, params, body, code, state, env)?;
+        code.u8(0x61); // setproperty
+        code.u32_v(fn_mn);
+    }
+    Ok(())
+}
+
+pub(super) fn compile_avm2_stmt_list(
+    pool: &mut AbcPoolBuilder,
+    stmts: &[SwfStmt],
+    code: &mut SwfBitWriter,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
+) -> Result<(), String> {
+    for stmt in stmts {
+        if let SwfStmt::FunctionDecl { name, params, body } = stmt {
+            compile_avm2_function_decl_binding(pool, name, params, body, code, state, env)?;
+        }
+    }
+    for stmt in stmts {
+        if matches!(stmt, SwfStmt::FunctionDecl { .. }) {
+            continue;
+        }
+        compile_avm2_stmt(pool, stmt, code, state, env)?;
+    }
+    Ok(())
+}
+
+fn emit_avm2_unwind_finally_range(
+    pool: &mut AbcPoolBuilder,
+    code: &mut SwfBitWriter,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
+    target_depth: usize,
+) -> Result<(), String> {
+    if env.finally_stack.len() <= target_depth {
+        return Ok(());
+    }
+    let saved = env.finally_stack.clone();
+    for depth in (target_depth..saved.len()).rev() {
+        env.finally_stack.truncate(depth);
+        compile_avm2_stmt_list(pool, &saved[depth], code, state, env)?;
+    }
+    env.finally_stack = saved;
+    Ok(())
+}
+
+fn emit_avm2_catch_prologue(
+    pool: &mut AbcPoolBuilder,
+    cname: &str,
+    code: &mut SwfBitWriter,
+    env: &mut Avm2LexicalEnv,
+) {
+    // On exception handler entry: stack = [thrown], scope_stack = [].
+    code.u8(0xD0); // getlocal_0
+    code.u8(0x30); // pushscope (restores scope 0 = this; stack remains [thrown])
+    if let Some(act_reg) = env.act_reg {
+        emit_avm2_getlocal(code, act_reg);
+        code.u8(0x30); // pushscope (restores scope 1 = activation; stack remains [thrown])
+    }
+    if cname.is_empty() {
+        code.u8(0x29); // pop
+    } else if let Some(&reg) = env.local_regs.get(cname) {
+        emit_avm2_setlocal(code, reg);
+    } else if let Some(&slot_id) = env.own_slots.get(cname) {
+        code.u8(0x65); // getscopeobject 1
+        code.u8(0x01);
+        code.u8(0x2B); // swap -> [act, thrown]
+        code.u8(0x6D); // setslot
+        code.u32_v(slot_id);
+    } else if let Some(&(outer_idx, slot_id)) = env.outer_slots.get(cname) {
+        code.u8(0x67); // getouterscope
+        code.u32_v(outer_idx);
+        code.u8(0x2B); // swap
+        code.u8(0x6D); // setslot
+        code.u32_v(slot_id);
+    } else {
+        let prop_mn = pool.add_qname("", cname);
+        code.u8(0xD0); // getlocal_0
+        code.u8(0x2B); // swap -> [this, thrown]
+        code.u8(0x61); // setproperty
+        code.u32_v(prop_mn);
+    }
+}
+
+pub(super) fn compile_avm2_stmt(
+    pool: &mut AbcPoolBuilder,
+    stmt: &SwfStmt,
+    code: &mut SwfBitWriter,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
+) -> Result<(), String> {
+    match stmt {
+        SwfStmt::VarDecl { name, init } => {
+            if let Some(&reg) = env.local_regs.get(name) {
+                if let Some(rhs) = init {
+                    compile_avm2_expr(pool, rhs, code, state, env)?;
+                } else {
+                    code.u8(0x21); // pushundefined
+                }
+                emit_avm2_setlocal(code, reg);
+            } else if let Some(&slot_id) = env.own_slots.get(name) {
+                code.u8(0x65); // getscopeobject 1
+                code.u8(0x01);
+                if let Some(rhs) = init {
+                    compile_avm2_expr(pool, rhs, code, state, env)?;
+                } else {
+                    code.u8(0x21); // pushundefined
+                }
+                code.u8(0x6D); // setslot
+                code.u32_v(slot_id);
+            } else {
+                let prop_mn = pool.add_qname("", name);
+                code.u8(0xD0); // getlocal_0
+                if let Some(rhs) = init {
+                    compile_avm2_expr(pool, rhs, code, state, env)?;
+                } else {
+                    code.u8(0x21); // pushundefined
+                }
+                code.u8(0x61); // setproperty
+                code.u32_v(prop_mn);
+            }
+        }
+        SwfStmt::Assign { target, op, value } => {
+            compile_avm2_store_lvalue_with_rhs(pool, target, code, state, env, |p, c, st, ev| {
+                if *op == SwfAssignOp::Assign {
+                    compile_avm2_expr(p, value, c, st, ev)
+                } else {
+                    compile_avm2_load_lvalue(p, target, c, st, ev)?;
+                    compile_avm2_expr(p, value, c, st, ev)?;
+                    c.u8(match op {
+                        SwfAssignOp::AddAssign => 0xA0, // add
+                        SwfAssignOp::SubAssign => 0xA1, // subtract
+                        SwfAssignOp::MulAssign => 0xA2, // multiply
+                        SwfAssignOp::DivAssign => 0xA3, // divide
+                        SwfAssignOp::ModAssign => 0xA4, // modulo
+                        SwfAssignOp::Assign => unreachable!(),
+                    });
+                    Ok(())
+                }
+            })?;
+        }
+        SwfStmt::IncDec { target, increment } => {
+            compile_avm2_store_lvalue_with_rhs(pool, target, code, state, env, |p, c, st, ev| {
+                compile_avm2_load_lvalue(p, target, c, st, ev)?;
+                c.u8(if *increment { 0x91 } else { 0x93 }); // increment / decrement
+                Ok(())
+            })?;
+        }
+        SwfStmt::Expr(SwfExpr::Call { callee, args }) => {
+            compile_avm2_call(pool, callee, args, true, code, state, env)?;
+        }
+        SwfStmt::Expr(expr) => {
+            compile_avm2_expr(pool, expr, code, state, env)?;
+            code.u8(0x29); // pop
+        }
+        SwfStmt::Block(inner) => {
+            compile_avm2_stmt_list(pool, inner, code, state, env)?;
+        }
+        SwfStmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            compile_avm2_expr(pool, cond, code, state, env)?;
+            let skip_then_patch = emit_avm2_s24_placeholder(code, 0x12); // iffalse
+            compile_avm2_stmt_list(pool, then_branch, code, state, env)?;
+            if let Some(else_stmts) = else_branch
+                && !else_stmts.is_empty()
+            {
+                let skip_else_patch = emit_avm2_s24_placeholder(code, 0x10); // jump
+                let else_pos = code.buf.len();
+                patch_avm2_s24(code, skip_then_patch, else_pos)?;
+                compile_avm2_stmt_list(pool, else_stmts, code, state, env)?;
+                let end_pos = code.buf.len();
+                patch_avm2_s24(code, skip_else_patch, end_pos)?;
+            } else {
+                let end_pos = code.buf.len();
+                patch_avm2_s24(code, skip_then_patch, end_pos)?;
+            }
+        }
+        SwfStmt::While { cond, body } => {
+            let jump_to_cond = emit_avm2_s24_placeholder(code, 0x10); // jump L_cond
+            let body_pos = code.buf.len();
+            env.flow_stack.push(Avm2ControlFrame {
+                is_loop: true,
+                break_patches: Vec::new(),
+                continue_patches: Vec::new(),
+                finally_depth: env.finally_stack.len(),
+            });
+            compile_avm2_stmt_list(pool, body, code, state, env)?;
+            let frame = env.flow_stack.pop().expect("while control frame");
+            let cond_pos = code.buf.len();
+            patch_avm2_s24(code, jump_to_cond, cond_pos)?;
+            for cp in frame.continue_patches {
+                patch_avm2_s24(code, cp, cond_pos)?;
+            }
+            compile_avm2_expr(pool, cond, code, state, env)?;
+            let back_patch = emit_avm2_s24_placeholder(code, 0x11); // iftrue L_body
+            patch_avm2_s24(code, back_patch, body_pos)?;
+            let end_pos = code.buf.len();
+            for bp in frame.break_patches {
+                patch_avm2_s24(code, bp, end_pos)?;
+            }
+        }
+        SwfStmt::For {
+            init,
+            cond,
+            update,
+            body,
+        } => {
+            if let Some(init_stmt) = init {
+                compile_avm2_stmt(pool, init_stmt, code, state, env)?;
+            }
+            let jump_to_cond = emit_avm2_s24_placeholder(code, 0x10); // jump L_cond
+            let body_pos = code.buf.len();
+            env.flow_stack.push(Avm2ControlFrame {
+                is_loop: true,
+                break_patches: Vec::new(),
+                continue_patches: Vec::new(),
+                finally_depth: env.finally_stack.len(),
+            });
+            compile_avm2_stmt_list(pool, body, code, state, env)?;
+            let frame = env.flow_stack.pop().expect("for control frame");
+            let update_pos = code.buf.len();
+            for cp in frame.continue_patches {
+                patch_avm2_s24(code, cp, update_pos)?;
+            }
+            if let Some(upd_stmt) = update {
+                compile_avm2_stmt(pool, upd_stmt, code, state, env)?;
+            }
+            let cond_pos = code.buf.len();
+            patch_avm2_s24(code, jump_to_cond, cond_pos)?;
+            if let Some(c_expr) = cond {
+                compile_avm2_expr(pool, c_expr, code, state, env)?;
+            } else {
+                code.u8(0x26); // pushtrue
+            }
+            let back_patch = emit_avm2_s24_placeholder(code, 0x11); // iftrue L_body
+            patch_avm2_s24(code, back_patch, body_pos)?;
+            let end_pos = code.buf.len();
+            for bp in frame.break_patches {
+                patch_avm2_s24(code, bp, end_pos)?;
+            }
+        }
+        SwfStmt::ForIn {
+            is_each,
+            is_var_decl: _,
+            var_name,
+            object,
+            body,
+        } => {
+            let obj_reg = env.alloc_temp_reg();
+            let idx_reg = env.alloc_temp_reg();
+            compile_avm2_expr(pool, object, code, state, env)?;
+            code.u8(0x82); // coerce_a
+            emit_avm2_setlocal(code, obj_reg);
+            code.u8(0x24); // pushbyte 0
+            code.u8(0x00);
+            emit_avm2_setlocal(code, idx_reg);
+
+            let jump_to_cond = emit_avm2_s24_placeholder(code, 0x10); // jump L_cond
+            let body_pos = code.buf.len();
+            let next_op = if *is_each { 0x23 } else { 0x1E }; // nextvalue / nextname
+            let target_lv = SwfLValue::Ident(var_name.clone());
+            compile_avm2_store_lvalue_with_rhs(
+                pool,
+                &target_lv,
+                code,
+                state,
+                env,
+                |_, c, _, _| {
+                    emit_avm2_getlocal(c, obj_reg);
+                    emit_avm2_getlocal(c, idx_reg);
+                    c.u8(next_op);
+                    Ok(())
+                },
+            )?;
+
+            env.flow_stack.push(Avm2ControlFrame {
+                is_loop: true,
+                break_patches: Vec::new(),
+                continue_patches: Vec::new(),
+                finally_depth: env.finally_stack.len(),
+            });
+            compile_avm2_stmt_list(pool, body, code, state, env)?;
+            let frame = env.flow_stack.pop().expect("for-in control frame");
+
+            let cond_pos = code.buf.len();
+            patch_avm2_s24(code, jump_to_cond, cond_pos)?;
+            for cp in frame.continue_patches {
+                patch_avm2_s24(code, cp, cond_pos)?;
+            }
+            code.u8(0x32); // hasnext2
+            code.u32_v(obj_reg);
+            code.u32_v(idx_reg);
+            let back_patch = emit_avm2_s24_placeholder(code, 0x11); // iftrue L_body
+            patch_avm2_s24(code, back_patch, body_pos)?;
+
+            let end_pos = code.buf.len();
+            for bp in frame.break_patches {
+                patch_avm2_s24(code, bp, end_pos)?;
+            }
+            code.u8(0x08); // kill obj_reg
+            code.u32_v(obj_reg);
+            code.u8(0x08); // kill idx_reg
+            code.u32_v(idx_reg);
+        }
+        SwfStmt::Switch {
+            discriminant,
+            cases,
+        } => {
+            let disc_reg = env.alloc_temp_reg();
+            compile_avm2_expr(pool, discriminant, code, state, env)?;
+            code.u8(0x82); // coerce_a
+            emit_avm2_setlocal(code, disc_reg);
+
+            let mut case_patches: Vec<(usize, usize)> = Vec::new();
+            let mut default_idx: Option<usize> = None;
+            for (idx, (case_expr_opt, _)) in cases.iter().enumerate() {
+                if let Some(case_expr) = case_expr_opt {
+                    emit_avm2_getlocal(code, disc_reg);
+                    compile_avm2_expr(pool, case_expr, code, state, env)?;
+                    code.u8(0xAC); // strictequals
+                    let p = emit_avm2_s24_placeholder(code, 0x11); // iftrue
+                    case_patches.push((idx, p));
+                } else if default_idx.is_none() {
+                    default_idx = Some(idx);
+                }
+            }
+            let nomatch_patch = emit_avm2_s24_placeholder(code, 0x10); // jump default/end
+
+            env.flow_stack.push(Avm2ControlFrame {
+                is_loop: false,
+                break_patches: Vec::new(),
+                continue_patches: Vec::new(),
+                finally_depth: env.finally_stack.len(),
+            });
+
+            let mut body_positions = vec![0usize; cases.len()];
+            for (idx, (_, cbody)) in cases.iter().enumerate() {
+                body_positions[idx] = code.buf.len();
+                compile_avm2_stmt_list(pool, cbody, code, state, env)?;
+            }
+
+            let frame = env.flow_stack.pop().expect("switch control frame");
+            let end_pos = code.buf.len();
+            for (cidx, patch_pos) in case_patches {
+                patch_avm2_s24(code, patch_pos, body_positions[cidx])?;
+            }
+            if let Some(didx) = default_idx {
+                patch_avm2_s24(code, nomatch_patch, body_positions[didx])?;
+            } else {
+                patch_avm2_s24(code, nomatch_patch, end_pos)?;
+            }
+            for bp in frame.break_patches {
+                patch_avm2_s24(code, bp, end_pos)?;
+            }
+            code.u8(0x08); // kill disc_reg
+            code.u32_v(disc_reg);
+        }
+        SwfStmt::Break => {
+            let Some(finally_depth) = env.flow_stack.last().map(|f| f.finally_depth) else {
+                return Err("'break' used outside of a loop or switch statement".to_owned());
+            };
+            emit_avm2_unwind_finally_range(pool, code, state, env, finally_depth)?;
+            let patch = emit_avm2_s24_placeholder(code, 0x10); // jump
+            env.flow_stack
+                .last_mut()
+                .expect("checked flow frame")
+                .break_patches
+                .push(patch);
+        }
+        SwfStmt::Continue => {
+            let Some((loop_idx, finally_depth)) = env
+                .flow_stack
+                .iter()
+                .enumerate()
+                .rev()
+                .find(|(_, f)| f.is_loop)
+                .map(|(i, f)| (i, f.finally_depth))
+            else {
+                return Err("'continue' used outside of a loop statement".to_owned());
+            };
+            emit_avm2_unwind_finally_range(pool, code, state, env, finally_depth)?;
+            let patch = emit_avm2_s24_placeholder(code, 0x10); // jump
+            env.flow_stack[loop_idx].continue_patches.push(patch);
+        }
+        SwfStmt::Try {
+            try_body,
+            catches,
+            finally_body,
+        } => {
+            let mut normal_exit_patches = Vec::new();
+            let outer_from = code.buf.len();
+
+            if let Some(fbody) = finally_body {
+                env.finally_stack.push(fbody.clone());
+            }
+            let inner_from = code.buf.len();
+            compile_avm2_stmt_list(pool, try_body, code, state, env)?;
+            if code.buf.len() == inner_from {
+                code.u8(0x02); // nop so [from, to) is non-empty
+            }
+            if finally_body.is_some() {
+                let _ = env.finally_stack.pop();
+            }
+            normal_exit_patches.push(emit_avm2_s24_placeholder(code, 0x10)); // jump past handlers
+            let inner_to = code.buf.len();
+
+            if !catches.is_empty() {
+                let base_exc_idx = env.exceptions.len();
+                for (cname, ctype_opt, _) in catches {
+                    let exc_type = match ctype_opt.as_deref() {
+                        None | Some("*") => 0,
+                        Some(t) => {
+                            let (tp, ts) = split_qualified_class(t);
+                            pool.add_qname(&tp, &ts)
+                        }
+                    };
+                    let var_name = if cname.is_empty() {
+                        0
+                    } else {
+                        pool.add_qname("", cname)
+                    };
+                    env.exceptions.push(AbcExceptionSpec {
+                        from: inner_from as u32,
+                        to: inner_to as u32,
+                        target: 0,
+                        exc_type,
+                        var_name,
+                    });
+                }
+
+                for (i, (cname, _, cbody)) in catches.iter().enumerate() {
+                    let catch_target = code.buf.len();
+                    env.exceptions[base_exc_idx + i].target = catch_target as u32;
+                    emit_avm2_catch_prologue(pool, cname, code, env);
+                    if let Some(fbody) = finally_body {
+                        env.finally_stack.push(fbody.clone());
+                    }
+                    compile_avm2_stmt_list(pool, cbody, code, state, env)?;
+                    if finally_body.is_some() {
+                        let _ = env.finally_stack.pop();
+                    }
+                    if i + 1 < catches.len() || finally_body.is_some() {
+                        normal_exit_patches.push(emit_avm2_s24_placeholder(code, 0x10));
+                    }
+                }
+            }
+
+            if let Some(fbody) = finally_body {
+                let outer_to = code.buf.len();
+                let unwind_target = code.buf.len();
+                env.exceptions.push(AbcExceptionSpec {
+                    from: outer_from as u32,
+                    to: outer_to as u32,
+                    target: unwind_target as u32,
+                    exc_type: 0,
+                    var_name: 0,
+                });
+                let unw_reg = env.alloc_temp_reg();
+                code.u8(0xD0); // getlocal_0
+                code.u8(0x30); // pushscope
+                if let Some(act_reg) = env.act_reg {
+                    emit_avm2_getlocal(code, act_reg);
+                    code.u8(0x30); // pushscope
+                }
+                emit_avm2_setlocal(code, unw_reg);
+                compile_avm2_stmt_list(pool, fbody, code, state, env)?;
+                emit_avm2_getlocal(code, unw_reg);
+                code.u8(0x03); // throw (re-throw unwound exception)
+
+                let normal_finally_pos = code.buf.len();
+                for p in normal_exit_patches {
+                    patch_avm2_s24(code, p, normal_finally_pos)?;
+                }
+                compile_avm2_stmt_list(pool, fbody, code, state, env)?;
+            } else {
+                let after_catches = code.buf.len();
+                for p in normal_exit_patches {
+                    patch_avm2_s24(code, p, after_catches)?;
+                }
+            }
+        }
+        SwfStmt::Throw(expr) => {
+            compile_avm2_expr(pool, expr, code, state, env)?;
+            code.u8(0x03); // throw
+        }
+        SwfStmt::FunctionDecl { name, params, body } => {
+            compile_avm2_function_decl_binding(pool, name, params, body, code, state, env)?;
+        }
+        SwfStmt::ClassDecl { .. } => {
+            return Err(
+                "ActionScript 3 nested class declaration is not supported inside a method or script; move class definitions to external .as source files"
+                    .to_owned(),
+            );
+        }
+        SwfStmt::Return(expr_opt) => {
+            if let Some(expr) = expr_opt {
+                compile_avm2_expr(pool, expr, code, state, env)?;
+                if !env.finally_stack.is_empty() {
+                    let ret_reg = env.alloc_temp_reg();
+                    emit_avm2_setlocal(code, ret_reg);
+                    emit_avm2_unwind_finally_range(pool, code, state, env, 0)?;
+                    emit_avm2_getlocal(code, ret_reg);
+                }
+                code.u8(0x48); // returnvalue
+            } else {
+                if !env.finally_stack.is_empty() {
+                    emit_avm2_unwind_finally_range(pool, code, state, env, 0)?;
+                }
+                code.u8(0x47); // returnvoid
+            }
+        }
+        SwfStmt::EventHandler { .. } => {
+            return Err(
+                "ActionScript 3 does not support inline 'on(...)' or 'onClipEvent(...)' handlers"
+                    .to_owned(),
+            );
+        }
+    }
+    Ok(())
+}

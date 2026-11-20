@@ -132,3 +132,154 @@ fn eps_imports_checked_preview_and_its_intrinsic_size() {
             .is_err()
     );
 }
+
+#[test]
+fn pdf_imports_type3_radial_exponential_fn2_stitching_fn3_and_shading_patterns() {
+    use lopdf::{Document, Object, Stream, dictionary};
+
+    let mut doc = Document::with_version("1.6");
+    let tree = doc.new_object_id();
+
+    // 1) Type 3 radial shading with focal offset + inner radius r0 > 0 + FunctionType 3 stitching (3 stops)
+    let f_a = dictionary! {
+        "FunctionType" => 2,
+        "Domain" => vec![0.into(), 1.into()],
+        "N" => 1,
+        "C0" => vec![1.into(), 0.into(), 0.into()],
+        "C1" => vec![0.into(), 1.into(), 0.into()],
+    };
+    let f_b = dictionary! {
+        "FunctionType" => 2,
+        "Domain" => vec![0.into(), 1.into()],
+        "N" => 1,
+        "C0" => vec![0.into(), 1.into(), 0.into()],
+        "C1" => vec![0.into(), 0.into(), 1.into()],
+    };
+    let stitched = doc.add_object(dictionary! {
+        "FunctionType" => 3,
+        "Domain" => vec![0.into(), 1.into()],
+        "Functions" => vec![f_a.into(), f_b.into()],
+        "Bounds" => vec![Object::Real(0.5)],
+        "Encode" => vec![0.into(), 1.into(), 0.into(), 1.into()],
+    });
+    let sh_radial = doc.add_object(dictionary! {
+        "ShadingType" => 3,
+        "ColorSpace" => "DeviceRGB",
+        "Coords" => vec![60.into(), 50.into(), 10.into(), 50.into(), 50.into(), 40.into()],
+        "Function" => Object::Reference(stitched),
+    });
+
+    // 2) Type 2 axial shading with exponential FunctionType 2 (N = 2.0) in DeviceCMYK via PatternType 2 (`scn`)
+    let fn_exp = doc.add_object(dictionary! {
+        "FunctionType" => 2,
+        "Domain" => vec![0.into(), 1.into()],
+        "N" => Object::Real(2.0),
+        "C0" => vec![0.into(), 0.into(), 0.into(), 0.into()], // white
+        "C1" => vec![1.into(), 0.into(), 0.into(), 0.into()], // cyan (R=0, G=255, B=255)
+    });
+    let sh_exp = doc.add_object(dictionary! {
+        "ShadingType" => 2,
+        "ColorSpace" => "DeviceCMYK",
+        "Coords" => vec![0.into(), 0.into(), 100.into(), 0.into()],
+        "Function" => Object::Reference(fn_exp),
+    });
+    let pat0 = doc.add_object(dictionary! {
+        "Type" => "Pattern",
+        "PatternType" => 2,
+        "Shading" => Object::Reference(sh_exp),
+        "Matrix" => vec![1.into(), 0.into(), 0.into(), 1.into(), 10.into(), 10.into()],
+    });
+
+    let stream = doc.add_object(Stream::new(
+        dictionary! {},
+        b"q 10 10 80 80 re W n /ShRad sh Q /Pattern cs /Pat0 scn 10 10 100 20 re f".to_vec(),
+    ));
+    let page = doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => tree,
+        "Contents" => Object::Reference(stream),
+        "Resources" => dictionary! {
+            "Shading" => dictionary! { "ShRad" => Object::Reference(sh_radial) },
+            "Pattern" => dictionary! { "Pat0" => Object::Reference(pat0) },
+        },
+    });
+    doc.objects.insert(
+        tree,
+        dictionary! {
+            "Type" => "Pages",
+            "Count" => 1,
+            "Kids" => vec![Object::Reference(page)],
+            "MediaBox" => vec![0.into(), 0.into(), 120.into(), 100.into()],
+        }
+        .into(),
+    );
+    let root = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => tree });
+    doc.trailer.set("Root", root);
+    let mut bytes = Vec::new();
+    doc.save_to(&mut bytes).unwrap();
+
+    let (project, report) =
+        import_pdf_ai_with_options(&bytes, "shadings", &VectorImportOptions::default()).unwrap();
+    project.validate().unwrap();
+    assert!(
+        !report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "pdf-unsupported-operator")
+    );
+
+    let all_elements: Vec<&Element> = project
+        .symbol(&project.root)
+        .unwrap()
+        .timeline
+        .layers
+        .iter()
+        .flat_map(|l| &l.keyframes)
+        .flat_map(|k| &k.elements)
+        .collect();
+
+    let radial_elem = all_elements
+        .iter()
+        .find(|e| e.name == "PDF radial shading")
+        .expect("radial shading element");
+    let ElementKind::PaintedPath {
+        fill_gradient: Some(rad_grad),
+        ..
+    } = &radial_elem.kind
+    else {
+        panic!("expected radial PaintedPath");
+    };
+    assert_eq!(rad_grad.kind, GradientKind::Radial);
+    assert!(
+        rad_grad.focal_point_ratio > 0.2 && rad_grad.focal_point_ratio < 0.3,
+        "expected focal ratio ~0.25, got {}",
+        rad_grad.focal_point_ratio
+    );
+    // Inner radius r0/r1 = 10/40 = 0.25 -> first stop holds red, stitched midpoint green, outer blue
+    assert_eq!(rad_grad.stops.first().unwrap().color, [255, 0, 0, 255]);
+    assert_eq!(rad_grad.stops.last().unwrap().color, [0, 0, 255, 255]);
+    assert!(rad_grad.stops.iter().any(|s| s.color == [0, 255, 0, 255]));
+
+    let pat_elem = all_elements
+        .iter()
+        .find(|e| e.name.starts_with("PDF Path"))
+        .expect("pattern-filled path element");
+    let ElementKind::PaintedPath {
+        fill_gradient: Some(exp_grad),
+        ..
+    } = &pat_elem.kind
+    else {
+        panic!("expected pattern-filled PaintedPath");
+    };
+    assert_eq!(exp_grad.kind, GradientKind::Linear);
+    assert!(
+        exp_grad.stops.len() > 2,
+        "N=2.0 curve should sample multi-stop ramp"
+    );
+    // At midpoint x = 60 (10 + 50), t = 0.5, t^2 = 0.25 -> C = 0.25 -> R = round(0.75 * 255) = 191, G = 255, B = 255
+    let mid_sample = exp_grad.sample(60.0, 80.0);
+    assert!(
+        (i16::from(mid_sample[0]) - 191).abs() <= 4 && mid_sample[1] == 255 && mid_sample[2] == 255,
+        "expected exponential midpoint ~[191, 255, 255, 255], got {mid_sample:?}"
+    );
+}
