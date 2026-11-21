@@ -409,6 +409,9 @@ impl Editor {
 
     /// Open the `Export image` modal dialog (`DL-04`).
     pub(crate) fn open_export_image(&mut self, ctx: &egui::Context) {
+        if !self.has_document() || self.is_standalone_script_session() {
+            return;
+        }
         self.finish_edits();
         let options = self.default_export_image_options();
         let output_path =

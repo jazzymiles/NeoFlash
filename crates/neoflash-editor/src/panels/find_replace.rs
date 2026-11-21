@@ -185,6 +185,21 @@ impl Default for FindReplaceState {
     }
 }
 
+impl FindReplaceState {
+    pub(crate) fn clamp_for_standalone_script(&mut self) {
+        if self.kind != FindKind::Text {
+            self.kind = FindKind::Text;
+            self.results.clear();
+            self.selected = 0;
+        }
+        self.in_current_scene = false;
+        self.scene_filter = None;
+        self.in_actionscript = true;
+        self.in_names_labels = false;
+        self.in_text_fields = false;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Self-contained bounded regular-expression matcher (no external crate needed)
 // ---------------------------------------------------------------------------
@@ -831,12 +846,41 @@ fn symbol_creates_cycle(project: &Project, container_id: &str, target_id: &str) 
     false
 }
 
-pub(crate) fn collect_find_hits(
+pub(crate) fn collect_find_hits_for_session(
     project: &Project,
     current_symbol_id: &str,
     state: &FindReplaceState,
+    standalone_script: bool,
 ) -> Vec<FindHit> {
     let mut hits = Vec::new();
+    if standalone_script {
+        if state.find.is_empty() {
+            return hits;
+        }
+        for unit in &project.sources {
+            for range in find_text_ranges(
+                &unit.source,
+                &state.find,
+                state.whole_word,
+                state.match_case,
+                state.regex,
+            ) {
+                let (line, column, preview) = line_col_and_preview(&unit.source, range.0);
+                hits.push(FindHit {
+                    place_key: format!("src:{}", unit.id),
+                    location_label: format!("{} · line {line}", unit.path),
+                    found_preview: preview,
+                    target: MatchTarget::SourceScript {
+                        source_id: unit.id.clone(),
+                        range,
+                        line,
+                        column,
+                    },
+                });
+            }
+        }
+        return hits;
+    }
     let scoped_symbols: Vec<&neoflash_core::Symbol> = project
         .symbols
         .iter()
@@ -1802,27 +1846,35 @@ fn count_distinct_places(hits: &[FindHit]) -> usize {
 impl Editor {
     pub fn open_find_replace(&mut self) {
         self.set_playing(false);
+        let standalone = self.is_standalone_script_session();
         let mut state = self.find_replace.take().unwrap_or_default();
         state.focus_find = true;
-        if state.find.is_empty()
+        if standalone {
+            state.clamp_for_standalone_script();
+        } else if state.find.is_empty()
             && let Some(el) = self.selected_element()
             && !el.name.trim().is_empty()
         {
             state.find = el.name.trim().to_owned();
         }
         if !state.find.is_empty() {
-            state.results = collect_find_hits(&self.project, self.symbol_id(), &state);
+            state.results =
+                collect_find_hits_for_session(&self.project, self.symbol_id(), &state, standalone);
             state.selected = 0;
         }
         self.find_replace = Some(state);
     }
 
     pub fn find_all_matches(&mut self) -> usize {
+        let standalone = self.is_standalone_script_session();
         let sym_id = self.symbol_id().to_owned();
         let Some(state) = self.find_replace.as_mut() else {
             return 0;
         };
-        state.results = collect_find_hits(&self.project, &sym_id, state);
+        if standalone {
+            state.clamp_for_standalone_script();
+        }
+        state.results = collect_find_hits_for_session(&self.project, &sym_id, state, standalone);
         state.selected = 0;
         let len = state.results.len();
         let live_first = (state.live_edit && len > 0).then(|| state.results[0].target.clone());
@@ -1837,6 +1889,11 @@ impl Editor {
         target: &MatchTarget,
         ctx: Option<&egui::Context>,
     ) {
+        if self.is_standalone_script_session()
+            && !matches!(target, MatchTarget::SourceScript { .. })
+        {
+            return;
+        }
         let enter_sym = |editor: &mut Editor, symbol: &str| -> bool {
             if editor.project.symbol(symbol).is_none() {
                 return false;
@@ -2012,7 +2069,9 @@ impl Editor {
                 let loc = ScriptLocation::Source(source_id.clone());
                 let src = self.script_source_for(&loc).unwrap_or_default();
                 self.open_script_location(loc);
-                self.open_actions();
+                if !self.is_standalone_script_session() {
+                    self.open_actions();
+                }
                 if let Some(ctx) = ctx {
                     crate::sources::jump_to(ctx, self.actions_editor_id(), &src, *line, *column);
                 }
@@ -2021,12 +2080,20 @@ impl Editor {
     }
 
     pub fn replace_selected_match(&mut self) -> bool {
+        let standalone = self.is_standalone_script_session();
+        if standalone && let Some(st) = self.find_replace.as_mut() {
+            st.clamp_for_standalone_script();
+        }
         let Some(state) = self.find_replace.as_ref() else {
             return false;
         };
         let Some(hit) = state.results.get(state.selected).cloned() else {
             return false;
         };
+        if standalone && !matches!(hit.target, MatchTarget::SourceScript { .. }) {
+            return false;
+        }
+        let is_source_target = matches!(hit.target, MatchTarget::SourceScript { .. });
         let replacement = state.replace.clone();
         let selected_idx = state.selected;
         let mut changed = false;
@@ -2041,9 +2108,13 @@ impl Editor {
             }
         });
         if changed {
+            if is_source_target || standalone {
+                self.invalidate_include_dependents_across_sessions();
+            }
             let sym_id = self.symbol_id().to_owned();
             if let Some(state) = self.find_replace.as_mut() {
-                state.results = collect_find_hits(&self.project, &sym_id, state);
+                state.results =
+                    collect_find_hits_for_session(&self.project, &sym_id, state, standalone);
                 state.selected = selected_idx.min(state.results.len().saturating_sub(1));
                 let live_target = state
                     .live_edit
@@ -2058,14 +2129,25 @@ impl Editor {
     }
 
     pub fn replace_all_matches(&mut self) -> usize {
+        let standalone = self.is_standalone_script_session();
+        if standalone && let Some(st) = self.find_replace.as_mut() {
+            st.clamp_for_standalone_script();
+        }
         let sym_id = self.symbol_id().to_owned();
         let Some(state) = self.find_replace.as_ref().cloned() else {
             return 0;
         };
-        let hits = collect_find_hits(&self.project, &sym_id, &state);
+        let hits = collect_find_hits_for_session(&self.project, &sym_id, &state, standalone);
         if hits.is_empty() {
+            if let Some(st) = self.find_replace.as_mut() {
+                st.results.clear();
+                st.selected = 0;
+            }
             return 0;
         }
+        let touched_source = hits
+            .iter()
+            .any(|h| matches!(h.target, MatchTarget::SourceScript { .. }));
         let replacement = state.replace.clone();
         let mut count = 0usize;
         self.finish_edits();
@@ -2083,18 +2165,25 @@ impl Editor {
                 count = 0;
             }
         });
+        if count > 0 && (touched_source || standalone) {
+            self.invalidate_include_dependents_across_sessions();
+        }
         let sym_id = self.symbol_id().to_owned();
         if let Some(st) = self.find_replace.as_mut() {
-            st.results = collect_find_hits(&self.project, &sym_id, st);
+            st.results = collect_find_hits_for_session(&self.project, &sym_id, st, standalone);
             st.selected = 0;
         }
         count
     }
 
     pub(crate) fn find_replace_dialog(&mut self, ctx: &egui::Context) {
+        let standalone = self.is_standalone_script_session();
         let Some(mut state) = self.find_replace.clone() else {
             return;
         };
+        if standalone {
+            state.clamp_for_standalone_script();
+        }
         let p = neoflash_ui::palette(ctx);
         let mut close = false;
         let mut do_find_all = false;
@@ -2116,6 +2205,7 @@ impl Editor {
                         ui,
                         area,
                         &self.project,
+                        standalone,
                         &mut state,
                         &mut do_find_all,
                         &mut clicked_row,
@@ -2145,6 +2235,9 @@ impl Editor {
             return;
         }
 
+        if standalone {
+            state.clamp_for_standalone_script();
+        }
         self.find_replace = Some(state);
 
         if do_find_all {
@@ -2174,73 +2267,79 @@ fn find_replace_body(
     ui: &mut Ui,
     area: PageArea,
     project: &Project,
+    standalone_script: bool,
     state: &mut FindReplaceState,
     do_find_all: &mut bool,
     clicked_row: &mut Option<usize>,
 ) {
     let prev_kind = state.kind;
-    c::Segmented::show(
-        ui,
-        &mut state.kind,
-        &[
-            (FindKind::Text, "Text"),
-            (FindKind::Font, "Font"),
-            (FindKind::Colour, "Colour"),
-            (FindKind::Symbol, "Symbol"),
-            (FindKind::Sound, "Sound"),
-            (FindKind::Video, "Video"),
-            (FindKind::Bitmap, "Bitmap"),
-        ],
-        false,
-    );
+    ui.add_enabled_ui(!standalone_script, |ui| {
+        c::Segmented::show(
+            ui,
+            &mut state.kind,
+            &[
+                (FindKind::Text, "Text"),
+                (FindKind::Font, "Font"),
+                (FindKind::Colour, "Colour"),
+                (FindKind::Symbol, "Symbol"),
+                (FindKind::Sound, "Sound"),
+                (FindKind::Video, "Video"),
+                (FindKind::Bitmap, "Bitmap"),
+            ],
+            false,
+        );
+    });
     if state.kind != prev_kind {
         state.results.clear();
         state.selected = 0;
     }
 
     form_row(ui, "In", |ui| {
-        c::Select::options(
-            ui,
-            "find-replace-scope-in",
-            &mut state.in_current_scene,
-            &[(false, "Current document"), (true, "Current scene")],
-            metrics::field_l(),
-        );
-        let scene_label = match &state.scene_filter {
-            None => "Scene: All scenes".to_owned(),
-            Some(id) => format!(
-                "Scene: {}",
-                project.symbol(id).map_or(id.as_str(), |s| s.name.as_str())
-            ),
-        };
-        ui.add_enabled_ui(!state.in_current_scene, |ui| {
-            c::Select::new("find-replace-scene", &scene_label)
-                .width(metrics::field_l())
-                .show(ui, |ui| {
-                    if ui
-                        .add(
-                            c::MenuItem::new("Scene: All scenes")
-                                .checked(state.scene_filter.is_none()),
-                        )
-                        .clicked()
-                    {
-                        state.scene_filter = None;
-                    }
-                    for sid in project.scene_ids() {
-                        let sname = project
-                            .symbol(&sid)
-                            .map_or_else(|| sid.clone(), |s| s.name.clone());
+        ui.add_enabled_ui(!standalone_script, |ui| {
+            c::Select::options(
+                ui,
+                "find-replace-scope-in",
+                &mut state.in_current_scene,
+                &[(false, "Current document"), (true, "Current scene")],
+                metrics::field_l(),
+            );
+            let scene_label = match &state.scene_filter {
+                None => "Scene: All scenes".to_owned(),
+                Some(id) => format!(
+                    "Scene: {}",
+                    project.symbol(id).map_or(id.as_str(), |s| s.name.as_str())
+                ),
+            };
+            ui.add_enabled_ui(!state.in_current_scene, |ui| {
+                c::Select::new("find-replace-scene", &scene_label)
+                    .width(metrics::field_l())
+                    .show(ui, |ui| {
                         if ui
                             .add(
-                                c::MenuItem::new(&format!("Scene: {sname}"))
-                                    .checked(state.scene_filter.as_deref() == Some(sid.as_str())),
+                                c::MenuItem::new("Scene: All scenes")
+                                    .checked(state.scene_filter.is_none()),
                             )
                             .clicked()
                         {
-                            state.scene_filter = Some(sid);
+                            state.scene_filter = None;
                         }
-                    }
-                });
+                        for sid in project.scene_ids() {
+                            let sname = project
+                                .symbol(&sid)
+                                .map_or_else(|| sid.clone(), |s| s.name.clone());
+                            if ui
+                                .add(
+                                    c::MenuItem::new(&format!("Scene: {sname}")).checked(
+                                        state.scene_filter.as_deref() == Some(sid.as_str()),
+                                    ),
+                                )
+                                .clicked()
+                            {
+                                state.scene_filter = Some(sid);
+                            }
+                        }
+                    });
+            });
         });
     });
 
@@ -2305,15 +2404,15 @@ fn find_replace_body(
     form_row(ui, "Look in", |ui| {
         ui.spacing_mut().item_spacing.x = space::s4();
         ui.add_enabled(
-            is_text,
+            is_text && !standalone_script,
             c::Checkbox::new(&mut state.in_text_fields, "Text field contents"),
         );
         ui.add_enabled(
-            is_text,
+            is_text && !standalone_script,
             c::Checkbox::new(&mut state.in_names_labels, "Frames / layers / scenes"),
         );
         ui.add_enabled(
-            is_text,
+            is_text && !standalone_script,
             c::Checkbox::new(&mut state.in_actionscript, "ActionScript"),
         );
     });
@@ -3298,5 +3397,120 @@ impl Editor {
             }
         }
         report
+    }
+}
+
+#[cfg(test)]
+mod t414_find_replace_tests {
+    use super::*;
+    use neoflash_core::{FrameScript, Script, ScriptLanguage, new_id};
+
+    #[test]
+    fn t414_standalone_as_replace_all_ignores_hidden_dummy_project_and_invalidates_dependents() {
+        let tmp = std::env::temp_dir().join(format!(
+            "neoflash-t414-find-replace-{}-{}",
+            std::process::id(),
+            new_id("dir")
+        ));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let helper_path = tmp.join("helper.as");
+        std::fs::write(&helper_path, "var GREETING:String = \"OLD_TOKEN\";\n").unwrap();
+
+        let mut host = Project::blank();
+        host.name = "Host".into();
+        host.script_language = Some(ScriptLanguage::ActionScript2);
+        let root_id = host.root.clone();
+        host.symbol_mut(&root_id)
+            .unwrap()
+            .timeline
+            .scripts
+            .push(FrameScript {
+                layer: None,
+                frame: 0,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "#include \"helper.as\"\ntrace(GREETING);\n".into(),
+                },
+            });
+        crate::timeline_commands::upgrade_all_format_versions(&mut host);
+        let host_path = tmp.join("Host.nflash");
+        std::fs::write(&host_path, host.to_json().unwrap()).unwrap();
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.sessions.clear();
+        assert!(editor.try_open_path(host_path, &ctx));
+        editor.refresh_compiler_diagnostics();
+        assert!(editor.compiler_errors.fingerprint.is_some());
+
+        // Pre-seed Find & Replace with Scene scope + Symbol mode before switching to standalone `.as`.
+        editor.find_replace = Some(FindReplaceState {
+            kind: FindKind::Symbol,
+            in_current_scene: true,
+            scene_filter: Some(root_id),
+            find: "Scene 1".into(),
+            replace: "CorruptedScene".into(),
+            in_names_labels: true,
+            in_text_fields: true,
+            in_actionscript: false,
+            ..Default::default()
+        });
+
+        assert!(editor.open_standalone_script_session(&ctx, helper_path));
+        assert_eq!(editor.active_session, 1);
+        assert!(editor.is_standalone_script_session());
+
+        // 1. Replace all for `"Scene 1"` must clamp to standalone `.as` text and NOT touch dummy symbols/layers!
+        editor.open_find_replace();
+        let st = editor.find_replace.as_ref().unwrap();
+        assert_eq!(st.kind, FindKind::Text);
+        assert!(!st.in_current_scene);
+        assert_eq!(st.scene_filter, None);
+        assert!(st.in_actionscript);
+        assert!(!st.in_names_labels);
+        assert!(!st.in_text_fields);
+
+        assert_eq!(editor.replace_all_matches(), 0);
+        assert_eq!(editor.project.symbols[0].name, "Scene 1");
+        assert_eq!(editor.project.symbols[0].timeline.layers[0].name, "Layer 1");
+        assert!(!editor.dirty());
+        assert!(!editor.history.can_undo());
+
+        // 2. Replace all for `"OLD_TOKEN"` -> `"NEW_TOKEN"` updates `.as` text AND invalidates Tab 0!
+        if let Some(st) = editor.find_replace.as_mut() {
+            st.in_current_scene = true; // even if caller mutated state, replace_all_matches clamps it
+            st.find = "OLD_TOKEN".into();
+            st.replace = "NEW_TOKEN".into();
+        }
+        assert_eq!(editor.replace_all_matches(), 1);
+        assert_eq!(
+            editor.project.sources[0].source,
+            "var GREETING:String = \"NEW_TOKEN\";\n"
+        );
+        assert!(
+            editor.sessions[0]
+                .as_ref()
+                .unwrap()
+                .compiler_errors
+                .fingerprint
+                .is_none(),
+            "dependent .nflash session compiler fingerprint must be invalidated"
+        );
+
+        assert!(editor.switch_session_tab(&ctx, 0));
+        editor.clear_output(Some(&ctx));
+        editor.set_playing(true);
+        editor.sync_authored_preview();
+        assert!(
+            editor
+                .output
+                .iter()
+                .any(|line| line.contains("[trace] NEW_TOKEN")),
+            "dependent .nflash session must immediately pick up replaced standalone .as text: {:?}",
+            editor.output.events()
+        );
+        editor.set_playing(false);
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

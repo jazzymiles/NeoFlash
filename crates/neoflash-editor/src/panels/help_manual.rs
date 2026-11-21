@@ -1050,6 +1050,9 @@ impl crate::app::Editor {
 
     /// Insert at cursor writes through the Actions editor, so it needs that editor on screen.
     fn reference_insert_available(&self) -> bool {
+        if self.is_standalone_script_session() {
+            return !self.project.sources.is_empty();
+        }
         self.has_document()
             && self
                 .workspace
@@ -5324,5 +5327,65 @@ mod tests {
             l.starts_with('#') || l.starts_with("Ref Ch.") || l.starts_with("AS1 / AS2 1 of")
         }));
         assert!(!labels.iter().any(|l| l == "[AS1/AS2]" || l == "Tags:"));
+    }
+
+    #[test]
+    fn t414_reference_insert_available_on_standalone_as_tab_when_actions_panel_closed() {
+        let tmp = std::env::temp_dir().join(format!(
+            "neoflash-t414-help-ref-{}-{}",
+            std::process::id(),
+            neoflash_core::new_id("dir")
+        ));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let as_path = tmp.join("Widget.as");
+        std::fs::write(&as_path, "package {\n    public class Widget {}\n}\n").unwrap();
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.sessions.clear();
+        editor.set_panel_visible(crate::workspace::PanelId::Actions, false);
+        assert!(
+            !editor
+                .workspace
+                .is_panel_active(crate::workspace::PanelId::Actions)
+        );
+        assert!(editor.open_standalone_script_session(&ctx, as_path));
+        assert!(editor.is_standalone_script_session());
+        assert!(
+            editor.reference_insert_available(),
+            "Insert at cursor must be enabled on standalone .as tabs even when Actions panel is closed"
+        );
+
+        editor.open_scripting_reference(&ctx);
+        let hit =
+            super::super::help_as_reference::api_search(LanguageScope::As3, "MouseEvent.CLICK")
+                .remove(0);
+        ctx.data_mut(|d| {
+            let s = d.get_temp_mut_or_default::<HelpManualState>(state_id());
+            s.lang_scope = LanguageScope::As3;
+            s.tab = ReferenceTab::Api;
+            s.api.select(
+                LanguageScope::As3,
+                &hit.class_key,
+                hit.member_key.as_deref(),
+            );
+        });
+        let insert_ev = egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        };
+        let _ = frame(&mut editor, &ctx, vec![insert_ev]);
+        assert!(
+            matches!(
+                editor.actions_ui.pending,
+                Some(crate::code_tools::CodeCommand::Insert { .. })
+            ),
+            "⌘↵ in Scripting Reference must queue Insert command on standalone .as tab"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

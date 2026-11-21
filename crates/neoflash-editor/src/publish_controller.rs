@@ -271,8 +271,9 @@ impl Editor {
         ctx: &egui::Context,
         draft: &PublishPrefs,
     ) -> &EstimateState {
+        let hydrated = self.project_with_hydrated_includes().into_owned();
         self.publish_controller
-            .refresh(&self.project, draft, &Self::runtime_dir(), ctx)
+            .refresh(&hydrated, draft, &Self::runtime_dir(), ctx)
     }
 
     pub(crate) fn update_publish_estimate(&mut self, ctx: &egui::Context) {
@@ -741,3 +742,104 @@ fn banner_diagnostic_to_locations(
 #[cfg(test)]
 #[path = "publish_controller_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod t414_publish_controller_tests {
+    use super::*;
+    use neoflash_core::{FrameScript, Script, ScriptLanguage};
+
+    #[test]
+    fn t414_request_and_update_publish_estimate_with_hydrated_include_do_not_respawn_worker() {
+        let tmp = std::env::temp_dir().join(format!(
+            "neoflash-t414-pub-est-{}-{}",
+            std::process::id(),
+            neoflash_core::new_id("dir")
+        ));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("helper.as"), "var ANSWER:Number = 42;\n").unwrap();
+
+        let mut project = Project::blank();
+        project.name = "HydratedEstimate".into();
+        project.script_language = Some(ScriptLanguage::ActionScript2);
+        let root_id = project.root.clone();
+        project
+            .symbol_mut(&root_id)
+            .unwrap()
+            .timeline
+            .scripts
+            .push(FrameScript {
+                layer: None,
+                frame: 0,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "#include \"helper.as\"\ntrace(ANSWER);\n".into(),
+                },
+            });
+        crate::timeline_commands::upgrade_all_format_versions(&mut project);
+        let nflash_path = tmp.join("HydratedEstimate.nflash");
+        std::fs::write(&nflash_path, project.to_json().unwrap()).unwrap();
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.sessions.clear();
+        assert!(editor.try_open_path(nflash_path, &ctx));
+        assert!(
+            editor.project.resources.is_empty(),
+            "authored project must keep unhydrated resources"
+        );
+
+        let draft = editor.workspace.publish.clone();
+        let _ = editor.request_publish_estimate(&ctx, &draft);
+        let first_req = editor
+            .publish_controller
+            .current
+            .as_ref()
+            .expect("estimate request must be recorded")
+            .clone();
+        assert!(
+            !first_req.project.resources.is_empty(),
+            "estimate request must hold hydrated #include resources"
+        );
+        let first_cancel = editor
+            .publish_controller
+            .running
+            .as_ref()
+            .map(|r| r.cancel.clone());
+
+        // Frame 1 end: `update_publish_estimate` must see an identical hydrated Project.
+        editor.update_publish_estimate(&ctx);
+        assert!(
+            Arc::ptr_eq(
+                editor.publish_controller.current.as_ref().unwrap(),
+                &first_req
+            ),
+            "update_publish_estimate must not replace request_publish_estimate's Request"
+        );
+        if let Some(cancel) = &first_cancel {
+            assert!(
+                !cancel.load(Ordering::Relaxed),
+                "worker must not be cancelled by update_publish_estimate"
+            );
+        }
+
+        // Frame 2: second consecutive `request_publish_estimate` + `update_publish_estimate`.
+        let _ = editor.request_publish_estimate(&ctx, &draft);
+        editor.update_publish_estimate(&ctx);
+        assert!(
+            Arc::ptr_eq(
+                editor.publish_controller.current.as_ref().unwrap(),
+                &first_req
+            ),
+            "consecutive frames must keep the same Request without respawning the worker"
+        );
+        if let Some(cancel) = &first_cancel {
+            assert!(
+                !cancel.load(Ordering::Relaxed),
+                "worker must remain uncancelled across consecutive frames"
+            );
+        }
+
+        editor.publish_controller.cancel();
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+}

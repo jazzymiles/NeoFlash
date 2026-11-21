@@ -222,34 +222,125 @@ fn read_utf8_as_file_bounded(path: &Path, max_bytes: usize) -> Result<String, St
     })
 }
 
+pub(crate) fn has_actionscript_include_extension(path: &Path) -> bool {
+    path.file_stem().is_some_and(|stem| !stem.is_empty())
+        && path
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("as") || ext.eq_ignore_ascii_case("asi"))
+}
+
+pub(crate) fn resolve_include_logical_path_as_or_asi(
+    parent: &str,
+    requested: &str,
+) -> Result<String, String> {
+    if requested.is_empty() || requested.starts_with('/') || requested.contains(['\\', ':', '\0']) {
+        return Err("#include requires a relative project resource path using '/'".into());
+    }
+    let mut parts: Vec<&str> = parent
+        .rsplit_once('/')
+        .map_or("", |(base, _)| base)
+        .split('/')
+        .filter(|p| !p.is_empty())
+        .collect();
+    for part in requested.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if parts.pop().is_none() {
+                    return Err("#include path escapes the project resource root".into());
+                }
+            }
+            value => parts.push(value),
+        }
+    }
+    let result = parts.join("/");
+    if !has_actionscript_include_extension(Path::new(&result)) {
+        return Err("#include expects an .as or .asi project resource".into());
+    }
+    Ok(result)
+}
+
+fn normalize_relative_include_logical_path(logical_path: &str) -> Option<String> {
+    let normalized = logical_path.trim().replace('\\', "/");
+    resolve_include_logical_path_as_or_asi("", &normalized).ok()
+}
+
+/// Returns `true` if any existing path segment of `clean_rel` under `base_dir` is a symlink
+/// (or if `base_dir` itself is a symlink).
+fn path_has_symlink_segment_under(base_dir: &Path, clean_rel: &str) -> bool {
+    let Ok(base_meta) = std::fs::symlink_metadata(base_dir) else {
+        return false;
+    };
+    if base_meta.file_type().is_symlink() || !base_meta.is_dir() {
+        return true;
+    }
+    let mut current = base_dir.to_path_buf();
+    for segment in clean_rel.split('/') {
+        if segment.is_empty() || segment == "." || segment == ".." {
+            return true;
+        }
+        let exact = current.join(segment);
+        match std::fs::symlink_metadata(&exact) {
+            Ok(meta) => {
+                if meta.file_type().is_symlink() {
+                    return true;
+                }
+                if !meta.is_dir() {
+                    return false;
+                }
+                current = exact;
+            }
+            Err(_) => {
+                let Some(entry) = std::fs::read_dir(&current).ok().and_then(|entries| {
+                    entries.filter_map(Result::ok).find(|e| {
+                        e.file_name()
+                            .to_string_lossy()
+                            .eq_ignore_ascii_case(segment)
+                    })
+                }) else {
+                    return false;
+                };
+                if entry.file_type().is_ok_and(|ft| ft.is_symlink()) {
+                    return true;
+                }
+                let next_path = entry.path();
+                let Ok(meta) = std::fs::symlink_metadata(&next_path) else {
+                    return true;
+                };
+                if meta.file_type().is_symlink() {
+                    return true;
+                }
+                if !meta.is_dir() {
+                    return false;
+                }
+                current = next_path;
+            }
+        }
+    }
+    false
+}
+
 fn read_raw_include_bytes_from_disk(
     base_dir: &Path,
     logical_path: &str,
 ) -> Option<(PathBuf, Vec<u8>)> {
-    let mut current = base_dir.to_path_buf();
-    for segment in logical_path.split('/') {
-        if segment.is_empty() || segment == "." || segment == ".." {
-            return None;
-        }
-        let exact = current.join(segment);
-        if exact.exists() {
-            current = exact;
-            continue;
-        }
-        // Fallback to case-insensitive directory entry match on case-sensitive filesystems.
-        let found = std::fs::read_dir(&current)
-            .ok()?
-            .filter_map(Result::ok)
-            .find(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .eq_ignore_ascii_case(segment)
-            })
-            .map(|entry| entry.path())?;
-        current = found;
+    let resolved = resolve_relative_include_disk_path(base_dir, logical_path)?;
+    let lmeta = std::fs::symlink_metadata(&resolved).ok()?;
+    if lmeta.file_type().is_symlink()
+        || !lmeta.is_file()
+        || !has_actionscript_include_extension(&resolved)
+    {
+        return None;
     }
-    let file = std::fs::File::open(&current).ok()?;
+    let canon_base = std::fs::canonicalize(base_dir).ok()?;
+    let canon_resolved = std::fs::canonicalize(&resolved).ok()?;
+    if !canon_resolved.starts_with(&canon_base)
+        || !has_actionscript_include_extension(&canon_resolved)
+    {
+        return None;
+    }
+    let file = std::fs::File::open(&resolved).ok()?;
     let meta = file.metadata().ok()?;
     if !meta.is_file() {
         return None;
@@ -258,37 +349,273 @@ fn read_raw_include_bytes_from_disk(
     let cap = MAX_STANDALONE_AS_BYTES + 1;
     let mut bytes = Vec::with_capacity((meta.len() as usize).min(cap));
     file.take(cap as u64).read_to_end(&mut bytes).ok()?;
-    Some((current, bytes))
+    Some((resolved, bytes))
 }
 
-/// Resolve a relative `.as` path (`"figures.as"` or `"sub/rotate.as"`) to an existing disk path
-/// under `base_dir`, if present.
+/// Resolve a relative `.as` / `.asi` path (`"figures.as"` or `"sub/rotate.as"`) to an existing
+/// non-symlink disk path canonically contained within `base_dir`, if present.
 pub(crate) fn resolve_relative_include_disk_path(
     base_dir: &Path,
     logical_path: &str,
 ) -> Option<PathBuf> {
-    let normalized = logical_path.trim().replace('\\', "/");
-    let clean = AuthoredPlayback::resolve_include_logical_path("", &normalized).ok()?;
-    let mut current = base_dir.to_path_buf();
-    for segment in clean.split('/') {
-        let exact = current.join(segment);
-        if exact.exists() {
-            current = exact;
-            continue;
-        }
-        let found = std::fs::read_dir(&current)
-            .ok()?
-            .filter_map(Result::ok)
-            .find(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .eq_ignore_ascii_case(segment)
-            })
-            .map(|entry| entry.path())?;
-        current = found;
+    let clean = normalize_relative_include_logical_path(logical_path)?;
+    let base_meta = std::fs::symlink_metadata(base_dir).ok()?;
+    if base_meta.file_type().is_symlink() || !base_meta.is_dir() {
+        return None;
     }
-    current.is_file().then_some(current)
+    let canon_base = std::fs::canonicalize(base_dir).ok()?;
+    let segments: Vec<&str> = clean.split('/').collect();
+    let mut current = base_dir.to_path_buf();
+    for (idx, segment) in segments.iter().enumerate() {
+        if segment.is_empty() || *segment == "." || *segment == ".." {
+            return None;
+        }
+        let exact = current.join(segment);
+        let next_path = match std::fs::symlink_metadata(&exact) {
+            Ok(meta) => {
+                if meta.file_type().is_symlink() {
+                    return None;
+                }
+                exact
+            }
+            Err(_) => {
+                let entry = std::fs::read_dir(&current)
+                    .ok()?
+                    .filter_map(Result::ok)
+                    .find(|entry| {
+                        entry
+                            .file_name()
+                            .to_string_lossy()
+                            .eq_ignore_ascii_case(segment)
+                    })?;
+                if entry.file_type().ok()?.is_symlink() {
+                    return None;
+                }
+                entry.path()
+            }
+        };
+        let meta = std::fs::symlink_metadata(&next_path).ok()?;
+        if meta.file_type().is_symlink() {
+            return None;
+        }
+        if idx + 1 < segments.len() {
+            if !meta.is_dir() {
+                return None;
+            }
+        } else if !meta.is_file() || !has_actionscript_include_extension(&next_path) {
+            return None;
+        }
+        current = next_path;
+    }
+    let canon_resolved = std::fs::canonicalize(&current).ok()?;
+    if !canon_resolved.starts_with(&canon_base)
+        || !has_actionscript_include_extension(&canon_resolved)
+    {
+        return None;
+    }
+    let canon_meta = std::fs::symlink_metadata(&canon_resolved).ok()?;
+    if canon_meta.file_type().is_symlink() || !canon_meta.is_file() {
+        return None;
+    }
+    Some(current)
+}
+
+fn declared_package_segments(unit: &SourceUnit) -> (Vec<String>, bool) {
+    let skeleton = strip_comments_and_strings_for_detection(&unit.source);
+    let mut brace_depth = 0usize;
+    for line in skeleton.lines() {
+        let trimmed = line.trim();
+        if brace_depth == 0 {
+            if unit.language == ScriptLanguage::ActionScript3
+                && let Some(rest) = trimmed.strip_prefix("package")
+                && (rest.is_empty() || rest.starts_with(|c: char| c.is_whitespace() || c == '{'))
+            {
+                let pkg = rest.split('{').next().unwrap_or("").trim();
+                if pkg.is_empty() {
+                    return (Vec::new(), false);
+                }
+                let segs: Vec<String> = pkg
+                    .split('.')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned)
+                    .collect();
+                return (segs, false);
+            }
+            if unit.language == ScriptLanguage::ActionScript2 {
+                let mut decl = trimmed;
+                loop {
+                    let mut stripped = false;
+                    for kw in ["public ", "dynamic ", "intrinsic "] {
+                        if let Some(next) = decl.strip_prefix(kw) {
+                            decl = next.trim_start();
+                            stripped = true;
+                        }
+                    }
+                    if !stripped {
+                        break;
+                    }
+                }
+                if let Some(after_kw) = decl
+                    .strip_prefix("class ")
+                    .or_else(|| decl.strip_prefix("interface "))
+                {
+                    let qname = after_kw
+                        .split(|c: char| c.is_whitespace() || c == '{')
+                        .next()
+                        .unwrap_or("")
+                        .trim();
+                    let parts: Vec<&str> = qname.split('.').filter(|s| !s.is_empty()).collect();
+                    if parts.len() > 1 {
+                        return (
+                            parts[..parts.len() - 1]
+                                .iter()
+                                .map(|s| (*s).to_owned())
+                                .collect(),
+                            true,
+                        );
+                    }
+                    return (Vec::new(), true);
+                }
+            }
+        }
+        for ch in trimmed.chars() {
+            match ch {
+                '{' => brace_depth += 1,
+                '}' => brace_depth = brace_depth.saturating_sub(1),
+                _ => {}
+            }
+        }
+    }
+    (Vec::new(), false)
+}
+
+fn required_parent_hops_for_script(language: ScriptLanguage, source: &str) -> usize {
+    let script = Script {
+        language,
+        source: source.to_owned(),
+    };
+    let mut max_hops = 0usize;
+    for requested in AuthoredPlayback::scan_script_include_directives(&script) {
+        let mut depth = 0isize;
+        let mut min_depth = 0isize;
+        for part in requested.trim().replace('\\', "/").split('/') {
+            match part {
+                "" | "." => {}
+                ".." => {
+                    depth -= 1;
+                    min_depth = min_depth.min(depth);
+                }
+                _ => depth += 1,
+            }
+        }
+        max_hops = max_hops.max((-min_depth) as usize);
+    }
+    max_hops.min(16)
+}
+
+fn matched_trailing_dir_hops(file_dir: &Path, pkg_segments: &[String]) -> usize {
+    if pkg_segments.is_empty() {
+        return 0;
+    }
+    let mut cur = file_dir;
+    for expected in pkg_segments.iter().rev() {
+        let Some(name) = cur.file_name().and_then(|s| s.to_str()) else {
+            return 0;
+        };
+        if !name.eq_ignore_ascii_case(expected) {
+            return 0;
+        }
+        let Some(parent) = cur.parent().filter(|p| !p.as_os_str().is_empty()) else {
+            return 0;
+        };
+        if parent.parent().is_none() {
+            return 0;
+        }
+        cur = parent;
+    }
+    pkg_segments.len()
+}
+
+fn walk_up_non_symlink_ancestors(
+    file_dir: &Path,
+    file_name: &str,
+    hops: usize,
+) -> (PathBuf, String) {
+    let mut cur = file_dir.to_path_buf();
+    let mut rel_dirs: Vec<String> = Vec::new();
+    for _ in 0..hops {
+        let Ok(cur_meta) = std::fs::symlink_metadata(&cur) else {
+            break;
+        };
+        if cur_meta.file_type().is_symlink() || !cur_meta.is_dir() {
+            break;
+        }
+        let Some(dir_name) = cur
+            .file_name()
+            .and_then(|s| s.to_str())
+            .filter(|s| !s.is_empty())
+        else {
+            break;
+        };
+        let Some(parent) = cur.parent().filter(|p| !p.as_os_str().is_empty()) else {
+            break;
+        };
+        // Never anchor at filesystem root `/`.
+        if parent.parent().is_none() {
+            break;
+        }
+        let Ok(parent_meta) = std::fs::symlink_metadata(parent) else {
+            break;
+        };
+        if parent_meta.file_type().is_symlink() || !parent_meta.is_dir() {
+            break;
+        }
+        let (Ok(canon_cur), Ok(canon_parent)) =
+            (std::fs::canonicalize(&cur), std::fs::canonicalize(parent))
+        else {
+            break;
+        };
+        if !canon_cur.starts_with(&canon_parent) {
+            break;
+        }
+        rel_dirs.push(dir_name.to_owned());
+        cur = parent.to_path_buf();
+    }
+    if rel_dirs.is_empty() {
+        (cur, file_name.to_owned())
+    } else {
+        rel_dirs.reverse();
+        (cur, format!("{}/{file_name}", rel_dirs.join("/")))
+    }
+}
+
+/// Infer `(ancestor_base_dir, logical_source_path)` for a standalone `.as` file on disk so
+/// package-nested classes (`package com.foo`, `class com.foo.Player`) and parent-relative
+/// `#include "../shared/consts.as"` directives resolve cleanly within non-symlink parent folders
+/// without mutating `self.project.sources[0].path`.
+pub(crate) fn standalone_script_include_context(
+    disk_path: &Path,
+    unit: &SourceUnit,
+) -> Option<(PathBuf, String)> {
+    let file_dir = disk_path.parent().filter(|p| !p.as_os_str().is_empty())?;
+    let file_name = sanitize_source_unit_filename(disk_path);
+    let (pkg_segments, is_as2_type) = declared_package_segments(unit);
+    let pkg_hops = matched_trailing_dir_hops(file_dir, &pkg_segments);
+    let inc_hops = required_parent_hops_for_script(unit.language, &unit.source);
+    let desired_hops = if is_as2_type && !pkg_segments.is_empty() && pkg_hops == pkg_segments.len()
+    {
+        pkg_hops
+    } else if is_as2_type && pkg_segments.is_empty() && inc_hops == 0 {
+        0
+    } else {
+        pkg_hops.max(inc_hops)
+    };
+    Some(walk_up_non_symlink_ancestors(
+        file_dir,
+        &file_name,
+        desired_hops,
+    ))
 }
 
 /// Recursively resolve `#include` / AS3 `include` directives across all `FrameScript`s,
@@ -356,12 +683,14 @@ pub(crate) fn hydrate_project_includes_with_overrides<'a>(
             return None;
         }
         if let Some(dir) = base_dir {
-            let expected = dir.join(logical);
-            if let Some((_, src)) = open_as_tabs
-                .iter()
-                .find(|(p, _)| crate::document_sessions::same_path(p, &expected))
-            {
-                return Some(src.as_str());
+            if !path_has_symlink_segment_under(dir, logical) {
+                let expected = dir.join(logical);
+                if let Some((_, src)) = open_as_tabs
+                    .iter()
+                    .find(|(p, _)| crate::document_sessions::same_path(p, &expected))
+                {
+                    return Some(src.as_str());
+                }
             }
             if let Some(disk_existing) = resolve_relative_include_disk_path(dir, logical)
                 && let Some((_, src)) = open_as_tabs
@@ -390,8 +719,7 @@ pub(crate) fn hydrate_project_includes_with_overrides<'a>(
             continue;
         }
         for requested in AuthoredPlayback::scan_script_include_directives(&script) {
-            let Ok(logical) = AuthoredPlayback::resolve_include_logical_path(&parent, &requested)
-            else {
+            let Ok(logical) = resolve_include_logical_path_as_or_asi(&parent, &requested) else {
                 continue;
             };
             let visit_key = logical.to_ascii_lowercase();
@@ -731,12 +1059,14 @@ impl Editor {
 
         match atomic_save_file(&path, &source_bytes) {
             Ok(()) => {
-                if format_on_save {
-                    self.commit_history();
-                }
                 self.project.name = new_file_name.clone();
                 if let Some(unit) = self.project.sources.first_mut() {
-                    unit.path = new_file_name;
+                    unit.path = new_file_name.clone();
+                }
+                self.history
+                    .sync_standalone_script_identity(&new_file_name, &new_file_name);
+                if format_on_save {
+                    self.commit_history();
                 }
                 self.workspace.general.push_recent(&path);
                 self.saved_project = Some(self.project.clone());
@@ -801,6 +1131,13 @@ impl Editor {
     /// Base directory on disk used to resolve relative `#include "foo.as"` paths for the active session.
     pub(crate) fn active_project_include_base_dir(&self) -> Option<PathBuf> {
         let tracked = self.tracked_disk_path()?;
+        if self.standalone_script
+            && !tracked.is_dir()
+            && let Some(unit) = self.project.sources.first()
+            && let Some((ancestor_dir, _)) = standalone_script_include_context(tracked, unit)
+        {
+            return Some(ancestor_dir);
+        }
         if tracked.is_dir() {
             return Some(tracked.to_path_buf());
         }
@@ -818,8 +1155,6 @@ impl Editor {
     }
 
     /// Return `(hydrated_project, include_hydration_fingerprint)` for the active session.
-    /// In standalone `.as` tabs, `sources[0]` is checked at root (`""`) relative to its parent folder
-    /// so `#include "sub/rotate.as"` inside `figures.as` resolves relative to `figures.as`'s folder!
     pub(crate) fn hydrated_project_and_fingerprint(&self) -> (Cow<'_, Project>, u64) {
         self.hydrate_arbitrary_project_with_editor_context(&self.project)
     }
@@ -832,34 +1167,39 @@ impl Editor {
         &self,
         target_project: &'a Project,
     ) -> (Cow<'a, Project>, u64) {
-        let base_dir = self.active_project_include_base_dir();
         let open_tabs = self.open_standalone_as_tab_buffers();
+        if self.is_standalone_script_session()
+            && target_project.sources.len() == 1
+            && let Some(tracked) = self.tracked_disk_path()
+            && !tracked.is_dir()
+            && let Some((ancestor_dir, logical_source_path)) =
+                standalone_script_include_context(tracked, &target_project.sources[0])
+            && logical_source_path != target_project.sources[0].path
+        {
+            let mut staged = target_project.clone();
+            staged.sources[0].path = logical_source_path.clone();
+            let (hydrated, sub_fp) = hydrate_project_includes_with_overrides(
+                &staged,
+                Some(ancestor_dir.as_path()),
+                &open_tabs,
+            );
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            sub_fp.hash(&mut h);
+            logical_source_path.hash(&mut h);
+            return (Cow::Owned(hydrated.into_owned()), h.finish());
+        }
+        let base_dir = self.active_project_include_base_dir();
         hydrate_project_includes_with_overrides(target_project, base_dir.as_deref(), &open_tabs)
     }
 
     /// Resolve a diagnostic/output file path (e.g. `"figures.as"` or `"sub/rotate.as"`) to either
-    /// an already-open standalone `.as` tab or an existing `.as` file on disk relative to the
-    /// owning session (`owner_document_id` or active session).
+    /// an already-open standalone `.as` tab or an existing non-symlink `.as`/`.asi` file on disk
+    /// canonically contained within the owning session's root directory.
     pub(crate) fn resolve_external_as_path_for_navigation(
         &self,
         owner_document_id: Option<&str>,
         raw_path: &Path,
     ) -> Option<PathBuf> {
-        if raw_path.is_absolute()
-            && Self::is_actionscript_source_path(raw_path)
-            && raw_path.is_file()
-        {
-            return Some(raw_path.to_path_buf());
-        }
-        let raw_str = raw_path.to_string_lossy().replace('\\', "/");
-        if !raw_str
-            .rsplit_once('.')
-            .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("as"))
-        {
-            return None;
-        }
-
-        // Determine base directory of the owning session (or active session).
         let owner_base_dir: Option<PathBuf> = owner_document_id
             .and_then(|doc_id| {
                 if self.has_document() && self.clipboard.session == doc_id {
@@ -869,34 +1209,89 @@ impl Editor {
                         .iter()
                         .flatten()
                         .find(|s| s.clipboard.session == doc_id)
-                        .and_then(|s| s.tracked_disk_path())
-                        .and_then(|p| if p.is_dir() { Some(p) } else { p.parent() })
-                        .filter(|p| !p.as_os_str().is_empty())
-                        .map(Path::to_path_buf)
+                        .and_then(|s| {
+                            let p = s.tracked_disk_path()?;
+                            if s.standalone_script
+                                && !p.is_dir()
+                                && let Some(unit) = s.project.sources.first()
+                                && let Some((anc, _)) = standalone_script_include_context(p, unit)
+                            {
+                                return Some(anc);
+                            }
+                            let dir = if p.is_dir() { Some(p) } else { p.parent() }?;
+                            (!dir.as_os_str().is_empty()).then(|| dir.to_path_buf())
+                        })
                 }
             })
             .or_else(|| self.active_project_include_base_dir());
 
-        if let Some(dir) = owner_base_dir.as_deref() {
-            if let Some(disk_path) = resolve_relative_include_disk_path(dir, &raw_str) {
-                return Some(disk_path);
+        if raw_path.is_absolute() {
+            if !has_actionscript_include_extension(raw_path) {
+                return None;
             }
-            let direct = dir.join(&raw_str);
-            if self.session_for_open_path(&direct).is_some() {
-                return Some(direct);
+            let lmeta = std::fs::symlink_metadata(raw_path).ok()?;
+            if lmeta.file_type().is_symlink() || !lmeta.is_file() {
+                return None;
             }
+            let canon_raw = std::fs::canonicalize(raw_path).ok()?;
+            if !has_actionscript_include_extension(&canon_raw) {
+                return None;
+            }
+            if let Some(dir) = owner_base_dir.as_deref() {
+                let canon_dir = std::fs::canonicalize(dir).ok()?;
+                if let Ok(rel) = raw_path.strip_prefix(dir) {
+                    return resolve_relative_include_disk_path(dir, &rel.to_string_lossy());
+                }
+                if let Ok(rel) = raw_path.strip_prefix(&canon_dir) {
+                    return resolve_relative_include_disk_path(&canon_dir, &rel.to_string_lossy());
+                }
+                if canon_raw.starts_with(&canon_dir) {
+                    let rel = canon_raw.strip_prefix(&canon_dir).ok()?;
+                    return resolve_relative_include_disk_path(&canon_dir, &rel.to_string_lossy());
+                }
+                let open_tabs = self.open_standalone_as_tab_buffers();
+                if open_tabs
+                    .iter()
+                    .any(|(p, _)| crate::document_sessions::same_path(p, raw_path))
+                {
+                    return Some(raw_path.to_path_buf());
+                }
+                return None;
+            }
+            let parent = raw_path.parent()?;
+            let file_name = raw_path.file_name()?.to_str()?;
+            return resolve_relative_include_disk_path(parent, file_name);
         }
 
-        // Fallback: check open standalone `.as` tabs by matching filename when unique.
-        if !raw_str.contains('/') {
+        let raw_str = raw_path.to_string_lossy().replace('\\', "/");
+        let clean_rel = normalize_relative_include_logical_path(&raw_str)?;
+
+        if let Some(dir) = owner_base_dir.as_deref() {
+            if let Some(disk_path) = resolve_relative_include_disk_path(dir, &clean_rel) {
+                return Some(disk_path);
+            }
+            if !path_has_symlink_segment_under(dir, &clean_rel) {
+                let direct = dir.join(&clean_rel);
+                if self.session_for_open_path(&direct).is_some() {
+                    return Some(direct);
+                }
+            }
+            return None;
+        }
+
+        // Fallback when the owning session has no disk path: match unique open standalone `.as` tab.
+        if !clean_rel.contains('/') {
             let open_tabs = self.open_standalone_as_tab_buffers();
             let mut matches = open_tabs.into_iter().filter(|(p, _)| {
                 p.file_name()
                     .and_then(|n| n.to_str())
-                    .is_some_and(|name| name.eq_ignore_ascii_case(&raw_str))
+                    .is_some_and(|name| name.eq_ignore_ascii_case(&clean_rel))
             });
             if let Some((first_path, _)) = matches.next()
                 && matches.next().is_none()
+                && has_actionscript_include_extension(&first_path)
+                && std::fs::symlink_metadata(&first_path)
+                    .map_or(true, |m| !m.file_type().is_symlink())
             {
                 return Some(first_path);
             }
@@ -951,5 +1346,231 @@ impl Editor {
             }
         }
         opened_any
+    }
+}
+
+#[cfg(test)]
+mod t414_standalone_script_tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn t414_symlink_file_and_dir_escape_rejected_in_hydration_and_navigation() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "neoflash-t414-symlink-{}-{}",
+            std::process::id(),
+            new_id("dir")
+        ));
+        let proj_dir = root.join("proj");
+        let outside_dir = root.join("outside_dir");
+        std::fs::create_dir_all(&proj_dir).unwrap();
+        std::fs::create_dir_all(&outside_dir).unwrap();
+
+        let outside_secret = root.join("outside_secret.txt");
+        std::fs::write(&outside_secret, "var LEAKED = \"TOP_SECRET\";\n").unwrap();
+        let outside_as = outside_dir.join("escape.as");
+        std::fs::write(&outside_as, "var ESCAPED = 999;\n").unwrap();
+
+        // Symlink file `leak.as -> ../outside_secret.txt` and symlink dir `sub -> ../outside_dir`.
+        let leak_link = proj_dir.join("leak.as");
+        symlink(&outside_secret, &leak_link).unwrap();
+        let sub_link = proj_dir.join("sub");
+        symlink(&outside_dir, &sub_link).unwrap();
+
+        // Also place a real `.as` file inside `proj_dir` to confirm legitimate includes still work.
+        let safe_as = proj_dir.join("safe.as");
+        std::fs::write(&safe_as, "var SAFE_OK:Number = 1;\n").unwrap();
+
+        assert!(resolve_relative_include_disk_path(&proj_dir, "leak.as").is_none());
+        assert!(read_raw_include_bytes_from_disk(&proj_dir, "leak.as").is_none());
+        assert!(resolve_relative_include_disk_path(&proj_dir, "sub/escape.as").is_none());
+        assert!(read_raw_include_bytes_from_disk(&proj_dir, "sub/escape.as").is_none());
+        assert!(resolve_relative_include_disk_path(&proj_dir, "safe.as").is_some());
+
+        let mut project = Project::blank();
+        project.name = "EvilProject".into();
+        project.script_language = Some(ScriptLanguage::ActionScript2);
+        let root_id = project.root.clone();
+        project
+            .symbol_mut(&root_id)
+            .unwrap()
+            .timeline
+            .scripts
+            .push(FrameScript {
+                layer: None,
+                frame: 0,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source:
+                        "#include \"leak.as\"\n#include \"sub/escape.as\"\n#include \"safe.as\"\n"
+                            .into(),
+                },
+            });
+        crate::timeline_commands::upgrade_all_format_versions(&mut project);
+        let nflash_path = proj_dir.join("evil.nflash");
+        std::fs::write(&nflash_path, project.to_json().unwrap()).unwrap();
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.sessions.clear();
+        assert!(editor.try_open_path(nflash_path, &ctx));
+
+        let hydrated = editor.project_with_hydrated_includes();
+        assert!(
+            hydrated.resources.iter().all(|r| r.path == "safe.as"),
+            "hydration must reject both symlink file and symlink dir includes: {:?}",
+            hydrated.resources
+        );
+
+        assert!(
+            editor
+                .resolve_external_as_path_for_navigation(None, Path::new("leak.as"))
+                .is_none(),
+            "click-to-jump navigation must reject symlink file leak.as"
+        );
+        assert!(
+            editor
+                .resolve_external_as_path_for_navigation(None, &leak_link)
+                .is_none(),
+            "click-to-jump navigation must reject absolute symlink file leak.as"
+        );
+        assert!(
+            editor
+                .resolve_external_as_path_for_navigation(None, Path::new("sub/escape.as"))
+                .is_none(),
+            "click-to-jump navigation must reject symlink directory sub/escape.as"
+        );
+        assert!(
+            editor
+                .resolve_external_as_path_for_navigation(None, &sub_link.join("escape.as"))
+                .is_none(),
+            "click-to-jump navigation must reject absolute path through symlink dir"
+        );
+        assert!(
+            editor
+                .resolve_external_as_path_for_navigation(None, Path::new("safe.as"))
+                .is_some()
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn t414_standalone_as_parent_relative_include_and_package_root() {
+        let root = std::env::temp_dir().join(format!(
+            "neoflash-t414-parent-inc-{}-{}",
+            std::process::id(),
+            new_id("dir")
+        ));
+        let shared_dir = root.join("pkg/shared");
+        let sub_dir = root.join("pkg/sub");
+        std::fs::create_dir_all(&shared_dir).unwrap();
+        std::fs::create_dir_all(&sub_dir).unwrap();
+
+        let consts_path = shared_dir.join("consts.as");
+        std::fs::write(&consts_path, "public static const MAX_SPEED:int = 12;\n").unwrap();
+
+        let player_path = sub_dir.join("Player.as");
+        std::fs::write(
+            &player_path,
+            "package pkg.sub {\n    public class Player {\n        include \"../shared/consts.as\"\n        public function speed():int { return MAX_SPEED; }\n    }\n}\n",
+        )
+        .unwrap();
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.sessions.clear();
+        assert!(editor.open_standalone_script_session(&ctx, player_path));
+        assert!(editor.is_standalone_script_session());
+        assert_eq!(
+            editor.project.sources[0].path, "Player.as",
+            "authored sources[0].path must remain stable"
+        );
+        assert!(!editor.dirty());
+
+        editor.check_standalone_script(true);
+        assert_eq!(
+            editor.status, "Code accepted for current language support.",
+            "parent-relative include on standalone .as tab must pass Check: {}",
+            editor.status
+        );
+        editor.refresh_compiler_diagnostics();
+        assert!(
+            editor.compiler_errors.items.is_empty(),
+            "expected 0 compiler errors on parent-relative include, got: {:?}",
+            editor.compiler_errors.items
+        );
+        assert_eq!(editor.project.sources[0].path, "Player.as");
+        assert!(!editor.dirty());
+
+        // Also verify click-to-jump resolution for `"pkg/shared/consts.as"` under the inferred ancestor root!
+        let nav = editor
+            .resolve_external_as_path_for_navigation(None, Path::new("pkg/shared/consts.as"))
+            .expect("navigation must resolve included sibling-folder .as file");
+        assert_eq!(
+            std::fs::canonicalize(nav).unwrap(),
+            std::fs::canonicalize(&consts_path).unwrap()
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn t414_standalone_as_save_as_syncs_history_filename_across_undo_redo() {
+        let tmp = std::env::temp_dir().join(format!(
+            "neoflash-t414-save-as-hist-{}-{}",
+            std::process::id(),
+            new_id("dir")
+        ));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let foo_path = tmp.join("Foo.as");
+        let bar_path = tmp.join("Bar.as");
+        std::fs::write(&foo_path, "class Foo {\n}\n").unwrap();
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.sessions.clear();
+        editor.workspace.code_editor.format_on_save = true;
+        assert!(editor.open_standalone_script_session(&ctx, foo_path));
+        assert!(!editor.dirty());
+
+        // Edit `class Foo` -> unformatted `class   Bar` so `format_on_save` also records an Undo step.
+        editor.transact_named("Rename class", |ed| {
+            ed.project.sources[0].source = "class   Bar{\n}\n".into();
+        });
+        assert!(editor.dirty());
+
+        assert!(editor.save_standalone_script_to_path(bar_path));
+        assert!(!editor.dirty(), "must be clean right after Save As");
+        assert_eq!(editor.project.name, "Bar.as");
+        assert_eq!(editor.project.sources[0].path, "Bar.as");
+
+        // Undo format-on-save and class edit: filename identity must NEVER revert to `Foo.as`!
+        assert!(editor.history.can_undo());
+        editor.undo();
+        assert_eq!(editor.project.name, "Bar.as");
+        assert_eq!(editor.project.sources[0].path, "Bar.as");
+
+        assert!(editor.history.can_undo());
+        editor.undo();
+        assert_eq!(editor.project.name, "Bar.as");
+        assert_eq!(editor.project.sources[0].path, "Bar.as");
+
+        // Redo back to the saved state: `dirty()` must clear back to `false` and AS2 class-path check must pass!
+        assert!(editor.history.can_redo());
+        editor.redo();
+        editor.redo();
+        assert_eq!(editor.project.name, "Bar.as");
+        assert_eq!(editor.project.sources[0].path, "Bar.as");
+        assert!(
+            !editor.dirty(),
+            "dirty() must not stay stuck true after Undo + Redo back to Save As state"
+        );
+        editor.check_standalone_script(true);
+        assert_eq!(editor.status, "Code accepted for current language support.");
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

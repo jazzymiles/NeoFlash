@@ -77,7 +77,9 @@ fn project_diagnostics_fingerprint(project: &Project) -> u64 {
         resource.id.hash(&mut hash);
         resource.path.hash(&mut hash);
         resource.media_type.hash(&mut hash);
-        if resource.path.ends_with(".as") {
+        if crate::app::standalone_script::has_actionscript_include_extension(std::path::Path::new(
+            &resource.path,
+        )) {
             resource.data_base64.hash(&mut hash);
         }
     }
@@ -127,19 +129,148 @@ fn diagnostic_message(diagnostic: &neoflash_script::Diagnostic) -> String {
     )
 }
 
-fn script_diagnostics(
+fn collect_warnings_with_includes(
     script: &neoflash_core::Script,
+    base_path: &str,
+    default_path: Option<&str>,
+    includes_map: &std::collections::BTreeMap<String, neoflash_core::ResourceUnit>,
+) -> Vec<neoflash_script::Diagnostic> {
+    if script.language.is_actionscript()
+        && script.source.contains("include")
+        && let Ok((expanded_script, origins, exp_sources)) =
+            neoflash_core::AuthoredPlayback::expand_script_includes(script, base_path, includes_map)
+    {
+        let mut out = Vec::new();
+        for mut warning in neoflash_script::check_warnings_with_path(&expanded_script, default_path)
+        {
+            if warning.severity == neoflash_script::DiagnosticSeverity::Info {
+                continue;
+            }
+            if let Some((orig_path, orig_line)) = origins.get(warning.line.saturating_sub(1)) {
+                if !orig_path.is_empty() && orig_path != base_path {
+                    if neoflash_core::AuthoredPlayback::is_builtin_actionscript_include(
+                        script.language,
+                        orig_path,
+                    ) {
+                        continue;
+                    }
+                    let Some(inc_src) = exp_sources.get(orig_path) else {
+                        continue;
+                    };
+                    warning.path = Some(orig_path.clone());
+                    warning.line = *orig_line;
+                    for qf in &mut warning.quick_fixes {
+                        let qf_line = origins
+                            .get(qf.line.saturating_sub(1))
+                            .filter(|(p, _)| p == orig_path)
+                            .map_or(*orig_line, |(_, l)| *l);
+                        let byte_len = qf.span.1.saturating_sub(qf.span.0);
+                        qf.line = qf_line;
+                        let start =
+                            neoflash_script::line_col_to_byte_offset(inc_src, qf.line, qf.column);
+                        qf.span = (start, (start + byte_len).min(inc_src.len()));
+                    }
+                    out.push(warning.to_diagnostic_with_source(inc_src));
+                } else {
+                    warning.path = default_path.map(str::to_owned);
+                    warning.line = *orig_line;
+                    for qf in &mut warning.quick_fixes {
+                        let qf_line = origins
+                            .get(qf.line.saturating_sub(1))
+                            .filter(|(p, _)| p == orig_path)
+                            .map_or(*orig_line, |(_, l)| *l);
+                        let byte_len = qf.span.1.saturating_sub(qf.span.0);
+                        qf.line = qf_line;
+                        let start = neoflash_script::line_col_to_byte_offset(
+                            &script.source,
+                            qf.line,
+                            qf.column,
+                        );
+                        qf.span = (start, (start + byte_len).min(script.source.len()));
+                    }
+                    out.push(warning.to_diagnostic_with_source(&script.source));
+                }
+            }
+        }
+        return out;
+    }
+
+    neoflash_script::check_warnings_with_path(script, default_path)
+        .iter()
+        .filter(|w| w.severity != neoflash_script::DiagnosticSeverity::Info)
+        .map(|warning| warning.to_diagnostic_with_source(&script.source))
+        .collect()
+}
+
+fn script_diagnostics_with_includes(
+    script: &neoflash_core::Script,
+    includes_map: &std::collections::BTreeMap<String, neoflash_core::ResourceUnit>,
     result: Result<String, Vec<neoflash_script::Diagnostic>>,
 ) -> Vec<neoflash_script::Diagnostic> {
     let mut diagnostics = result.err().unwrap_or_default();
-    diagnostics.extend(
-        neoflash_script::check_warnings(script)
-            .iter()
-            .map(|warning| warning.to_diagnostic_with_source(&script.source)),
-    );
+    diagnostics.extend(collect_warnings_with_includes(
+        script,
+        "",
+        None,
+        includes_map,
+    ));
     diagnostics
         .retain(|diagnostic| diagnostic.severity != neoflash_script::DiagnosticSeverity::Info);
     diagnostics
+}
+
+fn rewrite_top_level_includes_for_logical_path(
+    language: neoflash_core::ScriptLanguage,
+    source: &str,
+    logical_path: &str,
+) -> String {
+    if !logical_path.contains('/') || !source.contains("include") || !language.is_actionscript() {
+        return source.to_owned();
+    }
+    let mut out = String::with_capacity(source.len());
+    for chunk in source.split_inclusive('\n') {
+        let (body, ending) = if let Some(b) = chunk.strip_suffix("\r\n") {
+            (b, "\r\n")
+        } else if let Some(b) = chunk.strip_suffix('\n') {
+            (b, "\n")
+        } else {
+            (chunk, "")
+        };
+        let trimmed = body.trim_start();
+        let rewritten = if let Some(rest) = trimmed.strip_prefix("#include").or_else(|| {
+            (language == neoflash_core::ScriptLanguage::ActionScript3)
+                .then(|| trimmed.strip_prefix("include"))
+                .flatten()
+        }) && let Some(first_quote_idx) = rest.find(['"', '\''])
+        {
+            let quote_ch = rest[first_quote_idx..].chars().next().unwrap();
+            let after_open = &rest[first_quote_idx + quote_ch.len_utf8()..];
+            if let Some(end_quote_idx) = after_open.find(quote_ch) {
+                let raw_req = &after_open[..end_quote_idx];
+                if let Ok(resolved) =
+                    crate::app::standalone_script::resolve_include_logical_path_as_or_asi(
+                        logical_path,
+                        raw_req,
+                    )
+                {
+                    let leading_ws_len = body.len() - trimmed.len();
+                    let kw_len = trimmed.len() - rest.len();
+                    let prefix = &body[..leading_ws_len + kw_len + first_quote_idx + 1];
+                    let suffix = &after_open[end_quote_idx..];
+                    Some(format!("{prefix}{resolved}{suffix}"))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        out.push_str(rewritten.as_deref().unwrap_or(body));
+        out.push_str(ending);
+    }
+    out
 }
 
 fn foreign_policy_warning(
@@ -209,6 +340,17 @@ pub(crate) fn collect_located_script_diagnostics(
         }
     }
 
+    let includes_map: std::collections::BTreeMap<String, neoflash_core::ResourceUnit> = project
+        .resources
+        .iter()
+        .filter(|r| {
+            crate::app::standalone_script::has_actionscript_include_extension(std::path::Path::new(
+                &r.path,
+            ))
+        })
+        .map(|r| (r.path.clone(), r.clone()))
+        .collect();
+
     let program = neoflash_script::compile_project(project);
     let mut source_diagnostics = program.as_ref().err().cloned().unwrap_or_default();
     for unit in &project.sources {
@@ -223,11 +365,12 @@ pub(crate) fn collect_located_script_diagnostics(
             language: unit.language,
             source: unit.source.clone(),
         };
-        source_diagnostics.extend(
-            neoflash_script::check_warnings_with_path(&script, Some(&unit.path))
-                .iter()
-                .map(|warning| warning.to_diagnostic_with_source(&unit.source)),
-        );
+        source_diagnostics.extend(collect_warnings_with_includes(
+            &script,
+            &unit.path,
+            Some(&unit.path),
+            &includes_map,
+        ));
     }
     // Informational code hints remain in Actions; compiler diagnostics cover Error/Warning.
     for diagnostic in source_diagnostics
@@ -243,10 +386,9 @@ pub(crate) fn collect_located_script_diagnostics(
                 .path
                 .as_deref()
                 .filter(|p| {
-                    std::path::Path::new(p)
-                        .extension()
-                        .and_then(|s| s.to_str())
-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("as"))
+                    crate::app::standalone_script::has_actionscript_include_extension(
+                        std::path::Path::new(p),
+                    )
                 })
                 .map(str::to_owned)
         } else {
@@ -385,7 +527,7 @@ pub(crate) fn collect_located_script_diagnostics(
                 Some(prog) => neoflash_script::compile_with_program(&fs.script, prog),
                 None => neoflash_script::compile(&fs.script),
             };
-            for err in script_diagnostics(&fs.script, result) {
+            for err in script_diagnostics_with_includes(&fs.script, &includes_map, result) {
                 let inc_path = err.path.clone();
                 let inc_source = inc_path.as_deref().and_then(|inc| {
                     project
@@ -532,7 +674,9 @@ pub(crate) fn collect_located_script_diagnostics(
                             Some(prog) => neoflash_script::compile_with_program(&os.script, prog),
                             None => neoflash_script::compile(&os.script),
                         };
-                        for err in script_diagnostics(&os.script, result) {
+                        for err in
+                            script_diagnostics_with_includes(&os.script, &includes_map, result)
+                        {
                             let inc_path = err.path.clone();
                             let inc_source = inc_path.as_deref().and_then(|inc| {
                                 project
@@ -712,15 +856,38 @@ impl Editor {
                 }) {
                     continue;
                 }
-                let quick_fixes =
-                    crate::code_tools::suggest_quick_fixes_for_diagnostic(diagnostic, &source_text);
                 let inc_path = diagnostic.path.clone().filter(|p| {
-                    std::path::Path::new(p)
-                        .extension()
-                        .and_then(|s| s.to_str())
-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("as"))
-                        && !self.project.sources.iter().any(|u| u.path == *p)
+                    crate::app::standalone_script::has_actionscript_include_extension(
+                        std::path::Path::new(p),
+                    ) && !self.project.sources.iter().any(|u| u.path == *p)
                 });
+                let quick_fixes = if let Some(ref inc) = inc_path {
+                    let inc_text = self
+                        .resolve_external_as_path_for_navigation(None, std::path::Path::new(inc))
+                        .and_then(|disk_path| {
+                            self.open_standalone_as_tab_buffers()
+                                .into_iter()
+                                .find(|(p, _)| crate::document_sessions::same_path(p, &disk_path))
+                                .map(|(_, s)| s)
+                                .or_else(|| std::fs::read_to_string(disk_path).ok())
+                        })
+                        .or_else(|| {
+                            self.project
+                                .resources
+                                .iter()
+                                .find(|r| r.path == *inc || r.path.eq_ignore_ascii_case(inc))
+                                .and_then(|r| r.decoded_bytes().ok())
+                                .and_then(|b| String::from_utf8(b).ok())
+                        });
+                    inc_text
+                        .as_deref()
+                        .map(|txt| {
+                            crate::code_tools::suggest_quick_fixes_for_diagnostic(diagnostic, txt)
+                        })
+                        .unwrap_or_default()
+                } else {
+                    crate::code_tools::suggest_quick_fixes_for_diagnostic(diagnostic, &source_text)
+                };
                 let loc_label = match inc_path.as_deref() {
                     Some(inc) => format!("{label} ({inc}) · Line {}", diagnostic.line),
                     None => format!("{label} · Line {}", diagnostic.line),
@@ -762,6 +929,15 @@ impl Editor {
                 && !Self::is_standalone_class_or_package_unit(unit)
             {
                 let mut standalone_proj = hydrated.into_owned();
+                let logical_unit_path = standalone_proj
+                    .sources
+                    .first()
+                    .map_or_else(|| unit.path.clone(), |u| u.path.clone());
+                let rewritten_source = rewrite_top_level_includes_for_logical_path(
+                    unit.language,
+                    &unit.source,
+                    &logical_unit_path,
+                );
                 standalone_proj.sources.clear();
                 standalone_proj.document_class = None;
                 standalone_proj.script_language = Some(unit.language);
@@ -772,7 +948,7 @@ impl Editor {
                         frame: 0,
                         script: neoflash_core::Script {
                             language: unit.language,
-                            source: unit.source.clone(),
+                            source: rewritten_source,
                         },
                     }];
                 }
@@ -789,6 +965,21 @@ impl Editor {
                             .included_path
                             .is_none()
                             .then(|| ScriptLocation::Source(unit.id.clone())),
+                        included_path: diag.included_path,
+                        line: diag.line,
+                        column: diag.column,
+                        quick_fixes: diag.quick_fixes,
+                    })
+                    .collect()
+            } else if self.is_standalone_script_session() {
+                let resolved = hydrated.with_resolved_script_language();
+                collect_located_script_diagnostics(&resolved)
+                    .into_iter()
+                    .map(|diag| CompilerDiagnosticItem {
+                        is_error: diag.severity == neoflash_script::DiagnosticSeverity::Error,
+                        message: diag.formatted_message,
+                        location_label: diag.location_label,
+                        script: diag.script,
                         included_path: diag.included_path,
                         line: diag.line,
                         column: diag.column,
@@ -892,10 +1083,119 @@ impl Editor {
         let Some(item) = self.compiler_errors.items.get(diag_idx).cloned() else {
             return false;
         };
-        let Some(loc) = item.script.clone() else {
+        let Some(fix) = item.quick_fixes.get(fix_idx).cloned() else {
             return false;
         };
-        let Some(fix) = item.quick_fixes.get(fix_idx).cloned() else {
+
+        if let Some(inc_path) = item.included_path.as_deref() {
+            let norm_inc = inc_path.trim().replace('\\', "/");
+
+            // 1. Matching `project.sources` unit.
+            if let Some((unit_id, current_source)) = self
+                .project
+                .sources
+                .iter()
+                .find(|u| {
+                    let norm = u.path.trim().replace('\\', "/");
+                    norm == norm_inc || norm.eq_ignore_ascii_case(&norm_inc)
+                })
+                .map(|u| (u.id.clone(), u.source.clone()))
+            {
+                let Some((updated_source, (caret, _))) =
+                    crate::code_tools::apply_quick_fix_edit(&current_source, &fix)
+                else {
+                    return false;
+                };
+                let target_id = unit_id.clone();
+                let updated_for_edit = updated_source.clone();
+                self.transact_named("Apply quick fix", move |ed| {
+                    if let Some(unit) = ed.project.sources.iter_mut().find(|u| u.id == target_id) {
+                        unit.source = updated_for_edit;
+                    }
+                });
+                self.invalidate_include_dependents_across_sessions();
+                self.open_script_location(ScriptLocation::Source(unit_id));
+                if !self.is_standalone_script_session() {
+                    self.open_actions();
+                }
+                let editor_id = self.actions_editor_id();
+                let (line, col) = c::code::line_col(&updated_source, caret);
+                crate::sources::jump_to(ctx, editor_id, &updated_source, line, col);
+                self.refresh_compiler_diagnostics();
+                self.message(format!("Applied quick fix: {}", fix.title));
+                return true;
+            }
+
+            // 2. External `.as` / `.asi` file resolved via `resolve_external_as_path_for_navigation`.
+            if let Some(disk_path) =
+                self.resolve_external_as_path_for_navigation(None, std::path::Path::new(&norm_inc))
+                && self.open_standalone_script_session(ctx, disk_path)
+            {
+                let Some(current_source) = self.standalone_script_source().map(str::to_owned)
+                else {
+                    return false;
+                };
+                let Some((updated_source, (caret, _))) =
+                    crate::code_tools::apply_quick_fix_edit(&current_source, &fix)
+                else {
+                    return false;
+                };
+                let updated_for_edit = updated_source.clone();
+                self.transact_named("Apply quick fix", move |ed| {
+                    if let Some(unit) = ed.project.sources.first_mut() {
+                        unit.source = updated_for_edit;
+                    }
+                });
+                self.invalidate_include_dependents_across_sessions();
+                let editor_id = self.actions_editor_id();
+                let (line, col) = c::code::line_col(&updated_source, caret);
+                crate::sources::jump_to(ctx, editor_id, &updated_source, line, col);
+                self.refresh_compiler_diagnostics();
+                self.message(format!("Applied quick fix: {}", fix.title));
+                return true;
+            }
+
+            // 3. Embedded `ResourceUnit` in `project.resources`.
+            if let Some((res_id, res_path, res_media, current_source)) = self
+                .project
+                .resources
+                .iter()
+                .find(|r| r.path == norm_inc || r.path.eq_ignore_ascii_case(&norm_inc))
+                .and_then(|r| {
+                    let bytes = r.decoded_bytes().ok()?;
+                    let text = String::from_utf8(bytes).ok()?;
+                    Some((r.id.clone(), r.path.clone(), r.media_type.clone(), text))
+                })
+            {
+                let Some((updated_source, _)) =
+                    crate::code_tools::apply_quick_fix_edit(&current_source, &fix)
+                else {
+                    return false;
+                };
+                let Ok(updated_res) = neoflash_core::ResourceUnit::from_bytes(
+                    res_id.clone(),
+                    res_path,
+                    res_media,
+                    updated_source.as_bytes(),
+                ) else {
+                    return false;
+                };
+                self.transact_named("Apply quick fix", move |ed| {
+                    if let Some(slot) = ed.project.resources.iter_mut().find(|r| r.id == res_id) {
+                        *slot = updated_res;
+                    }
+                });
+                self.invalidate_include_dependents_across_sessions();
+                self.refresh_compiler_diagnostics();
+                self.message(format!("Applied quick fix: {}", fix.title));
+                return true;
+            }
+
+            // Never fall through to mutating `outer_loc` when `included_path` was set!
+            return false;
+        }
+
+        let Some(loc) = item.script.clone() else {
             return false;
         };
         let Some(current_source) = self.script_source_for(&loc) else {
@@ -955,8 +1255,13 @@ impl Editor {
             }
         });
 
+        if matches!(loc, ScriptLocation::Source(_)) || self.is_standalone_script_session() {
+            self.invalidate_include_dependents_across_sessions();
+        }
         self.open_script_location(loc);
-        self.open_actions();
+        if !self.is_standalone_script_session() {
+            self.open_actions();
+        }
         let editor_id = self.actions_editor_id();
         let (line, col) = c::code::line_col(&updated_source, caret);
         crate::sources::jump_to(ctx, editor_id, &updated_source, line, col);
@@ -1359,5 +1664,133 @@ mod tests {
         editor.undo();
         assert_eq!(editor.project.sources[0].source, bad_source_unit);
         editor.project.validate().unwrap();
+    }
+
+    #[test]
+    fn t414_quick_fix_on_included_warning_edits_helper_as_and_leaves_outer_frame_script_untouched()
+    {
+        let tmp = std::env::temp_dir().join(format!(
+            "neoflash-t414-inc-qf-{}-{}",
+            std::process::id(),
+            neoflash_core::new_id("dir")
+        ));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let helper_path = tmp.join("helper.as");
+        std::fs::write(&helper_path, "// header\ntrace(not false);\n").unwrap();
+
+        // Outer frame script intentionally has matching column text on line 2 to prove `outer_loc` is NEVER corrupted!
+        let outer_source = "#include \"helper.as\"\ntrace(not true);\n";
+        let mut project = Project::blank();
+        project.name = "IncludeQuickFix".into();
+        project.script_language = Some(ScriptLanguage::ActionScript2);
+        let root_id = project.root.clone();
+        project
+            .symbol_mut(&root_id)
+            .unwrap()
+            .timeline
+            .scripts
+            .push(FrameScript {
+                layer: None,
+                frame: 0,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: outer_source.into(),
+                },
+            });
+        crate::timeline_commands::upgrade_all_format_versions(&mut project);
+        let nflash_path = tmp.join("IncludeQuickFix.nflash");
+        std::fs::write(&nflash_path, project.to_json().unwrap()).unwrap();
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.sessions.clear();
+        assert!(editor.try_open_path(nflash_path, &ctx));
+        editor.refresh_compiler_diagnostics();
+
+        let inc_diag_idx = editor
+            .compiler_errors
+            .items
+            .iter()
+            .position(|item| {
+                item.included_path.as_deref() == Some("helper.as") && !item.quick_fixes.is_empty()
+            })
+            .expect("expected quick-fixable warning in included helper.as");
+
+        assert!(editor.apply_compiler_diagnostic_quick_fix(&ctx, inc_diag_idx, 0));
+        assert!(
+            editor.is_standalone_script_session(),
+            "applying quick-fix on disk helper.as must open/focus standalone .as session"
+        );
+        assert_eq!(editor.session_count(), 2);
+        assert_eq!(editor.history.undo_label(), Some("Apply quick fix"));
+        assert!(
+            editor.project.sources[0].source.contains("trace(!"),
+            "helper.as standalone session must receive the quick fix, got: {}",
+            editor.project.sources[0].source
+        );
+
+        // Switch back to Tab 0 (`.nflash`): outer frame script must be 100% untouched and clean!
+        assert!(editor.switch_session_tab(&ctx, 0));
+        assert_eq!(
+            editor.project.symbols[0].timeline.scripts[0].script.source,
+            outer_source
+        );
+        assert!(!editor.dirty());
+        assert!(!editor.history.can_undo());
+        editor.refresh_compiler_diagnostics();
+        assert!(
+            !editor
+                .compiler_errors
+                .items
+                .iter()
+                .any(|item| item.included_path.as_deref() == Some("helper.as")),
+            "helper.as warning must be resolved in dependent .nflash session via Tier-1 tab override"
+        );
+
+        // Also verify embedded `ResourceUnit` quick-fix leaves outer script untouched!
+        let mut res_proj = Project::blank();
+        res_proj.format_version = 3;
+        res_proj.script_language = Some(ScriptLanguage::ActionScript2);
+        res_proj.resources.push(
+            ResourceUnit::from_bytes(
+                "res-inc",
+                "embedded.as",
+                "text/plain",
+                b"trace(not false);\n",
+            )
+            .unwrap(),
+        );
+        res_proj.symbols[0].timeline.scripts.push(FrameScript {
+            layer: None,
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "#include \"embedded.as\"\nstop();\n".into(),
+            },
+        });
+        let mut res_editor = Editor::from_project(&ctx, res_proj);
+        res_editor.refresh_compiler_diagnostics();
+        let res_diag_idx = res_editor
+            .compiler_errors
+            .items
+            .iter()
+            .position(|item| {
+                item.included_path.as_deref() == Some("embedded.as") && !item.quick_fixes.is_empty()
+            })
+            .expect("expected quick-fixable warning in embedded.as resource");
+        assert!(res_editor.apply_compiler_diagnostic_quick_fix(&ctx, res_diag_idx, 0));
+        assert_eq!(
+            res_editor.project.symbols[0].timeline.scripts[0]
+                .script
+                .source,
+            "#include \"embedded.as\"\nstop();\n"
+        );
+        let updated_embedded =
+            String::from_utf8(res_editor.project.resources[0].decoded_bytes().unwrap()).unwrap();
+        assert!(updated_embedded.contains("trace(!"));
+        assert!(res_editor.history.can_undo());
+        res_editor.undo();
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

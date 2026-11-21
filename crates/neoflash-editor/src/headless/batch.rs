@@ -10,11 +10,11 @@ use super::jsfl_fs::{
 };
 use super::{
     CliError, EvalOptions, InspectOptions, OutputFormat, build_inspect_value, build_new_project,
-    collect_compile_summary, evaluate_project, load_project_valid, parse_color, parse_easing,
-    parse_frame_range_str, parse_language, parse_object_event, parse_symbol_kind, parse_tween_kind,
-    resolve_layer_index, resolve_layer_index_mut, resolve_symbol, resolve_symbol_mut,
-    save_project_atomic, serialize_json_value, take_flag_value, upgrade_project_format_versions,
-    validate_project_full, write_json_error,
+    compile_loaded_project_scripts, evaluate_loaded_project_frame, load_project_valid, parse_color,
+    parse_easing, parse_frame_range_str, parse_language, parse_object_event, parse_symbol_kind,
+    parse_tween_kind, resolve_layer_index, resolve_layer_index_mut, resolve_symbol,
+    resolve_symbol_mut, save_project_atomic, serialize_json_value, take_flag_value,
+    upgrade_project_format_versions, validate_loaded_project, write_json_error,
 };
 use neoflash_core::{
     AuthoringCommandStep, Color, Element, ElementKind, FillRule, FrameScript, InstancePlayback,
@@ -1618,9 +1618,12 @@ fn execute_batch_op(
                 "return_value": jsfl_value_to_json(&res.return_value),
             }))
         }
-        BatchOp::Validate { strict } => validate_project_full(project, strict),
+        BatchOp::Validate { strict } => {
+            validate_loaded_project(project, context.project_base_dir.as_deref(), strict)
+        }
         BatchOp::Compile { strict } => {
-            let report = collect_compile_summary(project);
+            let report =
+                compile_loaded_project_scripts(project, context.project_base_dir.as_deref());
             let error_count = report["error_count"].as_u64().unwrap_or(0);
             let warning_count = report["warning_count"].as_u64().unwrap_or(0);
             if error_count > 0 || (strict && warning_count > 0) {
@@ -1661,8 +1664,9 @@ fn execute_batch_op(
                 }
                 (None, None) => (0, 0),
             };
-            evaluate_project(
+            evaluate_loaded_project_frame(
                 project,
+                context.project_base_dir.as_deref(),
                 &EvalOptions {
                     scene,
                     symbol,
@@ -1737,5 +1741,87 @@ fn parse_instance_playback(raw: Option<&str>) -> Result<InstancePlayback, CliErr
                 format!("Unsupported instance playback '{other}'"),
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod t414_batch_tests {
+    use super::*;
+
+    #[test]
+    fn t414_headless_batch_validate_compile_and_eval_hydrate_disk_includes() {
+        let tmp = std::env::temp_dir().join(format!(
+            "neoflash-t414-batch-inc-{}-{}",
+            std::process::id(),
+            new_id("dir")
+        ));
+        fs::create_dir_all(tmp.join("sub")).unwrap();
+        fs::write(tmp.join("sub/defs.as"), "var SCORE:Number = 777;\n").unwrap();
+
+        let mut project = Project::blank();
+        project.name = "BatchIncludes".into();
+        project.script_language = Some(ScriptLanguage::ActionScript2);
+        let root_id = project.root.clone();
+        project
+            .symbol_mut(&root_id)
+            .unwrap()
+            .timeline
+            .scripts
+            .push(FrameScript {
+                layer: None,
+                frame: 0,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "#include \"sub/defs.as\"\ntrace(\"BATCH_SCORE=\" + SCORE);\n".into(),
+                },
+            });
+        upgrade_project_format_versions(&mut project);
+        let project_path = tmp.join("BatchIncludes.nflash");
+        fs::write(&project_path, project.to_json().unwrap()).unwrap();
+
+        let ops_json = r#"[
+            {"op": "validate", "strict": true},
+            {"op": "compile", "strict": true},
+            {"op": "eval", "frame": 0, "scripts": true}
+        ]"#;
+        let args = vec![
+            "--project".to_owned(),
+            project_path.display().to_string(),
+            "--stdin".to_owned(),
+        ];
+        let mut stdin = std::io::Cursor::new(ops_json.as_bytes());
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let rc = cmd_batch(
+            &args,
+            OutputFormat::Json,
+            false,
+            &mut stdin,
+            &mut stdout,
+            &mut stderr,
+        );
+        assert_eq!(
+            rc,
+            0,
+            "batch failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&stdout),
+            String::from_utf8_lossy(&stderr)
+        );
+        let parsed: Value = serde_json::from_slice(&stdout).unwrap();
+        assert_eq!(parsed["ok"], json!(true));
+        let results = parsed["results"].as_array().expect("step results");
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0]["result"]["valid"], json!(true));
+        assert_eq!(results[0]["result"]["script_error_count"], json!(0));
+        assert_eq!(results[1]["result"]["error_count"], json!(0));
+        let traces = results[2]["result"]["trace_lines"]
+            .as_array()
+            .expect("eval trace_lines");
+        assert!(
+            traces.iter().any(|t| t == "BATCH_SCORE=777"),
+            "expected hydrated disk include trace in batch eval, got: {traces:?}"
+        );
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 }

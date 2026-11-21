@@ -844,6 +844,7 @@ impl NativeMenuSpec {
 
     fn build_file_menu(editor: &Editor, ctx: Option<&egui::Context>) -> NativeTopMenuSpec {
         let has_doc = editor.has_document();
+        let has_authoring_doc = has_doc && !editor.is_standalone_script_session();
         let recent = editor.workspace.general.existing_recent_files_cached();
         let recent_labels = recent_file_display_labels(&recent);
         let mut recent_items = Vec::with_capacity(recent.len() + 2);
@@ -877,7 +878,7 @@ impl NativeMenuSpec {
                 custom_item(
                     format!("{}…", profile.label()),
                     None,
-                    has_doc,
+                    has_authoring_doc,
                     false,
                     NativeMenuAction::ExportFlaProfile(profile),
                 )
@@ -889,28 +890,28 @@ impl NativeMenuSpec {
             custom_item(
                 "Import to Library…",
                 None,
-                has_doc,
+                has_authoring_doc,
                 false,
                 NativeMenuAction::ImportToLibrary,
             ),
             custom_item(
                 "Import colour palette…",
                 None,
-                has_doc,
+                has_authoring_doc,
                 false,
                 NativeMenuAction::ImportPalette,
             ),
             custom_item(
                 "Import video…",
                 None,
-                has_doc,
+                has_authoring_doc,
                 false,
                 NativeMenuAction::ImportVideo,
             ),
             custom_item(
                 "Empty video object",
                 None,
-                has_doc && editor.layer_editable(),
+                has_authoring_doc && editor.layer_editable(),
                 false,
                 NativeMenuAction::InsertEmptyVideoObject,
             ),
@@ -922,7 +923,7 @@ impl NativeMenuSpec {
             custom_item(
                 "Export image…",
                 None,
-                has_doc,
+                has_authoring_doc,
                 false,
                 NativeMenuAction::ExportImage,
             ),
@@ -935,7 +936,7 @@ impl NativeMenuSpec {
             cmd_item(editor, ctx, CommandId::FileExportSwf),
             NativeMenuItemSpec::Submenu {
                 label: "Export SWF Target".to_owned(),
-                enabled: has_doc,
+                enabled: has_authoring_doc,
                 role: None,
                 items: vec![
                     cmd_item(editor, ctx, CommandId::FileExportSwfFp8),
@@ -946,7 +947,7 @@ impl NativeMenuSpec {
             },
             NativeMenuItemSpec::Submenu {
                 label: "Export FLA / XFL Target".to_owned(),
-                enabled: has_doc,
+                enabled: has_authoring_doc,
                 role: None,
                 items: fla_items,
             },
@@ -991,7 +992,7 @@ impl NativeMenuSpec {
                 },
                 NativeMenuItemSpec::Submenu {
                     label: "Export".to_owned(),
-                    enabled: has_doc,
+                    enabled: has_authoring_doc,
                     role: None,
                     items: export_items,
                 },
@@ -1006,7 +1007,8 @@ impl NativeMenuSpec {
 
     fn build_edit_menu(editor: &Editor, ctx: Option<&egui::Context>) -> NativeTopMenuSpec {
         let has_doc = editor.has_document();
-        let has_instance = has_doc && editor.selected_instance_symbol().is_some();
+        let has_authoring_doc = has_doc && !editor.is_standalone_script_session();
+        let has_instance = has_authoring_doc && editor.selected_instance_symbol().is_some();
         let timeline_items = vec![
             cmd_item(editor, ctx, CommandId::EditTimelineCutFrames),
             cmd_item(editor, ctx, CommandId::EditTimelineCopyFrames),
@@ -1019,7 +1021,7 @@ impl NativeMenuSpec {
             custom_item(
                 "Paste motion special…",
                 None,
-                has_doc && editor.can_paste_motion(),
+                has_authoring_doc && editor.can_paste_motion(),
                 false,
                 NativeMenuAction::PasteMotionSpecial,
             ),
@@ -1046,7 +1048,7 @@ impl NativeMenuSpec {
             cmd_item(editor, ctx, CommandId::EditFindAndReplace),
             NativeMenuItemSpec::Submenu {
                 label: "Timeline".to_owned(),
-                enabled: has_doc,
+                enabled: has_authoring_doc,
                 role: None,
                 items: timeline_items,
             },
@@ -1084,6 +1086,7 @@ impl NativeMenuSpec {
 
     fn build_view_menu(editor: &Editor, ctx: Option<&egui::Context>) -> NativeTopMenuSpec {
         let has_doc = editor.has_document();
+        let has_authoring_doc = has_doc && !editor.is_standalone_script_session();
         let v = &editor.stage_view.prefs;
         let zoom_pct = (editor.zoom * 100.0).round() as u32;
         let ab_mode = editor.stage_ab_mode();
@@ -1092,30 +1095,30 @@ impl NativeMenuSpec {
             custom_check_item(
                 "25 %",
                 None,
-                has_doc,
-                has_doc && zoom_pct == 25,
+                has_authoring_doc,
+                has_authoring_doc && zoom_pct == 25,
                 NativeMenuAction::SetMagnification(25),
             ),
             custom_check_item(
                 "50 %",
                 None,
-                has_doc,
-                has_doc && zoom_pct == 50,
+                has_authoring_doc,
+                has_authoring_doc && zoom_pct == 50,
                 NativeMenuAction::SetMagnification(50),
             ),
             cmd_item(editor, ctx, CommandId::ViewZoom100),
             custom_check_item(
                 "200 %",
                 None,
-                has_doc,
-                has_doc && zoom_pct == 200,
+                has_authoring_doc,
+                has_authoring_doc && zoom_pct == 200,
                 NativeMenuAction::SetMagnification(200),
             ),
             custom_check_item(
                 "400 %",
                 None,
-                has_doc,
-                has_doc && zoom_pct == 400,
+                has_authoring_doc,
+                has_authoring_doc && zoom_pct == 400,
                 NativeMenuAction::SetMagnification(400),
             ),
             NativeMenuItemSpec::Separator,
@@ -1128,8 +1131,8 @@ impl NativeMenuSpec {
             custom_check_item(
                 "Show over objects",
                 None,
-                has_doc,
-                has_doc && v.grid_over_objects,
+                has_authoring_doc,
+                has_authoring_doc && v.grid_over_objects,
                 NativeMenuAction::ToggleGridOverObjects,
             ),
             NativeMenuItemSpec::Separator,
@@ -1144,7 +1147,7 @@ impl NativeMenuSpec {
             custom_item(
                 "Edit guides…",
                 None,
-                has_doc,
+                has_authoring_doc,
                 false,
                 NativeMenuAction::OpenViewSettings,
             ),
@@ -1154,15 +1157,15 @@ impl NativeMenuSpec {
             custom_check_item(
                 "Snap to objects",
                 None,
-                has_doc,
-                has_doc && v.objects_snap,
+                has_authoring_doc,
+                has_authoring_doc && v.objects_snap,
                 NativeMenuAction::ToggleObjectSnap,
             ),
             custom_check_item(
                 "Snap to pixels",
                 None,
-                has_doc,
-                has_doc && v.pixels_snap,
+                has_authoring_doc,
+                has_authoring_doc && v.pixels_snap,
                 NativeMenuAction::TogglePixelSnap,
             ),
             cmd_item_labeled(editor, ctx, "Snap to grid", CommandId::ViewGridSnap),
@@ -1173,22 +1176,22 @@ impl NativeMenuSpec {
             custom_check_item(
                 "Onion skin",
                 None,
-                has_doc,
-                has_doc && editor.onion,
+                has_authoring_doc,
+                has_authoring_doc && editor.onion,
                 NativeMenuAction::ToggleOnionSkin,
             ),
             custom_check_item(
                 "Onion skin outlines",
                 None,
-                has_doc,
-                has_doc && editor.onion && editor.onion_outlines,
+                has_authoring_doc,
+                has_authoring_doc && editor.onion && editor.onion_outlines,
                 NativeMenuAction::ToggleOnionOutlines,
             ),
             custom_check_item(
                 "Anchor onion markers",
                 None,
-                has_doc,
-                has_doc && editor.onion_anchor,
+                has_authoring_doc,
+                has_authoring_doc && editor.onion_anchor,
                 NativeMenuAction::ToggleOnionAnchor,
             ),
         ];
@@ -1199,8 +1202,8 @@ impl NativeMenuSpec {
                 custom_check_item(
                     mode.label(),
                     None,
-                    has_doc,
-                    has_doc && editor.workspace.stage_toolbar == mode,
+                    has_authoring_doc,
+                    has_authoring_doc && editor.workspace.stage_toolbar == mode,
                     NativeMenuAction::SetStageToolbar(mode),
                 )
             })
@@ -1214,7 +1217,7 @@ impl NativeMenuSpec {
             custom_item(
                 "Disable A/B View",
                 None,
-                has_doc && ab_mode != StageAbComparisonMode::Off,
+                has_authoring_doc && ab_mode != StageAbComparisonMode::Off,
                 false,
                 NativeMenuAction::DisableStageAb,
             ),
@@ -1230,7 +1233,7 @@ impl NativeMenuSpec {
                 cmd_item(editor, ctx, CommandId::ViewFitInWindow),
                 NativeMenuItemSpec::Submenu {
                     label: "Magnification".to_owned(),
-                    enabled: has_doc,
+                    enabled: has_authoring_doc,
                     role: None,
                     items: magnification_items,
                 },
@@ -1246,25 +1249,25 @@ impl NativeMenuSpec {
                 cmd_item(editor, ctx, CommandId::ViewRulers),
                 NativeMenuItemSpec::Submenu {
                     label: "Grid".to_owned(),
-                    enabled: has_doc,
+                    enabled: has_authoring_doc,
                     role: None,
                     items: grid_items,
                 },
                 NativeMenuItemSpec::Submenu {
                     label: "Guides".to_owned(),
-                    enabled: has_doc,
+                    enabled: has_authoring_doc,
                     role: None,
                     items: guides_items,
                 },
                 NativeMenuItemSpec::Submenu {
                     label: "Snapping".to_owned(),
-                    enabled: has_doc,
+                    enabled: has_authoring_doc,
                     role: None,
                     items: snapping_items,
                 },
                 NativeMenuItemSpec::Submenu {
                     label: "Onion Skin".to_owned(),
-                    enabled: has_doc,
+                    enabled: has_authoring_doc,
                     role: None,
                     items: onion_items,
                 },
@@ -1272,20 +1275,20 @@ impl NativeMenuSpec {
                 custom_item(
                     "Rulers, guides & grid…",
                     None,
-                    has_doc,
+                    has_authoring_doc,
                     false,
                     NativeMenuAction::OpenViewSettings,
                 ),
                 cmd_item(editor, ctx, CommandId::ViewShowShapeHints),
                 NativeMenuItemSpec::Submenu {
                     label: "Stage toolbar".to_owned(),
-                    enabled: has_doc,
+                    enabled: has_authoring_doc,
                     role: None,
                     items: stage_toolbar_items,
                 },
                 NativeMenuItemSpec::Submenu {
                     label: "Stage A/B".to_owned(),
-                    enabled: has_doc,
+                    enabled: has_authoring_doc,
                     role: None,
                     items: stage_ab_items,
                 },
@@ -1320,9 +1323,10 @@ impl NativeMenuSpec {
 
     fn build_modify_menu(editor: &Editor, ctx: Option<&egui::Context>) -> NativeTopMenuSpec {
         let has_doc = editor.has_document();
-        let can_combine = has_doc && editor.can_combine_objects();
-        let can_stepped = has_doc && editor.can_convert_to_keyframes_stepped();
-        let can_align = editor.can_align_selection();
+        let has_authoring_doc = has_doc && !editor.is_standalone_script_session();
+        let can_combine = has_authoring_doc && editor.can_combine_objects();
+        let can_stepped = has_authoring_doc && editor.can_convert_to_keyframes_stepped();
+        let can_align = has_authoring_doc && editor.can_align_selection();
 
         let bitmap_items = vec![cmd_item(editor, ctx, CommandId::ModifyTraceBitmap)];
         let shape_items = vec![
@@ -1380,7 +1384,7 @@ impl NativeMenuSpec {
             custom_item(
                 "Distribute to keyframes",
                 None,
-                has_doc && editor.can_distribute_to_keyframes(),
+                has_authoring_doc && editor.can_distribute_to_keyframes(),
                 false,
                 NativeMenuAction::DistributeToKeyframes,
             ),
@@ -1423,14 +1427,14 @@ impl NativeMenuSpec {
             custom_item(
                 "Copy ease",
                 None,
-                has_doc && editor.can_copy_active_keyframe_ease(),
+                has_authoring_doc && editor.can_copy_active_keyframe_ease(),
                 false,
                 NativeMenuAction::CopyKeyframeEase,
             ),
             custom_item(
                 "Apply copied ease",
                 None,
-                has_doc && editor.has_copied_keyframe_ease(),
+                has_authoring_doc && editor.has_copied_keyframe_ease(),
                 false,
                 NativeMenuAction::ApplyCopiedEase,
             ),
@@ -1438,21 +1442,21 @@ impl NativeMenuSpec {
             custom_item(
                 "Delete empty layers",
                 None,
-                has_doc,
+                has_authoring_doc,
                 false,
                 NativeMenuAction::DeleteEmptyLayers,
             ),
             custom_item(
                 "Rename layers from content",
                 None,
-                has_doc,
+                has_authoring_doc,
                 false,
                 NativeMenuAction::RenameLayersFromContent,
             ),
             custom_item(
                 "Add actions & stop() layer",
                 None,
-                has_doc,
+                has_authoring_doc,
                 false,
                 NativeMenuAction::AddActionsStopLayer,
             ),
@@ -1462,7 +1466,7 @@ impl NativeMenuSpec {
             custom_item(
                 "Run JSFL script (.jsfl)…",
                 None,
-                has_doc,
+                has_authoring_doc,
                 false,
                 NativeMenuAction::RunJsflDialog,
             ),
@@ -1470,28 +1474,28 @@ impl NativeMenuSpec {
             custom_item(
                 "Batch rename library items…",
                 None,
-                has_doc,
+                has_authoring_doc,
                 false,
                 NativeMenuAction::OpenBatchRenameLibrary,
             ),
             custom_item(
                 "Batch linkage (Export for ActionScript)…",
                 None,
-                has_doc,
+                has_authoring_doc,
                 false,
                 NativeMenuAction::OpenBatchLinkage,
             ),
             custom_item(
                 "Batch bitmap compression & smoothing…",
                 None,
-                has_doc,
+                has_authoring_doc,
                 false,
                 NativeMenuAction::OpenBatchBitmapCompression,
             ),
             custom_item(
                 "Delete unused library items",
                 None,
-                has_doc,
+                has_authoring_doc,
                 false,
                 NativeMenuAction::DeleteUnusedLibraryItems,
             ),
@@ -1499,21 +1503,21 @@ impl NativeMenuSpec {
             custom_item(
                 "Auto Instance Namer…",
                 None,
-                has_doc,
+                has_authoring_doc,
                 false,
                 NativeMenuAction::OpenAutoInstanceNamer,
             ),
             custom_item(
                 "Randomize Selection…",
                 None,
-                has_doc,
+                has_authoring_doc,
                 false,
                 NativeMenuAction::OpenRandomizeSelection,
             ),
             custom_item(
                 "Pixel snap (round to whole pixels)",
                 None,
-                has_doc && !editor.editable_targets().is_empty(),
+                has_authoring_doc && !editor.editable_targets().is_empty(),
                 false,
                 NativeMenuAction::PixelSnapSelection,
             ),
@@ -1541,7 +1545,7 @@ impl NativeMenuSpec {
             custom_item(
                 "Transform panel",
                 transform_panel_sc,
-                true,
+                has_authoring_doc,
                 false,
                 NativeMenuAction::ShowPanel(PanelId::Transform),
             ),
@@ -1605,14 +1609,14 @@ impl NativeMenuSpec {
             custom_check_item(
                 "To stage",
                 None,
-                has_doc,
-                has_doc && editor.authoring_modify.to_stage,
+                has_authoring_doc,
+                has_authoring_doc && editor.authoring_modify.to_stage,
                 NativeMenuAction::ToggleAlignToStage,
             ),
             custom_item(
                 "Align panel",
                 align_panel_sc,
-                true,
+                has_authoring_doc,
                 false,
                 NativeMenuAction::ShowPanel(PanelId::Align),
             ),
@@ -1630,51 +1634,51 @@ impl NativeMenuSpec {
                 NativeMenuItemSpec::Separator,
                 NativeMenuItemSpec::Submenu {
                     label: "Bitmap".to_owned(),
-                    enabled: has_doc,
+                    enabled: has_authoring_doc,
                     role: None,
                     items: bitmap_items,
                 },
                 unavailable_submenu_item("Symbol"),
                 NativeMenuItemSpec::Submenu {
                     label: "Shape".to_owned(),
-                    enabled: has_doc,
+                    enabled: has_authoring_doc,
                     role: None,
                     items: shape_items,
                 },
                 NativeMenuItemSpec::Submenu {
                     label: "Combine objects".to_owned(),
-                    enabled: has_doc,
+                    enabled: has_authoring_doc,
                     role: None,
                     items: combine_items,
                 },
                 NativeMenuItemSpec::Separator,
                 NativeMenuItemSpec::Submenu {
                     label: "Timeline".to_owned(),
-                    enabled: has_doc,
+                    enabled: has_authoring_doc,
                     role: None,
                     items: timeline_items,
                 },
                 NativeMenuItemSpec::Submenu {
                     label: "Commands & JSFL".to_owned(),
-                    enabled: has_doc,
+                    enabled: has_authoring_doc,
                     role: None,
                     items: jsfl_items,
                 },
                 NativeMenuItemSpec::Submenu {
                     label: "Transform".to_owned(),
-                    enabled: has_doc,
+                    enabled: has_authoring_doc,
                     role: None,
                     items: transform_items,
                 },
                 NativeMenuItemSpec::Submenu {
                     label: "Arrange".to_owned(),
-                    enabled: has_doc,
+                    enabled: has_authoring_doc,
                     role: None,
                     items: arrange_items,
                 },
                 NativeMenuItemSpec::Submenu {
                     label: "Align".to_owned(),
-                    enabled: has_doc,
+                    enabled: has_authoring_doc,
                     role: None,
                     items: align_items,
                 },
@@ -1687,7 +1691,8 @@ impl NativeMenuSpec {
 
     fn build_text_menu(editor: &Editor) -> NativeTopMenuSpec {
         let has_doc = editor.has_document();
-        let selected_text = if has_doc && editor.selection.len() == 1 {
+        let has_authoring_doc = has_doc && !editor.is_standalone_script_session();
+        let selected_text = if has_authoring_doc && editor.selection.len() == 1 {
             editor.selected_element().map(|el| &el.kind)
         } else {
             None
@@ -1713,7 +1718,8 @@ impl NativeMenuSpec {
                 TextAlign::Left,
             ),
         };
-        let can_set_size = has_doc && (has_text_el || editor.tool == crate::app::Tool::Text);
+        let can_set_size =
+            has_authoring_doc && (has_text_el || editor.tool == crate::app::Tool::Text);
 
         let size_items: Vec<NativeMenuItemSpec> = TEXT_MENU_SIZES
             .iter()
@@ -1852,7 +1858,7 @@ impl NativeMenuSpec {
                 custom_item(
                     "Font Embedding…",
                     None,
-                    has_doc,
+                    has_authoring_doc,
                     false,
                     NativeMenuAction::TextOpenFontEmbedding,
                 ),
@@ -1862,6 +1868,7 @@ impl NativeMenuSpec {
 
     fn build_control_menu(editor: &Editor, ctx: Option<&egui::Context>) -> NativeTopMenuSpec {
         let has_doc = editor.has_document();
+        let has_authoring_doc = has_doc && !editor.is_standalone_script_session();
         let work_area_items = vec![
             cmd_item(editor, ctx, CommandId::SetWorkAreaIn),
             cmd_item(editor, ctx, CommandId::SetWorkAreaOut),
@@ -1892,14 +1899,14 @@ impl NativeMenuSpec {
                 custom_check_item(
                     "Live ActionScript",
                     None,
-                    has_doc,
-                    has_doc && editor.live_script_preview,
+                    has_authoring_doc,
+                    has_authoring_doc && editor.live_script_preview,
                     NativeMenuAction::ToggleLiveActionScript,
                 ),
                 NativeMenuItemSpec::Separator,
                 NativeMenuItemSpec::Submenu {
                     label: "Work Area".to_owned(),
-                    enabled: has_doc,
+                    enabled: has_authoring_doc,
                     role: None,
                     items: work_area_items,
                 },
@@ -1909,6 +1916,7 @@ impl NativeMenuSpec {
 
     fn build_debug_menu(editor: &Editor, ctx: Option<&egui::Context>) -> NativeTopMenuSpec {
         let has_doc = editor.has_document();
+        let has_authoring_doc = has_doc && !editor.is_standalone_script_session();
         let snapshot = editor.debugger.snapshot();
         let idle_ready = snapshot.is_none() && editor.debugger.startup_status.is_none();
         let paused = snapshot
@@ -1927,14 +1935,14 @@ impl NativeMenuSpec {
                 custom_item(
                     run_label,
                     None,
-                    has_doc && (paused || idle_ready),
+                    has_authoring_doc && (paused || idle_ready),
                     false,
                     NativeMenuAction::DebugContinueOrStart,
                 ),
                 custom_item(
                     "Stop Debugging",
                     None,
-                    has_doc && !idle_ready,
+                    has_authoring_doc && !idle_ready,
                     false,
                     NativeMenuAction::DebugStop,
                 ),
@@ -1942,21 +1950,21 @@ impl NativeMenuSpec {
                 custom_item(
                     "Step Over",
                     None,
-                    has_doc && paused,
+                    has_authoring_doc && paused,
                     false,
                     NativeMenuAction::DebugStepOver,
                 ),
                 custom_item(
                     "Step In",
                     None,
-                    has_doc && paused,
+                    has_authoring_doc && paused,
                     false,
                     NativeMenuAction::DebugStepInto,
                 ),
                 custom_item(
                     "Step Out",
                     None,
-                    has_doc && paused,
+                    has_authoring_doc && paused,
                     false,
                     NativeMenuAction::DebugStepOut,
                 ),
@@ -1964,14 +1972,14 @@ impl NativeMenuSpec {
                 custom_item(
                     "Toggle Breakpoint",
                     None,
-                    has_doc && (snapshot.is_some() || idle_ready),
+                    has_authoring_doc && (snapshot.is_some() || idle_ready),
                     false,
                     NativeMenuAction::DebugToggleBreakpoint,
                 ),
                 custom_item(
                     "Remove All Breakpoints",
                     None,
-                    has_doc
+                    has_authoring_doc
                         && (snapshot.is_some()
                             || (idle_ready && !editor.debugger.breakpoints.is_empty())),
                     false,
@@ -2368,6 +2376,7 @@ pub(crate) const fn decode_menu_tag(tag: isize) -> Option<(usize, usize)> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MenuSyncFingerprint {
     pub has_doc: bool,
+    pub standalone_script: bool,
     pub session_count: usize,
     pub active_session: usize,
     pub history_revision: u64,
@@ -2563,11 +2572,13 @@ impl MenuSyncFingerprint {
                     mix!(&editor.project.name);
                     mix!(&editor.path);
                     mix!(&editor.import_source);
+                    mix!(editor.standalone_script);
                     mix!(dirty);
                 } else if let Some(session) = &editor.sessions[index] {
                     mix!(&session.project.name);
                     mix!(&session.path);
                     mix!(&session.import_source);
+                    mix!(session.standalone_script);
                     mix!(session.dirty());
                 }
             }
@@ -2575,6 +2586,7 @@ impl MenuSyncFingerprint {
 
         Self {
             has_doc,
+            standalone_script: editor.is_standalone_script_session(),
             session_count,
             active_session: editor.active_session,
             history_revision: editor.history.revision(),
@@ -2660,6 +2672,7 @@ impl Editor {
 
     /// Execute any [`NativeMenuAction`] against the live [`Editor`].
     pub fn execute_native_menu_action(&mut self, ctx: &egui::Context, action: NativeMenuAction) {
+        let has_authoring_doc = self.has_document() && !self.is_standalone_script_session();
         match action {
             NativeMenuAction::Command(cmd) => {
                 let _ = self.execute_menu_command(ctx, cmd);
@@ -2691,22 +2704,22 @@ impl Editor {
                 }
             }
             NativeMenuAction::ImportToLibrary => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.import_to_library_dialog();
                 }
             }
             NativeMenuAction::ImportPalette => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.import_palette_dialog();
                 }
             }
             NativeMenuAction::ImportVideo => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.open_import_video(ctx);
                 }
             }
             NativeMenuAction::InsertEmptyVideoObject => {
-                if self.has_document() && self.layer_editable() {
+                if has_authoring_doc && self.layer_editable() {
                     self.finish_edits();
                     self.add_element(
                         ElementKind::Video {
@@ -2719,66 +2732,64 @@ impl Editor {
                 }
             }
             NativeMenuAction::ExportImage => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.open_export_image(ctx);
                 }
             }
             NativeMenuAction::ExportFlaProfile(profile) => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.export_fla_profile_dialog(profile, None);
                 }
             }
             NativeMenuAction::PasteMotionSpecial => {
-                if self.has_document() && self.can_paste_motion() {
+                if has_authoring_doc && self.can_paste_motion() {
                     self.open_paste_motion_special();
                 }
             }
             NativeMenuAction::EditSelectedSymbol => {
-                if self.has_document()
-                    && let Some(id) = self.selected_instance_symbol()
-                {
+                if has_authoring_doc && let Some(id) = self.selected_instance_symbol() {
                     self.enter_symbol_isolated(id);
                 }
             }
             NativeMenuAction::EditSymbolInPlace => {
-                if self.has_document() && self.selected_instance_symbol().is_some() {
+                if has_authoring_doc && self.selected_instance_symbol().is_some() {
                     self.enter_selected_symbol_in_place();
                 }
             }
             NativeMenuAction::SetMagnification(percent) => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.finish_edits();
                     self.zoom = (percent as f32 / 100.0).clamp(0.05, 64.0);
                     self.mark_manual_stage_view();
                 }
             }
             NativeMenuAction::ToggleGridOverObjects => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.toggle_grid_over_objects();
                 }
             }
             NativeMenuAction::OpenViewSettings => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.open_view_settings();
                 }
             }
             NativeMenuAction::ToggleObjectSnap => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.toggle_object_snap();
                 }
             }
             NativeMenuAction::TogglePixelSnap => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.toggle_pixel_snap();
                 }
             }
             NativeMenuAction::ToggleOnionSkin => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.onion = !self.onion;
                 }
             }
             NativeMenuAction::ToggleOnionOutlines => {
-                if self.has_document() {
+                if has_authoring_doc {
                     if !self.onion {
                         self.onion = true;
                         self.onion_outlines = true;
@@ -2788,30 +2799,32 @@ impl Editor {
                 }
             }
             NativeMenuAction::ToggleOnionAnchor => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.onion_anchor = !self.onion_anchor;
                 }
             }
             NativeMenuAction::SetStageToolbar(mode) => {
-                self.workspace.stage_toolbar = mode;
+                if has_authoring_doc {
+                    self.workspace.stage_toolbar = mode;
+                }
             }
             NativeMenuAction::DisableStageAb => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.set_stage_ab_mode(StageAbComparisonMode::Off);
                 }
             }
             NativeMenuAction::CombineObjects { op, crop } => {
-                if self.has_document() && self.can_combine_objects() {
+                if has_authoring_doc && self.can_combine_objects() {
                     self.combine_objects_selection(op, crop);
                 }
             }
             NativeMenuAction::DistributeToKeyframes => {
-                if self.has_document() && self.can_distribute_to_keyframes() {
+                if has_authoring_doc && self.can_distribute_to_keyframes() {
                     let _ = self.distribute_selection_to_keyframes();
                 }
             }
             NativeMenuAction::TweenToKeys(step) => {
-                if self.has_document() && self.can_convert_to_keyframes_stepped() {
+                if has_authoring_doc && self.can_convert_to_keyframes_stepped() {
                     match step {
                         2 => {
                             let _ = self.tween_to_keys_on_twos();
@@ -2826,115 +2839,119 @@ impl Editor {
                 }
             }
             NativeMenuAction::ConvertToKeyframesStepped2s => {
-                if self.has_document() && self.can_convert_to_keyframes_stepped() {
+                if has_authoring_doc && self.can_convert_to_keyframes_stepped() {
                     self.convert_to_keyframes_stepped(2, false);
                 }
             }
             NativeMenuAction::CopyKeyframeEase => {
-                if self.has_document() && self.can_copy_active_keyframe_ease() {
+                if has_authoring_doc && self.can_copy_active_keyframe_ease() {
                     let _ = self.copy_active_keyframe_ease();
                 }
             }
             NativeMenuAction::ApplyCopiedEase => {
-                if self.has_document() && self.has_copied_keyframe_ease() {
+                if has_authoring_doc && self.has_copied_keyframe_ease() {
                     let _ = self.apply_copied_ease_to_selection();
                 }
             }
             NativeMenuAction::DeleteEmptyLayers => {
-                if self.has_document() {
+                if has_authoring_doc {
                     let _ = self.delete_empty_layers();
                 }
             }
             NativeMenuAction::RenameLayersFromContent => {
-                if self.has_document() {
+                if has_authoring_doc {
                     let _ = self.rename_layers_from_content();
                 }
             }
             NativeMenuAction::AddActionsStopLayer => {
-                if self.has_document() {
+                if has_authoring_doc {
                     let _ = self.add_actions_and_stop_layer();
                 }
             }
             NativeMenuAction::RunJsflDialog => {
-                if self.has_document() {
+                if has_authoring_doc {
                     let _ = self.run_jsfl_script_dialog(None);
                 }
             }
             NativeMenuAction::OpenBatchRenameLibrary => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.open_batch_rename_library_modal(ctx);
                 }
             }
             NativeMenuAction::OpenBatchLinkage => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.open_batch_linkage_modal(ctx);
                 }
             }
             NativeMenuAction::OpenBatchBitmapCompression => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.open_batch_bitmap_compression_modal(ctx);
                 }
             }
             NativeMenuAction::DeleteUnusedLibraryItems => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.find_and_delete_unused_library_items();
                 }
             }
             NativeMenuAction::OpenAutoInstanceNamer => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.open_auto_instance_namer_modal(ctx);
                 }
             }
             NativeMenuAction::OpenRandomizeSelection => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.open_randomize_selection_modal(ctx);
                 }
             }
             NativeMenuAction::PixelSnapSelection => {
-                if self.has_document() && !self.editable_targets().is_empty() {
+                if has_authoring_doc && !self.editable_targets().is_empty() {
                     let _ = self.pixel_snap_selection();
                 }
             }
             NativeMenuAction::AlignSelection { axis, edge } => {
-                if self.can_align_selection() {
+                if has_authoring_doc && self.can_align_selection() {
                     self.align_selection(ctx, axis, edge);
                 }
             }
             NativeMenuAction::ToggleAlignToStage => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.authoring_modify.to_stage = !self.authoring_modify.to_stage;
                 }
             }
             NativeMenuAction::ShowPanel(panel) => {
-                self.show_panel(panel);
+                if !self.is_standalone_script_session() {
+                    self.show_panel(panel);
+                }
             }
             NativeMenuAction::TextSetSize(pt) => {
-                let size = f64::from(pt).clamp(1.0, 10000.0);
-                self.workspace.text_size = size;
-                if self.has_document() && self.selection.len() == 1 && self.layer_editable() {
-                    let is_text = self.selected_element().is_some_and(|el| {
-                        matches!(
-                            el.kind,
-                            ElementKind::Text { .. } | ElementKind::TextBox { .. }
-                        )
-                    });
-                    if is_text {
-                        self.finish_edits();
-                        self.transact_named("Change text size", |s| {
-                            s.ensure_selected_key();
-                            if let Some(el) = s.selected_element_mut() {
-                                match &mut el.kind {
-                                    ElementKind::Text { font_size, .. } => *font_size = size,
-                                    ElementKind::TextBox { format, .. } => format.size = size,
-                                    _ => {}
-                                }
-                            }
+                if has_authoring_doc {
+                    let size = f64::from(pt).clamp(1.0, 10000.0);
+                    self.workspace.text_size = size;
+                    if self.selection.len() == 1 && self.layer_editable() {
+                        let is_text = self.selected_element().is_some_and(|el| {
+                            matches!(
+                                el.kind,
+                                ElementKind::Text { .. } | ElementKind::TextBox { .. }
+                            )
                         });
+                        if is_text {
+                            self.finish_edits();
+                            self.transact_named("Change text size", |s| {
+                                s.ensure_selected_key();
+                                if let Some(el) = s.selected_element_mut() {
+                                    match &mut el.kind {
+                                        ElementKind::Text { font_size, .. } => *font_size = size,
+                                        ElementKind::TextBox { format, .. } => format.size = size,
+                                        _ => {}
+                                    }
+                                }
+                            });
+                        }
                     }
                 }
             }
             NativeMenuAction::TextSetStyle { bold, italic } => {
-                if self.has_document() && self.selection.len() == 1 && self.layer_editable() {
+                if has_authoring_doc && self.selection.len() == 1 && self.layer_editable() {
                     let is_box = self
                         .selected_element()
                         .is_some_and(|el| matches!(el.kind, ElementKind::TextBox { .. }));
@@ -2953,7 +2970,7 @@ impl Editor {
                 }
             }
             NativeMenuAction::TextSetAlign(align) => {
-                if self.has_document() && self.selection.len() == 1 && self.layer_editable() {
+                if has_authoring_doc && self.selection.len() == 1 && self.layer_editable() {
                     let is_box = self
                         .selected_element()
                         .is_some_and(|el| matches!(el.kind, ElementKind::TextBox { .. }));
@@ -2971,7 +2988,7 @@ impl Editor {
                 }
             }
             NativeMenuAction::TextAdjustTracking(delta) => {
-                if self.has_document() && self.selection.len() == 1 && self.layer_editable() {
+                if has_authoring_doc && self.selection.len() == 1 && self.layer_editable() {
                     let is_box = self
                         .selected_element()
                         .is_some_and(|el| matches!(el.kind, ElementKind::TextBox { .. }));
@@ -2994,17 +3011,17 @@ impl Editor {
                 }
             }
             NativeMenuAction::TextOpenFontEmbedding => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.open_font_embedding(ctx);
                 }
             }
             NativeMenuAction::ToggleLiveActionScript => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.set_live_script_preview(!self.live_script_preview);
                 }
             }
             NativeMenuAction::DebugContinueOrStart => {
-                if self.has_document() {
+                if has_authoring_doc {
                     if self.debugger.snapshot().is_some() {
                         let _ = self.debug_command(DebugCommand::Resume);
                     } else {
@@ -3013,24 +3030,32 @@ impl Editor {
                 }
             }
             NativeMenuAction::DebugStop => {
-                self.debugger.stop();
+                if has_authoring_doc {
+                    self.debugger.stop();
+                }
             }
             NativeMenuAction::DebugStepOver => {
-                let _ = self.debug_command(DebugCommand::StepOver);
+                if has_authoring_doc {
+                    let _ = self.debug_command(DebugCommand::StepOver);
+                }
             }
             NativeMenuAction::DebugStepInto => {
-                let _ = self.debug_command(DebugCommand::StepInto);
+                if has_authoring_doc {
+                    let _ = self.debug_command(DebugCommand::StepInto);
+                }
             }
             NativeMenuAction::DebugStepOut => {
-                let _ = self.debug_command(DebugCommand::StepOut);
+                if has_authoring_doc {
+                    let _ = self.debug_command(DebugCommand::StepOut);
+                }
             }
             NativeMenuAction::DebugToggleBreakpoint => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.toggle_debug_breakpoint(ctx);
                 }
             }
             NativeMenuAction::DebugClearBreakpoints => {
-                if self.has_document() {
+                if has_authoring_doc {
                     self.clear_all_session_breakpoints();
                     if self.debugger.snapshot().is_some() {
                         let _ = self.debug_command(DebugCommand::SetBreakpoints(Vec::new()));
@@ -4256,4 +4281,178 @@ pub(crate) fn sync(editor: &Editor, ctx: &egui::Context) -> NativeWindowDocState
         let _ = ctx;
     }
     win_state
+}
+
+#[cfg(test)]
+mod t414_macos_menu_tests {
+    use super::*;
+    use neoflash_core::Project;
+
+    fn collect_actions(
+        items: &[NativeMenuItemSpec],
+        out: &mut Vec<(String, NativeMenuAction, bool)>,
+    ) {
+        for item in items {
+            match item {
+                NativeMenuItemSpec::Action {
+                    label,
+                    enabled,
+                    action,
+                    ..
+                } => out.push((label.clone(), action.clone(), *enabled)),
+                NativeMenuItemSpec::Submenu { items, .. } => collect_actions(items, out),
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn t414_standalone_as_session_disables_and_noops_authoring_native_menu_actions() {
+        let tmp = std::env::temp_dir().join(format!(
+            "neoflash-t414-menu-as-{}-{}",
+            std::process::id(),
+            neoflash_core::new_id("dir")
+        ));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let as_path = tmp.join("Main.as");
+        std::fs::write(&as_path, "class Main {}\n").unwrap();
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.sessions.clear();
+        editor.new_document_session(&ctx);
+        let fp_authoring = MenuSyncFingerprint::capture(&editor, Some(&ctx));
+        assert!(!fp_authoring.standalone_script);
+
+        assert!(editor.open_standalone_script_session(&ctx, as_path));
+        assert_eq!(editor.session_count(), 2);
+        assert!(editor.is_standalone_script_session());
+
+        let fp_standalone = MenuSyncFingerprint::capture(&editor, Some(&ctx));
+        assert!(fp_standalone.standalone_script);
+        assert_ne!(fp_authoring, fp_standalone);
+
+        let spec = NativeMenuSpec::build(&editor, Some(&ctx));
+        let mut flat = Vec::new();
+        for menu in &spec.menus {
+            collect_actions(&menu.items, &mut flat);
+        }
+
+        // Document lifecycle multi-tab actions remain enabled on standalone `.as` tabs.
+        assert!(
+            flat.iter()
+                .any(|(_, act, en)| { matches!(act, NativeMenuAction::CloseAllDocuments) && *en }),
+            "Close All must stay enabled on standalone .as tabs"
+        );
+        assert!(
+            flat.iter().any(|(_, act, en)| {
+                matches!(act, NativeMenuAction::CloseOtherDocuments) && *en
+            }),
+            "Close other documents must stay enabled when multiple tabs are open"
+        );
+
+        let authoring_actions = [
+            NativeMenuAction::ImportToLibrary,
+            NativeMenuAction::ImportPalette,
+            NativeMenuAction::ImportVideo,
+            NativeMenuAction::InsertEmptyVideoObject,
+            NativeMenuAction::ExportImage,
+            NativeMenuAction::ExportFlaProfile(FlaTargetProfile::AnimateCC),
+            NativeMenuAction::PasteMotionSpecial,
+            NativeMenuAction::EditSelectedSymbol,
+            NativeMenuAction::EditSymbolInPlace,
+            NativeMenuAction::SetMagnification(200),
+            NativeMenuAction::ToggleGridOverObjects,
+            NativeMenuAction::OpenViewSettings,
+            NativeMenuAction::ToggleObjectSnap,
+            NativeMenuAction::TogglePixelSnap,
+            NativeMenuAction::ToggleOnionSkin,
+            NativeMenuAction::ToggleOnionOutlines,
+            NativeMenuAction::ToggleOnionAnchor,
+            NativeMenuAction::SetStageToolbar(StageToolbarMode::ALL[0]),
+            NativeMenuAction::DisableStageAb,
+            NativeMenuAction::CombineObjects {
+                op: BooleanOp::Union,
+                crop: false,
+            },
+            NativeMenuAction::DistributeToKeyframes,
+            NativeMenuAction::TweenToKeys(2),
+            NativeMenuAction::ConvertToKeyframesStepped2s,
+            NativeMenuAction::CopyKeyframeEase,
+            NativeMenuAction::ApplyCopiedEase,
+            NativeMenuAction::DeleteEmptyLayers,
+            NativeMenuAction::RenameLayersFromContent,
+            NativeMenuAction::AddActionsStopLayer,
+            NativeMenuAction::RunJsflDialog,
+            NativeMenuAction::OpenBatchRenameLibrary,
+            NativeMenuAction::OpenBatchLinkage,
+            NativeMenuAction::OpenBatchBitmapCompression,
+            NativeMenuAction::DeleteUnusedLibraryItems,
+            NativeMenuAction::OpenAutoInstanceNamer,
+            NativeMenuAction::OpenRandomizeSelection,
+            NativeMenuAction::PixelSnapSelection,
+            NativeMenuAction::AlignSelection { axis: 0, edge: 0 },
+            NativeMenuAction::ToggleAlignToStage,
+            NativeMenuAction::ShowPanel(PanelId::Transform),
+            NativeMenuAction::ShowPanel(PanelId::Align),
+            NativeMenuAction::TextSetSize(24),
+            NativeMenuAction::TextSetStyle {
+                bold: true,
+                italic: false,
+            },
+            NativeMenuAction::TextSetAlign(TextAlign::Center),
+            NativeMenuAction::TextAdjustTracking(2),
+            NativeMenuAction::TextOpenFontEmbedding,
+            NativeMenuAction::ToggleLiveActionScript,
+            NativeMenuAction::DebugContinueOrStart,
+            NativeMenuAction::DebugStop,
+            NativeMenuAction::DebugStepOver,
+            NativeMenuAction::DebugStepInto,
+            NativeMenuAction::DebugStepOut,
+            NativeMenuAction::DebugToggleBreakpoint,
+            NativeMenuAction::DebugClearBreakpoints,
+        ];
+
+        for target in &authoring_actions {
+            for (label, act, enabled) in &flat {
+                if act == target {
+                    assert!(
+                        !*enabled,
+                        "authoring menu item '{label}' ({act:?}) must be disabled on standalone .as tab"
+                    );
+                }
+            }
+        }
+
+        let before_project = editor.project.clone();
+        let before_zoom = editor.zoom;
+        let before_onion = editor.onion;
+        let before_text_size = editor.workspace.text_size;
+        let before_toolbar = editor.workspace.stage_toolbar;
+        assert!(!editor.dirty());
+        assert!(!editor.history.can_undo());
+
+        for action in authoring_actions {
+            editor.execute_native_menu_action(&ctx, action);
+        }
+        editor.open_export_image(&ctx);
+        assert!(
+            !editor
+                .export_fla_profile_dialog(FlaTargetProfile::AnimateCC, Some(tmp.join("out.fla")),)
+        );
+        assert!(!tmp.join("out.fla").exists());
+
+        assert_eq!(editor.project, before_project);
+        assert_eq!(editor.zoom, before_zoom);
+        assert_eq!(editor.onion, before_onion);
+        assert_eq!(editor.workspace.text_size, before_text_size);
+        assert_eq!(editor.workspace.stage_toolbar, before_toolbar);
+        assert!(!editor.dirty(), "standalone .as tab must stay clean");
+        assert!(
+            !editor.history.can_undo(),
+            "authoring actions must not push Undo entries onto standalone .as History"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }

@@ -286,6 +286,8 @@ pub(crate) struct RecoverySidecar {
     pub(crate) original_path: Option<PathBuf>,
     pub(crate) document_name: String,
     pub(crate) timestamp_unix_secs: u64,
+    #[serde(default)]
+    pub standalone_script: bool,
 }
 
 /// Parsed crash-recovery snapshot discovered on launch.
@@ -295,7 +297,29 @@ pub(crate) struct RecoveryCandidate {
     pub(crate) original_path: Option<PathBuf>,
     pub(crate) document_name: String,
     pub(crate) timestamp_unix_secs: u64,
+    pub(crate) standalone_script: Option<bool>,
     pub(crate) project: Project,
+}
+
+fn project_is_pure_standalone_script_wrapper(project: &Project) -> bool {
+    project.sources.len() == 1
+        && project.resources.is_empty()
+        && project.library_folders.is_empty()
+        && project.document_class.is_none()
+        && project.scenes.len() <= 1
+        && project.symbols.len() == 1
+        && project.symbols[0].timeline.scripts.is_empty()
+        && project.symbols[0].timeline.guides.is_empty()
+        && project.symbols[0].timeline.layers.len() == 1
+        && project.symbols[0].timeline.layers.iter().all(|l| {
+            l.keyframes.iter().all(|k| {
+                k.elements.is_empty()
+                    && k.sound.is_none()
+                    && k.video.is_none()
+                    && k.label.is_empty()
+                    && k.tween.is_none()
+            })
+        })
 }
 
 /// Per-editor autosave timer and crash-recovery directory state.
@@ -362,10 +386,12 @@ impl Default for RecoveryManager {
 }
 
 impl RecoveryManager {
+    #[allow(clippy::too_many_arguments)]
     fn tick(
         &mut self,
         project: &Project,
         path: Option<&Path>,
+        standalone_script: bool,
         dirty: bool,
         interval: f64,
         now: f64,
@@ -386,7 +412,7 @@ impl RecoveryManager {
                 .and_then(|p| p.file_name())
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| project.name.clone());
-            self.write_active(project, path, &name, wall)?;
+            self.write_active_with_mode(project, path, &name, wall, standalone_script)?;
             Ok(Some(Duration::from_secs_f64(interval)))
         } else {
             Ok(Some(Duration::from_secs_f64(
@@ -703,12 +729,32 @@ impl RecoveryManager {
     }
 
     /// Atomically write `<active_id>.json` and `<active_id>.nflash` in the recovery directory.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn write_active(
         &mut self,
         project: &Project,
         original_path: Option<&Path>,
         document_name: &str,
         timestamp_unix_secs: u64,
+    ) -> Result<(), String> {
+        let standalone_script = original_path.is_some_and(Editor::is_actionscript_source_path);
+        self.write_active_with_mode(
+            project,
+            original_path,
+            document_name,
+            timestamp_unix_secs,
+            standalone_script,
+        )
+    }
+
+    /// Atomically write `<active_id>.json` and `<active_id>.nflash` with explicit `standalone_script` metadata.
+    pub(crate) fn write_active_with_mode(
+        &mut self,
+        project: &Project,
+        original_path: Option<&Path>,
+        document_name: &str,
+        timestamp_unix_secs: u64,
+        standalone_script: bool,
     ) -> Result<(), String> {
         let Some(dir) = &self.dir else {
             return Ok(());
@@ -719,6 +765,7 @@ impl RecoveryManager {
             original_path: original_path.map(Path::to_path_buf),
             document_name: document_name.to_owned(),
             timestamp_unix_secs,
+            standalone_script,
         };
         let sidecar_json = serde_json::to_string_pretty(&sidecar).map_err(|e| e.to_string())?;
         let id = &self.active_id;
@@ -788,44 +835,66 @@ impl RecoveryManager {
                 }
             };
             let sidecar_path = dir.join(format!("{id}.json"));
-            let (original_path, document_name, timestamp_unix_secs) = if sidecar_path.exists() {
-                match std::fs::read_to_string(&sidecar_path)
-                    .map_err(|e| e.to_string())
-                    .and_then(|raw| {
-                        serde_json::from_str::<RecoverySidecar>(&raw).map_err(|e| e.to_string())
-                    }) {
-                    Ok(meta) => {
-                        let name = if meta.document_name.trim().is_empty() {
-                            fallback_doc_name(&project, &id)
-                        } else {
-                            meta.document_name
-                        };
-                        (meta.original_path, name, meta.timestamp_unix_secs)
+            let (original_path, document_name, timestamp_unix_secs, standalone_script) =
+                if sidecar_path.exists() {
+                    match std::fs::read_to_string(&sidecar_path)
+                        .map_err(|e| e.to_string())
+                        .and_then(|raw| {
+                            let explicit_standalone =
+                                serde_json::from_str::<serde_json::Value>(&raw)
+                                    .ok()
+                                    .and_then(|v| {
+                                        v.get("standalone_script").and_then(|b| b.as_bool())
+                                    });
+                            let meta = serde_json::from_str::<RecoverySidecar>(&raw)
+                                .map_err(|e| e.to_string())?;
+                            Ok((meta, explicit_standalone))
+                        }) {
+                        Ok((meta, explicit_standalone)) => {
+                            let name = if meta.document_name.trim().is_empty() {
+                                fallback_doc_name(&project, &id)
+                            } else {
+                                meta.document_name
+                            };
+                            let standalone_opt = if meta.standalone_script {
+                                Some(true)
+                            } else {
+                                explicit_standalone
+                            };
+                            (
+                                meta.original_path,
+                                name,
+                                meta.timestamp_unix_secs,
+                                standalone_opt,
+                            )
+                        }
+                        Err(e) => {
+                            warnings.push(format!(
+                                "Recovery metadata {} unreadable ({e}); using project defaults.",
+                                sidecar_path.display()
+                            ));
+                            (
+                                None,
+                                fallback_doc_name(&project, &id),
+                                file_mtime_unix_secs(&path),
+                                None,
+                            )
+                        }
                     }
-                    Err(e) => {
-                        warnings.push(format!(
-                            "Recovery metadata {} unreadable ({e}); using project defaults.",
-                            sidecar_path.display()
-                        ));
-                        (
-                            None,
-                            fallback_doc_name(&project, &id),
-                            file_mtime_unix_secs(&path),
-                        )
-                    }
-                }
-            } else {
-                (
-                    None,
-                    fallback_doc_name(&project, &id),
-                    file_mtime_unix_secs(&path),
-                )
-            };
+                } else {
+                    (
+                        None,
+                        fallback_doc_name(&project, &id),
+                        file_mtime_unix_secs(&path),
+                        None,
+                    )
+                };
             candidates.push(RecoveryCandidate {
                 id,
                 original_path,
                 document_name,
                 timestamp_unix_secs,
+                standalone_script,
                 project,
             });
         }
@@ -853,6 +922,7 @@ impl Editor {
         let mut results = vec![self.recovery.tick(
             &self.project,
             active_tracked.as_deref(),
+            self.standalone_script,
             enabled && dirty,
             interval,
             now_secs,
@@ -864,6 +934,7 @@ impl Editor {
             results.push(session.recovery.tick(
                 &session.project,
                 session_tracked,
+                session.standalone_script,
                 enabled && dirty,
                 interval,
                 now_secs,
@@ -930,14 +1001,19 @@ impl Editor {
             .as_deref()
             .and_then(|p| self.session_for_open_path(p))
             .is_some();
-        let is_standalone_as = original
-            .as_deref()
-            .is_some_and(Self::is_actionscript_source_path)
-            || (cand
-                .document_name
-                .rsplit_once('.')
-                .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("as"))
-                && cand.project.sources.len() == 1);
+        let is_standalone_as = match cand.standalone_script {
+            Some(flag) => flag,
+            None => {
+                original
+                    .as_deref()
+                    .is_some_and(Self::is_actionscript_source_path)
+                    || (cand
+                        .document_name
+                        .rsplit_once('.')
+                        .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("as"))
+                        && project_is_pure_standalone_script_wrapper(&cand.project))
+            }
+        };
         let mut path = None;
         let mut restored_import_source = None;
         let mut independent_recovery = None;
@@ -945,11 +1021,12 @@ impl Editor {
             // Copy first under a new identity. The original open document owns the old ID;
             // either document may autosave, Save As or close without deleting the other's copy.
             let mut recovery = self.recovery.for_document(None);
-            if let Err(error) = recovery.write_active(
+            if let Err(error) = recovery.write_active_with_mode(
                 &cand.project,
                 None,
                 &cand.document_name,
                 cand.timestamp_unix_secs,
+                is_standalone_as,
             ) {
                 self.message(format!("Recovery restore failed: {error}"));
                 return;
@@ -1225,22 +1302,63 @@ impl Editor {
         true
     }
 
+    /// Open the Save As file picker from the `ExternalFileChange` modal and resolve the conflict
+    /// via [`Self::save_as_external_change`] (supporting saving over the same path cleanly).
+    pub(crate) fn prompt_save_as_external_change(&mut self) -> bool {
+        if !self.has_document() {
+            return false;
+        }
+        let chosen = if self.is_standalone_script_session() {
+            let (default_dir, default_name) = self.default_standalone_script_save_target();
+            let mut dialog = rfd::FileDialog::new()
+                .add_filter("ActionScript source", &["as"])
+                .set_file_name(&default_name);
+            if let Some(dir) = default_dir {
+                dialog = dialog.set_directory(dir);
+            }
+            dialog.save_file()
+        } else {
+            let (default_dir, default_name) = self.default_save_dialog_target();
+            let mut dialog = rfd::FileDialog::new()
+                .add_filter("NeoFlash project", &["nflash"])
+                .add_filter("Flash FLA (Animate CC / CS6–CS4 / Flash 8)", &["fla"])
+                .add_filter("Uncompressed XFL directory", &["xfl"])
+                .set_file_name(&default_name);
+            if let Some(dir) = default_dir {
+                dialog = dialog.set_directory(dir);
+            }
+            dialog.save_file()
+        };
+        let Some(path) = chosen else {
+            return false;
+        };
+        self.save_as_external_change(path)
+    }
+
     /// Resolve an external conflict by saving the current in-memory document to `path` (`Save As…`).
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn save_as_external_change(&mut self, path: PathBuf) -> bool {
         if !self.has_document() {
             return false;
         }
+        let normalized = if !path.is_dir() && path.extension().is_none() {
+            path.with_extension(if self.is_standalone_script_session() {
+                "as"
+            } else {
+                "nflash"
+            })
+        } else {
+            path
+        };
         let tracked = self.tracked_disk_path().map(Path::to_path_buf);
         if tracked
             .as_deref()
-            .is_some_and(|existing| crate::document_sessions::same_path(existing, &path))
+            .is_some_and(|existing| crate::document_sessions::same_path(existing, &normalized))
         {
             self.recovery
                 .acknowledge_external_change(tracked.as_deref());
             self.saved_project = None;
         }
-        self.save_to_path(path)
+        self.save_to_path(normalized)
     }
 
     pub(crate) fn is_non_native_graphic_document_path(path: &Path) -> bool {
@@ -3012,5 +3130,135 @@ mod tests {
         assert!(save_as_path.exists());
         assert!(!editor.dirty());
         assert!(editor.check_external_file_changes().is_empty());
+    }
+
+    #[test]
+    fn t414_save_as_external_change_to_same_path_acknowledges_conflict_and_succeeds() {
+        let user_dir = TempDir::new("ext-save-as-same");
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.sessions.clear();
+        editor.new_document_session(&ctx);
+
+        let path = user_dir.path().join("ConflictSamePath.nflash");
+        editor.project.name = "Initial".into();
+        assert!(editor.save_to_path(path.clone()));
+        assert!(!editor.dirty());
+
+        let mut external_proj = editor.project.clone();
+        external_proj.name = "ModifiedOnDisk".into();
+        std::fs::write(&path, external_proj.to_json().unwrap()).unwrap();
+
+        editor.transact(|ed| ed.project.name = "LocalOverride".into());
+        assert_eq!(
+            editor.check_external_file_changes(),
+            vec![(0, ExternalFileChange::Modified)]
+        );
+        assert!(
+            !editor.save(false),
+            "ordinary Save must pause on unacknowledged external conflict"
+        );
+        assert!(editor.has_external_change_prompt());
+
+        // Choosing the SAME path via Save As… in the conflict modal must acknowledge and overwrite cleanly!
+        assert!(editor.save_as_external_change(path.clone()));
+        assert!(!editor.dirty());
+        assert_eq!(editor.external_file_change(), None);
+        assert!(!editor.has_external_change_prompt());
+        let saved = Project::from_json(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved.name, "LocalOverride");
+    }
+
+    #[test]
+    fn t414_recovery_sidecar_standalone_script_preserves_untitled_nflash_named_as_with_artwork() {
+        use neoflash_core::{
+            BlendMode, Element, ElementKind, ScriptLanguage, SourceUnit, Transform, new_id,
+        };
+
+        let rec_dir = TempDir::new("rec-standalone-flag");
+        let ctx = egui::Context::default();
+        let mut author = Editor::from_project(&ctx, Project::blank());
+        author.sessions.clear();
+        author.new_document_session(&ctx);
+        author.recovery.set_dir(Some(rec_dir.path().to_path_buf()));
+        author.workspace.general.autosave = true;
+        author.workspace.general.autosave_minutes = 1;
+
+        // Untitled `.nflash` document whose project name ends in `.as` and has Stage artwork + 1 SourceUnit.
+        author.transact(|ed| {
+            ed.project.name = "Demo.as".into();
+            ed.project.format_version = 2;
+            ed.project.sources = vec![SourceUnit {
+                id: new_id("source"),
+                path: "Helper.as".into(),
+                language: ScriptLanguage::ActionScript2,
+                source: "class Helper {}\n".into(),
+            }];
+            let root = ed.project.root.clone();
+            ed.project.symbol_mut(&root).unwrap().timeline.layers[0].keyframes[0]
+                .elements
+                .push(Element {
+                    id: new_id("el"),
+                    name: "hero".into(),
+                    transform: Transform::default(),
+                    kind: ElementKind::Rectangle {
+                        width: 100.0,
+                        height: 80.0,
+                        fill: [255, 0, 0, 255],
+                        stroke: [0, 0, 0, 255],
+                        stroke_width: 1.0,
+                    },
+                    visible: true,
+                    blend_mode: BlendMode::Normal,
+                    ..Element::default()
+                });
+        });
+        assert!(!author.is_standalone_script_session());
+        author.tick_autosave(0.0, 1_700_050_000);
+        author.tick_autosave(120.0, 1_700_050_120);
+
+        let id = author.recovery.active_id().to_owned();
+        let sidecar_raw = std::fs::read_to_string(rec_dir.path().join(format!("{id}.json")))
+            .expect("sidecar json");
+        let parsed_sidecar: RecoverySidecar = serde_json::from_str(&sidecar_raw).unwrap();
+        assert!(!parsed_sidecar.standalone_script);
+
+        // Also write a legacy sidecar (omitting `standalone_script`) for a second untitled `.nflash` with artwork.
+        std::fs::write(
+            rec_dir.path().join("legacy-art.nflash"),
+            author.project.to_json().unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            rec_dir.path().join("legacy-art.json"),
+            r#"{"document_name":"Demo.as","timestamp_unix_secs":1700050100}"#,
+        )
+        .unwrap();
+
+        let mut relaunched = Editor::from_project(&ctx, Project::blank());
+        relaunched.sessions.clear();
+        relaunched
+            .recovery
+            .set_dir(Some(rec_dir.path().to_path_buf()));
+        relaunched.check_recovery_on_launch();
+        assert!(relaunched.recovery.has_prompt());
+
+        relaunched.restore_recovery_prompt(&ctx);
+        assert!(
+            !relaunched.is_standalone_script_session(),
+            "untitled .nflash named Demo.as with artwork must never restore as standalone_script"
+        );
+        assert_eq!(
+            relaunched.project.symbols[0].timeline.layers[0].keyframes[0]
+                .elements
+                .len(),
+            1
+        );
+
+        relaunched.restore_recovery_prompt(&ctx);
+        assert!(
+            !relaunched.is_standalone_script_session(),
+            "legacy sidecar without standalone_script must also preserve authoring .nflash with artwork"
+        );
     }
 }

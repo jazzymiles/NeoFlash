@@ -882,7 +882,7 @@ impl Editor {
         profile: neoflash_export::FlaTargetProfile,
         dest: Option<PathBuf>,
     ) -> bool {
-        if !self.has_document() {
+        if !self.has_document() || self.is_standalone_script_session() {
             return false;
         }
         self.finish_edits();

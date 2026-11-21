@@ -3138,6 +3138,7 @@ fn preferences_general_autosave_on_launch_open_recent_and_recovery_dialog_work_t
             original_path: Some(alpha_path.clone()),
             document_name: "Alpha.nflash".into(),
             timestamp_unix_secs: 1_700_030_500,
+            standalone_script: false,
         })
         .unwrap(),
     )
@@ -3156,6 +3157,7 @@ fn preferences_general_autosave_on_launch_open_recent_and_recovery_dialog_work_t
             original_path: None,
             document_name: "Untitled".into(),
             timestamp_unix_secs: 1_700_030_100,
+            standalone_script: false,
         })
         .unwrap(),
     )

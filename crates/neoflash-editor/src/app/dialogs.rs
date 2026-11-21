@@ -317,7 +317,7 @@ impl Editor {
                     let _ = self.keep_editing_external_change();
                 }
                 Some(2) => {
-                    let _ = self.save(true);
+                    let _ = self.prompt_save_as_external_change();
                 }
                 _ => {}
             }

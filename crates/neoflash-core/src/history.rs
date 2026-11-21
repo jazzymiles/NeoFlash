@@ -1466,6 +1466,32 @@ impl History {
         self.revision = next_revision();
     }
 
+    /// Synchronize `project.name` and `sources[0].path` across all cached `History` baselines
+    /// (`clean_baseline`, `pending`, `undo`, and `redo`) when a standalone `.as` file is renamed via `Save As…`.
+    pub fn sync_standalone_script_identity(&mut self, project_name: &str, source_path: &str) {
+        if let Some(base) = &mut self.clean_baseline {
+            base.header.name = project_name.to_owned();
+            if let Some(unit) = base.header.sources.first_mut() {
+                unit.path = source_path.to_owned();
+            }
+        }
+        if let Some(pending) = &mut self.pending {
+            pending.baseline.header.name = project_name.to_owned();
+            if let Some(unit) = pending.baseline.header.sources.first_mut() {
+                unit.path = source_path.to_owned();
+            }
+        }
+        for entry in self.undo.iter_mut().chain(self.redo.iter_mut()) {
+            if let Some(header) = &mut entry.delta.header {
+                header.name = project_name.to_owned();
+                if let Some(unit) = header.sources.first_mut() {
+                    unit.path = source_path.to_owned();
+                }
+            }
+        }
+        self.revision = next_revision();
+    }
+
     /// Changes whenever a committed edit, Undo, Redo, cancel or clear changes the document this
     /// history tracks; unique across all histories in the process. Caches of rendered document
     /// content key on it.
@@ -1631,5 +1657,50 @@ mod tests {
         assert_eq!(project.name, "Step 3");
         assert_eq!(history.undo_len(), 1);
         assert_eq!(history.redo_len(), 0);
+    }
+
+    #[test]
+    fn sync_standalone_script_identity_preserves_new_filename_across_undo_redo() {
+        let mut project = Project::blank();
+        project.name = "Foo.as".into();
+        project.sources = vec![crate::SourceUnit {
+            id: "src-1".into(),
+            path: "Foo.as".into(),
+            language: crate::ScriptLanguage::ActionScript2,
+            source: "class Foo {}\n".into(),
+        }];
+
+        let mut history = History::new(50);
+        history.begin_named(&project, "Edit class");
+        project.sources[0].source = "class Bar {}\n".into();
+        assert!(history.commit(&project));
+
+        history.begin_named(&project, "Add method");
+        project.sources[0].source = "class Bar {\n    function run() {}\n}\n".into();
+        assert!(history.commit(&project));
+        assert!(history.undo(&mut project));
+
+        // Simulate Save As `Bar.as` while both undo and redo snapshots exist (plus open pending).
+        history.begin_named(&project, "Format scripts on save");
+        project.sources[0].source = "class Bar {\n}\n".into();
+        project.name = "Bar.as".into();
+        project.sources[0].path = "Bar.as".into();
+        history.sync_standalone_script_identity("Bar.as", "Bar.as");
+        assert!(history.commit(&project));
+
+        let saved_snapshot = project.clone();
+        assert!(history.undo(&mut project));
+        assert_eq!(project.name, "Bar.as");
+        assert_eq!(project.sources[0].path, "Bar.as");
+        assert_eq!(project.sources[0].source, "class Bar {}\n");
+
+        assert!(history.undo(&mut project));
+        assert_eq!(project.name, "Bar.as");
+        assert_eq!(project.sources[0].path, "Bar.as");
+        assert_eq!(project.sources[0].source, "class Foo {}\n");
+
+        assert!(history.redo(&mut project));
+        assert!(history.redo(&mut project));
+        assert_eq!(project, saved_snapshot);
     }
 }
