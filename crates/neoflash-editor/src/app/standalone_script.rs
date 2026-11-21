@@ -266,16 +266,21 @@ fn normalize_relative_include_logical_path(logical_path: &str) -> Option<String>
     resolve_include_logical_path_as_or_asi("", &normalized).ok()
 }
 
-/// Returns `true` if any existing path segment of `clean_rel` under `base_dir` is a symlink
-/// (or if `base_dir` itself is a symlink).
+/// Returns `true` if any existing path segment of `clean_rel` inside `base_dir` is a symlink
+/// (allowing `base_dir` itself to be a symlinked root such as `/tmp -> private/tmp`).
 fn path_has_symlink_segment_under(base_dir: &Path, clean_rel: &str) -> bool {
-    let Ok(base_meta) = std::fs::symlink_metadata(base_dir) else {
-        return false;
+    let canon_base = match std::fs::canonicalize(base_dir) {
+        Ok(canon) => {
+            if !canon.is_dir() {
+                return true;
+            }
+            canon
+        }
+        Err(_) => {
+            return std::fs::symlink_metadata(base_dir).is_ok();
+        }
     };
-    if base_meta.file_type().is_symlink() || !base_meta.is_dir() {
-        return true;
-    }
-    let mut current = base_dir.to_path_buf();
+    let mut current = canon_base;
     for segment in clean_rel.split('/') {
         if segment.is_empty() || segment == "." || segment == ".." {
             return true;
@@ -353,19 +358,19 @@ fn read_raw_include_bytes_from_disk(
 }
 
 /// Resolve a relative `.as` / `.asi` path (`"figures.as"` or `"sub/rotate.as"`) to an existing
-/// non-symlink disk path canonically contained within `base_dir`, if present.
+/// non-symlink disk path canonically contained within `base_dir` (allowing `base_dir` itself to
+/// be a symlinked directory such as `/tmp` on macOS while rejecting any symlink inside it).
 pub(crate) fn resolve_relative_include_disk_path(
     base_dir: &Path,
     logical_path: &str,
 ) -> Option<PathBuf> {
     let clean = normalize_relative_include_logical_path(logical_path)?;
-    let base_meta = std::fs::symlink_metadata(base_dir).ok()?;
-    if base_meta.file_type().is_symlink() || !base_meta.is_dir() {
+    let canon_base = std::fs::canonicalize(base_dir).ok()?;
+    if !canon_base.is_dir() {
         return None;
     }
-    let canon_base = std::fs::canonicalize(base_dir).ok()?;
     let segments: Vec<&str> = clean.split('/').collect();
-    let mut current = base_dir.to_path_buf();
+    let mut current = canon_base.clone();
     for (idx, segment) in segments.iter().enumerate() {
         if segment.is_empty() || *segment == "." || *segment == ".." {
             return None;
@@ -420,7 +425,13 @@ pub(crate) fn resolve_relative_include_disk_path(
     Some(current)
 }
 
-fn declared_package_segments(unit: &SourceUnit) -> (Vec<String>, bool) {
+fn strip_keyword_ws<'a>(s: &'a str, kw: &str) -> Option<&'a str> {
+    let rest = s.strip_prefix(kw)?;
+    rest.starts_with(char::is_whitespace)
+        .then(|| rest.trim_start())
+}
+
+fn declared_package_segments(unit: &SourceUnit) -> (Vec<String>, Option<String>) {
     let skeleton = strip_comments_and_strings_for_detection(&unit.source);
     let mut brace_depth = 0usize;
     for line in skeleton.lines() {
@@ -432,7 +443,7 @@ fn declared_package_segments(unit: &SourceUnit) -> (Vec<String>, bool) {
             {
                 let pkg = rest.split('{').next().unwrap_or("").trim();
                 if pkg.is_empty() {
-                    return (Vec::new(), false);
+                    return (Vec::new(), None);
                 }
                 let segs: Vec<String> = pkg
                     .split('.')
@@ -440,15 +451,15 @@ fn declared_package_segments(unit: &SourceUnit) -> (Vec<String>, bool) {
                     .filter(|s| !s.is_empty())
                     .map(str::to_owned)
                     .collect();
-                return (segs, false);
+                return (segs, None);
             }
             if unit.language == ScriptLanguage::ActionScript2 {
                 let mut decl = trimmed;
                 loop {
                     let mut stripped = false;
-                    for kw in ["public ", "dynamic ", "intrinsic "] {
-                        if let Some(next) = decl.strip_prefix(kw) {
-                            decl = next.trim_start();
+                    for kw in ["public", "dynamic", "intrinsic"] {
+                        if let Some(next) = strip_keyword_ws(decl, kw) {
+                            decl = next;
                             stripped = true;
                         }
                     }
@@ -456,9 +467,8 @@ fn declared_package_segments(unit: &SourceUnit) -> (Vec<String>, bool) {
                         break;
                     }
                 }
-                if let Some(after_kw) = decl
-                    .strip_prefix("class ")
-                    .or_else(|| decl.strip_prefix("interface "))
+                if let Some(after_kw) =
+                    strip_keyword_ws(decl, "class").or_else(|| strip_keyword_ws(decl, "interface"))
                 {
                     let qname = after_kw
                         .split(|c: char| c.is_whitespace() || c == '{')
@@ -466,16 +476,14 @@ fn declared_package_segments(unit: &SourceUnit) -> (Vec<String>, bool) {
                         .unwrap_or("")
                         .trim();
                     let parts: Vec<&str> = qname.split('.').filter(|s| !s.is_empty()).collect();
-                    if parts.len() > 1 {
-                        return (
-                            parts[..parts.len() - 1]
-                                .iter()
-                                .map(|s| (*s).to_owned())
-                                .collect(),
-                            true,
-                        );
+                    if !parts.is_empty() {
+                        let expected_as2_path = format!("{}.as", parts.join("/"));
+                        let pkg_segs = parts[..parts.len() - 1]
+                            .iter()
+                            .map(|s| (*s).to_owned())
+                            .collect();
+                        return (pkg_segs, Some(expected_as2_path));
                     }
-                    return (Vec::new(), true);
                 }
             }
         }
@@ -487,7 +495,7 @@ fn declared_package_segments(unit: &SourceUnit) -> (Vec<String>, bool) {
             }
         }
     }
-    (Vec::new(), false)
+    (Vec::new(), None)
 }
 
 fn required_parent_hops_for_script(language: ScriptLanguage, source: &str) -> usize {
@@ -590,6 +598,236 @@ fn walk_up_non_symlink_ancestors(
     }
 }
 
+fn relative_include_from_source_path(to_logical_path: &str, target_root_rel: &str) -> String {
+    let to_parent_parts: Vec<&str> = to_logical_path
+        .rsplit_once('/')
+        .map_or("", |(base, _)| base)
+        .split('/')
+        .filter(|p| !p.is_empty())
+        .collect();
+    let target_parts: Vec<&str> = target_root_rel
+        .split('/')
+        .filter(|p| !p.is_empty())
+        .collect();
+    let target_dir_len = target_parts.len().saturating_sub(1);
+    let common = to_parent_parts
+        .iter()
+        .zip(&target_parts[..target_dir_len])
+        .take_while(|(a, b)| a == b)
+        .count();
+    let mut out: Vec<&str> =
+        Vec::with_capacity((to_parent_parts.len() - common) + (target_parts.len() - common));
+    out.extend(std::iter::repeat_n("..", to_parent_parts.len() - common));
+    out.extend_from_slice(&target_parts[common..]);
+    out.join("/")
+}
+
+fn advance_block_comment_in_line(line: &str, block: &mut bool) {
+    let bytes = line.as_bytes();
+    let mut i = 0usize;
+    let mut quote: Option<u8> = None;
+    while i < bytes.len() {
+        if *block {
+            if bytes[i..].starts_with(b"*/") {
+                *block = false;
+                i += 2;
+            } else {
+                i += 1;
+            }
+        } else if let Some(end) = quote {
+            if bytes[i] == b'\\' {
+                i = (i + 2).min(bytes.len());
+            } else {
+                if bytes[i] == end {
+                    quote = None;
+                }
+                i += 1;
+            }
+        } else if bytes[i..].starts_with(b"//") {
+            break;
+        } else if bytes[i..].starts_with(b"/*") {
+            *block = true;
+            i += 2;
+        } else {
+            if matches!(bytes[i], b'\'' | b'"') {
+                quote = Some(bytes[i]);
+            }
+            i += 1;
+        }
+    }
+}
+
+fn split_lines_preserving_endings(source: &str) -> impl Iterator<Item = (&str, &str)> {
+    let bytes = source.as_bytes();
+    let mut start = 0usize;
+    std::iter::from_fn(move || {
+        if start >= bytes.len() {
+            return None;
+        }
+        let mut i = start;
+        let mut ending_start = start;
+        while i < bytes.len() {
+            match bytes[i] {
+                b'\n' => {
+                    ending_start = i;
+                    i += 1;
+                    break;
+                }
+                b'\r' => {
+                    ending_start = i;
+                    i += 1;
+                    if i < bytes.len() && bytes[i] == b'\n' {
+                        i += 1;
+                    }
+                    break;
+                }
+                _ => {
+                    i += 1;
+                    ending_start = i;
+                }
+            }
+        }
+        let body = &source[start..ending_start];
+        let ending = &source[ending_start..i];
+        start = i;
+        Some((body, ending))
+    })
+}
+
+/// Rewrite `#include "..."` / AS3 `include "..."` directives resolved from `from_logical_path`
+/// so they resolve to the identical root-relative `ResourceUnit` paths from `to_logical_path`,
+/// preserving exact line numbers and line endings.
+pub(crate) fn rewrite_includes_between_logical_paths(
+    language: ScriptLanguage,
+    source: &str,
+    from_logical_path: &str,
+    to_logical_path: &str,
+) -> String {
+    let from_parent = from_logical_path.rsplit_once('/').map_or("", |(b, _)| b);
+    let to_parent = to_logical_path.rsplit_once('/').map_or("", |(b, _)| b);
+    if from_parent == to_parent || !source.contains("include") || !language.is_actionscript() {
+        return source.to_owned();
+    }
+    let is_as3 = language == ScriptLanguage::ActionScript3;
+    let mut in_block_comment = false;
+    let mut out = String::with_capacity(source.len());
+
+    for (line_idx, (body, ending)) in split_lines_preserving_endings(source).enumerate() {
+        let mut cursor = if line_idx == 0 && body.starts_with('\u{feff}') {
+            '\u{feff}'.len_utf8()
+        } else {
+            0
+        };
+
+        let mut rewritten_line: Option<String> = None;
+        'parse: {
+            if in_block_comment {
+                let Some(rel_close) = body[cursor..].find("*/") else {
+                    break 'parse;
+                };
+                cursor += rel_close + 2;
+            }
+            loop {
+                while cursor < body.len() {
+                    let ch = body[cursor..].chars().next().unwrap();
+                    if ch.is_whitespace() {
+                        cursor += ch.len_utf8();
+                    } else {
+                        break;
+                    }
+                }
+                if body[cursor..].starts_with("/*") {
+                    let Some(rel_close) = body[cursor + 2..].find("*/") else {
+                        break 'parse;
+                    };
+                    cursor += 2 + rel_close + 2;
+                    continue;
+                }
+                break;
+            }
+
+            let candidate = &body[cursor..];
+            let kw_len = if let Some(rest) = candidate.strip_prefix("#include") {
+                let boundary_ok = rest.is_empty()
+                    || rest.starts_with(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+                    || rest.starts_with("/*")
+                    || rest.starts_with("//");
+                if boundary_ok || !is_as3 {
+                    Some("#include".len())
+                } else {
+                    None
+                }
+            } else if is_as3
+                && let Some(rest) = candidate.strip_prefix("include")
+                && (rest.starts_with(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+                    || rest.starts_with("/*"))
+            {
+                Some("include".len())
+            } else {
+                None
+            };
+            let Some(kw_len) = kw_len else {
+                break 'parse;
+            };
+            cursor += kw_len;
+
+            loop {
+                while cursor < body.len() {
+                    let ch = body[cursor..].chars().next().unwrap();
+                    if ch.is_whitespace() {
+                        cursor += ch.len_utf8();
+                    } else {
+                        break;
+                    }
+                }
+                if body[cursor..].starts_with("/*") {
+                    let Some(rel_close) = body[cursor + 2..].find("*/") else {
+                        break 'parse;
+                    };
+                    cursor += 2 + rel_close + 2;
+                    continue;
+                }
+                break;
+            }
+            if cursor >= body.len() {
+                break 'parse;
+            }
+
+            let quote_ch = match body.as_bytes()[cursor] {
+                b'"' => '"',
+                b'\'' => '\'',
+                _ => break 'parse,
+            };
+            let req_start = cursor + 1;
+            let Some(close_rel) = body[req_start..].find(quote_ch) else {
+                break 'parse;
+            };
+            let req_end = req_start + close_rel;
+            let raw_req = &body[req_start..req_end];
+            if raw_req.contains(['"', '\'', '\\']) {
+                break 'parse;
+            }
+            if let Ok(target_root_rel) =
+                resolve_include_logical_path_as_or_asi(from_logical_path, raw_req)
+            {
+                let rel_req = relative_include_from_source_path(to_logical_path, &target_root_rel);
+                let mut line_buf =
+                    String::with_capacity(body.len() - raw_req.len() + rel_req.len());
+                line_buf.push_str(&body[..req_start]);
+                line_buf.push_str(&rel_req);
+                line_buf.push_str(&body[req_end..]);
+                rewritten_line = Some(line_buf);
+            }
+        }
+
+        advance_block_comment_in_line(body, &mut in_block_comment);
+        out.push_str(rewritten_line.as_deref().unwrap_or(body));
+        out.push_str(ending);
+    }
+
+    out
+}
+
 /// Infer `(ancestor_base_dir, logical_source_path)` for a standalone `.as` file on disk so
 /// package-nested classes (`package com.foo`, `class com.foo.Player`) and parent-relative
 /// `#include "../shared/consts.as"` directives resolve cleanly within non-symlink parent folders
@@ -600,17 +838,10 @@ pub(crate) fn standalone_script_include_context(
 ) -> Option<(PathBuf, String)> {
     let file_dir = disk_path.parent().filter(|p| !p.as_os_str().is_empty())?;
     let file_name = sanitize_source_unit_filename(disk_path);
-    let (pkg_segments, is_as2_type) = declared_package_segments(unit);
+    let (pkg_segments, _) = declared_package_segments(unit);
     let pkg_hops = matched_trailing_dir_hops(file_dir, &pkg_segments);
     let inc_hops = required_parent_hops_for_script(unit.language, &unit.source);
-    let desired_hops = if is_as2_type && !pkg_segments.is_empty() && pkg_hops == pkg_segments.len()
-    {
-        pkg_hops
-    } else if is_as2_type && pkg_segments.is_empty() && inc_hops == 0 {
-        0
-    } else {
-        pkg_hops.max(inc_hops)
-    };
+    let desired_hops = pkg_hops.max(inc_hops);
     Some(walk_up_non_symlink_ancestors(
         file_dir,
         &file_name,
@@ -1176,6 +1407,7 @@ impl Editor {
                 standalone_script_include_context(tracked, &target_project.sources[0])
             && logical_source_path != target_project.sources[0].path
         {
+            let unit = &target_project.sources[0];
             let mut staged = target_project.clone();
             staged.sources[0].path = logical_source_path.clone();
             let (hydrated, sub_fp) = hydrate_project_includes_with_overrides(
@@ -1183,10 +1415,33 @@ impl Editor {
                 Some(ancestor_dir.as_path()),
                 &open_tabs,
             );
+            let mut hydrated_owned = hydrated.into_owned();
+            let (_, expected_as2_path) = declared_package_segments(unit);
+            let post_hydration_path = if let Some(exp_as2) = expected_as2_path {
+                (logical_source_path == exp_as2
+                    || logical_source_path.ends_with(&format!("/{exp_as2}")))
+                .then_some(exp_as2)
+            } else if !Self::is_standalone_class_or_package_unit(unit) {
+                Some(unit.path.clone())
+            } else {
+                None
+            };
+            if let Some(final_path) = post_hydration_path
+                && final_path != logical_source_path
+                && let Some(hydrated_unit) = hydrated_owned.sources.first_mut()
+            {
+                hydrated_unit.source = rewrite_includes_between_logical_paths(
+                    hydrated_unit.language,
+                    &hydrated_unit.source,
+                    &logical_source_path,
+                    &final_path,
+                );
+                hydrated_unit.path = final_path;
+            }
             let mut h = std::collections::hash_map::DefaultHasher::new();
             sub_fp.hash(&mut h);
             logical_source_path.hash(&mut h);
-            return (Cow::Owned(hydrated.into_owned()), h.finish());
+            return (Cow::Owned(hydrated_owned), h.finish());
         }
         let base_dir = self.active_project_include_base_dir();
         hydrate_project_includes_with_overrides(target_project, base_dir.as_deref(), &open_tabs)
@@ -1572,5 +1827,200 @@ mod t414_standalone_script_tests {
         assert_eq!(editor.status, "Code accepted for current language support.");
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn t414_symlinked_base_dir_allows_safe_includes_while_rejecting_inner_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "neoflash-t414-symbase-{}-{}",
+            std::process::id(),
+            new_id("dir")
+        ));
+        let real_proj_dir = root.join("real_proj_dir");
+        let outside_dir = root.join("outside_dir");
+        std::fs::create_dir_all(&real_proj_dir).unwrap();
+        std::fs::create_dir_all(&outside_dir).unwrap();
+
+        let outside_secret = root.join("outside_secret.txt");
+        std::fs::write(&outside_secret, "var LEAKED = \"TOP_SECRET\";\n").unwrap();
+        let outside_as = outside_dir.join("escape.as");
+        std::fs::write(&outside_as, "var ESCAPED = 999;\n").unwrap();
+
+        let safe_as = real_proj_dir.join("safe.as");
+        std::fs::write(&safe_as, "var SAFE_OK:Number = 7;\n").unwrap();
+        symlink(&outside_secret, real_proj_dir.join("leak.as")).unwrap();
+        symlink(&outside_dir, real_proj_dir.join("sub")).unwrap();
+
+        // `symlink_proj -> real_proj_dir` models macOS `/tmp -> private/tmp`.
+        let symlink_proj = root.join("symlink_proj");
+        symlink(&real_proj_dir, &symlink_proj).unwrap();
+
+        assert!(resolve_relative_include_disk_path(&symlink_proj, "safe.as").is_some());
+        assert!(read_raw_include_bytes_from_disk(&symlink_proj, "safe.as").is_some());
+        assert!(resolve_relative_include_disk_path(&symlink_proj, "leak.as").is_none());
+        assert!(read_raw_include_bytes_from_disk(&symlink_proj, "leak.as").is_none());
+        assert!(resolve_relative_include_disk_path(&symlink_proj, "sub/escape.as").is_none());
+
+        let mut project = Project::blank();
+        project.name = "SymlinkBaseProject".into();
+        project.script_language = Some(ScriptLanguage::ActionScript2);
+        let root_id = project.root.clone();
+        project
+            .symbol_mut(&root_id)
+            .unwrap()
+            .timeline
+            .scripts
+            .push(FrameScript {
+                layer: None,
+                frame: 0,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source:
+                        "#include \"safe.as\"\n#include \"leak.as\"\n#include \"sub/escape.as\"\n"
+                            .into(),
+                },
+            });
+        crate::timeline_commands::upgrade_all_format_versions(&mut project);
+        let nflash_via_symlink = symlink_proj.join("movie.nflash");
+        std::fs::write(&nflash_via_symlink, project.to_json().unwrap()).unwrap();
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.sessions.clear();
+        assert!(editor.try_open_path(nflash_via_symlink, &ctx));
+
+        let hydrated = editor.project_with_hydrated_includes();
+        assert_eq!(hydrated.resources.len(), 1);
+        assert_eq!(hydrated.resources[0].path, "safe.as");
+
+        let nav_rel = editor
+            .resolve_external_as_path_for_navigation(None, Path::new("safe.as"))
+            .expect("relative safe.as must resolve when base_dir is a symlink");
+        assert_eq!(
+            std::fs::canonicalize(nav_rel).unwrap(),
+            std::fs::canonicalize(&safe_as).unwrap()
+        );
+        let nav_abs = editor
+            .resolve_external_as_path_for_navigation(None, &symlink_proj.join("safe.as"))
+            .expect("absolute safe.as under symlinked base_dir must resolve");
+        assert_eq!(
+            std::fs::canonicalize(nav_abs).unwrap(),
+            std::fs::canonicalize(&safe_as).unwrap()
+        );
+        assert!(
+            editor
+                .resolve_external_as_path_for_navigation(None, Path::new("leak.as"))
+                .is_none()
+        );
+        assert!(
+            editor
+                .resolve_external_as_path_for_navigation(None, &symlink_proj.join("leak.as"))
+                .is_none()
+        );
+        assert!(
+            editor
+                .resolve_external_as_path_for_navigation(None, Path::new("sub/escape.as"))
+                .is_none()
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn t414_standalone_as2_unqualified_and_packaged_classes_and_top_level_parent_includes() {
+        let root = std::env::temp_dir().join(format!(
+            "neoflash-t414-as2-parent-inc-{}-{}",
+            std::process::id(),
+            new_id("dir")
+        ));
+        let shared_dir = root.join("proj/shared");
+        let foo_sub_dir = root.join("proj/sub");
+        let common_dir = root.join("ws/common");
+        let packaged_dir = root.join("ws/outer/sub");
+        std::fs::create_dir_all(&shared_dir).unwrap();
+        std::fs::create_dir_all(&foo_sub_dir).unwrap();
+        std::fs::create_dir_all(&common_dir).unwrap();
+        std::fs::create_dir_all(&packaged_dir).unwrap();
+
+        std::fs::write(shared_dir.join("consts.as"), "var MAX_SPEED:Number = 42;\n").unwrap();
+        std::fs::write(common_dir.join("defs.as"), "var BOOST:Number = 9;\n").unwrap();
+
+        // 1. Unqualified AS2 `class Foo` in `/proj/sub/Foo.as` with `#include "../shared/consts.as"`.
+        let foo_path = foo_sub_dir.join("Foo.as");
+        std::fs::write(
+            &foo_path,
+            "class Foo {\n    #include \"../shared/consts.as\"\n    public function speed():Number {\n        return MAX_SPEED;\n    }\n}\n",
+        )
+        .unwrap();
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.sessions.clear();
+        assert!(editor.open_standalone_script_session(&ctx, foo_path));
+        assert_eq!(editor.project.sources[0].path, "Foo.as");
+        editor.check_standalone_script(true);
+        assert_eq!(
+            editor.status, "Code accepted for current language support.",
+            "unqualified AS2 class Foo with ../ include failed Check: {}",
+            editor.status
+        );
+        editor.refresh_compiler_diagnostics();
+        assert!(
+            editor.compiler_errors.items.is_empty(),
+            "expected 0 compiler errors on unqualified AS2 class Foo, got: {:?}",
+            editor.compiler_errors.items
+        );
+        assert_eq!(editor.project.sources[0].path, "Foo.as");
+        assert!(!editor.dirty());
+
+        // 2. Packaged AS2 `class sub.Player` in `/ws/outer/sub/Player.as` with `#include "../../common/defs.as"` (`inc_hops = 2 > pkg_hops = 1`).
+        let player_path = packaged_dir.join("Player.as");
+        std::fs::write(
+            &player_path,
+            "class sub.Player {\n    #include \"../../common/defs.as\"\n    public function boost():Number {\n        return BOOST;\n    }\n}\n",
+        )
+        .unwrap();
+        assert!(editor.open_standalone_script_session(&ctx, player_path));
+        assert_eq!(editor.project.sources[0].path, "Player.as");
+        editor.check_standalone_script(true);
+        assert_eq!(
+            editor.status, "Code accepted for current language support.",
+            "packaged AS2 class sub.Player with ../../ include failed Check: {}",
+            editor.status
+        );
+        editor.refresh_compiler_diagnostics();
+        assert!(
+            editor.compiler_errors.items.is_empty(),
+            "expected 0 compiler errors on packaged AS2 class sub.Player, got: {:?}",
+            editor.compiler_errors.items
+        );
+        assert_eq!(editor.project.sources[0].path, "Player.as");
+        assert!(!editor.dirty());
+
+        // 3. Top-level non-class standalone `.as` in `/proj/sub/Script.as` with `#include "../shared/consts.as"`.
+        let top_script_path = foo_sub_dir.join("Script.as");
+        std::fs::write(
+            &top_script_path,
+            "#include \"../shared/consts.as\"\ntrace(MAX_SPEED);\n",
+        )
+        .unwrap();
+        assert!(editor.open_standalone_script_session(&ctx, top_script_path));
+        let (hydrated_top, _) = editor.hydrated_project_and_fingerprint();
+        assert_eq!(hydrated_top.sources[0].path, "Script.as");
+        assert_eq!(
+            hydrated_top.sources[0].source, "#include \"shared/consts.as\"\ntrace(MAX_SPEED);\n",
+            "hydrated.sources[0].source must carry rewritten include path for non-class standalone .as"
+        );
+        editor.refresh_compiler_diagnostics();
+        assert!(
+            editor.compiler_errors.items.is_empty(),
+            "expected 0 compiler errors on top-level standalone .as, got: {:?}",
+            editor.compiler_errors.items
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -219,60 +219,6 @@ fn script_diagnostics_with_includes(
     diagnostics
 }
 
-fn rewrite_top_level_includes_for_logical_path(
-    language: neoflash_core::ScriptLanguage,
-    source: &str,
-    logical_path: &str,
-) -> String {
-    if !logical_path.contains('/') || !source.contains("include") || !language.is_actionscript() {
-        return source.to_owned();
-    }
-    let mut out = String::with_capacity(source.len());
-    for chunk in source.split_inclusive('\n') {
-        let (body, ending) = if let Some(b) = chunk.strip_suffix("\r\n") {
-            (b, "\r\n")
-        } else if let Some(b) = chunk.strip_suffix('\n') {
-            (b, "\n")
-        } else {
-            (chunk, "")
-        };
-        let trimmed = body.trim_start();
-        let rewritten = if let Some(rest) = trimmed.strip_prefix("#include").or_else(|| {
-            (language == neoflash_core::ScriptLanguage::ActionScript3)
-                .then(|| trimmed.strip_prefix("include"))
-                .flatten()
-        }) && let Some(first_quote_idx) = rest.find(['"', '\''])
-        {
-            let quote_ch = rest[first_quote_idx..].chars().next().unwrap();
-            let after_open = &rest[first_quote_idx + quote_ch.len_utf8()..];
-            if let Some(end_quote_idx) = after_open.find(quote_ch) {
-                let raw_req = &after_open[..end_quote_idx];
-                if let Ok(resolved) =
-                    crate::app::standalone_script::resolve_include_logical_path_as_or_asi(
-                        logical_path,
-                        raw_req,
-                    )
-                {
-                    let leading_ws_len = body.len() - trimmed.len();
-                    let kw_len = trimmed.len() - rest.len();
-                    let prefix = &body[..leading_ws_len + kw_len + first_quote_idx + 1];
-                    let suffix = &after_open[end_quote_idx..];
-                    Some(format!("{prefix}{resolved}{suffix}"))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        out.push_str(rewritten.as_deref().unwrap_or(body));
-        out.push_str(ending);
-    }
-    out
-}
-
 fn foreign_policy_warning(
     disposition: neoflash_core::ScriptDisposition,
     script_lang: neoflash_core::ScriptLanguage,
@@ -929,14 +875,13 @@ impl Editor {
                 && !Self::is_standalone_class_or_package_unit(unit)
             {
                 let mut standalone_proj = hydrated.into_owned();
-                let logical_unit_path = standalone_proj
-                    .sources
-                    .first()
-                    .map_or_else(|| unit.path.clone(), |u| u.path.clone());
-                let rewritten_source = rewrite_top_level_includes_for_logical_path(
-                    unit.language,
-                    &unit.source,
-                    &logical_unit_path,
+                let rewritten_source = standalone_proj.sources.first().map_or_else(
+                    || unit.source.clone(),
+                    |u| {
+                        crate::app::standalone_script::rewrite_includes_between_logical_paths(
+                            u.language, &u.source, &u.path, "",
+                        )
+                    },
                 );
                 standalone_proj.sources.clear();
                 standalone_proj.document_class = None;

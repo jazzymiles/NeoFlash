@@ -2115,13 +2115,14 @@ impl NativeMenuSpec {
             })
             .collect();
 
+        let has_authoring_doc = editor.has_document() && !editor.is_standalone_script_session();
         let detach_items: Vec<NativeMenuItemSpec> = native_detachable_panels()
             .filter(|(_, panel)| editor.workspace.placement(*panel) == PanelPlacement::Docked)
             .map(|(name, panel)| {
                 custom_item(
                     name,
                     None,
-                    true,
+                    has_authoring_doc,
                     false,
                     NativeMenuAction::DetachPanel(panel),
                 )
@@ -2130,7 +2131,13 @@ impl NativeMenuSpec {
         let dock_items: Vec<NativeMenuItemSpec> = native_detachable_panels()
             .filter(|(_, panel)| editor.workspace.placement(*panel) == PanelPlacement::Detached)
             .map(|(name, panel)| {
-                custom_item(name, None, true, false, NativeMenuAction::DockPanel(panel))
+                custom_item(
+                    name,
+                    None,
+                    has_authoring_doc,
+                    false,
+                    NativeMenuAction::DockPanel(panel),
+                )
             })
             .collect();
 
@@ -2203,20 +2210,20 @@ impl NativeMenuSpec {
             },
             NativeMenuItemSpec::Submenu {
                 label: "Detach panel".to_owned(),
-                enabled: !detach_items.is_empty(),
+                enabled: has_authoring_doc && !detach_items.is_empty(),
                 role: None,
                 items: detach_items,
             },
             NativeMenuItemSpec::Submenu {
                 label: "Dock panel".to_owned(),
-                enabled: !dock_items.is_empty(),
+                enabled: has_authoring_doc && !dock_items.is_empty(),
                 role: None,
                 items: dock_items,
             },
             custom_item(
                 "Customize tools…",
                 None,
-                true,
+                has_authoring_doc,
                 false,
                 NativeMenuAction::OpenCustomizeTools,
             ),
@@ -3103,13 +3110,19 @@ impl Editor {
                 self.set_theme(ctx, theme);
             }
             NativeMenuAction::DetachPanel(panel) => {
-                self.set_panel_placement(ctx, panel, PanelPlacement::Detached);
+                if self.has_document() && !self.is_standalone_script_session() {
+                    self.set_panel_placement(ctx, panel, PanelPlacement::Detached);
+                }
             }
             NativeMenuAction::DockPanel(panel) => {
-                self.set_panel_placement(ctx, panel, PanelPlacement::Docked);
+                if self.has_document() && !self.is_standalone_script_session() {
+                    self.set_panel_placement(ctx, panel, PanelPlacement::Docked);
+                }
             }
             NativeMenuAction::OpenCustomizeTools => {
-                self.open_customize_tools(ctx);
+                if self.has_document() && !self.is_standalone_script_session() {
+                    self.open_customize_tools(ctx);
+                }
             }
             NativeMenuAction::ToggleUiLayoutStudio => {
                 let open = crate::panels::ui_studio::is_studio_open(ctx);
@@ -4321,6 +4334,8 @@ mod t414_macos_menu_tests {
         let mut editor = Editor::from_project(&ctx, Project::blank());
         editor.sessions.clear();
         editor.new_document_session(&ctx);
+        // Detach Brushes on the authoring session first so `DockPanel(PanelId::Brushes)` is present in `Window ▸ Dock panel`.
+        editor.set_panel_placement(&ctx, PanelId::Brushes, PanelPlacement::Detached);
         let fp_authoring = MenuSyncFingerprint::capture(&editor, Some(&ctx));
         assert!(!fp_authoring.standalone_script);
 
@@ -4333,6 +4348,16 @@ mod t414_macos_menu_tests {
         assert_ne!(fp_authoring, fp_standalone);
 
         let spec = NativeMenuSpec::build(&editor, Some(&ctx));
+        let win_menu = spec.menu("Window").expect("Window menu");
+        for sub_title in ["Detach panel", "Dock panel"] {
+            assert!(
+                win_menu.items.iter().any(|item| matches!(
+                    item,
+                    NativeMenuItemSpec::Submenu { label, enabled: false, .. } if label == sub_title
+                )),
+                "Window ▸ {sub_title} submenu must be disabled on standalone .as tabs"
+            );
+        }
         let mut flat = Vec::new();
         for menu in &spec.menus {
             collect_actions(&menu.items, &mut flat);
@@ -4411,6 +4436,9 @@ mod t414_macos_menu_tests {
             NativeMenuAction::DebugStepOut,
             NativeMenuAction::DebugToggleBreakpoint,
             NativeMenuAction::DebugClearBreakpoints,
+            NativeMenuAction::DetachPanel(PanelId::Timeline),
+            NativeMenuAction::DockPanel(PanelId::Brushes),
+            NativeMenuAction::OpenCustomizeTools,
         ];
 
         for target in &authoring_actions {
@@ -4447,6 +4475,15 @@ mod t414_macos_menu_tests {
         assert_eq!(editor.onion, before_onion);
         assert_eq!(editor.workspace.text_size, before_text_size);
         assert_eq!(editor.workspace.stage_toolbar, before_toolbar);
+        assert_eq!(
+            editor.workspace.placement(PanelId::Timeline),
+            PanelPlacement::Docked
+        );
+        assert_eq!(
+            editor.workspace.placement(PanelId::Brushes),
+            PanelPlacement::Detached
+        );
+        assert!(!editor.customize_tools_open(&ctx));
         assert!(!editor.dirty(), "standalone .as tab must stay clean");
         assert!(
             !editor.history.can_undo(),
