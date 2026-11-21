@@ -15,12 +15,6 @@ pub(super) fn js_string_literal(s: &str) -> String {
         .replace('\u{2029}', "\\u2029")
 }
 
-fn avm1_unsupported_warning(op: u8) -> String {
-    format!(
-        "SWF AVM1 opcode 0x{op:02X} is not supported in the bounded SWF loader and was skipped."
-    )
-}
-
 fn cstr_from_bytes(bytes: &[u8]) -> String {
     let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
     String::from_utf8_lossy(&bytes[..end]).into_owned()
@@ -80,8 +74,17 @@ struct Avm1Inst {
     fn_body: Vec<u8>,
 }
 
-pub(super) fn compile_avm1_actions(ctx: &mut SwfDecodeCtx, bytes: &[u8]) -> Option<String> {
-    let body = compile_avm1_block(ctx, bytes, false, 0)?;
+pub(super) fn compile_avm1_actions(
+    ctx: &mut SwfDecodeCtx,
+    bytes: &[u8],
+    location: &str,
+) -> Option<String> {
+    let first_warning = ctx.warnings.len();
+    let body = compile_avm1_block(ctx, bytes, false, 0);
+    for warning in &mut ctx.warnings[first_warning..] {
+        warning.push_str(&format!(" Source: {location}."));
+    }
+    let body = body?;
     Some(format!(
         "(() => {{\nconst __baseTarget = this;\nconst __global = (__nfSwfEnv && __nfSwfEnv.avm1Global) || (__nfSwfEnv ? (__nfSwfEnv.avm1Global = Object.create(null)) : Object.create(null));\nlet __callDepth = 0;\nconst __outerLocals = [];\nconst __parentCp = [];\nconst __curThis = this;\nconst __superCtor = undefined;\ntry {{\n{body}}} catch (__topErr) {{\n  if (!(__topErr && typeof __topErr === 'object' && '__nfSwfThrown' in __topErr)) throw __topErr;\n}}\n}})();\n"
     ))
@@ -572,7 +575,7 @@ while (__pc < ",
                 "      if (__routeReturn(__st.pop())) return __pendingRetVal; continue;\n",
             ),
             other => {
-                ctx.warn(avm1_unsupported_warning(other));
+                ctx.warn_opcode("AVM1", other, inst.offset);
             }
         }
         js.push_str(&format!("      __pc = {next_idx}; break;\n    }}\n"));
@@ -1491,7 +1494,14 @@ pub(super) fn apply_abc_scripts(ctx: &mut SwfDecodeCtx, root_timeline: &mut Time
             .find(|s| s.id == sym_id)
             .map(|s| s.timeline.clone());
         if let Some(mut tl) = sym_tl.take() {
-            attach_compiled_frame_script(ctx, &mut tl, frame_idx, &call_js, "avm2-sprite-frame");
+            attach_compiled_frame_script(
+                ctx,
+                &mut tl,
+                frame_idx,
+                &call_js,
+                "avm2-sprite-frame",
+                neoflash_core::ScriptLanguage::ActionScript3,
+            );
             if let Some(sym) = ctx.symbols.iter_mut().find(|s| s.id == sym_id) {
                 sym.timeline = tl;
             }
@@ -1505,7 +1515,14 @@ pub(super) fn apply_abc_scripts(ctx: &mut SwfDecodeCtx, root_timeline: &mut Time
         let ctor_js = format!(
             "if (__nfSwfEnv && typeof __nfSwfEnv.attachDocClass === 'function') __nfSwfEnv.attachDocClass({abc_idx}, {cls_lit}, this);\n"
         );
-        attach_compiled_frame_script(ctx, root_timeline, 0, &ctor_js, "avm2-doc-ctor");
+        attach_compiled_frame_script(
+            ctx,
+            root_timeline,
+            0,
+            &ctor_js,
+            "avm2-doc-ctor",
+            neoflash_core::ScriptLanguage::ActionScript3,
+        );
         for (frame_idx, method_id) in hooks {
             if frame_idx < root_timeline.frame_count {
                 let f_js = format!(
@@ -1517,6 +1534,7 @@ pub(super) fn apply_abc_scripts(ctx: &mut SwfDecodeCtx, root_timeline: &mut Time
                     frame_idx,
                     &f_js,
                     "avm2-framescript",
+                    neoflash_core::ScriptLanguage::ActionScript3,
                 );
             }
         }
@@ -1529,7 +1547,14 @@ pub(super) fn apply_abc_scripts(ctx: &mut SwfDecodeCtx, root_timeline: &mut Time
                 let s_js = format!(
                     "if (__nfSwfEnv && typeof __nfSwfEnv.invokeMethod === 'function') __nfSwfEnv.invokeMethod({abc_idx}, {script_init}, this, '');\n"
                 );
-                attach_compiled_frame_script(ctx, root_timeline, 0, &s_js, "avm2-script");
+                attach_compiled_frame_script(
+                    ctx,
+                    root_timeline,
+                    0,
+                    &s_js,
+                    "avm2-script",
+                    neoflash_core::ScriptLanguage::ActionScript3,
+                );
             }
         }
     }
@@ -1647,8 +1672,12 @@ if (!__nfSwfEnv.abcs) {\n\
         let minfo = abc.methods.get(mid as usize);
         let skip_afs = skip_afs_methods.contains(&mid);
         let ext_set = extracted_fn_map.get(&mid).unwrap_or(&empty_set);
+        let first_warning = ctx.warnings.len();
         if let Some(fn_js) = compile_avm2_method_factory(ctx, abc, body, minfo, skip_afs, ext_set) {
             out.push_str(&format!("__abc.methods[{mid}] = {fn_js};\n"));
+        }
+        for warning in &mut ctx.warnings[first_warning..] {
+            warning.push_str(&format!(" Source: ABC {abc_idx} method {mid}."));
         }
     }
 
@@ -2554,9 +2583,7 @@ fn compile_avm2_method_factory(
             0x48 => js.push_str("      return __st.pop();\n"),
             0xEF | 0xF0 | 0xF1 | 0xF2 | 0x02 | 0x09 => {}
             other => {
-                ctx.warn(format!(
-                    "SWF AVM2 opcode 0x{other:02X} is not supported in the bounded SWF loader and was skipped."
-                ));
+                ctx.warn_opcode("AVM2", other, inst.offset);
             }
         }
         js.push_str(&format!("      __pc = {next_idx}; break;\n    }}\n"));

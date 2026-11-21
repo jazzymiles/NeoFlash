@@ -1774,6 +1774,12 @@ fn t410_reflected_and_skewed_edit_in_place_roundtrip_dimming_and_stage_gizmos() 
         editor.zoom,
         egui::pos2(35.0, 33.0),
     );
+    let before_move = editor.project.clone();
+    let end = live_mapping.edit_to_screen(
+        editor.stage_view.origin,
+        editor.zoom,
+        egui::pos2(49.0, 42.0),
+    );
     let _ = stage_input_frame(
         &mut editor,
         &ctx,
@@ -1786,13 +1792,25 @@ fn t410_reflected_and_skewed_edit_in_place_roundtrip_dimming_and_stage_gizmos() 
     let _ = stage_input_frame(
         &mut editor,
         &ctx,
-        0.14,
-        vec![primary_button(child_screen, false)],
+        0.12,
+        vec![egui::Event::PointerMoved(end)],
     );
+    let _ = stage_input_frame(&mut editor, &ctx, 0.14, vec![primary_button(end, false)]);
     assert_eq!(
         editor.selection.single().map(|t| t.element.as_str()),
         Some("child-box")
     );
+
+    // Moving by (14, 9) in the reflected child's own coordinates edits just its definition.
+    // Undo restores the complete document without leaving the active nested placement.
+    let moved = editor.selected_element().unwrap().transform;
+    assert!(
+        (moved.x - 24.0).abs() < 0.01 && (moved.y - 24.0).abs() < 0.01,
+        "{moved:?}"
+    );
+    editor.undo();
+    assert_eq!(editor.project, before_move);
+    assert_eq!(editor.symbol_id(), "inner-flip");
 
     // 3A. 3D Translation & Rotation gizmos inside reflected + skewed Edit in Place map pointer deltas cleanly!
     let pre_3d_project = editor.project.clone();

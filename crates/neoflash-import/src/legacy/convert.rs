@@ -5749,11 +5749,6 @@ pub(super) fn convert_timeline_text(
     };
     dimensions.validate().map_err(|error| error.to_string())?;
 
-    let mut raw_run_strings = Vec::with_capacity(text.runs.len());
-    for run in &text.runs {
-        raw_run_strings.push(read_string(&stream.original_bytes, &run.characters)?);
-    }
-
     let style = text
         .runs
         .first()
@@ -5763,28 +5758,28 @@ pub(super) fn convert_timeline_text(
 
     let (mut format, alpha) = decode_cpic_text_style(stream, style, &mut lossy)?;
     let html = is_dynamic_or_input && (flags & (0x8000 | 0x0080)) != 0;
-    let normalize_runs_text = is_dynamic_or_input || text.runs.len() > 1 || html;
     let mut characters = String::new();
     let mut format_runs: Vec<TextFormatRun> = Vec::new();
     let mut nonempty_styles: Vec<&TimelineTextStyle> = Vec::new();
     let mut utf16_cursor = 0u32;
     let mut prev_ended_cr = false;
-    for (run, raw_chars) in text.runs.iter().zip(raw_run_strings) {
+    for run in &text.runs {
         let (run_format, run_alpha) = decode_cpic_text_style(stream, &run.style, &mut lossy)?;
         if (run_alpha - alpha).abs() > 1e-4 {
             lossy.push("per-run alpha uses the first run's alpha");
         }
-        let run_chars = if normalize_runs_text {
-            let trimmed = if prev_ended_cr {
-                raw_chars.strip_prefix('\n').unwrap_or(&raw_chars)
-            } else {
-                raw_chars.as_str()
-            };
-            prev_ended_cr = raw_chars.ends_with('\r');
-            trimmed.replace("\r\n", "\n").replace('\r', "\n")
+        // A Flash paragraph break can end one style run and continue with LF
+        // in the next. Count UTF-16 offsets after normalizing that boundary.
+        let raw_chars = read_string(&stream.original_bytes, &run.characters)?;
+        let trimmed = if prev_ended_cr {
+            raw_chars.strip_prefix('\n').unwrap_or(&raw_chars)
         } else {
-            raw_chars
+            &raw_chars
         };
+        if !raw_chars.is_empty() {
+            prev_ended_cr = raw_chars.ends_with('\r');
+        }
+        let run_chars = normalize_text(trimmed);
         let run_units = run_chars.encode_utf16().count() as u32;
         if run_units > 0 {
             nonempty_styles.push(&run.style);
@@ -5901,7 +5896,7 @@ pub(super) fn convert_timeline_text(
     let (custom_aa, aa_sharpness, aa_thickness) =
         if let Some(&(_, s, t)) = decoded_aas.iter().find(|&&(mode, _, _)| mode == 2) {
             (true, s, t)
-        } else if is_dynamic_or_input && decoded_aas.iter().any(|&(mode, _, _)| mode == 1) {
+        } else if decoded_aas.iter().any(|&(mode, _, _)| mode == 1) {
             (true, 0.0, 0.0)
         } else {
             (false, 0.0, 0.0)

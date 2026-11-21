@@ -1948,7 +1948,7 @@ impl SwfBytecodePlayer {
                                 Avm1Value::String(lbl) => self
                                     .sprites
                                     .get(&cid)
-                                    .and_then(|def| def.resolve_label(lbl)),
+                                    .and_then(|def| def.resolve_avm2_label(lbl)),
                                 _ => None,
                             };
                             if let Some(slot) = self.target_slot_mut(&target) {
@@ -2124,7 +2124,7 @@ impl SwfBytecodePlayer {
                             Some(f.min(total.saturating_sub(1)))
                         }
                         Avm1Value::String(lbl) => {
-                            self.root_timeline.resolve_label(lbl).or_else(|| {
+                            self.root_timeline.resolve_avm2_label(lbl).or_else(|| {
                                 self.scenes
                                     .iter()
                                     .find(|(_, sn)| sn == lbl)

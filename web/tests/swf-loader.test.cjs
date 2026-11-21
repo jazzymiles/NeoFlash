@@ -413,6 +413,7 @@ test('Loader.loadBytes and Loader.load execute FWS, CWS, and ZWS SWFs with timel
     makeSolidRectShapeTag(1, 30, 30, 0xff0000),
     makeSolidRectShapeTag(2, 20, 20, 0x0044ff),
     makeSwfTag(39, Buffer.concat([spriteHdr, spriteSub])), // DefineSprite 3
+    makeSwfTag(59, Buffer.concat([Buffer.from([3, 0]), avm1PushStr('avm1-init'), Buffer.from([0x26, 0])])),
     makeDefineEditTextTag(4, 70, 24, 'Hello SWF'),
     makeSwfTag(43, Buffer.from('intro\0', 'utf8')),
     makePlaceObject2({ depth: 1, charId: 1, txPx: 10, tyPx: 10, name: 'box' }),
@@ -423,6 +424,7 @@ test('Loader.loadBytes and Loader.load execute FWS, CWS, and ZWS SWFs with timel
     makeSwfTag(12, doActionF2),
     makeSwfTag(1, Buffer.alloc(0)), // ShowFrame 2
     makeSwfTag(43, Buffer.from('done\0', 'utf8')),
+    makeSwfTag(43, Buffer.from('finish\0\x01', 'utf8')),
     makePlaceObject2({ depth: 2, charId: 3, txPx: 10, tyPx: 40, name: 'nestedSprite' }),
     makePlaceObject2({ depth: 3, charId: 4, txPx: 40, tyPx: 40, name: 'labelField' }),
     makeSwfTag(12, doActionF3),
@@ -524,7 +526,7 @@ test('Loader.loadBytes and Loader.load execute FWS, CWS, and ZWS SWFs with timel
     assert.equal(snap2.getPixel32(70, 20) >>> 0, 0xffff0000, 'frame 2 moved shape to (70,20)');
 
     // Jump by frame label gotoAndStop("done") -> frame 3 renders nested DefineSprite (blue) + DefineEditText
-    mc1.gotoAndStop('done');
+    mc1.gotoAndStop('finish');
     host.dispatchScripts();
     assert.equal(mc1.currentFrame, 3);
     assert.equal(mc1.avm1State, 'f3');
@@ -538,6 +540,11 @@ test('Loader.loadBytes and Loader.load execute FWS, CWS, and ZWS SWFs with timel
     mc1.gotoAndPlay(2);
     assert.equal(mc1.currentFrame, 2);
     mc1.stop();
+
+    mc1.gotoAndStop('intro');
+    host.dispatchScripts();
+    assert.deepEqual(traceCalls.map(row => row[0]).filter(value => value === 'avm1-init' || value === 'avm1-1'),
+      ['avm1-init', 'avm1-1', 'avm1-1'], 'init actions precede ordinary frame actions and run once per load');
 
     // Unload cleanly via unloadAndStop(true)
     cwsLoader.unloadAndStop(true);
@@ -610,6 +617,11 @@ test('Loader.loadBytes and Loader.load execute FWS, CWS, and ZWS SWFs with timel
     zSnap2.draw(zwsLoader);
     assert.equal(zSnap2.getPixel32(56, 16) >>> 0, 0xff00cc66);
 
+    mc2.prevFrame();
+    host.dispatchScripts();
+    assert.equal(mc2.currentFrame, 1);
+    assert.equal(mc2.avm2Count, 202, 'returning to frame 1 preserves instance state');
+    assert.equal(traceCalls.filter(row => row[0] === 'avm2-ctor').length, 1);
     zwsLoader.unload();
     assert.equal(zwsLoader.content, null);
     assert.equal(zwsLoader.numChildren, 0);

@@ -156,6 +156,12 @@ fn swf_loader_emits_deduplicated_warnings_and_never_emits_unguarded_js_member_ac
         "GetURL (0x83) is supported and must not warn: {:?}",
         bundle.warnings
     );
+    assert!(
+        bundle
+            .warnings
+            .iter()
+            .any(|w| w.contains("bytecode offset") && w.contains("root frame 1 DoAction"))
+    );
     assert_eq!(
         bundle
             .warnings

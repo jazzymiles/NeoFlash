@@ -210,7 +210,7 @@ pub use runtime_lifecycle::{
 };
 pub use scenes::{
     GotoFrame, GotoRequest, SceneMetadata, SceneRange, flatten_scenes, flatten_scenes_cow,
-    flatten_scenes_with_ranges, resolve_goto, scene_ranges, scene_step,
+    flatten_scenes_with_ranges, resolve_goto, scene_ranges, scene_step, swf_label_layers,
 };
 pub use shape_tween::{
     DEFAULT_HINT_VERTEX_SNAP_RADIUS, MAX_SHAPE_TWEEN_SEGMENTS, ShapeHintContour, ShapeHintGeometry,

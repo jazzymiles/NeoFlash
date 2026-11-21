@@ -2139,3 +2139,79 @@ fn t409_dynamic_movieclip_and_sprite_stage_projection_avm1_and_avm2() {
     assert_eq!(af1.display_list.len(), 1);
     assert_eq!(af1.display_list[0].name, "drawnSprite");
 }
+
+#[test]
+fn labelled_frame_navigation_roundtrips_and_restarts_in_each_vm() {
+    use neoflash_core::FrameLabelType;
+
+    for (language, profile, destination, primary_label, trace) in [
+        (
+            ScriptLanguage::ActionScript2,
+            SwfPublishProfile::FlashPlayer8Avm1,
+            2,
+            "Near",
+            "near",
+        ),
+        (
+            ScriptLanguage::ActionScript3,
+            SwfPublishProfile::FlashPlayer10Avm2,
+            3,
+            "Far",
+            "far",
+        ),
+    ] {
+        let mut project =
+            Project::from_json(include_str!("fixtures/swf-label-navigation.nflash")).unwrap();
+        project.script_language = Some(language);
+        for entry in &mut project.symbols[0].timeline.scripts {
+            entry.script.language = language;
+        }
+        let options = SwfPublishOptions {
+            profile,
+            ..Default::default()
+        };
+        let (bytes, report) = publish_swf_bytes(&project, &options).unwrap();
+        assert!(report.can_proceed(), "{report:?}");
+
+        let imported = import_swf_bytes(&bytes).unwrap();
+        let saved = Project::from_json(&imported.to_json().unwrap()).unwrap();
+        let timeline = &saved.symbol(&saved.root).unwrap().timeline;
+        let labels = timeline.navigable_labels();
+        for (name, frame) in [
+            ("Home", 0),
+            ("Near", 2),
+            ("Landing", 2),
+            ("Far", 3),
+            ("landing", 3),
+        ] {
+            assert!(labels.contains(&(name, frame)), "{labels:?}");
+        }
+        assert!(
+            timeline
+                .layers
+                .iter()
+                .flat_map(|l| &l.keyframes)
+                .any(|k| k.label == "Landing" && k.label_type == FrameLabelType::Anchor)
+        );
+
+        let (republished, report) = publish_swf_bytes(&saved, &options).unwrap();
+        assert!(report.can_proceed(), "{report:?}");
+        for movie in [&bytes, &republished] {
+            let mut player = SwfBytecodePlayer::from_bytes(movie).unwrap();
+            let start = player.step_frame();
+            assert_eq!(start.traces, ["start"]);
+            let reached = player.step_frame();
+            assert_eq!(reached.frame, destination);
+            assert_eq!(reached.label.as_deref(), Some(primary_label));
+            assert_eq!(reached.traces, ["step", trace]);
+            assert!(!reached.playing);
+            assert_eq!(reached.display_list, start.display_list);
+            assert!(reached.unsupported_diagnostics.is_empty());
+            assert_eq!(player.seek_to_frame(0), start);
+            assert_eq!(player.step_frame(), reached);
+            assert_eq!(player.seek_to_frame(1), reached);
+            assert_eq!(player.restart(), start);
+            assert_eq!(player.step_frame(), reached);
+        }
+    }
+}

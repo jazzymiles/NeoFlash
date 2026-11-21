@@ -554,10 +554,10 @@ impl SwfBytecodePlayer {
 
     pub(super) fn target_label_frame(&self, target: &str, label: &str) -> Option<u32> {
         if target == "_root" || target.is_empty() {
-            self.root_timeline.resolve_label(label)
+            self.root_timeline.resolve_avm1_label(label)
         } else {
             let character_id = self.target_slot(target)?.character_id;
-            self.sprites.get(&character_id)?.resolve_label(label)
+            self.sprites.get(&character_id)?.resolve_avm1_label(label)
         }
     }
 

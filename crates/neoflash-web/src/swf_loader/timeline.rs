@@ -7,9 +7,9 @@ use super::{
     parse_tag_slice,
 };
 use neoflash_core::{
-    BlendMode, Color, ColorTransform, Element, ElementKind, FilterSpec, InstancePlayback, Keyframe,
-    Layer, LayerProperties, LayerRole, MAX_OBJECT_FILTERS, Symbol, SymbolKind, TextFormat,
-    Timeline, Transform,
+    BlendMode, Color, ColorTransform, Element, ElementKind, FilterSpec, FrameLabelType,
+    InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, MAX_OBJECT_FILTERS, Symbol,
+    SymbolKind, TextFormat, Timeline, Transform,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -481,8 +481,14 @@ pub(super) fn build_timeline_from_tags(
     let mut dirty_depths: BTreeSet<u16> = BTreeSet::new();
     let mut depth_tracks: BTreeMap<u16, Vec<(u32, Option<ActivePlacement>)>> = BTreeMap::new();
     let mut max_clip_by_depth: BTreeMap<u16, u16> = BTreeMap::new();
-    let mut frame_labels: BTreeMap<u32, String> = BTreeMap::new();
+    let mut frame_labels: BTreeMap<u32, Vec<(String, FrameLabelType)>> = BTreeMap::new();
     let mut frame_actions: BTreeMap<u32, Vec<String>> = BTreeMap::new();
+    if scope_prefix == "root" && !ctx.init_actions.is_empty() {
+        let init = std::mem::take(&mut ctx.init_actions).join("\n");
+        frame_actions.entry(0).or_default().push(format!(
+            "if (!__nfSwfEnv.avm1Initialized) {{\n__nfSwfEnv.avm1Initialized = true;\n{init}\n}}"
+        ));
+    }
     let mut shown_frames = 0u32;
 
     let flush_dirty = |ctx: &mut SwfDecodeCtx,
@@ -547,12 +553,24 @@ pub(super) fn build_timeline_from_tags(
                 if let Ok(lbl) = r.read_c_string()
                     && !lbl.is_empty()
                 {
-                    frame_labels.entry(shown_frames).or_insert(lbl);
+                    let kind = if r.read_u8().ok() == Some(1) {
+                        FrameLabelType::Anchor
+                    } else {
+                        FrameLabelType::Name
+                    };
+                    frame_labels
+                        .entry(shown_frames)
+                        .or_default()
+                        .push((lbl, kind));
                 }
             }
             12 => {
                 ctx.saw_do_action = true;
-                if let Some(js) = compile_avm1_actions(ctx, payload) {
+                if let Some(js) = compile_avm1_actions(
+                    ctx,
+                    payload,
+                    &format!("{scope_prefix} frame {} DoAction", shown_frames + 1),
+                ) {
                     frame_actions.entry(shown_frames).or_default().push(js);
                 }
             }
@@ -654,59 +672,32 @@ pub(super) fn build_timeline_from_tags(
     }
 
     let mut final_layers: Vec<Layer> = layers.into_iter().map(|(_, l)| l).collect();
+    let (label_layers, omitted) = neoflash_core::swf_label_layers(
+        &format!("swf-{}-{scope_prefix}-labels", ctx.mount_seq),
+        frame_labels
+            .range(..total_frames)
+            .map(|(&frame, names)| (frame, names.as_slice())),
+        MAX_SWF_KEYFRAMES.saturating_sub(ctx.total_keyframes),
+    );
+    ctx.total_keyframes += label_layers
+        .iter()
+        .map(|layer| layer.keyframes.len())
+        .sum::<usize>();
+    if omitted > 0 {
+        ctx.warn(format!(
+            "{scope_prefix}: SWF keyframe budget reached; omitted {omitted} frame label(s)."
+        ));
+    }
+    final_layers.extend(label_layers);
     if final_layers.is_empty() {
-        let mut kfs = vec![Keyframe {
-            frame: 0,
-            label: frame_labels.get(&0).cloned().unwrap_or_default(),
-            ..Default::default()
-        }];
-        for (&f, lbl) in &frame_labels {
-            if f > 0 && f < total_frames && ctx.total_keyframes < MAX_SWF_KEYFRAMES {
-                kfs.push(Keyframe {
-                    frame: f,
-                    label: lbl.clone(),
-                    ..Default::default()
-                });
-                ctx.total_keyframes += 1;
-            }
-        }
         final_layers.push(Layer {
             id: format!("swf-{}-{scope_prefix}-empty", ctx.mount_seq),
             name: "Layer 1".into(),
             visible: true,
             locked: false,
-            keyframes: kfs,
+            keyframes: vec![Keyframe::default()],
             properties: LayerProperties::default(),
         });
-    } else if !frame_labels.is_empty() {
-        let first_layer = &mut final_layers[0];
-        for (&f, lbl) in &frame_labels {
-            if f >= total_frames {
-                continue;
-            }
-            if let Some(kf) = first_layer.keyframes.iter_mut().find(|k| k.frame == f) {
-                if kf.label.is_empty() {
-                    kf.label = lbl.clone();
-                }
-            } else if ctx.total_keyframes < MAX_SWF_KEYFRAMES {
-                let insert_pos = first_layer.keyframes.partition_point(|k| k.frame < f);
-                let held_elements = insert_pos
-                    .checked_sub(1)
-                    .and_then(|i| first_layer.keyframes.get(i))
-                    .map(|k| k.elements.clone())
-                    .unwrap_or_default();
-                first_layer.keyframes.insert(
-                    insert_pos,
-                    Keyframe {
-                        frame: f,
-                        label: lbl.clone(),
-                        elements: held_elements,
-                        ..Default::default()
-                    },
-                );
-                ctx.total_keyframes += 1;
-            }
-        }
     }
 
     let mut timeline = Timeline {
@@ -719,7 +710,14 @@ pub(super) fn build_timeline_from_tags(
     for (frame, blocks) in frame_actions {
         if frame < total_frames {
             let joined = blocks.join("\n");
-            attach_compiled_frame_script(ctx, &mut timeline, frame, &joined, scope_prefix);
+            attach_compiled_frame_script(
+                ctx,
+                &mut timeline,
+                frame,
+                &joined,
+                scope_prefix,
+                neoflash_core::ScriptLanguage::ActionScript2,
+            );
         }
     }
 

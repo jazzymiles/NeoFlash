@@ -1009,14 +1009,12 @@ pub(crate) fn api_detail_column(
     state: &mut ApiBrowserState,
     scope: LanguageScope,
     actions: &mut RefActions,
-) {
+) -> Option<egui::scroll_area::ScrollAreaOutput<()>> {
     let p = neoflash_ui::palette(ui.ctx());
-    let Some(class) = state.selected_class(scope) else {
-        return;
-    };
+    let class = state.selected_class(scope)?;
     let member = state.selected_member(scope);
     let mut navigate: Option<ApiLink> = None;
-    egui::ScrollArea::vertical()
+    let output = egui::ScrollArea::vertical()
         .id_salt((
             "reference-api-detail",
             scope.html_slug(),
@@ -1140,6 +1138,7 @@ pub(crate) fn api_detail_column(
     if let Some(link) = navigate {
         state.select(scope, &link.class_key, link.member_key.as_deref());
     }
+    Some(output)
 }
 
 /// Detail column while no member is selected.

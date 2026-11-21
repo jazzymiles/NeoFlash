@@ -5,6 +5,10 @@
 - Save checks for further changes after **Keep editing**, including when another application recreates a deleted file while the conflict dialog is open. Opening an unpacked XFL by its folder, Adobe marker or `DOMDocument.xml` returns to the same edited tab.
 - Added a **Criteo · HTML5 ZIP** publish preset for compact, self-contained animated ads, with a final ZIP byte budget and a 300×250 Moon Tide example.
 - Custom HTML publish templates preserve literal tokens in project titles and content, including embedded JSON containing closing script tags. The export CLI and headless editor retain the custom wrapper when writing an assets folder or sprite sheet, and honor an explicit Canvas override on DOM projects.
+- Help and Scripting Reference support edge and corner resizing. Double-click the header to maximize a reader or restore its previous bounds.
+- Edit in Place suppresses local guides, grid and their snapping when a parent placement is reflected. Artwork remains editable in its own coordinates.
+- SWF reimport retains multiple frame names and anchors on a held drawing. Native and HTML5 playback resolve label case according to the movie’s VM. HTML5 playback runs initialization actions once per load.
+- Binary FLA import preserves advanced text anti-aliasing on static fields and paragraph breaks across editing and XFL export.
 - Streamlined the verification workflow by sharing freshly exported HTML5 fixtures between Rust and Chrome.
   Ordinary checks cover representative settings. `./scripts/check.sh --release` runs the complete publish matrix.
 - Made ordinary macOS packaging intentionally fast and unambiguous: `./scripts/package-macos.sh` now produces only

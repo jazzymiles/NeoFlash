@@ -470,6 +470,14 @@ fn affine_context_keeps_pixel_snap_exact_and_suppresses_axis_only_targets() {
         local.y
     );
 
+    for matrix in [[-2., 0., 0., 3., 40., -20.], [0., 2., 3., 0., 40., -20.]] {
+        let reflected = crate::stage_mapping::StageMapping::try_new(matrix).unwrap();
+        let snapper = editor.snapper_for(reflected).unwrap();
+        assert!(snapper.guides_x.is_empty() && snapper.guides_y.is_empty());
+        assert!(snapper.grid.is_none());
+        assert!(snapper.pixel_tolerance.is_some());
+    }
+
     // A quarter-turn still maps authored axes onto screen axes. Guides and grid remain usable,
     // with their screen orientation swapped instead of being discarded as oblique geometry.
     editor.add_guide(GuideAxis::Horizontal, 20.);

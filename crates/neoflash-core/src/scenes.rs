@@ -5,6 +5,58 @@ use crate::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+/// Rebuild navigable labels from ordered SWF frames. A keyframe can hold one label,
+/// so simultaneous names occupy parallel empty layers in their original tag order.
+/// The returned count identifies labels omitted by the caller's keyframe budget.
+pub fn swf_label_layers<'a>(
+    id: &str,
+    frames: impl IntoIterator<Item = (u32, &'a [(String, FrameLabelType)])>,
+    mut remaining_keys: usize,
+) -> (Vec<Layer>, usize) {
+    let mut layers = Vec::<Layer>::new();
+    let mut omitted = 0;
+    for (frame, names) in frames {
+        for (index, (name, label_type)) in names.iter().enumerate() {
+            let new_layer = index >= layers.len();
+            let needs_leading_key = new_layer && frame != 0;
+            let cost = 1 + usize::from(needs_leading_key);
+            if cost > remaining_keys {
+                omitted += 1;
+                continue;
+            }
+            remaining_keys -= cost;
+            if new_layer {
+                let (layer_id, layer_name) = if index == 0 {
+                    (id.to_owned(), "Labels".to_owned())
+                } else {
+                    (
+                        format!("{id}-{}", index + 1),
+                        format!("Labels {}", index + 1),
+                    )
+                };
+                layers.push(Layer {
+                    id: layer_id,
+                    name: layer_name,
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: Vec::new(),
+                });
+                if needs_leading_key {
+                    layers[index].keyframes.push(Keyframe::default());
+                }
+            }
+            layers[index].keyframes.push(Keyframe {
+                frame,
+                label: name.clone(),
+                label_type: *label_type,
+                ..Default::default()
+            });
+        }
+    }
+    (layers, omitted)
+}
+
 /// One scene inside the published main timeline. `start` is the zero-based
 /// first frame of the scene in the concatenated timeline.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

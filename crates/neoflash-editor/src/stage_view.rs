@@ -359,10 +359,16 @@ fn axis_mapping(mapping: StageMapping) -> Option<AxisMapping> {
     }
 }
 
-/// The locked ruler painter accepts only a positive one-dimensional scale.  Keep local ruler
-/// labels only when both mapped axes increase in the painter's positive screen direction; a
-/// quarter turn or reflection with a reversed axis uses the ordinary screen ruler until R-063
-/// defines signed/oblique labels. Guides and grid continue to use [`axis_mapping`] independently.
+// R-063 keeps ordinary guides and grid only in non-reflected axis-aligned contexts.
+// Painting, guide gestures and snapping must all use that same decision.
+fn guide_axis_mapping(mapping: StageMapping) -> Option<AxisMapping> {
+    if mapping.is_reflected() {
+        return None;
+    }
+    axis_mapping(mapping)
+}
+
+/// The local ruler labels use positive screen directions. Other placements use the screen ruler.
 fn ruler_axis_mapping(mapping: StageMapping) -> Option<AxisMapping> {
     let kind = axis_mapping(mapping)?;
     let [a, b, c, d, _, _] = mapping.matrix();
@@ -374,7 +380,7 @@ fn ruler_axis_mapping(mapping: StageMapping) -> Option<AxisMapping> {
 }
 
 fn screen_orientation(axis: GuideAxis, mapping: StageMapping) -> Option<Orientation> {
-    match axis_mapping(mapping)? {
+    match guide_axis_mapping(mapping)? {
         AxisMapping::Direct => Some(orientation(axis)),
         AxisMapping::Swapped => Some(orientation(match axis {
             GuideAxis::Horizontal => GuideAxis::Vertical,
@@ -469,7 +475,7 @@ impl Editor {
             object_tolerance: object_tol,
             ..Default::default()
         };
-        if axis_mapping(mapping).is_some() && v.guides_show && v.guides_snap {
+        if guide_axis_mapping(mapping).is_some() && v.guides_show && v.guides_snap {
             for g in self.guides() {
                 match g.axis {
                     GuideAxis::Horizontal => snapper.guides_y.push(g.position),
@@ -480,7 +486,7 @@ impl Editor {
         if v.objects_snap {
             self.collect_object_snap_lines(&mut snapper.objects_x, &mut snapper.objects_y);
         }
-        if axis_mapping(mapping).is_some() && v.grid_snap {
+        if guide_axis_mapping(mapping).is_some() && v.grid_snap {
             let raw_grid_tol = tolerance(v.grid_accuracy.screen_tolerance() as f64);
             snapper.grid = Some((
                 v.grid_spacing,
@@ -997,7 +1003,7 @@ impl Editor {
         origin: Pos2,
     ) {
         let v = &self.stage_view.prefs;
-        let Some(axis_mapping) = axis_mapping(mapping) else {
+        let Some(axis_mapping) = guide_axis_mapping(mapping) else {
             return;
         };
         if !v.grid_show {
@@ -1124,7 +1130,7 @@ impl Editor {
         }
         let layout = RulerLayout::new(canvas);
         let zoom = self.zoom;
-        let guide_axis_kind = axis_mapping(mapping);
+        let guide_axis_kind = guide_axis_mapping(mapping);
         let mapped_guides = guide_axis_kind.is_some();
         let mapped_axis_kind = ruler_axis_mapping(mapping);
         let mapped_rulers = mapped_axis_kind.is_some();

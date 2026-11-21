@@ -2,9 +2,11 @@
 //! (`Help ▸ Scripting Reference…`), also reachable from the `Search functions… (F1)` command
 //! palette and `About NeoFlash`.
 //!
-//! Both windows share one fixed-size shell: a bar with the search field, a tree column, the
+//! Both readers share a resizable shell with a search bar, a tree column, the
 //! article or class in the middle and a side column. The reference columns and the guide
 //! chapters live in `help_as_reference.rs`.
+
+mod window;
 
 use super::help_as_reference::{ApiBrowserState, RefActions, RefKeys, RefRow};
 use crate::theme::ScrollTheme as _;
@@ -172,6 +174,7 @@ pub(crate) enum ReferenceTab {
 struct HelpManualState {
     open: bool,
     mode: HelpManualMode,
+    windows: [window::ReaderWindow; 2],
     lang_scope: LanguageScope,
     page: usize,
     query: String,
@@ -185,6 +188,7 @@ struct HelpManualState {
     scroll_article_to: Option<f32>,
     /// Scroll offset of the article in the last frame (current "On this page" entry).
     article_offset: f32,
+    reading_position: Option<ArticlePosition>,
     focus_search: bool,
     /// The search field had the keyboard in the last frame.
     search_focused: bool,
@@ -1075,18 +1079,19 @@ impl crate::app::Editor {
         let can_insert = reference && self.reference_insert_available();
         super::help_as_reference::set_insert_available(ctx, can_insert);
 
-        // One size per density, border included; a smaller window only clamps it.
+        let viewport = ctx.content_rect();
+        let bounds = state.windows[usize::from(reference)].bounds(viewport);
         let dialog_frame = Surface::Dialog.frame(ctx);
         let chrome = dialog_frame.total_margin().sum();
-        let available = ctx.content_rect().size() - vec2(2.0 * space::s5(), 2.0 * space::s5());
-        let width = (metrics::reference_width().min(available.x) - chrome.x).max(1.0);
-        let height = (metrics::dialog_xl_height().min(available.y) - chrome.y).max(1.0);
+        let width = (bounds.width() - chrome.x).max(1.0);
+        let height = (bounds.height() - chrome.y).max(1.0);
         let squeeze = ((width + chrome.x) / metrics::reference_width()).min(1.0);
         let api_tab = reference && state.tab == ReferenceTab::Api;
         let tree_w = (metrics::tree_width() * squeeze).round();
         let side_w = if api_tab {
             // 300 pt in Normal, scaled with the inspector width in the denser profiles.
-            (300.0 * metrics::inspector() / metrics::INSPECTOR * squeeze).round()
+            let extra = (bounds.width() - metrics::reference_width()).max(0.0);
+            (300.0 * metrics::inspector() / metrics::INSPECTOR * squeeze + extra * 0.5).round()
         } else {
             (metrics::sidebar_wide() * squeeze).round()
         };
@@ -1136,7 +1141,7 @@ impl crate::app::Editor {
         let modal = egui::Modal::new(modal_id)
             .area(
                 egui::Modal::default_area(modal_id)
-                    .anchor(egui::Align2::CENTER_TOP, vec2(0.0, space::s5())),
+                    .anchor(egui::Align2::LEFT_TOP, bounds.min - viewport.min),
             )
             .frame(dialog_frame)
             .backdrop_color(p.overlay)
@@ -1164,6 +1169,14 @@ impl crate::app::Editor {
                 let header_rect =
                     Rect::from_min_size(full.min, vec2(width, metrics::dialog_header()));
                 let mut header = region(ui, "help-header", header_rect, column);
+                // Register the header gesture before the Close button so the button wins.
+                if header
+                    .interact(header_rect, header.id().with("maximize"), Sense::click())
+                    .double_clicked_by(egui::PointerButton::Primary)
+                {
+                    state.windows[usize::from(reference)].toggle_maximized();
+                    ctx.request_repaint();
+                }
                 should_close |= DialogHeader {
                     title: state.mode.dialog_title(),
                 }
@@ -1358,17 +1371,26 @@ impl crate::app::Editor {
                         keys,
                         &mut actions,
                     );
-                    super::help_as_reference::api_detail_column(
+                    if let Some(output) = super::help_as_reference::api_detail_column(
                         &mut side,
                         &mut state.api,
                         scope,
                         &mut actions,
-                    );
+                    ) {
+                        ArticlePosition::retain(
+                            &mut state.reading_position,
+                            ctx,
+                            output,
+                            &[],
+                            false,
+                        );
+                    }
                 } else {
                     let mut area = egui::ScrollArea::vertical()
                         .id_salt(("help-manual-scroll", state.page))
                         .auto_shrink([false, false]);
-                    if let Some(offset) = state.scroll_article_to.take() {
+                    let requested_offset = state.scroll_article_to.take();
+                    if let Some(offset) = requested_offset {
                         area = area.vertical_scroll_offset(offset);
                     }
                     let output = area.themed().show(&mut mid, |ui| {
@@ -1386,8 +1408,14 @@ impl crate::app::Editor {
                                 );
                             });
                     });
-                    state.article_offset = output.state.offset.y;
                     let outline = outline_take();
+                    state.article_offset = ArticlePosition::retain(
+                        &mut state.reading_position,
+                        ctx,
+                        output,
+                        &outline,
+                        requested_offset.is_some(),
+                    );
                     outline_column(&mut side, &outline, &mut state);
                 }
 
@@ -1454,6 +1482,7 @@ impl crate::app::Editor {
                         kbd(ui, key, false);
                     }
                 });
+                state.windows[usize::from(reference)].resize_edges(ui, bounds, viewport);
             });
 
         if !should_close
@@ -1753,6 +1782,76 @@ pub(crate) struct OutlineEntry {
     title: String,
     /// Offset from the top of the article.
     offset: f32,
+}
+
+// Keep the same part of the same section visible as text wraps at a new width.
+#[derive(Clone, Debug)]
+struct ArticlePosition {
+    area: egui::Id,
+    viewport: egui::Vec2,
+    total: f32,
+    visible_y: f32,
+    headings_before: usize,
+    fraction: f32,
+}
+
+impl ArticlePosition {
+    fn section(outline: &[OutlineEntry], count: usize, total: f32) -> (f32, f32) {
+        let start = count
+            .checked_sub(1)
+            .and_then(|i| outline.get(i))
+            .map_or(0.0, |h| h.offset);
+        let end = outline.get(count).map_or(total, |h| h.offset);
+        (start, (end - start).max(1.0))
+    }
+
+    fn retain(
+        anchor: &mut Option<Self>,
+        ctx: &egui::Context,
+        output: egui::scroll_area::ScrollAreaOutput<()>,
+        outline: &[OutlineEntry],
+        jumped: bool,
+    ) -> f32 {
+        let viewport = output.inner_rect.size();
+        let total = output.content_size.y;
+        let mut scroll = output.state;
+        let y = scroll.offset.y;
+        if let Some(previous) = anchor
+            && previous.area == output.id
+            && !jumped
+        {
+            if previous.viewport != viewport || previous.total != total {
+                let (start, length) =
+                    Self::section(outline, previous.headings_before.min(outline.len()), total);
+                let offset =
+                    (start + previous.fraction * length).clamp(0.0, (total - viewport.y).max(0.0));
+                if offset != y {
+                    scroll.offset.y = offset;
+                    scroll.store(ctx, output.id);
+                    ctx.request_repaint();
+                }
+                // Preserve the intended anchor when an enlarged viewport fits the entire article.
+                previous.viewport = viewport;
+                previous.total = total;
+                previous.visible_y = offset;
+                return offset;
+            }
+            if y == previous.visible_y {
+                return y;
+            }
+        }
+        let headings_before = outline.partition_point(|heading| heading.offset <= y);
+        let (start, length) = Self::section(outline, headings_before, total);
+        *anchor = Some(Self {
+            area: output.id,
+            viewport,
+            total,
+            visible_y: y,
+            headings_before,
+            fraction: ((y - start) / length).clamp(0.0, 1.0),
+        });
+        y
+    }
 }
 
 thread_local! {
@@ -5100,6 +5199,155 @@ mod tests {
         );
         assert!(shown("Insert at cursor"));
         assert!(shown("gotoAndStop()"), "See also link missing");
+    }
+
+    #[test]
+    fn reader_pointer_resize_maximize_restore_preserves_route_and_search() {
+        use crate::tests::primary_button;
+        use neoflash_ui::metrics::{Density, set_density};
+
+        fn drag(editor: &mut Editor, ctx: &egui::Context, from: Pos2, to: Pos2) {
+            frame(editor, ctx, vec![egui::Event::PointerMoved(from)]);
+            frame(editor, ctx, vec![primary_button(from, true)]);
+            frame(editor, ctx, vec![egui::Event::PointerMoved(to)]);
+            frame(editor, ctx, vec![primary_button(to, false)]);
+        }
+
+        fn double_click_header(editor: &mut Editor, ctx: &egui::Context) {
+            let at =
+                window_rect(editor, ctx).center_top() + vec2(0.0, metrics::dialog_header() / 2.0);
+            // The second double-click is a separate gesture, after egui's triple-click interval.
+            let later = ctx.input(|i| i.time + 1.0);
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(WIDE),
+                    time: Some(later),
+                    events: vec![egui::Event::PointerMoved(at)],
+                    ..Default::default()
+                },
+                |ctx| editor.help_manual_dialog(ctx),
+            );
+            for _ in 0..2 {
+                frame(editor, ctx, vec![primary_button(at, true)]);
+                frame(editor, ctx, vec![primary_button(at, false)]);
+            }
+        }
+
+        fn scroll_to(editor: &mut Editor, ctx: &egui::Context, offset: f32) -> f32 {
+            let id = window_state(ctx).reading_position.unwrap().area;
+            let mut scroll = egui::scroll_area::State::load(ctx, id).unwrap();
+            scroll.offset.y = offset;
+            scroll.store(ctx, id);
+            frame(editor, ctx, vec![]);
+            window_state(ctx).reading_position.unwrap().visible_y
+        }
+
+        for density in Density::ALL {
+            set_density(density);
+            let ctx = egui::Context::default();
+            let mut editor = Editor::from_project(
+                &ctx,
+                project_in(neoflash_core::ScriptLanguage::ActionScript3),
+            );
+            for reference in [false, true] {
+                if reference {
+                    editor.open_scripting_reference_for_token(&ctx, "BitmapData.drawWithQuality");
+                } else {
+                    open_help_manual(&ctx);
+                }
+                ctx.data_mut(|d| {
+                    d.get_temp_mut_or_default::<HelpManualState>(state_id())
+                        .query = "frame".into()
+                });
+                let initial = window_rect(&mut editor, &ctx);
+                let page = window_state(&ctx).page;
+                let member = |state: &HelpManualState| {
+                    state
+                        .api
+                        .selected_member(LanguageScope::As3)
+                        .map(|m| m.key.clone())
+                };
+                let selected = member(&window_state(&ctx));
+                if reference {
+                    assert!(selected.is_some(), "reference must have a selected member");
+                }
+                let from = initial.right_bottom() - vec2(2.0, 2.0);
+                let delta = vec2(50.0, 42.0);
+                drag(&mut editor, &ctx, from, from + delta);
+                let grown = window_rect(&mut editor, &ctx);
+                assert_eq!(grown.min, initial.min);
+                assert_eq!(grown.max, initial.max + delta);
+                let left = grown.left_center() + vec2(2.0, 0.0);
+                drag(&mut editor, &ctx, left, left + vec2(96.0, 0.0));
+                let resized = window_rect(&mut editor, &ctx);
+                assert_eq!(resized.min, grown.min + vec2(96.0, 0.0));
+                assert_eq!(resized.max, grown.max);
+
+                let y = scroll_to(&mut editor, &ctx, 200.0);
+                assert!(
+                    y > 0.0,
+                    "{density:?} reference={reference}: content must scroll"
+                );
+                double_click_header(&mut editor, &ctx);
+                assert_eq!(window_rect(&mut editor, &ctx), WIDE);
+                double_click_header(&mut editor, &ctx);
+                assert_eq!(window_rect(&mut editor, &ctx), resized);
+                let state = window_state(&ctx);
+                assert_eq!(state.page, page);
+                assert_eq!(state.query, "frame");
+                assert_eq!(member(&state), selected);
+                assert!((state.reading_position.unwrap().visible_y - y).abs() < 1.0);
+                // Scrolling again in the restored viewport supersedes the original anchor.
+                let new_y = scroll_to(&mut editor, &ctx, y / 2.0);
+                assert!(new_y < y);
+                double_click_header(&mut editor, &ctx);
+                double_click_header(&mut editor, &ctx);
+                assert_eq!(window_rect(&mut editor, &ctx), resized);
+                assert!(
+                    (window_state(&ctx).reading_position.unwrap().visible_y - new_y).abs() < 1.0
+                );
+
+                let small = Rect::from_min_size(Pos2::ZERO, vec2(700.0, 480.0));
+                for _ in 0..2 {
+                    let _ = ctx.run(
+                        egui::RawInput {
+                            screen_rect: Some(small),
+                            ..Default::default()
+                        },
+                        |ctx| editor.help_manual_dialog(ctx),
+                    );
+                }
+                let actual = ctx.memory(|m| {
+                    m.area_rect(egui::Id::new("neoflash-help-manual-modal"))
+                        .unwrap()
+                });
+                assert!(small.contains_rect(actual));
+                let close = actual.right_top()
+                    + vec2(
+                        -space::s4() - metrics::control() / 2.0,
+                        metrics::dialog_header() / 2.0,
+                    );
+                for event in [
+                    egui::Event::PointerMoved(close),
+                    primary_button(close, true),
+                    primary_button(close, false),
+                ] {
+                    let _ = ctx.run(
+                        egui::RawInput {
+                            screen_rect: Some(small),
+                            events: vec![event],
+                            ..Default::default()
+                        },
+                        |ctx| editor.help_manual_dialog(ctx),
+                    );
+                }
+                assert!(
+                    !window_state(&ctx).open,
+                    "Close remains reachable in a small viewport"
+                );
+            }
+        }
+        set_density(Density::Comfortable);
     }
 
     #[test]

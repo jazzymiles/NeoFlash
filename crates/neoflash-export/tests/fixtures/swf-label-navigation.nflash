@@ -1,0 +1,47 @@
+{
+  "format_version": 14,
+  "name": "Label navigation",
+  "width": 80, "height": 60, "fps": 12, "background": [255,255,255,255],
+  "root": "scene",
+  "symbols": [{
+    "id": "scene", "name": "Scene", "kind": "movie_clip",
+    "timeline": {
+      "frame_count": 4,
+      "layers": [
+        {
+          "id": "art", "name": "Art", "visible": true, "locked": false,
+          "keyframes": [{
+            "frame": 0, "label": "", "elements": [{
+              "id": "square", "name": "", "visible": true,
+              "transform": {"x": 4, "y": 6, "scale_x": 1, "scale_y": 1, "rotation": 0, "alpha": 1},
+              "kind": {"type": "rectangle", "width": 20, "height": 20, "fill": [220,40,20,255], "stroke": [0,0,0,0], "stroke_width": 0},
+              "scripts": []
+            }]
+          }]
+        },
+        {
+          "id": "labels", "name": "Labels", "visible": true, "locked": false,
+          "keyframes": [
+            {"frame": 0, "label": "Home", "elements": []},
+            {"frame": 2, "label": "Near", "elements": []},
+            {"frame": 3, "label": "Far", "elements": []}
+          ]
+        },
+        {
+          "id": "aliases", "name": "Aliases", "visible": true, "locked": false,
+          "keyframes": [
+            {"frame": 0, "label": "", "elements": []},
+            {"frame": 2, "label": "Landing", "label_type": "anchor", "elements": []},
+            {"frame": 3, "label": "landing", "elements": []}
+          ]
+        }
+      ],
+      "scripts": [
+        {"frame": 0, "script": {"language": "action_script2", "source": "trace('start');"}},
+        {"frame": 1, "script": {"language": "action_script2", "source": "trace('step'); gotoAndStop('landing');"}},
+        {"frame": 2, "script": {"language": "action_script2", "source": "trace('near'); stop();"}},
+        {"frame": 3, "script": {"language": "action_script2", "source": "trace('far'); stop();"}}
+      ]
+    }
+  }]
+}

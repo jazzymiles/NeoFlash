@@ -321,9 +321,11 @@ fn cpic_text_discloses_metrics_clamped_negative_leading_tight_fixed_wrap_and_mul
         shapes: vec![],
         original_bytes: vec![],
     };
-    let mut push_ascii = |s: &str| {
+    let mut push_utf16 = |s: &str| {
         let start = stream.original_bytes.len();
-        stream.original_bytes.extend_from_slice(s.as_bytes());
+        stream
+            .original_bytes
+            .extend(s.encode_utf16().flat_map(u16::to_le_bytes));
         let span = TimelineByteSpan {
             start,
             end: stream.original_bytes.len(),
@@ -331,18 +333,19 @@ fn cpic_text_discloses_metrics_clamped_negative_leading_tight_fixed_wrap_and_mul
         TimelineString {
             encoded: span,
             data: span,
-            utf16: false,
+            utf16: true,
         }
     };
-    let font = push_ascii("Verdana");
-    let dormant_var = push_ascii("legacy_unused_var");
-    let body_a = push_ascii("Tight ");
-    let body_b = push_ascii("wrapped text");
-    let dyn_body = push_ascii("Line 1\rLine 2");
+    let font = push_utf16("Verdana");
+    let dormant_var = push_utf16("legacy_unused_var");
+    let body_a = push_utf16("Tight ");
+    let body_b = push_utf16("wrapped text");
+    let dyn_body = push_utf16("Line 1\rLine 2");
+    let static_body = push_utf16("First\rSecond\r\nThird");
     let aa_readability_start = stream.original_bytes.len();
     stream
         .original_bytes
-        .extend_from_slice(&[1, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
+        .extend_from_slice(&[2, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
     let aa_readability = TimelineByteSpan {
         start: aa_readability_start,
         end: stream.original_bytes.len(),
@@ -422,6 +425,7 @@ fn cpic_text_discloses_metrics_clamped_negative_leading_tight_fixed_wrap_and_mul
 
     // B. Dynamic text with aa_mode == 1 ("advanced") -> maps anti_alias_type = "advanced".
     let dyn_style = TimelineTextStyle {
+        revision: 11,
         line_spacing: Some(40),
         anti_alias: Some(aa_readability),
         ..style_run1
@@ -442,6 +446,49 @@ fn cpic_text_discloses_metrics_clamped_negative_leading_tight_fixed_wrap_and_mul
     let dyn_state = TextFieldState::from_kind(&dyn_el.kind).expect("dynamic text state");
     assert_eq!(dyn_state.field_type, TextFieldType::Dynamic);
     assert_eq!(dyn_state.anti_alias_type, "advanced");
+
+    // A static field has the same archived readability mode. The editable project
+    // and its XFL export should contain the same line boundaries.
+    let read_text = TimelineText {
+        flags: Some(0),
+        runs: vec![TimelineTextRun {
+            characters: static_body,
+            style: dyn_text.runs[0].style.clone(),
+        }],
+        ..dyn_text
+    };
+    let static_el = convert_timeline_text(
+        &stream,
+        &read_text,
+        "static-readability",
+        "",
+        Some(0x3f),
+        &mut empty_report(),
+    )
+    .unwrap();
+    let ElementKind::TextBox { text, .. } = &static_el.kind else {
+        panic!("expected an editable text box");
+    };
+    assert_eq!(text, "First\nSecond\nThird");
+    let mut project = Project::blank();
+    project.symbols[0].timeline.layers[0].keyframes[0].elements = vec![static_el];
+    let bytes = crate::export_fla_bytes(&project).unwrap();
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let mut xml = String::new();
+    std::io::Read::read_to_string(&mut archive.by_name("DOMDocument.xml").unwrap(), &mut xml)
+        .unwrap();
+    let dom = roxmltree::Document::parse(&xml).unwrap();
+    let field = dom
+        .descendants()
+        .find(|n| n.has_tag_name("DOMStaticText"))
+        .unwrap();
+    assert_eq!(field.attribute("fontRenderingMode"), Some("advanced"));
+    let chars = field
+        .descendants()
+        .find(|n| n.has_tag_name("characters"))
+        .unwrap();
+    // XFL encodes each Flash paragraph break as a carriage-return reference.
+    assert_eq!(chars.text(), Some("First\rSecond\rThird"));
 }
 
 #[test]

@@ -138,10 +138,17 @@ struct TimelineDef {
 }
 
 impl TimelineDef {
-    fn resolve_label(&self, query: &str) -> Option<u32> {
+    fn resolve_avm1_label(&self, query: &str) -> Option<u32> {
         self.labels
             .iter()
             .find(|(lbl, _)| lbl.eq_ignore_ascii_case(query))
+            .map(|(_, frame)| *frame)
+    }
+
+    fn resolve_avm2_label(&self, query: &str) -> Option<u32> {
+        self.labels
+            .iter()
+            .find(|(name, _)| name == query)
             .map(|(_, frame)| *frame)
     }
 }
@@ -1196,8 +1203,10 @@ impl SwfBytecodePlayer {
                 match tag.code {
                     43 => {
                         let mut lr = SwfSlice::new(&tag.payload);
-                        if let Some((lbl, _)) = lr.c_string(self.swf_version) {
-                            frame_label = Some(lbl);
+                        if let Some((lbl, _)) = lr.c_string(self.swf_version)
+                            && !lbl.is_empty()
+                        {
+                            frame_label.get_or_insert(lbl);
                         }
                     }
                     4 | 26 | 70 => {

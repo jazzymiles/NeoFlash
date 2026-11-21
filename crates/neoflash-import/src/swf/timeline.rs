@@ -21,8 +21,8 @@ use super::text::{
 use super::{SwfContainer, SwfInspection};
 use crate::ImportReport;
 use neoflash_core::{
-    Color, ColorTransform, Easing, Element, ElementKind, FrameScript, FrameSound, Id,
-    InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, MAX_BITMAP_BYTES,
+    Color, ColorTransform, Easing, Element, ElementKind, FrameLabelType, FrameScript, FrameSound,
+    Id, InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, MAX_BITMAP_BYTES,
     MAX_RESOURCE_BYTES, MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES, ObjectScript, Project,
     ResourceUnit, Script, ScriptLanguage, SourceUnit, Symbol, SymbolKind, Timeline, Transform,
     TweenKind,
@@ -116,7 +116,7 @@ impl ActiveSlot {
 #[derive(Clone, Debug, Default)]
 struct FrameSnapshot {
     slots: BTreeMap<u16, ActiveSlot>,
-    label: Option<String>,
+    labels: Vec<(String, FrameLabelType)>,
     actions: Vec<String>,
     sounds: Vec<FrameSound>,
 }
@@ -613,7 +613,7 @@ impl SwfBuilder<'_> {
         let mut snapshots: Vec<FrameSnapshot> = Vec::new();
         let mut active_slots: BTreeMap<u16, ActiveSlot> = BTreeMap::new();
         let mut next_span_id: u32 = 1;
-        let mut pending_label: Option<String> = None;
+        let mut pending_labels = Vec::new();
         let mut pending_actions: Vec<String> = Vec::new();
         let mut pending_sounds: Vec<FrameSound> = Vec::new();
         let mut stream_collector: Option<SwfStreamSoundCollector> = None;
@@ -649,7 +649,7 @@ impl SwfBuilder<'_> {
                 1 => {
                     snapshots.push(FrameSnapshot {
                         slots: active_slots.clone(),
-                        label: pending_label.take(),
+                        labels: std::mem::take(&mut pending_labels),
                         actions: std::mem::take(&mut pending_actions),
                         sounds: std::mem::take(&mut pending_sounds),
                     });
@@ -968,7 +968,12 @@ impl SwfBuilder<'_> {
                     if let Some((lbl, cp)) = r.c_string(self.swf_version) {
                         self.legacy_cp_warned |= cp;
                         if !lbl.is_empty() {
-                            pending_label = Some(lbl);
+                            let kind = if r.u8() == Some(1) {
+                                FrameLabelType::Anchor
+                            } else {
+                                FrameLabelType::Name
+                            };
+                            pending_labels.push((lbl, kind));
                             saw_pending_frame_mutation = true;
                         }
                     }
@@ -1208,19 +1213,17 @@ impl SwfBuilder<'_> {
         if snapshots.is_empty() && saw_pending_frame_mutation {
             snapshots.push(FrameSnapshot {
                 slots: active_slots,
-                label: pending_label,
+                labels: pending_labels,
                 actions: pending_actions,
                 sounds: pending_sounds,
             });
         } else if !snapshots.is_empty()
             && (!pending_actions.is_empty()
                 || !pending_sounds.is_empty()
-                || pending_label.is_some())
+                || !pending_labels.is_empty())
             && let Some(last) = snapshots.last_mut()
         {
-            if last.label.is_none() {
-                last.label = pending_label;
-            }
+            last.labels.extend(pending_labels);
             last.actions.extend(pending_actions);
             last.sounds.extend(pending_sounds);
         }
@@ -2031,37 +2034,16 @@ impl SwfBuilder<'_> {
             }
         }
 
-        // Dedicated Labels layer when frame labels exist
-        if !is_button && snapshots.iter().any(|s| s.label.is_some()) {
-            let mut lkeys = Vec::new();
-            for (f_idx, snap) in snapshots.iter().enumerate() {
-                if let Some(lbl) = &snap.label {
-                    lkeys.push(Keyframe {
-                        frame: f_idx as u32,
-                        label: lbl.clone(),
-                        ..Default::default()
-                    });
-                }
-            }
-            if !lkeys.is_empty() {
-                if lkeys[0].frame != 0 {
-                    lkeys.insert(
-                        0,
-                        Keyframe {
-                            frame: 0,
-                            ..Default::default()
-                        },
-                    );
-                }
-                layers.push(Layer {
-                    id: format!("{sym_uid}-labels"),
-                    name: "Labels".into(),
-                    visible: true,
-                    locked: false,
-                    keyframes: lkeys,
-                    properties: LayerProperties::default(),
-                });
-            }
+        if !is_button {
+            let (label_layers, _) = neoflash_core::swf_label_layers(
+                &format!("{sym_uid}-labels"),
+                snapshots
+                    .iter()
+                    .enumerate()
+                    .map(|(frame, snapshot)| (frame as u32, snapshot.labels.as_slice())),
+                usize::MAX,
+            );
+            layers.extend(label_layers);
         }
 
         if layers.is_empty() {

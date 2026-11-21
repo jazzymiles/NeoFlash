@@ -392,7 +392,19 @@ A later native Test Movie opened and exercised one local export in **Safari**. T
 <a id="real-fla-to-html5--27-october"></a>
 ## Real FLA import and HTML5
 
-One unchanged Adobe CS6 FLA from the licensed public corpus imported as an editable project. Independent source comparison checked scripts, solid contours/strokes, labels, translation and a blank key. Its ordinary HTML5 publication displayed the expected square and exactly matched the pinned original 17-line reference trace, including a second block after Restart. The original SWF was not executed for this check.
+The Animate comparison uses one five-frame nested classic tween with labels and frame scripts. On a licensed Animate host, generate the AS1, AS2 and AS3 variants in a new directory, run its `author.jsfl` in Animate, wait for `ORACLE_DONE` in Output, then run `capture.jsfl` and compare the captured results:
+
+```sh
+python3 scripts/verify-animate-oracle.py prepare target/artifacts/animate-oracle --editor target/debug/neoflash-editor
+# Run the two generated JSFL commands in Animate between prepare and check.
+python3 scripts/verify-animate-oracle.py check target/artifacts/animate-oracle --editor target/debug/neoflash-editor
+```
+
+The check compares RGBA frames from FLA and XFL authoring views, script traces and frame checksums from Test Movie, and frames after reimporting Adobe-saved AS3 FLA and SWF files. Animate 24.0.16 converts AS1/AS2 authoring documents to AS3 when opening them. Test Movie exercises the original FP8 AVM1 publications directly and the FP10 AVM2 publication plus both Adobe-republished AS3 movies.
+
+The public Ruffle CS6 `goto_label` FLA exercises duplicate names, label case and a blank tail in an independent seven-frame scene. Its upstream SWF and the FP8 SWF republished from the editable import produce the same 17-line reference trace in Adobe Test Movie (Flash Player 35.0.0.61). The HTML5 publication also reproduces the trace after Restart. The bounded native preview emits eight reference lines and diagnoses the two unsupported callback statements.
+
+For an authoring comparison, render the imported project with `ImageExportOptions.runtime_capture = false` and compare against Animate’s seven timeline PNGs. Both renderers clear the last two frames. On the five visible frames the square’s edges differ at 84 or 169 of 220,000 pixels per frame, including a one-pixel width difference on frames two and four. The ordinary image-export setting captures scripted playback, which can visit a different frame from the authoring playhead.
 
 Importer regressions guard fragmented text/CDATA preservation, namespace shadowing and unsupported metadata. This proves one real FLA workflow, not generic binary FLA/SWF conversion or complete ActionScript compatibility. See the [public corpus](../examples/fla-corpus/README.md) and [import limits](IMPORTS.md).
 

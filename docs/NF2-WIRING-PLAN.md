@@ -254,8 +254,7 @@ Control ▸ Go to end / step, Window ▸ Panels ▸ Swatches / Info / Ease / His
 Duplicate / Swap symbol (`panels/library.rs`, `authoring_symbols.rs`), Show in library, Clear keyframe, Convert to (blank)
 keyframes and Select all frames work. Stage `Swap symbol…` / `Duplicate symbol…` / `Break apart` (`⌘B`) / `Group` (`⌘G`) / `Ungroup` (`⇧⌘G`), Properties `Swap…` symbol-picker popover, and right-click target selection under every active tool work. Affine in-context symbol editing now targets one exact placement, dims the frozen
   parent chain, inverse-maps authoring gestures/drops and restores the nested session view; isolated definition editing
-  remains available. Non-affine 9-slice instances refuse safely, while arbitrary oblique guide/grid/ruler chrome waits
-  for R-063. Open: true `Edit in new window` and Bitmap Trace row
+  remains available. Non-affine 9-slice instances refuse safely. Under R-063 oblique or reflected placements suppress local guide/grid paint and snap, and the ruler falls back to screen values whenever either local axis fails to advance in the positive screen direction. Open: true `Edit in new window` and Bitmap Trace row
   (R-060). Distribute to layers, Find/Preferences/Shortcuts, Compiler errors/Code snippets/Movie Explorer,
 Hide panels and Enable simple buttons are implemented; current working/unavailable boundaries are in
 `NF2-FUNCTIONAL-SPEC.md` §11. Real-input menu tests exercise toggles in both directions without document changes.

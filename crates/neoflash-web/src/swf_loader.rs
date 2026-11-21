@@ -490,7 +490,12 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
             59 if tag_bytes.len() > 2 => {
                 ctx.saw_do_action = true;
                 let payload = &tag_bytes[2..];
-                if let Some(js) = compile_avm1_actions(&mut ctx, payload) {
+                let sprite = u16::from_le_bytes([tag_bytes[0], tag_bytes[1]]);
+                if let Some(js) = compile_avm1_actions(
+                    &mut ctx,
+                    payload,
+                    &format!("DoInitAction sprite {sprite}"),
+                ) {
                     ctx.init_actions.push(js);
                 }
             }
@@ -507,11 +512,6 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
         } else if ctx.saw_do_action {
             ctx.action_script_version = 2;
         }
-    }
-
-    if !ctx.init_actions.is_empty() {
-        let combined = ctx.init_actions.join("\n");
-        attach_compiled_frame_script(&mut ctx, &mut root_timeline, 0, &combined, "swf-initaction");
     }
 
     for (&cid, linkage) in &ctx.export_assets {
@@ -621,6 +621,15 @@ struct SwfDecodeCtx {
 }
 
 impl SwfDecodeCtx {
+    fn warn_opcode(&mut self, vm: &str, opcode: u8, offset: usize) {
+        let key = format!("{vm} opcode 0x{opcode:02X}");
+        if self.warnings.len() < 256 && self.warning_set.insert(key.clone()) {
+            self.warnings.push(format!(
+                "SWF {key} is not supported in the bounded SWF loader and was skipped (bytecode offset 0x{offset:X})."
+            ));
+        }
+    }
+
     pub(super) fn warn(&mut self, msg: impl Into<String>) {
         let msg = msg.into();
         if self.warning_set.insert(msg.clone()) && self.warnings.len() < 256 {
@@ -661,6 +670,7 @@ fn attach_compiled_frame_script(
     frame: u32,
     js_code: &str,
     label: &str,
+    language: ScriptLanguage,
 ) {
     if js_code.trim().is_empty() {
         return;
@@ -678,7 +688,7 @@ fn attach_compiled_frame_script(
         return;
     }
     ctx.scripts.push(CompiledSwfScriptUnit {
-        language: ScriptLanguage::JavaScript,
+        language,
         source: source_id.clone(),
         code: js_code.to_owned(),
         location: format!("{label}:frame-{}", frame + 1),
@@ -687,7 +697,7 @@ fn attach_compiled_frame_script(
         layer: None,
         frame,
         script: Script {
-            language: ScriptLanguage::JavaScript,
+            language,
             source: source_id,
         },
     });
