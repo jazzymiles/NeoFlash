@@ -383,10 +383,36 @@ fn load_process_rich_clipboard() -> Option<RichTextClipboard> {
     None
 }
 
+fn non_empty_label_selection_debug(dbg: &str) -> bool {
+    let Some((head, _)) = dbg.split_once(", selection_bbox_last_frame:") else {
+        return false;
+    };
+    let Some((_, after_primary)) = head.split_once("primary: ") else {
+        return false;
+    };
+    let Some((primary, after_secondary)) = after_primary.split_once(", secondary: ") else {
+        return false;
+    };
+    let Some(secondary) = after_secondary.strip_suffix(" })") else {
+        return false;
+    };
+    !primary.is_empty() && primary != secondary
+}
+
 pub(crate) fn has_egui_label_selection(ctx: &egui::Context) -> bool {
+    let guard = ctx.plugin::<egui::text_selection::LabelSelectionState>();
+    let state = guard.lock();
+    if !state.has_selection() {
+        return false;
+    }
+    let dbg = format!("{:?}", *state);
+    non_empty_label_selection_debug(&dbg)
+}
+
+pub(crate) fn clear_egui_label_selection(ctx: &egui::Context) {
     ctx.plugin::<egui::text_selection::LabelSelectionState>()
         .lock()
-        .has_selection()
+        .clear_selection();
 }
 
 pub(crate) struct ClipboardState {
@@ -434,6 +460,16 @@ impl Default for ClipboardState {
 }
 
 impl Editor {
+    /// True when a non-empty egui label selection owns Copy: either a modal dialog (such as Help
+    /// or Scripting Reference) is open, or no Stage object is selected.
+    pub(crate) fn has_prioritized_label_selection(&self, ctx: &egui::Context) -> bool {
+        has_egui_label_selection(ctx)
+            && (self.has_modal_dialog_in(ctx)
+                || !self.has_document()
+                || self.is_standalone_script_session()
+                || self.selection.is_empty())
+    }
+
     pub(crate) fn clipboard_target(&self, ctx: &egui::Context) -> ClipboardTarget {
         ClipboardTarget {
             viewport: ctx.viewport_id(),
@@ -674,6 +710,7 @@ impl Editor {
             self.copy_stage_text_selection(ctx, cut);
             return;
         }
+        clear_egui_label_selection(ctx);
         for sess in self.sessions.iter_mut().flatten() {
             sess.clipboard.rich_text = None;
         }
@@ -1960,7 +1997,7 @@ impl Editor {
             return;
         }
         if !target.is_text() && command == ClipboardCommand::Copy {
-            if has_egui_label_selection(ctx) {
+            if self.has_prioritized_label_selection(ctx) {
                 self.clipboard.pending_label_copy = Some(ctx.viewport_id());
                 ctx.request_repaint();
                 return;
@@ -2053,7 +2090,7 @@ impl Editor {
             return;
         }
         if !target.is_text() && command == ClipboardCommand::Copy {
-            if has_egui_label_selection(ctx) {
+            if self.has_prioritized_label_selection(ctx) {
                 self.clipboard.pending_label_copy = Some(ctx.viewport_id());
                 ctx.request_repaint();
                 return;
@@ -2174,7 +2211,7 @@ impl Editor {
                 continue;
             }
             if matches!(event, Event::Copy)
-                && (has_egui_label_selection(ctx) || self.has_modal_dialog_in(ctx))
+                && (self.has_prioritized_label_selection(ctx) || self.has_modal_dialog_in(ctx))
             {
                 retained.push(event.clone());
                 continue;

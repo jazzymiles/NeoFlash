@@ -275,6 +275,55 @@ fn member_group(kind: &str) -> MemberGroup {
     }
 }
 
+/// Truncates scraped multi-overload suffixes at the first unquoted top-level `)` or `;`,
+/// also recovering a stranded `:ReturnType` immediately after `)` when `m.ty` was left empty.
+fn sanitize_raw_params_with_return(raw: &str) -> (&str, Option<&str>) {
+    let mut depth = 0_i32;
+    let mut quote: Option<char> = None;
+    let mut prev: Option<char> = None;
+    for (idx, ch) in raw.char_indices() {
+        match (quote, ch) {
+            (Some(_), _) if prev == Some('\\') => {}
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(ch),
+            (None, '(' | '<' | '{') => depth += 1,
+            (None, '>') if prev == Some('=') => {}
+            (None, ')') => {
+                if depth == 0 {
+                    let recovered_ret = raw[idx + 1..]
+                        .trim_start()
+                        .strip_prefix(':')
+                        .map(str::trim_start)
+                        .and_then(|after_colon| {
+                            let end = after_colon
+                                .char_indices()
+                                .find(|&(_, c)| {
+                                    !(c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '*'))
+                                })
+                                .map_or(after_colon.len(), |(i, _)| i);
+                            (!after_colon[..end].is_empty()).then_some(&after_colon[..end])
+                        });
+                    return (raw[..idx].trim(), recovered_ret);
+                }
+                depth -= 1;
+            }
+            (None, '>' | '}') => depth = (depth - 1).max(0),
+            (None, ';') if depth == 0 => {
+                return (raw[..idx].trim(), None);
+            }
+            _ => {}
+        }
+        prev = Some(ch);
+    }
+    (raw.trim(), None)
+}
+
+/// Truncates scraped multi-overload suffixes at the first unquoted top-level `)` or `;`.
+pub(super) fn sanitize_raw_params(raw: &str) -> &str {
+    sanitize_raw_params_with_return(raw).0
+}
+
 /// Splits a documented parameter list at its top-level commas.
 pub(super) fn split_params(params: &str) -> Vec<String> {
     let mut parts = Vec::new();
@@ -548,7 +597,8 @@ fn build_as_index(api: &'static script_api::LanguageApi, language: ScriptLanguag
             .members
             .iter()
             .find(|m| m.kind == "constructor")
-            .and_then(|m| m.params.as_deref());
+            .and_then(|m| m.params.as_deref())
+            .map(sanitize_raw_params);
         let mut used: HashMap<String, usize> = HashMap::new();
         let mut members: Vec<ApiMember> = draft
             .members
@@ -754,7 +804,8 @@ fn default_member_usage(
             ("event" | "callback", false) => {
                 format!("{receiver}.{} = function():Void {{}};", m.name)
             }
-            ("constant", false) => format!("{owner}.{}", m.name),
+            ("constant", false) if m.is_static => format!("{owner}.{}", m.name),
+            ("constant", false) => format!("{receiver}.{}", m.name),
             ("property", false) if m.read_only => {
                 if m.is_static {
                     format!("{owner}.{}", m.name)
@@ -833,12 +884,23 @@ fn as_member_view(
     let kind = m.kind.as_str();
     let callable = m.params.is_some();
     let constructor = kind == "constructor";
+    let (clean_params, scraped_ret) = match m.params.as_deref() {
+        Some(raw) => {
+            let (p, r) = sanitize_raw_params_with_return(raw);
+            (Some(p), r)
+        }
+        None => (None, None),
+    };
     let returns = if callable && !constructor {
-        m.ty.clone()
+        if m.ty.is_empty() {
+            scraped_ret.unwrap_or_default().to_owned()
+        } else {
+            m.ty.clone()
+        }
     } else {
         String::new()
     };
-    let param_parts = m.params.as_deref().map(split_params).unwrap_or_default();
+    let param_parts = clean_params.map(split_params).unwrap_or_default();
     let ty_suffix = |separator: &str| {
         if m.ty.is_empty() {
             String::new()
@@ -846,10 +908,9 @@ fn as_member_view(
             format!("{separator}{}", m.ty)
         }
     };
-    let row_signature = match &m.params {
+    let row_signature = match clean_params {
         Some(params) => format!(
-            "({}){}",
-            params.trim(),
+            "({params}){}",
             if returns.is_empty() {
                 String::new()
             } else {
@@ -886,7 +947,7 @@ fn as_member_view(
         .filter(|v| !v.is_empty())
         .map(|v| format!(" = {v}"))
         .unwrap_or_default();
-    let declaration = match (&m.params, kind) {
+    let declaration = match (clean_params, kind) {
         (Some(params), _) => {
             let head = if constructor {
                 format!("{access}function {}", m.name)
@@ -901,7 +962,7 @@ fn as_member_view(
             if param_parts.len() > 1 {
                 format!("{head}(\n    {}\n){ret}", param_parts.join(",\n    "))
             } else {
-                format!("{head}({}){ret}", params.trim())
+                format!("{head}({params}){ret}")
             }
         }
         (None, "constant") if class.pseudo => {
@@ -909,7 +970,7 @@ fn as_member_view(
         }
         (None, "constant") => {
             format!(
-                "public static const {}{}{val_suffix}",
+                "{access}{stat}const {}{}{val_suffix}",
                 m.name,
                 ty_suffix(":")
             )

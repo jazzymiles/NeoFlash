@@ -5995,5 +5995,142 @@ mod tests {
             "Edit ▸ Copy must immediately re-enable for the selected Stage object once Help closes"
         );
         assert!(editor.execute_menu_command(&ctx, CommandId::EditCopy));
+
+        // Regression (T-440 #1a): Single-clicking a Help/Reference label without dragging
+        // (0 chars selected, primary == secondary) MUST keep has_egui_label_selection == false,
+        // keep Edit ▸ Copy disabled while Help is open, and close Help on the FIRST Escape press!
+        open_help_manual(&ctx);
+        let help_out = frame(&mut editor, &ctx, vec![]);
+        let click_pt = help_out
+            .shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                egui::Shape::Text(t) if t.galley.text().contains("NeoFlash combines") => {
+                    Some(t.pos + vec2(12.0, 6.0))
+                }
+                _ => None,
+            })
+            .expect("Ch.1 lead paragraph painted");
+        let _ = frame(&mut editor, &ctx, vec![egui::Event::PointerMoved(click_pt)]);
+        let _ = frame(&mut editor, &ctx, vec![primary_button(click_pt, true)]);
+        let _ = frame(&mut editor, &ctx, vec![primary_button(click_pt, false)]);
+        assert!(
+            !crate::clipboard::has_egui_label_selection(&ctx),
+            "single-clicking a Help label without dragging (0 chars) must not report an active label selection"
+        );
+        assert!(
+            !editor
+                .command_menu_state(Some(&ctx), CommandId::EditCopy)
+                .enabled,
+            "0-char label click inside Help must not falsely enable Edit ▸ Copy"
+        );
+        let _ = frame(&mut editor, &ctx, vec![esc()]);
+        assert!(
+            !is_help_manual_open(&ctx),
+            "first Escape after a 0-char single click on a Help label must close Help immediately"
+        );
+
+        // Regression (T-440 #1b): With Help CLOSED and a Stage Rectangle selected, single-clicking
+        // OR drag-selecting a docked panel label (plus Edit ▸ Select All) MUST NEVER hijack Stage Copy!
+        let run_docked_frame = |editor: &mut Editor,
+                                ctx: &egui::Context,
+                                events: Vec<egui::Event>|
+         -> egui::FullOutput {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(WIDE),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    editor.shortcuts(ctx);
+                    egui::SidePanel::right("test-docked-panel").show(ctx, |ui| {
+                        ui.style_mut().interaction.selectable_labels = true;
+                        ui.add(egui::Label::new("Docked Inspector Label").selectable(true));
+                    });
+                },
+            )
+        };
+        let dock_out = run_docked_frame(&mut editor, &ctx, vec![]);
+        let (lbl_pos, lbl_galley) = dock_out
+            .shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                egui::Shape::Text(t) if t.galley.text() == "Docked Inspector Label" => {
+                    Some((t.pos, std::sync::Arc::clone(&t.galley)))
+                }
+                _ => None,
+            })
+            .expect("docked panel label painted");
+        // (i) Single-click on docked panel label while Stage Rectangle is selected -> ⌘C copies Stage Rectangle!
+        let lbl_click = lbl_pos + vec2(8.0, 4.0);
+        let _ = run_docked_frame(
+            &mut editor,
+            &ctx,
+            vec![egui::Event::PointerMoved(lbl_click)],
+        );
+        let _ = run_docked_frame(&mut editor, &ctx, vec![primary_button(lbl_click, true)]);
+        let _ = run_docked_frame(&mut editor, &ctx, vec![primary_button(lbl_click, false)]);
+        assert!(!crate::clipboard::has_egui_label_selection(&ctx));
+        let stage_copy_1 = run_docked_frame(&mut editor, &ctx, vec![egui::Event::Copy]);
+        let copied_1 = stage_copy_1
+            .platform_output
+            .commands
+            .iter()
+            .find_map(|c| match c {
+                egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                _ => None,
+            })
+            .expect("⌘C after single-clicking docked panel label must copy Stage selection");
+        assert!(
+            copied_1.contains("\"elements\""),
+            "must copy Stage Rectangle JSON, got: {copied_1}"
+        );
+
+        // (ii) Drag-select docked panel label when Stage selection is cleared, then Edit ▸ Select All,
+        //      then Edit ▸ Copy & ⌘C MUST copy the Stage Rectangle (never stale docked label text)!
+        editor.clear_selection();
+        let d0 = lbl_pos
+            + lbl_galley
+                .pos_from_cursor(egui::text::CCursor::new(0))
+                .center()
+                .to_vec2();
+        let d1 = lbl_pos
+            + lbl_galley
+                .pos_from_cursor(egui::text::CCursor::new(6))
+                .center()
+                .to_vec2();
+        let _ = run_docked_frame(&mut editor, &ctx, vec![egui::Event::PointerMoved(d0)]);
+        let _ = run_docked_frame(&mut editor, &ctx, vec![primary_button(d0, true)]);
+        let _ = run_docked_frame(&mut editor, &ctx, vec![egui::Event::PointerMoved(d1)]);
+        let _ = run_docked_frame(&mut editor, &ctx, vec![primary_button(d1, false)]);
+        assert!(crate::clipboard::has_egui_label_selection(&ctx));
+        assert!(editor.execute_menu_command(&ctx, CommandId::EditSelectAll));
+        assert!(
+            !crate::clipboard::has_egui_label_selection(&ctx),
+            "Edit ▸ Select All on Stage must clear stale LabelSelectionState"
+        );
+        // Even if the user drag-selects a docked panel label while Stage Rectangle remains selected,
+        // Stage selection still takes precedence over non-modal label selection:
+        let _ = run_docked_frame(&mut editor, &ctx, vec![egui::Event::PointerMoved(d0)]);
+        let _ = run_docked_frame(&mut editor, &ctx, vec![primary_button(d0, true)]);
+        let _ = run_docked_frame(&mut editor, &ctx, vec![egui::Event::PointerMoved(d1)]);
+        let _ = run_docked_frame(&mut editor, &ctx, vec![primary_button(d1, false)]);
+        assert!(crate::clipboard::has_egui_label_selection(&ctx));
+        assert!(!editor.has_prioritized_label_selection(&ctx));
+        let stage_copy_2 = run_docked_frame(&mut editor, &ctx, vec![egui::Event::Copy]);
+        let copied_2 = stage_copy_2
+            .platform_output
+            .commands
+            .iter()
+            .find_map(|c| match c {
+                egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                _ => None,
+            })
+            .expect("⌘C with Stage selection must copy Stage Rectangle even when docked label was dragged");
+        assert!(
+            copied_2.contains("\"elements\""),
+            "Stage selection must take precedence over non-modal docked label: {copied_2}"
+        );
     }
 }

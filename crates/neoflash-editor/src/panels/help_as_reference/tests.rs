@@ -1,4 +1,4 @@
-use super::api_index::{describe_param, split_params};
+use super::api_index::{describe_param, sanitize_raw_params, split_params};
 use super::*;
 use crate::panels::help_manual::LanguageScope;
 use eframe::egui;
@@ -743,6 +743,49 @@ fn t389_member_views_describe_parameters_and_examples() {
         as2_enter_frame.declaration,
         "public onEnterFrame = function() {}"
     );
+
+    // Quote-aware parameter sanitization & scraped overload truncation (T-440 #3 & #5).
+    assert_eq!(sanitize_raw_params("):Object; Color.setTransform("), "");
+    assert_eq!(
+        sanitize_raw_params("offset:Number):Void; Color.setTransform("),
+        "offset:Number"
+    );
+    assert_eq!(
+        sanitize_raw_params("\"Flash JavaScript API command;\":String"),
+        "\"Flash JavaScript API command;\":String"
+    );
+    let as2_color = as2.class("Color").expect("AS2 Color");
+    let get_transform = as2_color
+        .members
+        .iter()
+        .find(|m| m.name == "getTransform")
+        .expect("Color.getTransform");
+    assert_eq!(get_transform.row_signature, "():Object");
+    assert_eq!(get_transform.usage, "color.getTransform();");
+    assert_eq!(
+        get_transform.declaration,
+        "public function getTransform():Object"
+    );
+    let as2_globals = as2.class(API_GLOBAL_KEY).expect("AS2 globals");
+    let mm_exec = as2_globals
+        .members
+        .iter()
+        .find(|m| m.name == "MMExecute")
+        .expect("AS2 MMExecute");
+    assert_eq!(
+        mm_exec.declaration,
+        "function MMExecute(\"Flash JavaScript API command;\":String):String"
+    );
+    let video_ev = index
+        .class("flash.events.VideoEvent")
+        .expect("AS3 VideoEvent");
+    let codec_info = video_ev
+        .members
+        .iter()
+        .find(|m| m.name == "codecInfo")
+        .expect("VideoEvent.codecInfo");
+    assert_eq!(codec_info.usage, "videoEvent.codecInfo");
+    assert_eq!(codec_info.declaration, "public const codecInfo:String");
 
     let js = api_index(LanguageScope::JsTs);
     let ctx_cat = js

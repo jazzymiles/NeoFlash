@@ -3059,7 +3059,7 @@ impl Editor {
         let standalone_as = self.is_standalone_script_session();
         let modal_open =
             ctx.map_or_else(|| self.has_modal_dialog(), |c| self.has_modal_dialog_in(c));
-        let label_selection = ctx.is_some_and(crate::clipboard::has_egui_label_selection);
+        let label_selection = ctx.is_some_and(|c| self.has_prioritized_label_selection(c));
         let text_target = || {
             (!standalone_as && self.stage_text_edit.is_active(self))
                 || ctx.is_some_and(|c| {
@@ -3516,6 +3516,7 @@ impl Editor {
                     });
                     ctx.request_repaint();
                 } else {
+                    crate::clipboard::clear_egui_label_selection(ctx);
                     self.select_all();
                 }
             }
