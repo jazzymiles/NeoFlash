@@ -1495,8 +1495,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&temp);
     }
 
-    fn tiny_png_base64(rgba: [u8; 4]) -> String {
-        let mut img = image::RgbaImage::new(2, 2);
+    fn tiny_png_wh_base64(w: u32, h: u32, rgba: [u8; 4]) -> String {
+        let mut img = image::RgbaImage::new(w, h);
         for px in img.pixels_mut() {
             *px = image::Rgba(rgba);
         }
@@ -1511,8 +1511,8 @@ mod tests {
     }
 
     fn sample_multipage_bitmap_and_fill_figma_json() -> String {
-        let hero_b64 = tiny_png_base64([220, 60, 80, 255]);
-        let avatar_b64 = tiny_png_base64([40, 160, 240, 255]);
+        let hero_b64 = tiny_png_wh_base64(5, 3, [220, 60, 80, 255]);
+        let avatar_b64 = tiny_png_wh_base64(2, 2, [40, 160, 240, 255]);
         format!(
             r#"{{
               "name": "Media Deck",
