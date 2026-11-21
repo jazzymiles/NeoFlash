@@ -10,7 +10,7 @@ use objc2_app_kit::{NSPasteboard, NSPasteboardTypeHTML, NSPasteboardTypeString};
 use objc2_foundation::NSString;
 
 const MAX_STAGE_PASTE_FLAVOR_BYTES: usize = 64 * 1024 * 1024;
-const MAX_FIGMA_HTML_FLAVOR_BYTES: usize = 512 * 1024 * 1024;
+const MAX_FIGMA_HTML_FLAVOR_BYTES: usize = neoflash_import::figma::MAX_STAGE_HTML_CLIPBOARD_BYTES;
 
 fn general_pasteboard() -> Option<Retained<NSPasteboard>> {
     // SAFETY: This is NSPasteboard's documented class method. Accept nil as well:

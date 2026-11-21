@@ -346,6 +346,11 @@ pub(crate) struct ClipboardState {
     pending: Option<Request>,
     view: Option<(Id, u64, [f64; 2])>,
 }
+impl ClipboardState {
+    pub(crate) fn has_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+}
 impl Default for ClipboardState {
     fn default() -> Self {
         // A live-document identity, never serialized into .nflash. An opened copy
@@ -485,7 +490,7 @@ impl Editor {
     }
 
     pub(crate) fn copy_selection(&mut self, ctx: &egui::Context, cut: bool) {
-        if !self.has_document() || self.confirm.is_some() {
+        if !self.has_document() || self.confirm.is_some() || self.is_standalone_script_session() {
             return;
         }
         if self.stage_text_edit.is_active(self) {
@@ -571,6 +576,7 @@ impl Editor {
     ) {
         let stage_flavors = if !self.has_document()
             || self.confirm.is_some()
+            || self.is_standalone_script_session()
             || self.is_stage_inline_text_editing()
             || matches!(ClipboardPayload::from_text(text), Ok(Some(_)) | Err(_))
             || neoflash_import::contains_figma_clipboard_marker(text)
@@ -595,23 +601,35 @@ impl Editor {
         generation: Option<u64>,
         stage_flavors: Option<&StageClipboardFlavors>,
     ) {
+        let explicit_in_place = in_place;
         // Preferences ▸ Clipboard ▸ Default paste = In place: plain Paste keeps the position too.
         let in_place = in_place || self.workspace.paste_in_place;
-        if !self.has_document() || self.confirm.is_some() {
+        if !self.has_document() || self.confirm.is_some() || self.is_standalone_script_session() {
+            return;
+        }
+        // Active inline Stage TextBox editing owns Paste BEFORE `ClipboardPayload::from_text`:
+        // never duplicate Stage objects or exit inline text editing while typing!
+        if self.is_stage_inline_text_editing() {
+            if explicit_in_place {
+                return;
+            }
+            if matches!(ClipboardPayload::from_text(text), Ok(Some(_)) | Err(_)) {
+                return;
+            }
+            if !self.paste_plain_text_into_selected_text(text, generation) {
+                self.message("The clipboard does not contain NeoFlash objects.");
+            }
             return;
         }
         let payload = match ClipboardPayload::from_text(text) {
             Ok(Some(payload)) => payload,
             Ok(None) => {
-                // Active inline Stage TextBox editing never intercepts Figma HTML or SVG as Stage graphics.
-                if self.is_stage_inline_text_editing() {
-                    if !self.paste_plain_text_into_selected_text(text, generation) {
-                        self.message("The clipboard does not contain NeoFlash objects.");
-                    }
-                    return;
-                }
                 // Priority 1: Native Figma scene (`<!--(figma)...(/figma)-->` in HTML flavor or `text`).
                 if neoflash_import::contains_figma_clipboard_marker(text) {
+                    if text.len() > neoflash_import::figma::MAX_STAGE_HTML_CLIPBOARD_BYTES {
+                        self.message("Paste failed: Figma clipboard exceeds the 128 MiB limit.");
+                        return;
+                    }
                     let fallback_png = stage_flavors.and_then(|f| f.png.as_deref());
                     match neoflash_import::import_figma_clipboard(text, fallback_png) {
                         Ok(output) => {
@@ -627,6 +645,12 @@ impl Editor {
                         .as_deref()
                         .filter(|h| neoflash_import::contains_figma_clipboard_marker(h))
                     {
+                        if html.len() > neoflash_import::figma::MAX_STAGE_HTML_CLIPBOARD_BYTES {
+                            self.message(
+                                "Paste failed: Figma clipboard exceeds the 128 MiB limit.",
+                            );
+                            return;
+                        }
                         match neoflash_import::import_figma_clipboard(html, flavors.png.as_deref())
                         {
                             Ok(output) => {
@@ -840,12 +864,11 @@ impl Editor {
         output: neoflash_import::ImportOutput,
         in_place: bool,
     ) -> bool {
-        let in_place = in_place || self.workspace.paste_in_place;
-        self.finish_edits();
-        if !self.layer_editable() {
-            self.message("Paste failed: destination layer is locked or hidden.");
+        if !self.has_document() || self.confirm.is_some() || self.is_standalone_script_session() {
             return false;
         }
+        let in_place = in_place || self.workspace.paste_in_place;
+        self.finish_edits();
         let symbol_id = self.symbol_id().to_owned();
         if self.frame >= self.symbol().timeline.frame_count {
             self.message("Paste failed: destination frame is outside the timeline.");
@@ -854,16 +877,19 @@ impl Editor {
 
         let sw = f64::from(self.project.width);
         let sh = f64::from(self.project.height);
-        let offset = match (in_place, output.figma_bounds, output.local_bounds) {
+        let placement_matrix = match (in_place, output.figma_bounds, output.local_bounds) {
             (false, _, Some(lb)) => {
-                let target_center = if self.editing_scene() {
-                    [sw * 0.5, sh * 0.5]
-                } else {
-                    [0.0, 0.0]
-                };
+                let target_center = self.paste_center();
                 let src_cx = (lb.x_min + lb.x_max) * 0.5;
                 let src_cy = (lb.y_min + lb.y_max) * 0.5;
-                [target_center[0] - src_cx, target_center[1] - src_cy]
+                [
+                    1.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    target_center[0] - src_cx,
+                    target_center[1] - src_cy,
+                ]
             }
             (true, Some(fb), Some(lb)) => {
                 let near_stage = fb.x_min >= -sw
@@ -877,36 +903,74 @@ impl Editor {
                 } else {
                     [0.0, 0.0]
                 };
-                [
+                let stage_translation = [
+                    1.0,
+                    0.0,
+                    0.0,
+                    1.0,
                     desired_top_left[0] - lb.x_min,
                     desired_top_left[1] - lb.y_min,
-                ]
+                ];
+                if self.editing_in_place() {
+                    let Some(stage_to_edit) = self
+                        .edit_stage_mapping()
+                        .ok()
+                        .and_then(|m| neoflash_core::invert_affine_matrix(m.matrix()))
+                    else {
+                        self.message("Paste failed: edited symbol placement is not invertible.");
+                        return false;
+                    };
+                    neoflash_core::affine_multiply(stage_to_edit, stage_translation)
+                } else {
+                    stage_translation
+                }
             }
-            _ => [0.0, 0.0],
+            (true, None, _) if self.editing_in_place() => {
+                let Some(stage_to_edit) = self
+                    .edit_stage_mapping()
+                    .ok()
+                    .and_then(|m| neoflash_core::invert_affine_matrix(m.matrix()))
+                else {
+                    self.message("Paste failed: edited symbol placement is not invertible.");
+                    return false;
+                };
+                stage_to_edit
+            }
+            _ => [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
         };
 
+        let active_solo_hidden = self.has_any_solo_layers()
+            && !self
+                .symbol()
+                .timeline
+                .layers
+                .get(self.layer)
+                .is_some_and(|l| self.is_layer_id_effectively_soloed(&l.id));
         let mut candidate = self.project.clone();
-        let (layer_id, element_ids) = match merge_imported_clipboard_project(
-            &mut candidate,
-            output.project,
-            &symbol_id,
-            self.layer,
-            self.frame,
-            offset,
-            self.workspace.timeline_prefs.auto_keyframe,
-        ) {
-            Ok(res) => res,
-            Err(error) => {
-                self.message(format!("Paste failed: {error}"));
-                return false;
-            }
-        };
+        let (target_layer_idx, layer_id, element_ids, created_new_layer) =
+            match merge_imported_clipboard_project(
+                &mut candidate,
+                output.project,
+                &symbol_id,
+                self.layer,
+                active_solo_hidden,
+                self.frame,
+                placement_matrix,
+                self.workspace.timeline_prefs.auto_keyframe,
+            ) {
+                Ok(res) => res,
+                Err(error) => {
+                    self.message(format!("Paste failed: {error}"));
+                    return false;
+                }
+            };
 
         let count = element_ids.len();
         self.set_playing(false);
         let tx_label = if in_place { "Paste in place" } else { "Paste" };
         self.transact_named(tx_label, |editor| {
             editor.project = candidate;
+            editor.layer = target_layer_idx;
             editor.set_selection(
                 element_ids
                     .into_iter()
@@ -917,26 +981,86 @@ impl Editor {
                     .collect(),
             );
         });
+        if created_new_layer && self.has_any_solo_layers() {
+            self.solo_layers
+                .entry(symbol_id)
+                .or_default()
+                .insert(layer_id);
+        }
         self.load_project_fonts(ctx);
-        self.message(format!("Pasted {count} object(s) from Figma."));
+
+        let mut warn_count = 0usize;
+        let mut first_warn: Option<String> = None;
+        for d in &output.report.diagnostics {
+            if d.severity == neoflash_import::Severity::Info {
+                continue;
+            }
+            warn_count += 1;
+            if first_warn.is_none() {
+                first_warn = Some(format!("[{}] {}", d.code, d.message));
+            }
+            let sev = match d.severity {
+                neoflash_import::Severity::Warning => {
+                    crate::output_pipeline::OutputSeverity::Warning
+                }
+                neoflash_import::Severity::Error => crate::output_pipeline::OutputSeverity::Error,
+                neoflash_import::Severity::Info => crate::output_pipeline::OutputSeverity::Info,
+            };
+            self.push_output_coalesced(crate::output_pipeline::OutputEvent::new(
+                sev,
+                crate::output_pipeline::OutputSource::Import,
+                format!("[{}] {}: {}", d.code, d.location, d.message),
+            ));
+        }
+        if let Some(summary) = first_warn {
+            self.message(format!(
+                "Pasted {count} object(s) from Figma ({warn_count} warning(s): {summary})"
+            ));
+        } else {
+            self.message(format!("Pasted {count} object(s) from Figma."));
+        }
         true
     }
-    fn paste_svg(&mut self, ctx: &egui::Context, text: &str, in_place: bool) {
-        self.finish_edits();
-        if !self.layer_editable() {
-            self.message("Paste failed: destination layer is locked or hidden.");
-            return;
+    pub(crate) fn paste_svg(&mut self, ctx: &egui::Context, text: &str, in_place: bool) -> bool {
+        if !self.has_document() || self.confirm.is_some() || self.is_standalone_script_session() {
+            return false;
         }
+        if text.len() > MAX_STAGE_SVG_CLIPBOARD_BYTES {
+            self.message("Paste failed: SVG exceeds the 64 MiB clipboard size limit.");
+            return false;
+        }
+        let in_place = in_place || self.workspace.paste_in_place;
+        self.finish_edits();
         let symbol_id = self.symbol_id().to_owned();
         if self.frame >= self.symbol().timeline.frame_count {
             self.message("Paste failed: destination frame is outside the timeline.");
-            return;
+            return false;
         }
+        let stage_to_edit = if in_place && self.editing_in_place() {
+            let Some(inv) = self
+                .edit_stage_mapping()
+                .ok()
+                .and_then(|m| neoflash_core::invert_affine_matrix(m.matrix()))
+            else {
+                self.message("Paste failed: edited symbol placement is not invertible.");
+                return false;
+            };
+            Some(inv)
+        } else {
+            None
+        };
+        let active_solo_hidden = self.has_any_solo_layers()
+            && !self
+                .symbol()
+                .timeline
+                .layers
+                .get(self.layer)
+                .is_some_and(|l| self.is_layer_id_effectively_soloed(&l.id));
 
         if self.workspace.clipboard_prefs.editable_vector_paste {
             if let Err(error) = validate_static_svg_clipboard(text) {
                 self.message(format!("Paste failed: {error}"));
-                return;
+                return false;
             }
             let trimmed = text.trim_start_matches('\u{feff}');
             let svg_opts = neoflash_import::VectorImportOptions {
@@ -963,32 +1087,47 @@ impl Editor {
                             .any(|k| !k.elements.is_empty())
                     });
                 if has_elements {
-                    let (svg_w, svg_h) = parse_svg_intrinsic_size(trimmed).unwrap_or((
-                        f64::from(imported_svg.width),
-                        f64::from(imported_svg.height),
-                    ));
-                    let offset = if in_place {
-                        [0.0, 0.0]
+                    let (svg_w, svg_h, vb_matrix) = parse_svg_viewport_and_viewbox(trimmed)
+                        .unwrap_or((
+                            f64::from(imported_svg.width),
+                            f64::from(imported_svg.height),
+                            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                        ));
+                    let base_placement = if let Some(inv) = stage_to_edit {
+                        inv
+                    } else if in_place {
+                        [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
                     } else {
                         let center = self.paste_center();
-                        [center[0] - svg_w * 0.5, center[1] - svg_h * 0.5]
+                        [
+                            1.0,
+                            0.0,
+                            0.0,
+                            1.0,
+                            center[0] - svg_w * 0.5,
+                            center[1] - svg_h * 0.5,
+                        ]
                     };
+                    let placement_matrix =
+                        neoflash_core::affine_multiply(base_placement, vb_matrix);
                     let mut candidate = self.project.clone();
                     match merge_imported_clipboard_project(
                         &mut candidate,
                         imported_svg,
                         &symbol_id,
                         self.layer,
+                        active_solo_hidden,
                         self.frame,
-                        offset,
+                        placement_matrix,
                         self.workspace.timeline_prefs.auto_keyframe,
                     ) {
-                        Ok((layer_id, element_ids)) => {
+                        Ok((target_layer_idx, layer_id, element_ids, created_new_layer)) => {
                             let count = element_ids.len();
                             self.playing = false;
                             let tx_label = if in_place { "Paste in place" } else { "Paste" };
                             self.transact_named(tx_label, |editor| {
                                 editor.project = candidate;
+                                editor.layer = target_layer_idx;
                                 editor.set_selection(
                                     element_ids
                                         .into_iter()
@@ -999,13 +1138,19 @@ impl Editor {
                                         .collect(),
                                 );
                             });
+                            if created_new_layer && self.has_any_solo_layers() {
+                                self.solo_layers
+                                    .entry(symbol_id)
+                                    .or_default()
+                                    .insert(layer_id);
+                            }
                             self.load_project_fonts(ctx);
                             self.message(format!("Pasted {count} object(s)."));
-                            return;
+                            return true;
                         }
                         Err(error) => {
                             self.message(format!("Paste failed: {error}"));
-                            return;
+                            return false;
                         }
                     }
                 }
@@ -1019,7 +1164,7 @@ impl Editor {
             Ok(graphic) => graphic,
             Err(error) => {
                 self.message(format!("Paste failed: {error}"));
-                return;
+                return false;
             }
         };
         let mut candidate = self.project.clone();
@@ -1028,15 +1173,21 @@ impl Editor {
                 crate::graphic_import::merge_graphic_resources(&mut candidate, &mut graphic)
             {
                 self.message(format!("Paste failed: {error}"));
-                return;
+                return false;
             }
             candidate.format_version = candidate.format_version.max(3);
         }
-        let offset = if in_place {
-            [0., 0.]
+        let placement_matrix = if let Some(inv) = stage_to_edit {
+            inv
+        } else if in_place {
+            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
         } else {
             let center = self.paste_center();
             [
+                1.0,
+                0.0,
+                0.0,
+                1.0,
                 center[0] - graphic.width / 2.,
                 center[1] - graphic.height / 2.,
             ]
@@ -1045,19 +1196,21 @@ impl Editor {
         let mut element_ids = Vec::with_capacity(graphic.elements.len());
         for element in &mut graphic.elements {
             element.id = alloc_unique_id("object", &mut occupied_ids);
-            element.transform.x += offset[0];
-            element.transform.y += offset[1];
+            apply_placement_matrix_to_element(element, placement_matrix);
             element_ids.push(element.id.clone());
         }
-        let layer_id = candidate.symbol(&symbol_id).unwrap().timeline.layers[self.layer]
-            .id
-            .clone();
         let fps = f64::from(candidate.fps);
         let auto_keyframe = self.workspace.timeline_prefs.auto_keyframe;
-        {
+        let (target_layer_idx, layer_id, created_new_layer) = {
             let timeline = &mut candidate.symbol_mut(&symbol_id).unwrap().timeline;
             let frame_count = timeline.frame_count;
-            let layer = &mut timeline.layers[self.layer];
+            let (target_idx, layer_id, created_new) = resolve_or_insert_paste_normal_layer(
+                timeline,
+                self.layer,
+                active_solo_hidden,
+                &mut occupied_ids,
+            );
+            let layer = &mut timeline.layers[target_idx];
             let layer_end = layer.properties.end_frame.unwrap_or(frame_count);
             let need_key = auto_keyframe
                 || self.frame >= layer_end
@@ -1081,16 +1234,18 @@ impl Editor {
                 .elements
                 .extend(graphic.elements);
             layer.normalize_motion_keys();
-        }
+            (target_idx, layer_id, created_new)
+        };
         if let Err(error) = candidate.validate() {
             self.message(format!("Paste failed: {error}"));
-            return;
+            return false;
         }
         let count = element_ids.len();
         self.playing = false;
         let tx_label = if in_place { "Paste in place" } else { "Paste" };
         self.transact_named(tx_label, |editor| {
             editor.project = candidate;
+            editor.layer = target_layer_idx;
             editor.set_selection(
                 element_ids
                     .into_iter()
@@ -1101,8 +1256,15 @@ impl Editor {
                     .collect(),
             );
         });
+        if created_new_layer && self.has_any_solo_layers() {
+            self.solo_layers
+                .entry(symbol_id)
+                .or_default()
+                .insert(layer_id);
+        }
         let suffix = graphic.notice.map(|n| format!(" {n}")).unwrap_or_default();
         self.message(format!("Pasted {count} object(s).{suffix}"));
+        true
     }
     pub(crate) fn paste_image_bytes(
         &mut self,
@@ -1111,21 +1273,20 @@ impl Editor {
         media_type: &str,
         in_place: bool,
     ) -> bool {
-        let in_place = in_place || self.workspace.paste_in_place;
-        self.finish_edits();
-        if !self.layer_editable() {
-            self.message("Paste failed: destination layer is locked or hidden.");
+        if !self.has_document() || self.confirm.is_some() || self.is_standalone_script_session() {
             return false;
         }
+        let in_place = in_place || self.workspace.paste_in_place;
+        self.finish_edits();
         let symbol_id = self.symbol_id().to_owned();
         if self.frame >= self.symbol().timeline.frame_count {
             self.message("Paste failed: destination frame is outside the timeline.");
             return false;
         }
-        let (width, height) = match image::load_from_memory(bytes) {
-            Ok(decoded) => (decoded.width().max(1), decoded.height().max(1)),
+        let (width, height) = match decode_bounded_bitmap_dimensions(bytes) {
+            Ok(dims) => dims,
             Err(error) => {
-                self.message(format!("Paste failed: invalid bitmap image ({error})."));
+                self.message(format!("Paste failed: {error}"));
                 return false;
             }
         };
@@ -1136,7 +1297,7 @@ impl Editor {
             _ => "png",
         };
         let mut index = self.project.resources.len() + 1;
-        let (resource_id, path) = loop {
+        let (cand_resource_id, path) = loop {
             let cand_id = format!("res-pasted-{index}");
             let cand_path = format!("bitmaps/pasted-{index}.{ext}");
             if !self
@@ -1150,7 +1311,7 @@ impl Editor {
             index += 1;
         };
         let unit = match neoflash_core::ResourceUnit::from_bytes(
-            resource_id.clone(),
+            cand_resource_id,
             path,
             media_type.to_owned(),
             bytes,
@@ -1162,26 +1323,47 @@ impl Editor {
             }
         };
         let mut candidate = self.project.clone();
-        candidate.resources.push(unit);
-        candidate.format_version = candidate.format_version.max(3);
-        let element_id = neoflash_core::new_id("bitmap");
-        let (x, y) = if in_place {
-            (0.0, 0.0)
+        let resource_id = if let Some(existing) = candidate.resources.iter().find(|r| {
+            !is_internal_registry_resource_path(&r.path)
+                && r.media_type == unit.media_type
+                && r.data_base64 == unit.data_base64
+        }) {
+            existing.id.clone()
+        } else {
+            let id = unit.id.clone();
+            candidate.resources.push(unit);
+            candidate.format_version = candidate.format_version.max(3);
+            id
+        };
+        let mut occupied_ids = collect_occupied_project_ids(&candidate);
+        let element_id = alloc_unique_id("bitmap", &mut occupied_ids);
+        let placement_matrix = if in_place && self.editing_in_place() {
+            let Some(inv) = self
+                .edit_stage_mapping()
+                .ok()
+                .and_then(|m| neoflash_core::invert_affine_matrix(m.matrix()))
+            else {
+                self.message("Paste failed: edited symbol placement is not invertible.");
+                return false;
+            };
+            inv
+        } else if in_place {
+            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
         } else {
             let center = self.paste_center();
-            (
+            [
+                1.0,
+                0.0,
+                0.0,
+                1.0,
                 center[0] - f64::from(width) / 2.0,
                 center[1] - f64::from(height) / 2.0,
-            )
+            ]
         };
-        let element = neoflash_core::Element {
+        let mut element = neoflash_core::Element {
             id: element_id.clone(),
             name: String::new(),
-            transform: neoflash_core::Transform {
-                x,
-                y,
-                ..Default::default()
-            },
+            transform: neoflash_core::Transform::default(),
             kind: neoflash_core::ElementKind::Bitmap {
                 resource_id,
                 width,
@@ -1190,15 +1372,26 @@ impl Editor {
             },
             ..Default::default()
         };
-        let layer_id = candidate.symbol(&symbol_id).unwrap().timeline.layers[self.layer]
-            .id
-            .clone();
+        apply_placement_matrix_to_element(&mut element, placement_matrix);
+        let active_solo_hidden = self.has_any_solo_layers()
+            && !self
+                .symbol()
+                .timeline
+                .layers
+                .get(self.layer)
+                .is_some_and(|l| self.is_layer_id_effectively_soloed(&l.id));
         let fps = f64::from(candidate.fps);
         let auto_keyframe = self.workspace.timeline_prefs.auto_keyframe;
-        {
+        let (target_layer_idx, layer_id, created_new_layer) = {
             let timeline = &mut candidate.symbol_mut(&symbol_id).unwrap().timeline;
             let frame_count = timeline.frame_count;
-            let layer = &mut timeline.layers[self.layer];
+            let (target_idx, layer_id, created_new) = resolve_or_insert_paste_normal_layer(
+                timeline,
+                self.layer,
+                active_solo_hidden,
+                &mut occupied_ids,
+            );
+            let layer = &mut timeline.layers[target_idx];
             let layer_end = layer.properties.end_frame.unwrap_or(frame_count);
             let need_key = auto_keyframe
                 || self.frame >= layer_end
@@ -1218,7 +1411,8 @@ impl Editor {
             }
             layer.key_at_mut(self.frame).unwrap().elements.push(element);
             layer.normalize_motion_keys();
-        }
+            (target_idx, layer_id, created_new)
+        };
         if let Err(error) = candidate.validate() {
             self.message(format!("Paste failed: {error}"));
             return false;
@@ -1226,11 +1420,18 @@ impl Editor {
         self.playing = false;
         self.transact_named("Paste bitmap", |editor| {
             editor.project = candidate;
+            editor.layer = target_layer_idx;
             editor.set_selection(vec![SelectionTarget {
                 layer: layer_id.clone(),
                 element: element_id,
             }]);
         });
+        if created_new_layer && self.has_any_solo_layers() {
+            self.solo_layers
+                .entry(symbol_id)
+                .or_default()
+                .insert(layer_id);
+        }
         let _ = ctx;
         self.message("Pasted 1 bitmap.");
         true
@@ -1286,6 +1487,9 @@ impl Editor {
             .unwrap_or_else(|| self.clipboard_target(ctx));
         if !target.matches(self) {
             self.message("Clipboard command canceled: the editing target changed.");
+            return;
+        }
+        if self.is_standalone_script_session() && !target.is_text() {
             return;
         }
         if !target.is_text() && matches!(command, ClipboardCommand::Copy | ClipboardCommand::Cut) {
@@ -1426,11 +1630,16 @@ impl Editor {
             self.message("Clipboard command canceled: the editing target changed.");
             return;
         }
+        if self.is_standalone_script_session() && !target.is_text() {
+            return;
+        }
         if !target.is_text() && matches!(command, ClipboardCommand::Copy | ClipboardCommand::Cut) {
             self.copy_selection(ctx, command == ClipboardCommand::Cut);
             return;
         }
-        if command == ClipboardCommand::PasteInPlace && target.is_text() {
+        if command == ClipboardCommand::PasteInPlace
+            && (target.is_text() || self.is_stage_inline_text_editing())
+        {
             return;
         }
         // Read only when the user invokes Paste. A direct native read has a
@@ -1526,6 +1735,9 @@ impl Editor {
                     self.playing = false;
                 }
                 retained.push(event.clone());
+                continue;
+            }
+            if self.is_standalone_script_session() {
                 continue;
             }
             match event {
@@ -1629,7 +1841,125 @@ fn validate_static_svg_clipboard(text: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_svg_intrinsic_size(text: &str) -> Option<(f64, f64)> {
+const MAX_STAGE_SVG_CLIPBOARD_BYTES: usize = 64 * 1024 * 1024;
+const MAX_PASTED_BITMAP_DIM: u32 = 4096;
+const MAX_PASTED_BITMAP_ALLOC_BYTES: u64 = 64 * 1024 * 1024;
+
+fn decode_bounded_bitmap_dimensions(bytes: &[u8]) -> Result<(u32, u32), String> {
+    if bytes.is_empty() {
+        return Err("bitmap image data is empty.".into());
+    }
+    if bytes.len() as u64 > MAX_PASTED_BITMAP_ALLOC_BYTES {
+        return Err("bitmap image exceeds the 64 MiB clipboard size limit.".into());
+    }
+    let fmt =
+        image::guess_format(bytes).map_err(|e| format!("unsupported bitmap format ({e})."))?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_PASTED_BITMAP_DIM);
+    limits.max_image_height = Some(MAX_PASTED_BITMAP_DIM);
+    limits.max_alloc = Some(MAX_PASTED_BITMAP_ALLOC_BYTES);
+
+    let mut dim_reader = image::ImageReader::with_format(std::io::Cursor::new(bytes), fmt);
+    dim_reader.limits(limits.clone());
+    let (w, h) = dim_reader
+        .into_dimensions()
+        .map_err(|e| format!("invalid or oversized bitmap header ({e})."))?;
+    if w == 0
+        || h == 0
+        || w > MAX_PASTED_BITMAP_DIM
+        || h > MAX_PASTED_BITMAP_DIM
+        || u64::from(w).saturating_mul(u64::from(h)).saturating_mul(4)
+            > MAX_PASTED_BITMAP_ALLOC_BYTES
+    {
+        return Err(format!(
+            "bitmap dimensions ({w}×{h}) exceed the {MAX_PASTED_BITMAP_DIM}×{MAX_PASTED_BITMAP_DIM} px limit."
+        ));
+    }
+
+    let mut decode_reader = image::ImageReader::with_format(std::io::Cursor::new(bytes), fmt);
+    decode_reader.limits(limits);
+    let decoded = decode_reader
+        .decode()
+        .map_err(|e| format!("invalid bitmap image ({e})."))?;
+    Ok((decoded.width().max(1), decoded.height().max(1)))
+}
+
+fn apply_placement_matrix_to_element(
+    element: &mut neoflash_core::Element,
+    placement_matrix: [f64; 6],
+) {
+    let is_pure_translation = (placement_matrix[0] - 1.0).abs() <= 1e-12
+        && placement_matrix[1].abs() <= 1e-12
+        && placement_matrix[2].abs() <= 1e-12
+        && (placement_matrix[3] - 1.0).abs() <= 1e-12;
+    if is_pure_translation {
+        element.transform.x =
+            (element.transform.x + placement_matrix[4]).clamp(-100_000.0, 100_000.0);
+        element.transform.y =
+            (element.transform.y + placement_matrix[5]).clamp(-100_000.0, 100_000.0);
+    } else {
+        let prev = element.transform;
+        let cur = neoflash_core::transform_matrix(prev);
+        let combined = neoflash_core::affine_multiply(placement_matrix, cur);
+        if let Some(mut mapped) = neoflash_core::Transform::from_matrix(combined) {
+            mapped.x = mapped.x.clamp(-100_000.0, 100_000.0);
+            mapped.y = mapped.y.clamp(-100_000.0, 100_000.0);
+            mapped.alpha = prev.alpha;
+            mapped.color_transform = prev.color_transform;
+            mapped.pivot = prev.pivot;
+            mapped.primitive = prev.primitive;
+            element.transform = mapped;
+        }
+    }
+}
+
+fn resolve_or_insert_paste_normal_layer(
+    timeline: &mut neoflash_core::Timeline,
+    preferred_layer_idx: usize,
+    active_layer_solo_hidden: bool,
+    occupied_ids: &mut std::collections::HashSet<Id>,
+) -> (usize, Id, bool) {
+    let use_current = !active_layer_solo_hidden
+        && timeline
+            .layers
+            .get(preferred_layer_idx)
+            .is_some_and(|layer| {
+                layer.properties.role == neoflash_core::LayerRole::Normal
+                    && layer.properties.mask.is_none()
+                    && neoflash_core::layer_effectively_visible(timeline, layer)
+                    && !neoflash_core::layer_effectively_locked(timeline, layer)
+            });
+    if use_current {
+        return (
+            preferred_layer_idx,
+            timeline.layers[preferred_layer_idx].id.clone(),
+            false,
+        );
+    }
+    let base_name = "Pasted graphics";
+    let mut name = base_name.to_owned();
+    let mut n = 2usize;
+    while timeline
+        .layers
+        .iter()
+        .any(|l| l.name.eq_ignore_ascii_case(&name))
+    {
+        name = format!("{base_name} {n}");
+        n += 1;
+    }
+    let new_layer_id = alloc_unique_id("layer", occupied_ids);
+    timeline.layers.push(neoflash_core::Layer {
+        id: new_layer_id.clone(),
+        name,
+        visible: true,
+        locked: false,
+        properties: neoflash_core::LayerProperties::default(),
+        keyframes: Vec::new(),
+    });
+    (timeline.layers.len() - 1, new_layer_id, true)
+}
+
+fn parse_svg_viewport_and_viewbox(text: &str) -> Option<(f64, f64, [f64; 6])> {
     let xml = resvg::usvg::roxmltree::Document::parse(text).ok()?;
     let root = xml.root_element();
     let parse_len = |raw: &str| -> Option<f64> {
@@ -1642,227 +1972,203 @@ fn parse_svg_intrinsic_size(text: &str) -> Option<(f64, f64)> {
     };
     let mut w = root.attribute("width").and_then(parse_len);
     let mut h = root.attribute("height").and_then(parse_len);
-    if (w.is_none() || h.is_none())
-        && let Some(vb) = root.attribute("viewBox")
-    {
-        let nums: Vec<f64> = vb
+    let vb = root.attribute("viewBox").and_then(|raw| {
+        let nums: Vec<f64> = raw
             .split(|c: char| c == ',' || c.is_ascii_whitespace())
             .filter(|s| !s.is_empty())
             .filter_map(|s| s.parse::<f64>().ok())
             .collect();
-        if nums.len() == 4 && nums[2] > 0.0 && nums[3] > 0.0 {
-            w = w.or(Some(nums[2]));
-            h = h.or(Some(nums[3]));
-        }
+        (nums.len() == 4
+            && nums.iter().all(|v| v.is_finite())
+            && nums[2] > 0.0
+            && nums[3] > 0.0
+            && nums[2] <= 1_000_000.0
+            && nums[3] <= 1_000_000.0)
+            .then(|| [nums[0], nums[1], nums[2], nums[3]])
+    });
+    if let Some([_, _, vb_w, vb_h]) = vb {
+        w = w.or(Some(vb_w));
+        h = h.or(Some(vb_h));
     }
-    Some((w?, h?))
+    let (svg_w, svg_h) = (w?, h?);
+    let vb_matrix = if let Some([min_x, min_y, vb_w, vb_h]) = vb {
+        let sx = svg_w / vb_w;
+        let sy = svg_h / vb_h;
+        let par = root
+            .attribute("preserveAspectRatio")
+            .unwrap_or("xMidYMid meet")
+            .trim();
+        if par.starts_with("none") {
+            [sx, 0.0, 0.0, sy, -min_x * sx, -min_y * sy]
+        } else {
+            let s = sx.min(sy);
+            let tx = (svg_w - vb_w * s) * 0.5 - min_x * s;
+            let ty = (svg_h - vb_h * s) * 0.5 - min_y * s;
+            [s, 0.0, 0.0, s, tx, ty]
+        }
+    } else {
+        [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+    };
+    Some((svg_w, svg_h, vb_matrix))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn merge_imported_clipboard_project(
     candidate: &mut neoflash_core::Project,
-    mut imported: neoflash_core::Project,
+    imported: neoflash_core::Project,
     symbol_id: &str,
     layer_idx: usize,
+    active_layer_solo_hidden: bool,
     frame: u32,
-    offset: [f64; 2],
+    placement_matrix: [f64; 6],
     auto_keyframe: bool,
-) -> Result<(Id, Vec<Id>), String> {
-    use std::collections::{BTreeMap, HashSet};
+) -> Result<(usize, Id, Vec<Id>, bool), String> {
+    use std::collections::{HashMap, HashSet};
 
-    if !offset.iter().all(|v| v.is_finite()) {
-        return Err("Paste offset is not finite.".into());
+    if !placement_matrix.iter().all(|v| v.is_finite()) {
+        return Err("Paste placement transform is not finite.".into());
     }
-    let mut occupied_ids = collect_occupied_project_ids(candidate);
-
-    let donor_fonts = read_embedded_font_entries(&imported.resources);
-    let old_res_ids: Vec<Id> = imported.resources.iter().map(|r| r.id.clone()).collect();
-    imported.freshen_all_ids(true, |kind| {
-        alloc_unique_id(&format!("clip-{kind}"), &mut occupied_ids)
-    });
-    let res_id_map: BTreeMap<Id, Id> = old_res_ids
-        .into_iter()
-        .zip(imported.resources.iter().map(|r| r.id.clone()))
-        .collect();
-
-    let mut occupied_paths: HashSet<String> = candidate
-        .resources
-        .iter()
-        .map(|r| r.path.to_ascii_lowercase())
-        .collect();
-
-    for mut res in imported.resources {
-        if is_internal_registry_resource_path(&res.path) {
-            continue;
+    if let Some(symbol) = candidate.symbol(symbol_id) {
+        if frame >= symbol.timeline.frame_count {
+            return Err("Destination frame is outside the timeline.".into());
         }
-        if candidate.resources.len() >= neoflash_core::MAX_RESOURCES {
-            return Err(format!(
-                "The project supports at most {} resource files.",
-                neoflash_core::MAX_RESOURCES
-            ));
-        }
-        if !occupied_paths.insert(res.path.to_ascii_lowercase()) {
-            let (stem, ext) = match res.path.rsplit_once('.') {
-                Some((s, e)) => (s, format!(".{e}")),
-                None => (res.path.as_str(), String::new()),
-            };
-            let mut n = 2usize;
-            res.path = loop {
-                let cand_path = format!("{stem}-{n}{ext}");
-                if occupied_paths.insert(cand_path.to_ascii_lowercase()) {
-                    break cand_path;
-                }
-                n += 1;
-            };
-        }
-        candidate.resources.push(res);
-        candidate.format_version = candidate.format_version.max(3);
-    }
-
-    if !donor_fonts.is_empty() {
-        let mut local_fonts = read_embedded_font_entries(&candidate.resources);
-        let mut changed_fonts = false;
-        for mut donor_entry in donor_fonts {
-            let Some(mapped_id) = res_id_map.get(&donor_entry.id) else {
-                continue;
-            };
-            if local_fonts.iter().any(|e| &e.id == mapped_id) {
-                continue;
-            }
-            donor_entry.id = mapped_id.clone();
-            if local_fonts
-                .iter()
-                .any(|e| e.name.eq_ignore_ascii_case(&donor_entry.name))
-            {
-                let base = donor_entry.name.clone();
-                let mut n = 2usize;
-                while local_fonts
-                    .iter()
-                    .any(|e| e.name.eq_ignore_ascii_case(&donor_entry.name))
-                {
-                    donor_entry.name = format!("{base} {n}");
-                    n += 1;
-                }
-            }
-            if !donor_entry.class_name.is_empty()
-                && local_fonts
-                    .iter()
-                    .any(|e| e.class_name == donor_entry.class_name)
-            {
-                let base = donor_entry.class_name.clone();
-                let mut n = 2usize;
-                while local_fonts
-                    .iter()
-                    .any(|e| e.class_name == donor_entry.class_name)
-                {
-                    donor_entry.class_name = format!("{base}_{n}");
-                    n += 1;
-                }
-            }
-            local_fonts.push(donor_entry);
-            changed_fonts = true;
-        }
-        if changed_fonts {
-            write_embedded_font_entries(candidate, &local_fonts, &mut occupied_ids);
-        }
+    } else {
+        return Err("Destination symbol does not exist.".into());
     }
 
     let imported_root_id = imported.root.clone();
     let imported_scene_ids: HashSet<Id> = imported.scenes.iter().cloned().collect();
     let mut root_symbol_opt = None;
-
-    for mut sym in imported.symbols {
+    let mut donor_symbols = Vec::new();
+    for sym in imported.symbols {
         if sym.id == imported_root_id {
             root_symbol_opt = Some(sym);
-            continue;
+        } else if !imported_scene_ids.contains(&sym.id) {
+            donor_symbols.push(sym);
         }
-        if imported_scene_ids.contains(&sym.id) {
-            continue;
-        }
-        if candidate
-            .symbols
-            .iter()
-            .any(|s| s.name.eq_ignore_ascii_case(&sym.name))
-        {
-            let base = sym.name.clone();
-            let mut n = 2usize;
-            while candidate
-                .symbols
-                .iter()
-                .any(|s| s.name.eq_ignore_ascii_case(&sym.name))
-            {
-                sym.name = format!("{base} {n}");
-                n += 1;
-            }
-        }
-        if let Some(dl) = sym.linkage_id.clone()
-            && candidate
-                .symbols
-                .iter()
-                .any(|s| s.linkage_id.as_deref() == Some(dl.as_str()))
-        {
-            let mut n = 2usize;
-            sym.linkage_id = Some(loop {
-                let cand = format!("{dl}_{n}");
-                if !candidate
-                    .symbols
-                    .iter()
-                    .any(|s| s.linkage_id.as_deref() == Some(cand.as_str()))
-                {
-                    break cand;
-                }
-                n += 1;
-            });
-        }
-        if let Some(dc) = sym.class_name.clone() {
-            let class_taken = |c: &str| {
-                candidate.document_class.as_deref() == Some(c)
-                    || candidate
-                        .symbols
-                        .iter()
-                        .any(|s| s.class_name.as_deref() == Some(c))
-            };
-            if class_taken(&dc) {
-                let mut n = 2usize;
-                sym.class_name = Some(loop {
-                    let cand = format!("{dc}_{n}");
-                    if !class_taken(&cand) {
-                        break cand;
-                    }
-                    n += 1;
-                });
-            }
-        }
-        if !sym.folder.is_empty() {
-            candidate.add_library_folder(&sym.folder)?;
-        }
-        candidate.symbols.push(sym);
+    }
+    let mut root_symbol = root_symbol_opt
+        .ok_or_else(|| "Imported clipboard project has no root symbol.".to_owned())?;
+
+    let root_has_elements = root_symbol
+        .timeline
+        .layers
+        .iter()
+        .flat_map(|l| &l.keyframes)
+        .any(|k| !k.elements.is_empty());
+    if !root_has_elements {
+        return Err("Clipboard contains no visual elements to paste.".into());
     }
 
-    let root_symbol = root_symbol_opt
-        .ok_or_else(|| "Imported clipboard project has no root symbol.".to_owned())?;
-    let mut top_elements = Vec::new();
-    let mut top_bitmap_fills = Vec::new();
-    let mut top_appearances = Vec::new();
-    for layer in root_symbol.timeline.layers {
-        if let Some(kf) = layer.keyframes.into_iter().find(|k| k.frame == 0) {
-            top_elements.extend(kf.elements);
-            top_bitmap_fills.extend(kf.bitmap_fills);
-            top_appearances.extend(kf.appearances);
+    let needs_root_symbol_wrapper = root_symbol.timeline.layers.iter().any(|layer| {
+        layer.properties.role == neoflash_core::LayerRole::Mask
+            || layer.properties.mask.is_some()
+            || layer.properties.blend_mode != neoflash_core::BlendMode::Normal
+    });
+
+    let (mut top_elements, mut top_bitmap_fills, mut top_appearances) = if needs_root_symbol_wrapper
+    {
+        let mut wrapped_id = format!("__wrapped_clip_{imported_root_id}");
+        while donor_symbols.iter().any(|s| s.id == wrapped_id) {
+            wrapped_id.push('_');
         }
-    }
+        root_symbol.id = wrapped_id.clone();
+        root_symbol.name = "Pasted Figma Clip".into();
+        root_symbol.folder = "Figma Components".into();
+        root_symbol.kind = neoflash_core::SymbolKind::MovieClip;
+        root_symbol.class_name = None;
+        root_symbol.linkage_id = None;
+        donor_symbols.push(root_symbol);
+        let wrapper_el = neoflash_core::Element {
+            id: "wrapped-top-0".into(),
+            name: "Pasted_Figma_Clip".into(),
+            transform: neoflash_core::Transform::default(),
+            kind: neoflash_core::ElementKind::Instance {
+                symbol_id: wrapped_id,
+                playback: neoflash_core::InstancePlayback::Independent,
+            },
+            ..neoflash_core::Element::default()
+        };
+        (vec![wrapper_el], Vec::new(), Vec::new())
+    } else {
+        let mut els = Vec::new();
+        let mut bfs = Vec::new();
+        let mut apps = Vec::new();
+        for layer in root_symbol.timeline.layers {
+            if let Some(kf) = layer.keyframes.into_iter().find(|k| k.frame == 0) {
+                els.extend(kf.elements);
+                bfs.extend(kf.bitmap_fills);
+                apps.extend(kf.appearances);
+            }
+        }
+        (els, bfs, apps)
+    };
+
     if top_elements.is_empty() {
         return Err("Clipboard contains no visual elements to paste.".into());
     }
 
+    let mut seeds = SeedAssetRefs::default();
+    for el in &top_elements {
+        seeds.record_element(el);
+    }
+    for bf in &top_bitmap_fills {
+        seeds.add_resource(&bf.resource_id);
+    }
+    for app in &top_appearances {
+        seeds.record_appearance(app);
+    }
+
+    let empty_scenes = HashSet::new();
+    let mut maps = import_cross_document_assets(
+        candidate,
+        &donor_symbols,
+        &empty_scenes,
+        &imported.resources,
+        &imported.sources,
+        seeds,
+    )?;
+
     let mut element_ids = Vec::with_capacity(top_elements.len());
+    let mut placement_ids = HashMap::<Id, Id>::new();
     for element in &mut top_elements {
-        element.transform.x = (element.transform.x + offset[0]).clamp(-100_000.0, 100_000.0);
-        element.transform.y = (element.transform.y + offset[1]).clamp(-100_000.0, 100_000.0);
-        element_ids.push(element.id.clone());
+        let old_id = element.id.clone();
+        let new_eid = alloc_unique_id("object", &mut maps.occupied_ids);
+        element.id = new_eid.clone();
+        placement_ids.insert(old_id, new_eid.clone());
+        element_ids.push(new_eid);
+        match &mut element.kind {
+            neoflash_core::ElementKind::Instance { symbol_id, .. } => {
+                if let Some(mapped) = maps.sym_map.get(symbol_id) {
+                    *symbol_id = mapped.clone();
+                }
+            }
+            neoflash_core::ElementKind::Bitmap { resource_id, .. } => {
+                if let Some(mapped) = maps.res_map.get(resource_id) {
+                    *resource_id = mapped.clone();
+                }
+            }
+            _ => {}
+        }
+        apply_placement_matrix_to_element(element, placement_matrix);
+    }
+    for bf in &mut top_bitmap_fills {
+        if let Some(new_eid) = placement_ids.get(&bf.element_id) {
+            bf.element_id = new_eid.clone();
+        }
+        if let Some(new_rid) = maps.res_map.get(&bf.resource_id) {
+            bf.resource_id = new_rid.clone();
+        }
+    }
+    for app in &mut top_appearances {
+        if let Some(new_eid) = placement_ids.get(&app.element_id) {
+            app.element_id = new_eid.clone();
+        }
+        remap_appearance_refs(app, &maps.swatch_map, &maps.style_map);
     }
 
     let fps = f64::from(candidate.fps);
-    let layer_id = {
+    let (target_layer_idx, layer_id, created_new_layer) = {
         let timeline = &mut candidate
             .symbol_mut(symbol_id)
             .ok_or_else(|| "Destination symbol does not exist.".to_owned())?
@@ -1871,32 +2177,35 @@ fn merge_imported_clipboard_project(
         if frame >= frame_count {
             return Err("Destination frame is outside the timeline.".into());
         }
-        if layer_idx >= timeline.layers.len() {
-            return Err("Destination layer does not exist.".into());
-        }
-        let layer_end = timeline.layers[layer_idx]
+        let (target_idx, layer_id, created_new) = resolve_or_insert_paste_normal_layer(
+            timeline,
+            layer_idx,
+            active_layer_solo_hidden,
+            &mut maps.occupied_ids,
+        );
+        let layer_end = timeline.layers[target_idx]
             .properties
             .end_frame
             .unwrap_or(frame_count);
         let need_key = auto_keyframe
             || frame >= layer_end
-            || timeline.layers[layer_idx]
+            || timeline.layers[target_idx]
                 .key_at(frame)
                 .is_none_or(|k| k.tween.is_some())
-            || neoflash_core::motion_span(&timeline.layers[layer_idx], frame).is_some();
+            || neoflash_core::motion_span(&timeline.layers[target_idx], frame).is_some();
         if need_key
-            && !timeline.layers[layer_idx]
+            && !timeline.layers[target_idx]
                 .keyframes
                 .iter()
                 .any(|k| k.frame == frame)
         {
             let sampled_els = neoflash_core::sample_layer_in_at_fps(
                 timeline,
-                &timeline.layers[layer_idx],
+                &timeline.layers[target_idx],
                 frame,
                 fps,
             );
-            let layer = &mut timeline.layers[layer_idx];
+            let layer = &mut timeline.layers[target_idx];
             let active = layer.key_at(frame);
             let tween = active.and_then(|k| k.tween);
             let tween_kind = active.map_or(neoflash_core::TweenKind::Classic, |k| k.tween_kind);
@@ -1916,10 +2225,11 @@ fn merge_imported_clipboard_project(
             });
             layer.keyframes.sort_by_key(|k| k.frame);
         }
-        let layer = &mut timeline.layers[layer_idx];
-        let layer_id = layer.id.clone();
+        let layer = &mut timeline.layers[target_idx];
         let dest_key = layer
-            .key_at_mut(frame)
+            .keyframes
+            .iter_mut()
+            .find(|k| k.frame == frame)
             .ok_or_else(|| "Could not locate destination keyframe.".to_owned())?;
         dest_key.elements.extend(top_elements);
         for bf in top_bitmap_fills {
@@ -1929,7 +2239,7 @@ fn merge_imported_clipboard_project(
             dest_key.set_appearance(app);
         }
         layer.normalize_motion_keys();
-        layer_id
+        (target_idx, layer_id, created_new)
     };
 
     candidate.prune_authoring_groups();
@@ -1938,10 +2248,13 @@ fn merge_imported_clipboard_project(
         return Err(format!("Pasted document failed validation: {err}"));
     }
 
-    Ok((layer_id, element_ids))
+    Ok((target_layer_idx, layer_id, element_ids, created_new_layer))
 }
 
 fn parse_image_data_url(text: &str) -> Option<(String, Vec<u8>)> {
+    if text.len() > neoflash_import::figma::MAX_STAGE_HTML_CLIPBOARD_BYTES {
+        return None;
+    }
     let trimmed = text.trim();
     let rest = trimmed.strip_prefix("data:")?;
     let (meta, payload) = rest.split_once(',')?;

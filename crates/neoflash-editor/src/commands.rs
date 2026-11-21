@@ -3056,14 +3056,17 @@ impl Editor {
         };
 
         let has_doc = self.has_document();
+        let standalone_as = self.is_standalone_script_session();
         let text_target = || {
-            ctx.is_some_and(|c| {
-                c.wants_keyboard_input() && c.memory(|memory| memory.focused().is_some())
-            }) || self
-                .clipboard
-                .menu_target
-                .as_ref()
-                .is_some_and(|target| target.is_text())
+            (!standalone_as && self.stage_text_edit.is_active(self))
+                || ctx.is_some_and(|c| {
+                    c.wants_keyboard_input() && c.memory(|memory| memory.focused().is_some())
+                })
+                || self
+                    .clipboard
+                    .menu_target
+                    .as_ref()
+                    .is_some_and(|target| target.is_text())
         };
 
         let panel_for_window_cmd = |id: CommandId| -> Option<PanelId> {
@@ -3128,7 +3131,6 @@ impl Editor {
             }
         };
 
-        let standalone_as = self.is_standalone_script_session();
         let enabled = match cmd {
             CommandId::FileNew
             | CommandId::FileOpen
@@ -3269,9 +3271,11 @@ impl Editor {
             CommandId::FileRevert => self.can_revert(),
             CommandId::EditUndo => self.history.can_undo() || self.vector.draft.is_some(),
             CommandId::EditRedo => self.history.can_redo(),
-            CommandId::EditCut | CommandId::EditCopy => !self.selection.is_empty() || text_target(),
-            CommandId::EditPaste => self.layer_editable() || text_target(),
-            CommandId::EditPasteInPlace => self.layer_editable() && !text_target(),
+            CommandId::EditCut | CommandId::EditCopy => {
+                (!standalone_as && !self.selection.is_empty()) || text_target()
+            }
+            CommandId::EditPaste => (!standalone_as && has_doc) || text_target(),
+            CommandId::EditPasteInPlace => !standalone_as && has_doc && !text_target(),
             CommandId::EditClear | CommandId::EditDuplicate | CommandId::EditDeselect => {
                 !self.selection.is_empty()
             }

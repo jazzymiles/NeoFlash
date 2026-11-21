@@ -3416,8 +3416,8 @@ fn t413_figma_clipboard_paste_centre_and_in_place_near_and_infinite_canvas_doubl
             .collect();
         assert_eq!(
             all_non_root_syms.len(),
-            first_paste_sym_ids.len() * 2,
-            "second paste must allocate distinct non-colliding Symbol IDs"
+            first_paste_sym_ids.len(),
+            "second paste must deduplicate identical Figma component symbols instead of duplicating them"
         );
         let unique_syms: std::collections::HashSet<&&Id> = all_non_root_syms.iter().collect();
         assert_eq!(unique_syms.len(), all_non_root_syms.len());
@@ -3506,7 +3506,7 @@ fn t413_locked_and_solo_hidden_layers_block_figma_and_svg_paste_and_svg_respects
     let (figma_html, flat_png) = build_editor_figma_clipboard_html(40.0, 50.0, false);
     let copy_as_svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><path fill="#ff5533" stroke="#112233" stroke-width="2" d="M0 0L120 0L100 80L0 80Z"/></svg>"##;
 
-    // 1. Locked layer blocks both Figma paste and SVG paste with zero mutation or Undo steps.
+    // 1. Locked layer auto-places Figma paste and SVG paste onto a new Normal layer, undone in 1 `⌘Z`!
     editor.symbol_mut().timeline.layers[0].locked = true;
     let locked_baseline = editor.project.clone();
     editor.request_stage_clipboard_with(&ctx, ClipboardCommand::Paste, || {
@@ -3518,8 +3518,12 @@ fn t413_locked_and_solo_hidden_layers_block_figma_and_svg_paste_and_svg_respects
             png: Some(flat_png.clone()),
         })
     });
+    editor.project.validate().unwrap();
+    assert_eq!(editor.symbol().timeline.layers.len(), 3);
+    editor.undo();
     assert_eq!(editor.project, locked_baseline);
     assert!(!editor.history.can_undo());
+    editor.layer = 0;
     frame(
         &mut editor,
         &ctx,
@@ -3528,12 +3532,16 @@ fn t413_locked_and_solo_hidden_layers_block_figma_and_svg_paste_and_svg_respects
         Modifiers::COMMAND,
         None,
     );
+    editor.project.validate().unwrap();
+    assert_eq!(editor.symbol().timeline.layers.len(), 3);
+    editor.undo();
     assert_eq!(editor.project, locked_baseline);
     assert!(!editor.history.can_undo());
     editor.symbol_mut().timeline.layers[0].locked = false;
+    editor.layer = 0;
     assert_eq!(editor.project, before);
 
-    // 2. Solo-hidden layer (`layer 1` is soloed while `editor.layer == 0`) blocks Figma & SVG paste cleanly!
+    // 2. Solo-hidden layer (`layer 1` is soloed while `editor.layer == 0`) auto-places Figma & SVG paste onto a solo-visible Normal layer, undone in 1 `⌘Z`!
     assert!(editor.toggle_layer_solo(1, true));
     assert!(!editor.layer_editable());
     editor.request_stage_clipboard_with(&ctx, ClipboardCommand::Paste, || {
@@ -3545,8 +3553,13 @@ fn t413_locked_and_solo_hidden_layers_block_figma_and_svg_paste_and_svg_respects
             png: Some(flat_png.clone()),
         })
     });
+    editor.project.validate().unwrap();
+    assert_eq!(editor.symbol().timeline.layers.len(), 3);
+    assert!(editor.is_layer_effectively_soloed(editor.layer));
+    editor.undo();
     assert_eq!(editor.project, before);
     assert!(!editor.history.can_undo());
+    editor.layer = 0;
     frame(
         &mut editor,
         &ctx,
@@ -3555,8 +3568,12 @@ fn t413_locked_and_solo_hidden_layers_block_figma_and_svg_paste_and_svg_respects
         Modifiers::COMMAND,
         None,
     );
+    editor.project.validate().unwrap();
+    assert_eq!(editor.symbol().timeline.layers.len(), 3);
+    editor.undo();
     assert_eq!(editor.project, before);
     assert!(!editor.history.can_undo());
+    editor.layer = 0;
     editor.clear_all_solo_layers();
     assert!(editor.layer_editable());
 
@@ -3658,4 +3675,661 @@ fn t413_locked_and_solo_hidden_layers_block_figma_and_svg_paste_and_svg_respects
     let state = TextFieldState::from_kind(&editor.selected_sampled().unwrap().kind).unwrap();
     assert_eq!(state.text, format!("Code: {copy_as_svg}"));
     set_test_stage_clipboard_flavors(&ctx, None);
+}
+
+fn crafted_editor_png_ihdr_bomb(width: u32, height: u32) -> Vec<u8> {
+    let crc32 = |bytes: &[u8]| -> u32 {
+        let mut crc = 0xffff_ffffu32;
+        for &b in bytes {
+            crc ^= u32::from(b);
+            for _ in 0..8 {
+                let mask = (crc & 1).wrapping_neg();
+                crc = (crc >> 1) ^ (0xedb8_8320 & mask);
+            }
+        }
+        !crc
+    };
+    let mut out = Vec::with_capacity(64);
+    out.extend_from_slice(&[137, 80, 78, 71, 13, 10, 26, 10]);
+    let mut ihdr = Vec::with_capacity(17);
+    ihdr.extend_from_slice(b"IHDR");
+    ihdr.extend_from_slice(&width.to_be_bytes());
+    ihdr.extend_from_slice(&height.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
+    out.extend_from_slice(&13u32.to_be_bytes());
+    out.extend_from_slice(&ihdr);
+    out.extend_from_slice(&crc32(&ihdr).to_be_bytes());
+    let iend = b"IEND";
+    out.extend_from_slice(&0u32.to_be_bytes());
+    out.extend_from_slice(iend);
+    out.extend_from_slice(&crc32(iend).to_be_bytes());
+    out
+}
+
+#[test]
+fn t414_p0_2_crafted_50000x50000_png_ihdr_rejected_across_bitmap_data_url_and_svg_paste() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    let before = editor.project.clone();
+    let bomb_png = crafted_editor_png_ihdr_bomb(50_000, 50_000);
+    let bomb_b64 = ResourceUnit::from_bytes("tmp", "tmp.png", "image/png", &bomb_png)
+        .unwrap()
+        .data_base64;
+
+    // 1. Direct `paste_image_bytes` rejects 50000x50000 header via `ImageReader::into_dimensions` before RGBA decode.
+    assert!(!editor.paste_image_bytes(&ctx, &bomb_png, "image/png", false));
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+    assert!(editor.status.starts_with("Paste failed:"));
+
+    // 2. `data:image/png;base64,...` clipboard text rejected cleanly.
+    let data_url = format!("data:image/png;base64,{bomb_b64}");
+    frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![Event::Paste(data_url)],
+        Modifiers::COMMAND,
+        None,
+    );
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+    assert!(editor.status.starts_with("Paste failed:"));
+
+    // 3. `<svg><image href="data:image/png;base64,..."/></svg>` rejected via bounded `usvg` `image_href_resolver`.
+    let bomb_svg = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><image width="100" height="100" href="data:image/png;base64,{bomb_b64}"/></svg>"#
+    );
+    assert!(!editor.paste_svg(&ctx, &bomb_svg, false));
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+    assert!(
+        editor.status.contains("4096") || editor.status.starts_with("Paste failed:"),
+        "unexpected status: {}",
+        editor.status
+    );
+}
+
+#[test]
+fn t414_p0_4_multinode_figma_paste_with_unresolved_image_surfaces_warning_and_never_misbinds_preview()
+ {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+
+    // Build a synthetic multi-node `ImportOutput` with an unresolved `figma-missing-image-asset` warning
+    // (and verify end-to-end with `paste_figma_clipboard_output` surfacing status + Output log).
+    let mut imported = Project::blank();
+    imported
+        .symbol_mut(&imported.root.clone())
+        .unwrap()
+        .timeline
+        .layers[0]
+        .keyframes[0]
+        .elements
+        .push(Element {
+            id: new_id("el"),
+            name: "CardShape".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Rectangle {
+                width: 120.0,
+                height: 80.0,
+                fill: [40, 80, 160, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        });
+    let report = neoflash_import::ImportReport {
+        source: "Figma clipboard".into(),
+        format: neoflash_import::ImportFormat::Figma,
+        version: None,
+        can_import: true,
+        statistics: neoflash_import::Statistics::default(),
+        diagnostics: vec![neoflash_import::Diagnostic {
+            severity: neoflash_import::Severity::Warning,
+            code: "figma-missing-image-asset".into(),
+            location: "Page 1 / Avatar".into(),
+            message: "Missing bitmap asset 'deadbeef' on 'Avatar'; skipped image fill.".into(),
+        }],
+        binary_fla: None,
+        swf: None,
+        swc: None,
+    };
+    let out = neoflash_import::ImportOutput {
+        project: imported,
+        report,
+        figma_bounds: Some(neoflash_core::PathBounds {
+            x_min: 10.0,
+            y_min: 20.0,
+            x_max: 130.0,
+            y_max: 100.0,
+        }),
+        local_bounds: Some(neoflash_core::PathBounds {
+            x_min: 0.0,
+            y_min: 0.0,
+            x_max: 120.0,
+            y_max: 80.0,
+        }),
+        meta: None,
+    };
+
+    assert!(editor.paste_figma_clipboard_output(&ctx, out, true));
+    editor.project.validate().unwrap();
+    assert!(
+        editor.status.contains("figma-missing-image-asset"),
+        "status must surface missing-image warning code, got: {}",
+        editor.status
+    );
+    assert!(
+        editor
+            .output
+            .iter()
+            .any(|line| line.contains("figma-missing-image-asset")),
+        "Output panel log must record figma-missing-image-asset warning"
+    );
+}
+
+#[test]
+fn t414_p1_5_standalone_as_session_blocks_unfocused_stage_paste_and_menu_commands() {
+    use crate::clipboard::{StageClipboardFlavors, set_test_stage_clipboard_flavors};
+
+    let (mut editor, ctx) = fixture();
+    let stage_payload = copy_objects(&mut editor, &ctx);
+    let (figma_html, flat_png) = build_editor_figma_clipboard_html(20.0, 30.0, false);
+    let svg_text = r##"<svg xmlns="http://www.w3.org/2000/svg" width="60" height="40"><rect width="60" height="40" fill="#33aa55"/></svg>"##;
+
+    let tmp_dir = std::env::temp_dir().join(format!("nf-t414-as-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+    let as_path = tmp_dir.join("standalone_guard.as");
+    std::fs::write(&as_path, "trace('standalone');\n").unwrap();
+
+    assert!(editor.try_open_path(as_path.clone(), &ctx));
+    assert!(editor.is_standalone_script_session());
+    ctx.memory_mut(|m| {
+        if let Some(focused) = m.focused() {
+            m.surrender_focus(focused);
+        }
+    });
+    let dummy_before = editor.project.clone();
+
+    // Menu states for Paste / Paste in Place / Cut / Copy are disabled when no text widget is focused!
+    assert!(
+        !editor
+            .command_menu_state(Some(&ctx), CommandId::EditPaste)
+            .enabled
+    );
+    assert!(
+        !editor
+            .command_menu_state(Some(&ctx), CommandId::EditPasteInPlace)
+            .enabled
+    );
+    assert!(
+        !editor
+            .command_menu_state(Some(&ctx), CommandId::EditCopy)
+            .enabled
+    );
+    assert!(
+        !editor
+            .command_menu_state(Some(&ctx), CommandId::EditCut)
+            .enabled
+    );
+    assert!(!editor.execute_menu_command(&ctx, CommandId::EditPaste));
+    assert!(!editor.execute_menu_command(&ctx, CommandId::EditPasteInPlace));
+
+    // Unfocused `⌘V` with Figma HTML, SVG, or Stage object payload never mutates dummy `editor.project`!
+    set_test_stage_clipboard_flavors(
+        &ctx,
+        Some(StageClipboardFlavors {
+            generation: Some(1),
+            plain_text: Some("Hero Title".into()),
+            html: Some(figma_html),
+            svg: Some(svg_text.to_owned()),
+            png: Some(flat_png),
+        }),
+    );
+    for payload in [stage_payload, svg_text.to_owned(), "Hero Title".to_owned()] {
+        frame(
+            &mut editor,
+            &ctx,
+            0.3,
+            vec![key(Key::V, true, Modifiers::COMMAND), Event::Paste(payload)],
+            Modifiers::COMMAND,
+            None,
+        );
+        assert_eq!(editor.project, dummy_before);
+        assert!(!editor.history.can_undo());
+    }
+    assert!(!editor.paste_svg(&ctx, svg_text, false));
+    assert!(!editor.paste_image_bytes(
+        &ctx,
+        &crafted_editor_png_ihdr_bomb(2, 2),
+        "image/png",
+        false
+    ));
+    assert_eq!(editor.project, dummy_before);
+
+    set_test_stage_clipboard_flavors(&ctx, None);
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn t414_p1_6_auto_normal_layer_placement_on_mask_guide_folder_and_hidden_with_1_undo() {
+    let ctx = egui::Context::default();
+    let svg_text = r##"<svg xmlns="http://www.w3.org/2000/svg" width="80" height="50"><rect width="80" height="50" fill="#4488ff"/></svg>"##;
+    let img = image::RgbaImage::from_pixel(8, 8, image::Rgba([20, 200, 120, 255]));
+    let mut png_bytes = Vec::new();
+    img.write_to(
+        &mut std::io::Cursor::new(&mut png_bytes),
+        image::ImageFormat::Png,
+    )
+    .unwrap();
+    let (figma_html, flat_png) = build_editor_figma_clipboard_html(10.0, 15.0, false);
+    let figma_out = neoflash_import::import_figma_clipboard(&figma_html, Some(&flat_png)).unwrap();
+
+    for mode in ["mask", "masked_normal", "guide", "folder", "hidden"] {
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        match mode {
+            "mask" => {
+                editor.symbol_mut().timeline.layers[0].properties.role = LayerRole::Mask;
+            }
+            "masked_normal" => {
+                let mask_id = new_id("mask-layer");
+                editor.symbol_mut().timeline.layers.push(Layer {
+                    id: mask_id.clone(),
+                    name: "Mask".into(),
+                    visible: true,
+                    locked: true,
+                    keyframes: vec![Keyframe::default()],
+                    properties: LayerProperties {
+                        role: LayerRole::Mask,
+                        ..LayerProperties::default()
+                    },
+                });
+                editor.symbol_mut().timeline.layers[0].properties.mask = Some(mask_id);
+                editor.layer = 0;
+            }
+            "guide" => {
+                editor.symbol_mut().timeline.layers[0].properties.role = LayerRole::Guide;
+            }
+            "folder" => {
+                // Keep layer 0 Normal and add a Folder at layer 1 so project starts valid.
+                editor.symbol_mut().timeline.layers.push(Layer {
+                    id: new_id("folder"),
+                    name: "Group Folder".into(),
+                    visible: true,
+                    locked: false,
+                    keyframes: Vec::new(),
+                    properties: LayerProperties {
+                        role: LayerRole::Folder,
+                        ..LayerProperties::default()
+                    },
+                });
+                editor.layer = 1;
+            }
+            "hidden" => {
+                editor.symbol_mut().timeline.layers[0].visible = false;
+            }
+            _ => unreachable!(),
+        }
+        crate::timeline_commands::upgrade_all_format_versions(&mut editor.project);
+        editor.project.validate().unwrap();
+        editor.history.clear();
+        let before = editor.project.clone();
+
+        // 1. Figma paste (with Instances/TextBoxes that would fail validation on Mask/Folder layers!)
+        assert!(
+            editor.paste_figma_clipboard_output(&ctx, figma_out.clone(), false),
+            "Figma paste failed on mode={mode}: {}",
+            editor.status
+        );
+        editor.project.validate().unwrap();
+        let active_layer = &editor.symbol().timeline.layers[editor.layer];
+        assert_eq!(active_layer.properties.role, LayerRole::Normal);
+        assert!(active_layer.properties.mask.is_none());
+        assert!(active_layer.visible && !active_layer.locked);
+        editor.undo();
+        assert_eq!(
+            editor.project, before,
+            "1 Undo must restore exact before on mode={mode}"
+        );
+        assert!(!editor.history.can_undo());
+
+        // 2. SVG paste + 1 Undo
+        if mode == "folder" {
+            editor.layer = 1;
+        } else {
+            editor.layer = 0;
+        }
+        assert!(
+            editor.paste_svg(&ctx, svg_text, false),
+            "SVG paste failed on mode={mode}"
+        );
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before);
+
+        // 3. PNG bitmap paste + 1 Undo
+        if mode == "folder" {
+            editor.layer = 1;
+        } else {
+            editor.layer = 0;
+        }
+        assert!(
+            editor.paste_image_bytes(&ctx, &png_bytes, "image/png", false),
+            "PNG paste failed on mode={mode}"
+        );
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before);
+    }
+}
+
+#[test]
+fn t414_p1_7_paste_center_and_edit_in_place_inverse_transform_and_svg_viewbox() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+
+    // 1. `remember_paste_view([920.0, 640.0])` centers `⌘V` (`!in_place`) Figma paste at `(920, 640)`!
+    editor.remember_paste_view([920.0, 640.0]);
+    let (figma_html, flat_png) = build_editor_figma_clipboard_html(100.0, 70.0, false);
+    let figma_out = neoflash_import::import_figma_clipboard(&figma_html, Some(&flat_png)).unwrap();
+    assert!(editor.paste_figma_clipboard_output(&ctx, figma_out.clone(), false));
+    editor.project.validate().unwrap();
+    {
+        // Local bounds of `build_editor_figma_clipboard_html` are `240 x 120` (center `(120, 60)`),
+        // so `GradPath` (at local `(0, 0)`) lands at `(920 - 120, 640 - 60) = (800, 580)`!
+        let els = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+        let grad_path = els.iter().find(|e| e.name == "GradPath").unwrap();
+        assert!((grad_path.transform.x - 800.0).abs() < 1e-6);
+        assert!((grad_path.transform.y - 580.0).abs() < 1e-6);
+    }
+    editor.undo();
+
+    // 2. Non-zero SVG `viewBox="100 200 120 80"` + `workspace.paste_in_place = true` lands at `(0, 0)`!
+    editor.workspace.paste_in_place = true;
+    let vb_svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80" viewBox="100 200 120 80"><path fill="#ff4422" d="M100 200L220 200L220 280L100 280Z"/></svg>"##;
+    assert!(editor.paste_svg(&ctx, vb_svg, false));
+    editor.project.validate().unwrap();
+    {
+        let pasted = editor.selected_element().unwrap();
+        assert!(
+            (pasted.transform.x + 100.0).abs() < 1e-6 && (pasted.transform.y + 200.0).abs() < 1e-6,
+            "SVG viewBox (100,200) must shift element by (-100,-200) so (100,200) lands at Stage (0,0), got {:?}",
+            pasted.transform
+        );
+    }
+    editor.workspace.paste_in_place = false;
+    editor.undo();
+
+    // 3. `Edit in Place` inside a translated `(200, 100)` + `2x` scaled MovieClip instance:
+    //    `⌘⇧V` (`Paste in Place`) maps Stage `(100, 70)` through `inv([2,0,0,2,200,100])` -> local `(-50, -15)` at `0.5x` scale!
+    let child_sym_id = new_id("mc");
+    editor.project.symbols.push(Symbol {
+        id: child_sym_id.clone(),
+        name: "ScaledContainer".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        timeline: Timeline {
+            frame_count: 1,
+            layers: vec![Layer {
+                id: new_id("layer"),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe::default()],
+                properties: LayerProperties::default(),
+            }],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+        class_name: None,
+        linkage_id: None,
+    });
+    let inst_id = new_id("inst");
+    let root_layer_id = editor.symbol().timeline.layers[0].id.clone();
+    editor.symbol_mut().timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: inst_id.clone(),
+            name: "ContainerInst".into(),
+            transform: Transform {
+                x: 200.0,
+                y: 100.0,
+                scale_x: 2.0,
+                scale_y: 2.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::Instance {
+                symbol_id: child_sym_id.clone(),
+                playback: InstancePlayback::Independent,
+            },
+            ..Element::default()
+        });
+    editor.set_selection(vec![crate::selection::SelectionTarget {
+        layer: root_layer_id,
+        element: inst_id,
+    }]);
+    assert!(editor.enter_selected_symbol_in_place());
+    assert!(editor.editing_in_place());
+
+    assert!(editor.paste_figma_clipboard_output(&ctx, figma_out, true));
+    editor.project.validate().unwrap();
+    {
+        let els = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+        let grad_path = els.iter().find(|e| e.name == "GradPath").unwrap();
+        assert!(
+            (grad_path.transform.x + 50.0).abs() < 1e-6
+                && (grad_path.transform.y + 15.0).abs() < 1e-6,
+            "Stage (100, 70) inside (200,100)@2x symbol must map to local (-50, -15), got {:?}",
+            grad_path.transform
+        );
+        assert!(
+            (grad_path.transform.scale_x - 0.5).abs() < 1e-6
+                && (grad_path.transform.scale_y - 0.5).abs() < 1e-6,
+            "1:1 Stage size inside 2x symbol must scale by 0.5x locally, got {:?}",
+            grad_path.transform
+        );
+    }
+}
+
+#[test]
+fn t414_p1_11_p1_12_root_mask_wraps_as_symbol_and_15x_paste_deduplicates_assets() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+
+    // Build an imported Figma clipboard project whose root timeline has a `LayerRole::Mask` layer + bitmap resource.
+    let img = image::RgbaImage::from_pixel(4, 4, image::Rgba([80, 120, 240, 255]));
+    let mut png_bytes = Vec::new();
+    img.write_to(
+        &mut std::io::Cursor::new(&mut png_bytes),
+        image::ImageFormat::Png,
+    )
+    .unwrap();
+    let res = ResourceUnit::from_bytes("res-1", "figma/hero.png", "image/png", &png_bytes).unwrap();
+
+    let mask_layer_id = "mask-l".to_owned();
+    let mut imported = Project::blank();
+    imported.resources.push(res.clone());
+    {
+        let root_sym = imported.symbol_mut(&imported.root.clone()).unwrap();
+        root_sym.timeline.layers = vec![
+            Layer {
+                id: "masked-photo".into(),
+                name: "Photo".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: "el-bmp".into(),
+                        name: "Photo".into(),
+                        transform: Transform::default(),
+                        kind: ElementKind::Bitmap {
+                            resource_id: res.id.clone(),
+                            width: 4,
+                            height: 4,
+                            smoothing: true,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Keyframe::default()
+                }],
+                properties: LayerProperties {
+                    role: LayerRole::Normal,
+                    mask: Some(mask_layer_id.clone()),
+                    ..LayerProperties::default()
+                },
+            },
+            Layer {
+                id: mask_layer_id,
+                name: "ClipMask".into(),
+                visible: true,
+                locked: true,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: "el-mask".into(),
+                        name: "MaskShape".into(),
+                        transform: Transform::default(),
+                        kind: ElementKind::Rectangle {
+                            width: 4.0,
+                            height: 4.0,
+                            fill: [0, 0, 0, 255],
+                            stroke: [0, 0, 0, 0],
+                            stroke_width: 0.0,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Keyframe::default()
+                }],
+                properties: LayerProperties {
+                    role: LayerRole::Mask,
+                    ..LayerProperties::default()
+                },
+            },
+        ];
+    }
+    crate::timeline_commands::upgrade_all_format_versions(&mut imported);
+    imported.validate().unwrap();
+    let out = neoflash_import::ImportOutput {
+        project: imported,
+        report: neoflash_import::ImportReport {
+            source: "Figma clipboard".into(),
+            format: neoflash_import::ImportFormat::Figma,
+            version: None,
+            can_import: true,
+            statistics: neoflash_import::Statistics::default(),
+            diagnostics: Vec::new(),
+            binary_fla: None,
+            swf: None,
+            swc: None,
+        },
+        figma_bounds: Some(neoflash_core::PathBounds {
+            x_min: 10.0,
+            y_min: 10.0,
+            x_max: 14.0,
+            y_max: 14.0,
+        }),
+        local_bounds: Some(neoflash_core::PathBounds {
+            x_min: 0.0,
+            y_min: 0.0,
+            x_max: 4.0,
+            y_max: 4.0,
+        }),
+        meta: None,
+    };
+
+    // Paste 15 times: root mask MUST be preserved inside a wrapped MovieClip Instance,
+    // AND both the bitmap ResourceUnit and wrapped MovieClip Symbol MUST deduplicate to count == 1!
+    for _ in 0..15 {
+        assert!(editor.paste_figma_clipboard_output(&ctx, out.clone(), false));
+    }
+    editor.project.validate().unwrap();
+    assert_eq!(
+        editor.project.resources.len(),
+        1,
+        "15x repeated paste must deduplicate identical bitmap ResourceUnit"
+    );
+    let non_root_syms: Vec<&Symbol> = editor
+        .project
+        .symbols
+        .iter()
+        .filter(|s| s.id != editor.project.root)
+        .collect();
+    assert_eq!(
+        non_root_syms.len(),
+        1,
+        "15x repeated paste must deduplicate identical wrapped Figma symbol"
+    );
+    assert!(
+        non_root_syms[0]
+            .timeline
+            .layers
+            .iter()
+            .any(|l| l.properties.role == LayerRole::Mask),
+        "top-level Figma mask must be preserved inside wrapped MovieClip symbol"
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .len(),
+        15
+    );
+}
+
+#[test]
+fn t414_p2_14_stage_inline_text_edit_ignores_object_payload_and_paste_in_place() {
+    let (mut editor, ctx) = fixture();
+    let object_payload = copy_objects(&mut editor, &ctx);
+
+    editor.add_element(
+        ElementKind::TextBox {
+            text: "Inline".into(),
+            width: 200.0,
+            height: 50.0,
+            format: TextFormat::default(),
+            word_wrap: true,
+            multiline: false,
+        },
+        60.0,
+        60.0,
+    );
+    assert!(editor.place_stage_text_caret_utf16(6));
+    assert!(editor.is_stage_inline_text_editing());
+    editor.history.clear();
+    let before = editor.project.clone();
+
+    // Menu state: EditPaste enabled, EditPasteInPlace disabled during inline Stage text editing!
+    assert!(
+        editor
+            .command_menu_state(Some(&ctx), CommandId::EditPaste)
+            .enabled
+    );
+    assert!(
+        !editor
+            .command_menu_state(Some(&ctx), CommandId::EditPasteInPlace)
+            .enabled
+    );
+
+    // Pressing `⌘V` or `⌘⇧V` while `object_payload` is on the clipboard must NOT duplicate Stage objects or exit inline edit!
+    frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![
+            key(Key::V, true, Modifiers::COMMAND),
+            Event::Paste(object_payload.clone()),
+        ],
+        Modifiers::COMMAND,
+        None,
+    );
+    assert_eq!(editor.project, before);
+    assert!(editor.is_stage_inline_text_editing());
+    assert!(!editor.history.can_undo());
+
+    editor.request_clipboard_with(&ctx, ClipboardCommand::PasteInPlace, || {
+        Ok("IgnoredInPlace".into())
+    });
+    assert_eq!(editor.project, before);
+    assert!(editor.is_stage_inline_text_editing());
 }

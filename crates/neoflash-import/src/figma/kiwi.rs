@@ -14,9 +14,14 @@ use super::{
     FigmaArcData, FigmaDoc, FigmaDocumentSummary, FigmaEffect, FigmaImportOptions,
     FigmaInstanceTextLayout, FigmaNode, FigmaPageMapping, FigmaPageSummary, FigmaPaint,
     FigmaSymbolOverride, FigmaTextData, FigmaTextStyleOverride, FigmaTextStyleRun,
-    MAX_FIGMA_DECODE_BYTES, MAX_FIGMA_NODES, MAX_KIWI_VALUES, gradient_handles_from_paint_matrix,
+    MAX_FIGMA_DECODE_BYTES, MAX_FIGMA_NODES, MAX_KIWI_VALUES,
 };
 use crate::ImportError;
+
+/// Per-path decoded command cap enforced inside `commandsBlob` and `vectorNetworkBlob` BEFORE push.
+const MAX_PATH_COMMANDS: usize = 32_768;
+/// Document-wide decoded `PathCommand` budget across all `nodeChanges` (prevents shared-blob OOM).
+const MAX_TOTAL_DECODED_PATH_COMMANDS: usize = 2_000_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum KiwiDefKind {
@@ -731,43 +736,87 @@ pub(super) fn decode_kiwi_scalar<'a>(
     }
 }
 
-fn decompress_fig_chunk(chunk: &[u8]) -> Result<(Vec<u8>, bool), String> {
+fn decompress_fig_chunk(
+    chunk: &[u8],
+    max_decode_bytes: usize,
+    chunk_index: usize,
+) -> Result<(Vec<u8>, bool), String> {
     if super::zstd::is_zstd_magic(chunk) {
-        let out = super::zstd::decompress_zstd(chunk, MAX_FIGMA_DECODE_BYTES)?;
+        let out = super::zstd::decompress_zstd(chunk, max_decode_bytes)?;
         return Ok((out, true));
     }
-    let mut out = Vec::new();
-    if DeflateDecoder::new(chunk)
-        .take(MAX_FIGMA_DECODE_BYTES as u64 + 1)
-        .read_to_end(&mut out)
-        .is_ok()
-        && !out.is_empty()
     {
-        if out.len() > MAX_FIGMA_DECODE_BYTES {
-            return Err("Decompressed Figma Kiwi chunk exceeds 256 MiB limit".into());
+        let mut out = Vec::new();
+        if DeflateDecoder::new(chunk)
+            .take(max_decode_bytes as u64 + 1)
+            .read_to_end(&mut out)
+            .is_ok()
+            && !out.is_empty()
+        {
+            if out.len() > max_decode_bytes {
+                return Err(format!(
+                    "Decompressed Figma Kiwi chunk exceeds {} MiB limit",
+                    max_decode_bytes / (1024 * 1024)
+                ));
+            }
+            return Ok((out, false));
         }
-        return Ok((out, false));
     }
-    out.clear();
-    if flate2::read::ZlibDecoder::new(chunk)
-        .take(MAX_FIGMA_DECODE_BYTES as u64 + 1)
-        .read_to_end(&mut out)
-        .is_ok()
-        && !out.is_empty()
     {
-        if out.len() > MAX_FIGMA_DECODE_BYTES {
-            return Err("Decompressed Figma Kiwi chunk exceeds 256 MiB limit".into());
+        let mut out = Vec::new();
+        if flate2::read::ZlibDecoder::new(chunk)
+            .take(max_decode_bytes as u64 + 1)
+            .read_to_end(&mut out)
+            .is_ok()
+            && !out.is_empty()
+        {
+            if out.len() > max_decode_bytes {
+                return Err(format!(
+                    "Decompressed Figma Kiwi chunk exceeds {} MiB limit",
+                    max_decode_bytes / (1024 * 1024)
+                ));
+            }
+            return Ok((out, false));
         }
-        return Ok((out, false));
     }
-    if chunk.len() > MAX_FIGMA_DECODE_BYTES {
-        return Err("Uncompressed Figma Kiwi chunk exceeds 256 MiB limit".into());
+    if chunk_index >= 1 {
+        return Err("Failed to decompress Figma Kiwi message chunk".into());
+    }
+    if chunk.len() > max_decode_bytes {
+        return Err(format!(
+            "Uncompressed Figma Kiwi chunk exceeds {} MiB limit",
+            max_decode_bytes / (1024 * 1024)
+        ));
     }
     Ok((chunk.to_vec(), false))
 }
 
+#[inline]
+fn push_bounded_path_cmd(
+    cmds: &mut Vec<PathCommand>,
+    total_decoded_path_commands: &mut usize,
+    cmd: PathCommand,
+) -> Result<(), String> {
+    if cmds.len() >= MAX_PATH_COMMANDS {
+        return Err(format!(
+            "Figma vector path exceeds maximum command limit ({MAX_PATH_COMMANDS})"
+        ));
+    }
+    if *total_decoded_path_commands >= MAX_TOTAL_DECODED_PATH_COMMANDS {
+        return Err(format!(
+            "Figma document exceeds maximum decoded path command budget ({MAX_TOTAL_DECODED_PATH_COMMANDS})"
+        ));
+    }
+    *total_decoded_path_commands += 1;
+    cmds.push(cmd);
+    Ok(())
+}
+
 /// Decode Figma binary `commandsBlob` (`0x00` Close, `0x01` MoveTo, `0x02` LineTo, `0x03` QuadTo, `0x04` CubicTo).
-fn decode_figma_commands_blob(blob: &[u8]) -> Vec<PathCommand> {
+fn decode_figma_commands_blob(
+    blob: &[u8],
+    total_decoded_path_commands: &mut usize,
+) -> Result<Vec<PathCommand>, String> {
     let mut cmds = Vec::new();
     let mut pos = 0usize;
     let mut cur_x = 0.0f64;
@@ -781,7 +830,7 @@ fn decode_figma_commands_blob(blob: &[u8]) -> Vec<PathCommand> {
         let op = blob[pos];
         pos += 1;
         match op {
-            0 => cmds.push(PathCommand::Close),
+            0 => push_bounded_path_cmd(&mut cmds, total_decoded_path_commands, PathCommand::Close)?,
             1 => {
                 let (Some(x), Some(y)) = (read_f32(blob, pos), read_f32(blob, pos + 4)) else {
                     break;
@@ -789,7 +838,11 @@ fn decode_figma_commands_blob(blob: &[u8]) -> Vec<PathCommand> {
                 pos += 8;
                 cur_x = x;
                 cur_y = y;
-                cmds.push(PathCommand::MoveTo { x, y });
+                push_bounded_path_cmd(
+                    &mut cmds,
+                    total_decoded_path_commands,
+                    PathCommand::MoveTo { x, y },
+                )?;
             }
             2 => {
                 let (Some(x), Some(y)) = (read_f32(blob, pos), read_f32(blob, pos + 4)) else {
@@ -798,7 +851,11 @@ fn decode_figma_commands_blob(blob: &[u8]) -> Vec<PathCommand> {
                 pos += 8;
                 cur_x = x;
                 cur_y = y;
-                cmds.push(PathCommand::LineTo { x, y });
+                push_bounded_path_cmd(
+                    &mut cmds,
+                    total_decoded_path_commands,
+                    PathCommand::LineTo { x, y },
+                )?;
             }
             3 => {
                 let (Some(qx), Some(qy), Some(x), Some(y)) = (
@@ -816,14 +873,18 @@ fn decode_figma_commands_blob(blob: &[u8]) -> Vec<PathCommand> {
                 let c2y = y + (2.0 / 3.0) * (qy - y);
                 cur_x = x;
                 cur_y = y;
-                cmds.push(PathCommand::CubicTo {
-                    cx1: c1x,
-                    cy1: c1y,
-                    cx2: c2x,
-                    cy2: c2y,
-                    x,
-                    y,
-                });
+                push_bounded_path_cmd(
+                    &mut cmds,
+                    total_decoded_path_commands,
+                    PathCommand::CubicTo {
+                        cx1: c1x,
+                        cy1: c1y,
+                        cx2: c2x,
+                        cy2: c2y,
+                        x,
+                        y,
+                    },
+                )?;
             }
             4 => {
                 let (Some(c1x), Some(c1y), Some(c2x), Some(c2y), Some(x), Some(y)) = (
@@ -839,34 +900,42 @@ fn decode_figma_commands_blob(blob: &[u8]) -> Vec<PathCommand> {
                 pos += 24;
                 cur_x = x;
                 cur_y = y;
-                cmds.push(PathCommand::CubicTo {
-                    cx1: c1x,
-                    cy1: c1y,
-                    cx2: c2x,
-                    cy2: c2y,
-                    x,
-                    y,
-                });
+                push_bounded_path_cmd(
+                    &mut cmds,
+                    total_decoded_path_commands,
+                    PathCommand::CubicTo {
+                        cx1: c1x,
+                        cy1: c1y,
+                        cx2: c2x,
+                        cy2: c2y,
+                        x,
+                        y,
+                    },
+                )?;
             }
             _ => break,
         }
     }
-    cmds
+    Ok(cmds)
 }
 
 /// Decode Figma binary `vectorNetworkBlob` (`[num_vertices: u32, num_segments: u32, num_regions: u32]`,
 /// followed by `num_vertices * 12B` `(style_id, x, y)`, `num_segments * 28B`
 /// `(style_id, start, dx1, dy1, end, dx2, dy2)`, and `num_regions` loop lists).
-type DecodedVectorNetwork = (Vec<(Vec<PathCommand>, FillRule)>, Vec<Vec<PathCommand>>);
+type DecodedVectorNetwork = (
+    Vec<(Vec<PathCommand>, FillRule)>,
+    Vec<(Vec<PathCommand>, FillRule)>,
+);
 
 fn decode_figma_vector_network_blob(
     blob: &[u8],
     width: f64,
     height: f64,
     norm_size: Option<(f64, f64)>,
-) -> DecodedVectorNetwork {
+    total_decoded_path_commands: &mut usize,
+) -> Result<DecodedVectorNetwork, String> {
     if blob.len() < 12 {
-        return (Vec::new(), Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     }
     let read_u32 = |off: usize| -> Option<u32> {
         let s = blob.get(off..off + 4)?;
@@ -879,22 +948,22 @@ fn decode_figma_vector_network_blob(
     };
 
     let (Some(nv_u32), Some(ns_u32), Some(nr_u32)) = (read_u32(0), read_u32(4), read_u32(8)) else {
-        return (Vec::new(), Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     };
     let nv = nv_u32 as usize;
     let ns = ns_u32 as usize;
     let nr = nr_u32 as usize;
     if nv > 200_000 || ns > 200_000 || nr > 50_000 {
-        return (Vec::new(), Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     }
     let Some(seg_base) = 12usize.checked_add(nv.saturating_mul(12)) else {
-        return (Vec::new(), Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     };
     let Some(reg_base) = seg_base.checked_add(ns.saturating_mul(28)) else {
-        return (Vec::new(), Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     };
     if reg_base > blob.len() || nv == 0 || ns == 0 {
-        return (Vec::new(), Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     }
 
     let (sx, sy) = if let Some((nx, ny)) = norm_size {
@@ -913,7 +982,7 @@ fn decode_figma_vector_network_blob(
         (1.0, 1.0)
     };
 
-    let mut verts = Vec::with_capacity(nv);
+    let mut verts = Vec::with_capacity(nv.min(4096));
     for i in 0..nv {
         let off = 12 + i * 12;
         let x = read_f32(off + 4).unwrap_or(0.0) * sx;
@@ -931,7 +1000,7 @@ fn decode_figma_vector_network_blob(
         dy2: f64,
     }
 
-    let mut segs = Vec::with_capacity(ns);
+    let mut segs = Vec::with_capacity(ns.min(4096));
     for i in 0..ns {
         let off = seg_base + i * 28;
         let start = read_u32(off + 4).unwrap_or(0) as usize;
@@ -941,7 +1010,7 @@ fn decode_figma_vector_network_blob(
         let dx2 = read_f32(off + 20).unwrap_or(0.0) * sx;
         let dy2 = read_f32(off + 24).unwrap_or(0.0) * sy;
         if start >= nv || end >= nv {
-            return (Vec::new(), Vec::new());
+            return Ok((Vec::new(), Vec::new()));
         }
         segs.push(VnSeg {
             start,
@@ -953,24 +1022,30 @@ fn decode_figma_vector_network_blob(
         });
     }
 
-    let emit_seg = |cmds: &mut Vec<PathCommand>, s: VnSeg, forward: bool| {
+    let emit_seg = |cmds: &mut Vec<PathCommand>,
+                    total: &mut usize,
+                    s: VnSeg,
+                    forward: bool|
+     -> Result<(), String> {
         let (v0, t0x, t0y, v1, t1x, t1y) = if forward {
             (verts[s.start], s.dx1, s.dy1, verts[s.end], s.dx2, s.dy2)
         } else {
             (verts[s.end], s.dx2, s.dy2, verts[s.start], s.dx1, s.dy1)
         };
-        if t0x.abs() <= 1e-7 && t0y.abs() <= 1e-7 && t1x.abs() <= 1e-7 && t1y.abs() <= 1e-7 {
-            cmds.push(PathCommand::LineTo { x: v1[0], y: v1[1] });
-        } else {
-            cmds.push(PathCommand::CubicTo {
-                cx1: v0[0] + t0x,
-                cy1: v0[1] + t0y,
-                cx2: v1[0] + t1x,
-                cy2: v1[1] + t1y,
-                x: v1[0],
-                y: v1[1],
-            });
-        }
+        let cmd =
+            if t0x.abs() <= 1e-7 && t0y.abs() <= 1e-7 && t1x.abs() <= 1e-7 && t1y.abs() <= 1e-7 {
+                PathCommand::LineTo { x: v1[0], y: v1[1] }
+            } else {
+                PathCommand::CubicTo {
+                    cx1: v0[0] + t0x,
+                    cy1: v0[1] + t0y,
+                    cx2: v1[0] + t1x,
+                    cy2: v1[1] + t1y,
+                    x: v1[0],
+                    y: v1[1],
+                }
+            };
+        push_bounded_path_cmd(cmds, total, cmd)
     };
 
     let mut fill_paths = Vec::new();
@@ -1005,7 +1080,12 @@ fn decode_figma_vector_network_blob(
                 pos = end_pos.min(blob.len());
                 continue;
             }
-            let mut loop_segs = Vec::with_capacity(loop_len);
+            if loop_len > MAX_PATH_COMMANDS {
+                return Err(format!(
+                    "Figma vector network region loop exceeds maximum command limit ({MAX_PATH_COMMANDS})"
+                ));
+            }
+            let mut loop_segs = Vec::with_capacity(loop_len.min(4096));
             let mut valid = true;
             for k in 0..loop_len {
                 let sidx = read_u32(pos + k * 4).unwrap_or(u32::MAX) as usize;
@@ -1031,10 +1111,14 @@ fn decode_figma_vector_network_blob(
             } else {
                 loop_segs[0].end
             };
-            region_cmds.push(PathCommand::MoveTo {
-                x: verts[cur_vert][0],
-                y: verts[cur_vert][1],
-            });
+            push_bounded_path_cmd(
+                &mut region_cmds,
+                total_decoded_path_commands,
+                PathCommand::MoveTo {
+                    x: verts[cur_vert][0],
+                    y: verts[cur_vert][1],
+                },
+            )?;
             for (idx, seg) in loop_segs.into_iter().enumerate() {
                 let fwd = if idx == 0 {
                     first_fwd
@@ -1043,23 +1127,31 @@ fn decode_figma_vector_network_blob(
                 } else if seg.end == cur_vert {
                     false
                 } else {
-                    region_cmds.push(PathCommand::MoveTo {
-                        x: verts[seg.start][0],
-                        y: verts[seg.start][1],
-                    });
+                    push_bounded_path_cmd(
+                        &mut region_cmds,
+                        total_decoded_path_commands,
+                        PathCommand::MoveTo {
+                            x: verts[seg.start][0],
+                            y: verts[seg.start][1],
+                        },
+                    )?;
                     true
                 };
-                emit_seg(&mut region_cmds, seg, fwd);
+                emit_seg(&mut region_cmds, total_decoded_path_commands, seg, fwd)?;
                 cur_vert = if fwd { seg.end } else { seg.start };
             }
-            region_cmds.push(PathCommand::Close);
+            push_bounded_path_cmd(
+                &mut region_cmds,
+                total_decoded_path_commands,
+                PathCommand::Close,
+            )?;
         }
         if region_cmds.len() >= 2 {
             fill_paths.push((region_cmds, winding));
         }
     }
 
-    let mut stroke_cmds = Vec::with_capacity(ns + 2);
+    let mut stroke_cmds = Vec::with_capacity((ns + 2).min(4096));
     let mut cur_vert: Option<usize> = None;
     let mut contour_start: Option<usize> = None;
     for seg in &segs {
@@ -1069,31 +1161,43 @@ fn decode_figma_vector_network_blob(
             false
         } else {
             if cur_vert.is_some() && cur_vert == contour_start {
-                stroke_cmds.push(PathCommand::Close);
+                push_bounded_path_cmd(
+                    &mut stroke_cmds,
+                    total_decoded_path_commands,
+                    PathCommand::Close,
+                )?;
             }
-            stroke_cmds.push(PathCommand::MoveTo {
-                x: verts[seg.start][0],
-                y: verts[seg.start][1],
-            });
+            push_bounded_path_cmd(
+                &mut stroke_cmds,
+                total_decoded_path_commands,
+                PathCommand::MoveTo {
+                    x: verts[seg.start][0],
+                    y: verts[seg.start][1],
+                },
+            )?;
             contour_start = Some(seg.start);
             true
         };
-        emit_seg(&mut stroke_cmds, *seg, fwd);
+        emit_seg(&mut stroke_cmds, total_decoded_path_commands, *seg, fwd)?;
         let next_vert = if fwd { seg.end } else { seg.start };
         cur_vert = Some(next_vert);
         if contour_start == Some(next_vert) {
-            stroke_cmds.push(PathCommand::Close);
+            push_bounded_path_cmd(
+                &mut stroke_cmds,
+                total_decoded_path_commands,
+                PathCommand::Close,
+            )?;
             cur_vert = None;
             contour_start = None;
         }
     }
     let stroke_paths = if stroke_cmds.len() >= 2 {
-        vec![stroke_cmds]
+        vec![(stroke_cmds, FillRule::NonZero)]
     } else {
         Vec::new()
     };
 
-    (fill_paths, stroke_paths)
+    Ok((fill_paths, stroke_paths))
 }
 
 fn guid_string(obj: &KiwiObj<'_>) -> Option<String> {
@@ -1275,17 +1379,11 @@ fn parse_kiwi_paint_list(
                 }
                 if stops.len() >= 2 {
                     let radial = ptype != "GRADIENT_LINEAR";
-                    let (start, end) = if let Some(mat) = p
+                    let uv_transform = p
                         .get("transform")
                         .and_then(KiwiVal::as_obj)
-                        .and_then(parse_kiwi_matrix6)
-                    {
-                        gradient_handles_from_paint_matrix(mat, w, h, radial)
-                    } else if radial {
-                        ([w * 0.5, h * 0.5], [w, h * 0.5])
-                    } else {
-                        ([0.0, h * 0.5], [w, h * 0.5])
-                    };
+                        .and_then(parse_kiwi_matrix6);
+                    let _ = (w, h);
                     let kind = if radial {
                         GradientKind::Radial
                     } else {
@@ -1299,8 +1397,7 @@ fn parse_kiwi_paint_list(
                     out.push(FigmaPaint::Gradient {
                         kind,
                         stops,
-                        start,
-                        end,
+                        uv_transform,
                         approximated_from,
                     });
                 }
@@ -1347,10 +1444,15 @@ fn parse_kiwi_paint_list(
                         .get("imageScaleMode")
                         .and_then(KiwiVal::as_str)
                         .unwrap_or("FILL");
-                    let image_transform = p
-                        .get("transform")
-                        .and_then(KiwiVal::as_obj)
-                        .and_then(parse_kiwi_matrix6);
+                    let is_crop_or_stretch = raw_scale_mode.eq_ignore_ascii_case("CROP")
+                        || raw_scale_mode.eq_ignore_ascii_case("STRETCH");
+                    let image_transform = if is_crop_or_stretch {
+                        p.get("transform")
+                            .and_then(KiwiVal::as_obj)
+                            .and_then(parse_kiwi_matrix6)
+                    } else {
+                        None
+                    };
                     let scale_mode = if raw_scale_mode.eq_ignore_ascii_case("STRETCH") {
                         "CROP".to_owned()
                     } else {
@@ -2065,7 +2167,10 @@ struct DecompressedKiwiContainer {
     msg_chunk: Vec<u8>,
 }
 
-fn decompress_kiwi_container(bytes: &[u8]) -> Result<DecompressedKiwiContainer, String> {
+fn decompress_kiwi_container(
+    bytes: &[u8],
+    max_decode_bytes: usize,
+) -> Result<DecompressedKiwiContainer, String> {
     if bytes.len() < 20 {
         return Err("Figma Kiwi stream is shorter than 20-byte header".into());
     }
@@ -2082,8 +2187,11 @@ fn decompress_kiwi_container(bytes: &[u8]) -> Result<DecompressedKiwiContainer, 
         let len = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]])
             as usize;
         pos += 4;
-        if len > MAX_FIGMA_DECODE_BYTES {
-            return Err("Figma Kiwi chunk length exceeds 256 MiB limit".into());
+        if len > max_decode_bytes {
+            return Err(format!(
+                "Figma Kiwi chunk length exceeds {} MiB limit",
+                max_decode_bytes / (1024 * 1024)
+            ));
         }
         let end = pos
             .checked_add(len)
@@ -2092,7 +2200,9 @@ fn decompress_kiwi_container(bytes: &[u8]) -> Result<DecompressedKiwiContainer, 
             .get(pos..end)
             .ok_or_else(|| "Truncated Figma Kiwi chunk payload".to_owned())?;
         pos = end;
-        let (decompressed, used_zstd) = decompress_fig_chunk(chunk_slice)?;
+        let chunk_index = chunks.len();
+        let (decompressed, used_zstd) =
+            decompress_fig_chunk(chunk_slice, max_decode_bytes, chunk_index)?;
         any_zstd |= used_zstd;
         chunks.push(decompressed);
     }
@@ -2568,7 +2678,7 @@ fn inspect_fig_kiwi_stream(
         any_zstd,
         schema_chunk,
         msg_chunk,
-    } = decompress_kiwi_container(bytes)?;
+    } = decompress_kiwi_container(bytes, MAX_FIGMA_DECODE_BYTES)?;
     let defs = parse_kiwi_schema(&schema_chunk)?;
     let scanned = scan_kiwi_message_pass1(&msg_chunk, &defs, default_name, false, false)?;
     let (children_by_parent, page_indices) = build_scanned_children_graph(&scanned);
@@ -2613,7 +2723,17 @@ pub(super) fn parse_fig_kiwi_canvas_with_options(
     default_name: &str,
     options: &FigmaImportOptions,
 ) -> Result<FigmaDoc, ImportError> {
-    decode_fig_kiwi_stream(bytes, default_name, options).map_err(ImportError::Container)
+    parse_fig_kiwi_canvas_with_limit(bytes, default_name, options, MAX_FIGMA_DECODE_BYTES)
+}
+
+pub(super) fn parse_fig_kiwi_canvas_with_limit(
+    bytes: &[u8],
+    default_name: &str,
+    options: &FigmaImportOptions,
+    max_decode_bytes: usize,
+) -> Result<FigmaDoc, ImportError> {
+    decode_fig_kiwi_stream(bytes, default_name, options, max_decode_bytes)
+        .map_err(ImportError::Container)
 }
 
 fn kiwi_transform(tr: &KiwiObj<'_>) -> [f64; 6] {
@@ -2626,6 +2746,7 @@ fn kiwi_transform(tr: &KiwiObj<'_>) -> [f64; 6] {
     [m00, m10, m01, m11, m02, m12]
 }
 
+#[allow(clippy::too_many_arguments)]
 fn decode_single_kiwi_node(
     snode: &ScannedKiwiNode<'_>,
     defs: &[KiwiDef],
@@ -2633,6 +2754,7 @@ fn decode_single_kiwi_node(
     targets: &mut KiwiBindingTargets,
     inline_images: &mut BTreeMap<String, Vec<u8>>,
     budget: &mut usize,
+    total_decoded_path_commands: &mut usize,
     active_structs: &mut Vec<usize>,
 ) -> Result<FigmaNode, String> {
     let nc_def_idx = scanned.nc_def_idx;
@@ -2841,46 +2963,100 @@ fn decode_single_kiwi_node(
             if let Some(cb) = go.get("commandsBlob")
                 && let Some(blob) = resolve_kiwi_blob(cb, blobs, blob_base)
             {
-                let cmds = decode_figma_commands_blob(blob);
+                let cmds = decode_figma_commands_blob(blob, total_decoded_path_commands)?;
                 if !cmds.is_empty() {
                     fill_paths.push((cmds, rule));
                     continue;
                 }
             }
             if let Some(svg_d) = go.get("commands").and_then(KiwiVal::as_str) {
+                if svg_d.len() > MAX_PATH_COMMANDS * 32 {
+                    return Err(format!(
+                        "Figma SVG commands string exceeds maximum length ({MAX_PATH_COMMANDS})"
+                    ));
+                }
                 let cmds = crate::vector_fidelity::parse_svg_path_data(svg_d);
+                if cmds.len() > MAX_PATH_COMMANDS {
+                    return Err(format!(
+                        "Figma vector path exceeds maximum command limit ({MAX_PATH_COMMANDS})"
+                    ));
+                }
                 if !cmds.is_empty() {
+                    *total_decoded_path_commands = total_decoded_path_commands
+                        .checked_add(cmds.len())
+                        .filter(|&n| n <= MAX_TOTAL_DECODED_PATH_COMMANDS)
+                        .ok_or_else(|| {
+                            format!(
+                                "Figma document exceeds maximum decoded path command budget ({MAX_TOTAL_DECODED_PATH_COMMANDS})"
+                            )
+                        })?;
                     fill_paths.push((cmds, rule));
                 }
             }
         }
     }
 
-    let mut stroke_paths: Vec<Vec<PathCommand>> = Vec::new();
+    let mut stroke_paths: Vec<(Vec<PathCommand>, FillRule)> = Vec::new();
+    let mut stroke_paths_are_outlines = false;
     if let Some(garr) = obj.get("strokeGeometry").and_then(KiwiVal::as_array) {
         for g in garr {
             let Some(go) = g.as_obj() else { continue };
+            let rule = match go.get("windingRule").and_then(KiwiVal::as_str) {
+                Some("ODD" | "EVENODD") => FillRule::EvenOdd,
+                _ => FillRule::NonZero,
+            };
             if let Some(cb) = go.get("commandsBlob")
                 && let Some(blob) = resolve_kiwi_blob(cb, blobs, blob_base)
             {
-                let cmds = decode_figma_commands_blob(blob);
+                let cmds = decode_figma_commands_blob(blob, total_decoded_path_commands)?;
                 if !cmds.is_empty() {
-                    stroke_paths.push(cmds);
+                    stroke_paths.push((cmds, rule));
                     continue;
                 }
             }
             if let Some(svg_d) = go.get("commands").and_then(KiwiVal::as_str) {
+                if svg_d.len() > MAX_PATH_COMMANDS * 32 {
+                    return Err(format!(
+                        "Figma SVG commands string exceeds maximum length ({MAX_PATH_COMMANDS})"
+                    ));
+                }
                 let cmds = crate::vector_fidelity::parse_svg_path_data(svg_d);
+                if cmds.len() > MAX_PATH_COMMANDS {
+                    return Err(format!(
+                        "Figma vector path exceeds maximum command limit ({MAX_PATH_COMMANDS})"
+                    ));
+                }
                 if !cmds.is_empty() {
-                    stroke_paths.push(cmds);
+                    *total_decoded_path_commands = total_decoded_path_commands
+                        .checked_add(cmds.len())
+                        .filter(|&n| n <= MAX_TOTAL_DECODED_PATH_COMMANDS)
+                        .ok_or_else(|| {
+                            format!(
+                                "Figma document exceeds maximum decoded path command budget ({MAX_TOTAL_DECODED_PATH_COMMANDS})"
+                            )
+                        })?;
+                    stroke_paths.push((cmds, rule));
                 }
             }
         }
+        stroke_paths_are_outlines = !stroke_paths.is_empty();
     }
 
-    // Kiwi strokeGeometry is the expanded outline, including cap and join contours.
-    // Editable strokes need the network centerline so the converter applies the width once.
-    let wants_centerline = node_type == "VECTOR" && fills.is_empty() && !strokes.is_empty();
+    // Kiwi strokeGeometry is the expanded outline, including cap, join, dash, and inside/outside contours.
+    // Editable strokes use the network centerline ONLY on centered, undashed VECTOR stroke-only paths.
+    let stroke_align = obj
+        .get("strokeAlign")
+        .and_then(KiwiVal::as_str)
+        .unwrap_or("CENTER");
+    let has_dashes = obj
+        .get("dashPattern")
+        .and_then(KiwiVal::as_array)
+        .is_some_and(|a| a.iter().any(|v| v.as_f64().is_some_and(|d| d > 0.0)));
+    let wants_centerline = node_type == "VECTOR"
+        && fills.is_empty()
+        && !strokes.is_empty()
+        && stroke_align == "CENTER"
+        && !has_dashes;
     if (fill_paths.is_empty()
         || (stroke_paths.is_empty() && !strokes.is_empty())
         || wants_centerline)
@@ -2897,21 +3073,27 @@ fn decode_single_kiwi_node(
                     ns.get("y").and_then(KiwiVal::as_f64).unwrap_or(height),
                 )
             });
-        let (vn_fills, vn_strokes) =
-            decode_figma_vector_network_blob(blob, width, height, norm_size);
+        let (vn_fills, mut vn_strokes) = decode_figma_vector_network_blob(
+            blob,
+            width,
+            height,
+            norm_size,
+            total_decoded_path_commands,
+        )?;
         if fill_paths.is_empty() {
             if !vn_fills.is_empty() {
                 fill_paths = vn_fills;
             } else if !fills.is_empty() && !vn_strokes.is_empty() {
-                fill_paths = vn_strokes
-                    .iter()
-                    .cloned()
-                    .map(|c| (c, FillRule::NonZero))
-                    .collect();
+                if stroke_paths.is_empty() && !strokes.is_empty() {
+                    fill_paths = vn_strokes.clone();
+                } else {
+                    fill_paths = std::mem::take(&mut vn_strokes);
+                }
             }
         }
         if (stroke_paths.is_empty() || wants_centerline) && !vn_strokes.is_empty() {
             stroke_paths = vn_strokes;
+            stroke_paths_are_outlines = false;
         }
     }
 
@@ -3087,12 +3269,48 @@ fn decode_single_kiwi_node(
                     .get("opacity")
                     .and_then(KiwiVal::as_f64)
                     .map(|v| v.clamp(0.0, 1.0));
-                let ov_chars = ov
-                    .get("textData")
-                    .and_then(KiwiVal::as_obj)
+                let text_auto_resize = ov
+                    .get("textAutoResize")
+                    .and_then(KiwiVal::as_str)
+                    .map(str::to_owned);
+                let font_size = ov
+                    .get("fontSize")
+                    .and_then(KiwiVal::as_f64)
+                    .filter(|n| n.is_finite() && *n > 0.0);
+                let ov_td = ov.get("textData").and_then(KiwiVal::as_obj);
+                let ov_chars = ov_td
                     .and_then(|td| td.get("characters"))
                     .and_then(KiwiVal::as_str)
                     .map(str::to_owned);
+                let (ov_style_ids, ov_style_overrides) = if let Some(td) = ov_td {
+                    let cids: Option<Vec<u64>> = td
+                        .get("characterStyleIDs")
+                        .and_then(KiwiVal::as_array)
+                        .filter(|arr| !arr.is_empty())
+                        .map(|arr| {
+                            arr.iter()
+                                .take(MAX_PATH_COMMANDS)
+                                .map(|v| v.as_u64().unwrap_or(0))
+                                .collect()
+                        });
+                    let mut sot_entries = Vec::new();
+                    if cids.is_some()
+                        && let Some(sot) = td.get("styleOverrideTable").and_then(KiwiVal::as_array)
+                    {
+                        let base_fs = font_size.unwrap_or(16.0);
+                        for item in sot.iter().take(1024) {
+                            if let Some(so) = item.as_obj()
+                                && let Some(sid) = so.get("styleID").and_then(KiwiVal::as_u64)
+                                && sid != 0
+                            {
+                                sot_entries.push((sid, parse_kiwi_style_override(so, base_fs)));
+                            }
+                        }
+                    }
+                    (cids, sot_entries)
+                } else {
+                    (None, Vec::new())
+                };
                 let ov_fills = ov.get("fillPaints").and_then(KiwiVal::as_array).map(|a| {
                     parse_kiwi_paint_list(a, width, height, blobs, blob_base, Some(inline_images))
                 });
@@ -3103,19 +3321,12 @@ fn decode_single_kiwi_node(
                     .get("overriddenSymbolID")
                     .and_then(KiwiVal::as_obj)
                     .and_then(guid_string);
-                let text_auto_resize = ov
-                    .get("textAutoResize")
-                    .and_then(KiwiVal::as_str)
-                    .map(str::to_owned);
-                let font_size = ov
-                    .get("fontSize")
-                    .and_then(KiwiVal::as_f64)
-                    .filter(|n| *n > 0.0);
                 if text_auto_resize.is_some()
                     || font_size.is_some()
                     || ov_vis.is_some()
                     || ov_op.is_some()
                     || ov_chars.is_some()
+                    || ov_style_ids.is_some()
                     || ov_fills.is_some()
                     || ov_strokes.is_some()
                     || ov_sym.is_some()
@@ -3127,6 +3338,8 @@ fn decode_single_kiwi_node(
                         visible: ov_vis,
                         opacity: ov_op,
                         characters: ov_chars,
+                        text_style_ids: ov_style_ids,
+                        text_style_overrides: ov_style_overrides,
                         fills: ov_fills,
                         strokes: ov_strokes,
                         overridden_symbol_id: ov_sym,
@@ -3177,6 +3390,7 @@ fn decode_single_kiwi_node(
         border_weights,
         fill_paths,
         stroke_paths,
+        stroke_paths_are_outlines,
         text,
         effects,
         component_id,
@@ -3228,6 +3442,8 @@ fn apply_component_properties(
                     visible: None,
                     opacity: None,
                     characters: None,
+                    text_style_ids: None,
+                    text_style_overrides: Vec::new(),
                     fills: None,
                     strokes: None,
                     overridden_symbol_id: None,
@@ -3298,6 +3514,7 @@ fn decode_fig_kiwi_stream(
     bytes: &[u8],
     default_name: &str,
     options: &FigmaImportOptions,
+    max_decode_bytes: usize,
 ) -> Result<FigmaDoc, String> {
     let DecompressedKiwiContainer {
         version,
@@ -3305,7 +3522,7 @@ fn decode_fig_kiwi_stream(
         any_zstd,
         schema_chunk,
         msg_chunk,
-    } = decompress_kiwi_container(bytes)?;
+    } = decompress_kiwi_container(bytes, max_decode_bytes)?;
     let defs = parse_kiwi_schema(&schema_chunk)?;
     let scanned = scan_kiwi_message_pass1(&msg_chunk, &defs, default_name, true, true)?;
     let (children_by_parent, all_page_indices) = build_scanned_children_graph(&scanned);
@@ -3438,6 +3655,7 @@ fn decode_fig_kiwi_stream(
 
     let mut binding_targets = KiwiBindingTargets::new();
     let mut inline_images = BTreeMap::new();
+    let mut total_decoded_path_commands = 0usize;
     let mut decoded_nodes: Vec<Option<FigmaNode>> = (0..n).map(|_| None).collect();
     for idx in 0..n {
         if reach_state[idx] == 0 {
@@ -3450,6 +3668,7 @@ fn decode_fig_kiwi_stream(
             &mut binding_targets,
             &mut inline_images,
             &mut budget,
+            &mut total_decoded_path_commands,
             &mut active_structs,
         )?;
         decoded_nodes[idx] = Some(fnode);

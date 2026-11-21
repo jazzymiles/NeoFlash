@@ -4,8 +4,6 @@
 
 use std::io::Cursor;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
 use neoflash_core::{PathBounds, Project};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -13,13 +11,17 @@ use zip::ZipArchive;
 
 use super::convert::{build_clipboard_project_from_figma_doc, collect_unresolved_image_refs};
 use super::json_doc::parse_figma_json_doc;
-use super::kiwi::{looks_like_raster_image_blob, parse_fig_kiwi_canvas_with_options, sha1_hex};
+use super::kiwi::{looks_like_raster_image_blob, parse_fig_kiwi_canvas_with_limit, sha1_hex};
 use super::{
-    FigmaDoc, FigmaImageArchive, FigmaImportOptions, FigmaPageMapping, FigmaZipReader,
-    MAX_FIGMA_DECODE_BYTES, MAX_FIGMA_FILE_BYTES, MAX_ZIP_IMAGE_ENTRY_BYTES, is_figma_bytes,
-    scan_figma_zip_archive,
+    FigmaDoc, FigmaImageArchive, FigmaImportOptions, FigmaNode, FigmaPageMapping, FigmaPaint,
+    FigmaZipReader, MAX_ZIP_IMAGE_ENTRY_BYTES, is_figma_bytes, scan_figma_zip_archive,
 };
 use crate::{ImportError, ImportReport};
+
+/// Maximum HTML/text clipboard wrapper size accepted synchronously on Stage paste (`128 MiB`).
+pub const MAX_STAGE_HTML_CLIPBOARD_BYTES: usize = 128 * 1024 * 1024;
+/// Maximum decoded `fig-kiwi` container or decompressed chunk size on Stage clipboard paste (`64 MiB`).
+pub const MAX_CLIPBOARD_KIWI_DECODE_BYTES: usize = 64 * 1024 * 1024;
 
 /// Optional decoded JSON metadata from `<!--(figmeta)...(/figmeta)-->` on the Figma clipboard.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,106 +62,168 @@ pub struct ImportOutput {
 /// Type alias for [`ImportOutput`] on `neoflash_import::figma`.
 pub type FigmaClipboardImport = ImportOutput;
 
-/// Fast O(N) check whether `html_or_text` contains a Figma clipboard comment marker.
+/// Fast O(N) check whether `html_or_text` contains a valid Figma clipboard comment marker.
 pub fn contains_figma_clipboard_marker(html_or_text: &str) -> bool {
-    let Some(open_pos) = html_or_text.find("!--(figma)") else {
-        return false;
-    };
-    html_or_text[open_pos + "!--(figma)".len()..].contains("(/figma)--")
+    extract_comment_tag_slice(html_or_text, "figma").is_some()
 }
 
 fn extract_comment_tag_slice<'a>(text: &'a str, tag: &str) -> Option<&'a str> {
     let open_pat = format!("!--({tag})");
     let close_pat = format!("(/{tag})--");
-    let start_marker = text.find(&open_pat)?;
-    // Verify the `!--` is preceded by `<` or an HTML entity (`&lt;`, `&LT;`, `&#60;`, `&#x3c;`).
-    let prefix = &text[..start_marker];
-    let valid_prefix = prefix.ends_with('<')
-        || prefix.ends_with(';') && {
-            let tail_start = prefix.len().saturating_sub(8);
-            let tail = prefix[tail_start..].to_ascii_lowercase();
-            tail.ends_with("&lt;")
-                || tail.ends_with("&#60;")
-                || tail.ends_with("&#060;")
-                || tail.ends_with("&#x3c;")
-                || tail.ends_with("&#x03c;")
+    let mut search_from = 0usize;
+    while let Some(rel_open) = text[search_from..].find(&open_pat) {
+        let start_marker = search_from + rel_open;
+        let content_start = start_marker + open_pat.len();
+        search_from = content_start;
+
+        // Verify `!--` is preceded by `<` or an HTML entity (`&lt;`, `&#60;`, `&#060;`, `&#x3c;`, `&#x03c;`)
+        // strictly on `text.as_bytes()` so non-ASCII UTF-8 (Cyrillic/emoji) never panics!
+        let pbytes = &text.as_bytes()[..start_marker];
+        let valid_prefix = if pbytes.last() == Some(&b'<') {
+            pbytes.iter().rposition(|&b| b == b'<') == Some(pbytes.len() - 1)
+        } else if pbytes.last() == Some(&b';') {
+            let tail = &pbytes[pbytes.len().saturating_sub(8)..];
+            tail.iter().rposition(|&b| b == b'&').is_some_and(|amp| {
+                let ent = &tail[amp..];
+                ent.eq_ignore_ascii_case(b"&lt;")
+                    || ent.eq_ignore_ascii_case(b"&#60;")
+                    || ent.eq_ignore_ascii_case(b"&#060;")
+                    || ent.eq_ignore_ascii_case(b"&#x3c;")
+                    || ent.eq_ignore_ascii_case(b"&#x03c;")
+            })
+        } else {
+            false
         };
-    if !valid_prefix {
-        return None;
+        if !valid_prefix {
+            continue;
+        }
+
+        let rel_end = text[content_start..].find(&close_pat)?;
+        let content_end = content_start + rel_end;
+        let sbytes = &text.as_bytes()[content_end + close_pat.len()..];
+        let valid_suffix = if sbytes.first() == Some(&b'>') {
+            sbytes.iter().position(|&b| b == b'>') == Some(0)
+        } else if sbytes.first() == Some(&b'&') {
+            let head = &sbytes[..sbytes.len().min(8)];
+            head.iter().position(|&b| b == b';').is_some_and(|semi| {
+                let ent = &head[..=semi];
+                ent.eq_ignore_ascii_case(b"&gt;")
+                    || ent.eq_ignore_ascii_case(b"&#62;")
+                    || ent.eq_ignore_ascii_case(b"&#062;")
+                    || ent.eq_ignore_ascii_case(b"&#x3e;")
+                    || ent.eq_ignore_ascii_case(b"&#x03e;")
+            })
+        } else {
+            false
+        };
+        if !valid_suffix {
+            continue;
+        }
+        return Some(&text[content_start..content_end]);
     }
-    let content_start = start_marker + open_pat.len();
-    let rel_end = text[content_start..].find(&close_pat)?;
-    let content_end = content_start + rel_end;
-    let suffix = &text[content_end + close_pat.len()..];
-    let valid_suffix = suffix.starts_with('>') || {
-        let head_end = suffix.len().min(8);
-        let head = suffix[..head_end].to_ascii_lowercase();
-        head.starts_with("&gt;")
-            || head.starts_with("&#62;")
-            || head.starts_with("&#062;")
-            || head.starts_with("&#x3e;")
-            || head.starts_with("&#x03e;")
-    };
-    if !valid_suffix {
-        return None;
-    }
-    Some(&text[content_start..content_end])
+    None
 }
 
+#[inline]
+fn b64_sextet(b: u8) -> Option<u8> {
+    match b {
+        b'A'..=b'Z' => Some(b - b'A'),
+        b'a'..=b'z' => Some(b - b'a' + 26),
+        b'0'..=b'9' => Some(b - b'0' + 52),
+        b'+' | b'-' => Some(62),
+        b'/' | b'_' => Some(63),
+        _ => None,
+    }
+}
+
+/// Stream-decode standard, URL-safe, or HTML-entity-escaped base64 directly into a bounded
+/// `Vec<u8>` without allocating an intermediate `cleaned: String`.
 fn decode_html_base64(raw: &str, max_decoded_bytes: usize) -> Option<Vec<u8>> {
-    if raw.len() > max_decoded_bytes.saturating_mul(2) {
+    if max_decoded_bytes == 0 || raw.len() > max_decoded_bytes.saturating_mul(2) {
         return None;
     }
-    let mut cleaned = String::with_capacity(raw.len());
     let bytes = raw.as_bytes();
+    let est_cap = (bytes.len() / 4 * 3)
+        .min(max_decoded_bytes)
+        .min(4 * 1024 * 1024);
+    let mut out = Vec::with_capacity(est_cap);
+    let mut quantum = [0u8; 4];
+    let mut qlen = 0usize;
+    let mut saw_pad = false;
     let mut i = 0usize;
+
     while i < bytes.len() {
         let b = bytes[i];
         if b.is_ascii_whitespace() {
             i += 1;
             continue;
         }
-        if b == b'&'
-            && let Some(semi_rel) = raw[i..].find(';')
-            && semi_rel <= 8
-        {
-            let entity = &raw[i..=i + semi_rel];
-            if entity.eq_ignore_ascii_case("&#43;") || entity.eq_ignore_ascii_case("&#x2b;") {
-                cleaned.push('+');
-                i += semi_rel + 1;
+        let ch = if b == b'&' {
+            let rem = &bytes[i..];
+            let window = &rem[..rem.len().min(9)];
+            let semi = window.iter().position(|&c| c == b';')?;
+            let ent = &window[..=semi];
+            if ent.eq_ignore_ascii_case(b"&amp;") {
+                i += semi + 1;
                 continue;
-            } else if entity.eq_ignore_ascii_case("&#47;") || entity.eq_ignore_ascii_case("&#x2f;")
-            {
-                cleaned.push('/');
-                i += semi_rel + 1;
-                continue;
-            } else if entity.eq_ignore_ascii_case("&#61;") || entity.eq_ignore_ascii_case("&#x3d;")
-            {
-                cleaned.push('=');
-                i += semi_rel + 1;
-                continue;
-            } else if entity.eq_ignore_ascii_case("&amp;") {
-                i += semi_rel + 1;
-                continue;
+            } else if ent.eq_ignore_ascii_case(b"&#43;") || ent.eq_ignore_ascii_case(b"&#x2b;") {
+                i += semi + 1;
+                b'+'
+            } else if ent.eq_ignore_ascii_case(b"&#47;") || ent.eq_ignore_ascii_case(b"&#x2f;") {
+                i += semi + 1;
+                b'/'
+            } else if ent.eq_ignore_ascii_case(b"&#61;") || ent.eq_ignore_ascii_case(b"&#x3d;") {
+                i += semi + 1;
+                b'='
+            } else {
+                return None;
             }
-        }
-        let ch = match b {
-            b'-' => '+',
-            b'_' => '/',
-            other => other as char,
+        } else {
+            i += 1;
+            b
         };
-        cleaned.push(ch);
-        i += 1;
+
+        if ch == b'=' {
+            saw_pad = true;
+            continue;
+        }
+        if saw_pad {
+            return None;
+        }
+        let val = b64_sextet(ch)?;
+        quantum[qlen] = val;
+        qlen += 1;
+        if qlen == 4 {
+            if out.len().saturating_add(3) > max_decoded_bytes {
+                return None;
+            }
+            out.push((quantum[0] << 2) | (quantum[1] >> 4));
+            out.push((quantum[1] << 4) | (quantum[2] >> 2));
+            out.push((quantum[2] << 6) | quantum[3]);
+            qlen = 0;
+        }
     }
-    let trimmed = cleaned.trim_end_matches('=');
-    if trimmed.is_empty() {
-        return None;
+
+    match qlen {
+        0 => {}
+        1 => return None,
+        2 => {
+            if out.len().saturating_add(1) > max_decoded_bytes {
+                return None;
+            }
+            out.push((quantum[0] << 2) | (quantum[1] >> 4));
+        }
+        3 => {
+            if out.len().saturating_add(2) > max_decoded_bytes {
+                return None;
+            }
+            out.push((quantum[0] << 2) | (quantum[1] >> 4));
+            out.push((quantum[1] << 4) | (quantum[2] >> 2));
+        }
+        _ => unreachable!(),
     }
-    let decoded = STANDARD_NO_PAD
-        .decode(trimmed)
-        .or_else(|_| STANDARD.decode(&cleaned))
-        .ok()?;
-    (decoded.len() <= max_decoded_bytes).then_some(decoded)
+
+    (!out.is_empty()).then_some(out)
 }
 
 fn parse_figmeta_json(bytes: &[u8]) -> Option<FigmaClipboardMeta> {
@@ -191,9 +255,10 @@ fn parse_figmeta_json(bytes: &[u8]) -> Option<FigmaClipboardMeta> {
 
 fn extract_inline_html_images(html: &str) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
+    let mut remaining_budget = MAX_CLIPBOARD_KIWI_DECODE_BYTES;
     let mut cursor = html;
     while let Some(pos) = cursor.find("data:image/") {
-        if out.len() >= 16 {
+        if out.len() >= 16 || remaining_budget == 0 {
             break;
         }
         let after = &cursor[pos + "data:image/".len()..];
@@ -216,9 +281,11 @@ fn extract_inline_html_images(html: &str) -> Vec<Vec<u8>> {
             .find(['"', '\'', '>', '<', ')', ' '])
             .unwrap_or(b64_start.len());
         let raw_b64 = &b64_start[..b64_end];
-        if let Some(bytes) = decode_html_base64(raw_b64, MAX_ZIP_IMAGE_ENTRY_BYTES)
+        let max_entry = MAX_ZIP_IMAGE_ENTRY_BYTES.min(remaining_budget);
+        if let Some(bytes) = decode_html_base64(raw_b64, max_entry)
             && looks_like_raster_image_blob(&bytes)
         {
+            remaining_budget = remaining_budget.saturating_sub(bytes.len());
             out.push(bytes);
         }
         cursor = &b64_start[b64_end..];
@@ -226,21 +293,28 @@ fn extract_inline_html_images(html: &str) -> Vec<Vec<u8>> {
     out
 }
 
-/// Extract a Figma clipboard `fig-kiwi` payload (`<!--(figma)...(/figma)-->` or HTML-escaped
-/// `&lt;!--(figma)...(/figma)--&gt;`), optional `figmeta` JSON metadata, and any inline HTML
-/// `data:image/...;base64,...` fallback images from `html_or_text`.
-pub fn extract_figma_clipboard_kiwi(html_or_text: &str) -> Option<FigmaClipboardPayload> {
-    if html_or_text.len() > MAX_FIGMA_FILE_BYTES.saturating_mul(2) {
+fn extract_figma_clipboard_kiwi_core(
+    html_or_text: &str,
+) -> Option<(Vec<u8>, Option<FigmaClipboardMeta>)> {
+    if html_or_text.len() > MAX_STAGE_HTML_CLIPBOARD_BYTES {
         return None;
     }
     let b64_kiwi = extract_comment_tag_slice(html_or_text, "figma")?;
-    let kiwi_bytes = decode_html_base64(b64_kiwi, MAX_FIGMA_DECODE_BYTES)?;
+    let kiwi_bytes = decode_html_base64(b64_kiwi, MAX_CLIPBOARD_KIWI_DECODE_BYTES)?;
     if !is_figma_bytes(&kiwi_bytes) {
         return None;
     }
     let meta = extract_comment_tag_slice(html_or_text, "figmeta")
         .and_then(|raw| decode_html_base64(raw, 1024 * 1024))
         .and_then(|bytes| parse_figmeta_json(&bytes));
+    Some((kiwi_bytes, meta))
+}
+
+/// Extract a Figma clipboard `fig-kiwi` payload (`<!--(figma)...(/figma)-->` or HTML-escaped
+/// `&lt;!--(figma)...(/figma)--&gt;`), optional `figmeta` JSON metadata, and any inline HTML
+/// `data:image/...;base64,...` fallback images from `html_or_text`.
+pub fn extract_figma_clipboard_kiwi(html_or_text: &str) -> Option<FigmaClipboardPayload> {
+    let (kiwi_bytes, meta) = extract_figma_clipboard_kiwi_core(html_or_text)?;
     let inline_images = extract_inline_html_images(html_or_text);
     Some(FigmaClipboardPayload {
         kiwi_bytes,
@@ -249,43 +323,128 @@ pub fn extract_figma_clipboard_kiwi(html_or_text: &str) -> Option<FigmaClipboard
     })
 }
 
-fn attach_extra_clipboard_images(doc: &mut FigmaDoc, extra_images: &[&[u8]]) {
-    let valid_extras: Vec<&[u8]> = extra_images
+/// Returns `true` ONLY when the copied Figma selection is a single unstroked, childless,
+/// full-bleed `IMAGE` leaf node where `public.png` (`fallback_png`) genuinely represents that
+/// single image rather than a flat composite screenshot of a multi-node card/selection.
+fn is_single_full_bleed_image_leaf(doc: &FigmaDoc) -> bool {
+    let user_pages: Vec<&FigmaNode> = {
+        let non_internal: Vec<&FigmaNode> = doc.pages.iter().filter(|p| !p.internal_only).collect();
+        if non_internal.is_empty() {
+            doc.pages.iter().collect()
+        } else {
+            non_internal
+        }
+    };
+    let any_visible = user_pages
         .iter()
-        .copied()
-        .filter(|b| {
-            !b.is_empty() && b.len() <= MAX_ZIP_IMAGE_ENTRY_BYTES && looks_like_raster_image_blob(b)
-        })
+        .flat_map(|p| &p.children)
+        .any(|c| c.visible);
+    let top_nodes: Vec<&FigmaNode> = user_pages
+        .iter()
+        .flat_map(|p| &p.children)
+        .filter(|c| c.visible || !any_visible)
         .collect();
-    if valid_extras.is_empty() {
+    let [node] = top_nodes.as_slice() else {
+        return false;
+    };
+    if !node.children.is_empty()
+        || node.component_id.is_some()
+        || node.text.is_some()
+        || node.is_mask
+        || (!node.strokes.is_empty() && (node.stroke_weight > 0.0 || node.border_weights.is_some()))
+        || !node.effects.is_empty()
+        || !node.fill_paths.is_empty()
+        || !node.corner_radii.iter().all(|&r| r <= 0.0)
+        || !matches!(
+            node.node_type.as_str(),
+            "RECTANGLE" | "ROUNDED_RECTANGLE" | "FRAME"
+        )
+        || node.rotation_deg.abs() > 1e-4
+        || node.relative_transform.is_some_and(|[a, b, c, d, _, _]| {
+            b.abs() > 1e-4 || c.abs() > 1e-4 || a <= 0.0 || d <= 0.0
+        })
+    {
+        return false;
+    }
+    matches!(
+        node.fills.as_slice(),
+        [FigmaPaint::Image {
+            scale_mode,
+            image_transform: None,
+            ..
+        }] if scale_mode == "FILL"
+    )
+}
+
+fn attach_clipboard_images(
+    doc: &mut FigmaDoc,
+    lazy_html_source: Option<&str>,
+    fallback_png: Option<&[u8]>,
+) {
+    let mut unresolved = collect_unresolved_image_refs(doc, &doc.inline_images);
+    if unresolved.is_empty() {
         return;
     }
-    for &bytes in &valid_extras {
-        let digest = sha1_hex(bytes);
-        doc.inline_images
-            .entry(digest)
-            .or_insert_with(|| bytes.to_vec());
-    }
-    let unresolved = collect_unresolved_image_refs(doc, &doc.inline_images);
-    if unresolved.len() == 1 {
-        doc.inline_images
-            .insert(unresolved[0].clone(), valid_extras[0].to_vec());
-    } else if unresolved.len() > 1 && unresolved.len() == valid_extras.len() {
-        for (key, &bytes) in unresolved.into_iter().zip(valid_extras.iter()) {
-            doc.inline_images.insert(key, bytes.to_vec());
+
+    // 1. Lazily decode inline HTML `<img src="data:image/...;base64,...">` assets ONLY when
+    //    `doc` actually has unresolved image hashes!
+    if let Some(html) = lazy_html_source {
+        let html_imgs = extract_inline_html_images(html);
+        if !html_imgs.is_empty() {
+            for bytes in &html_imgs {
+                let digest = sha1_hex(bytes);
+                doc.inline_images
+                    .entry(digest)
+                    .or_insert_with(|| bytes.clone());
+            }
+            unresolved = collect_unresolved_image_refs(doc, &doc.inline_images);
+            if unresolved.len() == 1 && html_imgs.len() == 1 {
+                doc.inline_images
+                    .insert(unresolved[0].clone(), html_imgs[0].clone());
+                unresolved.clear();
+            } else if unresolved.len() > 1 && unresolved.len() == html_imgs.len() {
+                for (key, bytes) in unresolved.drain(..).zip(html_imgs) {
+                    doc.inline_images.insert(key, bytes);
+                }
+            }
         }
+    }
+    if unresolved.is_empty() {
+        return;
+    }
+
+    // 2. `fallback_png` (`public.png` / `flavors.png` selection preview): bind if its SHA-1 digest
+    //    matches an unresolved hash directly, OR ONLY when the entire copied selection is a single
+    //    childless, unstroked leaf node with a single full-bleed `IMAGE` fill!
+    let Some(png) = fallback_png.filter(|b| {
+        !b.is_empty() && b.len() <= MAX_ZIP_IMAGE_ENTRY_BYTES && looks_like_raster_image_blob(b)
+    }) else {
+        return;
+    };
+    let png_digest = sha1_hex(png);
+    if unresolved
+        .iter()
+        .any(|k| k.eq_ignore_ascii_case(&png_digest))
+    {
+        doc.inline_images.insert(png_digest, png.to_vec());
+        return;
+    }
+    if unresolved.len() == 1 && is_single_full_bleed_image_leaf(doc) {
+        doc.inline_images
+            .insert(unresolved[0].clone(), png.to_vec());
     }
 }
 
 fn import_figma_clipboard_inner(
     bytes: &[u8],
-    extra_images: &[&[u8]],
+    lazy_html_source: Option<&str>,
+    fallback_png: Option<&[u8]>,
     meta: Option<FigmaClipboardMeta>,
 ) -> Result<ImportOutput, ImportError> {
-    if bytes.len() > MAX_FIGMA_FILE_BYTES {
+    if bytes.len() > MAX_STAGE_HTML_CLIPBOARD_BYTES {
         return Err(ImportError::Container(format!(
             "Figma clipboard payload exceeds {} MiB input limit",
-            MAX_FIGMA_FILE_BYTES / (1024 * 1024)
+            MAX_STAGE_HTML_CLIPBOARD_BYTES / (1024 * 1024)
         )));
     }
     let parse_opts = FigmaImportOptions {
@@ -297,8 +456,13 @@ fn import_figma_clipboard_inner(
     let source_name = "Figma Clipboard";
 
     if bytes.starts_with(b"fig-kiwi") || bytes.starts_with(b"fig-jam.") {
-        let mut doc = parse_fig_kiwi_canvas_with_options(bytes, source_name, &parse_opts)?;
-        attach_extra_clipboard_images(&mut doc, extra_images);
+        let mut doc = parse_fig_kiwi_canvas_with_limit(
+            bytes,
+            source_name,
+            &parse_opts,
+            MAX_CLIPBOARD_KIWI_DECODE_BYTES,
+        )?;
+        attach_clipboard_images(&mut doc, lazy_html_source, fallback_png);
         let inline = std::mem::take(&mut doc.inline_images);
         let mut archive = FigmaImageArchive::from_inline(inline);
         let (project, report, figma_bounds, local_bounds) =
@@ -318,11 +482,16 @@ fn import_figma_clipboard_inner(
         let payload = scan_figma_zip_archive(&mut zip, true)?;
         let effective_name = payload.meta_name.as_deref().unwrap_or(source_name);
         if let Some(cb) = payload.canvas_bytes {
-            let mut doc = parse_fig_kiwi_canvas_with_options(&cb, effective_name, &parse_opts)?;
+            let mut doc = parse_fig_kiwi_canvas_with_limit(
+                &cb,
+                effective_name,
+                &parse_opts,
+                MAX_CLIPBOARD_KIWI_DECODE_BYTES,
+            )?;
             if let Some(mtitle) = payload.meta_name {
                 doc.name = mtitle;
             }
-            attach_extra_clipboard_images(&mut doc, extra_images);
+            attach_clipboard_images(&mut doc, lazy_html_source, fallback_png);
             let inline = std::mem::take(&mut doc.inline_images);
             let mut archive = FigmaImageArchive::from_zip(
                 FigmaZipReader::Memory(zip),
@@ -343,7 +512,7 @@ fn import_figma_clipboard_inner(
             let s = std::str::from_utf8(&jb)
                 .map_err(|_| ImportError::Container("Figma JSON entry must be UTF-8".into()))?;
             let mut doc = parse_figma_json_doc(s, effective_name)?;
-            attach_extra_clipboard_images(&mut doc, extra_images);
+            attach_clipboard_images(&mut doc, lazy_html_source, fallback_png);
             let inline = std::mem::take(&mut doc.inline_images);
             let mut archive = FigmaImageArchive::from_zip(
                 FigmaZipReader::Memory(zip),
@@ -366,19 +535,17 @@ fn import_figma_clipboard_inner(
     }
 
     if let Ok(text) = std::str::from_utf8(bytes) {
-        if let Some(payload) = extract_figma_clipboard_kiwi(text) {
-            let mut combined: Vec<&[u8]> =
-                payload.inline_images.iter().map(Vec::as_slice).collect();
-            combined.extend_from_slice(extra_images);
+        if let Some((kiwi_bytes, extracted_meta)) = extract_figma_clipboard_kiwi_core(text) {
             return import_figma_clipboard_inner(
-                &payload.kiwi_bytes,
-                &combined,
-                payload.meta.or(meta),
+                &kiwi_bytes,
+                Some(text),
+                fallback_png,
+                extracted_meta.or(meta),
             );
         }
         if super::json_doc::looks_like_figma_json(bytes) {
             let mut doc = parse_figma_json_doc(text, source_name)?;
-            attach_extra_clipboard_images(&mut doc, extra_images);
+            attach_clipboard_images(&mut doc, lazy_html_source, fallback_png);
             let inline = std::mem::take(&mut doc.inline_images);
             let mut archive = FigmaImageArchive::from_inline(inline);
             let (project, report, figma_bounds, local_bounds) =
@@ -405,15 +572,16 @@ pub fn import_figma_clipboard(
     html_or_text: &str,
     fallback_png: Option<&[u8]>,
 ) -> Result<ImportOutput, ImportError> {
-    if let Some(payload) = extract_figma_clipboard_kiwi(html_or_text) {
-        let mut extras: Vec<&[u8]> = payload.inline_images.iter().map(Vec::as_slice).collect();
-        if let Some(png) = fallback_png {
-            extras.push(png);
-        }
-        return import_figma_clipboard_inner(&payload.kiwi_bytes, &extras, payload.meta);
+    if html_or_text.len() > MAX_STAGE_HTML_CLIPBOARD_BYTES {
+        return Err(ImportError::Container(format!(
+            "Figma HTML clipboard exceeds {} MiB limit",
+            MAX_STAGE_HTML_CLIPBOARD_BYTES / (1024 * 1024)
+        )));
     }
-    let extras: Vec<&[u8]> = fallback_png.into_iter().collect();
-    import_figma_clipboard_inner(html_or_text.as_bytes(), &extras, None)
+    if let Some((kiwi_bytes, meta)) = extract_figma_clipboard_kiwi_core(html_or_text) {
+        return import_figma_clipboard_inner(&kiwi_bytes, Some(html_or_text), fallback_png, meta);
+    }
+    import_figma_clipboard_inner(html_or_text.as_bytes(), None, fallback_png, None)
 }
 
 /// Import raw `fig-kiwi` / `fig-jam.` binary bytes (or UTF-8 Figma clipboard HTML bytes) at exact
@@ -422,6 +590,5 @@ pub fn import_figma_clipboard_bytes(
     bytes: &[u8],
     fallback_png: Option<&[u8]>,
 ) -> Result<ImportOutput, ImportError> {
-    let extras: Vec<&[u8]> = fallback_png.into_iter().collect();
-    import_figma_clipboard_inner(bytes, &extras, None)
+    import_figma_clipboard_inner(bytes, None, fallback_png, None)
 }

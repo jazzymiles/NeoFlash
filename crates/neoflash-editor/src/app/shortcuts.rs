@@ -69,8 +69,19 @@ impl Editor {
             return;
         }
         if self.is_standalone_script_session() {
-            let clipboard_generation = crate::clipboard::paste_generation(ctx);
-            self.clipboard_events_with_generation(ctx, || clipboard_generation);
+            if ctx.wants_keyboard_input() || self.clipboard.has_pending() {
+                let clipboard_generation = crate::clipboard::paste_generation(ctx);
+                self.clipboard_events_with_generation(ctx, || clipboard_generation);
+            } else {
+                ctx.input_mut(|input| {
+                    input.events.retain(|ev| {
+                        !matches!(
+                            ev,
+                            egui::Event::Copy | egui::Event::Cut | egui::Event::Paste(_)
+                        )
+                    });
+                });
+            }
             let typing = self.blocks_unmodified_shortcuts(ctx);
             for &cmd in C::ALL {
                 if typing

@@ -3,10 +3,17 @@
 use crate::graphic_import::PreparedGraphic;
 use neoflash_core::*;
 use resvg::{tiny_skia, usvg};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
+
+pub(crate) const MAX_SVG_SOURCE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_SVG_EMBEDDED_RASTER_DIM: u32 = 4096;
+const MAX_SVG_EMBEDDED_RASTER_ALLOC_BYTES: u64 = 64 * 1024 * 1024;
 
 pub(crate) fn prepare_svg(source: ResourceUnit) -> Result<PreparedGraphic, String> {
     let bytes = source.decoded_bytes().map_err(|e| e.to_string())?;
+    if bytes.len() > MAX_SVG_SOURCE_BYTES {
+        return Err("SVG exceeds the 64 MiB artwork size limit.".into());
+    }
     let text = std::str::from_utf8(&bytes).map_err(|_| "SVG must be UTF-8 XML.")?;
     let name = source.path.clone();
     prepare_svg_str(text, name, Some(source), true)
@@ -16,6 +23,9 @@ pub(crate) fn prepare_svg_clipboard(
     text: &str,
     editable_paths: bool,
 ) -> Result<PreparedGraphic, String> {
+    if text.len() > MAX_SVG_SOURCE_BYTES {
+        return Err("SVG exceeds the 64 MiB clipboard size limit.".into());
+    }
     let trimmed = text.trim_start_matches('\u{feff}');
     prepare_svg_str(trimmed, "Pasted SVG".into(), None, editable_paths)
 }
@@ -26,6 +36,9 @@ fn prepare_svg_str(
     source: Option<ResourceUnit>,
     editable_paths: bool,
 ) -> Result<PreparedGraphic, String> {
+    if text.len() > MAX_SVG_SOURCE_BYTES {
+        return Err("SVG exceeds the 64 MiB artwork size limit.".into());
+    }
     let xml = usvg::roxmltree::Document::parse(text).map_err(|e| format!("SVG XML: {e}"))?;
     if xml.root_element().tag_name().name() != "svg" {
         return Err("The file has no SVG root element.".into());
@@ -46,7 +59,7 @@ fn prepare_svg_str(
             if attribute.name().starts_with("on") {
                 return Err("SVG event scripts cannot be imported as static artwork.".into());
             }
-            if attribute.name() == "href"
+            if matches!(attribute.name(), "href" | "xlink:href")
                 && !attribute.value().starts_with('#')
                 && !attribute.value().starts_with("data:")
             {
@@ -54,8 +67,83 @@ fn prepare_svg_str(
             }
         }
     }
+    let rejected_raster: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let rejected_for_resolver = Arc::clone(&rejected_raster);
     let mut options = usvg::Options::default();
     options.image_href_resolver.resolve_string = Box::new(|_, _| None);
+    options.image_href_resolver.resolve_data = Box::new(move |mime, data, _opts| {
+        if data.len() as u64 > MAX_SVG_EMBEDDED_RASTER_ALLOC_BYTES {
+            *rejected_for_resolver
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) =
+                Some("Embedded SVG image exceeds the 64 MiB raster limit.".into());
+            return None;
+        }
+        if mime.eq_ignore_ascii_case("image/svg+xml") {
+            *rejected_for_resolver
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) =
+                Some("Nested data:image/svg+xml images are not supported.".into());
+            return None;
+        }
+        let fmt = match mime {
+            "image/png" => Some(image::ImageFormat::Png),
+            "image/jpeg" | "image/jpg" => Some(image::ImageFormat::Jpeg),
+            "image/gif" => Some(image::ImageFormat::Gif),
+            "image/webp" => Some(image::ImageFormat::WebP),
+            _ => None,
+        }
+        .or_else(|| image::guess_format(&data).ok());
+        let fmt = fmt?;
+        let mut limits = image::Limits::default();
+        limits.max_image_width = Some(MAX_SVG_EMBEDDED_RASTER_DIM);
+        limits.max_image_height = Some(MAX_SVG_EMBEDDED_RASTER_DIM);
+        limits.max_alloc = Some(MAX_SVG_EMBEDDED_RASTER_ALLOC_BYTES);
+
+        let mut dim_reader =
+            image::ImageReader::with_format(std::io::Cursor::new(data.as_slice()), fmt);
+        dim_reader.limits(limits.clone());
+        let Ok((w, h)) = dim_reader.into_dimensions() else {
+            *rejected_for_resolver
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some(format!(
+                "Embedded SVG image exceeds the {MAX_SVG_EMBEDDED_RASTER_DIM}×{MAX_SVG_EMBEDDED_RASTER_DIM} px or 64 MiB decode limit."
+            ));
+            return None;
+        };
+        if w == 0
+            || h == 0
+            || w > MAX_SVG_EMBEDDED_RASTER_DIM
+            || h > MAX_SVG_EMBEDDED_RASTER_DIM
+            || u64::from(w).saturating_mul(u64::from(h)).saturating_mul(4)
+                > MAX_SVG_EMBEDDED_RASTER_ALLOC_BYTES
+        {
+            *rejected_for_resolver
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some(format!(
+                "Embedded SVG image ({w}×{h}) exceeds the {MAX_SVG_EMBEDDED_RASTER_DIM}×{MAX_SVG_EMBEDDED_RASTER_DIM} px limit."
+            ));
+            return None;
+        }
+
+        let mut decode_reader =
+            image::ImageReader::with_format(std::io::Cursor::new(data.as_slice()), fmt);
+        decode_reader.limits(limits);
+        if decode_reader.decode().is_err() {
+            *rejected_for_resolver
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) =
+                Some("Embedded SVG image could not be decoded within safety limits.".into());
+            return None;
+        }
+        match fmt {
+            image::ImageFormat::Png => Some(usvg::ImageKind::PNG(data)),
+            image::ImageFormat::Jpeg => Some(usvg::ImageKind::JPEG(data)),
+            image::ImageFormat::Gif => Some(usvg::ImageKind::GIF(data)),
+            image::ImageFormat::WebP => Some(usvg::ImageKind::WEBP(data)),
+            _ => None,
+        }
+    });
     if has_text {
         static FONTS: OnceLock<Arc<usvg::fontdb::Database>> = OnceLock::new();
         options.fontdb = FONTS
@@ -66,7 +154,15 @@ fn prepare_svg_str(
             })
             .clone();
     }
-    let tree = usvg::Tree::from_str(text, &options).map_err(|e| format!("SVG: {e}"))?;
+    let tree_res = usvg::Tree::from_str(text, &options);
+    if let Some(reason) = rejected_raster
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
+    {
+        return Err(reason);
+    }
+    let tree = tree_res.map_err(|e| format!("SVG: {e}"))?;
     let width = tree.size().width() as f64;
     let height = tree.size().height() as f64;
     if width > 1_000_000. || height > 1_000_000. {

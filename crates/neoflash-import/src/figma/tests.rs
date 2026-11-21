@@ -3705,3 +3705,1238 @@ fn t413_figma_clipboard_html_raw_and_escaped_decodes_zstd_and_deflate_at_exact_1
     ));
     assert!(extract_figma_clipboard_kiwi("<!--(figma)bm90LWZpZ21h(/figma)-->").is_none());
 }
+
+fn crafted_png_ihdr_only_bytes(width: u32, height: u32) -> Vec<u8> {
+    let mut out = Vec::with_capacity(64);
+    out.extend_from_slice(&[137, 80, 78, 71, 13, 10, 26, 10]);
+    let mut ihdr = Vec::with_capacity(17);
+    ihdr.extend_from_slice(b"IHDR");
+    ihdr.extend_from_slice(&width.to_be_bytes());
+    ihdr.extend_from_slice(&height.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]); // 8-bit RGBA
+    out.extend_from_slice(&13u32.to_be_bytes());
+    out.extend_from_slice(&ihdr);
+    out.extend_from_slice(&crc32_ieee(&ihdr).to_be_bytes());
+    let iend = b"IEND";
+    out.extend_from_slice(&0u32.to_be_bytes());
+    out.extend_from_slice(iend);
+    out.extend_from_slice(&crc32_ieee(iend).to_be_bytes());
+    out
+}
+
+fn crc32_ieee(bytes: &[u8]) -> u32 {
+    let mut crc = 0xffff_ffffu32;
+    for &b in bytes {
+        crc ^= u32::from(b);
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xedb8_8320 & mask);
+        }
+    }
+    !crc
+}
+
+fn png_rgba_bytes(width: u32, height: u32, rgba: [u8; 4]) -> Vec<u8> {
+    let img = image::RgbaImage::from_pixel(width, height, image::Rgba(rgba));
+    let mut buf = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
+        .unwrap();
+    buf
+}
+
+#[test]
+fn t414_p0_0_cyrillic_and_emoji_html_clipboard_never_panics_on_utf8_boundaries() {
+    let (kiwi_bytes, _) = build_rich_figma_clipboard_kiwi_fixture(true, 10.0, 20.0, true);
+    let kiwi_b64 = BASE64.encode(&kiwi_bytes);
+    let meta_b64 = BASE64.encode(br#"{"fileKey":"Cyr123","pasteID":42,"dataType":"scene"}"#);
+
+    let cyrillic_raw = format!(
+        "<div>Привет<!--(figmeta){meta_b64}(/figmeta)-->Ж<!--(figma){kiwi_b64}(/figma)-->Мир</div>"
+    );
+    assert!(contains_figma_clipboard_marker(&cyrillic_raw));
+    let out = import_figma_clipboard(&cyrillic_raw, None).expect("Cyrillic raw HTML clipboard");
+    out.project.validate().expect("validates");
+
+    let cyrillic_escaped = format!(
+        "<span>Привет🎨&lt;!--(figmeta){meta_b64}(/figmeta)--&gt;Я&lt;!--(figma){kiwi_b64}(/figma)--&gt;Мир✨</span>"
+    );
+    assert!(contains_figma_clipboard_marker(&cyrillic_escaped));
+    let out2 =
+        import_figma_clipboard(&cyrillic_escaped, None).expect("Cyrillic escaped HTML clipboard");
+    out2.project.validate().expect("validates");
+
+    // Malformed / unclosed comment delimiters adjacent to multi-byte UTF-8 must return None/Err cleanly without panic.
+    let malformed_close = format!("<div>Привет<!--(figma){kiwi_b64}(/figma)--Мир</div>");
+    assert!(!contains_figma_clipboard_marker(&malformed_close));
+    assert!(extract_figma_clipboard_kiwi(&malformed_close).is_none());
+
+    let malformed_open = format!("<div>Привет!(figma){kiwi_b64}(/figma)-->Мир</div>");
+    assert!(!contains_figma_clipboard_marker(&malformed_open));
+    assert!(extract_figma_clipboard_kiwi(&malformed_open).is_none());
+}
+
+#[test]
+fn t414_p0_1_oversized_command_blob_and_shared_blob_amplification_rejected_within_cap() {
+    let make_kiwi_with_vectors =
+        |segments_per_blob: usize, vector_count: usize, use_vn_blob: bool| -> Vec<u8> {
+            let mut schema = Vec::new();
+            write_var_uint(&mut schema, 8);
+            // 0: GUID
+            write_cstr(&mut schema, "GUID");
+            schema.push(1);
+            write_var_uint(&mut schema, 2);
+            for (i, n) in ["sessionID", "localID"].iter().enumerate() {
+                write_cstr(&mut schema, n);
+                write_var_int(&mut schema, -4);
+                schema.push(0);
+                write_var_uint(&mut schema, (i + 1) as u64);
+            }
+            // 1: ParentIndex
+            write_cstr(&mut schema, "ParentIndex");
+            schema.push(1);
+            write_var_uint(&mut schema, 2);
+            write_cstr(&mut schema, "guid");
+            write_var_int(&mut schema, 0);
+            schema.push(0);
+            write_var_uint(&mut schema, 1);
+            write_cstr(&mut schema, "position");
+            write_var_int(&mut schema, -6);
+            schema.push(0);
+            write_var_uint(&mut schema, 2);
+            // 2: Vector
+            write_cstr(&mut schema, "Vector");
+            schema.push(1);
+            write_var_uint(&mut schema, 2);
+            for (i, n) in ["x", "y"].iter().enumerate() {
+                write_cstr(&mut schema, n);
+                write_var_int(&mut schema, -5);
+                schema.push(0);
+                write_var_uint(&mut schema, (i + 1) as u64);
+            }
+            // 3: Color
+            write_cstr(&mut schema, "Color");
+            schema.push(1);
+            write_var_uint(&mut schema, 4);
+            for (i, n) in ["r", "g", "b", "a"].iter().enumerate() {
+                write_cstr(&mut schema, n);
+                write_var_int(&mut schema, -5);
+                schema.push(0);
+                write_var_uint(&mut schema, (i + 1) as u64);
+            }
+            // 4: Paint
+            write_cstr(&mut schema, "Paint");
+            schema.push(2);
+            write_var_uint(&mut schema, 2);
+            write_cstr(&mut schema, "type");
+            write_var_int(&mut schema, -6);
+            schema.push(0);
+            write_var_uint(&mut schema, 1);
+            write_cstr(&mut schema, "color");
+            write_var_int(&mut schema, 3);
+            schema.push(0);
+            write_var_uint(&mut schema, 2);
+            // 5: Path
+            write_cstr(&mut schema, "Path");
+            schema.push(2);
+            write_var_uint(&mut schema, 2);
+            write_cstr(&mut schema, "windingRule");
+            write_var_int(&mut schema, -6);
+            schema.push(0);
+            write_var_uint(&mut schema, 1);
+            write_cstr(&mut schema, "commandsBlob");
+            write_var_int(&mut schema, -4);
+            schema.push(0);
+            write_var_uint(&mut schema, 2);
+            let fields = [
+                (1u64, "guid", 0i64, 0u8),
+                (2, "parentIndex", 1, 0),
+                (3, "type", -6, 0),
+                (4, "name", -6, 0),
+                (5, "size", 2, 0),
+                (6, "fillPaints", 4, 1),
+                (7, "strokePaints", 4, 1),
+                (8, "strokeWeight", -5, 0),
+                (9, "fillGeometry", 5, 1),
+                (10, "vectorData", 6, 0),
+            ];
+            schema.clear();
+            write_var_uint(&mut schema, 10);
+            // 0: GUID, 1: ParentIndex, 2: Vector, 3: Color, 4: Paint, 5: Path, 6: VectorData, 7: NodeChange, 8: Blob, 9: Message
+            write_cstr(&mut schema, "GUID");
+            schema.push(1);
+            write_var_uint(&mut schema, 2);
+            for (i, n) in ["sessionID", "localID"].iter().enumerate() {
+                write_cstr(&mut schema, n);
+                write_var_int(&mut schema, -4);
+                schema.push(0);
+                write_var_uint(&mut schema, (i + 1) as u64);
+            }
+            write_cstr(&mut schema, "ParentIndex");
+            schema.push(1);
+            write_var_uint(&mut schema, 2);
+            write_cstr(&mut schema, "guid");
+            write_var_int(&mut schema, 0);
+            schema.push(0);
+            write_var_uint(&mut schema, 1);
+            write_cstr(&mut schema, "position");
+            write_var_int(&mut schema, -6);
+            schema.push(0);
+            write_var_uint(&mut schema, 2);
+            write_cstr(&mut schema, "Vector");
+            schema.push(1);
+            write_var_uint(&mut schema, 2);
+            for (i, n) in ["x", "y"].iter().enumerate() {
+                write_cstr(&mut schema, n);
+                write_var_int(&mut schema, -5);
+                schema.push(0);
+                write_var_uint(&mut schema, (i + 1) as u64);
+            }
+            write_cstr(&mut schema, "Color");
+            schema.push(1);
+            write_var_uint(&mut schema, 4);
+            for (i, n) in ["r", "g", "b", "a"].iter().enumerate() {
+                write_cstr(&mut schema, n);
+                write_var_int(&mut schema, -5);
+                schema.push(0);
+                write_var_uint(&mut schema, (i + 1) as u64);
+            }
+            write_cstr(&mut schema, "Paint");
+            schema.push(2);
+            write_var_uint(&mut schema, 2);
+            write_cstr(&mut schema, "type");
+            write_var_int(&mut schema, -6);
+            schema.push(0);
+            write_var_uint(&mut schema, 1);
+            write_cstr(&mut schema, "color");
+            write_var_int(&mut schema, 3);
+            schema.push(0);
+            write_var_uint(&mut schema, 2);
+            write_cstr(&mut schema, "Path");
+            schema.push(2);
+            write_var_uint(&mut schema, 2);
+            write_cstr(&mut schema, "windingRule");
+            write_var_int(&mut schema, -6);
+            schema.push(0);
+            write_var_uint(&mut schema, 1);
+            write_cstr(&mut schema, "commandsBlob");
+            write_var_int(&mut schema, -4);
+            schema.push(0);
+            write_var_uint(&mut schema, 2);
+            write_cstr(&mut schema, "VectorData");
+            schema.push(2);
+            write_var_uint(&mut schema, 1);
+            write_cstr(&mut schema, "vectorNetworkBlob");
+            write_var_int(&mut schema, -4);
+            schema.push(0);
+            write_var_uint(&mut schema, 1);
+            write_cstr(&mut schema, "NodeChange");
+            schema.push(2);
+            write_var_uint(&mut schema, fields.len() as u64);
+            for (tag, n, tid, arr) in fields {
+                write_cstr(&mut schema, n);
+                write_var_int(&mut schema, tid);
+                schema.push(arr);
+                write_var_uint(&mut schema, tag);
+            }
+            write_cstr(&mut schema, "Blob");
+            schema.push(2);
+            write_var_uint(&mut schema, 1);
+            write_cstr(&mut schema, "bytes");
+            write_var_int(&mut schema, -2);
+            schema.push(1);
+            write_var_uint(&mut schema, 1);
+            write_cstr(&mut schema, "Message");
+            schema.push(2);
+            write_var_uint(&mut schema, 2);
+            write_cstr(&mut schema, "nodeChanges");
+            write_var_int(&mut schema, 7);
+            schema.push(1);
+            write_var_uint(&mut schema, 1);
+            write_cstr(&mut schema, "blobs");
+            write_var_int(&mut schema, 8);
+            schema.push(1);
+            write_var_uint(&mut schema, 2);
+
+            let blob = if use_vn_blob {
+                let v_count = segments_per_blob + 1;
+                let mut vn = Vec::new();
+                vn.extend_from_slice(&(v_count as u32).to_le_bytes());
+                vn.extend_from_slice(&(segments_per_blob as u32).to_le_bytes());
+                vn.extend_from_slice(&0u32.to_le_bytes()); // 0 regions -> stroke_cmds
+                for i in 0..v_count {
+                    vn.extend_from_slice(&0u32.to_le_bytes()); // styleID
+                    vn.extend_from_slice(&(i as f32).to_le_bytes());
+                    vn.extend_from_slice(&0.0f32.to_le_bytes());
+                }
+                for i in 0..segments_per_blob {
+                    vn.extend_from_slice(&0u32.to_le_bytes()); // styleID
+                    vn.extend_from_slice(&(i as u32).to_le_bytes());
+                    vn.extend_from_slice(&0.0f32.to_le_bytes());
+                    vn.extend_from_slice(&0.0f32.to_le_bytes());
+                    vn.extend_from_slice(&((i + 1) as u32).to_le_bytes());
+                    vn.extend_from_slice(&0.0f32.to_le_bytes());
+                    vn.extend_from_slice(&0.0f32.to_le_bytes());
+                }
+                vn
+            } else {
+                let mut cb = Vec::with_capacity(1 + 9 * (segments_per_blob + 1));
+                cb.push(1); // MoveTo
+                cb.extend_from_slice(&0.0f32.to_le_bytes());
+                cb.extend_from_slice(&0.0f32.to_le_bytes());
+                for i in 0..segments_per_blob {
+                    cb.push(2); // LineTo
+                    cb.extend_from_slice(&((i % 100) as f32).to_le_bytes());
+                    cb.extend_from_slice(&10.0f32.to_le_bytes());
+                }
+                cb.push(0); // Close
+                cb
+            };
+
+            let mut msg = Vec::new();
+            write_var_uint(&mut msg, 1);
+            write_var_uint(&mut msg, (2 + vector_count) as u64);
+            // DOCUMENT 0:0
+            write_var_uint(&mut msg, 1);
+            write_var_uint(&mut msg, 0);
+            write_var_uint(&mut msg, 0);
+            write_var_uint(&mut msg, 3);
+            write_cstr(&mut msg, "DOCUMENT");
+            write_var_uint(&mut msg, 4);
+            write_cstr(&mut msg, "Doc");
+            write_var_uint(&mut msg, 0);
+            // CANVAS 0:1
+            write_var_uint(&mut msg, 1);
+            write_var_uint(&mut msg, 0);
+            write_var_uint(&mut msg, 1);
+            write_var_uint(&mut msg, 2);
+            write_var_uint(&mut msg, 0);
+            write_var_uint(&mut msg, 0);
+            write_cstr(&mut msg, "a");
+            write_var_uint(&mut msg, 3);
+            write_cstr(&mut msg, "CANVAS");
+            write_var_uint(&mut msg, 4);
+            write_cstr(&mut msg, "Page 1");
+            write_var_uint(&mut msg, 0);
+
+            for idx in 0..vector_count {
+                write_var_uint(&mut msg, 1);
+                write_var_uint(&mut msg, 1);
+                write_var_uint(&mut msg, (idx + 1) as u64);
+                write_var_uint(&mut msg, 2);
+                write_var_uint(&mut msg, 0);
+                write_var_uint(&mut msg, 1);
+                write_cstr(&mut msg, &format!("p{idx:04}"));
+                write_var_uint(&mut msg, 3);
+                write_cstr(&mut msg, "VECTOR");
+                write_var_uint(&mut msg, 4);
+                write_cstr(&mut msg, "Vec");
+                write_var_uint(&mut msg, 5);
+                write_var_float(&mut msg, 100.0);
+                write_var_float(&mut msg, 100.0);
+                if use_vn_blob {
+                    write_var_uint(&mut msg, 7); // strokePaints
+                    write_var_uint(&mut msg, 1);
+                    write_var_uint(&mut msg, 1);
+                    write_cstr(&mut msg, "SOLID");
+                    write_var_uint(&mut msg, 2);
+                    for c in [1.0f32, 0.0, 0.0, 1.0] {
+                        write_var_float(&mut msg, c);
+                    }
+                    write_var_uint(&mut msg, 0);
+                    write_var_uint(&mut msg, 8);
+                    write_var_float(&mut msg, 2.0);
+                    write_var_uint(&mut msg, 10); // vectorData = VectorData { 1: vectorNetworkBlob = 0 }
+                    write_var_uint(&mut msg, 1);
+                    write_var_uint(&mut msg, 0);
+                    write_var_uint(&mut msg, 0);
+                } else {
+                    write_var_uint(&mut msg, 6); // fillPaints
+                    write_var_uint(&mut msg, 1);
+                    write_var_uint(&mut msg, 1);
+                    write_cstr(&mut msg, "SOLID");
+                    write_var_uint(&mut msg, 2);
+                    for c in [1.0f32, 0.0, 0.0, 1.0] {
+                        write_var_float(&mut msg, c);
+                    }
+                    write_var_uint(&mut msg, 0);
+                    write_var_uint(&mut msg, 9); // fillGeometry
+                    write_var_uint(&mut msg, 1);
+                    write_var_uint(&mut msg, 1);
+                    write_cstr(&mut msg, "NONZERO");
+                    write_var_uint(&mut msg, 2);
+                    write_var_uint(&mut msg, 0); // commandsBlob = 0
+                    write_var_uint(&mut msg, 0);
+                }
+                write_var_uint(&mut msg, 0);
+            }
+            // blobs = [blob]
+            write_var_uint(&mut msg, 2);
+            write_var_uint(&mut msg, 1);
+            write_var_uint(&mut msg, 1);
+            write_var_uint(&mut msg, blob.len() as u64);
+            msg.extend_from_slice(&blob);
+            write_var_uint(&mut msg, 0);
+            write_var_uint(&mut msg, 0);
+
+            let deflate = |raw: &[u8]| -> Vec<u8> {
+                let mut enc = DeflateEncoder::new(Vec::new(), Compression::default());
+                enc.write_all(raw).unwrap();
+                enc.finish().unwrap()
+            };
+            let c0 = deflate(&schema);
+            let c1 = deflate(&msg);
+            let mut kiwi = Vec::new();
+            kiwi.extend_from_slice(b"fig-kiwi");
+            kiwi.extend_from_slice(&106u32.to_le_bytes());
+            kiwi.extend_from_slice(&(c0.len() as u32).to_le_bytes());
+            kiwi.extend_from_slice(&c0);
+            kiwi.extend_from_slice(&(c1.len() as u32).to_le_bytes());
+            kiwi.extend_from_slice(&c1);
+            kiwi
+        };
+
+    // 1. Oversized single commandsBlob (> 32,768 commands) -> Err
+    let opts = FigmaImportOptions::default();
+    let oversized_cmd = make_kiwi_with_vectors(33_000, 1, false);
+    let err1 = import_figma_bytes(&oversized_cmd, "oversized.fig", &opts).unwrap_err();
+    assert!(
+        err1.to_string().contains("command limit"),
+        "unexpected error: {err1}"
+    );
+
+    // 2. Oversized single vectorNetworkBlob (> 32,768 stroke commands) -> Err
+    let oversized_vn = make_kiwi_with_vectors(33_000, 1, true);
+    let err2 = import_figma_bytes(&oversized_vn, "oversized_vn.fig", &opts).unwrap_err();
+    assert!(
+        err2.to_string().contains("command limit"),
+        "unexpected error: {err2}"
+    );
+
+    // 3. Shared-blob amplification: 25,000 commands (< 32,768 per path) reused across 100 VECTORs (= 2.5M > 2M cap) -> Err
+    let shared_bomb = make_kiwi_with_vectors(25_000, 100, false);
+    let err3 = import_figma_bytes(&shared_bomb, "shared_bomb.fig", &opts).unwrap_err();
+    assert!(
+        err3.to_string().contains("command budget"),
+        "unexpected error: {err3}"
+    );
+}
+
+#[test]
+fn t414_p0_2_crafted_50000x50000_png_ihdr_rejected_in_json_doc_without_rgba_decode() {
+    let bomb_png = crafted_png_ihdr_only_bytes(50_000, 50_000);
+    let bomb_b64 = BASE64.encode(&bomb_png);
+    let doc_json = serde_json::json!({
+        "name": "BombDoc",
+        "images": {
+            "bomb_ref": format!("data:image/png;base64,{bomb_b64}")
+        },
+        "document": {
+            "id": "0:0",
+            "type": "DOCUMENT",
+            "children": [{
+                "id": "0:1",
+                "type": "CANVAS",
+                "name": "Page 1",
+                "children": [{
+                    "id": "1:1",
+                    "type": "RECTANGLE",
+                    "name": "Photo",
+                    "absoluteBoundingBox": { "x": 0.0, "y": 0.0, "width": 100.0, "height": 100.0 },
+                    "fills": [{
+                        "type": "IMAGE",
+                        "scaleMode": "FILL",
+                        "imageRef": "bomb_ref"
+                    }]
+                }]
+            }]
+        }
+    });
+    let (project, report) = import_figma_bytes(
+        doc_json.to_string().as_bytes(),
+        "bomb.figma.json",
+        &FigmaImportOptions::default(),
+    )
+    .expect("import completes without OOM");
+    project.validate().expect("validates");
+    assert!(
+        project.resources.is_empty(),
+        "50000x50000 PNG IHDR bomb must be rejected before resource registration"
+    );
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "figma-missing-image-asset"),
+        "missing image diagnostic emitted when inline bomb image is rejected"
+    );
+}
+
+#[test]
+fn t414_p0_4_fallback_png_never_binds_to_multinode_card_and_reports_missing_image_warning() {
+    // 1. Multi-node card (has VECTOR + ROUNDED_RECTANGLE with unresolved image.hash + TEXT + INSTANCE):
+    // fallback_png is a whole-selection screenshot and MUST NOT bind to the child image hash!
+    let (multi_kiwi, preview_png) = build_rich_figma_clipboard_kiwi_fixture(true, 0.0, 0.0, false);
+    let multi_html = format!(
+        "<meta charset='utf-8'><span data-buffer=\"<!--(figma){}(/figma)-->\"></span>",
+        BASE64.encode(&multi_kiwi)
+    );
+    let multi_out =
+        import_figma_clipboard(&multi_html, Some(&preview_png)).expect("multi-node paste");
+    multi_out.project.validate().expect("validates");
+    assert!(
+        multi_out.project.resources.is_empty(),
+        "whole-card fallback_png screenshot must NEVER be bound onto a child image inside a multi-node selection"
+    );
+    assert!(
+        multi_out
+            .report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "figma-missing-image-asset"),
+        "unresolved image hash must emit figma-missing-image-asset warning"
+    );
+
+    // 2. Single childless unstroked full-bleed FILL IMAGE leaf node: fallback_png DOES represent the copied image!
+    let mut schema = Vec::new();
+    write_var_uint(&mut schema, 8);
+    // 0: GUID, 1: ParentIndex, 2: Vector, 3: Image, 4: Paint, 5: NodeChange, 6: Blob, 7: Message
+    write_cstr(&mut schema, "GUID");
+    schema.push(1);
+    write_var_uint(&mut schema, 2);
+    for (i, n) in ["sessionID", "localID"].iter().enumerate() {
+        write_cstr(&mut schema, n);
+        write_var_int(&mut schema, -4);
+        schema.push(0);
+        write_var_uint(&mut schema, (i + 1) as u64);
+    }
+    write_cstr(&mut schema, "ParentIndex");
+    schema.push(1);
+    write_var_uint(&mut schema, 2);
+    write_cstr(&mut schema, "guid");
+    write_var_int(&mut schema, 0);
+    schema.push(0);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "position");
+    write_var_int(&mut schema, -6);
+    schema.push(0);
+    write_var_uint(&mut schema, 2);
+    write_cstr(&mut schema, "Vector");
+    schema.push(1);
+    write_var_uint(&mut schema, 2);
+    for (i, n) in ["x", "y"].iter().enumerate() {
+        write_cstr(&mut schema, n);
+        write_var_int(&mut schema, -5);
+        schema.push(0);
+        write_var_uint(&mut schema, (i + 1) as u64);
+    }
+    write_cstr(&mut schema, "Image");
+    schema.push(2);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "hash");
+    write_var_int(&mut schema, -2);
+    schema.push(1);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "Paint");
+    schema.push(2);
+    write_var_uint(&mut schema, 3);
+    write_cstr(&mut schema, "type");
+    write_var_int(&mut schema, -6);
+    schema.push(0);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "image");
+    write_var_int(&mut schema, 3);
+    schema.push(0);
+    write_var_uint(&mut schema, 2);
+    write_cstr(&mut schema, "imageScaleMode");
+    write_var_int(&mut schema, -6);
+    schema.push(0);
+    write_var_uint(&mut schema, 3);
+    write_cstr(&mut schema, "NodeChange");
+    schema.push(2);
+    write_var_uint(&mut schema, 6);
+    for (tag, n, tid, arr) in [
+        (1u64, "guid", 0i64, 0u8),
+        (2, "parentIndex", 1, 0),
+        (3, "type", -6, 0),
+        (4, "name", -6, 0),
+        (5, "size", 2, 0),
+        (6, "fillPaints", 4, 1),
+    ] {
+        write_cstr(&mut schema, n);
+        write_var_int(&mut schema, tid);
+        schema.push(arr);
+        write_var_uint(&mut schema, tag);
+    }
+    write_cstr(&mut schema, "Blob");
+    schema.push(2);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "bytes");
+    write_var_int(&mut schema, -2);
+    schema.push(1);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "Message");
+    schema.push(2);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "nodeChanges");
+    write_var_int(&mut schema, 5);
+    schema.push(1);
+    write_var_uint(&mut schema, 1);
+
+    let mut msg = Vec::new();
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 3);
+    // DOCUMENT 0:0
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 3);
+    write_cstr(&mut msg, "DOCUMENT");
+    write_var_uint(&mut msg, 4);
+    write_cstr(&mut msg, "Doc");
+    write_var_uint(&mut msg, 0);
+    // CANVAS 0:1
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 2);
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 0);
+    write_cstr(&mut msg, "a");
+    write_var_uint(&mut msg, 3);
+    write_cstr(&mut msg, "CANVAS");
+    write_var_uint(&mut msg, 4);
+    write_cstr(&mut msg, "Page 1");
+    write_var_uint(&mut msg, 0);
+    // Single leaf RECTANGLE 1:1 with FILL IMAGE
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 2);
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 1);
+    write_cstr(&mut msg, "a");
+    write_var_uint(&mut msg, 3);
+    write_cstr(&mut msg, "RECTANGLE");
+    write_var_uint(&mut msg, 4);
+    write_cstr(&mut msg, "HeroImage");
+    write_var_uint(&mut msg, 5);
+    write_var_float(&mut msg, 64.0);
+    write_var_float(&mut msg, 64.0);
+    write_var_uint(&mut msg, 6);
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 1);
+    write_cstr(&mut msg, "IMAGE");
+    write_var_uint(&mut msg, 2);
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 20);
+    msg.extend_from_slice(&[0x99u8; 20]);
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 3);
+    write_cstr(&mut msg, "FILL");
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 0);
+
+    let deflate = |raw: &[u8]| -> Vec<u8> {
+        let mut enc = DeflateEncoder::new(Vec::new(), Compression::default());
+        enc.write_all(raw).unwrap();
+        enc.finish().unwrap()
+    };
+    let c0 = deflate(&schema);
+    let c1 = deflate(&msg);
+    let mut single_kiwi = Vec::new();
+    single_kiwi.extend_from_slice(b"fig-kiwi");
+    single_kiwi.extend_from_slice(&106u32.to_le_bytes());
+    single_kiwi.extend_from_slice(&(c0.len() as u32).to_le_bytes());
+    single_kiwi.extend_from_slice(&c0);
+    single_kiwi.extend_from_slice(&(c1.len() as u32).to_le_bytes());
+    single_kiwi.extend_from_slice(&c1);
+
+    let single_html = format!(
+        "<span data-buffer=\"<!--(figma){}(/figma)-->\"></span>",
+        BASE64.encode(&single_kiwi)
+    );
+    let leaf_png = png_rgba_bytes(64, 64, [20, 140, 220, 255]);
+    let single_out =
+        import_figma_clipboard(&single_html, Some(&leaf_png)).expect("single leaf image paste");
+    single_out.project.validate().expect("validates");
+    assert_eq!(
+        single_out.project.resources.len(),
+        1,
+        "single unstroked full-bleed IMAGE leaf binds fallback_png"
+    );
+    assert!(
+        !single_out
+            .report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "figma-missing-image-asset")
+    );
+}
+
+#[test]
+fn t414_p1_8_fig_kiwi_tile_fit_and_fill_ignore_identity_default_matrix_and_preserve_aspect() {
+    // 10x20 portrait PNG placed into:
+    // - 100x100 TILE rectangle with fig-kiwi default identity Paint.transform [1,0,0,0,1,0]
+    // - 100x100 FIT rectangle with fig-kiwi default identity Paint.transform [1,0,0,0,1,0]
+    // - 100x100 FILL rectangle (aspect 1.0 != 0.5 -> clipped Path + AuthoredBitmapFill cover)
+    // - 50x100 FILL rectangle (aspect 0.5 == 0.5 -> ElementKind::Bitmap)
+    let portrait_png = png_rgba_bytes(10, 20, [255, 80, 40, 255]);
+    let portrait_b64 = BASE64.encode(&portrait_png);
+
+    // Verify via kiwi parser directly too: default [1,0,0,0,1,0] on TILE/FIT/FILL must NOT populate image_transform!
+    let mut schema = Vec::new();
+    write_var_uint(&mut schema, 9);
+    // 0: GUID, 1: ParentIndex, 2: Vector, 3: Matrix, 4: Image, 5: Paint, 6: NodeChange, 7: Blob, 8: Message
+    write_cstr(&mut schema, "GUID");
+    schema.push(1);
+    write_var_uint(&mut schema, 2);
+    for (i, n) in ["sessionID", "localID"].iter().enumerate() {
+        write_cstr(&mut schema, n);
+        write_var_int(&mut schema, -4);
+        schema.push(0);
+        write_var_uint(&mut schema, (i + 1) as u64);
+    }
+    write_cstr(&mut schema, "ParentIndex");
+    schema.push(1);
+    write_var_uint(&mut schema, 2);
+    write_cstr(&mut schema, "guid");
+    write_var_int(&mut schema, 0);
+    schema.push(0);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "position");
+    write_var_int(&mut schema, -6);
+    schema.push(0);
+    write_var_uint(&mut schema, 2);
+    write_cstr(&mut schema, "Vector");
+    schema.push(1);
+    write_var_uint(&mut schema, 2);
+    for (i, n) in ["x", "y"].iter().enumerate() {
+        write_cstr(&mut schema, n);
+        write_var_int(&mut schema, -5);
+        schema.push(0);
+        write_var_uint(&mut schema, (i + 1) as u64);
+    }
+    write_cstr(&mut schema, "Matrix");
+    schema.push(1);
+    write_var_uint(&mut schema, 6);
+    for (i, n) in ["m00", "m01", "m02", "m10", "m11", "m12"]
+        .iter()
+        .enumerate()
+    {
+        write_cstr(&mut schema, n);
+        write_var_int(&mut schema, -5);
+        schema.push(0);
+        write_var_uint(&mut schema, (i + 1) as u64);
+    }
+    write_cstr(&mut schema, "Image");
+    schema.push(2);
+    write_var_uint(&mut schema, 2);
+    write_cstr(&mut schema, "hash");
+    write_var_int(&mut schema, -2);
+    schema.push(1);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "dataBlob");
+    write_var_int(&mut schema, -4);
+    schema.push(0);
+    write_var_uint(&mut schema, 2);
+    write_cstr(&mut schema, "Paint");
+    schema.push(2);
+    write_var_uint(&mut schema, 4);
+    for (tag, n, tid) in [
+        (1u64, "type", -6i64),
+        (2, "transform", 3),
+        (3, "image", 4),
+        (4, "imageScaleMode", -6),
+    ] {
+        write_cstr(&mut schema, n);
+        write_var_int(&mut schema, tid);
+        schema.push(0);
+        write_var_uint(&mut schema, tag);
+    }
+    write_cstr(&mut schema, "NodeChange");
+    schema.push(2);
+    write_var_uint(&mut schema, 6);
+    for (tag, n, tid, arr) in [
+        (1u64, "guid", 0i64, 0u8),
+        (2, "parentIndex", 1, 0),
+        (3, "type", -6, 0),
+        (4, "name", -6, 0),
+        (5, "size", 2, 0),
+        (6, "fillPaints", 5, 1),
+    ] {
+        write_cstr(&mut schema, n);
+        write_var_int(&mut schema, tid);
+        schema.push(arr);
+        write_var_uint(&mut schema, tag);
+    }
+    write_cstr(&mut schema, "Blob");
+    schema.push(2);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "bytes");
+    write_var_int(&mut schema, -2);
+    schema.push(1);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "Message");
+    schema.push(2);
+    write_var_uint(&mut schema, 2);
+    write_cstr(&mut schema, "nodeChanges");
+    write_var_int(&mut schema, 6);
+    schema.push(1);
+    write_var_uint(&mut schema, 1);
+    write_cstr(&mut schema, "blobs");
+    write_var_int(&mut schema, 7);
+    schema.push(1);
+    write_var_uint(&mut schema, 2);
+
+    let mut msg = Vec::new();
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 6);
+    // DOCUMENT 0:0
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 3);
+    write_cstr(&mut msg, "DOCUMENT");
+    write_var_uint(&mut msg, 4);
+    write_cstr(&mut msg, "Doc");
+    write_var_uint(&mut msg, 0);
+    // CANVAS 0:1
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 2);
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 0);
+    write_cstr(&mut msg, "a");
+    write_var_uint(&mut msg, 3);
+    write_cstr(&mut msg, "CANVAS");
+    write_var_uint(&mut msg, 4);
+    write_cstr(&mut msg, "Page 1");
+    write_var_uint(&mut msg, 0);
+
+    for (id, name, w, h, mode) in [
+        (1u64, "TileRect", 100.0f32, 100.0f32, "TILE"),
+        (2, "FitRect", 100.0, 100.0, "FIT"),
+        (3, "FillCoverRect", 100.0, 100.0, "FILL"),
+        (4, "FillExactRect", 50.0, 100.0, "FILL"),
+    ] {
+        write_var_uint(&mut msg, 1);
+        write_var_uint(&mut msg, 1);
+        write_var_uint(&mut msg, id);
+        write_var_uint(&mut msg, 2);
+        write_var_uint(&mut msg, 0);
+        write_var_uint(&mut msg, 1);
+        write_cstr(&mut msg, &format!("p{id}"));
+        write_var_uint(&mut msg, 3);
+        write_cstr(&mut msg, "RECTANGLE");
+        write_var_uint(&mut msg, 4);
+        write_cstr(&mut msg, name);
+        write_var_uint(&mut msg, 5);
+        write_var_float(&mut msg, w);
+        write_var_float(&mut msg, h);
+        write_var_uint(&mut msg, 6);
+        write_var_uint(&mut msg, 1);
+        write_var_uint(&mut msg, 1);
+        write_cstr(&mut msg, "IMAGE");
+        // fig-kiwi default identity Paint.transform [1, 0, 0, 0, 1, 0]
+        write_var_uint(&mut msg, 2);
+        for v in [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0] {
+            write_var_float(&mut msg, v);
+        }
+        write_var_uint(&mut msg, 3);
+        write_var_uint(&mut msg, 1);
+        write_var_uint(&mut msg, 20);
+        msg.extend_from_slice(&[0x55u8; 20]);
+        write_var_uint(&mut msg, 2);
+        write_var_uint(&mut msg, 0); // dataBlob = 0
+        write_var_uint(&mut msg, 0);
+        write_var_uint(&mut msg, 4);
+        write_cstr(&mut msg, mode);
+        write_var_uint(&mut msg, 0);
+        write_var_uint(&mut msg, 0);
+    }
+    write_var_uint(&mut msg, 2);
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, 1);
+    write_var_uint(&mut msg, portrait_png.len() as u64);
+    msg.extend_from_slice(&portrait_png);
+    write_var_uint(&mut msg, 0);
+    write_var_uint(&mut msg, 0);
+
+    let deflate = |raw: &[u8]| -> Vec<u8> {
+        let mut enc = DeflateEncoder::new(Vec::new(), Compression::default());
+        enc.write_all(raw).unwrap();
+        enc.finish().unwrap()
+    };
+    let c0 = deflate(&schema);
+    let c1 = deflate(&msg);
+    let mut kiwi = Vec::new();
+    kiwi.extend_from_slice(b"fig-kiwi");
+    kiwi.extend_from_slice(&106u32.to_le_bytes());
+    kiwi.extend_from_slice(&(c0.len() as u32).to_le_bytes());
+    kiwi.extend_from_slice(&c0);
+    kiwi.extend_from_slice(&(c1.len() as u32).to_le_bytes());
+    kiwi.extend_from_slice(&c1);
+
+    let html = format!(
+        "<span data-buffer=\"<!--(figma){}(/figma)-->\"></span><img src=\"data:image/png;base64,{portrait_b64}\">",
+        BASE64.encode(&kiwi)
+    );
+    let out = import_figma_clipboard(&html, None).expect("import scale modes");
+    out.project.validate().expect("validates");
+    let root = out.project.symbol(&out.project.root).unwrap();
+    let kf = &root.timeline.layers[0].keyframes[0];
+
+    let tile_el = kf.elements.iter().find(|e| e.name == "TileRect").unwrap();
+    let tile_bf = kf
+        .bitmap_fills
+        .iter()
+        .find(|b| b.element_id == tile_el.id)
+        .expect("TileRect bitmap fill");
+    assert!(tile_bf.repeat, "TILE must repeat");
+    assert!((tile_bf.matrix[0] - 1.0).abs() < 1e-6 && (tile_bf.matrix[3] - 1.0).abs() < 1e-6);
+
+    let fit_el = kf.elements.iter().find(|e| e.name == "FitRect").unwrap();
+    let fit_bf = kf
+        .bitmap_fills
+        .iter()
+        .find(|b| b.element_id == fit_el.id)
+        .expect("FitRect bitmap fill");
+    assert!(!fit_bf.repeat, "FIT must not repeat");
+    assert!((fit_bf.matrix[0] - 5.0).abs() < 1e-6 && (fit_bf.matrix[3] - 5.0).abs() < 1e-6);
+    assert!((fit_bf.matrix[4] - 25.0).abs() < 1e-6 && fit_bf.matrix[5].abs() < 1e-6);
+
+    let cover_el = kf
+        .elements
+        .iter()
+        .find(|e| e.name == "FillCoverRect")
+        .unwrap();
+    assert!(
+        matches!(cover_el.kind, ElementKind::Path { .. }),
+        "aspect-mismatched FILL must use clipped Path + AuthoredBitmapFill instead of stretched Bitmap"
+    );
+    let cover_bf = kf
+        .bitmap_fills
+        .iter()
+        .find(|b| b.element_id == cover_el.id)
+        .expect("FillCoverRect cover bitmap fill");
+    assert!((cover_bf.matrix[0] - 10.0).abs() < 1e-6 && (cover_bf.matrix[3] - 10.0).abs() < 1e-6);
+    assert!(cover_bf.matrix[4].abs() < 1e-6 && (cover_bf.matrix[5] + 50.0).abs() < 1e-6);
+
+    let exact_el = kf
+        .elements
+        .iter()
+        .find(|e| e.name == "FillExactRect")
+        .unwrap();
+    assert!(
+        matches!(exact_el.kind, ElementKind::Bitmap { .. }),
+        "matching-aspect unclipped FILL rectangle uses ElementKind::Bitmap"
+    );
+}
+
+#[test]
+fn t414_p1_9_stroke_geometry_emits_filled_outline_without_double_stroking_and_iterates_all_strokes()
+{
+    let doc_json = serde_json::json!({
+        "name": "StrokeDoc",
+        "document": {
+            "id": "0:0",
+            "type": "DOCUMENT",
+            "children": [{
+                "id": "0:1",
+                "type": "CANVAS",
+                "name": "Page 1",
+                "children": [
+                    {
+                        "id": "1:1",
+                        "type": "LINE",
+                        "name": "ExpandedLine",
+                        "absoluteBoundingBox": { "x": 0.0, "y": 0.0, "width": 100.0, "height": 4.0 },
+                        "strokeWeight": 4.0,
+                        "strokes": [
+                            { "type": "SOLID", "color": { "r": 1.0, "g": 0.0, "b": 0.0, "a": 1.0 } },
+                            { "type": "SOLID", "color": { "r": 0.0, "g": 0.5, "b": 1.0, "a": 0.5 } }
+                        ],
+                        "strokeGeometry": [{
+                            "windingRule": "NONZERO",
+                            "path": "M 0 0 L 100 0 L 100 4 L 0 4 Z"
+                        }]
+                    }
+                ]
+            }]
+        }
+    });
+    let (project, _) = import_figma_bytes(
+        doc_json.to_string().as_bytes(),
+        "strokes.figma.json",
+        &FigmaImportOptions::default(),
+    )
+    .expect("import strokeGeometry");
+    project.validate().expect("validates");
+    let root = project.symbol(&project.root).unwrap();
+    let els = &root.timeline.layers[0].keyframes[0].elements;
+    assert_eq!(
+        els.len(),
+        2,
+        "both visible strokes on ExpandedLine must be emitted"
+    );
+    for (i, el) in els.iter().enumerate() {
+        match &el.kind {
+            ElementKind::Path {
+                fill, stroke_width, ..
+            } => {
+                assert!(
+                    stroke_width.abs() < 1e-9,
+                    "expanded strokeGeometry outline #{i} must be filled, not double-stroked (got stroke_width={stroke_width})"
+                );
+                assert!(fill[3] > 0, "outline #{i} must carry stroke color as fill");
+            }
+            other => panic!("expected filled Path for expanded strokeGeometry, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn t414_p1_10_anisotropic_linear_and_elliptical_radial_gradients_and_override_sizing() {
+    let doc_json = serde_json::json!({
+        "name": "GradDoc",
+        "document": {
+            "id": "0:0",
+            "type": "DOCUMENT",
+            "children": [{
+                "id": "0:1",
+                "type": "CANVAS",
+                "name": "Page 1",
+                "children": [
+                    {
+                        "id": "1:1",
+                        "type": "RECTANGLE",
+                        "name": "DiagLinear",
+                        "absoluteBoundingBox": { "x": 0.0, "y": 0.0, "width": 400.0, "height": 100.0 },
+                        "fills": [{
+                            "type": "GRADIENT_LINEAR",
+                            "gradientHandlePositions": [
+                                { "x": 0.0, "y": 0.0 },
+                                { "x": 1.0, "y": 1.0 },
+                                { "x": 0.0, "y": 1.0 }
+                            ],
+                            "gradientStops": [
+                                { "position": 0.0, "color": { "r": 1.0, "g": 0.0, "b": 0.0, "a": 1.0 } },
+                                { "position": 1.0, "color": { "r": 0.0, "g": 0.0, "b": 1.0, "a": 1.0 } }
+                            ]
+                        }]
+                    },
+                    {
+                        "id": "1:2",
+                        "type": "RECTANGLE",
+                        "name": "EllipticalRadial",
+                        "absoluteBoundingBox": { "x": 0.0, "y": 120.0, "width": 400.0, "height": 100.0 },
+                        "fills": [{
+                            "type": "GRADIENT_RADIAL",
+                            "gradientHandlePositions": [
+                                { "x": 0.5, "y": 0.5 },
+                                { "x": 1.0, "y": 0.5 },
+                                { "x": 0.5, "y": 1.0 }
+                            ],
+                            "gradientStops": [
+                                { "position": 0.0, "color": { "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0 } },
+                                { "position": 1.0, "color": { "r": 0.0, "g": 0.0, "b": 0.0, "a": 1.0 } }
+                            ]
+                        }]
+                    }
+                ]
+            }]
+        }
+    });
+    let (project, _) = import_figma_bytes(
+        doc_json.to_string().as_bytes(),
+        "grad.figma.json",
+        &FigmaImportOptions::default(),
+    )
+    .expect("import gradients");
+    project.validate().expect("validates");
+    let root = project.symbol(&project.root).unwrap();
+    let all_root_els: Vec<&Element> = root
+        .timeline
+        .layers
+        .iter()
+        .flat_map(|l| &l.keyframes)
+        .flat_map(|k| &k.elements)
+        .collect();
+
+    let lin_el = all_root_els
+        .iter()
+        .copied()
+        .find(|e| e.name == "DiagLinear")
+        .unwrap();
+    let ElementKind::PaintedPath {
+        fill_gradient: Some(lin_grad),
+        ..
+    } = &lin_el.kind
+    else {
+        panic!("expected PaintedPath with linear gradient");
+    };
+    let u00 = lin_grad.raw_unit_at(0.0, 0.0).expect("invertible");
+    let u11 = lin_grad.raw_unit_at(400.0, 100.0).expect("invertible");
+    let u01 = lin_grad.raw_unit_at(0.0, 100.0).expect("invertible");
+    assert!((u00 - 0.0).abs() < 1e-3, "expected 0.0 at (0,0), got {u00}");
+    assert!(
+        (u11 - 1.0).abs() < 1e-3,
+        "expected 1.0 at (400,100), got {u11}"
+    );
+    assert!(
+        (u01 - 0.0).abs() < 1e-3,
+        "expected vertical isochrome 0.0 at (0,100), got {u01}"
+    );
+
+    // 2. Elliptical radial gradient on 400x100 shape: center=(200,50), semi-axes=(200, 50)
+    let rad_el = all_root_els
+        .iter()
+        .copied()
+        .find(|e| e.name == "EllipticalRadial")
+        .unwrap();
+    let ElementKind::PaintedPath {
+        fill_gradient: Some(rad_grad),
+        ..
+    } = &rad_el.kind
+    else {
+        panic!("expected PaintedPath with radial gradient");
+    };
+    let c_u = rad_grad.raw_unit_at(200.0, 50.0).expect("center");
+    let r_u = rad_grad.raw_unit_at(400.0, 50.0).expect("right edge");
+    let b_u = rad_grad.raw_unit_at(200.0, 100.0).expect("bottom edge");
+    assert!(c_u.abs() < 1e-3, "center must map to 0.0, got {c_u}");
+    assert!(
+        (r_u - 1.0).abs() < 1e-3,
+        "400px horizontal edge must map to unit radius 1.0, got {r_u}"
+    );
+    assert!(
+        (b_u - 1.0).abs() < 1e-3,
+        "100px vertical edge must ALSO map to unit radius 1.0 (elliptical!), got {b_u}"
+    );
+}
+
+#[test]
+fn t414_p1_11_p2_13_p3_15_clipped_frame_border_above_children_corrupt_chunk1_and_style_runs() {
+    // 1. Clipped FRAME with background + border + child: "Background" at bottom, "Border" above clipped child!
+    // Plus unsorted/overlapping style_runs + full-span strikethrough!
+    let doc_json = serde_json::json!({
+        "name": "FrameAndTextDoc",
+        "document": {
+            "id": "0:0",
+            "type": "DOCUMENT",
+            "children": [{
+                "id": "0:1",
+                "type": "CANVAS",
+                "name": "Page 1",
+                "children": [{
+                    "id": "1:1",
+                    "type": "FRAME",
+                    "name": "CardWithBorder",
+                    "clipsContent": true,
+                    "absoluteBoundingBox": { "x": 0.0, "y": 0.0, "width": 200.0, "height": 120.0 },
+                    "fills": [{ "type": "SOLID", "color": { "r": 0.1, "g": 0.1, "b": 0.15, "a": 1.0 } }],
+                    "strokes": [{ "type": "SOLID", "color": { "r": 1.0, "g": 0.8, "b": 0.2, "a": 1.0 } }],
+                    "strokeWeight": 2.0,
+                    "children": [{
+                        "id": "1:2",
+                        "type": "TEXT",
+                        "name": "StrikeLabel",
+                        "characters": "Hello World",
+                        "absoluteBoundingBox": { "x": 10.0, "y": 10.0, "width": 180.0, "height": 30.0 },
+                        "style": { "fontFamily": "Inter", "fontSize": 16.0, "fontWeight": 400.0 },
+                        "characterStyleOverrides": [2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1],
+                        "styleOverrideTable": {
+                            "1": { "fontWeight": 700.0, "textDecoration": "STRIKETHROUGH" },
+                            "2": { "italic": true, "textDecoration": "STRIKETHROUGH" }
+                        }
+                    }]
+                }]
+            }]
+        }
+    });
+    let (project, _) = import_figma_bytes(
+        doc_json.to_string().as_bytes(),
+        "frame_border.figma.json",
+        &FigmaImportOptions {
+            layer_mapping: FigmaLayerMapping::TimelineLayers,
+            ..FigmaImportOptions::default()
+        },
+    )
+    .expect("import frame + text");
+    project.validate().expect("validates");
+    let card_sym = project
+        .symbols
+        .iter()
+        .find(|s| s.name == "CardWithBorder")
+        .expect("CardWithBorder symbol");
+    let layer_names: Vec<&str> = card_sym
+        .timeline
+        .layers
+        .iter()
+        .map(|l| l.name.as_str())
+        .collect();
+    let bg_idx = layer_names
+        .iter()
+        .position(|&n| n == "Background")
+        .expect("Background layer");
+    let mask_idx = layer_names
+        .iter()
+        .position(|&n| n == "Frame Clip")
+        .expect("Frame Clip mask layer");
+    let child_idx = layer_names
+        .iter()
+        .position(|&n| n == "StrikeLabel")
+        .expect("StrikeLabel child layer");
+    let border_idx = layer_names
+        .iter()
+        .position(|&n| n == "Border")
+        .expect("Border layer");
+    assert!(
+        bg_idx < child_idx && child_idx < border_idx && mask_idx < border_idx,
+        "Border layer must render above clipped children (got layers={layer_names:?})"
+    );
+    assert!(
+        card_sym.timeline.layers[border_idx]
+            .properties
+            .mask
+            .is_none(),
+        "Border layer must not be masked underneath clipped children"
+    );
+
+    let text_el = &card_sym.timeline.layers[child_idx].keyframes[0].elements[0];
+    let ElementKind::TextBox { format, .. } = &text_el.kind else {
+        panic!("expected TextBox");
+    };
+    let field_opts = format.field_options().expect("field_options populated");
+    assert!(
+        field_opts.strikethrough,
+        "full-span strikethrough in style_runs must promote to AuthoredTextFieldOptions.strikethrough"
+    );
+    assert_eq!(field_opts.format_runs.len(), 2);
+    assert_eq!(field_opts.format_runs[0].start, 0);
+    assert_eq!(field_opts.format_runs[0].end, 5);
+    assert!(field_opts.format_runs[0].format.italic);
+    assert_eq!(field_opts.format_runs[1].start, 5);
+    assert_eq!(field_opts.format_runs[1].end, 11);
+    assert!(field_opts.format_runs[1].format.bold);
+
+    // 2. Corrupt fig-kiwi chunk 1 must return Err instead of silent empty success!
+    let (mut corrupt_kiwi, _) = build_rich_figma_clipboard_kiwi_fixture(true, 0.0, 0.0, false);
+    let last_idx = corrupt_kiwi.len() - 1;
+    let c0_len = u32::from_le_bytes(corrupt_kiwi[12..16].try_into().unwrap()) as usize;
+    let c1_payload_start = 16 + c0_len + 4;
+    for b in &mut corrupt_kiwi[c1_payload_start..=last_idx] {
+        *b = 0xff;
+    }
+    assert!(
+        import_figma_bytes(
+            &corrupt_kiwi,
+            "corrupt_chunk1.fig",
+            &FigmaImportOptions::default()
+        )
+        .is_err(),
+        "corrupt fig-kiwi chunk 1 must return Err, never silent empty success"
+    );
+}

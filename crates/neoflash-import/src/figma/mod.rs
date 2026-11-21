@@ -268,7 +268,8 @@ pub(super) struct FigmaNode {
     /// Optional independent rectangular border weights `[top, right, bottom, left]`.
     pub(super) border_weights: Option<[f64; 4]>,
     pub(super) fill_paths: Vec<(Vec<PathCommand>, FillRule)>,
-    pub(super) stroke_paths: Vec<Vec<PathCommand>>,
+    pub(super) stroke_paths: Vec<(Vec<PathCommand>, FillRule)>,
+    pub(super) stroke_paths_are_outlines: bool,
     pub(super) text: Option<FigmaTextData>,
     pub(super) effects: Vec<FigmaEffect>,
     pub(super) component_id: Option<String>,
@@ -309,6 +310,7 @@ impl Default for FigmaNode {
             border_weights: None,
             fill_paths: Vec::new(),
             stroke_paths: Vec::new(),
+            stroke_paths_are_outlines: false,
             text: None,
             effects: Vec::new(),
             component_id: None,
@@ -335,8 +337,7 @@ pub(super) enum FigmaPaint {
     Gradient {
         kind: GradientKind,
         stops: Vec<GradientStop>,
-        start: [f64; 2],
-        end: [f64; 2],
+        uv_transform: Option<[f64; 6]>,
         approximated_from: Option<&'static str>,
     },
     Image {
@@ -401,6 +402,8 @@ pub(super) struct FigmaSymbolOverride {
     pub(super) visible: Option<bool>,
     pub(super) opacity: Option<f64>,
     pub(super) characters: Option<String>,
+    pub(super) text_style_ids: Option<Vec<u64>>,
+    pub(super) text_style_overrides: Vec<(u64, FigmaTextStyleOverride)>,
     pub(super) fills: Option<Vec<FigmaPaint>>,
     pub(super) strokes: Option<Vec<FigmaPaint>>,
     pub(super) overridden_symbol_id: Option<String>,
@@ -423,36 +426,96 @@ pub(super) enum FigmaEffect {
     },
 }
 
-/// Invert Figma's 2x3 `Paint.transform` (`[m00, m01, m02, m10, m11, m12]`, mapping shape UV
-/// `[0,1]^2` into gradient space) to recover shape-local `(start, end)` handles.
-pub(super) fn gradient_handles_from_paint_matrix(
-    m: [f64; 6],
+/// Recover Figma's 2x3 `Paint.transform` (`[m00, m01, m02, m10, m11, m12]`, mapping shape UV
+/// `[0, 1]^2` into Figma gradient space `[0, 1]^2`) from REST API `gradientHandlePositions`.
+pub(super) fn uv_transform_from_gradient_handles(
+    h0: [f64; 2],
+    h1: [f64; 2],
+    h2: Option<[f64; 2]>,
+    radial: bool,
+) -> Option<[f64; 6]> {
+    if !h0.iter().chain(&h1).all(|v| v.is_finite()) {
+        return None;
+    }
+    let (c1, c2, t) = if radial {
+        let p2 = h2
+            .filter(|p| p.iter().all(|v| v.is_finite()))
+            .unwrap_or([h0[0] - (h1[1] - h0[1]), h0[1] + (h1[0] - h0[0])]);
+        let col1 = [2.0 * (h1[0] - h0[0]), 2.0 * (h1[1] - h0[1])];
+        let col2 = [2.0 * (p2[0] - h0[0]), 2.0 * (p2[1] - h0[1])];
+        let org = [
+            h0[0] - 0.5 * col1[0] - 0.5 * col2[0],
+            h0[1] - 0.5 * col1[1] - 0.5 * col2[1],
+        ];
+        (col1, col2, org)
+    } else {
+        let p2 = h2
+            .filter(|p| p.iter().all(|v| v.is_finite()))
+            .unwrap_or([h0[0] - (h1[1] - h0[1]), h0[1] + (h1[0] - h0[0])]);
+        let col1 = [h1[0] - h0[0], h1[1] - h0[1]];
+        let col2 = [p2[0] - h0[0], p2[1] - h0[1]];
+        (col1, col2, h0)
+    };
+    let det = c1[0] * c2[1] - c1[1] * c2[0];
+    if !det.is_finite() || det.abs() <= 1e-9 {
+        return None;
+    }
+    let m00 = c2[1] / det;
+    let m01 = -c2[0] / det;
+    let m02 = -(m00 * t[0] + m01 * t[1]);
+    let m10 = -c1[1] / det;
+    let m11 = c1[0] / det;
+    let m12 = -(m10 * t[0] + m11 * t[1]);
+    let mat = [m00, m01, m02, m10, m11, m12];
+    mat.iter().all(|v| v.is_finite()).then_some(mat)
+}
+
+/// Compose Flash's canonical `[-819.2, 819.2]` gradient box directly into shape-local coordinates
+/// via `diag(sw, sh) * inv(Paint.transform) * canonical_flash_to_figma_uv`, preserving anisotropic
+/// linear gradient isochrome normals and elliptical/rotated/skewed radial gradients.
+pub(super) fn figma_uv_transform_to_flash_gradient_matrix(
+    uv_transform: Option<[f64; 6]>,
     w: f64,
     h: f64,
-    radial: bool,
-) -> ([f64; 2], [f64; 2]) {
-    let [m00, m01, m02, m10, m11, m12] = m;
-    let det = m00 * m11 - m01 * m10;
-    let sw = w.max(1.0);
-    let sh = h.max(1.0);
-    if !det.is_finite() || det.abs() <= 1e-9 {
-        return if radial {
-            ([sw * 0.5, sh * 0.5], [sw, sh * 0.5])
-        } else {
-            ([0.0, sh * 0.5], [sw, sh * 0.5])
-        };
-    }
-    let inv_point = |gx: f64, gy: f64| -> [f64; 2] {
-        let dx = gx - m02;
-        let dy = gy - m12;
-        let u = (m11 * dx - m01 * dy) / det;
-        let v = (-m10 * dx + m00 * dy) / det;
-        [u * sw, v * sh]
-    };
-    if radial {
-        (inv_point(0.5, 0.5), inv_point(1.0, 0.5))
+) -> [f64; 6] {
+    let sw = if w.is_finite() {
+        w.clamp(1.0, 1e6)
     } else {
-        (inv_point(0.0, 0.5), inv_point(1.0, 0.5))
+        100.0
+    };
+    let sh = if h.is_finite() {
+        h.clamp(1.0, 1e6)
+    } else {
+        100.0
+    };
+    let fallback = [sw / 1638.4, 0.0, 0.0, sh / 1638.4, sw * 0.5, sh * 0.5];
+    let [m00, m01, m02, m10, m11, m12] = uv_transform.unwrap_or([1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+    let det = m00 * m11 - m01 * m10;
+    if !det.is_finite() || det.abs() <= 1e-9 {
+        return fallback;
+    }
+    let inv00 = m11 / det;
+    let inv01 = -m01 / det;
+    let inv02 = -(inv00 * m02 + inv01 * m12);
+    let inv10 = -m10 / det;
+    let inv11 = m00 / det;
+    let inv12 = -(inv10 * m02 + inv11 * m12);
+    let mat = [
+        sw * inv00 / 1638.4,
+        sh * inv10 / 1638.4,
+        sw * inv01 / 1638.4,
+        sh * inv11 / 1638.4,
+        sw * (0.5 * inv00 + 0.5 * inv01 + inv02),
+        sh * (0.5 * inv10 + 0.5 * inv11 + inv12),
+    ];
+    let mat_det = mat[0] * mat[3] - mat[1] * mat[2];
+    if mat.iter().all(|v| v.is_finite() && v.abs() <= 1e7)
+        && mat_det.is_finite()
+        && mat_det.abs() > 1e-12
+    {
+        mat
+    } else {
+        fallback
     }
 }
 

@@ -508,14 +508,27 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
     ) -> (Vec<Layer>, usize, usize) {
         let mut layers = Vec::new();
         let mut expanded_used = 1usize;
-        if (!container.fills.is_empty() || !container.strokes.is_empty())
+        let has_children = !container.children.is_empty();
+        let has_border = !container.strokes.is_empty()
+            && (container.stroke_weight > 0.0 || container.border_weights.is_some());
+
+        if (!container.fills.is_empty() || (!has_children && has_border))
             && container.width > 0.0
             && container.height > 0.0
             && self.authored_elements < MAX_AUTHORED_ELEMENTS
         {
+            let mut bg_node = container.clone();
+            if has_children && has_border {
+                // Separate foreground Frame/Component borders onto a top "Border" layer above clipped children.
+                bg_node.strokes.clear();
+                bg_node.stroke_weight = 0.0;
+                bg_node.border_weights = None;
+                bg_node.stroke_paths.clear();
+                bg_node.stroke_paths_are_outlines = false;
+            }
             let mut bg_bfs = Vec::new();
             let mut bg_els = self.shape_elements(
-                container,
+                &bg_node,
                 Transform::default(),
                 BlendMode::Normal,
                 &[],
@@ -567,6 +580,49 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
         );
         expanded_used = expanded_used.saturating_add(child_exp);
         layers.extend(child_layers);
+
+        if has_children
+            && has_border
+            && container.width > 0.0
+            && container.height > 0.0
+            && self.authored_elements < MAX_AUTHORED_ELEMENTS
+        {
+            let mut border_node = container.clone();
+            border_node.fills.clear();
+            border_node.effects.clear();
+            let mut border_bfs = Vec::new();
+            let mut border_els = self.shape_elements(
+                &border_node,
+                Transform::default(),
+                BlendMode::Normal,
+                &[],
+                &format!("{} / Border", container.name),
+                expanded_budget.saturating_sub(expanded_used),
+                &mut border_bfs,
+            );
+            for element in &mut border_els {
+                element.visible = true;
+            }
+            if !border_els.is_empty() {
+                expanded_used = expanded_used.saturating_add(border_els.len());
+                layers.push(Layer {
+                    id: new_id("layer"),
+                    name: "Border".into(),
+                    visible: true,
+                    locked: false,
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: border_els,
+                        bitmap_fills: border_bfs,
+                        ..Keyframe::default()
+                    }],
+                    properties: LayerProperties::default(),
+                });
+                self.report.statistics.layers += 1;
+                self.report.statistics.keyframes += 1;
+            }
+        }
+
         if layers.is_empty() {
             layers.push(Layer {
                 id: new_id("layer"),
@@ -833,10 +889,13 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                 };
                 if !td.style_runs.is_empty() {
                     let total_u16 = normalized_chars.encode_utf16().count() as u32;
+                    let mut sorted_runs = td.style_runs.clone();
+                    sorted_runs.sort_by_key(|sr| (sr.start_utf16, sr.end_utf16));
                     let mut runs = Vec::new();
                     let mut cursor = 0u32;
-                    for sr in &td.style_runs {
-                        let s = sr.start_utf16.min(total_u16);
+                    let mut covered_strikethrough = 0u32;
+                    for sr in &sorted_runs {
+                        let s = sr.start_utf16.min(total_u16).max(cursor);
                         let e = sr.end_utf16.min(total_u16);
                         if e <= s {
                             continue;
@@ -847,6 +906,9 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                                 end: s,
                                 format: base_fmt.clone(),
                             });
+                        }
+                        if sr.style.strikethrough == Some(true) {
+                            covered_strikethrough = covered_strikethrough.saturating_add(e - s);
                         }
                         let mut rf = base_fmt.clone();
                         if let Some(fam) = &sr.style.font_family {
@@ -890,6 +952,9 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                             end: total_u16,
                             format: base_fmt,
                         });
+                    }
+                    if total_u16 > 0 && covered_strikethrough == total_u16 {
+                        opts.strikethrough = true;
                     }
                     opts.format_runs = runs;
                 }
@@ -949,33 +1014,65 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
         let mut out = Vec::new();
         let (fallback_cmds, prim_opt) = self.fallback_shape_commands(node);
         let indep_borders = has_unequal_border_weights(node);
-        let stroke_w = if node.strokes.is_empty() || indep_borders {
+        let mut resolved_strokes: Vec<(Color, Option<GradientPaint>)> = Vec::new();
+        for sp in &node.strokes {
+            match sp {
+                FigmaPaint::Solid { color } => resolved_strokes.push((*color, None)),
+                FigmaPaint::Gradient {
+                    kind,
+                    stops,
+                    uv_transform,
+                    approximated_from,
+                } => {
+                    if let Some(approx) = approximated_from {
+                        self.report.warning(
+                            "figma-gradient-approximated",
+                            location.to_owned(),
+                            format!(
+                                "Figma {approx} stroke gradient approximated as Radial gradient."
+                            ),
+                        );
+                    }
+                    let fallback_c = stops.first().map(|s| s.color).unwrap_or([0, 0, 0, 255]);
+                    let grad = build_figma_gradient_paint(
+                        *kind,
+                        stops,
+                        *uv_transform,
+                        node.width,
+                        node.height,
+                    );
+                    resolved_strokes.push((fallback_c, grad));
+                }
+                _ => {}
+            }
+        }
+        let stroke_w = if resolved_strokes.is_empty() || indep_borders {
             0.0
         } else {
             node.stroke_weight.clamp(0.0, 256.0)
         };
-        let (stroke_solid, stroke_grad) = match node.strokes.first() {
-            Some(FigmaPaint::Solid { color }) => (*color, None),
-            Some(FigmaPaint::Gradient {
-                kind,
-                stops,
-                start,
-                end,
-                approximated_from,
-            }) => {
-                if let Some(approx) = approximated_from {
-                    self.report.warning(
-                        "figma-gradient-approximated",
-                        location.to_owned(),
-                        format!("Figma {approx} stroke gradient approximated as Radial gradient."),
-                    );
-                }
-                (
-                    stops.first().map(|s| s.color).unwrap_or([0, 0, 0, 255]),
-                    Some(build_figma_gradient_paint(*kind, stops, *start, *end)),
-                )
-            }
-            _ => ([0, 0, 0, 0], None),
+        let valid_stroke_paths: Vec<(Vec<PathCommand>, FillRule)> = node
+            .stroke_paths
+            .iter()
+            .filter(|(c, _)| validate_path_commands(c).is_ok())
+            .cloned()
+            .collect();
+        let use_expanded_stroke_outlines = !indep_borders
+            && stroke_w > 0.0
+            && node.stroke_paths_are_outlines
+            && !valid_stroke_paths.is_empty();
+        let (stroke_solid, stroke_grad) = if use_expanded_stroke_outlines {
+            ([0, 0, 0, 0], None)
+        } else {
+            resolved_strokes
+                .first()
+                .cloned()
+                .unwrap_or(([0, 0, 0, 0], None))
+        };
+        let inline_stroke_w = if use_expanded_stroke_outlines {
+            0.0
+        } else {
+            stroke_w
         };
 
         let paths_to_fill: Vec<(Vec<PathCommand>, FillRule)> = if !node.fill_paths.is_empty() {
@@ -992,48 +1089,70 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
 
         let is_rect_node = node.is_rectangular();
 
-        if node.fills.is_empty() && stroke_w > 0.0 {
-            let scmds = node
-                .stroke_paths
-                .first()
-                .filter(|c| validate_path_commands(c).is_ok())
-                .cloned()
-                .unwrap_or_else(|| fallback_cmds.clone());
-            if validate_path_commands(&scmds).is_ok() {
-                let kind = if stroke_grad.is_some() {
-                    ElementKind::PaintedPath {
-                        commands: scmds,
-                        fill_rule: FillRule::NonZero,
-                        fill: [0, 0, 0, 0],
-                        stroke: stroke_solid,
-                        fill_gradient: None,
-                        stroke_gradient: stroke_grad.clone(),
-                        stroke_width: stroke_w,
+        if node.fills.is_empty() && !use_expanded_stroke_outlines && stroke_w > 0.0 {
+            let centerline_cmds: Vec<Vec<PathCommand>> = if !valid_stroke_paths.is_empty() {
+                valid_stroke_paths.iter().map(|(c, _)| c.clone()).collect()
+            } else if validate_path_commands(&fallback_cmds).is_ok() {
+                vec![fallback_cmds.clone()]
+            } else {
+                Vec::new()
+            };
+            let total_stroke_els = resolved_strokes.len() * centerline_cmds.len();
+            let mut emitted_stroke_els = 0usize;
+            for (sc_solid, sc_grad) in &resolved_strokes {
+                for scmds in &centerline_cmds {
+                    if self.authored_elements >= MAX_AUTHORED_ELEMENTS
+                        || out.len() >= expanded_budget
+                    {
+                        self.page_truncated = true;
+                        break;
                     }
-                } else {
-                    ElementKind::Path {
-                        commands: scmds,
-                        fill_rule: FillRule::NonZero,
-                        fill: [0, 0, 0, 0],
-                        stroke: stroke_solid,
-                        stroke_width: stroke_w,
-                    }
-                };
-                out.push(Element {
-                    id: new_id("el"),
-                    name: sanitize_element_name(&node.name),
-                    transform: base_tf,
-                    kind,
-                    visible: node.visible,
-                    cache_as_bitmap: !filters.is_empty(),
-                    blend_mode,
-                    filters: filters.to_vec(),
-                    ..Element::default()
-                });
-                self.authored_elements += 1;
-                self.report.statistics.elements += 1;
+                    emitted_stroke_els += 1;
+                    let is_last = emitted_stroke_els == total_stroke_els;
+                    let kind = if sc_grad.is_some() {
+                        ElementKind::PaintedPath {
+                            commands: scmds.clone(),
+                            fill_rule: FillRule::NonZero,
+                            fill: [0, 0, 0, 0],
+                            stroke: *sc_solid,
+                            fill_gradient: None,
+                            stroke_gradient: sc_grad.clone(),
+                            stroke_width: stroke_w,
+                        }
+                    } else {
+                        ElementKind::Path {
+                            commands: scmds.clone(),
+                            fill_rule: FillRule::NonZero,
+                            fill: [0, 0, 0, 0],
+                            stroke: *sc_solid,
+                            stroke_width: stroke_w,
+                        }
+                    };
+                    out.push(Element {
+                        id: new_id("el"),
+                        name: sanitize_element_name(&node.name),
+                        transform: base_tf,
+                        kind,
+                        visible: node.visible,
+                        cache_as_bitmap: !filters.is_empty(),
+                        blend_mode,
+                        filters: if is_last {
+                            filters.to_vec()
+                        } else {
+                            Vec::new()
+                        },
+                        ..Element::default()
+                    });
+                    self.authored_elements += 1;
+                    self.report.statistics.elements += 1;
+                }
             }
         }
+
+        let extra_centerline_strokes =
+            !node.fills.is_empty() && !use_expanded_stroke_outlines && resolved_strokes.len() > 1;
+        let has_trailing_stroke_elements =
+            use_expanded_stroke_outlines || (extra_centerline_strokes && inline_stroke_w > 0.0);
 
         for (fi, paint) in node.fills.iter().enumerate() {
             if self.authored_elements >= MAX_AUTHORED_ELEMENTS || out.len() >= expanded_budget {
@@ -1046,12 +1165,13 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             } else {
                 [0, 0, 0, 0]
             };
-            let cur_stroke_w = if is_last_fill { stroke_w } else { 0.0 };
+            let cur_stroke_w = if is_last_fill { inline_stroke_w } else { 0.0 };
             let cur_stroke_grad = if is_last_fill {
                 stroke_grad.clone()
             } else {
                 None
             };
+            let apply_filters_on_fill = is_last_fill && !has_trailing_stroke_elements;
 
             match paint {
                 FigmaPaint::Image {
@@ -1062,9 +1182,9 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                     scaling_factor,
                 } => {
                     if let Some((res_id, iw, ih)) = self.lookup_image(image_ref, location) {
-                        // Direct crisp `Bitmap` for non-rounded rectangular fills without explicit path
-                        // or custom crop/tile/fit matrix.
-                        if node.uses_bitmap_instance(scale_mode, *image_transform) {
+                        // Direct crisp `Bitmap` ONLY for non-rounded rectangular fills matching aspect ratio
+                        // without explicit path or custom crop/tile/fit matrix.
+                        if node.uses_bitmap_instance(iw, ih, scale_mode, *image_transform) {
                             let mut img_tf = base_tf;
                             if iw > 0 && ih > 0 && node.width > 0.0 && node.height > 0.0 {
                                 img_tf.scale_x *= node.width / f64::from(iw);
@@ -1084,7 +1204,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                                 visible: node.visible,
                                 cache_as_bitmap: !filters.is_empty(),
                                 blend_mode,
-                                filters: if is_last_fill && cur_stroke_w == 0.0 {
+                                filters: if apply_filters_on_fill && cur_stroke_w == 0.0 {
                                     filters.to_vec()
                                 } else {
                                     Vec::new()
@@ -1109,14 +1229,18 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                                     visible: node.visible,
                                     cache_as_bitmap: !filters.is_empty(),
                                     blend_mode,
-                                    filters: filters.to_vec(),
+                                    filters: if apply_filters_on_fill {
+                                        filters.to_vec()
+                                    } else {
+                                        Vec::new()
+                                    },
                                     ..Element::default()
                                 });
                                 self.authored_elements += 1;
                                 self.report.statistics.elements += 1;
                             }
                         } else if let Some((cmds, rule)) = paths_to_fill.first() {
-                            // Cropped / tiled / fitted / rounded / vector shape with bitmap fill -> `Path` + `AuthoredBitmapFill`!
+                            // Cropped / tiled / fitted / non-matching-aspect / rounded / vector shape with bitmap fill -> `Path` + `AuthoredBitmapFill`!
                             let el_id = new_id("el");
                             let mut shp_tf = base_tf;
                             shp_tf.alpha = (shp_tf.alpha * alpha).clamp(0.0, 1.0);
@@ -1150,7 +1274,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                                 visible: node.visible,
                                 cache_as_bitmap: !filters.is_empty(),
                                 blend_mode,
-                                filters: if is_last_fill {
+                                filters: if apply_filters_on_fill {
                                     filters.to_vec()
                                 } else {
                                     Vec::new()
@@ -1209,7 +1333,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                             visible: node.visible,
                             cache_as_bitmap: !filters.is_empty(),
                             blend_mode,
-                            filters: if is_last_fill {
+                            filters: if apply_filters_on_fill {
                                 filters.to_vec()
                             } else {
                                 Vec::new()
@@ -1235,7 +1359,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                             visible: node.visible,
                             cache_as_bitmap: !filters.is_empty(),
                             blend_mode,
-                            filters: if is_last_fill {
+                            filters: if apply_filters_on_fill {
                                 filters.to_vec()
                             } else {
                                 Vec::new()
@@ -1278,7 +1402,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                                 visible: node.visible,
                                 cache_as_bitmap: !filters.is_empty(),
                                 blend_mode,
-                                filters: if is_last_fill {
+                                filters: if apply_filters_on_fill {
                                     filters.to_vec()
                                 } else {
                                     Vec::new()
@@ -1293,8 +1417,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                 FigmaPaint::Gradient {
                     kind,
                     stops,
-                    start,
-                    end,
+                    uv_transform,
                     approximated_from,
                 } => {
                     if let Some(approx) = approximated_from {
@@ -1306,7 +1429,13 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                             ),
                         );
                     }
-                    let grad = build_figma_gradient_paint(*kind, stops, *start, *end);
+                    let grad = build_figma_gradient_paint(
+                        *kind,
+                        stops,
+                        *uv_transform,
+                        node.width,
+                        node.height,
+                    );
                     let fallback_c = stops.first().map(|s| s.color).unwrap_or([0, 0, 0, 255]);
                     for (cmds, rule) in &paths_to_fill {
                         if self.authored_elements >= MAX_AUTHORED_ELEMENTS
@@ -1315,23 +1444,34 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                             self.page_truncated = true;
                             break;
                         }
-                        out.push(Element {
-                            id: new_id("el"),
-                            name: sanitize_element_name(&node.name),
-                            transform: base_tf,
-                            kind: ElementKind::PaintedPath {
+                        let kind = if grad.is_some() || cur_stroke_grad.is_some() {
+                            ElementKind::PaintedPath {
                                 commands: cmds.clone(),
                                 fill_rule: *rule,
                                 fill: fallback_c,
                                 stroke: cur_stroke,
-                                fill_gradient: Some(grad.clone()),
+                                fill_gradient: grad.clone(),
                                 stroke_gradient: cur_stroke_grad.clone(),
                                 stroke_width: cur_stroke_w,
-                            },
+                            }
+                        } else {
+                            ElementKind::Path {
+                                commands: cmds.clone(),
+                                fill_rule: *rule,
+                                fill: fallback_c,
+                                stroke: cur_stroke,
+                                stroke_width: cur_stroke_w,
+                            }
+                        };
+                        out.push(Element {
+                            id: new_id("el"),
+                            name: sanitize_element_name(&node.name),
+                            transform: base_tf,
+                            kind,
                             visible: node.visible,
                             cache_as_bitmap: !filters.is_empty(),
                             blend_mode,
-                            filters: if is_last_fill {
+                            filters: if apply_filters_on_fill {
                                 filters.to_vec()
                             } else {
                                 Vec::new()
@@ -1345,18 +1485,140 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             }
         }
 
+        if use_expanded_stroke_outlines {
+            // `strokeGeometry` in `fig-kiwi` / `.figma.json` is already an expanded filled outline polygon:
+            // emit as filled `Path` / `PaintedPath` (`stroke_width = 0.0`) across all visible `node.strokes`!
+            let total_outline_els = resolved_strokes.len() * valid_stroke_paths.len();
+            let mut emitted_outline_els = 0usize;
+            for (sc_solid, sc_grad) in &resolved_strokes {
+                for (scmds, srule) in &valid_stroke_paths {
+                    if self.authored_elements >= MAX_AUTHORED_ELEMENTS
+                        || out.len() >= expanded_budget
+                    {
+                        self.page_truncated = true;
+                        break;
+                    }
+                    emitted_outline_els += 1;
+                    let is_last = emitted_outline_els == total_outline_els;
+                    let kind = if let Some(grad) = sc_grad {
+                        ElementKind::PaintedPath {
+                            commands: scmds.clone(),
+                            fill_rule: *srule,
+                            fill: *sc_solid,
+                            stroke: [0, 0, 0, 0],
+                            fill_gradient: Some(grad.clone()),
+                            stroke_gradient: None,
+                            stroke_width: 0.0,
+                        }
+                    } else {
+                        ElementKind::Path {
+                            commands: scmds.clone(),
+                            fill_rule: *srule,
+                            fill: *sc_solid,
+                            stroke: [0, 0, 0, 0],
+                            stroke_width: 0.0,
+                        }
+                    };
+                    out.push(Element {
+                        id: new_id("el"),
+                        name: if node.fills.is_empty() {
+                            sanitize_element_name(&node.name)
+                        } else {
+                            format!("{} Stroke", sanitize_element_name(&node.name))
+                        },
+                        transform: base_tf,
+                        kind,
+                        visible: node.visible,
+                        cache_as_bitmap: !filters.is_empty(),
+                        blend_mode,
+                        filters: if is_last {
+                            filters.to_vec()
+                        } else {
+                            Vec::new()
+                        },
+                        ..Element::default()
+                    });
+                    self.authored_elements += 1;
+                    self.report.statistics.elements += 1;
+                }
+            }
+        } else if extra_centerline_strokes && inline_stroke_w > 0.0 {
+            let extra_cmds: Vec<Vec<PathCommand>> = if !valid_stroke_paths.is_empty() {
+                valid_stroke_paths.iter().map(|(c, _)| c.clone()).collect()
+            } else if validate_path_commands(&fallback_cmds).is_ok() {
+                vec![fallback_cmds.clone()]
+            } else {
+                Vec::new()
+            };
+            let total_extra = (resolved_strokes.len() - 1) * extra_cmds.len();
+            let mut emitted_extra = 0usize;
+            for (sc_solid, sc_grad) in &resolved_strokes[1..] {
+                for scmds in &extra_cmds {
+                    if self.authored_elements >= MAX_AUTHORED_ELEMENTS
+                        || out.len() >= expanded_budget
+                    {
+                        self.page_truncated = true;
+                        break;
+                    }
+                    emitted_extra += 1;
+                    let is_last = emitted_extra == total_extra;
+                    let kind = if sc_grad.is_some() {
+                        ElementKind::PaintedPath {
+                            commands: scmds.clone(),
+                            fill_rule: FillRule::NonZero,
+                            fill: [0, 0, 0, 0],
+                            stroke: *sc_solid,
+                            fill_gradient: None,
+                            stroke_gradient: sc_grad.clone(),
+                            stroke_width: inline_stroke_w,
+                        }
+                    } else {
+                        ElementKind::Path {
+                            commands: scmds.clone(),
+                            fill_rule: FillRule::NonZero,
+                            fill: [0, 0, 0, 0],
+                            stroke: *sc_solid,
+                            stroke_width: inline_stroke_w,
+                        }
+                    };
+                    out.push(Element {
+                        id: new_id("el"),
+                        name: format!("{} Stroke", sanitize_element_name(&node.name)),
+                        transform: base_tf,
+                        kind,
+                        visible: node.visible,
+                        cache_as_bitmap: !filters.is_empty(),
+                        blend_mode,
+                        filters: if is_last {
+                            filters.to_vec()
+                        } else {
+                            Vec::new()
+                        },
+                        ..Element::default()
+                    });
+                    self.authored_elements += 1;
+                    self.report.statistics.elements += 1;
+                }
+            }
+        }
+
         if indep_borders && self.authored_elements + 4 <= MAX_AUTHORED_ELEMENTS {
-            let borders = build_independent_border_elements(
-                node,
-                base_tf,
-                stroke_solid,
-                stroke_grad,
-                blend_mode,
-            );
-            let added = borders.len();
-            self.authored_elements += added;
-            self.report.statistics.elements += added;
-            out.extend(borders);
+            for (sc_solid, sc_grad) in &resolved_strokes {
+                if self.authored_elements + 4 > MAX_AUTHORED_ELEMENTS {
+                    break;
+                }
+                let borders = build_independent_border_elements(
+                    node,
+                    base_tf,
+                    *sc_solid,
+                    sc_grad.clone(),
+                    blend_mode,
+                );
+                let added = borders.len();
+                self.authored_elements += added;
+                self.report.statistics.elements += added;
+                out.extend(borders);
+            }
         }
 
         if out.is_empty() && !filters.is_empty() && self.authored_elements < MAX_AUTHORED_ELEMENTS {
@@ -2435,7 +2697,7 @@ fn measure_clipboard_node_bounds(
                 dst.y_max = dst.y_max.max(pb.y_max);
             }
         }
-        for cmds in &node.stroke_paths {
+        for (cmds, _) in &node.stroke_paths {
             if let Ok(Some(pb)) = neoflash_core::path_bounds(cmds) {
                 let dst = local_path_bb.get_or_insert(pb);
                 dst.x_min = dst.x_min.min(pb.x_min);
@@ -2839,12 +3101,34 @@ impl FigmaNode {
         )
     }
 
-    fn uses_bitmap_instance(&self, scale_mode: &str, image_transform: Option<[f64; 6]>) -> bool {
+    fn may_use_bitmap_instance(&self, scale_mode: &str, image_transform: Option<[f64; 6]>) -> bool {
         self.is_rectangular()
             && self.fill_paths.is_empty()
             && self.corner_radii.iter().all(|&r| r <= 0.0)
             && !matches!(scale_mode, "TILE" | "CROP" | "STRETCH" | "FIT")
             && image_transform.is_none_or(is_identity_uv_matrix)
+    }
+
+    fn uses_bitmap_instance(
+        &self,
+        iw: u32,
+        ih: u32,
+        scale_mode: &str,
+        image_transform: Option<[f64; 6]>,
+    ) -> bool {
+        if !self.may_use_bitmap_instance(scale_mode, image_transform)
+            || iw == 0
+            || ih == 0
+            || self.width <= 0.0
+            || self.height <= 0.0
+        {
+            return false;
+        }
+        let shape_aspect = self.width / self.height;
+        let img_aspect = f64::from(iw) / f64::from(ih);
+        shape_aspect.is_finite()
+            && img_aspect.is_finite()
+            && (shape_aspect - img_aspect).abs() <= 1e-3
     }
 }
 
@@ -2898,7 +3182,7 @@ fn collect_referenced_image_keys(
         {
             refs.record(
                 image_ref,
-                node.uses_bitmap_instance(scale_mode, *image_transform),
+                node.may_use_bitmap_instance(scale_mode, *image_transform),
             );
         }
     }
@@ -3069,9 +3353,9 @@ fn prepare_referenced_images<'b>(
             continue;
         };
         let mut limits = Limits::default();
-        limits.max_image_width = Some(32_768);
-        limits.max_image_height = Some(32_768);
-        limits.max_alloc = Some(512 * 1024 * 1024);
+        limits.max_image_width = Some(16_384);
+        limits.max_image_height = Some(16_384);
+        limits.max_alloc = Some(64 * 1024 * 1024);
         let mut reader = ImageReader::with_format(Cursor::new(&raw_bytes), fmt);
         reader.limits(limits);
         let Ok((ow, oh)) = reader.into_dimensions() else {
@@ -3082,7 +3366,22 @@ fn prepare_referenced_images<'b>(
             );
             continue;
         };
-        if ow == 0 || oh == 0 {
+        if ow == 0
+            || oh == 0
+            || ow > 16_384
+            || oh > 16_384
+            || u64::from(ow)
+                .saturating_mul(u64::from(oh))
+                .saturating_mul(4)
+                > 64 * 1024 * 1024
+        {
+            ctx.report.warning(
+                "figma-image-skipped",
+                key.clone(),
+                format!(
+                    "Figma image fill '{key}' ({ow}x{oh}) exceeds the 64 MiB pixel safety limit; converted to placeholder shape."
+                ),
+            );
             continue;
         }
         let (mut tw, mut th) = (ow, oh);
@@ -3267,9 +3566,9 @@ fn decode_and_reencode_image(
     mut th: u32,
 ) -> Option<(Vec<u8>, &'static str, &'static str, u32, u32)> {
     let mut limits = Limits::default();
-    limits.max_image_width = Some(32_768);
-    limits.max_image_height = Some(32_768);
-    limits.max_alloc = Some(512 * 1024 * 1024);
+    limits.max_image_width = Some(16_384);
+    limits.max_image_height = Some(16_384);
+    limits.max_alloc = Some(64 * 1024 * 1024);
     let mut reader = ImageReader::with_format(Cursor::new(bytes), fmt);
     reader.limits(limits);
     let mut img: DynamicImage = reader.decode().ok()?;
@@ -3332,7 +3631,9 @@ fn compute_bitmap_fill_matrix(
     let sh = shape_h.max(1.0);
     let repeat = scale_mode == "TILE";
 
-    if let Some([m00, m01, m02, m10, m11, m12]) = image_transform {
+    if matches!(scale_mode, "CROP" | "STRETCH")
+        && let Some([m00, m01, m02, m10, m11, m12]) = image_transform
+    {
         let det = m00 * m11 - m01 * m10;
         if det.is_finite() && det.abs() > 1e-9 {
             let inv00 = m11 / det;
@@ -3475,6 +3776,20 @@ fn hash_instance_overrides(comp_id: &str, instance: &FigmaNode) -> u64 {
             (-1i32).hash(&mut h);
         }
         ov.characters.hash(&mut h);
+        ov.text_style_ids.hash(&mut h);
+        ov.text_style_overrides.len().hash(&mut h);
+        for (sid, st) in &ov.text_style_overrides {
+            sid.hash(&mut h);
+            st.font_family.hash(&mut h);
+            st.font_size.map(f64::to_bits).hash(&mut h);
+            st.bold.hash(&mut h);
+            st.italic.hash(&mut h);
+            st.underline.hash(&mut h);
+            st.strikethrough.hash(&mut h);
+            st.fill_color.hash(&mut h);
+            st.letter_spacing.map(f64::to_bits).hash(&mut h);
+            st.line_height.map(f64::to_bits).hash(&mut h);
+        }
         ov.overridden_symbol_id.hash(&mut h);
         for plist in [&ov.fills, &ov.strokes] {
             if let Some(list) = plist {
@@ -3485,8 +3800,15 @@ fn hash_instance_overrides(comp_id: &str, instance: &FigmaNode) -> u64 {
                             1u8.hash(&mut h);
                             color.hash(&mut h);
                         }
-                        FigmaPaint::Gradient { stops, .. } => {
+                        FigmaPaint::Gradient {
+                            kind,
+                            stops,
+                            uv_transform,
+                            ..
+                        } => {
                             2u8.hash(&mut h);
+                            std::mem::discriminant(kind).hash(&mut h);
+                            uv_transform.map(|m| m.map(f64::to_bits)).hash(&mut h);
                             for s in stops {
                                 s.ratio.hash(&mut h);
                                 s.color.hash(&mut h);
@@ -3604,11 +3926,25 @@ fn apply_override_at_path(node: &mut FigmaNode, path: &[String], ov: &FigmaSymbo
                 if let Some(op) = ov.opacity {
                     child.opacity = op;
                 }
-                if let Some(chars) = &ov.characters
-                    && let Some(txt) = &mut child.text
-                {
-                    txt.characters.clone_from(chars);
-                    txt.style_runs.clear();
+                if let Some(txt) = &mut child.text {
+                    let chars_changed = if let Some(chars) = &ov.characters {
+                        let changed = &txt.characters != chars;
+                        txt.characters.clone_from(chars);
+                        changed
+                    } else {
+                        false
+                    };
+                    if let Some(char_ids) = &ov.text_style_ids {
+                        let override_map: HashMap<u64, FigmaTextStyleOverride> =
+                            ov.text_style_overrides.iter().cloned().collect();
+                        txt.style_runs = super::kiwi::build_text_style_runs(
+                            &txt.characters,
+                            char_ids,
+                            &override_map,
+                        );
+                    } else if chars_changed {
+                        txt.style_runs.clear();
+                    }
                 }
                 if let Some(fills) = &ov.fills {
                     child.fills.clone_from(fills);
@@ -3698,34 +4034,31 @@ fn sanitize_instance_name(raw: &str) -> String {
 fn build_figma_gradient_paint(
     kind: GradientKind,
     stops: &[GradientStop],
-    start: [f64; 2],
-    end: [f64; 2],
-) -> GradientPaint {
-    let dx = end[0] - start[0];
-    let dy = end[1] - start[1];
-    let len = dx.hypot(dy).max(1.0);
-    let matrix = match kind {
-        GradientKind::Linear => {
-            let cos_a = dx / len;
-            let sin_a = dy / len;
-            let s = len / 1638.4;
-            let mx = (start[0] + end[0]) * 0.5;
-            let my = (start[1] + end[1]) * 0.5;
-            [s * cos_a, s * sin_a, -s * sin_a, s * cos_a, mx, my]
-        }
-        GradientKind::Radial => {
-            let s = len / 819.2;
-            [s, 0.0, 0.0, s, start[0], start[1]]
-        }
-    };
+    uv_transform: Option<[f64; 6]>,
+    width: f64,
+    height: f64,
+) -> Option<GradientPaint> {
     let mut sorted = stops.to_vec();
     sorted.sort_by_key(|st| st.ratio);
     sorted.truncate(15);
-    GradientPaint {
+    if sorted.len() < 2 {
+        return None;
+    }
+    let matrix = figma_uv_transform_to_flash_gradient_matrix(uv_transform, width, height);
+    let paint = GradientPaint {
         kind,
         matrix,
         stops: sorted,
         focal_point_ratio: 0.0,
         ..Default::default()
+    };
+    if paint.validate().is_ok() {
+        return Some(paint);
     }
+    let fallback = GradientPaint {
+        kind,
+        matrix: figma_uv_transform_to_flash_gradient_matrix(None, width, height),
+        ..paint
+    };
+    fallback.validate().ok().map(|()| fallback)
 }

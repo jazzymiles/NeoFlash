@@ -2,17 +2,23 @@
 //! Figma REST API / plugin `.figma.json` scene-graph parser (`T-249`, `T-312`).
 
 use std::collections::{BTreeMap, HashMap};
+use std::io::Cursor;
 
 use base64::Engine as _;
+use image::{ImageReader, Limits};
 use neoflash_core::{Color, FillRule, GradientKind, GradientStop, PathCommand, TextAlign};
 use serde_json::Value;
 
 use super::{
     BASE64, FigmaArcData, FigmaDoc, FigmaDocumentSummary, FigmaEffect, FigmaNode, FigmaPageSummary,
     FigmaPaint, FigmaTextData, FigmaTextStyleOverride, MAX_FIGMA_DECODE_BYTES, MAX_FIGMA_NODES,
-    gradient_handles_from_paint_matrix,
+    MAX_ZIP_IMAGE_ENTRY_BYTES, uv_transform_from_gradient_handles,
 };
 use crate::{ImportError, vector_fidelity::parse_svg_path_data};
+
+const MAX_JSON_PATH_COMMANDS: usize = 32_768;
+const MAX_JSON_INLINE_IMAGE_DIM: u32 = 4096;
+const MAX_JSON_INLINE_IMAGE_ALLOC: u64 = 64 * 1024 * 1024;
 
 pub(super) fn looks_like_figma_json(bytes: &[u8]) -> bool {
     let trimmed = bytes.trim_ascii_start();
@@ -141,35 +147,25 @@ fn parse_json_paints(arr: &[Value], w: f64, h: f64) -> Vec<FigmaPaint> {
                     continue;
                 }
                 let handles = p.get("gradientHandlePositions").and_then(Value::as_array);
-                let pt = |idx: usize, def_x: f64, def_y: f64| -> [f64; 2] {
-                    handles
-                        .and_then(|hs| hs.get(idx))
-                        .map(|hp| {
-                            [
-                                hp.get("x").and_then(Value::as_f64).unwrap_or(def_x) * w,
-                                hp.get("y").and_then(Value::as_f64).unwrap_or(def_y) * h,
-                            ]
-                        })
-                        .unwrap_or([def_x * w, def_y * h])
+                let uv_pt = |idx: usize| -> Option<[f64; 2]> {
+                    let hp = handles?.get(idx)?;
+                    let x = hp.get("x")?.as_f64()?;
+                    let y = hp.get("y")?.as_f64()?;
+                    (x.is_finite() && y.is_finite()).then_some([x, y])
                 };
                 let radial = ptype != "GRADIENT_LINEAR";
-                let (start, end) = if handles.is_some_and(|hs| hs.len() >= 2) {
-                    if radial {
-                        (pt(0, 0.5, 0.5), pt(1, 1.0, 0.5))
-                    } else {
-                        (pt(0, 0.0, 0.5), pt(1, 1.0, 0.5))
-                    }
-                } else if let Some(mat) = p
+                let uv_transform = if let Some(mat) = p
                     .get("gradientTransform")
                     .or_else(|| p.get("transform"))
                     .and_then(parse_json_matrix2x3)
                 {
-                    gradient_handles_from_paint_matrix(mat, w, h, radial)
-                } else if radial {
-                    ([0.5 * w, 0.5 * h], [w, 0.5 * h])
+                    Some(mat)
+                } else if let (Some(h0), Some(h1)) = (uv_pt(0), uv_pt(1)) {
+                    uv_transform_from_gradient_handles(h0, h1, uv_pt(2), radial)
                 } else {
-                    ([0.0, 0.5 * h], [w, 0.5 * h])
+                    None
                 };
+                let _ = (w, h);
                 let kind = if radial {
                     GradientKind::Radial
                 } else {
@@ -183,8 +179,7 @@ fn parse_json_paints(arr: &[Value], w: f64, h: f64) -> Vec<FigmaPaint> {
                 out.push(FigmaPaint::Gradient {
                     kind,
                     stops,
-                    start,
-                    end,
+                    uv_transform,
                     approximated_from,
                 });
             }
@@ -200,10 +195,15 @@ fn parse_json_paints(arr: &[Value], w: f64, h: f64) -> Vec<FigmaPaint> {
                         .or_else(|| p.get("imageScaleMode"))
                         .and_then(Value::as_str)
                         .unwrap_or("FILL");
-                    let image_transform = p
-                        .get("imageTransform")
-                        .or_else(|| p.get("transform"))
-                        .and_then(parse_json_matrix2x3);
+                    let is_crop_or_stretch = raw_scale_mode.eq_ignore_ascii_case("CROP")
+                        || raw_scale_mode.eq_ignore_ascii_case("STRETCH");
+                    let image_transform = if is_crop_or_stretch {
+                        p.get("imageTransform")
+                            .or_else(|| p.get("transform"))
+                            .and_then(parse_json_matrix2x3)
+                    } else {
+                        None
+                    };
                     let scale_mode = if raw_scale_mode.eq_ignore_ascii_case("STRETCH") {
                         "CROP".to_owned()
                     } else {
@@ -229,7 +229,10 @@ fn parse_json_paints(arr: &[Value], w: f64, h: f64) -> Vec<FigmaPaint> {
     out
 }
 
-type DecodedVectorNetwork = (Vec<(Vec<PathCommand>, FillRule)>, Vec<Vec<PathCommand>>);
+type DecodedVectorNetwork = (
+    Vec<(Vec<PathCommand>, FillRule)>,
+    Vec<(Vec<PathCommand>, FillRule)>,
+);
 
 fn parse_json_vector_network(vn: &Value) -> DecodedVectorNetwork {
     let Some(verts_arr) = vn.get("vertices").and_then(Value::as_array) else {
@@ -238,7 +241,11 @@ fn parse_json_vector_network(vn: &Value) -> DecodedVectorNetwork {
     let Some(segs_arr) = vn.get("segments").and_then(Value::as_array) else {
         return (Vec::new(), Vec::new());
     };
-    if verts_arr.is_empty() || segs_arr.is_empty() || verts_arr.len() > 100_000 {
+    if verts_arr.is_empty()
+        || segs_arr.is_empty()
+        || verts_arr.len() > 100_000
+        || segs_arr.len() > 100_000
+    {
         return (Vec::new(), Vec::new());
     }
     let verts: Vec<[f64; 2]> = verts_arr
@@ -259,7 +266,7 @@ fn parse_json_vector_network(vn: &Value) -> DecodedVectorNetwork {
         dx2: f64,
         dy2: f64,
     }
-    let mut segs = Vec::with_capacity(segs_arr.len());
+    let mut segs = Vec::with_capacity(segs_arr.len().min(4096));
     for sv in segs_arr {
         let s = sv.get("start").and_then(Value::as_u64).unwrap_or(0) as usize;
         let e = sv.get("end").and_then(Value::as_u64).unwrap_or(0) as usize;
@@ -294,7 +301,10 @@ fn parse_json_vector_network(vn: &Value) -> DecodedVectorNetwork {
         });
     }
 
-    let emit = |cmds: &mut Vec<PathCommand>, seg: JSeg, fwd: bool| {
+    let emit = |cmds: &mut Vec<PathCommand>, seg: JSeg, fwd: bool| -> bool {
+        if cmds.len() >= MAX_JSON_PATH_COMMANDS {
+            return false;
+        }
         let (v0, tx0, ty0, v1, tx1, ty1) = if fwd {
             (
                 verts[seg.s],
@@ -326,6 +336,7 @@ fn parse_json_vector_network(vn: &Value) -> DecodedVectorNetwork {
                 y: v1[1],
             });
         }
+        true
     };
 
     let mut fill_paths = Vec::new();
@@ -339,10 +350,15 @@ fn parse_json_vector_network(vn: &Value) -> DecodedVectorNetwork {
                 _ => FillRule::NonZero,
             };
             let mut rcmds = Vec::new();
+            let mut overflow = false;
             for lp in loops {
                 let Some(id_arr) = lp.as_array() else {
                     continue;
                 };
+                if id_arr.len() > MAX_JSON_PATH_COMMANDS {
+                    overflow = true;
+                    break;
+                }
                 let lsegs: Vec<JSeg> = id_arr
                     .iter()
                     .filter_map(|iv| iv.as_u64().and_then(|u| segs.get(u as usize).copied()))
@@ -356,6 +372,10 @@ fn parse_json_vector_network(vn: &Value) -> DecodedVectorNetwork {
                     lsegs[0].e == lsegs[1].s || lsegs[0].e == lsegs[1].e
                 };
                 let mut cur = if first_fwd { lsegs[0].s } else { lsegs[0].e };
+                if rcmds.len() >= MAX_JSON_PATH_COMMANDS {
+                    overflow = true;
+                    break;
+                }
                 rcmds.push(PathCommand::MoveTo {
                     x: verts[cur][0],
                     y: verts[cur][1],
@@ -368,24 +388,36 @@ fn parse_json_vector_network(vn: &Value) -> DecodedVectorNetwork {
                     } else if seg.e == cur {
                         false
                     } else {
+                        if rcmds.len() >= MAX_JSON_PATH_COMMANDS {
+                            overflow = true;
+                            break;
+                        }
                         rcmds.push(PathCommand::MoveTo {
                             x: verts[seg.s][0],
                             y: verts[seg.s][1],
                         });
                         true
                     };
-                    emit(&mut rcmds, seg, fwd);
+                    if !emit(&mut rcmds, seg, fwd) {
+                        overflow = true;
+                        break;
+                    }
                     cur = if fwd { seg.e } else { seg.s };
+                }
+                if overflow || rcmds.len() >= MAX_JSON_PATH_COMMANDS {
+                    overflow = true;
+                    break;
                 }
                 rcmds.push(PathCommand::Close);
             }
-            if rcmds.len() >= 2 {
+            if !overflow && rcmds.len() >= 2 {
                 fill_paths.push((rcmds, rule));
             }
         }
     }
 
     let mut scmds = Vec::new();
+    let mut s_overflow = false;
     let mut cur: Option<usize> = None;
     let mut start: Option<usize> = None;
     for seg in segs {
@@ -394,6 +426,10 @@ fn parse_json_vector_network(vn: &Value) -> DecodedVectorNetwork {
         } else if cur == Some(seg.e) {
             false
         } else {
+            if scmds.len() >= MAX_JSON_PATH_COMMANDS {
+                s_overflow = true;
+                break;
+            }
             scmds.push(PathCommand::MoveTo {
                 x: verts[seg.s][0],
                 y: verts[seg.s][1],
@@ -401,17 +437,24 @@ fn parse_json_vector_network(vn: &Value) -> DecodedVectorNetwork {
             start = Some(seg.s);
             true
         };
-        emit(&mut scmds, seg, fwd);
+        if !emit(&mut scmds, seg, fwd) {
+            s_overflow = true;
+            break;
+        }
         let nxt = if fwd { seg.e } else { seg.s };
         cur = Some(nxt);
         if start == Some(nxt) {
+            if scmds.len() >= MAX_JSON_PATH_COMMANDS {
+                s_overflow = true;
+                break;
+            }
             scmds.push(PathCommand::Close);
             cur = None;
             start = None;
         }
     }
-    let stroke_paths = if scmds.len() >= 2 {
-        vec![scmds]
+    let stroke_paths = if !s_overflow && scmds.len() >= 2 {
+        vec![(scmds, FillRule::NonZero)]
     } else {
         Vec::new()
     };
@@ -697,34 +740,38 @@ fn parse_json_node(
         }
     }
     let mut stroke_paths = Vec::new();
+    let mut stroke_paths_are_outlines = false;
     if let Some(arr) = v.get("strokeGeometry").and_then(Value::as_array) {
         for g in arr {
+            let rule = match g.get("windingRule").and_then(Value::as_str) {
+                Some("EVENODD" | "ODD") => FillRule::EvenOdd,
+                _ => FillRule::NonZero,
+            };
             if let Some(path_str) = g.get("path").and_then(Value::as_str) {
                 let cmds = parse_svg_path_data(path_str);
-                if !cmds.is_empty() {
-                    stroke_paths.push(cmds);
+                if !cmds.is_empty() && cmds.len() <= MAX_JSON_PATH_COMMANDS {
+                    stroke_paths.push((cmds, rule));
                 }
             }
         }
+        stroke_paths_are_outlines = !stroke_paths.is_empty();
     }
 
     if (fill_paths.is_empty() || (stroke_paths.is_empty() && !strokes.is_empty()))
         && let Some(vn) = v.get("vectorNetwork")
     {
-        let (vn_fills, vn_strokes) = parse_json_vector_network(vn);
+        let (vn_fills, mut vn_strokes) = parse_json_vector_network(vn);
         if fill_paths.is_empty() {
             if !vn_fills.is_empty() {
                 fill_paths = vn_fills;
             } else if !fills.is_empty() && !vn_strokes.is_empty() {
-                fill_paths = vn_strokes
-                    .iter()
-                    .cloned()
-                    .map(|c| (c, FillRule::NonZero))
-                    .collect();
+                fill_paths = vn_strokes;
+                vn_strokes = Vec::new();
             }
         }
         if stroke_paths.is_empty() && !vn_strokes.is_empty() {
             stroke_paths = vn_strokes;
+            stroke_paths_are_outlines = false;
         }
     }
 
@@ -950,6 +997,7 @@ fn parse_json_node(
         border_weights,
         fill_paths,
         stroke_paths,
+        stroke_paths_are_outlines,
         text,
         effects,
         component_id,
@@ -980,16 +1028,53 @@ pub(super) fn parse_figma_json_doc(
         .to_owned();
 
     let mut inline_images = BTreeMap::new();
+    let mut inline_image_bytes = 0usize;
     if let Some(imgs_obj) = root_val.get("images").and_then(Value::as_object) {
-        for (k, v) in imgs_obj {
-            if let Some(s) = v.as_str() {
-                let payload = s.split_once(";base64,").map(|(_, b)| b).unwrap_or(s).trim();
-                if let Ok(decoded) = BASE64.decode(payload)
-                    && !decoded.is_empty()
-                {
-                    inline_images.insert(k.clone(), decoded);
-                }
+        for (k, v) in imgs_obj.iter().take(256) {
+            let Some(s) = v.as_str() else { continue };
+            let payload = s.split_once(";base64,").map(|(_, b)| b).unwrap_or(s).trim();
+            if payload.is_empty() || payload.len() > MAX_ZIP_IMAGE_ENTRY_BYTES.saturating_mul(2) {
+                continue;
             }
+            let Ok(decoded) = BASE64.decode(payload) else {
+                continue;
+            };
+            if decoded.is_empty()
+                || decoded.len() > MAX_ZIP_IMAGE_ENTRY_BYTES
+                || inline_image_bytes.saturating_add(decoded.len()) > MAX_FIGMA_DECODE_BYTES
+            {
+                continue;
+            }
+            let Ok(fmt) = image::guess_format(&decoded) else {
+                continue;
+            };
+            let mut limits = Limits::default();
+            limits.max_image_width = Some(MAX_JSON_INLINE_IMAGE_DIM);
+            limits.max_image_height = Some(MAX_JSON_INLINE_IMAGE_DIM);
+            limits.max_alloc = Some(MAX_JSON_INLINE_IMAGE_ALLOC);
+            let mut dim_reader = ImageReader::with_format(Cursor::new(&decoded), fmt);
+            dim_reader.limits(limits.clone());
+            let Ok((iw, ih)) = dim_reader.into_dimensions() else {
+                continue;
+            };
+            if iw == 0
+                || ih == 0
+                || iw > MAX_JSON_INLINE_IMAGE_DIM
+                || ih > MAX_JSON_INLINE_IMAGE_DIM
+                || u64::from(iw)
+                    .saturating_mul(u64::from(ih))
+                    .saturating_mul(4)
+                    > MAX_JSON_INLINE_IMAGE_ALLOC
+            {
+                continue;
+            }
+            let mut dec_reader = ImageReader::with_format(Cursor::new(&decoded), fmt);
+            dec_reader.limits(limits);
+            if dec_reader.decode().is_err() {
+                continue;
+            }
+            inline_image_bytes = inline_image_bytes.saturating_add(decoded.len());
+            inline_images.insert(k.clone(), decoded);
         }
     }
 
