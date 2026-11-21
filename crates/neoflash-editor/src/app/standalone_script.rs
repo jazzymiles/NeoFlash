@@ -1146,6 +1146,7 @@ impl Editor {
             }
             crate::timeline_commands::upgrade_all_format_versions(saved);
         }
+        self.invalidate_dirty_cache();
         self.code_feedback = None;
         self.compiler_errors.fingerprint = None;
     }
@@ -1203,6 +1204,7 @@ impl Editor {
                 self.workspace.publish = preserved_publish;
                 self.configure_active_standalone_script_state();
                 self.saved_project = Some(self.project.clone());
+                self.invalidate_dirty_cache();
                 self.sync_disk_mtime();
                 self.workspace.general.push_recent(&path);
                 self.sync_session_tabs_to_prefs();
@@ -1301,6 +1303,7 @@ impl Editor {
                 }
                 self.workspace.general.push_recent(&path);
                 self.saved_project = Some(self.project.clone());
+                self.invalidate_dirty_cache();
                 self.path = Some(path);
                 self.clear_and_retarget_recovery();
                 self.sync_disk_mtime();

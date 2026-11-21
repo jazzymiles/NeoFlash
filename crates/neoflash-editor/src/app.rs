@@ -788,6 +788,10 @@ impl Editor {
             || self.stage_text_edit.ime_preedit.is_some()
             || (self.history.can_undo() && self.history.undo_len() == 0)
     }
+    pub(crate) fn invalidate_dirty_cache(&self) {
+        crate::document_sessions::DirtyCacheState::invalidate(&self.dirty_cache);
+    }
+
     pub fn dirty(&self) -> bool {
         if !self.has_document() {
             return false;
@@ -1422,6 +1426,7 @@ impl Editor {
                 } else {
                     None
                 };
+                self.invalidate_dirty_cache();
                 self.playing = false;
                 self.sync_session_tabs_to_prefs();
                 if was_standalone_script {
@@ -1475,6 +1480,7 @@ impl Editor {
                     self.import_source =
                         Some(std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone()));
                     self.saved_project = None;
+                    self.invalidate_dirty_cache();
                     self.sync_disk_mtime();
                     self.sync_session_tabs_to_prefs();
                     messages.push((
@@ -1511,6 +1517,7 @@ impl Editor {
                                     std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone()),
                                 );
                                 self.saved_project = None;
+                                self.invalidate_dirty_cache();
                                 self.sync_disk_mtime();
                                 self.sync_session_tabs_to_prefs();
                                 let label = match report.format {
@@ -1966,6 +1973,7 @@ impl Editor {
                 } else {
                     self.workspace.general.push_recent(&path);
                     self.saved_project = Some(self.project.clone());
+                    self.invalidate_dirty_cache();
                     self.path = Some(path);
                     self.clear_and_retarget_recovery();
                     self.sync_session_tabs_to_prefs();

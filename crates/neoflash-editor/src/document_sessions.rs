@@ -16,6 +16,7 @@ pub(crate) struct DirtyCacheEntry {
     saved_symbols_ptr: usize,
     saved_resources_ptr: usize,
     saved_sources_ptr: usize,
+    saved_header_hash: u64,
     project_header_hash: u64,
     ui_pass_if_in_flight: u64,
     is_dirty: bool,
@@ -26,6 +27,14 @@ pub(crate) struct DirtyCacheState {
     entry: Option<DirtyCacheEntry>,
     #[cfg(test)]
     pub(crate) full_comparisons: usize,
+}
+
+impl DirtyCacheState {
+    pub(crate) fn invalidate(cache: &Cell<Self>) {
+        let mut state = cache.get();
+        state.entry = None;
+        cache.set(state);
+    }
 }
 
 fn fast_project_header_hash(project: &Project, active_symbol_id: Option<&str>) -> u64 {
@@ -137,6 +146,7 @@ pub(crate) fn compute_dirty_cached(
     let undo_len = history.undo_len();
     let redo_len = history.redo_len();
     let can_undo = history.can_undo();
+    let saved_header_hash = fast_project_header_hash(saved, active_symbol_id);
     let project_header_hash = fast_project_header_hash(project, active_symbol_id);
 
     let mut state = cache.get();
@@ -148,6 +158,7 @@ pub(crate) fn compute_dirty_cached(
         && prev.saved_symbols_ptr == saved_symbols_ptr
         && prev.saved_resources_ptr == saved_resources_ptr
         && prev.saved_sources_ptr == saved_sources_ptr
+        && prev.saved_header_hash == saved_header_hash
         && prev.project_header_hash == project_header_hash
         && prev.ui_pass_if_in_flight == ui_pass_tag
     {
@@ -167,6 +178,7 @@ pub(crate) fn compute_dirty_cached(
         saved_symbols_ptr,
         saved_resources_ptr,
         saved_sources_ptr,
+        saved_header_hash,
         project_header_hash,
         ui_pass_if_in_flight: ui_pass_tag,
         is_dirty,
@@ -217,6 +229,7 @@ macro_rules! document_state {
             pub(crate) fn keep_editing_external_change(&mut self) {
                 self.recovery.acknowledge_external_change();
                 self.saved_project = None;
+                DirtyCacheState::invalidate(&self.dirty_cache);
             }
             #[cfg_attr(not(test), allow(dead_code))]
             #[allow(clippy::too_many_arguments)]

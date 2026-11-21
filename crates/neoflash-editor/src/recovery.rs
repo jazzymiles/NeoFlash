@@ -997,6 +997,7 @@ impl Editor {
         if self.has_document() {
             self.open_new_session_tab(ctx, cand.project, path);
             self.saved_project = None;
+            self.invalidate_dirty_cache();
         } else {
             // Do not delete the candidate when replacing a clean original with the same ID.
             let mut fresh = self.recovery.for_document(None);
@@ -1010,6 +1011,7 @@ impl Editor {
         if let Some(import_src) = restored_import_source {
             self.import_source = Some(import_src);
             self.saved_project = None;
+            self.invalidate_dirty_cache();
         }
         let tracked = self.tracked_disk_path().map(Path::to_path_buf);
         if let Some(mut recovery) = independent_recovery {
@@ -1229,6 +1231,7 @@ impl Editor {
         }
         self.recovery.acknowledge_external_change();
         self.saved_project = None;
+        self.invalidate_dirty_cache();
         self.message("Kept current edits in memory; external disk change ignored.");
         true
     }
@@ -1311,6 +1314,7 @@ impl Editor {
             self.recovery.check_disk_change(tracked.as_deref());
             self.recovery.acknowledge_external_change();
             self.saved_project = None;
+            self.invalidate_dirty_cache();
         }
         self.save_to_path(normalized)
     }

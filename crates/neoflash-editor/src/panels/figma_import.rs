@@ -841,6 +841,7 @@ impl Editor {
                 self.import_source =
                     Some(std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()));
                 self.saved_project = None;
+                self.invalidate_dirty_cache();
                 self.sync_disk_mtime();
                 self.sync_session_tabs_to_prefs();
                 self.load_project_fonts(ctx);
