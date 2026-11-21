@@ -1,0 +1,44 @@
+F Panel / Properties — Selection colours 500×468 [V gap 24]
+  F Board title 420×74 [V gap 6]
+    T "Panel / Properties — Selection colours"
+    T "Same one-row colour record as Used colours (swatch · #HEX with alpha · usage · select on stage). A colour used by fills and strokes shows the total as “mixed”; the breakdown is in the tooltip of the usage."
+  F Panel / Properties 288×290 [V gap 0]
+    F Panel header 286×34 [H gap 0]
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+      I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+      F Spacer 89×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Type header 286×34 [H gap 8]
+      I NF2 Icon/16/select 16×16
+      T "12 objects selected"
+      T "Mixed selection"
+    F Section body 286×42 [V gap 8]
+      F Line 258×28 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Transform…, Kind=Secondary, State=Default} 89×28 "Transform…"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Color…, Kind=Secondary, State=Default} 63×28 "Color…"
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Selection colours, Open=Yes} 286×28 "Selection colours"
+    F Section body 286×150 [V gap 8]
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=8B9AB1, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "8B9AB1" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "5 × text"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=F1F4FA, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "F1F4FA" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "2 × text"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=FF8F4F, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "FF8F4F" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "3 × fill"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=6C93FF, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "6C93FF" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "3 × mixed"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28

@@ -1,0 +1,39 @@
+F Dialog / Send to AI 580×656 [V gap 24]
+  F Board title 480×74 [V gap 6]
+    T "Dialog / Send to AI"
+    T "Review before sending: connection, request, then one row per context item (checkbox · what exactly is sent), followed by the “Not sent”, redaction and destination notes."
+  F Dialog / Send to AI 500×478 [V gap 0]
+    I NF3/Dialog Header {Title=Send to AI} 498×48 "Send to AI"
+    F Body 498×371 [V gap 8]
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Connection"
+        I NF3/Select {Value=Work — Anthropic · claude-sonnet-5-5, Show label=false, Label=Style, State=Default} 322×28 "Style" "Work — Anthropic · claude-sonnet-5-5"
+      F Group caption 450×28 [H gap 0]
+        T "Request"
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Ask"
+        I NF3/Field {Stepper=false, Unit=px, Value=Why does the orbit clip stop at frame 30?, Show unit=false, Show label=false, Label=X, State=Default} 322×28 "X" "Why does the orbit clip stop at frame 30?" "px"
+      F Group caption 450×28 [H gap 0]
+        T "What will be sent"
+      F Context table 450×110 [V gap 0]
+        F Row / Project and symbol names 428×26 [H gap 8]
+          I NF3/Checkbox {Show label=true, Label=Project and symbol names, Value=On, State=Default} 162×20 "Project and symbol names"
+          T "Ideas in motion · Scene 1 · frame 30"
+        F Row / Selected elements (2) 428×26 [H gap 8]
+          I NF3/Checkbox {Show label=true, Label=Selected elements (2), Value=On, State=Default} 139×20 "Selected elements (2)"
+          T "name, type and position"
+        F Row / Script excerpt 428×26 [H gap 8]
+          I NF3/Checkbox {Show label=true, Label=Script excerpt, Value=On, State=Default} 97×20 "Script excerpt"
+          T "ActionScript 3.0 · 1.2 KB"
+        F Row / Asset list (2) 428×26 [H gap 8]
+          I NF3/Checkbox {Show label=true, Label=Asset list (2), Value=On, State=Default} 90×20 "Asset list (2)"
+          T "name, type and size only"
+      T "Not sent: intro.mp4 (video is not an allowed type), theme.mp3 (larger than 64 KB)."
+      I NF3/Inline Message {Text=Keys, tokens and passwords found in the text are replaced with [REDACTED_SECRET] before sending., Tone=Info} 450×26 "Keys, tokens and passwords found in the text are replaced with [REDACTED_SECRET] before sending."
+      T "Destination: api.anthropic.com over HTTPS. The answer is a proposal: nothing in the document changes until you apply it."
+    F Footer 498×57 [H gap 8]
+      F Spacer 320×1 [H gap 0]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Send, Kind=Primary, State=Default} 51×28 "Send"

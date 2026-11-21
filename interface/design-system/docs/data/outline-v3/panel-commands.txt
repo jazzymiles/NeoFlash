@@ -1,0 +1,53 @@
+F Panel / Commands 500×1181 [V gap 24]
+  F Board title 420×74 [V gap 6]
+    T "Panel / Commands"
+    T "Search with Open commands folder, the command count, the tree at size/row (was 32 pt rows), New command / New folder / Info and Reload / Delete in the footer."
+  F Panel / Commands 288×1003 [V gap 0]
+    F Panel header 286×34 [H gap 0]
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=Commands, Selected=Yes} 88×34 "Commands"
+      F Spacer 166×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Section body 286×77 [V gap 8]
+      F Line 258×28 [H gap 8]
+        I NF3/Search {Clear=false, Value=Find command, State=Default} 222×28 "Find command"
+        I NF3/Icon Button {Icon=7:132, Kind=Ghost, State=Default} 28×28
+      T "23 commands"
+    F List 286×844 [V gap 1]
+      I NF3/Tree Row {Show meta=false, Icon=1:9224, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Animation, Level=0, State=Default} 278×26 "Animation" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=PNG sequence to SWF, Show icon=true, Chevron=false, Icon=1:9288, Level=1, State=Default} 278×26 "PNG sequence to SWF" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Propagate element names across frames, Show icon=true, Chevron=false, Icon=1:9131, Level=1, State=Default} 278×26 "Propagate element names across frames" "4"
+      I NF3/Tree Row {Show meta=false, Icon=1:9224, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Development, Level=0, State=Default} 278×26 "Development" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=ActionScript, Show icon=true, Chevron=true, Icon=1:9224, Level=1, State=Default} 278×26 "ActionScript" "4"
+      I NF3/Tree Row {Show meta=false, Label=Declare stage instances, Icon=1:9267, Show icon=true, Chevron icon=220:1338, Meta=4, Chevron=false, Level=2, State=Default} 278×26 "Declare stage instances" "4"
+      I NF3/Tree Row {Show meta=false, Label=Export class, Icon=62:812, Show icon=true, Chevron icon=220:1338, Meta=4, Chevron=false, Level=2, State=Default} 278×26 "Export class" "4"
+      I NF3/Tree Row {Show meta=false, Label=Export SWC, Icon=17:526, Show icon=true, Chevron icon=220:1338, Meta=4, Chevron=false, Level=2, State=Default} 278×26 "Export SWC" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Tools, Show icon=true, Chevron=true, Icon=1:9224, Level=1, State=Default} 278×26 "Tools" "4"
+      I NF3/Tree Row {Show meta=false, Label=Execute script file, Icon=1:9271, Show icon=true, Chevron icon=220:1338, Meta=4, Chevron=false, Level=2, State=Default} 278×26 "Execute script file" "4"
+      I NF3/Tree Row {Show meta=false, Label=Inspect bitmap, Icon=36:664, Show icon=true, Chevron icon=220:1338, Meta=4, Chevron=false, Level=2, State=Default} 278×26 "Inspect bitmap" "4"
+      I NF3/Tree Row {Show meta=false, Label=Inspect variable, Icon=17:518, Show icon=true, Chevron icon=220:1338, Meta=4, Chevron=false, Level=2, State=Default} 278×26 "Inspect variable" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Extensions, Show icon=true, Chevron=true, Icon=1:9224, Level=1, State=Default} 278×26 "Extensions" "4"
+      I NF3/Tree Row {Show meta=false, Label=Change module, Icon=95:823, Show icon=true, Chevron icon=220:1338, Meta=4, Chevron=false, Level=2, State=Default} 278×26 "Change module" "4"
+      I NF3/Tree Row {Show meta=false, Label=Sync module, Icon=1:9281, Show icon=true, Chevron icon=220:1338, Meta=4, Chevron=false, Level=2, State=Default} 278×26 "Sync module" "4"
+      I NF3/Tree Row {Show meta=false, Icon=1:9224, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Library, Level=0, State=Default} 278×26 "Library" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Delete empty folders, Show icon=true, Chevron=false, Icon=1:9215, Level=1, State=Default} 278×26 "Delete empty folders" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Inspect selected items, Show icon=true, Chevron=false, Icon=1:9252, Level=1, State=Default} 278×26 "Inspect selected items" "4"
+      I NF3/Tree Row {Meta=4, Chevron=false, Show icon=true, Chevron icon=220:1338, Show meta=false, Icon=1:9097, Label=Select items by property, Level=1, State=Selected} 278×26 "Select items by property" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Smooth bitmaps, Show icon=true, Chevron=false, Icon=36:711, Level=1, State=Default} 278×26 "Smooth bitmaps" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Spreadsheet-edit properties, Show icon=true, Chevron=false, Icon=62:836, Level=1, State=Default} 278×26 "Spreadsheet-edit properties" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Wrap bitmaps in classes, Show icon=true, Chevron=false, Icon=17:530, Level=1, State=Default} 278×26 "Wrap bitmaps in classes" "4"
+      I NF3/Tree Row {Show meta=false, Icon=1:9224, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Stage, Level=0, State=Default} 278×26 "Stage" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Apply tints, Show icon=true, Chevron=false, Icon=29:520, Level=1, State=Default} 278×26 "Apply tints" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Assign unique names, Show icon=true, Chevron=false, Icon=1:9119, Level=1, State=Default} 278×26 "Assign unique names" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Create test squares, Show icon=true, Chevron=false, Icon=1:9125, Level=1, State=Default} 278×26 "Create test squares" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Make circular, Show icon=true, Chevron=false, Icon=95:823, Level=1, State=Default} 278×26 "Make circular" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Randomize selected elements, Show icon=true, Chevron=false, Icon=17:513, Level=1, State=Default} 278×26 "Randomize selected elements" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Set 9-slice guides, Show icon=true, Chevron=false, Icon=29:442, Level=1, State=Default} 278×26 "Set 9-slice guides" "4"
+      I NF3/Tree Row {Show meta=false, Icon=1:9224, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Tools, Level=0, State=Default} 278×26 "Tools" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Find, Show icon=true, Chevron=false, Icon=1:9252, Level=1, State=Default} 278×26 "Find" "4"
+    F Panel footer 286×45 [H gap 8]
+      I NF3/Icon Button {Icon=36:767, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=7:159, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=36:664, Kind=Ghost, State=Default} 28×28
+      F Spacer 78×1 [H gap 0]
+      I NF3/Icon Button {Icon=95:823, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28

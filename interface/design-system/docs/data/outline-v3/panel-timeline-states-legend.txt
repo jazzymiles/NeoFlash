@@ -1,0 +1,166 @@
+F Panel / Timeline — states legend 1295×772 [V gap 24]
+  F Board title 900×74 [V gap 6]
+    T "Panel / Timeline — states legend"
+    T "Every layer kind, column toggle, frame span and marker of the Timeline, drawn with the v3 layer row (size/layer-row, width/layer-column) and 12 pt frames; colours come from the timeline/* tokens only (static, classic-tween, shape-tween, motion-tween, empty, empty-5th, selected, marker, label, comment, folder, onion, playhead)."
+  F Panel / Timeline — states legend 1215×594 [V gap 0]
+    F Columns 1165×544 [H gap 48]
+      F Layer types 554×544 [V gap 8]
+        F Caption 74×28 [H gap 0]
+          T "Layer types"
+        F Item 406×24 [H gap 16]
+          F Layer row 324×24 [H gap 4]
+            I NF2 Icon/12/layer 12×12
+            T "Layer"
+          T "Normal layer"
+        F Item 530×24 [H gap 16]
+          F Layer row 324×24 [H gap 4]
+            I NF2 Icon/12/chevdown 12×12
+            I NF2 Icon/12/folderopen 12×12
+            T "character"
+          T "Folder (expanded) — children indent"
+        F Item 434×24 [H gap 16]
+          F Layer row 324×24 [H gap 4]
+            I NF2 Icon/12/chevright 12×12
+            I NF2 Icon/12/folder 12×12
+            T "background"
+          T "Folder (collapsed)"
+        F Item 554×24 [H gap 16]
+          F Layer row 324×24 [H gap 4]
+            I NF2 Icon/12/motionguide 12×12
+            T "Guide: path"
+          T "Motion guide — guided layers sit under it"
+        F Item 459×24 [H gap 16]
+          F Layer row 324×24 [H gap 4]
+            I NF2 Icon/12/layer 12×12
+            T "ball"
+          T "Guided layer (indent 2)"
+        F Item 396×24 [H gap 16]
+          F Layer row 324×24 [H gap 4]
+            I NF2 Icon/12/mask 12×12
+            T "mask"
+          T "Mask layer"
+        F Item 409×24 [H gap 16]
+          F Layer row 324×24 [H gap 4]
+            I NF2 Icon/12/masked 12×12
+            T "arm"
+          T "Masked layer"
+        F Item 483×24 [H gap 16]
+          F Layer row 324×24 [H gap 4]
+            I NF2 Icon/12/guide 12×12
+            T "Guide: sketch"
+          T "Guide layer — not exported"
+        F Item 507×24 [H gap 16]
+          F Layer row 324×24 [H gap 4]
+            I NF2 Icon/12/masked 12×12
+            T "hand"
+            I NF2 Icon/12/pencil 12×12
+          T "Selected + current layer (pencil)"
+        F Caption 55×28 [H gap 0]
+          T "Columns"
+        F Toggle 92×24 [H gap 12]
+          F Glyph 16×16 [H gap 0]
+          T "Shown (dot)"
+        F Toggle 104×24 [H gap 12]
+          F Glyph 16×16 [H gap 0]
+            I NF2 Icon/12/x 12×12
+          T "Hidden (red X)"
+        F Toggle 106×24 [H gap 12]
+          F Glyph 16×16 [H gap 0]
+          T "Unlocked (dot)"
+        F Toggle 66×24 [H gap 12]
+          F Glyph 16×16 [H gap 0]
+            I NF2 Icon/12/lock 12×12
+          T "Locked"
+        F Toggle 93×24 [H gap 12]
+          F Glyph 16×16 [H gap 0]
+          T "Layer colour"
+        F Toggle 93×24 [H gap 12]
+          F Glyph 16×16 [H gap 0]
+          T "Outline view"
+      F Frame states 563×502 [V gap 8]
+        F Caption 151×28 [H gap 0]
+          T "Frames (12 pt per frame)"
+        F Item 470×24 [H gap 16]
+          F Frames 240×24 [H gap 0]
+          T "Empty frames — every 5th frame shaded"
+        F Item 563×24 [H gap 16]
+          F Frames 240×24 [H gap 0]
+            F Span / static 144×23 [H gap 2]
+              F Spacer 125×1 [H gap 0]
+          T "Keyframe ● with content, static frames (grey), span end ▯"
+        F Item 495×24 [H gap 16]
+          F Frames 240×24 [H gap 0]
+            F Span / empty 144×23 [H gap 2]
+              F Spacer 125×1 [H gap 0]
+          T "Blank keyframe ○ — empty frames stay white"
+        F Item 437×24 [H gap 16]
+          F Frames 240×24 [H gap 0]
+            F Span / classic 180×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+            F Span / static 12×23 [H gap 2]
+          T "Classic tween — purple with arrow"
+        F Item 429×24 [H gap 16]
+          F Frames 240×24 [H gap 0]
+            F Span / shape 180×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+            F Span / static 12×23 [H gap 2]
+          T "Shape tween — green with arrow"
+        F Item 508×24 [H gap 16]
+          F Frames 240×24 [H gap 0]
+            F Span / broken 180×23 [H gap 2]
+              F Dashes 167×1 [H gap 3]
+          T "Broken tween — dashed (missing end keyframe)"
+        F Item 490×24 [H gap 16]
+          F Frames 240×24 [H gap 0]
+            F Span / motion 216×23 [H gap 2]
+              F Spacer 56×1 [H gap 0]
+              F Keyframe 10×10 [H gap 0]
+              F Spacer 56×1 [H gap 0]
+              F Keyframe 10×10 [H gap 0]
+              F Spacer 56×1 [H gap 0]
+          T "Motion tween — blue, property keyframes ◆"
+        F Item 341×24 [H gap 16]
+          F Frames 240×24 [H gap 0]
+            F Span / static 84×23 [H gap 2]
+            F Span / selected 84×23 [H gap 2]
+            F Span / static 48×23 [H gap 2]
+              F Spacer 36×1 [H gap 0]
+          T "Selected frames"
+        F Item 431×24 [H gap 16]
+          F Frames 240×24 [H gap 0]
+            F Span / static 144×23 [H gap 2]
+              F Action keyframe 7×17 [V gap 0]
+                T "a"
+              F Spacer 123×1 [H gap 0]
+          T "Action keyframe (script on frame)"
+        F Item 368×24 [H gap 16]
+          F Frames 240×24 [H gap 0]
+            F Span / static 240×23 [H gap 2]
+              I NF2 Icon/12/flag 12×12
+              T "intro"
+          T "Frame label (red flag)"
+        F Item 393×24 [H gap 16]
+          F Frames 240×24 [H gap 0]
+            F Span / static 240×23 [H gap 2]
+              T "// loop"
+          T "Frame comment (green //)"
+        F Item 379×24 [H gap 16]
+          F Frames 240×24 [H gap 0]
+            F Span / static 240×23 [H gap 2]
+              I NF2 Icon/12/anchor 12×12
+              T "home"
+          T "Anchor (named anchor)"
+        F Item 445×24 [H gap 16]
+          F Frames 240×24 [H gap 0]
+          T "Folder row — a folder has no frames"
+        F Item 562×50 [H gap 16]
+          F Ruler sample 240×50 [V gap 0]
+            F Frame ruler 240×26 [H gap 6]
+              F Onion range 84×25 [H gap 0]
+                F Playhead head 15×12 [H gap 0]
+                  T "8"
+              T "1.21s"
+            F Frames 240×24 [H gap 0]
+              F Span / static 240×23 [H gap 2]
+                F Spacer 221×1 [H gap 0]
+          T "Playhead with frame number; onion-skin range on the ruler"

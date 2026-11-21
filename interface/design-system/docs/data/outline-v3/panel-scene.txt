@@ -1,0 +1,21 @@
+F Panel / Scene 500×398 [V gap 24]
+  F Board title 420×42 [V gap 6]
+    T "Panel / Scene"
+    T "Search, one row per scene, Add / Duplicate / Delete in the footer."
+  F Panel / Scene 288×252 [V gap 0]
+    F Panel header 286×34 [H gap 0]
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=Scene, Selected=Yes} 61×34 "Scene"
+      F Spacer 193×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Section body 286×56 [V gap 8]
+      I NF3/Search {Clear=false, Value=Find scene, State=Default} 258×28 "Find scene"
+    F List 286×115 [V gap 1]
+      I NF3/Tree Row {Show meta=false, Icon=17:542, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=Intro, Level=0, State=Default} 278×26 "Intro" "4"
+      I NF3/Tree Row {Meta=4, Chevron=false, Show icon=true, Icon=17:542, Chevron icon=220:1338, Show meta=false, Label=Scene 1, Level=0, State=Selected} 278×26 "Scene 1" "4"
+      I NF3/Tree Row {Show meta=false, Icon=17:542, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=Gallery, Level=0, State=Default} 278×26 "Gallery" "4"
+      I NF3/Tree Row {Show meta=false, Icon=17:542, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=Outro, Level=0, State=Default} 278×26 "Outro" "4"
+    F Panel footer 286×45 [H gap 8]
+      I NF3/Icon Button {Icon=1:9209, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=36:744, Kind=Ghost, State=Default} 28×28
+      F Spacer 150×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28

@@ -1,0 +1,85 @@
+F Panel / Debugger 1040×462 [V gap 24]
+  F Board title 900×58 [V gap 6]
+    T "Panel / Debugger"
+    T "Toolbar in groups (run · step · breakpoints) with the paused state on the right; three fixed panes: Call stack, Variables, Watch with Breakpoints. Continue is the only primary action and now has a label."
+  F Panel / Debugger 960×300 [V gap 0]
+    F Panel header 958×34 [H gap 0]
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=Debugger, Selected=Yes} 81×34 "Debugger"
+      I NF3/Tab {Icon=1:9185, Show icon=false, Label=Output, Selected=No} 65×34 "Output"
+      F Spacer 780×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Toolbar 958×38 [H gap 8]
+      I NF3/Button {Icon=62:784, Show icon=true, Label=Continue, Kind=Primary, State=Default} 96×28 "Continue"
+      I NF3/Icon Button {Icon=29:512, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=62:789, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=62:793, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=62:797, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=36:656, Kind=Ghost, State=Default} 28×28
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Remove all breakpoints, Kind=Ghost, State=Default} 147×28 "Remove all breakpoints"
+      F Spacer 241×1 [H gap 0]
+      I NF3/Badge {Label=Paused · orbit : Frame 1 · line 18 (breakpoint), Tone=Warning} 224×20 "Paused · orbit : Frame 1 · line 18 (breakpoint)"
+    F Main 958×226 [H gap 0]
+      F Call stack 248×226 [V gap 0]
+        F Title 247×28 [H gap 0]
+          T "Call stack"
+        F Stack frame 247×26 [H gap 8]
+          I NF2 Icon/16/exec-arrow 16×16
+          T "orbit : Frame 1 · line 18"
+        F Stack frame 247×26 [H gap 8]
+          I NF2 Icon/16/callstack 16×16
+          T "Animator.play() · 204"
+        F Stack frame 247×26 [H gap 8]
+          I NF2 Icon/16/callstack 16×16
+          T "MotionBase.update() · 88"
+        F Stack frame 247×26 [H gap 8]
+          I NF2 Icon/16/callstack 16×16
+          T "[global code]"
+      F Variables 410×226 [V gap 0]
+        F Title 409×28 [H gap 0]
+          T "Variables"
+        F Table row 409×26 [H gap 8]
+          T "Name"
+          T "Value"
+        F Table row 409×26 [H gap 8]
+          T "▸ this"
+          T "MovieClip "orbit""
+        F Table row 409×26 [H gap 8]
+          T "▾ animator"
+          T "Animator"
+        F Table row 409×26 [H gap 8]
+          T "    target"
+          T "orbit_mc → null"
+        F Table row 409×26 [H gap 8]
+          T "    speed"
+          T "2.5  (changed)"
+        F Table row 409×26 [H gap 8]
+          T "▸ orbitXML"
+          T "XML (14 nodes)"
+        F Table row 409×26 [H gap 8]
+          T "    frame"
+          T "1"
+      F Watch 300×226 [V gap 0]
+        F Title 299×28 [H gap 0]
+          T "Watch"
+        F Table row 299×26 [H gap 8]
+          T "Expression"
+          T "Value"
+        F Table row 299×26 [H gap 8]
+          T "orbit_mc.rotation"
+          T "Error: null reference"
+        F Table row 299×26 [H gap 8]
+          T "animator.time"
+          T "0.75"
+        F Table row 299×26 [H gap 8]
+          T "+ add expression"
+        F Title 299×28 [H gap 0]
+          T "Breakpoints"
+        F Breakpoint 299×26 [H gap 8]
+          I NF2 Icon/16/breakpoint 16×16
+          I NF3/Checkbox {Show label=true, Label=orbit : Frame 1 · line 18, Value=On, State=Default} 141×20 "orbit : Frame 1 · line 18"
+        F Breakpoint 299×26 [H gap 8]
+          I NF2 Icon/16/breakpoint 16×16
+          I NF3/Checkbox {Show label=true, Label=Orbit.as · line 42, Value=On, State=Default} 109×20 "Orbit.as · line 42"
+        F Breakpoint 299×26 [H gap 8]
+          I NF2 Icon/16/breakpoint 16×16
+          I NF3/Checkbox {Show label=true, Label=Main.as · line 7, Value=Off, State=Default} 101×20 "Main.as · line 7"

@@ -1,0 +1,384 @@
+F Panel / Timeline — frame views 1324×1450 [V gap 24]
+  F Board title 1100×58 [V gap 6]
+    T "Panel / Timeline — frame views"
+    T "Frame view modes of the Timeline ⋯ menu. Frame width is 6 / 9 / 12 / 16 / 22 pt (artwork); rows follow size/layer-row, Short uses fixed 14 pt rows, Preview rows are 40 pt. The menu is checkable, so every item has the check column."
+  F States 1244×1288 [H gap 40]
+    F Panel menu (⋯) 288×447 [V gap 12]
+      T "Panel menu (⋯)"
+      F Menu / Timeline view 288×419 [V gap 0]
+        I NF3/Menu Item {Submenu=true, Checked=false, Check column=true, Show shortcut=false, Shortcut=⌘K, Label=Placement, State=Hover} 278×26 "Placement" "⌘K"
+        I NF3/Menu Separator 278×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Tiny, State=Default} 278×26 "Tiny" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Small, State=Default} 278×26 "Small" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=true, Show shortcut=false, Check column=true, Label=Normal, State=Default} 278×26 "Normal" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Medium, State=Default} 278×26 "Medium" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Large, State=Default} 278×26 "Large" "⌘K"
+        I NF3/Menu Separator 278×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Preview, State=Default} 278×26 "Preview" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Preview in context, State=Default} 278×26 "Preview in context" "⌘K"
+        I NF3/Menu Separator 278×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Short, State=Default} 278×26 "Short" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=true, Show shortcut=false, Check column=true, Label=Tinted frames, State=Default} 278×26 "Tinted frames" "⌘K"
+        I NF3/Menu Separator 278×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=true, Show shortcut=false, Check column=true, Label=Show seconds on ruler, State=Default} 278×26 "Show seconds on ruler" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Snap playhead to keyframes, State=Default} 278×26 "Snap playhead to keyframes" "⌘K"
+        I NF3/Menu Separator 278×9
+        I NF3/Menu Item {Shortcut=F1, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Help, State=Default} 278×26 "Help" "F1"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Close panel, State=Default} 278×26 "Close panel" "⌘K"
+    F Placement submenu 216×177 [V gap 12]
+      T "Placement submenu"
+      F Menu / Placement 216×149 [V gap 0]
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=true, Show shortcut=false, Check column=true, Label=Bottom (docked), State=Default} 206×26 "Bottom (docked)" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Top, State=Default} 206×26 "Top" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Left, State=Default} 206×26 "Left" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Right, State=Default} 206×26 "Right" "⌘K"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Floating window, State=Default} 206×26 "Floating window" "⌘K"
+    F Modes 660×1288 [V gap 20]
+      F Mode / Tiny 180×118 [V gap 6]
+        F Head 105×14 [H gap 14]
+          T "Tiny"
+          T "6 pt per frame"
+        F Frames 6 180×98 [V gap 0]
+          F Frame ruler 180×26 [H gap 0]
+            F 1 12×12 [H gap 0]
+              T "1"
+            F 5 30×12 [H gap 0]
+              T "5"
+            F 10 30×12 [H gap 0]
+              T "10"
+            F 15 30×12 [H gap 0]
+              T "15"
+            F 20 30×12 [H gap 0]
+              T "20"
+            F 25 30×12 [H gap 0]
+              T "25"
+            F 30 30×12 [H gap 0]
+              T "30"
+          F Frames 180×24 [H gap 0]
+            F Span / motion 54×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+            F Span / static 54×23 [H gap 2]
+            F Span / shape 72×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+          F Frames 180×24 [H gap 0]
+            F Span / static 180×23 [H gap 2]
+          F Frames 180×24 [H gap 0]
+            F Span / empty 24×23 [H gap 2]
+            F Span / classic 108×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+            F Span / static 48×23 [H gap 2]
+      F Mode / Small 270×118 [V gap 6]
+        F Head 111×14 [H gap 14]
+          T "Small"
+          T "9 pt per frame"
+        F Frames 9 270×98 [V gap 0]
+          F Frame ruler 270×26 [H gap 0]
+            F 1 18×12 [H gap 0]
+              T "1"
+            F 5 45×12 [H gap 0]
+              T "5"
+            F 10 45×12 [H gap 0]
+              T "10"
+            F 15 45×12 [H gap 0]
+              T "15"
+            F 20 45×12 [H gap 0]
+              T "20"
+            F 25 45×12 [H gap 0]
+              T "25"
+            F 30 45×12 [H gap 0]
+              T "30"
+          F Frames 270×24 [H gap 0]
+            F Span / motion 81×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+            F Span / static 81×23 [H gap 2]
+            F Span / shape 108×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+          F Frames 270×24 [H gap 0]
+            F Span / static 270×23 [H gap 2]
+          F Frames 270×24 [H gap 0]
+            F Span / empty 36×23 [H gap 2]
+            F Span / classic 162×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+            F Span / static 72×23 [H gap 2]
+      F Mode / Normal (default) 360×118 [V gap 6]
+        F Head 273×14 [H gap 14]
+          T "Normal (default)"
+          T "12 pt per frame · rows size/layer-row"
+        F Frames 12 360×98 [V gap 0]
+          F Frame ruler 360×26 [H gap 0]
+            F 1 24×12 [H gap 0]
+              T "1"
+            F 5 60×12 [H gap 0]
+              T "5"
+            F 10 60×12 [H gap 0]
+              T "10"
+            F 15 60×12 [H gap 0]
+              T "15"
+            F 20 60×12 [H gap 0]
+              T "20"
+            F 25 60×12 [H gap 0]
+              T "25"
+            F 30 60×12 [H gap 0]
+              T "30"
+          F Frames 360×24 [H gap 0]
+            F Span / motion 108×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+            F Span / static 108×23 [H gap 2]
+            F Span / shape 144×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+          F Frames 360×24 [H gap 0]
+            F Span / static 360×23 [H gap 2]
+          F Frames 360×24 [H gap 0]
+            F Span / empty 48×23 [H gap 2]
+            F Span / classic 216×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+            F Span / static 96×23 [H gap 2]
+      F Mode / Medium 480×118 [V gap 6]
+        F Head 130×14 [H gap 14]
+          T "Medium"
+          T "16 pt per frame"
+        F Frames 16 480×98 [V gap 0]
+          F Frame ruler 480×26 [H gap 0]
+            F 1 32×12 [H gap 0]
+              T "1"
+            F 5 80×12 [H gap 0]
+              T "5"
+            F 10 80×12 [H gap 0]
+              T "10"
+            F 15 80×12 [H gap 0]
+              T "15"
+            F 20 80×12 [H gap 0]
+              T "20"
+            F 25 80×12 [H gap 0]
+              T "25"
+            F 30 80×12 [H gap 0]
+              T "30"
+          F Frames 480×24 [H gap 0]
+            F Span / motion 144×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+            F Span / static 144×23 [H gap 2]
+            F Span / shape 192×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+          F Frames 480×24 [H gap 0]
+            F Span / static 480×23 [H gap 2]
+          F Frames 480×24 [H gap 0]
+            F Span / empty 64×23 [H gap 2]
+            F Span / classic 288×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+            F Span / static 128×23 [H gap 2]
+      F Mode / Large 660×118 [V gap 6]
+        F Head 118×14 [H gap 14]
+          T "Large"
+          T "22 pt per frame"
+        F Frames 22 660×98 [V gap 0]
+          F Frame ruler 660×26 [H gap 0]
+            F 1 44×12 [H gap 0]
+              T "1"
+            F 5 110×12 [H gap 0]
+              T "5"
+            F 10 110×12 [H gap 0]
+              T "10"
+            F 15 110×12 [H gap 0]
+              T "15"
+            F 20 110×12 [H gap 0]
+              T "20"
+            F 25 110×12 [H gap 0]
+              T "25"
+            F 30 110×12 [H gap 0]
+              T "30"
+          F Frames 660×24 [H gap 0]
+            F Span / motion 198×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+            F Span / static 198×23 [H gap 2]
+            F Span / shape 264×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+          F Frames 660×24 [H gap 0]
+            F Span / static 660×23 [H gap 2]
+          F Frames 660×24 [H gap 0]
+            F Span / empty 88×23 [H gap 2]
+            F Span / classic 396×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+            F Span / static 176×23 [H gap 2]
+      F Mode / Short 360×88 [V gap 6]
+        F Head 212×14 [H gap 14]
+          T "Short"
+          T "rows 14 pt — more layers on screen"
+        F Frames 12 360×68 [V gap 0]
+          F Frame ruler 360×26 [H gap 0]
+            F 1 24×12 [H gap 0]
+              T "1"
+            F 5 60×12 [H gap 0]
+              T "5"
+            F 10 60×12 [H gap 0]
+              T "10"
+            F 15 60×12 [H gap 0]
+              T "15"
+            F 20 60×12 [H gap 0]
+              T "20"
+            F 25 60×12 [H gap 0]
+              T "25"
+            F 30 60×12 [H gap 0]
+              T "30"
+          F Frames 360×14 [H gap 0]
+            F Span / motion 108×13 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+            F Span / static 108×13 [H gap 2]
+            F Span / shape 144×13 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+          F Frames 360×14 [H gap 0]
+            F Span / static 360×13 [H gap 2]
+          F Frames 360×14 [H gap 0]
+            F Span / empty 48×13 [H gap 2]
+            F Span / classic 216×13 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+            F Span / static 96×13 [H gap 2]
+      F Mode / Tinted frames off 360×118 [V gap 6]
+        F Head 310×14 [H gap 14]
+          T "Tinted frames off"
+          T "tween spans not colour-coded, only arrows"
+        F Frames 12 360×98 [V gap 0]
+          F Frame ruler 360×26 [H gap 0]
+            F 1 24×12 [H gap 0]
+              T "1"
+            F 5 60×12 [H gap 0]
+              T "5"
+            F 10 60×12 [H gap 0]
+              T "10"
+            F 15 60×12 [H gap 0]
+              T "15"
+            F 20 60×12 [H gap 0]
+              T "20"
+            F 25 60×12 [H gap 0]
+              T "25"
+            F 30 60×12 [H gap 0]
+              T "30"
+          F Frames 360×24 [H gap 0]
+            F Span / motion 108×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+            F Span / static 108×23 [H gap 2]
+            F Span / shape 144×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+          F Frames 360×24 [H gap 0]
+            F Span / static 360×23 [H gap 2]
+          F Frames 360×24 [H gap 0]
+            F Span / empty 48×23 [H gap 2]
+            F Span / classic 216×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+            F Span / static 96×23 [H gap 2]
+      F Mode / Preview 660×166 [V gap 6]
+        F Head 280×14 [H gap 14]
+          T "Preview"
+          T "thumbnails of each keyframe span, scaled to fit"
+        F Frames 22 660×146 [V gap 0]
+          F Frame ruler 660×26 [H gap 0]
+            F 1 44×12 [H gap 0]
+              T "1"
+            F 5 110×12 [H gap 0]
+              T "5"
+            F 10 110×12 [H gap 0]
+              T "10"
+            F 15 110×12 [H gap 0]
+              T "15"
+            F 20 110×12 [H gap 0]
+              T "20"
+            F 25 110×12 [H gap 0]
+              T "25"
+            F 30 110×12 [H gap 0]
+              T "30"
+          F Frames 660×40 [H gap 0]
+            F Span / motion 198×39 [H gap 4]
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+            F Span / static 198×39 [H gap 4]
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+            F Span / shape 264×39 [H gap 4]
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+          F Frames 660×40 [H gap 0]
+            F Span / static 660×39 [H gap 4]
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+          F Frames 660×40 [H gap 0]
+            F Span / empty 88×39 [H gap 4]
+            F Span / classic 396×39 [H gap 4]
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+            F Span / static 176×39 [H gap 4]
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+      F Mode / Preview in context 660×166 [V gap 6]
+        F Head 337×14 [H gap 14]
+          T "Preview in context"
+          T "thumbnails show the object inside the full stage"
+        F Frames 22 660×146 [V gap 0]
+          F Frame ruler 660×26 [H gap 0]
+            F 1 44×12 [H gap 0]
+              T "1"
+            F 5 110×12 [H gap 0]
+              T "5"
+            F 10 110×12 [H gap 0]
+              T "10"
+            F 15 110×12 [H gap 0]
+              T "15"
+            F 20 110×12 [H gap 0]
+              T "20"
+            F 25 110×12 [H gap 0]
+              T "25"
+            F 30 110×12 [H gap 0]
+              T "30"
+          F Frames 660×40 [H gap 0]
+            F Span / motion 198×39 [H gap 4]
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+            F Span / static 198×39 [H gap 4]
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+            F Span / shape 264×39 [H gap 4]
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+          F Frames 660×40 [H gap 0]
+            F Span / static 660×39 [H gap 4]
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+          F Frames 660×40 [H gap 0]
+            F Span / empty 88×39 [H gap 4]
+            F Span / classic 396×39 [H gap 4]
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+              F Thumbnail 56×32
+            F Span / static 176×39 [H gap 4]
+              F Thumbnail 56×32
+              F Thumbnail 56×32

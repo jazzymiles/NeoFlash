@@ -1,0 +1,85 @@
+F Dialog / Beta feedback 2312×549 [V gap 24]
+  F Board title 1100×58 [V gap 6]
+    T "Dialog / Beta feedback"
+    T "The four variants differ only in which optional rows are shown (Email, Name; the attachment list appears once an image is attached); text area, “Attach image…” and Cancel / Send never move. The “Bug?” chip in the Stage corner opens the dialog."
+  F States 2232×387 [H gap 40]
+    F Text only 500×251 [V gap 12]
+      T "Text only"
+      F Dialog / Beta feedback 500×223 [V gap 0]
+        I NF3/Dialog Header {Title=Beta feedback} 498×48 "Beta feedback"
+        F Body 498×116 [V gap 8]
+          F Text area 450×88 [V gap 0]
+            T "The playhead jumps back to frame 1 when I press Enter inside a motion tween. I expected playback to start from the current frame."
+        F Footer 498×57 [H gap 8]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Attach image…, Kind=Ghost, State=Default} 103×28 "Attach image…"
+          F Spacer 209×1 [H gap 0]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Send, Kind=Primary, State=Default} 51×28 "Send"
+    F Name and text 500×287 [V gap 12]
+      T "Name and text"
+      F Dialog / Beta feedback 500×259 [V gap 0]
+        I NF3/Dialog Header {Title=Beta feedback} 498×48 "Beta feedback"
+        F Body 498×152 [V gap 8]
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Name"
+            I NF3/Field {Stepper=false, Unit=px, Value=Ada Lovelace, Show unit=false, Show label=false, Label=X, State=Default} 322×28 "X" "Ada Lovelace" "px"
+          F Text area 450×88 [V gap 0]
+            T "The playhead jumps back to frame 1 when I press Enter inside a motion tween. I expected playback to start from the current frame."
+        F Footer 498×57 [H gap 8]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Attach image…, Kind=Ghost, State=Default} 103×28 "Attach image…"
+          F Spacer 209×1 [H gap 0]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Send, Kind=Primary, State=Default} 51×28 "Send"
+    F Email and text 500×287 [V gap 12]
+      T "Email and text"
+      F Dialog / Beta feedback 500×259 [V gap 0]
+        I NF3/Dialog Header {Title=Beta feedback} 498×48 "Beta feedback"
+        F Body 498×152 [V gap 8]
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Email"
+            I NF3/Field {Stepper=false, Unit=px, Value=ada@example.com, Show unit=false, Show label=false, Label=X, State=Default} 322×28 "X" "ada@example.com" "px"
+          F Text area 450×88 [V gap 0]
+            T "The playhead jumps back to frame 1 when I press Enter inside a motion tween. I expected playback to start from the current frame."
+        F Footer 498×57 [H gap 8]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Attach image…, Kind=Ghost, State=Default} 103×28 "Attach image…"
+          F Spacer 209×1 [H gap 0]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Send, Kind=Primary, State=Default} 51×28 "Send"
+    F Email, name and text, two attachments 500×387 [V gap 12]
+      T "Email, name and text, two attachments"
+      F Dialog / Beta feedback 500×359 [V gap 0]
+        I NF3/Dialog Header {Title=Beta feedback} 498×48 "Beta feedback"
+        F Body 498×252 [V gap 8]
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Email"
+            I NF3/Field {Stepper=false, Unit=px, Value=ada@example.com, Show unit=false, Show label=false, Label=X, State=Default} 322×28 "X" "ada@example.com" "px"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Name"
+            I NF3/Field {Stepper=false, Unit=px, Value=Ada Lovelace, Show unit=false, Show label=false, Label=X, State=Default} 322×28 "X" "Ada Lovelace" "px"
+          F Text area 450×88 [V gap 0]
+            T "The playhead jumps back to frame 1 when I press Enter inside a motion tween. I expected playback to start from the current frame."
+          F Attachments 450×56 [V gap 0]
+            F Attachment 450×28 [H gap 8]
+              I NF2 Icon/16/bitmap 16×16
+              T "Screenshot 2026-11-15 at 10.42.png"
+              T "412 KB"
+              I NF3/Icon Button {Icon=1:9255, Kind=Ghost, State=Default} 28×28
+            F Attachment 450×28 [H gap 8]
+              I NF2 Icon/16/bitmap 16×16
+              T "timeline-jump.png"
+              T "1.2 MB"
+              I NF3/Icon Button {Icon=1:9255, Kind=Ghost, State=Default} 28×28
+        F Footer 498×57 [H gap 8]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Attach image…, Kind=Ghost, State=Default} 103×28 "Attach image…"
+          F Spacer 209×1 [H gap 0]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Send, Kind=Primary, State=Default} 51×28 "Send"
+    F Stage chip 72×56 [V gap 12]
+      T "Stage chip"
+      F Beta feedback chip 72×28 [H gap 8]
+        I NF2 Icon/16/debug 16×16
+        T "Bug?"

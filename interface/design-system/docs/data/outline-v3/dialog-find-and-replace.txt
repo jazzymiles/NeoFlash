@@ -1,0 +1,64 @@
+F Dialog / Find and replace 820×645 [V gap 24]
+  F Board title 720×58 [V gap 6]
+    T "Dialog / Find and replace"
+    T "Kind switch, scope selects, Find and Replace on the label grid; the two option rows get the labels Match and Look in; one size/row per result; the result count sits in the footer beside Find all, Replace and Replace all."
+  F Dialog / Find and replace 740×483 [V gap 0]
+    I NF3/Dialog Header {Title=Find and replace} 738×48 "Find and replace"
+    F Body 738×376 [V gap 8]
+      F Kind 690×28 [H gap 0]
+        F Segmented 400×28 [H gap 0]
+          I NF3/Segment {Label=Text, Selected=Yes} 49×22 "Text"
+          I NF3/Segment {Label=Font, Selected=No} 48×22 "Font"
+          I NF3/Segment {Label=Colour, Selected=No} 59×22 "Colour"
+          I NF3/Segment {Label=Symbol, Selected=No} 64×22 "Symbol"
+          I NF3/Segment {Label=Sound, Selected=No} 58×22 "Sound"
+          I NF3/Segment {Label=Video, Selected=No} 55×22 "Video"
+          I NF3/Segment {Label=Bitmap, Selected=No} 61×22 "Bitmap"
+      F Form row 690×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "In"
+        I NF3/Select {Value=Current document, Show label=false, Label=Style, State=Default} 232×28 "Style" "Current document"
+        I NF3/Select {Value=All scenes, Show label=true, Label=Scene, State=Default} 232×28 "Scene" "All scenes"
+      F Form row 690×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Find"
+        I NF3/Field {Unit=px, Show unit=false, Show label=false, Stepper=false, Value=orbit_mc, Label=X, State=Focus} 562×28 "X" "orbit_mc" "px"
+      F Form row 690×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Replace"
+        I NF3/Field {Stepper=false, Unit=px, Value=orbitClip, Show unit=false, Show label=false, Label=X, State=Default} 562×28 "X" "orbitClip" "px"
+      F Form row 690×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Match"
+        I NF3/Checkbox {Show label=true, Label=Whole word, Value=On, State=Default} 86×20 "Whole word"
+        I NF3/Checkbox {Show label=true, Label=Match case, Value=Off, State=Default} 85×20 "Match case"
+        I NF3/Checkbox {Show label=true, Label=Regular expression, Value=Off, State=Default} 123×20 "Regular expression"
+        I NF3/Checkbox {Show label=true, Label=Live edit, Value=Off, State=Default} 69×20 "Live edit"
+      F Form row 690×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Look in"
+        I NF3/Checkbox {Show label=true, Label=Text field contents, Value=On, State=Default} 121×20 "Text field contents"
+        I NF3/Checkbox {Show label=true, Label=Frames / layers / scenes, Value=On, State=Default} 151×20 "Frames / layers / scenes"
+        I NF3/Checkbox {Show label=true, Label=ActionScript, Value=On, State=Default} 88×20 "ActionScript"
+      F Results 690×132 [V gap 0]
+        F Result 688×26 [H gap 14]
+          T "Location"
+          T "Found"
+        F Result 688×26 [H gap 14]
+          T "Scene 1 › orbit › Frame 1 · line 17"
+          T "new Animator(orbitXML, orbit_mc)"
+        F Result 688×26 [H gap 14]
+          T "Scene 1 › orbit › Frame 1 · line 18"
+          T "orbit_mc.rotation += speed"
+        F Result 688×26 [H gap 14]
+          T "Orbit.as · line 42"
+          T "public var orbit_mc:MovieClip"
+        F Result 688×26 [H gap 14]
+          T "Library › orbit · instance name"
+          T "orbit_mc"
+    F Footer 738×57 [H gap 8]
+      T "4 results in 3 places"
+      F Spacer 352×1 [H gap 0]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Find all, Kind=Ghost, State=Default} 62×28 "Find all"
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Replace, Kind=Secondary, State=Default} 68×28 "Replace"
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Replace all, Kind=Primary, State=Default} 81×28 "Replace all"

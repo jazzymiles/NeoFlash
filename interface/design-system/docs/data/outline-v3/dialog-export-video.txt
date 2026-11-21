@@ -1,0 +1,154 @@
+F Dialog / Export video 1920×821 [V gap 24]
+  F Board title 1100×58 [V gap 6]
+    T "Dialog / Export video"
+    T "Preview column + one form grid at width/dialog-xl; the format switch heads the form, “Transparent bg” moved from the audio row into the Video group, “Include audio” is a checkbox. The progress bar, its label and the ghost Pause button exist only while exporting: the idle state shows “Preview · frame 1”, the footer is always Cancel, then Export."
+  F States 1840×659 [H gap 40]
+    F Idle 900×659 [V gap 12]
+      T "Idle"
+      F Dialog / Export video 900×631 [V gap 0]
+        I NF3/Dialog Header {Title=Export video} 898×48 "Export video"
+        F Body 898×524 [H gap 24]
+          F Preview column 288×201 [V gap 8]
+            F Preview 288×180 [H gap 16]
+            T "Preview · frame 1"
+          F Settings 538×496 [V gap 8]
+            F Line 538×28 [H gap 8]
+              F Segmented 280×28 [H gap 0]
+                I NF3/Segment {Label=MP4, Selected=Yes} 51×22 "MP4"
+                I NF3/Segment {Label=WebM, Selected=No} 58×22 "WebM"
+                I NF3/Segment {Label=MOV, Selected=No} 50×22 "MOV"
+                I NF3/Segment {Label=GIF, Selected=No} 42×22 "GIF"
+                I NF3/Segment {Label=PNG seq., Selected=No} 73×22 "PNG seq."
+            F Form row 538×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Range"
+              I NF3/Select {Value=Whole movie (all scenes), Show label=false, Label=Style, State=Default} 232×28 "Style" "Whole movie (all scenes)"
+            F Form row 538×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Frames"
+              I NF3/Field {Stepper=false, Show unit=false, Value=1, Show label=true, Unit=px, Label=From, State=Disabled} 104×28 "From" "1" "px"
+              I NF3/Field {Stepper=false, Show unit=false, Value=120, Show label=true, Unit=px, Label=To, State=Disabled} 104×28 "To" "120" "px"
+            F Group caption 538×28 [H gap 0]
+              T "Video"
+            F Form row 538×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Size"
+              I NF3/Field {Stepper=false, Unit=px, Value=1920, Show unit=true, Show label=true, Label=W, State=Default} 104×28 "W" "1920" "px"
+              I NF3/Field {Stepper=false, Unit=px, Value=1200, Show unit=true, Show label=true, Label=H, State=Default} 104×28 "H" "1200" "px"
+              I NF3/Icon Button {Icon=1:9281, Kind=Ghost, State=Selected} 28×28
+              I NF3/Select {Value=2×, Show label=false, Label=Style, State=Default} 68×28 "Style" "2×"
+            F Form row 538×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Frame rate"
+              I NF3/Select {Value=24 fps (document), Show label=false, Label=Style, State=Default} 168×28 "Style" "24 fps (document)"
+            F Form row 538×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Codec"
+              I NF3/Select {Value=H.264, Show label=false, Label=Style, State=Default} 168×28 "Style" "H.264"
+            F Form row 538×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Quality"
+              I NF3/Slider {State=Default} 168×20
+              T "High · ~8 Mbps"
+            F Form row 538×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Background"
+              I NF3/Checkbox {Show label=true, Label=Transparent bg (MOV/WebM), Value=Off, State=Default} 176×20 "Transparent bg (MOV/WebM)"
+            F Group caption 538×28 [H gap 0]
+              T "Content"
+            F Line 538×28 [H gap 8]
+              I NF3/Checkbox {Show label=true, Label=Render nested movie clip animation and scripts (runtime capture), Value=On, State=Default} 363×20 "Render nested movie clip animation and scripts (runtime capture)"
+            F Form row 538×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Duration"
+              I NF3/Radio {Label=Stop at last frame, Value=On, State=Default} 117×20 "Stop at last frame"
+              I NF3/Radio {Label=Stop after, Value=Off, State=Default} 76×20 "Stop after"
+              I NF3/Field {Stepper=false, Show unit=true, Value=10, Show label=false, Unit=s, Label=X, State=Disabled} 68×28 "X" "10" "s"
+            F Group caption 538×28 [H gap 0]
+              T "Audio"
+            F Form row 538×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T ""
+              I NF3/Checkbox {Show label=true, Label=Include audio, Value=On, State=Default} 94×20 "Include audio"
+              I NF3/Select {Value=AAC 192 kbps, Show label=false, Label=Style, State=Default} 168×28 "Style" "AAC 192 kbps"
+        F Footer 898×57 [H gap 8]
+          T "~ 12.1 MB · 00:05 · 1920×1200"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+          I NF3/Button {Icon=1:9278, Show icon=true, Label=Export, Kind=Primary, State=Default} 83×28 "Export"
+    F Exporting 900×659 [V gap 12]
+      T "Exporting"
+      F Dialog / Export video 900×631 [V gap 0]
+        I NF3/Dialog Header {Title=Export video} 898×48 "Export video"
+        F Body 898×524 [H gap 24]
+          F Preview column 288×234 [V gap 8]
+            F Preview 288×180 [H gap 16]
+            F Progress label 288×13 [H gap 8]
+              T "Exporting frames 72 / 120"
+              T "60 %"
+            I NF3/Progress 288×4
+            T "Preview while rendering · Pause to hold"
+          F Settings 538×496 [V gap 8]
+            F Line 538×28 [H gap 8]
+              F Segmented 280×28 [H gap 0]
+                I NF3/Segment {Label=MP4, Selected=Yes} 51×22 "MP4"
+                I NF3/Segment {Label=WebM, Selected=No} 58×22 "WebM"
+                I NF3/Segment {Label=MOV, Selected=No} 50×22 "MOV"
+                I NF3/Segment {Label=GIF, Selected=No} 42×22 "GIF"
+                I NF3/Segment {Label=PNG seq., Selected=No} 73×22 "PNG seq."
+            F Form row 538×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Range"
+              I NF3/Select {Value=Whole movie (all scenes), Show label=false, Label=Style, State=Default} 232×28 "Style" "Whole movie (all scenes)"
+            F Form row 538×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Frames"
+              I NF3/Field {Stepper=false, Show unit=false, Value=1, Show label=true, Unit=px, Label=From, State=Disabled} 104×28 "From" "1" "px"
+              I NF3/Field {Stepper=false, Show unit=false, Value=120, Show label=true, Unit=px, Label=To, State=Disabled} 104×28 "To" "120" "px"
+            F Group caption 538×28 [H gap 0]
+              T "Video"
+            F Form row 538×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Size"
+              I NF3/Field {Stepper=false, Unit=px, Value=1920, Show unit=true, Show label=true, Label=W, State=Default} 104×28 "W" "1920" "px"
+              I NF3/Field {Stepper=false, Unit=px, Value=1200, Show unit=true, Show label=true, Label=H, State=Default} 104×28 "H" "1200" "px"
+              I NF3/Icon Button {Icon=1:9281, Kind=Ghost, State=Selected} 28×28
+              I NF3/Select {Value=2×, Show label=false, Label=Style, State=Default} 68×28 "Style" "2×"
+            F Form row 538×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Frame rate"
+              I NF3/Select {Value=24 fps (document), Show label=false, Label=Style, State=Default} 168×28 "Style" "24 fps (document)"
+            F Form row 538×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Codec"
+              I NF3/Select {Value=H.264, Show label=false, Label=Style, State=Default} 168×28 "Style" "H.264"
+            F Form row 538×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Quality"
+              I NF3/Slider {State=Default} 168×20
+              T "High · ~8 Mbps"
+            F Form row 538×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Background"
+              I NF3/Checkbox {Show label=true, Label=Transparent bg (MOV/WebM), Value=Off, State=Default} 176×20 "Transparent bg (MOV/WebM)"
+            F Group caption 538×28 [H gap 0]
+              T "Content"
+            F Line 538×28 [H gap 8]
+              I NF3/Checkbox {Show label=true, Label=Render nested movie clip animation and scripts (runtime capture), Value=On, State=Default} 363×20 "Render nested movie clip animation and scripts (runtime capture)"
+            F Form row 538×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Duration"
+              I NF3/Radio {Label=Stop at last frame, Value=On, State=Default} 117×20 "Stop at last frame"
+              I NF3/Radio {Label=Stop after, Value=Off, State=Default} 76×20 "Stop after"
+              I NF3/Field {Stepper=false, Show unit=true, Value=10, Show label=false, Unit=s, Label=X, State=Disabled} 68×28 "X" "10" "s"
+            F Group caption 538×28 [H gap 0]
+              T "Audio"
+            F Form row 538×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T ""
+              I NF3/Checkbox {Show label=true, Label=Include audio, Value=On, State=Default} 94×20 "Include audio"
+              I NF3/Select {Value=AAC 192 kbps, Show label=false, Label=Style, State=Default} 168×28 "Style" "AAC 192 kbps"
+        F Footer 898×57 [H gap 8]
+          I NF3/Button {Icon=1:9192, Show icon=true, Label=Pause, Kind=Ghost, State=Default} 81×28 "Pause"
+          T "~ 12.1 MB · 00:05 · 1920×1200"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+          I NF3/Button {Icon=1:9278, Show icon=true, Label=Export, Kind=Primary, State=Disabled} 83×28 "Export"

@@ -1,0 +1,47 @@
+F Dialog / Confirmations 1720×361 [V gap 24]
+  F Board title 1100×58 [V gap 6]
+    T "Dialog / Confirmations"
+    T "width/dialog-s. The question is the dialog title, one warning line below; the destructive action sits alone on the left, Cancel and the single Primary on the right. Unsaved changes · Revert · File modified on disk (with unsaved changes) · Recover unsaved work."
+  F Row 1640×199 [H gap 40]
+    F Dialog / Save changes before continuing? 380×167 [V gap 0]
+      I NF3/Dialog Header {Title=Save changes before continuing?} 378×48 "Save changes before continuing?"
+      F Body 378×60 [V gap 8]
+        F Message 330×32 [H gap 14]
+          I NF2 Icon/16/warning 16×16
+          T "Your changes to “Ideas in motion” will be lost if you discard them."
+      F Footer 378×57 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Discard, Kind=Danger, State=Default} 66×28 "Discard"
+        F Spacer 127×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Save, Kind=Primary, State=Default} 50×28 "Save"
+    F Dialog / Revert to saved version? 380×183 [V gap 0]
+      I NF3/Dialog Header {Title=Revert to saved version?} 378×48 "Revert to saved version?"
+      F Body 378×76 [V gap 8]
+        F Message 330×48 [H gap 14]
+          I NF2 Icon/16/warning 16×16
+          T "Your unsaved changes to “Ideas in motion” will be lost and the last saved version on disk will be reloaded."
+      F Footer 378×57 [H gap 8]
+        F Spacer 190×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Revert, Kind=Danger, State=Default} 61×28 "Revert"
+    F Dialog / File modified on disk 380×199 [V gap 0]
+      I NF3/Dialog Header {Title=File modified on disk} 378×48 "File modified on disk"
+      F Body 378×92 [V gap 8]
+        F Message 330×64 [H gap 14]
+          I NF2 Icon/16/warning 16×16
+          T "“Ideas in motion” was modified on disk by another program while you have unsaved changes in NeoFlash. Reload from disk, keep editing your current version, or Save As a new file."
+      F Footer 378×57 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Reload, Kind=Danger, State=Default} 62×28 "Reload"
+        F Spacer 76×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Save As…, Kind=Secondary, State=Default} 78×28 "Save As…"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Keep editing, Kind=Primary, State=Default} 90×28 "Keep editing"
+    F Dialog / Recover unsaved work? 380×183 [V gap 0]
+      I NF3/Dialog Header {Title=Recover unsaved work?} 378×48 "Recover unsaved work?"
+      F Body 378×76 [V gap 8]
+        F Message 330×48 [H gap 14]
+          I NF2 Icon/16/warning 16×16
+          T "An autosaved copy of “Ideas in motion” from a previous session was found. Restore it or discard the recovery file."
+      F Footer 378×57 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Discard, Kind=Danger, State=Default} 66×28 "Discard"
+        F Spacer 183×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Restore, Kind=Primary, State=Default} 65×28 "Restore"

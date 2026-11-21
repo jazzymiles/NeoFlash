@@ -1,0 +1,532 @@
+F Panel / Actions 4040×846 [V gap 24]
+  F Board title 900×74 [V gap 6]
+    T "Panel / Actions"
+    T "Toolbar in one row of size/timeline-controls, grouped by dividers: language · add / find / target · check / format / hint / debug · folding · comments · sidebar, then Script assist and Help. The first state shows the language select with the code hint and the error peek; the other three show the script-language badge, and the notice row with Mark as … when the script is not in the project language."
+  F States 3960×668 [H gap 40]
+    F Floating, project language select 960×668 [V gap 12]
+      T "Floating, project language select"
+      F Panel / Actions 960×640 [V gap 0]
+        F Panel header 958×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Actions, Selected=Yes} 68×34 "Actions"
+          F Spacer 858×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+        F Toolbar 958×38 [H gap 8]
+          I NF3/Select {Value=ActionScript 3.0, Show label=false, Label=Style, State=Default} 168×28 "Style" "ActionScript 3.0"
+          I NF3/Icon Button {Icon=1:9209, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9252, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:481, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9239, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:484, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:488, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:492, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:495, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:498, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:505, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:501, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:509, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:534, Kind=Ghost, State=Selected} 28×28
+          F Spacer 84×1 [H gap 0]
+          I NF3/Button {Icon=17:513, Show icon=true, Label=Script assist, Kind=Ghost, State=Default} 113×28 "Script assist"
+          I NF3/Icon Button {Icon=17:518, Kind=Ghost, State=Default} 28×28
+        F Main 958×532 [H gap 0]
+          F Sidebar 248×532 [V gap 0]
+            F Search 247×56 [H gap 0]
+              I NF3/Search {Clear=false, Value=Search toolbox, State=Default} 219×28 "Search toolbox"
+            F List 247×196 [V gap 1]
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Top level, Level=0, State=Default} 239×26 "Top level" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Language elements, Level=0, State=Default} 239×26 "Language elements" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=fl.controls, Level=0, State=Default} 239×26 "fl.controls" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=fl.events, Level=0, State=Default} 239×26 "fl.events" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=fl.motion, Level=0, State=Default} 239×26 "fl.motion" "4"
+              I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Animator, Show icon=true, Chevron=false, Icon=17:530, Level=1, State=Default} 239×26 "Animator" "4"
+              I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Motion, Show icon=true, Chevron=false, Icon=17:530, Level=1, State=Default} 239×26 "Motion" "4"
+            F Title 247×28 [H gap 0]
+              T "Script navigator"
+            F List 247×142 [V gap 1]
+              I NF3/Tree Row {Show meta=false, Icon=17:481, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Current selection, Level=0, State=Default} 239×26 "Current selection" "4"
+              I NF3/Tree Row {Meta=4, Chevron=false, Show icon=true, Chevron icon=220:1338, Show meta=false, Icon=17:546, Label=orbit : Frame 1, Level=1, State=Selected} 239×26 "orbit : Frame 1" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:542, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Scene 1, Level=0, State=Default} 239×26 "Scene 1" "4"
+              I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=labels : Frame 1, Show icon=true, Chevron=false, Icon=17:546, Level=1, State=Default} 239×26 "labels : Frame 1" "4"
+              I NF3/Tree Row {Show meta=false, Icon=1:9228, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Symbol definitions, Level=0, State=Default} 239×26 "Symbol definitions" "4"
+          F Editor 710×532 [V gap 0]
+            F Line 1 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "1"
+              F Fold 12×20 [H gap 0]
+              T "import fl.motion.Animator;"
+            F Line 2 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "2"
+              F Fold 12×20 [H gap 0]
+                I NF2 Icon/12/chevdown 12×12
+              T "var orbitXML:XML = <Motion duration="20">"
+            F Line 3 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "3"
+              F Fold 12×20 [H gap 0]
+                I NF2 Icon/12/chevdown 12×12
+              T "    <source>"
+            F Line 4 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+                I NF2 Icon/16/warning 16×16
+              F Number 24×20 [H gap 0]
+                T "4"
+              F Fold 12×20 [H gap 0]
+                I NF2 Icon/12/chevdown 12×12
+              T "        <Source frameRate="24" x="76.5" y="40.5">"
+            F Line 5 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "5"
+              F Fold 12×20 [H gap 0]
+                I NF2 Icon/12/chevdown 12×12
+              T "            <dimensions>"
+            F Line 6 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "6"
+              F Fold 12×20 [H gap 0]
+              T "                <geom:Rectangle width="160" height="160"/>"
+            F Line 7 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "7"
+              F Fold 12×20 [H gap 0]
+              T "            </dimensions>"
+            F Line 8 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "8"
+              F Fold 12×20 [H gap 0]
+              T "        </Source>"
+            F Line 9 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "9"
+              F Fold 12×20 [H gap 0]
+              T "    </source>"
+            F Line 10 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "10"
+              F Fold 12×20 [H gap 0]
+                I NF2 Icon/12/chevdown 12×12
+              T "    <Keyframe index="0" tweenSnap="true">"
+            F Line 11 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "11"
+              F Fold 12×20 [H gap 0]
+              T "        <SimpleEase ease="0"/>"
+            F Line 12 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "12"
+              F Fold 12×20 [H gap 0]
+              T "    </Keyframe>"
+            F Line 13 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "13"
+              F Fold 12×20 [H gap 0]
+              T "    <Keyframe index="19" x="364.95"/>"
+            F Line 14 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "14"
+              F Fold 12×20 [H gap 0]
+              T "</Motion>;"
+            F Line 15 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "15"
+              F Fold 12×20 [H gap 0]
+              T ""
+            F Line 16 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "16"
+              F Fold 12×20 [H gap 0]
+              T "// play the orbit once the stage is ready"
+            F Line 17 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+                I NF2 Icon/16/error 16×16
+              F Number 24×20 [H gap 0]
+                T "17"
+              F Fold 12×20 [H gap 0]
+              T "var animator:Animator = new Animator(orbitXML, orbit_mc);"
+            F Line 18 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+                I NF2 Icon/16/breakpoint 16×16
+              F Number 24×20 [H gap 0]
+                T "18"
+              F Fold 12×20 [H gap 0]
+              T "animator.play();"
+            F Line 19 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "19"
+              F Fold 12×20 [H gap 0]
+              T "animator."
+            F Line 20 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "20"
+              F Fold 12×20 [H gap 0]
+              T "trace("NeoFlash: the stage is ready");"
+            F Menu / Code hint 216×140 [V gap 0]
+              I NF3/Menu Item {Submenu=false, Checked=false, Check column=false, Show shortcut=true, Shortcut=void, Label=play(), State=Hover} 206×26 "play()" "void"
+              I NF3/Menu Item {Shortcut=void, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=pause(), State=Default} 206×26 "pause()" "void"
+              I NF3/Menu Item {Shortcut=void, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=rewind(), State=Default} 206×26 "rewind()" "void"
+              I NF3/Menu Item {Shortcut=void, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=stop(), State=Default} 206×26 "stop()" "void"
+              I NF3/Menu Item {Shortcut=int, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=time, State=Default} 206×26 "time" "int"
+            F Error peek 349×26 [H gap 8]
+              I NF2 Icon/16/error 16×16
+              T "1120: Access of undefined property orbit_mc."
+              T "Quick fix ⌘."
+        F Script bar 958×34 [H gap 8]
+          I NF3/Tab {Show icon=true, Icon=17:546, Label=orbit : Frame 1, Selected=Yes} 127×34 "orbit : Frame 1"
+          I NF3/Icon Button {Icon=17:522, Kind=Ghost, State=Selected} 28×28
+          I NF3/Tab {Icon=17:546, Show icon=true, Label=labels : Frame 1, Selected=No} 134×34 "labels : Frame 1"
+          F Spacer 380×1 [H gap 0]
+          T "Line 19, Col 10  ·  20 lines"
+          I NF2 Icon/16/error 16×16
+          T "1"
+          I NF2 Icon/16/warning 16×16
+          T "1"
+    F Script in the project language (toolbar) 960×388 [V gap 12]
+      T "Script in the project language (toolbar)"
+      F Panel / Actions 960×360 [V gap 0]
+        F Panel header 958×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Actions, Selected=Yes} 68×34 "Actions"
+          F Spacer 858×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+        F Toolbar 958×38 [H gap 8]
+          I NF3/Badge {Label=TypeScript, Tone=Neutral} 64×20 "TypeScript"
+          I NF3/Icon Button {Icon=1:9209, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9252, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:481, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9239, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:484, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:488, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:492, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:495, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:498, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:505, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:501, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:509, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:534, Kind=Ghost, State=Selected} 28×28
+          F Spacer 188×1 [H gap 0]
+          I NF3/Button {Icon=17:513, Show icon=true, Label=Script assist, Kind=Ghost, State=Default} 113×28 "Script assist"
+          I NF3/Icon Button {Icon=17:518, Kind=Ghost, State=Default} 28×28
+        F Main 958×252 [H gap 0]
+          F Sidebar 248×252 [V gap 0]
+            F Search 247×56 [H gap 0]
+              I NF3/Search {Clear=false, Value=Search toolbox, State=Default} 219×28 "Search toolbox"
+            F List 247×196 [V gap 1]
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Top level, Level=0, State=Default} 239×26 "Top level" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Language elements, Level=0, State=Default} 239×26 "Language elements" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=fl.controls, Level=0, State=Default} 239×26 "fl.controls" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=fl.events, Level=0, State=Default} 239×26 "fl.events" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=fl.motion, Level=0, State=Default} 239×26 "fl.motion" "4"
+              I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Animator, Show icon=true, Chevron=false, Icon=17:530, Level=1, State=Default} 239×26 "Animator" "4"
+              I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Motion, Show icon=true, Chevron=false, Icon=17:530, Level=1, State=Default} 239×26 "Motion" "4"
+            F Title 247×28 [H gap 0]
+              T "Script navigator"
+            F List 247×142 [V gap 1]
+              I NF3/Tree Row {Show meta=false, Icon=17:481, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Current selection, Level=0, State=Default} 239×26 "Current selection" "4"
+              I NF3/Tree Row {Meta=4, Chevron=false, Show icon=true, Chevron icon=220:1338, Show meta=false, Icon=17:546, Label=orbit : Frame 1, Level=1, State=Selected} 239×26 "orbit : Frame 1" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:542, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Scene 1, Level=0, State=Default} 239×26 "Scene 1" "4"
+              I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=labels : Frame 1, Show icon=true, Chevron=false, Icon=17:546, Level=1, State=Default} 239×26 "labels : Frame 1" "4"
+              I NF3/Tree Row {Show meta=false, Icon=1:9228, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Symbol definitions, Level=0, State=Default} 239×26 "Symbol definitions" "4"
+          F Editor 710×252 [V gap 0]
+            F Line 1 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "1"
+              F Fold 12×20 [H gap 0]
+              T "import fl.motion.Animator;"
+            F Line 2 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "2"
+              F Fold 12×20 [H gap 0]
+                I NF2 Icon/12/chevdown 12×12
+              T "var orbitXML:XML = <Motion duration="20">"
+            F Line 3 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "3"
+              F Fold 12×20 [H gap 0]
+                I NF2 Icon/12/chevdown 12×12
+              T "    <source>"
+            F Line 4 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+                I NF2 Icon/16/warning 16×16
+              F Number 24×20 [H gap 0]
+                T "4"
+              F Fold 12×20 [H gap 0]
+                I NF2 Icon/12/chevdown 12×12
+              T "        <Source frameRate="24" x="76.5" y="40.5">"
+            F Line 5 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "5"
+              F Fold 12×20 [H gap 0]
+                I NF2 Icon/12/chevdown 12×12
+              T "            <dimensions>"
+            F Line 6 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "6"
+              F Fold 12×20 [H gap 0]
+              T "                <geom:Rectangle width="160" height="160"/>"
+            F Line 7 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "7"
+              F Fold 12×20 [H gap 0]
+              T "            </dimensions>"
+            F Line 8 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "8"
+              F Fold 12×20 [H gap 0]
+              T "        </Source>"
+        F Script bar 958×34 [H gap 8]
+          I NF3/Tab {Show icon=true, Icon=17:546, Label=orbit : Frame 1, Selected=Yes} 127×34 "orbit : Frame 1"
+          I NF3/Icon Button {Icon=17:522, Kind=Ghost, State=Selected} 28×28
+          I NF3/Tab {Icon=17:546, Show icon=true, Label=labels : Frame 1, Selected=No} 134×34 "labels : Frame 1"
+          F Spacer 380×1 [H gap 0]
+          T "Line 19, Col 10  ·  20 lines"
+          I NF2 Icon/16/error 16×16
+          T "1"
+          I NF2 Icon/16/warning 16×16
+          T "1"
+    F Script in a compatible language (toolbar and notice) 960×388 [V gap 12]
+      T "Script in a compatible language (toolbar and notice)"
+      F Panel / Actions 960×360 [V gap 0]
+        F Panel header 958×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Actions, Selected=Yes} 68×34 "Actions"
+          F Spacer 858×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+        F Toolbar 958×38 [H gap 8]
+          I NF3/Badge {Label=JavaScript, Tone=Neutral} 63×20 "JavaScript"
+          I NF3/Icon Button {Icon=1:9209, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9252, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:481, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9239, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:484, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:488, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:492, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:495, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:498, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:505, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:501, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:509, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:534, Kind=Ghost, State=Selected} 28×28
+          F Spacer 189×1 [H gap 0]
+          I NF3/Button {Icon=17:513, Show icon=true, Label=Script assist, Kind=Ghost, State=Default} 113×28 "Script assist"
+          I NF3/Icon Button {Icon=17:518, Kind=Ghost, State=Default} 28×28
+        F Language notice 958×45 [H gap 8]
+          I NF3/Inline Message {Text=This script is JavaScript. The project uses TypeScript; the script compiles with a warning., Tone=Info} 796×16 "This script is JavaScript. The project uses TypeScript; the script compiles with a warning."
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Mark as TypeScript, Kind=Ghost, State=Default} 126×28 "Mark as TypeScript"
+        F Main 958×207 [H gap 0]
+          F Sidebar 248×207 [V gap 0]
+            F Search 247×56 [H gap 0]
+              I NF3/Search {Clear=false, Value=Search toolbox, State=Default} 219×28 "Search toolbox"
+            F List 247×196 [V gap 1]
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Top level, Level=0, State=Default} 239×26 "Top level" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Language elements, Level=0, State=Default} 239×26 "Language elements" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=fl.controls, Level=0, State=Default} 239×26 "fl.controls" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=fl.events, Level=0, State=Default} 239×26 "fl.events" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=fl.motion, Level=0, State=Default} 239×26 "fl.motion" "4"
+              I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Animator, Show icon=true, Chevron=false, Icon=17:530, Level=1, State=Default} 239×26 "Animator" "4"
+              I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Motion, Show icon=true, Chevron=false, Icon=17:530, Level=1, State=Default} 239×26 "Motion" "4"
+            F Title 247×28 [H gap 0]
+              T "Script navigator"
+            F List 247×142 [V gap 1]
+              I NF3/Tree Row {Show meta=false, Icon=17:481, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Current selection, Level=0, State=Default} 239×26 "Current selection" "4"
+              I NF3/Tree Row {Meta=4, Chevron=false, Show icon=true, Chevron icon=220:1338, Show meta=false, Icon=17:546, Label=orbit : Frame 1, Level=1, State=Selected} 239×26 "orbit : Frame 1" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:542, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Scene 1, Level=0, State=Default} 239×26 "Scene 1" "4"
+              I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=labels : Frame 1, Show icon=true, Chevron=false, Icon=17:546, Level=1, State=Default} 239×26 "labels : Frame 1" "4"
+              I NF3/Tree Row {Show meta=false, Icon=1:9228, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Symbol definitions, Level=0, State=Default} 239×26 "Symbol definitions" "4"
+          F Editor 710×207 [V gap 0]
+            F Line 1 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "1"
+              F Fold 12×20 [H gap 0]
+              T "import fl.motion.Animator;"
+            F Line 2 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "2"
+              F Fold 12×20 [H gap 0]
+                I NF2 Icon/12/chevdown 12×12
+              T "var orbitXML:XML = <Motion duration="20">"
+            F Line 3 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "3"
+              F Fold 12×20 [H gap 0]
+                I NF2 Icon/12/chevdown 12×12
+              T "    <source>"
+            F Line 4 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+                I NF2 Icon/16/warning 16×16
+              F Number 24×20 [H gap 0]
+                T "4"
+              F Fold 12×20 [H gap 0]
+                I NF2 Icon/12/chevdown 12×12
+              T "        <Source frameRate="24" x="76.5" y="40.5">"
+            F Line 5 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "5"
+              F Fold 12×20 [H gap 0]
+                I NF2 Icon/12/chevdown 12×12
+              T "            <dimensions>"
+            F Line 6 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "6"
+              F Fold 12×20 [H gap 0]
+              T "                <geom:Rectangle width="160" height="160"/>"
+            F Line 7 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "7"
+              F Fold 12×20 [H gap 0]
+              T "            </dimensions>"
+            F Line 8 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "8"
+              F Fold 12×20 [H gap 0]
+              T "        </Source>"
+        F Script bar 958×34 [H gap 8]
+          I NF3/Tab {Show icon=true, Icon=17:546, Label=orbit : Frame 1, Selected=Yes} 127×34 "orbit : Frame 1"
+          I NF3/Icon Button {Icon=17:522, Kind=Ghost, State=Selected} 28×28
+          I NF3/Tab {Icon=17:546, Show icon=true, Label=labels : Frame 1, Selected=No} 134×34 "labels : Frame 1"
+          F Spacer 380×1 [H gap 0]
+          T "Line 19, Col 10  ·  20 lines"
+          I NF2 Icon/16/error 16×16
+          T "1"
+          I NF2 Icon/16/warning 16×16
+          T "1"
+    F Script in another language, skipped 960×388 [V gap 12]
+      T "Script in another language, skipped"
+      F Panel / Actions 960×360 [V gap 0]
+        F Panel header 958×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Actions, Selected=Yes} 68×34 "Actions"
+          F Spacer 858×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+        F Toolbar 958×38 [H gap 8]
+          I NF3/Badge {Label=ActionScript 3.0, Tone=Warning} 90×20 "ActionScript 3.0"
+          I NF3/Icon Button {Icon=1:9209, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9252, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:481, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9239, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:484, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:488, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:492, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:495, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:498, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:505, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:501, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:509, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:534, Kind=Ghost, State=Selected} 28×28
+          F Spacer 162×1 [H gap 0]
+          I NF3/Button {Icon=17:513, Show icon=true, Label=Script assist, Kind=Ghost, State=Default} 113×28 "Script assist"
+          I NF3/Icon Button {Icon=17:518, Kind=Ghost, State=Default} 28×28
+        F Language notice 958×45 [H gap 8]
+          I NF3/Inline Message {Text=This script is ActionScript 3.0. The project uses TypeScript, so the script is skipped when publishing., Tone=Warning} 796×16 "This script is ActionScript 3.0. The project uses TypeScript, so the script is skipped when publishing."
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Mark as TypeScript, Kind=Ghost, State=Default} 126×28 "Mark as TypeScript"
+        F Main 958×207 [H gap 0]
+          F Sidebar 248×207 [V gap 0]
+            F Search 247×56 [H gap 0]
+              I NF3/Search {Clear=false, Value=Search toolbox, State=Default} 219×28 "Search toolbox"
+            F List 247×196 [V gap 1]
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Top level, Level=0, State=Default} 239×26 "Top level" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Language elements, Level=0, State=Default} 239×26 "Language elements" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=fl.controls, Level=0, State=Default} 239×26 "fl.controls" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=fl.events, Level=0, State=Default} 239×26 "fl.events" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=fl.motion, Level=0, State=Default} 239×26 "fl.motion" "4"
+              I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Animator, Show icon=true, Chevron=false, Icon=17:530, Level=1, State=Default} 239×26 "Animator" "4"
+              I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Motion, Show icon=true, Chevron=false, Icon=17:530, Level=1, State=Default} 239×26 "Motion" "4"
+            F Title 247×28 [H gap 0]
+              T "Script navigator"
+            F List 247×142 [V gap 1]
+              I NF3/Tree Row {Show meta=false, Icon=17:481, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Current selection, Level=0, State=Default} 239×26 "Current selection" "4"
+              I NF3/Tree Row {Meta=4, Chevron=false, Show icon=true, Chevron icon=220:1338, Show meta=false, Icon=17:546, Label=orbit : Frame 1, Level=1, State=Selected} 239×26 "orbit : Frame 1" "4"
+              I NF3/Tree Row {Show meta=false, Icon=17:542, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Scene 1, Level=0, State=Default} 239×26 "Scene 1" "4"
+              I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=labels : Frame 1, Show icon=true, Chevron=false, Icon=17:546, Level=1, State=Default} 239×26 "labels : Frame 1" "4"
+              I NF3/Tree Row {Show meta=false, Icon=1:9228, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Symbol definitions, Level=0, State=Default} 239×26 "Symbol definitions" "4"
+          F Editor 710×207 [V gap 0]
+            F Line 1 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "1"
+              F Fold 12×20 [H gap 0]
+              T "import fl.motion.Animator;"
+            F Line 2 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "2"
+              F Fold 12×20 [H gap 0]
+                I NF2 Icon/12/chevdown 12×12
+              T "var orbitXML:XML = <Motion duration="20">"
+            F Line 3 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "3"
+              F Fold 12×20 [H gap 0]
+                I NF2 Icon/12/chevdown 12×12
+              T "    <source>"
+            F Line 4 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+                I NF2 Icon/16/warning 16×16
+              F Number 24×20 [H gap 0]
+                T "4"
+              F Fold 12×20 [H gap 0]
+                I NF2 Icon/12/chevdown 12×12
+              T "        <Source frameRate="24" x="76.5" y="40.5">"
+            F Line 5 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "5"
+              F Fold 12×20 [H gap 0]
+                I NF2 Icon/12/chevdown 12×12
+              T "            <dimensions>"
+            F Line 6 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "6"
+              F Fold 12×20 [H gap 0]
+              T "                <geom:Rectangle width="160" height="160"/>"
+            F Line 7 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "7"
+              F Fold 12×20 [H gap 0]
+              T "            </dimensions>"
+            F Line 8 710×20 [H gap 4]
+              F Marker 20×20 [H gap 0]
+              F Number 24×20 [H gap 0]
+                T "8"
+              F Fold 12×20 [H gap 0]
+              T "        </Source>"
+        F Script bar 958×34 [H gap 8]
+          I NF3/Tab {Show icon=true, Icon=17:546, Label=orbit : Frame 1, Selected=Yes} 127×34 "orbit : Frame 1"
+          I NF3/Icon Button {Icon=17:522, Kind=Ghost, State=Selected} 28×28
+          I NF3/Tab {Icon=17:546, Show icon=true, Label=labels : Frame 1, Selected=No} 134×34 "labels : Frame 1"
+          F Spacer 380×1 [H gap 0]
+          T "Line 19, Col 10  ·  20 lines"
+          I NF2 Icon/16/error 16×16
+          T "1"
+          I NF2 Icon/16/warning 16×16
+          T "1"

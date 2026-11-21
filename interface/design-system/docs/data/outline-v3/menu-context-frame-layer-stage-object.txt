@@ -1,0 +1,133 @@
+F Menu / Context — frame, layer, Stage object 1172×1173 [V gap 24]
+  F Board title 1000×106 [V gap 6]
+    T "Menu / Context — frame, layer, Stage object"
+    T "Rows at size/row, items in the shipped order. Frame gains Distribute to keyframes, Utils, Copy ease and Apply ease. Layer (shown for a mask layer) gains Solo, mask mode, Invert mask, Sync layer to timeline, blending and the More section; a folder layer adds Collapse folder and a normal layer a Mask submenu. Right-click on the blank Layers area opens the 10-item menu. Stage object (shown for a movie clip instance) gains Break apart, Swap symbol across span, Actions…, the bitmap commands, Distribute to keyframes, the selection utilities and Group / Ungroup; a graphic instance adds Edit in place at current frame and Graphic: Loop / Play once / Single frame (current), a multiple selection adds Reverse stacking order."
+  F Menus 1092×963 [H gap 32]
+    F Frame (right-click) 240×755 [V gap 8]
+      T "Frame (right-click)"
+      F Menu / Frame (right-click) 240×731 [V gap 0]
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Create motion tween, State=Default} 230×26 "Create motion tween" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Create shape tween, State=Default} 230×26 "Create shape tween" "⌘K"
+        I NF3/Menu Item {Submenu=false, Checked=false, Check column=false, Show shortcut=false, Shortcut=⌘K, Label=Create classic tween, State=Hover} 230×26 "Create classic tween" "⌘K"
+        I NF3/Menu Separator 230×9
+        I NF3/Menu Item {Shortcut=F5, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Insert frame, State=Default} 230×26 "Insert frame" "F5"
+        I NF3/Menu Item {Shortcut=⇧F5, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Remove frames, State=Default} 230×26 "Remove frames" "⇧F5"
+        I NF3/Menu Item {Shortcut=F6, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Insert keyframe, State=Default} 230×26 "Insert keyframe" "F6"
+        I NF3/Menu Item {Shortcut=F7, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Insert blank keyframe, State=Default} 230×26 "Insert blank keyframe" "F7"
+        I NF3/Menu Item {Shortcut=⇧F6, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Clear keyframe, State=Default} 230×26 "Clear keyframe" "⇧F6"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Convert to keyframes, State=Default} 230×26 "Convert to keyframes" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Convert to blank keyframes, State=Default} 230×26 "Convert to blank keyframes" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Distribute to keyframes, State=Default} 230×26 "Distribute to keyframes" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=false, Label=Utils, State=Default} 230×26 "Utils" "⌘K"
+        I NF3/Menu Separator 230×9
+        I NF3/Menu Item {Shortcut=⌥⌘X, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Cut frames, State=Default} 230×26 "Cut frames" "⌥⌘X"
+        I NF3/Menu Item {Shortcut=⌥⌘C, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Copy frames, State=Default} 230×26 "Copy frames" "⌥⌘C"
+        I NF3/Menu Item {Shortcut=⌥⌘V, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Paste frames, State=Default} 230×26 "Paste frames" "⌥⌘V"
+        I NF3/Menu Item {Shortcut=⌥⌫, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Clear frames, State=Default} 230×26 "Clear frames" "⌥⌫"
+        I NF3/Menu Item {Shortcut=⌥⌘A, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Select all frames, State=Default} 230×26 "Select all frames" "⌥⌘A"
+        I NF3/Menu Separator 230×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Copy motion, State=Default} 230×26 "Copy motion" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Paste motion, State=Default} 230×26 "Paste motion" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Paste motion special…, State=Default} 230×26 "Paste motion special…" "⌘K"
+        I NF3/Menu Separator 230×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Reverse frames, State=Default} 230×26 "Reverse frames" "⌘K"
+        I NF3/Menu Item {Submenu=false, Shortcut=⌘K, Show shortcut=false, Checked=false, Check column=false, Label=Synchronise symbols, State=Disabled} 230×26 "Synchronise symbols" "⌘K"
+        I NF3/Menu Separator 230×9
+        I NF3/Menu Item {Shortcut=F9, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Actions, State=Default} 230×26 "Actions" "F9"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Ease…, State=Default} 230×26 "Ease…" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Copy ease, State=Default} 230×26 "Copy ease" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Apply ease, State=Default} 230×26 "Apply ease" "⌘K"
+    F Layer (right-click) 260×963 [V gap 8]
+      T "Layer (right-click)"
+      F Menu / Layer (right-click) 260×939 [V gap 0]
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Show all, State=Default} 250×26 "Show all" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Lock others, State=Default} 250×26 "Lock others" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Hide others, State=Default} 250×26 "Hide others" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Solo, State=Default} 250×26 "Solo" "⌘K"
+        I NF3/Menu Item {Submenu=false, Shortcut=⌘K, Show shortcut=false, Checked=false, Check column=true, Label=Clear all solo, State=Disabled} 250×26 "Clear all solo" "⌘K"
+        I NF3/Menu Separator 250×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Insert layer, State=Default} 250×26 "Insert layer" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Delete layer, State=Default} 250×26 "Delete layer" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Duplicate layers, State=Default} 250×26 "Duplicate layers" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Cut layers, State=Default} 250×26 "Cut layers" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Copy layers, State=Default} 250×26 "Copy layers" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Paste layers, State=Default} 250×26 "Paste layers" "⌘K"
+        I NF3/Menu Separator 250×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Guide, State=Default} 250×26 "Guide" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Add classic motion guide, State=Default} 250×26 "Add classic motion guide" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=true, Show shortcut=false, Check column=true, Label=Mask, State=Default} 250×26 "Mask" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=true, Label=Mask mode: Geometry, State=Default} 250×26 "Mask mode: Geometry" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Invert mask, State=Default} 250×26 "Invert mask" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Show masking, State=Default} 250×26 "Show masking" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Sync layer to timeline, State=Default} 250×26 "Sync layer to timeline" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=true, Label=Blending: Normal, State=Default} 250×26 "Blending: Normal" "⌘K"
+        I NF3/Menu Separator 250×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Insert folder, State=Default} 250×26 "Insert folder" "⌘K"
+        I NF3/Menu Item {Submenu=false, Shortcut=⌘K, Show shortcut=false, Checked=false, Check column=true, Label=Delete folder, State=Disabled} 250×26 "Delete folder" "⌘K"
+        I NF3/Menu Item {Submenu=false, Shortcut=⌘K, Show shortcut=false, Checked=false, Check column=true, Label=Expand folder, State=Disabled} 250×26 "Expand folder" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Collapse all folders, State=Default} 250×26 "Collapse all folders" "⌘K"
+        I NF3/Menu Separator 250×9
+        I NF3/Menu Item {Submenu=false, Checked=false, Check column=true, Show shortcut=false, Shortcut=⌘K, Label=Properties…, State=Hover} 250×26 "Properties…" "⌘K"
+        I NF3/Menu Separator 250×9
+        F Menu Section 250×26 [H gap 8]
+          F Check column 16×16 [H gap 0]
+          T "More"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Rename layer, State=Default} 250×26 "Rename layer" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Unlock all, State=Default} 250×26 "Unlock all" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Outline color…, State=Default} 250×26 "Outline color…" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Others transparent, State=Default} 250×26 "Others transparent" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Show all as solid, State=Default} 250×26 "Show all as solid" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Expand all folders, State=Default} 250×26 "Expand all folders" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Merge with next layer, State=Default} 250×26 "Merge with next layer" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Convert layers to symbol…, State=Default} 250×26 "Convert layers to symbol…" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=true, Label=Move to folder, State=Default} 250×26 "Move to folder" "⌘K"
+    F Layers, blank area (right-click) 216×321 [V gap 8]
+      T "Layers, blank area (right-click)"
+      F Menu / Layers, blank area (right-click) 216×297 [V gap 0]
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Add new layer, State=Default} 206×26 "Add new layer" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Add new folder, State=Default} 206×26 "Add new folder" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Add motion guide, State=Default} 206×26 "Add motion guide" "⌘K"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Paste layers, State=Default} 206×26 "Paste layers" "⌘K"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Show all, State=Default} 206×26 "Show all" "⌘K"
+        I NF3/Menu Item {Submenu=false, Shortcut=⌘K, Show shortcut=false, Checked=false, Check column=false, Label=Clear all solo, State=Disabled} 206×26 "Clear all solo" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Unlock all, State=Default} 206×26 "Unlock all" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Show all as solid, State=Default} 206×26 "Show all as solid" "⌘K"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Expand all folders, State=Default} 206×26 "Expand all folders" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Collapse all folders, State=Default} 206×26 "Collapse all folders" "⌘K"
+    F Stage object (right-click) 280×738 [V gap 8]
+      T "Stage object (right-click)"
+      F Menu / Stage object (right-click) 280×714 [V gap 0]
+        I NF3/Menu Item {Shortcut=⌘X, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Cut, State=Default} 270×26 "Cut" "⌘X"
+        I NF3/Menu Item {Shortcut=⌘C, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Copy, State=Default} 270×26 "Copy" "⌘C"
+        I NF3/Menu Item {Shortcut=⇧⌘V, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Paste in place, State=Default} 270×26 "Paste in place" "⇧⌘V"
+        I NF3/Menu Separator 270×9
+        I NF3/Menu Item {Shortcut=F8, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Convert to symbol…, State=Default} 270×26 "Convert to symbol…" "F8"
+        I NF3/Menu Item {Shortcut=⌘B, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Break apart, State=Default} 270×26 "Break apart" "⌘B"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Edit in place, State=Default} 270×26 "Edit in place" "⌘K"
+        I NF3/Menu Item {Submenu=false, Shortcut=⌘K, Show shortcut=false, Checked=false, Check column=false, Label=Edit in new window, State=Disabled} 270×26 "Edit in new window" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Swap symbol…, State=Default} 270×26 "Swap symbol…" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Swap symbol across span, State=Default} 270×26 "Swap symbol across span" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Duplicate symbol…, State=Default} 270×26 "Duplicate symbol…" "⌘K"
+        I NF3/Menu Item {Shortcut=F9, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Actions…, State=Default} 270×26 "Actions…" "F9"
+        I NF3/Menu Separator 270×9
+        I NF3/Menu Item {Submenu=false, Shortcut=⌘K, Show shortcut=false, Checked=false, Check column=false, Label=Trace bitmap…, State=Disabled} 270×26 "Trace bitmap…" "⌘K"
+        I NF3/Menu Item {Submenu=false, Shortcut=⌘K, Show shortcut=false, Checked=false, Check column=false, Label=Bitmap properties…, State=Disabled} 270×26 "Bitmap properties…" "⌘K"
+        I NF3/Menu Separator 270×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Create motion tween, State=Default} 270×26 "Create motion tween" "⌘K"
+        I NF3/Menu Item {Shortcut=⇧⌘D, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Distribute to layers, State=Default} 270×26 "Distribute to layers" "⇧⌘D"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Distribute to keyframes, State=Default} 270×26 "Distribute to keyframes" "⌘K"
+        I NF3/Menu Separator 270×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=false, Label=Arrange, State=Default} 270×26 "Arrange" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=false, Label=Align, State=Default} 270×26 "Align" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=false, Label=Transform, State=Default} 270×26 "Transform" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Pixel snap (round to whole pixels), State=Default} 270×26 "Pixel snap (round to whole pixels)" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Auto Instance Namer…, State=Default} 270×26 "Auto Instance Namer…" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Randomize Selection…, State=Default} 270×26 "Randomize Selection…" "⌘K"
+        I NF3/Menu Separator 270×9
+        I NF3/Menu Item {Shortcut=⌘G, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Group, State=Default} 270×26 "Group" "⌘G"
+        I NF3/Menu Item {Shortcut=⇧⌘G, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Ungroup, State=Default} 270×26 "Ungroup" "⇧⌘G"
+        I NF3/Menu Separator 270×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Show in library, State=Default} 270×26 "Show in library" "⌘K"

@@ -1,0 +1,189 @@
+F Dialog / Preferences — Shortcuts, Publish 1600×762 [V gap 24]
+  F Board title 1100×58 [V gap 6]
+    T "Dialog / Preferences — Shortcuts, Publish"
+    T "Shortcuts: set select with Duplicate / Rename / Delete in the page header row, search and filters in the second row, one size/row per command (name · conflict badge · key caps) in a list that fills the page, Reset command and Export as HTML… under the list. Publish: Audio and Acceleration are two rows of the form grid, each with its label in the label column."
+  F Row 1520×600 [H gap 40]
+    F Dialog / Preferences 740×600 [V gap 0]
+      I NF3/Dialog Header {Title=Preferences} 738×48 "Preferences"
+      F Dialog body 738×493 [H gap 0]
+        F Sidebar 168×493 [V gap 1]
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/settings 16×16
+            T "General"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/code 16×16
+            T "Code editor"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/film 16×16
+            T "Timeline"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/pen 16×16
+            T "Drawing"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/text 16×16
+            T "Text"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/paste 16×16
+            T "Clipboard"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/keyboard 16×16
+            T "Shortcuts"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/upload 16×16
+            T "Publish"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/wand 16×16
+            T "AI"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/history 16×16
+            T "Updates"
+        F Page 570×493 [V gap 8]
+          F Shortcut set 522×28 [H gap 8]
+            I NF3/Select {Value=NeoFlash default, Show label=false, Label=Style, State=Default} 168×28 "Style" "NeoFlash default"
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Duplicate, Kind=Ghost, State=Default} 74×28 "Duplicate"
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Rename, Kind=Ghost, State=Disabled} 67×28 "Rename"
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Delete, Kind=Ghost, State=Default} 59×28 "Delete"
+          F Filter 522×28 [H gap 8]
+            I NF3/Search {Clear=true, Value=keyframe, State=Default} 176×28 "keyframe"
+            I NF3/Select {Value=All commands, Show label=false, Label=Style, State=Default} 168×28 "Style" "All commands"
+            I NF3/Checkbox {Show label=true, Label=Only assigned, Value=Off, State=Default} 98×20 "Only assigned"
+            I NF3/Badge {Label=1 conflict, Tone=Warning} 56×20 "1 conflict"
+          F Commands 522×357 [V gap 0]
+            F Shortcut / Insert ▸ Frame 520×26 [H gap 8]
+              T "Insert ▸ Frame"
+              I NF3/Kbd {Label=F5} 25×20 "F5"
+            F Shortcut / Insert ▸ Keyframe 520×26 [H gap 8]
+              T "Insert ▸ Keyframe"
+              F Recording 168×25 [H gap 0]
+                T "Press keys…"
+            F Shortcut / Insert ▸ Blank keyframe 520×26 [H gap 8]
+              T "Insert ▸ Blank keyframe"
+              I NF3/Kbd {Label=F7} 25×20 "F7"
+            F Shortcut / Clear keyframe 520×26 [H gap 8]
+              T "Clear keyframe"
+              I NF3/Kbd {Label=⇧} 19×20 "⇧"
+              I NF3/Kbd {Label=F6} 25×20 "F6"
+            F Shortcut / Convert to keyframes 520×26 [H gap 8]
+              T "Convert to keyframes"
+              I NF3/Badge {Label=Conflicts with Insert ▸ Keyframe, Tone=Warning} 170×20 "Conflicts with Insert ▸ Keyframe"
+              I NF3/Kbd {Label=⌥} 21×20 "⌥"
+              I NF3/Kbd {Label=F6} 25×20 "F6"
+            F Shortcut / Edit ▸ Timeline ▸ Remove frames 520×26 [H gap 8]
+              T "Edit ▸ Timeline ▸ Remove frames"
+              I NF3/Kbd {Label=⇧} 19×20 "⇧"
+              I NF3/Kbd {Label=F5} 25×20 "F5"
+          F List actions 522×28 [H gap 8]
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Reset command, Kind=Ghost, State=Default} 109×28 "Reset command"
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Export as HTML…, Kind=Ghost, State=Default} 118×28 "Export as HTML…"
+      F Footer 738×57 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Reset to defaults, Kind=Ghost, State=Default} 114×28 "Reset to defaults"
+        F Spacer 439×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Save, Kind=Primary, State=Default} 50×28 "Save"
+    F Dialog / Preferences 740×600 [V gap 0]
+      I NF3/Dialog Header {Title=Preferences} 738×48 "Preferences"
+      F Dialog body 738×493 [H gap 0]
+        F Sidebar 168×493 [V gap 1]
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/settings 16×16
+            T "General"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/code 16×16
+            T "Code editor"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/film 16×16
+            T "Timeline"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/pen 16×16
+            T "Drawing"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/text 16×16
+            T "Text"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/paste 16×16
+            T "Clipboard"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/keyboard 16×16
+            T "Shortcuts"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/upload 16×16
+            T "Publish"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/wand 16×16
+            T "AI"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/history 16×16
+            T "Updates"
+        F Page 570×493 [V gap 8]
+          F Group caption 522×28 [H gap 0]
+            T "Target"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Default target"
+            I NF3/Select {Value=HTML5 · Rust / WebAssembly, Show label=false, Label=Style, State=Default} 232×28 "Style" "HTML5 · Rust / WebAssembly"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Output folder"
+            I NF3/Field {Stepper=false, Unit=px, Value=~/Projects/ideas/publish, Show unit=false, Show label=false, Label=X, State=Default} 311×28 "X" "~/Projects/ideas/publish" "px"
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Browse…, Kind=Secondary, State=Default} 75×28 "Browse…"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Files"
+            I NF3/Checkbox {Show label=true, Label=HTML wrapper, Value=On, State=Default} 102×20 "HTML wrapper"
+            I NF3/Checkbox {Show label=true, Label=Assets folder, Value=On, State=Default} 93×20 "Assets folder"
+            I NF3/Checkbox {Show label=true, Label=Source maps, Value=Off, State=Default} 92×20 "Source maps"
+          F Group caption 522×28 [H gap 0]
+            T "Preview & publish"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Preview mode"
+            F Segmented 190×28 [H gap 0]
+              I NF3/Segment {Label=Technical bar, Selected=Yes} 97×22 "Technical bar"
+              I NF3/Segment {Label=Clean stage, Selected=No} 87×22 "Clean stage"
+            I NF3/Checkbox {Show label=true, Label=Clean publish output, Value=Off, State=Default} 132×20 "Clean publish output"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Technical bar"
+            I NF3/Checkbox {Show label=true, Label=FPS & frames, Value=On, State=Default} 94×20 "FPS & frames"
+            I NF3/Checkbox {Show label=true, Label=Stage size (W×H), Value=On, State=Default} 115×20 "Stage size (W×H)"
+            I NF3/Checkbox {Show label=true, Label=Playback controls, Value=On, State=Default} 116×20 "Playback controls"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T ""
+            I NF3/Checkbox {Show label=true, Label=Weight & size report, Value=On, State=Default} 129×20 "Weight & size report"
+            I NF3/Checkbox {Show label=true, Label=Trace & diagnostics, Value=On, State=Default} 127×20 "Trace & diagnostics"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Compiler"
+            I NF3/Checkbox {Show label=true, Label=Strict mode, Value=On, State=Default} 85×20 "Strict mode"
+            I NF3/Checkbox {Show label=true, Label=Treat warnings as errors, Value=Off, State=Default} 151×20 "Treat warnings as errors"
+            I NF3/Checkbox {Show label=true, Label=Publish on save, Value=Off, State=Default} 105×20 "Publish on save"
+          F Group caption 522×28 [H gap 0]
+            T "Compression"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Images"
+            I NF3/Slider {State=Default} 168×20
+            T "JPEG 80"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Audio"
+            I NF3/Select {Value=MP3 128 kbps, Show label=false, Label=Style, State=Default} 168×28 "Style" "MP3 128 kbps"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Acceleration"
+            I NF3/Select {Value=GPU (WebGL), Show label=false, Label=Style, State=Default} 168×28 "Style" "GPU (WebGL)"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Sequences"
+            I NF3/Select {Value=Keep individual frames, Show label=false, Label=Style, State=Default} 232×28 "Style" "Keep individual frames"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Sequence import"
+            I NF3/Select {Value=Keyframes on layer, Show label=false, Label=Style, State=Default} 232×28 "Style" "Keyframes on layer"
+            I NF3/Field {Stepper=false, Unit=px, Value=1, Show unit=false, Show label=true, Label=Step, State=Default} 104×28 "Step" "1" "px"
+      F Footer 738×57 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Reset to defaults, Kind=Ghost, State=Default} 114×28 "Reset to defaults"
+        F Spacer 439×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Save, Kind=Primary, State=Default} 50×28 "Save"

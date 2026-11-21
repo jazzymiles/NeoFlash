@@ -1,0 +1,71 @@
+F Panel / Tools 500×831 [V gap 24]
+  F Board title 420×58 [V gap 6]
+    T "Panel / Tools"
+    T "Grip instead of a clipped title; ⋯ closes the tool grid; options block has a fixed size."
+  F Row 148×669 [H gap 24]
+    F Panel / Tools — 2 columns 80×669 [V gap 0]
+      F Grip 78×12 [H gap 0]
+        I NF2 Icon/12/grip-h 12×12
+      F Tool grid 78×452 [H gap 2]
+        I NF3/Tool Button {Flyout=false, Icon 16=1:9097, Icon 20=17:183, State=Selected} 32×32
+        I NF3/Tool Button {Icon 16=1:9100, Flyout=false, Icon 20=17:186, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9107, Flyout=true, Icon 20=17:194, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9152, Flyout=false, Icon 20=17:200, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9111, Flyout=true, Icon 20=17:205, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9116, Flyout=true, Icon 20=17:211, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9119, Flyout=false, Icon 20=17:214, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9122, Flyout=false, Icon 20=17:219, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9125, Flyout=true, Icon 20=17:225, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9128, Flyout=false, Icon 20=17:222, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=418:5898, Flyout=false, Icon 20=62:755, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9131, Flyout=true, Icon 20=17:229, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9135, Flyout=false, Icon 20=17:233, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=418:5901, Flyout=false, Icon 20=17:238, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9142, Flyout=true, Icon 20=17:243, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9146, Flyout=false, Icon 20=17:247, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9149, Flyout=false, Icon 20=17:252, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=325:1823, Flyout=false, Icon 20=95:793, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=325:1818, Flyout=false, Icon 20=95:798, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=325:1795, Flyout=false, Icon 20=62:775, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=325:1800, Flyout=false, Icon 20=62:780, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=325:1807, Flyout=false, Icon 20=62:762, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=325:1815, Flyout=false, Icon 20=62:770, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=325:1790, Flyout=false, Icon 20=325:1882, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=335:1783, Flyout=false, Icon 20=335:1790, State=Default} 32×32
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 32×28
+      F Tool grid 78×44 [H gap 2]
+        I NF3/Tool Button {Icon 16=1:9155, Flyout=false, Icon 20=17:255, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=418:5906, Flyout=false, Icon 20=17:259, State=Default} 32×32
+      F Tool grid 78×78 [H gap 2]
+        F Stroke chip 32×32 [H gap 0]
+        F Fill chip 32×32 [H gap 0]
+        I NF3/Tool Button {Icon 16=418:5920, Flyout=false, Icon 20=17:273, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=418:5928, Flyout=false, Icon 20=17:281, State=Default} 32×32
+      F Tool grid 78×78 [H gap 2]
+        I NF3/Tool Button {Flyout=false, Icon 16=418:5910, Icon 20=17:263, State=Selected} 32×32
+        I NF3/Tool Button {Icon 16=418:5914, Flyout=false, Icon 20=17:266, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=418:5917, Flyout=false, Icon 20=17:269, State=Default} 32×32
+        I NF3/Icon Button {Icon=227:454215, Kind=Ghost, State=Default} 32×28
+    F Panel / Tools — 1 column 44×597 [V gap 0]
+      F Grip 42×12 [H gap 0]
+        I NF2 Icon/12/grip-h 12×12
+      F Tool grid 42×380 [H gap 2]
+        I NF3/Tool Button {Flyout=true, Icon 16=1:9097, Icon 20=17:183, State=Selected} 32×32
+        I NF3/Tool Button {Icon 16=1:9107, Flyout=true, Icon 20=17:194, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9111, Flyout=true, Icon 20=17:205, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9116, Flyout=true, Icon 20=17:211, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9119, Flyout=false, Icon 20=17:214, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9125, Flyout=true, Icon 20=17:225, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9131, Flyout=true, Icon 20=17:229, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9142, Flyout=true, Icon 20=17:243, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9146, Flyout=false, Icon 20=17:247, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=1:9149, Flyout=false, Icon 20=17:252, State=Default} 32×32
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 32×28
+      F Tool grid 42×78 [H gap 2]
+        I NF3/Tool Button {Icon 16=1:9155, Flyout=false, Icon 20=17:255, State=Default} 32×32
+        I NF3/Tool Button {Icon 16=418:5906, Flyout=false, Icon 20=17:259, State=Default} 32×32
+      F Tool grid 42×78 [H gap 2]
+        F Stroke chip 32×32 [H gap 0]
+        F Fill chip 32×32 [H gap 0]
+      F Tool grid 42×44 [H gap 2]
+        I NF3/Tool Button {Flyout=false, Icon 16=418:5910, Icon 20=17:263, State=Selected} 32×32

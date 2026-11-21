@@ -1,0 +1,31 @@
+F Panel / Properties — Frame sound 500×511 [V gap 24]
+  F Board title 420×74 [V gap 6]
+    T "Panel / Properties — Frame sound"
+    T "One-line type header; Effect and Sync share a row, Repeat / Loop sits next to its count. “Sound properties…” is the settings icon button at the end of the action row."
+  F Panel / Properties 288×333 [V gap 0]
+    F Panel header 286×34 [H gap 0]
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+      I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+      F Spacer 89×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Type header 286×34 [H gap 8]
+      I NF2 Icon/16/frame 16×16
+      T "Frame 1"
+      T "Layer “music.mp3” · keyframe"
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Label, Open=No} 286×28 "Label"
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Sound, Open=Yes} 286×28 "Sound"
+    F Section body 286×207 [V gap 8]
+      I NF3/Select {Value=music.mp3, Show label=false, Label=Style, State=Default} 258×28 "Style" "music.mp3"
+      F Pair 258×28 [H gap 8]
+        I NF3/Select {Value=Fade in, Show label=true, Label=Effect, State=Default} 125×28 "Effect" "Fade in"
+        I NF3/Select {Value=Stream, Show label=true, Label=Sync, State=Default} 125×28 "Sync" "Stream"
+      F Pair 258×28 [H gap 8]
+        I NF3/Select {Value=Repeat, Show label=false, Label=Style, State=Default} 125×28 "Style" "Repeat"
+        I NF3/Field {Stepper=true, Unit=times, Value=1, Show unit=true, Show label=false, Label=X, State=Default} 125×28 "X" "1" "times"
+      F Waveform 258×28 [H gap 0]
+      T "44 kHz · Stereo · 16 bit · 32.4 s · 518.6 kB"
+      F Line 258×28 [H gap 8]
+        I NF3/Button {Icon=1:9188, Show icon=true, Label=Play, Kind=Secondary, State=Default} 73×28 "Play"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Envelope…, Kind=Secondary, State=Default} 84×28 "Envelope…"
+        F Spacer 49×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9298, Kind=Outlined, State=Default} 28×28

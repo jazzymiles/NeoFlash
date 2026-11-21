@@ -1,0 +1,46 @@
+F Popover / View settings 500×747 [V gap 24]
+  F Board title 420×74 [V gap 6]
+    T "Popover / View settings"
+    T "Inspector width. Rulers, Guides and Grid are sections; options are checkboxes, the label interval is a segmented choice with its field, colours are one swatch + #HEX row, the grid link moved into the section header."
+  F Popover / View settings 288×569 [V gap 0]
+    F Header 286×34 [H gap 0]
+      T "Rulers, guides & grid"
+      I NF3/Icon Button {Icon=1:9255, Kind=Ghost, State=Default} 28×28
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Rulers, Open=Yes} 286×28 "Rulers"
+    F Section body 286×140 [V gap 8]
+      I NF3/Checkbox {Show label=true, Label=Show rulers, Value=On, State=Default} 86×20 "Show rulers"
+      I NF3/Select {Value=Pixels, Show label=true, Label=Units, State=Default} 258×28 "Units" "Pixels"
+      F Line 258×28 [H gap 8]
+        T "Labels"
+        F Segmented 111×28 [H gap 0]
+          I NF3/Segment {Label=Auto, Selected=Yes} 51×22 "Auto"
+          I NF3/Segment {Label=Every, Selected=No} 54×22 "Every"
+        I NF3/Field {Stepper=false, Show unit=true, Value=100, Show label=false, Unit=px, Label=X, State=Disabled} 97×28 "X" "100" "px"
+      T "Auto picks 10 / 50 / 100 / 500 units so labels never overlap at the current zoom."
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Guides, Open=Yes} 286×28 "Guides"
+    F Section body 286×114 [V gap 8]
+      F Line 258×28 [H gap 8]
+        I NF3/Checkbox {Show label=true, Label=Show, Value=On, State=Default} 53×20 "Show"
+        I NF3/Checkbox {Show label=true, Label=Snap, Value=On, State=Default} 51×20 "Snap"
+        I NF3/Checkbox {Show label=true, Label=Lock, Value=Off, State=Default} 49×20 "Lock"
+      F Line 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=2EC4E6, Show unit=true, Show label=true, Label=#, State=Default} 232×28 "#" "2EC4E6" "100 %"
+      I NF3/Select {Value=Normal, Show label=true, Label=Snap, State=Default} 258×28 "Snap" "Normal"
+    I NF3/Section Header {Action icon=1:9281, Action=true, Title=Grid, Open=Yes} 286×28 "Grid"
+    F Section body 286×150 [V gap 8]
+      F Line 258×28 [H gap 8]
+        I NF3/Checkbox {Show label=true, Label=Show, Value=On, State=Default} 53×20 "Show"
+        I NF3/Checkbox {Show label=true, Label=Snap, Value=Off, State=Default} 51×20 "Snap"
+        I NF3/Checkbox {Show label=true, Label=Over objects, Value=Off, State=Default} 91×20 "Over objects"
+      F Pair 258×28 [H gap 8]
+        I NF3/Field {Stepper=false, Unit=px, Value=20, Show unit=true, Show label=true, Label=↔, State=Default} 125×28 "↔" "20" "px"
+        I NF3/Field {Stepper=false, Unit=px, Value=20, Show unit=true, Show label=true, Label=↕, State=Default} 125×28 "↕" "20" "px"
+      F Line 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=14 %, Value=FFFFFF, Show unit=true, Show label=true, Label=#, State=Default} 232×28 "#" "FFFFFF" "14 %"
+      I NF3/Select {Value=Normal, Show label=true, Label=Snap, State=Default} 258×28 "Snap" "Normal"
+    F Panel footer 286×45 [H gap 8]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Clear guides, Kind=Ghost, State=Default} 90×28 "Clear guides"
+      F Spacer 45×1 [H gap 0]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Save as default, Kind=Secondary, State=Default} 107×28 "Save as default"

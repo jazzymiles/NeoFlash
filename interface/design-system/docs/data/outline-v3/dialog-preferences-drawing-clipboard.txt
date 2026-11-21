@@ -1,0 +1,168 @@
+F Dialog / Preferences — Drawing, Clipboard 1600×746 [V gap 24]
+  F Board title 1100×42 [V gap 6]
+    T "Dialog / Preferences — Drawing, Clipboard"
+    T "Every option has a row label in the label column; the five Recognition selects share one width. Nothing removed against v2.25."
+  F Row 1520×600 [H gap 40]
+    F Dialog / Preferences 740×600 [V gap 0]
+      I NF3/Dialog Header {Title=Preferences} 738×48 "Preferences"
+      F Dialog body 738×493 [H gap 0]
+        F Sidebar 168×493 [V gap 1]
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/settings 16×16
+            T "General"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/code 16×16
+            T "Code editor"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/film 16×16
+            T "Timeline"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/pen 16×16
+            T "Drawing"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/text 16×16
+            T "Text"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/paste 16×16
+            T "Clipboard"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/keyboard 16×16
+            T "Shortcuts"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/upload 16×16
+            T "Publish"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/wand 16×16
+            T "AI"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/history 16×16
+            T "Updates"
+        F Page 570×493 [V gap 8]
+          F Group caption 522×28 [H gap 0]
+            T "Default mode"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "New shapes"
+            F Segmented 216×28 [H gap 0]
+              I NF3/Segment {Label=Merge drawing, Selected=No} 103×22 "Merge drawing"
+              I NF3/Segment {Label=Object drawing, Selected=Yes} 107×22 "Object drawing"
+          F Group caption 522×28 [H gap 0]
+            T "Pen tool"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Pen"
+            I NF3/Checkbox {Show label=true, Label=Show pen preview, Value=On, State=Default} 120×20 "Show pen preview"
+            I NF3/Checkbox {Show label=true, Label=Show solid points, Value=Off, State=Disabled} 116×20 "Show solid points"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Cursors"
+            I NF3/Checkbox {Show label=true, Label=Precise cursors, Value=Off, State=Default} 105×20 "Precise cursors"
+          F Group caption 522×28 [H gap 0]
+            T "Recognition"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Connect lines"
+            I NF3/Select {Value=Normal, Show label=false, Label=Style, State=Default} 168×28 "Style" "Normal"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Smooth curves"
+            I NF3/Select {Value=Normal, Show label=false, Label=Style, State=Default} 168×28 "Style" "Normal"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Lines"
+            I NF3/Select {Value=Normal, Show label=false, Label=Style, State=Default} 168×28 "Style" "Normal"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Shapes"
+            I NF3/Select {Value=Normal, Show label=false, Label=Style, State=Default} 168×28 "Style" "Normal"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Click accuracy"
+            I NF3/Select {Value=Normal, Show label=false, Label=Style, State=Default} 168×28 "Style" "Normal"
+          F Group caption 522×28 [H gap 0]
+            T "Snapping"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Tolerance"
+            I NF3/Field {Stepper=true, Unit=px, Value=8, Show unit=true, Show label=false, Label=X, State=Default} 104×28 "X" "8" "px"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Snap"
+            I NF3/Checkbox {Show label=true, Label=Snap to pixels, Value=Off, State=Default} 97×20 "Snap to pixels"
+            I NF3/Checkbox {Show label=true, Label=Snap align, Value=On, State=Disabled} 79×20 "Snap align"
+      F Footer 738×57 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Reset to defaults, Kind=Ghost, State=Default} 114×28 "Reset to defaults"
+        F Spacer 439×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Save, Kind=Primary, State=Default} 50×28 "Save"
+    F Dialog / Preferences 740×600 [V gap 0]
+      I NF3/Dialog Header {Title=Preferences} 738×48 "Preferences"
+      F Dialog body 738×493 [H gap 0]
+        F Sidebar 168×493 [V gap 1]
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/settings 16×16
+            T "General"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/code 16×16
+            T "Code editor"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/film 16×16
+            T "Timeline"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/pen 16×16
+            T "Drawing"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/text 16×16
+            T "Text"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/paste 16×16
+            T "Clipboard"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/keyboard 16×16
+            T "Shortcuts"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/upload 16×16
+            T "Publish"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/wand 16×16
+            T "AI"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/history 16×16
+            T "Updates"
+        F Page 570×493 [V gap 8]
+          F Group caption 522×28 [H gap 0]
+            T "Copying"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Bitmaps"
+            I NF3/Select {Show label=false, Value=Match screen (144 ppi), Label=Style, State=Disabled} 232×28 "Style" "Match screen (144 ppi)"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Gradients"
+            I NF3/Select {Show label=false, Value=Normal, Label=Style, State=Disabled} 168×28 "Style" "Normal"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Other apps"
+            I NF3/Checkbox {Show label=true, Label=Copy as SVG to other apps, Value=On, State=Disabled} 165×20 "Copy as SVG to other apps"
+            I NF3/Checkbox {Show label=true, Label=Keep layer names, Value=On, State=Disabled} 116×20 "Keep layer names"
+          F Group caption 522×28 [H gap 0]
+            T "Pasting"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Default paste"
+            F Segmented 144×28 [H gap 0]
+              I NF3/Segment {Label=In centre, Selected=Yes} 73×22 "In centre"
+              I NF3/Segment {Label=In place, Selected=No} 65×22 "In place"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Vectors"
+            I NF3/Checkbox {Show label=true, Label=Import vector paste as editable paths, Value=On, State=Default} 219×20 "Import vector paste as editable paths"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Bitmaps"
+            I NF3/Checkbox {Show label=true, Label=Ask before pasting large bitmaps, Value=On, State=Disabled} 196×20 "Ask before pasting large bitmaps"
+      F Footer 738×57 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Reset to defaults, Kind=Ghost, State=Default} 114×28 "Reset to defaults"
+        F Spacer 439×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Save, Kind=Primary, State=Default} 50×28 "Save"

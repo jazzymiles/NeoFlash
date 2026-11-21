@@ -1,0 +1,35 @@
+F Panel / Code snippets 500×744 [V gap 24]
+  F Board title 420×58 [V gap 6]
+    T "Panel / Code snippets"
+    T "Search, tree, then the description and code of the selected snippet; Copy on the left, the single primary action Insert at frame 1 on the right."
+  F Panel / Code snippets 288×582 [V gap 0]
+    F Panel header 286×34 [H gap 0]
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=Code snippets, Selected=Yes} 105×34 "Code snippets"
+      F Spacer 149×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Section body 286×56 [V gap 8]
+      I NF3/Search {Clear=false, Value=Search snippets, State=Default} 258×28 "Search snippets"
+    F List 286×304 [V gap 1]
+      I NF3/Tree Row {Show meta=false, Icon=7:132, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Actions, Level=0, State=Default} 278×26 "Actions" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Click to go to frame and stop, Show icon=true, Chevron=false, Icon=62:816, Level=1, State=Default} 278×26 "Click to go to frame and stop" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Click to go to web page, Show icon=true, Chevron=false, Icon=62:816, Level=1, State=Default} 278×26 "Click to go to web page" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Drag and drop, Show icon=true, Chevron=false, Icon=62:816, Level=1, State=Default} 278×26 "Drag and drop" "4"
+      I NF3/Tree Row {Show meta=false, Icon=1:9224, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Timeline navigation, Level=0, State=Default} 278×26 "Timeline navigation" "4"
+      I NF3/Tree Row {Show meta=false, Icon=7:132, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Animation, Level=0, State=Default} 278×26 "Animation" "4"
+      I NF3/Tree Row {Meta=4, Chevron=false, Show icon=true, Chevron icon=220:1338, Show meta=false, Icon=62:816, Label=Rotate continuously, Level=1, State=Selected} 278×26 "Rotate continuously" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Fade in movie clip, Show icon=true, Chevron=false, Icon=62:816, Level=1, State=Default} 278×26 "Fade in movie clip" "4"
+      I NF3/Tree Row {Show meta=false, Icon=1:9224, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Load and unload, Level=0, State=Default} 278×26 "Load and unload" "4"
+      I NF3/Tree Row {Show meta=false, Icon=1:9224, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Audio and video, Level=0, State=Default} 278×26 "Audio and video" "4"
+      I NF3/Tree Row {Show meta=false, Icon=1:9224, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Event handlers, Level=0, State=Default} 278×26 "Event handlers" "4"
+    F Section body 286×140 [V gap 8]
+      T "Rotates the selected movie clip every frame. Change 10 to adjust speed."
+      F Code 258×78 [V gap 1]
+        T "orbit_mc.addEventListener("
+        T "  Event.ENTER_FRAME, spin);"
+        T "function spin(e:Event):void {"
+        T "  orbit_mc.rotation += 10;"
+        T "}"
+    F Panel footer 286×45 [H gap 8]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Copy, Kind=Ghost, State=Default} 52×28 "Copy"
+      F Spacer 80×1 [H gap 0]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Insert at frame 1, Kind=Primary, State=Default} 110×28 "Insert at frame 1"

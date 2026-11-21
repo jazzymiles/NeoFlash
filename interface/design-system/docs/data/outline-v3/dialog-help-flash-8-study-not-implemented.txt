@@ -1,0 +1,61 @@
+F Dialog / Help — Flash 8 study (not implemented) 1060×822 [V gap 24]
+  F Board title 900×58 [V gap 6]
+    T "Dialog / Help — Flash 8 study (not implemented)"
+    T "Design study requested by the owner: a modern reading of the Flash 8 Help panel — one tree of books (manual, learning guides, language references), Contents / Search / Bookmarks, topic pages in the classic Usage · Parameters · Description · Example order. The application ships the API browser above."
+  F Dialog / NeoFlash Help 980×660 [V gap 0]
+    I NF3/Dialog Header {Title=NeoFlash Help} 978×48 "NeoFlash Help"
+    F Help bar 978×57 [H gap 8]
+      I NF3/Icon Button {Icon=95:820, Kind=Outlined, State=Default} 28×28
+      I NF3/Icon Button {Icon=1:9245, Kind=Outlined, State=Disabled} 28×28
+      I NF3/Icon Button {Icon=36:659, Kind=Outlined, State=Default} 28×28
+      I NF3/Search {Clear=false, Value=Search all books, State=Default} 763×28 "Search all books"
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Print, Kind=Secondary, State=Default} 51×28 "Print"
+    F Dialog body 978×553 [H gap 0]
+      F Books 280×553 [V gap 0]
+        F Tabs 279×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Contents, Selected=Yes} 77×34 "Contents"
+          I NF3/Tab {Icon=1:9185, Show icon=false, Label=Search, Selected=No} 65×34 "Search"
+          I NF3/Tab {Icon=1:9185, Show icon=false, Label=Bookmarks, Selected=No} 87×34 "Bookmarks"
+        F Tree 279×439 [V gap 1]
+          I NF3/Tree Row {Show meta=false, Icon=36:659, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Getting started with NeoFlash, Level=0, State=Default} 271×26 "Getting started with NeoFlash" "4"
+          I NF3/Tree Row {Show meta=false, Icon=36:659, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Using NeoFlash, Level=0, State=Default} 271×26 "Using NeoFlash" "4"
+          I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Workspace, Show icon=true, Chevron=false, Icon=62:812, Level=1, State=Default} 271×26 "Workspace" "4"
+          I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Drawing, Show icon=true, Chevron=false, Icon=62:812, Level=1, State=Default} 271×26 "Drawing" "4"
+          I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Symbols, instances and the Library, Show icon=true, Chevron=false, Icon=62:812, Level=1, State=Default} 271×26 "Symbols, instances and the Library" "4"
+          I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Timeline and animation, Show icon=true, Chevron=false, Icon=62:812, Level=1, State=Default} 271×26 "Timeline and animation" "4"
+          I NF3/Tree Row {Show meta=false, Icon=36:659, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Learning ActionScript 2.0, Level=0, State=Default} 271×26 "Learning ActionScript 2.0" "4"
+          I NF3/Tree Row {Show meta=false, Icon=36:659, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=ActionScript 2.0 Language Reference, Level=0, State=Default} 271×26 "ActionScript 2.0 Language Reference" "4"
+          I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1342, Label=Global functions, Show icon=true, Chevron=true, Icon=36:659, Level=1, State=Default} 271×26 "Global functions" "4"
+          I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Classes, Show icon=true, Chevron=true, Icon=36:659, Level=1, State=Default} 271×26 "Classes" "4"
+          I NF3/Tree Row {Show meta=false, Label=Button, Icon=62:812, Show icon=true, Chevron icon=220:1338, Meta=4, Chevron=false, Level=2, State=Default} 271×26 "Button" "4"
+          I NF3/Tree Row {Show meta=false, Label=Color, Icon=62:812, Show icon=true, Chevron icon=220:1338, Meta=4, Chevron=false, Level=2, State=Default} 271×26 "Color" "4"
+          I NF3/Tree Row {Show meta=false, Show icon=true, Chevron icon=220:1338, Icon=62:812, Chevron=false, Meta=4, Label=MovieClip, Level=2, State=Selected} 271×26 "MovieClip" "4"
+          I NF3/Tree Row {Show meta=false, Icon=36:659, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=ActionScript 3.0 Language Reference, Level=0, State=Default} 271×26 "ActionScript 3.0 Language Reference" "4"
+          I NF3/Tree Row {Show meta=false, Icon=36:659, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=JavaScript and TypeScript API, Level=0, State=Default} 271×26 "JavaScript and TypeScript API" "4"
+          I NF3/Tree Row {Show meta=false, Icon=36:659, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Extending NeoFlash (JSFL), Level=0, State=Default} 271×26 "Extending NeoFlash (JSFL)" "4"
+      F Topic 698×553 [V gap 14]
+        T "ActionScript 2.0 Language Reference  ›  Classes  ›  MovieClip"
+        T "MovieClip.gotoAndPlay()"
+        F Row 197×20 [H gap 8]
+          I NF3/Badge {Label=Flash Player 5, Tone=Neutral} 79×20 "Flash Player 5"
+          I NF3/Badge {Label=Working in NeoFlash, Tone=Success} 110×20 "Working in NeoFlash"
+        T "Usage"
+        F Code 650×28 [V gap 1]
+          T "my_mc.gotoAndPlay(frame:Object) : Void"
+        T "Parameters"
+        F Parameter 650×28 [H gap 8]
+          F Row 104×14 [H gap 0]
+            T "frame"
+          T "A number representing the frame number, or a string representing the label of the frame, to which the playhead is sent."
+        T "Description"
+        T "Method; starts playing the SWF file at the specified frame. To indicate a scene as well as a frame, use the global gotoAndPlay()."
+        T "Example"
+        F Code 650×73 [V gap 1]
+          T "stop();"
+          T "myBtn_btn.onRelease = function() {"
+          T "    gotoAndPlay("intro");"
+          T "};"
+        F Row 650×42 [H gap 8]
+          I NF3/Button {Icon=95:820, Show icon=true, Label=MovieClip.getURL(), Kind=Ghost, State=Default} 151×28 "MovieClip.getURL()"
+          F Spacer 326×1 [H gap 0]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=MovieClip.gotoAndStop(), Kind=Ghost, State=Default} 157×28 "MovieClip.gotoAndStop()"

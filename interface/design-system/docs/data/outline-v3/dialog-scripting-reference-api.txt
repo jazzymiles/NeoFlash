@@ -1,0 +1,135 @@
+F Dialog / Scripting Reference — API 1060×838 [V gap 24]
+  F Board title 900×74 [V gap 6]
+    T "Dialog / Scripting Reference — API"
+    T "Implemented variant. Always exactly one language (defaults to the project language), one search field whose placeholder names its scope, three fixed columns: packages and classes · members with support status · member detail with signature, parameters, NeoFlash status, example and Insert at cursor. One size (width/reference × height/dialog-xl)."
+  F Dialog / Scripting Reference 980×660 [V gap 0]
+    I NF3/Dialog Header {Title=Scripting Reference} 978×48 "Scripting Reference"
+    F Reference bar 978×57 [H gap 14]
+      F Segmented 354×28 [H gap 0]
+        I NF3/Segment {Label=ActionScript 2, Selected=No} 99×22 "ActionScript 2"
+        I NF3/Segment {Label=ActionScript 3, Selected=Yes} 102×22 "ActionScript 3"
+        I NF3/Segment {Label=JavaScript / TypeScript, Selected=No} 147×22 "JavaScript / TypeScript"
+      I NF3/Search {Clear=false, Value=Search ActionScript 3: classes, methods, properties, events, State=Default} 428×28 "Search ActionScript 3: classes, methods, properties, events"
+      I NF3/Badge {Label=Project: ActionScript 3, Tone=Accent} 120×20 "Project: ActionScript 3"
+    F Dialog body 978×529 [H gap 0]
+      F Reference tree 248×529 [V gap 0]
+        F Tabs 247×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=API, Selected=Yes} 46×34 "API"
+          I NF3/Tab {Icon=1:9185, Show icon=false, Label=Guides, Selected=No} 65×34 "Guides"
+        F Tree 247×466 [V gap 1]
+          I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Top level, Level=0, State=Default} 239×26 "Top level" "4"
+          I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=flash.display, Level=0, State=Default} 239×26 "flash.display" "4"
+          I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Bitmap, Show icon=true, Chevron=false, Icon=17:530, Level=1, State=Default} 239×26 "Bitmap" "4"
+          I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=DisplayObject, Show icon=true, Chevron=false, Icon=17:530, Level=1, State=Default} 239×26 "DisplayObject" "4"
+          I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Graphics, Show icon=true, Chevron=false, Icon=17:530, Level=1, State=Default} 239×26 "Graphics" "4"
+          I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Loader, Show icon=true, Chevron=false, Icon=17:530, Level=1, State=Default} 239×26 "Loader" "4"
+          I NF3/Tree Row {Meta=4, Chevron=false, Show icon=true, Chevron icon=220:1338, Show meta=false, Icon=17:530, Label=MovieClip, Level=1, State=Selected} 239×26 "MovieClip" "4"
+          I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Shape, Show icon=true, Chevron=false, Icon=17:530, Level=1, State=Default} 239×26 "Shape" "4"
+          I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Sprite, Show icon=true, Chevron=false, Icon=17:530, Level=1, State=Default} 239×26 "Sprite" "4"
+          I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Stage, Show icon=true, Chevron=false, Icon=17:530, Level=1, State=Default} 239×26 "Stage" "4"
+          I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=flash.events, Level=0, State=Default} 239×26 "flash.events" "4"
+          I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=flash.filters, Level=0, State=Default} 239×26 "flash.filters" "4"
+          I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=flash.geom, Level=0, State=Default} 239×26 "flash.geom" "4"
+          I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=flash.media, Level=0, State=Default} 239×26 "flash.media" "4"
+          I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=flash.net, Level=0, State=Default} 239×26 "flash.net" "4"
+          I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=flash.text, Level=0, State=Default} 239×26 "flash.text" "4"
+          I NF3/Tree Row {Show meta=false, Icon=17:526, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=flash.utils, Level=0, State=Default} 239×26 "flash.utils" "4"
+      F Class 430×529 [V gap 8]
+        F Row 382×28 [H gap 8]
+          I NF2 Icon/16/class 16×16
+          T "MovieClip"
+          I NF3/Badge {Label=Partial, Tone=Warning} 43×20 "Partial"
+          F Spacer 88×1 [H gap 0]
+          I NF3/Button {Icon=1:9236, Show icon=true, Label=Open in browser, Kind=Ghost, State=Default} 135×28 "Open in browser"
+        T "flash.display  ·  MovieClip → Sprite → DisplayObjectContainer → InteractiveObject → DisplayObject → EventDispatcher"
+        T "A display object with its own timeline. Frame scripts run on it; instances are placed on the Stage or created from a Library symbol with a linkage class."
+        F Row 382×36 [H gap 8]
+          F Segmented 256×28 [H gap 0]
+            I NF3/Segment {Label=All, Selected=Yes} 40×22 "All"
+            I NF3/Segment {Label=Properties, Selected=No} 79×22 "Properties"
+            I NF3/Segment {Label=Methods, Selected=No} 71×22 "Methods"
+            I NF3/Segment {Label=Events, Selected=No} 60×22 "Events"
+          I NF3/Checkbox {Show label=true, Label=Hide missing, Value=Off, State=Default} 91×20 "Hide missing"
+        T "48 members · 31 working · 9 partial · 8 missing"
+        F Group caption 382×28 [H gap 0]
+          T "Properties"
+        F Members 382×107 [V gap 1]
+          F Member 382×26 [H gap 8]
+            T "currentFrame"
+            T ": int  ·  read-only"
+          F Member 382×26 [H gap 8]
+            T "currentLabel"
+            T ": String  ·  read-only"
+          F Member 382×26 [H gap 8]
+            T "currentScene"
+            T ": Scene  ·  read-only"
+          F Member 382×26 [H gap 8]
+            T "totalFrames"
+            T ": int  ·  read-only"
+        F Group caption 382×28 [H gap 0]
+          T "Methods"
+        F Members 382×161 [V gap 1]
+          F Member 382×26 [H gap 8]
+            T "gotoAndPlay"
+            T "(frame:Object, scene:String = null):void"
+          F Member 382×26 [H gap 8]
+            T "gotoAndStop"
+            T "(frame:Object, scene:String = null):void"
+          F Member 382×26 [H gap 8]
+            T "nextFrame"
+            T "():void"
+          F Member 382×26 [H gap 8]
+            T "play"
+            T "():void"
+          F Member 382×26 [H gap 8]
+            T "prevScene"
+            T "():void"
+          F Member 382×26 [H gap 8]
+            T "stop"
+            T "():void"
+      F Member detail 300×529 [V gap 8]
+        F Row 271×20 [H gap 8]
+          T "gotoAndPlay()"
+          I NF3/Badge {Label=Working, Tone=Success} 52×20 "Working"
+          F Spacer 74×1 [H gap 0]
+          T "method"
+        F Code 271×73 [V gap 1]
+          T "public function gotoAndPlay("
+          T "    frame:Object,"
+          T "    scene:String = null"
+          T "):void"
+        T "Moves the playhead to the frame and plays from it."
+        F Group caption 271×28 [H gap 0]
+          T "Parameters"
+        F Parameter 271×28 [H gap 8]
+          F Row 104×14 [H gap 0]
+            T "frame"
+          T "Frame number (1-based) or frame label."
+        F Parameter 271×42 [H gap 8]
+          F Row 104×14 [H gap 0]
+            T "scene"
+          T "Optional scene name; resolved through the flattened main timeline."
+        F Group caption 271×28 [H gap 0]
+          T "In NeoFlash"
+        I NF3/Inline Message {Text=Runs in HTML5 publish and Test Movie. A missing label reports a runtime diagnostic instead of failing silently., Tone=Success} 271×39 "Runs in HTML5 publish and Test Movie. A missing label reports a runtime diagnostic instead of failing silently."
+        F Group caption 271×28 [H gap 0]
+          T "Example"
+        F Code 271×72 [V gap 1]
+          T "button.addEventListener(MouseEvent.CLICK, function(e:MouseEvent):void {"
+          T "    gotoAndPlay("intro");"
+          T "});"
+        F Row 271×28 [H gap 8]
+          I NF3/Button {Icon=36:744, Show icon=true, Label=Copy, Kind=Secondary, State=Default} 78×28 "Copy"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Insert at cursor, Kind=Primary, State=Default} 105×28 "Insert at cursor"
+        F Group caption 271×28 [H gap 0]
+          T "See also"
+        T "gotoAndStop()  ·  play()  ·  currentFrame  ·  Scene"
+    F Reference footer 978×24 [H gap 8]
+      T "ActionScript 3 · 563 classes · 5 173 members"
+      F Spacer 470×1 [H gap 0]
+      I NF3/Kbd {Label=↑↓} 25×20 "↑↓"
+      T "move"
+      I NF3/Kbd {Label=↵} 19×20 "↵"
+      T "open"
+      I NF3/Kbd {Label=⌘↵} 25×20 "⌘↵"
+      T "insert at cursor"

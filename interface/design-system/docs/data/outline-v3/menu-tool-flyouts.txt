@@ -1,0 +1,146 @@
+F Menu / Tool flyouts 1216×590 [V gap 24]
+  F Board title 900×90 [V gap 6]
+    T "Menu / Tool flyouts"
+    T "Long-press a tool with a corner mark (or click the mark) to open its group. The groups are the shipped default slots that hold more than one tool, with the shipped tool names and keys; each flyout is a menu of size/row rows (16 pt icon, name, key) and the tool shown on the rail carries the selected fill instead of the v2.25 ■ marker. The 3D, Deco, Spray Brush, Bone and Bind tools are not on the default rail: the second group shows them as slots a user can build in Customize tools. The v2.25 anchor point, primitive and Symbol spray rows are gone because the product has no such tools."
+  F Flyouts 1136×396 [V gap 40]
+    F Default slots 1136×242 [V gap 16]
+      T "Default slots"
+      F Menus 1136×112 [H gap 32]
+        F Selection 260×86 [V gap 8]
+          T "Selection"
+          F Menu / Flyout / Selection 260×62 [V gap 0]
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/select 16×16
+              T "Selection tool"
+              T "V"
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/subselect 16×16
+              T "Subselection tool"
+              T "A"
+        F Transform 260×86 [V gap 8]
+          T "Transform"
+          F Menu / Flyout / Transform 260×62 [V gap 0]
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/transform 16×16
+              T "Free Transform tool"
+              T "Q"
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/gradient-transform 16×16
+              T "Gradient Transform tool"
+              T "F"
+        F Pen 260×86 [V gap 8]
+          T "Pen"
+          F Menu / Flyout / Pen 260×62 [V gap 0]
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/pen 16×16
+              T "Pen tool"
+              T "P"
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/line 16×16
+              T "Line tool"
+              T "N"
+        F Shapes 260×112 [V gap 8]
+          T "Shapes"
+          F Menu / Flyout / Shapes 260×88 [V gap 0]
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/rect 16×16
+              T "Rectangle tool"
+              T "R"
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/oval 16×16
+              T "Oval tool"
+              T "O"
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/tool-polystar 16×16
+              T "PolyStar tool"
+      F Menus 844×86 [H gap 32]
+        F Drawing 260×86 [V gap 8]
+          T "Drawing"
+          F Menu / Flyout / Drawing 260×62 [V gap 0]
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/pencil 16×16
+              T "Pencil tool"
+              T "Y"
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/brush 16×16
+              T "Brush tool"
+              T "B"
+        F Fill 260×86 [V gap 8]
+          T "Fill"
+          F Menu / Flyout / Fill 260×62 [V gap 0]
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/bucket 16×16
+              T "Paint Bucket tool"
+              T "K"
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/tool-ink 16×16
+              T "Ink Bottle tool"
+              T "S"
+        F View 260×86 [V gap 8]
+          T "View"
+          F Menu / Flyout / View 260×62 [V gap 0]
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/hand 16×16
+              T "Hand tool"
+              T "H"
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/zoomin 16×16
+              T "Zoom tool"
+              T "Z"
+    F Example slots built in Customize tools 844×114 [V gap 16]
+      T "Example slots built in Customize tools"
+      F Menus 844×86 [H gap 32]
+        F 3D 260×86 [V gap 8]
+          T "3D"
+          F Menu / Flyout / 3D 260×62 [V gap 0]
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/tool-3d-rotate 16×16
+              T "3D Rotation tool"
+              T "W"
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/tool-3d-translate 16×16
+              T "3D Translation tool"
+              T "G"
+        F Deco 260×86 [V gap 8]
+          T "Deco"
+          F Menu / Flyout / Deco 260×62 [V gap 0]
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/tool-deco 16×16
+              T "Deco tool"
+              T "U"
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/tool-spray 16×16
+              T "Spray Brush tool"
+              T "⇧B"
+        F Rigging 260×86 [V gap 8]
+          T "Rigging"
+          F Menu / Flyout / Rigging 260×62 [V gap 0]
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/tool-bone 16×16
+              T "Bone tool"
+              T "X"
+            F Flyout item 250×26 [H gap 8]
+              F Icon slot 16×16 [H gap 0]
+                I NF2 Icon/16/tool-bind 16×16
+              T "Bind tool"
+              T "⇧X"

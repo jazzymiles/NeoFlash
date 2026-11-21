@@ -1,0 +1,22 @@
+F Menu / Color panel 552×330 [V gap 24]
+  F Board title 460×58 [V gap 6]
+    T "Menu / Color panel"
+    T "The two open menus of the Color panel. The type menu is checkable, so every item has the check column."
+  F States 472×168 [H gap 40]
+    F Panel menu (⋯) 216×160 [V gap 12]
+      T "Panel menu (⋯)"
+      F Menu / Color panel 216×132 [V gap 0]
+        I NF3/Menu Item {Submenu=false, Checked=false, Check column=false, Show shortcut=false, Shortcut=⌘K, Label=Add swatch, State=Hover} 206×26 "Add swatch" "⌘K"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=F1, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Help, State=Default} 206×26 "Help" "F1"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Close, State=Default} 206×26 "Close" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Close group, State=Default} 206×26 "Close group" "⌘K"
+    F Type select, open 216×168 [V gap 12]
+      T "Type select, open"
+      F Menu / Color type 216×140 [V gap 0]
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=None, State=Default} 206×26 "None" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=true, Show shortcut=false, Check column=true, Label=Solid colour, State=Default} 206×26 "Solid colour" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Linear gradient, State=Default} 206×26 "Linear gradient" "⌘K"
+        I NF3/Menu Item {Submenu=false, Checked=false, Check column=true, Show shortcut=false, Shortcut=⌘K, Label=Radial gradient, State=Hover} 206×26 "Radial gradient" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Bitmap fill, State=Default} 206×26 "Bitmap fill" "⌘K"

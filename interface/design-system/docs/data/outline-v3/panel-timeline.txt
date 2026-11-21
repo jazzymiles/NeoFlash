@@ -1,0 +1,111 @@
+F Panel / Timeline 1256×394 [V gap 24]
+  F Board title 900×42 [V gap 6]
+    T "Panel / Timeline"
+    T "Controls in one row of size/timeline-controls; layer rows and the frame ruler follow the density."
+  F Panel / Timeline 1176×248 [V gap 0]
+    F Dock tabs 1176×34 [H gap 0]
+      I NF3/Tab {Show icon=true, Icon=1:9288, Label=Timeline, Selected=Yes} 97×34 "Timeline"
+      I NF3/Tab {Icon=1:9185, Show icon=false, Label=Output, Selected=No} 65×34 "Output"
+      I NF3/Tab {Icon=1:9185, Show icon=false, Label=Compiler errors, Selected=No} 110×34 "Compiler errors"
+      F Spacer 872×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Timeline controls 1176×38 [H gap 8]
+      I NF3/Icon Button {Icon=7:155, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=7:159, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=7:164, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=1:9196, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=1:9203, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=1:9188, Kind=Ghost, State=Selected} 28×28
+      I NF3/Icon Button {Icon=1:9206, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=1:9200, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=1:9284, Kind=Ghost, State=Selected} 28×28
+      T "1 / 120"
+      T "00:00.00"
+      I NF3/Select {Value=Scene 1, Show label=false, Label=Style, State=Default} 104×28 "Style" "Scene 1"
+      I NF3/Field {Stepper=false, Unit=px, Value=24, Show unit=false, Show label=true, Label=FPS, State=Default} 68×28 "FPS" "24" "px"
+      I NF3/Field {Stepper=false, Unit=s, Value=5.00, Show unit=true, Show label=true, Label=Duration, State=Default} 116×28 "Duration" "5.00" "s"
+      F Spacer 13×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9264, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=7:144, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=7:148, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=7:151, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=7:168, Kind=Ghost, State=Default} 28×28
+      I NF3/Slider {State=Default} 96×20
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Timeline body 1176×175 [H gap 0]
+      F Layer column 324×175 [V gap 0]
+        F Layers header 323×26 [H gap 4]
+          T "Layers"
+          T "Mode"
+          I NF2 Icon/12/eye 12×12
+          I NF2 Icon/12/lock 12×12
+          I NF2 Icon/12/layers 12×12
+        F Layer row 323×24 [H gap 4]
+          I NF2 Icon/12/layer 12×12
+          T "Orbit instances"
+          T "Normal"
+        F Layer row 323×24 [H gap 4]
+          I NF2 Icon/12/layer 12×12
+          T "Accents"
+          T "Normal"
+        F Layer row 323×24 [H gap 4]
+          I NF2 Icon/12/layer 12×12
+          T "Typography"
+          T "Normal"
+      F Frame area 852×175 [V gap 0]
+        F Frame ruler 852×26 [H gap 0]
+          F 1 24×12 [H gap 0]
+            T "1"
+          F 5 60×12 [H gap 0]
+            T "5"
+          F 10 60×12 [H gap 0]
+            T "10"
+          F 15 60×12 [H gap 0]
+            T "15"
+          F 20 60×12 [H gap 0]
+            T "20"
+          F 25 60×12 [H gap 0]
+            T "25"
+          F 30 60×12 [H gap 0]
+            T "30"
+          F 35 60×12 [H gap 0]
+            T "35"
+          F 40 60×12 [H gap 0]
+            T "40"
+          F 45 60×12 [H gap 0]
+            T "45"
+          F 50 60×12 [H gap 0]
+            T "50"
+          F 55 60×12 [H gap 0]
+            T "55"
+          F 60 60×12 [H gap 0]
+            T "60"
+          F 65 60×12 [H gap 0]
+            T "65"
+          F 70 60×12 [H gap 0]
+            T "70"
+          F 75 60×12 [H gap 0]
+            T "75"
+          F 80 60×12 [H gap 0]
+            T "80"
+          F 85 60×12 [H gap 0]
+            T "85"
+          F 90 60×12 [H gap 0]
+            T "90"
+          F 95 60×12 [H gap 0]
+            T "95"
+          F 100 60×12 [H gap 0]
+            T "100"
+          F 105 60×12 [H gap 0]
+            T "105"
+          F 110 60×12 [H gap 0]
+            T "110"
+          F 115 60×12 [H gap 0]
+            T "115"
+        F Frames 852×24 [H gap 0]
+          F Span 1440×23 [H gap 0]
+        F Frames 852×24 [H gap 0]
+          F Span 1440×23 [H gap 0]
+        F Frames 852×24 [H gap 0]
+          F Span 1440×23 [H gap 0]

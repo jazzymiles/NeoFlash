@@ -1,0 +1,169 @@
+F Panel / Properties — Appearance 696×1136 [V gap 24]
+  F Board title 600×74 [V gap 6]
+    T "Panel / Properties — Appearance"
+    T "Left: graphic style and the paint stack; right: path modifiers and vector effects. A paint is two rows (enable + colour record, then its numbers with move up / move down / delete); deleting a graphic style is the bin icon button after “Unlink”."
+  F States 616×958 [H gap 40]
+    F Panel / Properties 288×525 [V gap 0]
+      F Panel header 286×34 [H gap 0]
+        I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+        I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+        F Spacer 89×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+      F Type header 286×34 [H gap 8]
+        I NF2 Icon/16/pen 16×16
+        T "Shape"
+        T "Drawing object · layer “Accents”"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Graphic style, Open=Yes} 286×28 "Graphic style"
+      F Section body 286×78 [V gap 8]
+        I NF3/Select {Value=Brand outline, Show label=true, Label=Style, State=Default} 258×28 "Style" "Brand outline"
+        F Line 258×28 [H gap 8]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Save style…, Kind=Secondary, State=Default} 89×28 "Save style…"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Unlink, Kind=Ghost, State=Default} 57×28 "Unlink"
+          F Spacer 60×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Appearance, Open=Yes} 286×28 "Appearance"
+      F Section body 286×321 [V gap 8]
+        F Item / Fill 258×64 [V gap 8]
+          F Paint 258×28 [H gap 8]
+            F Enable 80×20 [H gap 0]
+              I NF3/Checkbox {Show label=true, Label=Fill, Value=On, State=Default} 39×20 "Fill"
+            I NF3/Swatch 18×18
+            I NF3/Field {Stepper=false, Unit=100 %, Value=6C93FF, Show unit=true, Show label=true, Label=#, State=Default} 144×28 "#" "6C93FF" "100 %"
+          F Line 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=0, Show unit=false, Show label=true, Label=dX, State=Default} 71×28 "dX" "0" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=0, Show unit=false, Show label=true, Label=dY, State=Default} 71×28 "dY" "0" "px"
+            I NF3/Icon Button {Icon=1:9248, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9242, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+        F Item / Fill 258×64 [V gap 8]
+          F Paint 258×28 [H gap 8]
+            F Enable 80×20 [H gap 0]
+              I NF3/Checkbox {Show label=true, Label=Fill, Value=On, State=Default} 39×20 "Fill"
+            I NF3/Swatch 18×18
+            I NF3/Field {Stepper=false, Unit=40 %, Value=131824, Show unit=true, Show label=true, Label=#, State=Default} 144×28 "#" "131824" "40 %"
+          F Line 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=4, Show unit=false, Show label=true, Label=dX, State=Default} 71×28 "dX" "4" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=4, Show unit=false, Show label=true, Label=dY, State=Default} 71×28 "dY" "4" "px"
+            I NF3/Icon Button {Icon=1:9248, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9242, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+        F Item / Stroke 258×64 [V gap 8]
+          F Paint 258×28 [H gap 8]
+            F Enable 80×20 [H gap 0]
+              I NF3/Checkbox {Show label=true, Label=Stroke, Value=On, State=Default} 58×20 "Stroke"
+            I NF3/Swatch 18×18
+            I NF3/Field {Stepper=false, Unit=100 %, Value=F1F4FA, Show unit=true, Show label=true, Label=#, State=Default} 144×28 "#" "F1F4FA" "100 %"
+          F Line 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=2, Show unit=true, Show label=true, Label=W, State=Default} 71×28 "W" "2" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=0, Show unit=false, Show label=true, Label=Offset, State=Default} 71×28 "Offset" "0" "px"
+            I NF3/Icon Button {Icon=1:9248, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9242, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+        F Line 258×28 [H gap 8]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Add fill, Kind=Secondary, State=Default} 63×28 "Add fill"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Add stroke, Kind=Secondary, State=Default} 84×28 "Add stroke"
+        F Line 258×28 [H gap 8]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Expand appearance, Kind=Ghost, State=Default} 129×28 "Expand appearance"
+    F Panel / Properties 288×958 [V gap 0]
+      F Panel header 286×34 [H gap 0]
+        I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+        I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+        F Spacer 89×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+      F Type header 286×34 [H gap 8]
+        I NF2 Icon/16/pen 16×16
+        T "Shape"
+        T "Drawing object · layer “Accents”"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Path modifiers, Open=Yes} 286×28 "Path modifiers"
+      F Section body 286×438 [V gap 8]
+        I NF3/Select {Value=Add modifier, Show label=false, Label=Style, State=Default} 258×28 "Style" "Add modifier"
+        F Item / Offset path 258×64 [V gap 8]
+          F Line 258×28 [H gap 8]
+            T "Offset path"
+            I NF3/Icon Button {Icon=1:9248, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9242, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=4, Show unit=true, Show label=true, Label=Offset, State=Default} 136×28 "Offset" "4" "px"
+            F Spacer 114×1 [H gap 0]
+        F Item / Round corners 258×64 [V gap 8]
+          F Line 258×28 [H gap 8]
+            T "Round corners"
+            I NF3/Icon Button {Icon=1:9248, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9242, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=8, Show unit=true, Show label=true, Label=Radius, State=Default} 136×28 "Radius" "8" "px"
+            F Spacer 114×1 [H gap 0]
+        F Item / Repeater 258×136 [V gap 8]
+          F Line 258×28 [H gap 8]
+            T "Repeater"
+            I NF3/Icon Button {Icon=1:9248, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9242, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=5, Show unit=false, Show label=true, Label=Copies, State=Default} 125×28 "Copies" "5" "px"
+            I NF3/Field {Stepper=false, Unit=%, Value=90, Show unit=true, Show label=true, Label=Scale, State=Default} 125×28 "Scale" "90" "%"
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=24, Show unit=false, Show label=true, Label=dX, State=Default} 125×28 "dX" "24" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=0, Show unit=false, Show label=true, Label=dY, State=Default} 125×28 "dY" "0" "px"
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=°, Value=15, Show unit=true, Show label=true, Label=Rotation, State=Default} 136×28 "Rotation" "15" "°"
+            F Spacer 114×1 [H gap 0]
+        F Item / Mirror 258×100 [V gap 8]
+          F Line 258×28 [H gap 8]
+            T "Mirror"
+            I NF3/Icon Button {Icon=1:9248, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9242, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+          F Pair 258×28 [H gap 8]
+            F Cell 125×28 [H gap 0]
+              I NF3/Checkbox {Show label=true, Label=Mirror X, Value=On, State=Default} 66×20 "Mirror X"
+            F Cell 125×28 [H gap 0]
+              I NF3/Checkbox {Show label=true, Label=Mirror Y, Value=Off, State=Default} 66×20 "Mirror Y"
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=480, Show unit=false, Show label=true, Label=X, State=Default} 125×28 "X" "480" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=300, Show unit=false, Show label=true, Label=Y, State=Default} 125×28 "Y" "300" "px"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Vector effects, Open=Yes} 286×28 "Vector effects"
+      F Section body 286×394 [V gap 8]
+        I NF3/Select {Value=Add effect, Show label=false, Label=Style, State=Default} 258×28 "Style" "Add effect"
+        F Item / Zig zag 258×92 [V gap 8]
+          F Line 258×28 [H gap 8]
+            T "Zig zag"
+            I NF3/Icon Button {Icon=1:9248, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9242, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=6, Show unit=true, Show label=true, Label=Size, State=Default} 125×28 "Size" "6" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=4, Show unit=false, Show label=true, Label=Ridges, State=Default} 125×28 "Ridges" "4" "px"
+          I NF3/Checkbox {Show label=true, Label=Smooth, Value=Off, State=Default} 65×20 "Smooth"
+        F Item / Pucker and bloat 258×64 [V gap 8]
+          F Line 258×28 [H gap 8]
+            T "Pucker and bloat"
+            I NF3/Icon Button {Icon=1:9248, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9242, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=%, Value=20, Show unit=true, Show label=true, Label=Amount, State=Default} 136×28 "Amount" "20" "%"
+            F Spacer 114×1 [H gap 0]
+        F Item / Roughen 258×100 [V gap 8]
+          F Line 258×28 [H gap 8]
+            T "Roughen"
+            I NF3/Icon Button {Icon=1:9248, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9242, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=3, Show unit=true, Show label=true, Label=Size, State=Default} 125×28 "Size" "3" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=10, Show unit=false, Show label=true, Label=Detail, State=Default} 125×28 "Detail" "10" "px"
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=1, Show unit=false, Show label=true, Label=Seed, State=Default} 136×28 "Seed" "1" "px"
+            F Spacer 114×1 [H gap 0]
+        F Item / Twist 258×64 [V gap 8]
+          F Line 258×28 [H gap 8]
+            T "Twist"
+            I NF3/Icon Button {Icon=1:9248, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9242, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=°, Value=30, Show unit=true, Show label=true, Label=Angle, State=Default} 136×28 "Angle" "30" "°"
+            F Spacer 114×1 [H gap 0]

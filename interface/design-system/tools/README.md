@@ -20,10 +20,11 @@ The window has two parts. **v3 reference pages** (ticked by default) exports eve
 `v3 · <Density> · <Theme>` that are ticked, found by page and board name, so rebuilding the Figma pages needs no
 manifest edit. **v2.25 (archive)** (unticked by default) exports the archived pages listed in `exports/manifest.json`.
 
-Leave **Icons & cursors** unticked (the default). `exports/icons/{12,16,20}` are hinted optical masters maintained in
-the repository and checked by `crates/neoflash-ui/tests/icon_masters.rs`; Figma's SVG export of the same components
-drops explicit stroke widths and round caps and outlines some strokes. If the masters were overwritten, restore them
-with `git checkout HEAD -- interface/design-system/exports/icons`.
+Leave **Icons & cursors** unticked (the default). `exports/icons/{12,16,20}` are built from the construction
+sources in `tools/icon-masters/` (see "Icon masters" below) and checked by
+`crates/neoflash-ui/tests/icon_masters.rs`; Figma's SVG export of the same components drops explicit stroke widths
+and round caps and outlines some strokes. If the masters were overwritten, rebuild them with
+`python3 tools/icon-masters/build.py`.
 
 What it writes:
 
@@ -48,6 +49,29 @@ The list of v2.25 nodes is `exports/manifest.json`. After editing it run `python
 to regenerate `code.js` (the plugin cannot read local files, so the list is baked in).
 
 `receiver.py` only accepts paths inside `design-system/` and only listens on 127.0.0.1.
+
+## Icon masters
+
+`exports/icons/{12,16,20}/*.svg` are generated. Never edit them by hand and never re-fit an icon point by point:
+that is what bent the arrows and curves of the first optical masters.
+
+```bash
+python3 tools/icon-masters/build.py           # write exports/icons/{12,16,20}
+python3 tools/icon-masters/build.py --check   # fail if the exports differ from the sources
+python3 tools/icon-masters/audit.py exports/icons/16   # geometry audit: lopsided heads, near-miss symmetry, kinks
+```
+
+| File | Content |
+|---|---|
+| `kit.py` | Primitives and the grid rules. A coordinate is fitted as "axis + whole steps", so a shape symmetric at 16 px is symmetric at 12 and 20 px; arcs meet their lines exactly; `chevron`, `corner` and `arrow` have equal arms; `flip` draws an exact mirrored twin; `rotate` turns upright artwork; `native` holds a hand-fitted variant for one size. |
+| `arrows.py`, `layout_text.py`, `objects.py`, `tools.py` | One short function per icon, in 16 px coordinates: stroke axes on n + 0.5, fill edges on n. An icon whose axis carries a stroke declares `g.axis(8.5, …)`. |
+| `grid20.txt` | The icons that have a 20 px master. |
+
+To add or change an icon: edit its function, run `build.py`, look at the three sizes enlarged over a pixel grid, run
+`audit.py` and `cargo test -p neoflash-ui --test icon_masters`, then update the Figma components
+`NF2 Icon/{12,16,20}/<name>` and re-pin the design lock. `figma_pack.py <dir> 13000 <name …>` packs the changed
+icons with a checksum; its docstring holds the runner that replaces the vectors in place (component IDs and the
+`color/text/secondary` binding stay), so every instance on the boards follows.
 
 ## Build the PDFs
 

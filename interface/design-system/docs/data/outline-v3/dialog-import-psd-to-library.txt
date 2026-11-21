@@ -1,0 +1,100 @@
+F Dialog / Import PSD to Library 980×838 [V gap 24]
+  F Board title 880×74 [V gap 6]
+    T "Dialog / Import PSD to Library"
+    T "Fixed size (width/dialog-xl × height/dialog-xl): the layer list is a sidebar with one size/row per layer (checkbox · thumbnail · name · type), the options of the selected layer use the form grid; “Use publish quality / Custom / Calculate bitmap size” share one Quality row, “AI options…” stays a ghost button in the footer."
+  F Dialog / Import "Poster.psd" to library 900×660 [V gap 0]
+    I NF3/Dialog Header {Title=Import "Poster.psd" to library} 898×48 "Import "Poster.psd" to library"
+    F Dialog body 898×553 [H gap 0]
+      F Sidebar 216×553 [V gap 1]
+        F Group caption 207×28 [H gap 0]
+          T "Layers to import"
+        F Layer / Title 207×26 [H gap 8]
+          I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+          T "Title"
+          I NF2 Icon/16/font 16×16
+        F Layer / Logo 207×26 [H gap 8]
+          I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+          T "Logo"
+          I NF2 Icon/16/folderopen 16×16
+        F Layer / Mark 207×26 [H gap 8]
+          I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+          T "Mark"
+          I NF2 Icon/16/bitmap 16×16
+        F Layer / Wordmark 207×26 [H gap 8]
+          I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+          T "Wordmark"
+          I NF2 Icon/16/pen 16×16
+        F Layer / Glow 207×26 [H gap 8]
+          I NF3/Checkbox {Show label=false, Label=Option, Value=Off, State=Default} 16×20 "Option"
+          T "Glow"
+          I NF2 Icon/16/bitmap 16×16
+        F Layer / Background 207×26 [H gap 8]
+          I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+          T "Background"
+          I NF2 Icon/16/bitmap 16×16
+        F Layer actions 207×42 [H gap 8]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Merge layers, Kind=Secondary, State=Default} 94×28 "Merge layers"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Select all, Kind=Ghost, State=Default} 72×28 "Select all"
+      F Page 682×553 [V gap 8]
+        T "Options for "Mark""
+        F Group caption 634×28 [H gap 0]
+          T "Import this layer as"
+        F Form row 634×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Radio {Label=Bitmap with editable layer styles, Value=Off, State=Default} 193×20 "Bitmap with editable layer styles"
+        F Form row 634×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Radio {Label=Flattened bitmap image, Value=On, State=Default} 147×20 "Flattened bitmap image"
+        F Form row 634×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Radio {Label=Vector shapes (if possible), Value=Off, State=Default} 163×20 "Vector shapes (if possible)"
+        F Group caption 634×28 [H gap 0]
+          T "Symbol"
+        F Form row 634×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Checkbox {Show label=true, Label=Create movie clip for this layer, Value=On, State=Default} 182×20 "Create movie clip for this layer"
+        F Form row 634×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Instance"
+          I NF3/Field {Stepper=false, Unit=px, Value=mark_mc, Show unit=false, Show label=false, Label=X, State=Default} 232×28 "X" "mark_mc" "px"
+          T "Reg."
+          F Registration picker 28×28 [V gap 3]
+            F Dots 15×3 [H gap 3]
+            F Dots 15×3 [H gap 3]
+            F Dots 15×3 [H gap 3]
+        F Group caption 634×28 [H gap 0]
+          T "Publish settings"
+        F Form row 634×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Compression"
+          I NF3/Select {Value=Lossy, Show label=false, Label=Style, State=Default} 168×28 "Style" "Lossy"
+        F Form row 634×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Quality"
+          I NF3/Radio {Label=Use publish quality, Value=On, State=Default} 123×20 "Use publish quality"
+          I NF3/Radio {Label=Custom, Value=Off, State=Default} 65×20 "Custom"
+          I NF3/Field {Stepper=false, Show unit=false, Value=90, Show label=false, Unit=px, Label=X, State=Disabled} 68×28 "X" "90" "px"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Calculate bitmap size, Kind=Ghost, State=Default} 137×28 "Calculate bitmap size"
+        F Group caption 634×28 [H gap 0]
+          T "Placement"
+        F Form row 634×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Convert to"
+          I NF3/Select {Value=Timeline layers, Show label=false, Label=Style, State=Default} 232×28 "Style" "Timeline layers"
+        F Form row 634×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Checkbox {Show label=true, Label=Place layers at original position, Value=On, State=Default} 185×20 "Place layers at original position"
+        F Form row 634×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Checkbox {Show label=true, Label=Set stage size to canvas (1280 × 720), Value=Off, State=Default} 221×20 "Set stage size to canvas (1280 × 720)"
+    F Footer 898×57 [H gap 8]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=AI options…, Kind=Ghost, State=Default} 86×28 "AI options…"
+      T "5 of 6 layers · 3 bitmaps · 1 text · 1 vector"
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Import, Kind=Primary, State=Default} 59×28 "Import"

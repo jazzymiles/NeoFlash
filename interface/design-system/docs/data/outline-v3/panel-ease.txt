@@ -1,0 +1,216 @@
+F Panel / Ease 1240×774 [V gap 24]
+  F Board title 1100×58 [V gap 6]
+    T "Panel / Ease"
+    T "Explicit width 360 pt. Property select with its label and One curve for all in one row, eight preset tiles in two rows, the graph, four equal X1 Y1 X2 Y2 fields, the preview track with Play / Stop, and Reset · Cancel · Apply in the footer. Overshoot and undershoot widen the value axis to −20 … 120 % and tint the out-of-range bands."
+  F States 1160×612 [H gap 40]
+    F Normal, 0 – 100 % 360×612 [V gap 12]
+      T "Normal, 0 – 100 %"
+      F Panel / Ease 360×584 [V gap 0]
+        F Panel header 358×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Ease, Selected=Yes} 54×34 "Ease"
+          F Spacer 272×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+        F Section body 358×503 [V gap 8]
+          T "Classic tween · ball · frames 1–40"
+          F Line 330×28 [H gap 8]
+            I NF3/Select {Value=All, Show label=true, Label=Property, State=Default} 168×28 "Property" "All"
+            I NF3/Checkbox {Show label=true, Label=One curve for all, Value=On, State=Default} 110×20 "One curve for all"
+          F Presets 330×49 [H gap 8]
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Linear"
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Ease In"
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Ease Out"
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Ease In-Out"
+          F Presets 330×49 [H gap 8]
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Back"
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Bounce"
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Elastic"
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Custom"
+          F Ease graph 336×196
+            T "0%"
+            T "20%"
+            T "40%"
+            T "60%"
+            T "80%"
+            T "100%"
+            T "0"
+            T "5"
+            T "10"
+            T "15"
+            T "20"
+            T "25"
+            T "30"
+            T "35"
+            T "40"
+          F Line 330×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=0.60, Show unit=false, Show label=true, Label=X1, State=Default} 77×28 "X1" "0.60" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=0.02, Show unit=false, Show label=true, Label=Y1, State=Default} 77×28 "Y1" "0.02" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=0.40, Show unit=false, Show label=true, Label=X2, State=Default} 77×28 "X2" "0.40" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=0.98, Show unit=false, Show label=true, Label=Y2, State=Default} 77×28 "Y2" "0.98" "px"
+          F Preview track 330×28 [H gap 0]
+          F Line 330×28 [H gap 8]
+            I NF3/Icon Button {Icon=1:9188, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=29:512, Kind=Ghost, State=Default} 28×28
+            T "Frame 30 / 40  ·  88 %"
+        F Panel footer 358×45 [H gap 8]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Reset, Kind=Ghost, State=Default} 54×28 "Reset"
+          F Spacer 134×1 [H gap 0]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Apply, Kind=Primary, State=Default} 55×28 "Apply"
+    F Overshoot above 100 % 360×612 [V gap 12]
+      T "Overshoot above 100 %"
+      F Panel / Ease 360×584 [V gap 0]
+        F Panel header 358×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Ease, Selected=Yes} 54×34 "Ease"
+          F Spacer 272×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+        F Section body 358×503 [V gap 8]
+          T "Back out · overshoots to 112 %"
+          F Line 330×28 [H gap 8]
+            I NF3/Select {Value=All, Show label=true, Label=Property, State=Default} 168×28 "Property" "All"
+            I NF3/Checkbox {Show label=true, Label=One curve for all, Value=On, State=Default} 110×20 "One curve for all"
+          F Presets 330×49 [H gap 8]
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Linear"
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Ease In"
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Ease Out"
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Ease In-Out"
+          F Presets 330×49 [H gap 8]
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Back"
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Bounce"
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Elastic"
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Custom"
+          F Ease graph 336×196
+            T "-20%"
+            T "0%"
+            T "20%"
+            T "40%"
+            T "60%"
+            T "80%"
+            T "100%"
+            T "120%"
+            T "0"
+            T "5"
+            T "10"
+            T "15"
+            T "20"
+            T "25"
+            T "30"
+            T "35"
+            T "40"
+          F Line 330×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=0.30, Show unit=false, Show label=true, Label=X1, State=Default} 77×28 "X1" "0.30" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=0.00, Show unit=false, Show label=true, Label=Y1, State=Default} 77×28 "Y1" "0.00" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=0.55, Show unit=false, Show label=true, Label=X2, State=Default} 77×28 "X2" "0.55" "px"
+            I NF3/Field {Unit=px, Show unit=false, Show label=true, Stepper=false, Value=1.30, Label=Y2, State=Focus} 77×28 "Y2" "1.30" "px"
+          F Preview track 330×28 [H gap 0]
+          F Line 330×28 [H gap 8]
+            I NF3/Icon Button {Icon=1:9188, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=29:512, Kind=Ghost, State=Default} 28×28
+            T "Frame 30 / 40  ·  88 %"
+        F Panel footer 358×45 [H gap 8]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Reset, Kind=Ghost, State=Default} 54×28 "Reset"
+          F Spacer 134×1 [H gap 0]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Apply, Kind=Primary, State=Default} 55×28 "Apply"
+    F Undershoot below 0 % 360×612 [V gap 12]
+      T "Undershoot below 0 %"
+      F Panel / Ease 360×584 [V gap 0]
+        F Panel header 358×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Ease, Selected=Yes} 54×34 "Ease"
+          F Spacer 272×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+        F Section body 358×503 [V gap 8]
+          T "Anticipation · dips to −8 % first"
+          F Line 330×28 [H gap 8]
+            I NF3/Select {Value=All, Show label=true, Label=Property, State=Default} 168×28 "Property" "All"
+            I NF3/Checkbox {Show label=true, Label=One curve for all, Value=On, State=Default} 110×20 "One curve for all"
+          F Presets 330×49 [H gap 8]
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Linear"
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Ease In"
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Ease Out"
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Ease In-Out"
+          F Presets 330×49 [H gap 8]
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Back"
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Bounce"
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Elastic"
+            F Ease preset 77×49 [V gap 2]
+              F Curve 36×24
+              T "Custom"
+          F Ease graph 336×196
+            T "-20%"
+            T "0%"
+            T "20%"
+            T "40%"
+            T "60%"
+            T "80%"
+            T "100%"
+            T "120%"
+            T "0"
+            T "5"
+            T "10"
+            T "15"
+            T "20"
+            T "25"
+            T "30"
+            T "35"
+            T "40"
+          F Line 330×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=0.35, Show unit=false, Show label=true, Label=X1, State=Default} 77×28 "X1" "0.35" "px"
+            I NF3/Field {Unit=px, Show unit=false, Show label=true, Stepper=false, Value=-0.30, Label=Y1, State=Focus} 77×28 "Y1" "-0.30" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=0.70, Show unit=false, Show label=true, Label=X2, State=Default} 77×28 "X2" "0.70" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=1.00, Show unit=false, Show label=true, Label=Y2, State=Default} 77×28 "Y2" "1.00" "px"
+          F Preview track 330×28 [H gap 0]
+          F Line 330×28 [H gap 8]
+            I NF3/Icon Button {Icon=1:9188, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=29:512, Kind=Ghost, State=Default} 28×28
+            T "Frame 30 / 40  ·  88 %"
+        F Panel footer 358×45 [H gap 8]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Reset, Kind=Ghost, State=Default} 54×28 "Reset"
+          F Spacer 134×1 [H gap 0]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Apply, Kind=Primary, State=Default} 55×28 "Apply"

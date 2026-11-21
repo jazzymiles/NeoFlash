@@ -1,0 +1,24 @@
+F Panel / Compiler errors 800×382 [V gap 24]
+  F Board title 720×58 [V gap 6]
+    T "Panel / Compiler errors"
+    T "One row per problem at size/control: icon · message · location · Quick fix · Go to source (was a two-line card). Counts are badges in the toolbar row."
+  F Panel / Compiler errors 720×220 [V gap 0]
+    F Panel header 718×34 [H gap 0]
+      I NF3/Tab {Icon=1:9185, Show icon=false, Label=Output, Selected=No} 65×34 "Output"
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=Compiler errors, Selected=Yes} 110×34 "Compiler errors"
+      F Spacer 511×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Toolbar 718×38 [H gap 8]
+      I NF3/Badge {Label=1 error, Tone=Danger} 43×20 "1 error"
+      I NF3/Badge {Label=1 warning, Tone=Warning} 58×20 "1 warning"
+    F Problem 718×29 [H gap 8]
+      I NF2 Icon/16/error 16×16
+      T "1120: Access of undefined property orbit_mc."
+      T "Scene 1 · layer "orbit" · frame 1 · Line 19"
+      I NF3/Icon Button {Icon=17:513, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=1:9236, Kind=Ghost, State=Default} 28×28
+    F Problem 718×29 [H gap 8]
+      I NF2 Icon/16/warning 16×16
+      T "1090: Migration issue — frameRate is read-only at runtime."
+      T "Scene 1 · layer "orbit" · frame 1 · Line 4"
+      I NF3/Icon Button {Icon=1:9236, Kind=Ghost, State=Default} 28×28

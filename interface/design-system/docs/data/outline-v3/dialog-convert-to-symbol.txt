@@ -1,0 +1,169 @@
+F Dialog / Convert to symbol 1920×1009 [V gap 24]
+  F Board title 1100×58 [V gap 6]
+    T "Dialog / Convert to symbol"
+    T "One label column instead of three stacked captions; Advanced is a collapsible caption of the same dialog. Surfaces: basic · Advanced open · Type menu open (the menu is drawn beside the dialog)."
+  F Row 1840×847 [H gap 40]
+    F Dialog / Convert to Symbol 500×343 [V gap 0]
+      I NF3/Dialog Header {Title=Convert to Symbol} 498×48 "Convert to Symbol"
+      F Body 498×236 [V gap 8]
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Name"
+          I NF3/Field {Unit=px, Show unit=false, Show label=false, Stepper=false, Value=Badge symbol, Label=X, State=Focus} 322×28 "X" "Badge symbol" "px"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Type"
+          I NF3/Select {Value=Movie clip, Show label=false, Label=Style, State=Default} 168×28 "Style" "Movie clip"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          T "Movie clips have their own timeline and can be scripted."
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Folder"
+          I NF3/Select {Value=Library root, Show label=false, Label=Style, State=Default} 232×28 "Style" "Library root"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Registration"
+          F Registration picker 28×28 [V gap 3]
+            F Row 18×4 [H gap 3]
+            F Row 18×4 [H gap 3]
+            F Row 18×4 [H gap 3]
+          T "Centre"
+        F Section Header / Advanced 450×28 [H gap 4]
+          I NF2 Icon/12/chevright 12×12
+          T "Advanced"
+      F Footer 498×57 [H gap 8]
+        F Spacer 304×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Convert, Kind=Primary, State=Default} 67×28 "Convert"
+    F Dialog / Convert to Symbol 500×847 [V gap 0]
+      I NF3/Dialog Header {Title=Convert to Symbol} 498×48 "Convert to Symbol"
+      F Body 498×740 [V gap 8]
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Name"
+          I NF3/Field {Unit=px, Show unit=false, Show label=false, Stepper=false, Value=Badge symbol, Label=X, State=Focus} 322×28 "X" "Badge symbol" "px"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Type"
+          I NF3/Select {Value=Movie clip, Show label=false, Label=Style, State=Default} 168×28 "Style" "Movie clip"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          T "Movie clips have their own timeline and can be scripted."
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Folder"
+          I NF3/Select {Value=Library root, Show label=false, Label=Style, State=Default} 232×28 "Style" "Library root"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Registration"
+          F Registration picker 28×28 [V gap 3]
+            F Row 18×4 [H gap 3]
+            F Row 18×4 [H gap 3]
+            F Row 18×4 [H gap 3]
+          T "Centre"
+        F Section Header / Advanced 450×28 [H gap 4]
+          I NF2 Icon/12/chevdown 12×12
+          T "Advanced"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Checkbox {Show label=true, Label=Enable guides for 9-slice scaling, Value=Off, State=Default} 193×20 "Enable guides for 9-slice scaling"
+        F Group caption 450×28 [H gap 0]
+          T "ActionScript linkage"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Checkbox {Show label=true, Label=Export for ActionScript, Value=On, State=Default} 143×20 "Export for ActionScript"
+          I NF3/Checkbox {Show label=true, Label=Export in frame 1, Value=On, State=Default} 112×20 "Export in frame 1"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Identifier"
+          I NF3/Field {Stepper=false, Unit=px, Value=badge_symbol, Show unit=false, Show label=false, Label=X, State=Default} 322×28 "X" "badge_symbol" "px"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Class"
+          I NF3/Field {Stepper=false, Unit=px, Value=Badge, Show unit=false, Show label=false, Label=X, State=Default} 250×28 "X" "Badge" "px"
+          I NF3/Icon Button {Icon=1:9239, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9131, Kind=Ghost, State=Default} 28×28
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Base"
+          I NF3/Field {Stepper=false, Unit=px, Value=flash.display.MovieClip, Show unit=false, Show label=false, Label=X, State=Default} 250×28 "X" "flash.display.MovieClip" "px"
+          I NF3/Icon Button {Icon=1:9239, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9131, Kind=Ghost, State=Default} 28×28
+        F Group caption 450×28 [H gap 0]
+          T "Runtime shared library"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Checkbox {Show label=true, Label=Export for runtime sharing, Value=Off, State=Default} 160×20 "Export for runtime sharing"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Checkbox {Show label=true, Label=Import for runtime sharing, Value=Off, State=Default} 160×20 "Import for runtime sharing"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "URL"
+          I NF3/Field {Stepper=false, Show unit=false, Value=shared/ui.swf, Show label=false, Unit=px, Label=X, State=Disabled} 322×28 "X" "shared/ui.swf" "px"
+        F Group caption 450×28 [H gap 0]
+          T "Authortime sharing"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "File"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Source file…, Kind=Secondary, State=Default} 91×28 "Source file…"
+          T "—"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Symbol"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Symbol…, Kind=Secondary, State=Default} 75×28 "Symbol…"
+          T "—"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Checkbox {Show label=true, Label=Update automatically, Value=Off, State=Default} 135×20 "Update automatically"
+      F Footer 498×57 [H gap 8]
+        F Spacer 304×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Convert, Kind=Primary, State=Default} 67×28 "Convert"
+    F Type menu open 760×343 [H gap 12]
+      F Dialog / Convert to Symbol 500×343 [V gap 0]
+        I NF3/Dialog Header {Title=Convert to Symbol} 498×48 "Convert to Symbol"
+        F Body 498×236 [V gap 8]
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Name"
+            I NF3/Field {Unit=px, Show unit=false, Show label=false, Stepper=false, Value=Badge symbol, Label=X, State=Focus} 322×28 "X" "Badge symbol" "px"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Type"
+            I NF3/Select {Value=Movie clip, Show label=false, Label=Style, State=Open} 168×28 "Style" "Movie clip"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T ""
+            T "Movie clips have their own timeline and can be scripted."
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Folder"
+            I NF3/Select {Value=Library root, Show label=false, Label=Style, State=Default} 232×28 "Style" "Library root"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Registration"
+            F Registration picker 28×28 [V gap 3]
+              F Row 18×4 [H gap 3]
+              F Row 18×4 [H gap 3]
+              F Row 18×4 [H gap 3]
+            T "Centre"
+          F Section Header / Advanced 450×28 [H gap 4]
+            I NF2 Icon/12/chevright 12×12
+            T "Advanced"
+        F Footer 498×57 [H gap 8]
+          F Spacer 304×1 [H gap 0]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Convert, Kind=Primary, State=Default} 67×28 "Convert"
+      F Menu / Symbol type 248×88 [V gap 0]
+        I NF3/Menu Item {Shortcut=own timeline, Submenu=false, Checked=true, Show shortcut=true, Check column=true, Label=Movie clip, State=Default} 238×26 "Movie clip" "own timeline"
+        I NF3/Menu Item {Submenu=false, Checked=false, Check column=true, Show shortcut=true, Shortcut=up · over · down · hit, Label=Button, State=Hover} 238×26 "Button" "up · over · down · hit"
+        I NF3/Menu Item {Shortcut=synced to parent, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Graphic, State=Default} 238×26 "Graphic" "synced to parent"

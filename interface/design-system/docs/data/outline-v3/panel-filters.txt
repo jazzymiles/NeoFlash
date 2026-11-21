@@ -1,0 +1,144 @@
+F Panel / Filters 1536×845 [V gap 24]
+  F Board title 1100×58 [V gap 6]
+    T "Panel / Filters"
+    T "Built from the current panel code. One row per filter (enable checkbox · name · summary); the selected filter shows its parameters on the two-column grid; Add, Duplicate, Move up / down, Presets and options (⋯) and Remove in the footer. Frame targets add the Keyframe / Layer choice. The blur lock and the enable toggle became checkboxes; presets are submenus of ⋯."
+  F States 1456×683 [H gap 40]
+    F Movie clip, Drop shadow selected 288×683 [V gap 12]
+      T "Movie clip, Drop shadow selected"
+      F Panel / Filters 288×655 [V gap 0]
+        F Panel header 286×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Filters, Selected=Yes} 61×34 "Filters"
+          F Spacer 193×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+        F Type header 286×34 [H gap 8]
+          I NF2 Icon/16/movieclip 16×16
+          T "Movie clip"
+          T "Instance of "orbit""
+        I NF3/Section Header {Action icon=1:9260, Action=false, Title=Display, Open=Yes} 286×28 "Display"
+        F Section body 286×114 [V gap 8]
+          F Line 258×28 [H gap 8]
+            I NF3/Checkbox {Show label=true, Label=Visible, Value=On, State=Default} 59×20 "Visible"
+            I NF3/Checkbox {Show label=true, Label=Cache as bitmap, Value=Off, State=Default} 112×20 "Cache as bitmap"
+          I NF3/Select {Value=Normal, Show label=true, Label=Blend, State=Default} 258×28 "Blend" "Normal"
+          I NF3/Select {Value=Original, Show label=true, Label=Render, State=Default} 258×28 "Render" "Original"
+        I NF3/Section Header {Action icon=1:9260, Action=false, Title=Filters, Open=Yes} 286×28 "Filters"
+        F Filter row 286×26 [H gap 8]
+          I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+          T "Drop shadow"
+          T "5 px · 45°"
+        F Filter row 286×26 [H gap 8]
+          I NF3/Checkbox {Show label=false, Label=Option, Value=Off, State=Default} 16×20 "Option"
+          T "Glow"
+          T "Off · 8 px"
+        F Filter row 286×26 [H gap 8]
+          I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+          T "Adjust color"
+          T "Brightness +10"
+        F Section body 286×292 [V gap 8]
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=5, Show unit=true, Show label=true, Label=Blur X, State=Default} 125×28 "Blur X" "5" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=5, Show unit=true, Show label=true, Label=Blur Y, State=Default} 125×28 "Blur Y" "5" "px"
+          F Line 258×28 [H gap 8]
+            I NF3/Checkbox {Show label=true, Label=Lock Blur X and Blur Y, Value=On, State=Default} 139×20 "Lock Blur X and Blur Y"
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=°, Value=45, Show unit=true, Show label=true, Label=Angle, State=Default} 125×28 "Angle" "45" "°"
+            I NF3/Field {Stepper=false, Unit=px, Value=5, Show unit=true, Show label=true, Label=Distance, State=Default} 125×28 "Distance" "5" "px"
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=true, Label=Strength, State=Default} 136×28 "Strength" "100" "%"
+            I NF3/Slider {State=Default} 114×20
+          I NF3/Select {Value=High, Show label=true, Label=Quality, State=Default} 258×28 "Quality" "High"
+          F Line 258×28 [H gap 8]
+            I NF3/Swatch 18×18
+            I NF3/Field {Stepper=false, Unit=60 %, Value=000000, Show unit=true, Show label=true, Label=Shadow, State=Default} 232×28 "Shadow" "000000" "60 %"
+          F Line 258×48 [H gap 8]
+            I NF3/Checkbox {Show label=true, Label=Knockout, Value=Off, State=Default} 74×20 "Knockout"
+            I NF3/Checkbox {Show label=true, Label=Inner shadow, Value=Off, State=Default} 94×20 "Inner shadow"
+            I NF3/Checkbox {Show label=true, Label=Hide object, Value=Off, State=Default} 84×20 "Hide object"
+        F Panel footer 286×45 [H gap 8]
+          I NF3/Icon Button {Icon=1:9209, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=36:744, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9248, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9242, Kind=Ghost, State=Default} 28×28
+          F Spacer 42×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+    F Frame target 288×509 [V gap 12]
+      T "Frame target"
+      F Panel / Filters 288×481 [V gap 0]
+        F Panel header 286×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Filters, Selected=Yes} 61×34 "Filters"
+          F Spacer 193×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+        F Type header 286×34 [H gap 8]
+          I NF2 Icon/16/frame 16×16
+          T "Frame"
+          T "Layer "orbit" · Frame 1"
+        I NF3/Section Header {Action icon=1:9260, Action=false, Title=Display, Open=Yes} 286×28 "Display"
+        F Section body 286×114 [V gap 8]
+          F Line 258×28 [H gap 8]
+            I NF3/Checkbox {Show label=true, Label=Visible, Value=On, State=Default} 59×20 "Visible"
+            I NF3/Checkbox {Show label=true, Label=Cache as bitmap, Value=Off, State=Default} 112×20 "Cache as bitmap"
+          I NF3/Select {Value=Normal, Show label=true, Label=Blend, State=Default} 258×28 "Blend" "Normal"
+          I NF3/Select {Value=Original, Show label=true, Label=Render, State=Default} 258×28 "Render" "Original"
+        I NF3/Section Header {Action icon=1:9260, Action=false, Title=Filters, Open=Yes} 286×28 "Filters"
+        F Section body 286×42 [V gap 8]
+          F Line 258×28 [H gap 8]
+            T "Target"
+            F Segmented 136×28 [H gap 0]
+              I NF3/Segment {Label=Keyframe, Selected=Yes} 77×22 "Keyframe"
+              I NF3/Segment {Label=Layer, Selected=No} 53×22 "Layer"
+        F Filter row 286×26 [H gap 8]
+          I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+          T "Blur"
+          T "4 px · High"
+        F Section body 286×128 [V gap 8]
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=4, Show unit=true, Show label=true, Label=Blur X, State=Default} 125×28 "Blur X" "4" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=4, Show unit=true, Show label=true, Label=Blur Y, State=Default} 125×28 "Blur Y" "4" "px"
+          F Line 258×28 [H gap 8]
+            I NF3/Checkbox {Show label=true, Label=Lock Blur X and Blur Y, Value=On, State=Default} 139×20 "Lock Blur X and Blur Y"
+          I NF3/Select {Value=High, Show label=true, Label=Quality, State=Default} 258×28 "Quality" "High"
+        F Panel footer 286×45 [H gap 8]
+          I NF3/Icon Button {Icon=1:9209, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=36:744, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9248, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9242, Kind=Ghost, State=Default} 28×28
+          F Spacer 42×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+    F No selection 288×171 [V gap 12]
+      T "No selection"
+      F Panel / Filters 288×143 [V gap 0]
+        F Panel header 286×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Filters, Selected=Yes} 61×34 "Filters"
+          F Spacer 193×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+        F Empty state 286×107 [V gap 8]
+          I NF2 Icon/16/filter 16×16
+          T "No selection"
+          T "Select an object on the Stage"
+    F Add filter (+) 216×220 [V gap 12]
+      T "Add filter (+)"
+      F Menu / Add filter 216×192 [V gap 0]
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Drop shadow, State=Default} 206×26 "Drop shadow" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Blur, State=Default} 206×26 "Blur" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Glow, State=Default} 206×26 "Glow" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Bevel, State=Default} 206×26 "Bevel" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Gradient glow, State=Default} 206×26 "Gradient glow" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Gradient bevel, State=Default} 206×26 "Gradient bevel" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Adjust color, State=Default} 206×26 "Adjust color" "⌘K"
+    F Presets and options (⋯) 216×299 [V gap 12]
+      T "Presets and options (⋯)"
+      F Menu / Filter options 216×271 [V gap 0]
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Reset filter, State=Default} 206×26 "Reset filter" "⌘K"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Enable all, State=Default} 206×26 "Enable all" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Disable all, State=Default} 206×26 "Disable all" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Remove all, State=Default} 206×26 "Remove all" "⌘K"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Copy filters, State=Default} 206×26 "Copy filters" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Paste filters, State=Default} 206×26 "Paste filters" "⌘K"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Save preset, State=Default} 206×26 "Save preset" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=false, Label=Apply preset, State=Default} 206×26 "Apply preset" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=false, Label=Delete preset, State=Default} 206×26 "Delete preset" "⌘K"

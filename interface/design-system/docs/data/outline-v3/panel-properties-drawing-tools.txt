@@ -1,0 +1,185 @@
+F Panel / Properties — Drawing tools 1352×762 [V gap 24]
+  F Board title 900×58 [V gap 6]
+    T "Panel / Properties — Drawing tools"
+    T "Brush, Pencil, Deco and Spray brush as the Properties panel shows them for the active tool. Every slider sits under its labelled value with the range ends around it; pressure, tilt and hinting are checkboxes; the long Deco option is split into a checkbox and a hint."
+  F States 1272×600 [H gap 40]
+    F Panel / Properties 288×600 [V gap 0]
+      F Panel header 286×34 [H gap 0]
+        I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+        I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+        F Spacer 89×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+      F Type header 286×34 [H gap 8]
+        I NF2 Icon/16/brush 16×16
+        T "Brush tool"
+        T "Paints fills · B"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Brush mode, Open=Yes} 286×28 "Brush mode"
+      F Section body 286×76 [V gap 8]
+        I NF3/Select {Value=Paint normal, Show label=false, Label=Style, State=Default} 258×28 "Style" "Paint normal"
+        T "Normal · Fills · Behind · Selection · Inside — where paint lands relative to existing shapes."
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Shape and size, Open=Yes} 286×28 "Shape and size"
+      F Section body 286×186 [V gap 8]
+        F Brush shapes 258×28 [H gap 2]
+          F Brush shape / Round 28×28 [H gap 0]
+          F Brush shape / Oval H 28×28 [H gap 0]
+          F Brush shape / Oval V 28×28 [H gap 0]
+          F Brush shape / Square 28×28 [H gap 0]
+          F Brush shape / Rect H 28×28 [H gap 0]
+          F Brush shape / Rect V 28×28 [H gap 0]
+          F Brush shape / Slash 28×28 [H gap 0]
+          F Brush shape / Backslash 28×28 [H gap 0]
+        F Slider / Size 258×64 [V gap 8]
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=12, Show unit=true, Show label=true, Label=Size, State=Default} 136×28 "Size" "12" "px"
+            F Spacer 114×1 [H gap 0]
+          F Range 258×28 [H gap 8]
+            F Min 8×13 [H gap 0]
+              T "1"
+            I NF3/Slider {State=Default} 212×20
+            F Max 22×13 [H gap 0]
+              T "200"
+        F Slider / Smoothing 258×64 [V gap 8]
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=50, Show unit=false, Show label=true, Label=Smoothing, State=Default} 136×28 "Smoothing" "50" "px"
+            F Spacer 114×1 [H gap 0]
+          F Range 258×28 [H gap 8]
+            F Min 8×13 [H gap 0]
+              T "0"
+            I NF3/Slider {State=Default} 212×20
+            F Max 22×13 [H gap 0]
+              T "100"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Pen pressure and tilt, Open=Yes} 286×28 "Pen pressure and tilt"
+      F Section body 286×78 [V gap 8]
+        F Line 258×28 [H gap 8]
+          I NF2 Icon/16/pressure 16×16
+          I NF3/Checkbox {Show label=true, Label=Pressure controls size, Value=On, State=Default} 139×20 "Pressure controls size"
+        F Line 258×28 [H gap 8]
+          I NF2 Icon/16/tilt 16×16
+          I NF3/Checkbox {Show label=true, Label=Tilt controls angle, Value=Off, State=Default} 117×20 "Tilt controls angle"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Fill, Open=Yes} 286×28 "Fill"
+      F Section body 286×78 [V gap 8]
+        F Paint / Fill 258×28 [H gap 8]
+          I NF3/Swatch 18×18
+          I NF3/Field {Stepper=false, Unit=100 %, Value=FFCC00, Show unit=true, Show label=true, Label=Fill, State=Default} 232×28 "Fill" "FFCC00" "100 %"
+        F Line 258×28 [H gap 8]
+          I NF3/Checkbox {Show label=true, Label=Lock fill, Value=Off, State=Default} 64×20 "Lock fill"
+          F Spacer 77×1 [H gap 0]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Brush library…, Kind=Secondary, State=Default} 101×28 "Brush library…"
+    F Panel / Properties 288×424 [V gap 0]
+      F Panel header 286×34 [H gap 0]
+        I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+        I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+        F Spacer 89×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+      F Type header 286×34 [H gap 8]
+        I NF2 Icon/16/pencil 16×16
+        T "Pencil tool"
+        T "Draws strokes · Y"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Pencil mode, Open=Yes} 286×28 "Pencil mode"
+      F Section body 286×148 [V gap 8]
+        F Line 258×28 [H gap 8]
+          F Icon group 88×28 [H gap 2]
+            I NF3/Icon Button {Icon=95:842, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=95:845, Kind=Ghost, State=Selected} 28×28
+            I NF3/Icon Button {Icon=95:848, Kind=Ghost, State=Default} 28×28
+          T "Smooth"
+        T "Straighten turns strokes into lines and arcs, Smooth evens out the curve, Ink keeps the stroke as drawn."
+        F Slider / Smoothing 258×64 [V gap 8]
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=50, Show unit=false, Show label=true, Label=Smoothing, State=Default} 136×28 "Smoothing" "50" "px"
+            F Spacer 114×1 [H gap 0]
+          F Range 258×28 [H gap 8]
+            F Min 8×13 [H gap 0]
+              T "0"
+            I NF3/Slider {State=Default} 212×20
+            F Max 22×13 [H gap 0]
+              T "100"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Stroke, Open=Yes} 286×28 "Stroke"
+      F Section body 286×150 [V gap 8]
+        F Paint / Stroke 258×28 [H gap 8]
+          I NF3/Swatch 18×18
+          I NF3/Field {Stepper=false, Unit=100 %, Value=000000, Show unit=true, Show label=true, Label=Stroke, State=Default} 232×28 "Stroke" "000000" "100 %"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=true, Unit=px, Value=2, Show unit=true, Show label=true, Label=Width, State=Default} 125×28 "Width" "2" "px"
+          I NF3/Select {Value=Solid, Show label=true, Label=Style, State=Default} 125×28 "Style" "Solid"
+        F Pair 258×28 [H gap 8]
+          I NF3/Select {Value=Normal, Show label=true, Label=Scale, State=Default} 136×28 "Scale" "Normal"
+          F Cell 114×28 [H gap 0]
+            I NF3/Checkbox {Show label=true, Label=Stroke hinting, Value=On, State=Default} 97×20 "Stroke hinting"
+        F Pair 258×28 [H gap 8]
+          F Cap 125×28 [H gap 8]
+            T "Cap"
+            F Icon group 88×28 [H gap 2]
+              I NF3/Icon Button {Icon=36:677, Kind=Ghost, State=Default} 28×28
+              I NF3/Icon Button {Icon=36:681, Kind=Ghost, State=Selected} 28×28
+              I NF3/Icon Button {Icon=36:685, Kind=Ghost, State=Default} 28×28
+          F Join 125×28 [H gap 8]
+            T "Join"
+            F Icon group 88×28 [H gap 2]
+              I NF3/Icon Button {Icon=36:688, Kind=Ghost, State=Default} 28×28
+              I NF3/Icon Button {Icon=36:691, Kind=Ghost, State=Selected} 28×28
+              I NF3/Icon Button {Icon=36:694, Kind=Ghost, State=Default} 28×28
+    F Panel / Properties 288×354 [V gap 0]
+      F Panel header 286×34 [H gap 0]
+        I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+        I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+        F Spacer 89×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+      F Type header 286×34 [H gap 8]
+        I NF2 Icon/16/tool-deco 16×16
+        T "Deco tool"
+        T "Patterns from symbols"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Drawing effect, Open=Yes} 286×28 "Drawing effect"
+      F Section body 286×114 [V gap 8]
+        I NF3/Select {Value=Vine fill, Show label=false, Label=Style, State=Default} 258×28 "Style" "Vine fill"
+        F Line 258×28 [H gap 8]
+          F Label 80×14 [H gap 0]
+            T "Leaf"
+          T "Default shape"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Edit…, Kind=Ghost, State=Default} 54×28 "Edit…"
+        F Line 258×28 [H gap 8]
+          F Label 80×14 [H gap 0]
+            T "Flower"
+          T "Default shape"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Edit…, Kind=Ghost, State=Default} 54×28 "Edit…"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Advanced options, Open=Yes} 286×28 "Advanced options"
+      F Section body 286×114 [V gap 8]
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=true, Unit=°, Value=0, Show unit=true, Show label=true, Label=Branch, State=Default} 125×28 "Branch" "0" "°"
+          I NF3/Field {Stepper=true, Unit=%, Value=100, Show unit=true, Show label=true, Label=Scale, State=Default} 125×28 "Scale" "100" "%"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=true, Unit=px, Value=6, Show unit=true, Show label=true, Label=Segment, State=Default} 125×28 "Segment" "6" "px"
+          I NF3/Field {Stepper=true, Unit=f, Value=1, Show unit=true, Show label=true, Label=Step, State=Default} 125×28 "Step" "1" "f"
+        F Line 258×28 [H gap 8]
+          I NF3/Checkbox {Show label=true, Label=Animate pattern, Value=On, State=Default} 108×20 "Animate pattern"
+          T "one keyframe per step"
+    F Panel / Properties 288×394 [V gap 0]
+      F Panel header 286×34 [H gap 0]
+        I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+        I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+        F Spacer 89×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+      F Type header 286×34 [H gap 8]
+        I NF2 Icon/16/tool-spray 16×16
+        T "Spray brush"
+        T "Sprays a symbol or dots"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Symbol, Open=Yes} 286×28 "Symbol"
+      F Section body 286×190 [V gap 8]
+        F Line 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=leaf_mc, Show unit=false, Show label=true, Label=Symbol, State=Default} 194×28 "Symbol" "leaf_mc" "px"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Edit…, Kind=Secondary, State=Default} 56×28 "Edit…"
+        I NF3/Checkbox {Show label=true, Label=Use default shape (dots), Value=Off, State=Default} 153×20 "Use default shape (dots)"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=true, Unit=%, Value=100, Show unit=true, Show label=true, Label=W, State=Default} 125×28 "W" "100" "%"
+          I NF3/Field {Stepper=true, Unit=%, Value=100, Show unit=true, Show label=true, Label=H, State=Default} 125×28 "H" "100" "%"
+        I NF3/Checkbox {Show label=true, Label=Random scaling, Value=On, State=Default} 107×20 "Random scaling"
+        I NF3/Checkbox {Show label=true, Label=Rotate symbol, Value=On, State=Default} 99×20 "Rotate symbol"
+        I NF3/Checkbox {Show label=true, Label=Random rotation, Value=On, State=Default} 110×20 "Random rotation"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Brush, Open=Yes} 286×28 "Brush"
+      F Section body 286×78 [V gap 8]
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=true, Unit=px, Value=24, Show unit=true, Show label=true, Label=Width, State=Default} 125×28 "Width" "24" "px"
+          I NF3/Field {Stepper=true, Unit=px, Value=24, Show unit=true, Show label=true, Label=Height, State=Default} 125×28 "Height" "24" "px"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=true, Unit=°, Value=0, Show unit=true, Show label=true, Label=Angle, State=Default} 136×28 "Angle" "0" "°"
+          F Spacer 114×1 [H gap 0]

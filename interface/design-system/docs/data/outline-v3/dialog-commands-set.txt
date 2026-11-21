@@ -1,0 +1,31 @@
+F Dialog / Commands set 500×493 [V gap 24]
+  F Board title 420×58 [V gap 6]
+    T "Dialog / Commands set"
+    T "Small dialog (width/dialog-s) on the form grid: Set as three radio rows with the explanation under them, Action as a select."
+  F Dialog / Commands 380×331 [V gap 0]
+    I NF3/Dialog Header {Title=Commands} 378×48 "Commands"
+    F Body 378×224 [V gap 8]
+      F Form row 330×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Set"
+        I NF3/Radio {Label=User commands, Value=Off, State=Default} 109×20 "User commands"
+      F Form row 330×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T ""
+        I NF3/Radio {Label=Commands folder, Value=On, State=Default} 117×20 "Commands folder"
+      F Form row 330×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T ""
+        I NF3/Radio {Label=API examples, Value=Off, State=Default} 94×20 "API examples"
+      F Form row 330×52 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T ""
+        T "Commands are script files (.nfsl) run on the document. User commands live in your profile; the commands folder is shared by the team."
+      F Form row 330×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Action"
+        I NF3/Select {Value=Load (replace list), Show label=false, Label=Style, State=Default} 202×28 "Style" "Load (replace list)"
+    F Footer 378×57 [H gap 8]
+      F Spacer 211×1 [H gap 0]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=OK, Kind=Primary, State=Default} 40×28 "OK"

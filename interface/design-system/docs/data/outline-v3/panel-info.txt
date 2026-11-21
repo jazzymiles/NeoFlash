@@ -1,0 +1,30 @@
+F Panel / Info 500×468 [V gap 24]
+  F Board title 420×74 [V gap 6]
+    T "Panel / Info"
+    T "Read-only geometry as two equal columns (W · X, H · Y), the registration picker in its own row, Cursor and Colour readouts as sections so the monospaced values never truncate."
+  F Panel / Info 288×290 [V gap 0]
+    F Panel header 286×34 [H gap 0]
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=Info, Selected=Yes} 48×34 "Info"
+      F Spacer 206×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Section body 286×128 [V gap 8]
+      F Pair 258×28 [H gap 8]
+        I NF3/Field {Stepper=false, Show unit=false, Value=163.0, Show label=true, Unit=px, Label=W, State=Disabled} 125×28 "W" "163.0" "px"
+        I NF3/Field {Stepper=false, Show unit=false, Value=412.0, Show label=true, Unit=px, Label=X, State=Disabled} 125×28 "X" "412.0" "px"
+      F Pair 258×28 [H gap 8]
+        I NF3/Field {Stepper=false, Show unit=false, Value=163.0, Show label=true, Unit=px, Label=H, State=Disabled} 125×28 "H" "163.0" "px"
+        I NF3/Field {Stepper=false, Show unit=false, Value=160.0, Show label=true, Unit=px, Label=Y, State=Disabled} 125×28 "Y" "160.0" "px"
+      F Line 258×28 [H gap 8]
+        T "Registration"
+        F Registration picker 28×28 [V gap 3]
+          F Dots 15×3 [H gap 3]
+          F Dots 15×3 [H gap 3]
+          F Dots 15×3 [H gap 3]
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Cursor, Open=Yes} 286×28 "Cursor"
+    F Section body 286×28 [V gap 8]
+      T "X 486   Y 233"
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Colour, Open=Yes} 286×28 "Colour"
+    F Section body 286×42 [V gap 8]
+      F Line 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        T "R 91 G 140 B 255 A 100%"

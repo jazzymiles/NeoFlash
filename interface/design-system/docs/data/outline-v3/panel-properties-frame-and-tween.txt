@@ -1,0 +1,77 @@
+F Panel / Properties — Frame and tween 696×686 [V gap 24]
+  F Board title 600×74 [V gap 6]
+    T "Panel / Properties — Frame and tween"
+    T "Left: a frame with a classic tween (Frame, Tween, Frame actions as in the editor). Right: a motion tween span. “Edit…” / “Edit curve…” is the ease icon in the header of the section that holds Ease, so the Ease field keeps one place in both contexts."
+  F States 616×508 [H gap 40]
+    F Panel / Properties 288×508 [V gap 0]
+      F Panel header 286×34 [H gap 0]
+        I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+        I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+        F Spacer 89×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+      F Type header 286×34 [H gap 8]
+        I NF2 Icon/16/frame 16×16
+        T "Frame"
+        T "Layer “hand” · 1–24"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Frame, Open=Yes} 286×28 "Frame"
+      F Section body 286×78 [V gap 8]
+        I NF3/Field {Stepper=false, Unit=px, Value=intro, Show unit=false, Show label=true, Label=Name, State=Default} 258×28 "Name" "intro" "px"
+        I NF3/Select {Value=Name, Show label=true, Label=Label type, State=Default} 258×28 "Label type" "Name"
+      I NF3/Section Header {Action icon=29:489, Action=true, Title=Tween, Open=Yes} 286×28 "Tween"
+      F Section body 286×150 [V gap 8]
+        F Line 258×28 [H gap 8]
+          I NF3/Select {Value=Classic, Show label=true, Label=Tween, State=Default} 197×28 "Tween" "Classic"
+          I NF3/Checkbox {Show label=true, Label=Scale, Value=On, State=Default} 53×20 "Scale"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=(in), Value=−40, Show unit=true, Show label=true, Label=Ease, State=Default} 125×28 "Ease" "−40" "(in)"
+          I NF3/Select {Value=Flash ease, Show label=false, Label=Style, State=Default} 125×28 "Style" "Flash ease"
+        F Pair 258×28 [H gap 8]
+          I NF3/Select {Value=CW, Show label=true, Label=Rotate, State=Default} 125×28 "Rotate" "CW"
+          I NF3/Field {Stepper=true, Unit=times, Value=1, Show unit=true, Show label=false, Label=X, State=Default} 125×28 "X" "1" "times"
+        F Line 258×28 [H gap 8]
+          I NF3/Checkbox {Show label=true, Label=Orient to path, Value=On, State=Default} 97×20 "Orient to path"
+          I NF3/Checkbox {Show label=true, Label=Sync, Value=On, State=Default} 50×20 "Sync"
+          I NF3/Checkbox {Show label=true, Label=Snap, Value=Off, State=Default} 51×20 "Snap"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Frame actions, Open=Yes} 286×28 "Frame actions"
+      F Section body 286×70 [V gap 8]
+        F Line 258×28 [H gap 8]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Frame script…, Kind=Secondary, State=Default} 101×28 "Frame script…"
+        I NF3/Checkbox {Show label=true, Label=Include frame scripts, Value=On, State=Default} 134×20 "Include frame scripts"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Sound, Open=No} 286×28 "Sound"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Video, Open=No} 286×28 "Video"
+    F Panel / Properties 288×470 [V gap 0]
+      F Panel header 286×34 [H gap 0]
+        I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+        I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+        F Spacer 89×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+      F Type header 286×34 [H gap 8]
+        I NF2 Icon/16/tween-motion 16×16
+        T "Motion tween"
+        T "Layer “hand” · 1–60"
+      I NF3/Section Header {Action icon=29:489, Action=true, Title=Ease, Open=Yes} 286×28 "Ease"
+      F Section body 286×42 [V gap 8]
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=(in), Value=−40, Show unit=true, Show label=true, Label=Ease, State=Default} 136×28 "Ease" "−40" "(in)"
+          F Spacer 114×1 [H gap 0]
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Rotation, Open=Yes} 286×28 "Rotation"
+      F Section body 286×70 [V gap 8]
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=true, Unit=×, Value=1, Show unit=true, Show label=true, Label=Rotate, State=Default} 125×28 "Rotate" "1" "×"
+          I NF3/Select {Value=CW, Show label=true, Label=Direction, State=Default} 125×28 "Direction" "CW"
+        I NF3/Checkbox {Show label=true, Label=Orient to path, Value=On, State=Default} 97×20 "Orient to path"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Path, Open=Yes} 286×28 "Path"
+      F Section body 286×114 [V gap 8]
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=true, Unit=px, Value=412.0, Show unit=false, Show label=true, Label=X, State=Default} 125×28 "X" "412.0" "px"
+          I NF3/Field {Stepper=true, Unit=px, Value=160.0, Show unit=false, Show label=true, Label=Y, State=Default} 125×28 "Y" "160.0" "px"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=true, Unit=px, Value=220.0, Show unit=false, Show label=true, Label=W, State=Default} 125×28 "W" "220.0" "px"
+          I NF3/Field {Stepper=true, Unit=px, Value=120.0, Show unit=false, Show label=true, Label=H, State=Default} 125×28 "H" "120.0" "px"
+        F Line 258×28 [H gap 8]
+          I NF3/Checkbox {Show label=true, Label=Show path, Value=On, State=Default} 80×20 "Show path"
+          I NF3/Checkbox {Show label=true, Label=Show frame dots, Value=On, State=Default} 113×20 "Show frame dots"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Options, Open=Yes} 286×28 "Options"
+      F Section body 286×62 [V gap 8]
+        I NF3/Checkbox {Show label=true, Label=Sync graphic symbols, Value=On, State=Default} 139×20 "Sync graphic symbols"
+        I NF3/Checkbox {Show label=true, Label=Snap to motion guide, Value=Off, State=Default} 135×20 "Snap to motion guide"

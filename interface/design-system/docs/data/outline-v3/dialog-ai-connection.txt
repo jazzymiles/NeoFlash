@@ -1,0 +1,105 @@
+F Dialog / AI connection 1120×677 [V gap 24]
+  F Board title 1000×58 [V gap 6]
+    T "Dialog / AI connection"
+    T "Prefix-in-field rows became the dialog form grid; the Advanced group is always shown, so the dialog keeps one layout for every provider. A local provider disables the API key (“Not required”); the test result sits next to “Test connection” as an inline message."
+  F States 1040×515 [H gap 40]
+    F Cloud provider 500×515 [V gap 12]
+      T "Cloud provider"
+      F Dialog / AI connection 500×487 [V gap 0]
+        I NF3/Dialog Header {Title=AI connection} 498×48 "AI connection"
+        F Body 498×380 [V gap 8]
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Provider"
+            I NF3/Select {Value=Anthropic, Show label=false, Label=Style, State=Default} 232×28 "Style" "Anthropic"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Name"
+            I NF3/Field {Stepper=false, Unit=px, Value=Work — Anthropic, Show unit=false, Show label=false, Label=X, State=Default} 322×28 "X" "Work — Anthropic" "px"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Base URL"
+            I NF3/Field {Stepper=false, Unit=px, Value=https://api.anthropic.com, Show unit=false, Show label=false, Label=X, State=Default} 322×28 "X" "https://api.anthropic.com" "px"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Model"
+            I NF3/Field {Stepper=false, Unit=px, Value=claude-sonnet-5-5, Show unit=false, Show label=false, Label=X, State=Default} 232×28 "X" "claude-sonnet-5-5" "px"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "API key"
+            I NF3/Field {Stepper=false, Unit=px, Value=••••••••••••••••••••, Show unit=false, Show label=false, Label=X, State=Default} 322×28 "X" "••••••••••••••••••••" "px"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T ""
+            T "Stored in the system keychain. The key is never shown again and never saved with the project."
+          F Group caption 450×28 [H gap 0]
+            T "Advanced"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Timeout"
+            I NF3/Field {Stepper=false, Unit=s, Value=15, Show unit=true, Show label=false, Label=X, State=Default} 104×28 "X" "15" "s"
+            I NF3/Field {Stepper=false, Unit=px, Value=2, Show unit=false, Show label=true, Label=Retries, State=Default} 104×28 "Retries" "2" "px"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Options"
+            I NF3/Checkbox {Show label=true, Label=Streaming responses, Value=On, State=Default} 134×20 "Streaming responses"
+            I NF3/Checkbox {Show label=true, Label=Image input, Value=Off, State=Default} 86×20 "Image input"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T ""
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Test connection, Kind=Secondary, State=Default} 111×28 "Test connection"
+            I NF3/Inline Message {Text=Connected · claude-sonnet-5-5, Tone=Success} 203×16 "Connected · claude-sonnet-5-5"
+        F Footer 498×57 [H gap 8]
+          F Spacer 321×1 [H gap 0]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Save, Kind=Primary, State=Default} 50×28 "Save"
+    F Local provider, failed test 500×515 [V gap 12]
+      T "Local provider, failed test"
+      F Dialog / AI connection 500×487 [V gap 0]
+        I NF3/Dialog Header {Title=AI connection} 498×48 "AI connection"
+        F Body 498×380 [V gap 8]
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Provider"
+            I NF3/Select {Value=Local (OpenAI-compatible), Show label=false, Label=Style, State=Default} 232×28 "Style" "Local (OpenAI-compatible)"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Name"
+            I NF3/Field {Stepper=false, Unit=px, Value=Local Ollama, Show unit=false, Show label=false, Label=X, State=Default} 322×28 "X" "Local Ollama" "px"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Base URL"
+            I NF3/Field {Stepper=false, Unit=px, Value=http://localhost:11434/v1, Show unit=false, Show label=false, Label=X, State=Default} 322×28 "X" "http://localhost:11434/v1" "px"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Model"
+            I NF3/Field {Stepper=false, Unit=px, Value=llama3.1, Show unit=false, Show label=false, Label=X, State=Default} 232×28 "X" "llama3.1" "px"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "API key"
+            I NF3/Field {Stepper=false, Show unit=false, Value=Not required, Show label=false, Unit=px, Label=X, State=Disabled} 322×28 "X" "Not required" "px"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T ""
+            T "A local provider may use http:// on this computer. Cloud providers must use https://."
+          F Group caption 450×28 [H gap 0]
+            T "Advanced"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Timeout"
+            I NF3/Field {Stepper=false, Unit=s, Value=15, Show unit=true, Show label=false, Label=X, State=Default} 104×28 "X" "15" "s"
+            I NF3/Field {Stepper=false, Unit=px, Value=2, Show unit=false, Show label=true, Label=Retries, State=Default} 104×28 "Retries" "2" "px"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Options"
+            I NF3/Checkbox {Show label=true, Label=Streaming responses, Value=On, State=Default} 134×20 "Streaming responses"
+            I NF3/Checkbox {Show label=true, Label=Image input, Value=Off, State=Default} 86×20 "Image input"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T ""
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Test connection, Kind=Secondary, State=Default} 111×28 "Test connection"
+            I NF3/Inline Message {Text=Provider unreachable (offline): connection refused, Tone=Error} 203×26 "Provider unreachable (offline): connection refused"
+        F Footer 498×57 [H gap 8]
+          F Spacer 321×1 [H gap 0]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Save, Kind=Primary, State=Default} 50×28 "Save"

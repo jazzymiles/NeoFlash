@@ -1,0 +1,37 @@
+F Screen / Test Movie window 880×826 [V gap 24]
+  F Board title 800×58 [V gap 6]
+    T "Screen / Test Movie window"
+    T "Window frame: title row with the performance badge, Open in browser and the Output drawer toggle; the stage; one transport row with the frame / time status, Speed and Restart; the output drawer."
+  F Window / Test Movie 800×664 [V gap 0]
+    F Title bar 798×40 [H gap 8]
+      T "Ideas in motion — Test Movie"
+      F Spacer 370×1 [H gap 0]
+      I NF3/Badge {Label=24 / 24 fps · 38 MB, Tone=Neutral} 103×20 "24 / 24 fps · 38 MB"
+      I NF3/Icon Button {Icon=62:860, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=17:534, Kind=Ghost, State=Selected} 28×28
+    F Stage area 798×498 [H gap 0]
+      F Stage 720×450
+        T "Ideas in motion."
+        T "One symbol. Many possibilities."
+        T "A familiar timeline. A modern canvas."
+    F Transport 798×38 [H gap 8]
+      I NF3/Icon Button {Icon=1:9196, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=1:9203, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=1:9192, Kind=Outlined, State=Selected} 28×28
+      I NF3/Icon Button {Icon=1:9206, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=1:9200, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=1:9284, Kind=Ghost, State=Selected} 28×28
+      I NF3/Progress 183×4
+      T "Frame 30 / 120 · 00:01.21"
+      I NF3/Select {Value=1×, Show label=true, Label=Speed, State=Default} 168×28 "Speed" "1×"
+      I NF3/Icon Button {Icon=95:823, Kind=Ghost, State=Default} 28×28
+    F Output drawer 798×86 [V gap 0]
+      F Log row 798×26 [H gap 8]
+        I NF2 Icon/16/info 16×16
+        T "trace: NeoFlash: the stage is ready"
+      F Log row 798×26 [H gap 8]
+        I NF2 Icon/16/info 16×16
+        T "trace: animator started (60 frames)"
+      F Log row 798×26 [H gap 8]
+        I NF2 Icon/16/warning 16×16
+        T "Font "Inter Semi Bold" not embedded — fallback"

@@ -1,0 +1,105 @@
+F Dialog / Export audio 1120×733 [V gap 24]
+  F Board title 900×58 [V gap 6]
+    T "Dialog / Export audio"
+    T "Single-column form at width/dialog-m: the four unlabelled format selects became two labelled rows, Normalize is a checkbox. With no sounds the waveform strip keeps its height and shows the empty state, the summary reads “No sounds” and Export is disabled."
+  F States 1040×571 [H gap 40]
+    F Timeline mix 500×571 [V gap 12]
+      T "Timeline mix"
+      F Dialog / Export audio 500×543 [V gap 0]
+        I NF3/Dialog Header {Title=Export audio} 498×48 "Export audio"
+        F Body 498×436 [V gap 8]
+          F Line 450×28 [H gap 8]
+            F Segmented 202×28 [H gap 0]
+              I NF3/Segment {Label=WAV, Selected=No} 49×22 "WAV"
+              I NF3/Segment {Label=MP3, Selected=Yes} 50×22 "MP3"
+              I NF3/Segment {Label=OGG, Selected=No} 49×22 "OGG"
+              I NF3/Segment {Label=AAC, Selected=No} 48×22 "AAC"
+          F Waveform 450×48 [H gap 0]
+          F Group caption 450×28 [H gap 0]
+            T "Source"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Sound"
+            I NF3/Select {Value=Timeline mix (all sound layers), Show label=false, Label=Style, State=Default} 322×28 "Style" "Timeline mix (all sound layers)"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Range"
+            I NF3/Select {Value=Whole movie, Show label=false, Label=Style, State=Default} 168×28 "Style" "Whole movie"
+          F Group caption 450×28 [H gap 0]
+            T "Format"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Sample rate"
+            I NF3/Select {Value=44.1 kHz, Show label=false, Label=Style, State=Default} 104×28 "Style" "44.1 kHz"
+            I NF3/Select {Value=16-bit, Show label=false, Label=Style, State=Default} 104×28 "Style" "16-bit"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Channels"
+            I NF3/Select {Value=Stereo, Show label=false, Label=Style, State=Default} 104×28 "Style" "Stereo"
+            I NF3/Select {Value=192 kbps CBR, Show label=false, Label=Style, State=Default} 168×28 "Style" "192 kbps CBR"
+          F Group caption 450×28 [H gap 0]
+            T "Processing"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T ""
+            I NF3/Checkbox {Show label=true, Label=Normalize to −1 dB, Value=On, State=Default} 123×20 "Normalize to −1 dB"
+            I NF3/Checkbox {Show label=true, Label=Trim silence, Value=Off, State=Default} 87×20 "Trim silence"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Fade out"
+            I NF3/Field {Stepper=true, Unit=s, Value=1.0, Show unit=true, Show label=false, Label=X, State=Default} 104×28 "X" "1.0" "s"
+        F Footer 498×57 [H gap 8]
+          T "music.mp3 + sfx · 00:32.4 · ~ 760 kB"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+          I NF3/Button {Icon=1:9278, Show icon=true, Label=Export, Kind=Primary, State=Default} 83×28 "Export"
+    F No sounds 500×571 [V gap 12]
+      T "No sounds"
+      F Dialog / Export audio 500×543 [V gap 0]
+        I NF3/Dialog Header {Title=Export audio} 498×48 "Export audio"
+        F Body 498×436 [V gap 8]
+          F Line 450×28 [H gap 8]
+            F Segmented 202×28 [H gap 0]
+              I NF3/Segment {Label=WAV, Selected=No} 49×22 "WAV"
+              I NF3/Segment {Label=MP3, Selected=Yes} 50×22 "MP3"
+              I NF3/Segment {Label=OGG, Selected=No} 49×22 "OGG"
+              I NF3/Segment {Label=AAC, Selected=No} 48×22 "AAC"
+          F Empty state 450×48 [V gap 2]
+            I NF2 Icon/16/sound 16×16
+            T "This document has no sounds to export."
+          F Group caption 450×28 [H gap 0]
+            T "Source"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Sound"
+            I NF3/Select {Value=Timeline mix (all sound layers), Show label=false, Label=Style, State=Default} 322×28 "Style" "Timeline mix (all sound layers)"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Range"
+            I NF3/Select {Value=Whole movie, Show label=false, Label=Style, State=Default} 168×28 "Style" "Whole movie"
+          F Group caption 450×28 [H gap 0]
+            T "Format"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Sample rate"
+            I NF3/Select {Value=44.1 kHz, Show label=false, Label=Style, State=Default} 104×28 "Style" "44.1 kHz"
+            I NF3/Select {Value=16-bit, Show label=false, Label=Style, State=Default} 104×28 "Style" "16-bit"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Channels"
+            I NF3/Select {Value=Stereo, Show label=false, Label=Style, State=Default} 104×28 "Style" "Stereo"
+            I NF3/Select {Value=192 kbps CBR, Show label=false, Label=Style, State=Default} 168×28 "Style" "192 kbps CBR"
+          F Group caption 450×28 [H gap 0]
+            T "Processing"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T ""
+            I NF3/Checkbox {Show label=true, Label=Normalize to −1 dB, Value=On, State=Default} 123×20 "Normalize to −1 dB"
+            I NF3/Checkbox {Show label=true, Label=Trim silence, Value=Off, State=Default} 87×20 "Trim silence"
+          F Form row 450×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Fade out"
+            I NF3/Field {Stepper=true, Unit=s, Value=1.0, Show unit=true, Show label=false, Label=X, State=Default} 104×28 "X" "1.0" "s"
+        F Footer 498×57 [H gap 8]
+          T "No sounds"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+          I NF3/Button {Icon=1:9278, Show icon=true, Label=Export, Kind=Primary, State=Disabled} 83×28 "Export"

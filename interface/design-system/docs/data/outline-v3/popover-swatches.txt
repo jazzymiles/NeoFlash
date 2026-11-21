@@ -1,0 +1,155 @@
+F Popover / Swatches 500×577 [V gap 24]
+  F Board title 420×42 [V gap 6]
+    T "Popover / Swatches"
+    T "The same sections as the Swatches panel tab, without Used colours."
+  F Popover / Swatches 288×431 [V gap 0]
+    F Section body 286×56 [V gap 8]
+      F Line 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=00FFCC, Show unit=true, Show label=true, Label=#, State=Default} 140×28 "#" "00FFCC" "100 %"
+        F Colour actions 84×28 [H gap 0]
+          I NF3/Icon Button {Icon=29:516, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9146, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=29:520, Kind=Ghost, State=Default} 28×28
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Recent, Open=Yes} 286×28 "Recent"
+    F Section body 286×32 [V gap 8]
+      F Swatch row 227×18 [H gap 1]
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Document, Open=Yes} 286×28 "Document"
+    F Section body 286×32 [V gap 8]
+      F Swatch row 132×18 [H gap 1]
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        F Add swatch 18×18 [H gap 0]
+          I NF2 Icon/12/plus 12×12
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Palette, Open=Yes} 286×28 "Palette"
+    F Section body 286×165 [V gap 8]
+      F Palette 227×151 [V gap 1]
+        F Swatch row 227×18 [H gap 1]
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+        F Swatch row 227×18 [H gap 1]
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+        F Swatch row 227×18 [H gap 1]
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+        F Swatch row 227×18 [H gap 1]
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+        F Swatch row 227×18 [H gap 1]
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+        F Swatch row 227×18 [H gap 1]
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+        F Swatch row 227×18 [H gap 1]
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+        F Swatch row 227×18 [H gap 1]
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Gradients, Open=Yes} 286×28 "Gradients"
+    F Section body 286×32 [V gap 8]
+      F Gradients 148×18 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18

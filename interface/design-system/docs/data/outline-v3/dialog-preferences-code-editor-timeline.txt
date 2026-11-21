@@ -1,0 +1,263 @@
+F Dialog / Preferences — Code editor, Timeline 1600×762 [V gap 24]
+  F Board title 1100×58 [V gap 6]
+    T "Dialog / Preferences — Code editor, Timeline"
+    T "Same shell and form grid as General. Code editor: Size and Line share the Font row, the 13 syntax colours are one compact two-column list beside the sample, Reset colours sits under the list. Options are checkboxes; controls that are not available yet stay in place, disabled."
+  F Row 1520×600 [H gap 40]
+    F Dialog / Preferences 740×600 [V gap 0]
+      I NF3/Dialog Header {Title=Preferences} 738×48 "Preferences"
+      F Dialog body 738×493 [H gap 0]
+        F Sidebar 168×493 [V gap 1]
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/settings 16×16
+            T "General"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/code 16×16
+            T "Code editor"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/film 16×16
+            T "Timeline"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/pen 16×16
+            T "Drawing"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/text 16×16
+            T "Text"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/paste 16×16
+            T "Clipboard"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/keyboard 16×16
+            T "Shortcuts"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/upload 16×16
+            T "Publish"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/wand 16×16
+            T "AI"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/history 16×16
+            T "Updates"
+        F Page 570×493 [V gap 8]
+          F Group caption 522×28 [H gap 0]
+            T "Font"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Font"
+            I NF3/Select {Value=Roboto Mono, Show label=false, Label=Style, State=Default} 168×28 "Style" "Roboto Mono"
+            I NF3/Field {Stepper=true, Unit=px, Value=13, Show unit=false, Show label=true, Label=Size, State=Default} 104×28 "Size" "13" "px"
+            I NF3/Field {Stepper=true, Unit=px, Value=1.6, Show unit=false, Show label=true, Label=Line, State=Default} 104×28 "Line" "1.6" "px"
+          F Group caption 522×28 [H gap 0]
+            T "Editing"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Display"
+            I NF3/Checkbox {Show label=true, Label=Line numbers, Value=On, State=Default} 95×20 "Line numbers"
+            I NF3/Checkbox {Show label=true, Label=Word wrap, Value=Off, State=Default} 81×20 "Word wrap"
+            I NF3/Checkbox {Show label=true, Label=Highlight current line, Value=On, State=Default} 132×20 "Highlight current line"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Typing"
+            I NF3/Checkbox {Show label=true, Label=Auto-close brackets, Value=On, State=Default} 129×20 "Auto-close brackets"
+            I NF3/Checkbox {Show label=true, Label=Format on save, Value=On, State=Default} 104×20 "Format on save"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Hints"
+            I NF3/Checkbox {Show label=true, Label=Code hints, Value=On, State=Default} 81×20 "Code hints"
+            T "Delay"
+            I NF3/Slider {State=Default} 168×20
+            T "300 ms"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Indentation"
+            I NF3/Select {Value=Tab: 4 spaces, Show label=false, Label=Style, State=Default} 168×28 "Style" "Tab: 4 spaces"
+          F Group caption 522×28 [H gap 0]
+            T "Colour scheme"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Scheme"
+            I NF3/Select {Show label=false, Value=NF2 Night, Label=Style, State=Disabled} 168×28 "Style" "NF2 Night"
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Duplicate, Kind=Ghost, State=Disabled} 74×28 "Duplicate"
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Import…, Kind=Ghost, State=Disabled} 68×28 "Import…"
+          F Syntax colours 522×174 [H gap 14]
+            F Tokens 276×174 [V gap 8]
+              F Token grid 276×138 [H gap 14]
+                F Column 131×138 [V gap 2]
+                  F Token / Keyword 131×18 [H gap 8]
+                    I NF3/Swatch 18×18
+                    T "Keyword"
+                    T "C6A0F6"
+                  F Token / Type / class 131×18 [H gap 8]
+                    I NF3/Swatch 18×18
+                    T "Type / class"
+                    T "8BD5CA"
+                  F Token / Function 131×18 [H gap 8]
+                    I NF3/Swatch 18×18
+                    T "Function"
+                    T "8AADF4"
+                  F Token / String 131×18 [H gap 8]
+                    I NF3/Swatch 18×18
+                    T "String"
+                    T "A6DA95"
+                  F Token / Number 131×18 [H gap 8]
+                    I NF3/Swatch 18×18
+                    T "Number"
+                    T "F5A97F"
+                  F Token / Comment 131×18 [H gap 8]
+                    I NF3/Swatch 18×18
+                    T "Comment"
+                    T "6E7891"
+                  F Token / XML tag 131×18 [H gap 8]
+                    I NF3/Swatch 18×18
+                    T "XML tag"
+                    T "7DC4E4"
+                F Column 131×118 [V gap 2]
+                  F Token / Attribute 131×18 [H gap 8]
+                    I NF3/Swatch 18×18
+                    T "Attribute"
+                    T "EED49F"
+                  F Token / Error 131×18 [H gap 8]
+                    I NF3/Swatch 18×18
+                    T "Error"
+                    T "FF6B6B"
+                  F Token / Warning 131×18 [H gap 8]
+                    I NF3/Swatch 18×18
+                    T "Warning"
+                    T "F5B94A"
+                  F Token / Breakpoint 131×18 [H gap 8]
+                    I NF3/Swatch 18×18
+                    T "Breakpoint"
+                    T "FF9A5C"
+                  F Token / Selection 131×18 [H gap 8]
+                    I NF3/Swatch 18×18
+                    T "Selection"
+                    T "2A3A63"
+                  F Token / Current line 131×18 [H gap 8]
+                    I NF3/Swatch 18×18
+                    T "Current line"
+                    T "171C27"
+              F Token actions 96×28 [H gap 8]
+                I NF3/Button {Icon=1:9209, Show icon=false, Label=Reset colours, Kind=Ghost, State=Default} 96×28 "Reset colours"
+            F Sample 232×131 [V gap 8]
+              F Preview 232×84 [V gap 0]
+                F Line 1 230×14 [H gap 8]
+                  F Gutter 30×12 [H gap 2]
+                    T "1"
+                  T "// orbit setup"
+                F Line 2 230×14 [H gap 8]
+                  F Gutter 30×12 [H gap 2]
+                    I NF2 Icon/12/breakpoint 12×12
+                    T "2"
+                  T "var speed:Number = 2.5;"
+                F Line 3 230×14 [H gap 8]
+                  F Gutter 30×12 [H gap 2]
+                    T "3"
+                  T "animator.play();"
+                F Line 4 230×14 [H gap 8]
+                  F Gutter 30×12 [H gap 2]
+                    I NF2 Icon/12/warning 12×12
+                    T "4"
+                  T "<Keyframe index="0"/>"
+                F Line 5 230×14 [H gap 8]
+                  F Gutter 30×12 [H gap 2]
+                    I NF2 Icon/12/error 12×12
+                    T "5"
+                  T "mc.rotation += speed;"
+              T "Red is reserved for errors by default. Click any swatch to customise; Reset colours restores theme defaults."
+      F Footer 738×57 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Reset to defaults, Kind=Ghost, State=Default} 114×28 "Reset to defaults"
+        F Spacer 439×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Save, Kind=Primary, State=Default} 50×28 "Save"
+    F Dialog / Preferences 740×600 [V gap 0]
+      I NF3/Dialog Header {Title=Preferences} 738×48 "Preferences"
+      F Dialog body 738×493 [H gap 0]
+        F Sidebar 168×493 [V gap 1]
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/settings 16×16
+            T "General"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/code 16×16
+            T "Code editor"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/film 16×16
+            T "Timeline"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/pen 16×16
+            T "Drawing"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/text 16×16
+            T "Text"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/paste 16×16
+            T "Clipboard"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/keyboard 16×16
+            T "Shortcuts"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/upload 16×16
+            T "Publish"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/wand 16×16
+            T "AI"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/history 16×16
+            T "Updates"
+        F Page 570×493 [V gap 8]
+          F Group caption 522×28 [H gap 0]
+            T "Selection & view"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Selection"
+            I NF3/Checkbox {Show label=true, Label=Span-based selection, Value=On, State=Default} 138×20 "Span-based selection"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Frame view"
+            I NF3/Select {Value=Normal, Show label=false, Label=Style, State=Default} 168×28 "Style" "Normal"
+            I NF3/Select {Value=Row: Normal, Show label=false, Label=Style, State=Default} 168×28 "Style" "Row: Normal"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Ruler"
+            I NF3/Checkbox {Show label=true, Label=Show seconds, Value=On, State=Default} 100×20 "Show seconds"
+            I NF3/Checkbox {Show label=true, Label=Snap playhead to keyframes, Value=Off, State=Default} 172×20 "Snap playhead to keyframes"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Scenes"
+            I NF3/Checkbox {Show label=true, Label=Named anchor on each scene, Value=Off, State=Disabled} 179×20 "Named anchor on each scene"
+          F Group caption 522×28 [H gap 0]
+            T "Onion skin defaults"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Range"
+            I NF3/Field {Stepper=true, Unit=px, Value=3, Show unit=false, Show label=true, Label=Before, State=Default} 104×28 "Before" "3" "px"
+            I NF3/Field {Stepper=true, Unit=px, Value=3, Show unit=false, Show label=true, Label=After, State=Default} 104×28 "After" "3" "px"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Tint"
+            T "Before"
+            I NF3/Swatch 18×18
+            T "After"
+            I NF3/Swatch 18×18
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Opacity falloff"
+            I NF3/Slider {State=Default} 168×20
+            T "70 → 15 %"
+          F Group caption 522×28 [H gap 0]
+            T "Animation"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Auto keyframe"
+            I NF3/Checkbox {Show label=true, Label=Create keyframe on transform, Value=On, State=Default} 180×20 "Create keyframe on transform"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Default ease"
+            I NF3/Select {Value=Ease In-Out, Show label=false, Label=Style, State=Default} 168×28 "Style" "Ease In-Out"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Tween on drag"
+            I NF3/Select {Value=Classic tween, Show label=false, Label=Style, State=Default} 168×28 "Style" "Classic tween"
+      F Footer 738×57 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Reset to defaults, Kind=Ghost, State=Default} 114×28 "Reset to defaults"
+        F Spacer 439×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Save, Kind=Primary, State=Default} 50×28 "Save"

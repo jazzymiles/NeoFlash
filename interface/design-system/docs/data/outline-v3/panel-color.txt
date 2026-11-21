@@ -1,0 +1,131 @@
+F Panel / Color 1024×752 [V gap 24]
+  F Board title 860×74 [V gap 6]
+    T "Panel / Color"
+    T "Three fill types side by side: the header, the Fill / Stroke wells with Default, None and Swap, the Type select and the Stroke section never move. RGB / HSB and #HEX with alpha share one row; R G B are three equal fields. Gradient: Overflow as an icon group, Linear RGB as a checkbox under the gradient bar. Bitmap fill: Lock fill is a checkbox."
+  F States 944×574 [H gap 40]
+    F Solid colour 288×466 [V gap 12]
+      T "Solid colour"
+      F Panel / Color 288×438 [V gap 0]
+        F Panel header 286×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Color, Selected=Yes} 57×34 "Color"
+          I NF3/Tab {Icon=1:9185, Show icon=false, Label=Swatches, Selected=No} 80×34 "Swatches"
+          F Spacer 117×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+        F Section body 286×296 [V gap 8]
+          F Wells 258×32 [H gap 8]
+            F Colour well 64×28 [H gap 8]
+              I NF2 Icon/16/bucket 16×16
+              I NF3/Swatch 18×18
+            F Colour well 64×28 [H gap 8]
+              I NF2 Icon/16/pencil 16×16
+              I NF3/Swatch 18×18
+            F Spacer 10×1 [H gap 0]
+            F Colour actions 96×32 [H gap 0]
+              I NF3/Tool Button {Icon 16=418:5920, Flyout=false, Icon 20=17:273, State=Default} 32×32
+              I NF3/Tool Button {Icon 16=418:5924, Flyout=false, Icon 20=17:277, State=Default} 32×32
+              I NF3/Tool Button {Icon 16=418:5928, Flyout=false, Icon 20=17:281, State=Default} 32×32
+          I NF3/Select {Value=Solid colour, Show label=true, Label=Type, State=Default} 258×28 "Type" "Solid colour"
+          F Colour picker 258×120 [H gap 6]
+          F Line 258×28 [H gap 8]
+            F Segmented 102×28 [H gap 0]
+              I NF3/Segment {Label=RGB, Selected=Yes} 49×22 "RGB"
+              I NF3/Segment {Label=HSB, Selected=No} 47×22 "HSB"
+            I NF3/Field {Stepper=false, Unit=100 %, Value=FFCC00, Show unit=true, Show label=true, Label=#, State=Default} 148×28 "#" "FFCC00" "100 %"
+          F Line 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=255, Show unit=false, Show label=true, Label=R, State=Default} 81×28 "R" "255" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=204, Show unit=false, Show label=true, Label=G, State=Default} 81×28 "G" "204" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=0, Show unit=false, Show label=true, Label=B, State=Default} 81×28 "B" "0" "px"
+        I NF3/Section Header {Action icon=1:9260, Action=false, Title=Stroke, Open=Yes} 286×28 "Stroke"
+        F Section body 286×78 [V gap 8]
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=1.0, Show unit=true, Show label=true, Label=Width, State=Default} 125×28 "Width" "1.0" "px"
+            I NF3/Select {Value=Solid, Show label=true, Label=Style, State=Default} 125×28 "Style" "Solid"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Add to swatches, Kind=Secondary, State=Default} 258×28 "Add to swatches"
+    F Radial gradient 288×574 [V gap 12]
+      T "Radial gradient"
+      F Panel / Color 288×546 [V gap 0]
+        F Panel header 286×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Color, Selected=Yes} 57×34 "Color"
+          I NF3/Tab {Icon=1:9185, Show icon=false, Label=Swatches, Selected=No} 80×34 "Swatches"
+          F Spacer 117×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+        F Section body 286×404 [V gap 8]
+          F Wells 258×32 [H gap 8]
+            F Colour well 64×28 [H gap 8]
+              I NF2 Icon/16/bucket 16×16
+              I NF3/Swatch 18×18
+            F Colour well 64×28 [H gap 8]
+              I NF2 Icon/16/pencil 16×16
+              I NF3/Swatch 18×18
+            F Spacer 10×1 [H gap 0]
+            F Colour actions 96×32 [H gap 0]
+              I NF3/Tool Button {Icon 16=418:5920, Flyout=false, Icon 20=17:273, State=Default} 32×32
+              I NF3/Tool Button {Icon 16=418:5924, Flyout=false, Icon 20=17:277, State=Default} 32×32
+              I NF3/Tool Button {Icon 16=418:5928, Flyout=false, Icon 20=17:281, State=Default} 32×32
+          I NF3/Select {Value=Radial gradient, Show label=true, Label=Type, State=Default} 258×28 "Type" "Radial gradient"
+          F Line 258×30 [H gap 8]
+            T "Overflow"
+            F Icon group 86×30 [H gap 0]
+              I NF3/Icon Button {Icon=17:470, Kind=Ghost, State=Selected} 28×28
+              I NF3/Icon Button {Icon=17:473, Kind=Ghost, State=Default} 28×28
+              I NF3/Icon Button {Icon=17:476, Kind=Ghost, State=Default} 28×28
+          F Colour picker 258×120 [H gap 6]
+          F Line 258×28 [H gap 8]
+            F Segmented 102×28 [H gap 0]
+              I NF3/Segment {Label=RGB, Selected=Yes} 49×22 "RGB"
+              I NF3/Segment {Label=HSB, Selected=No} 47×22 "HSB"
+            I NF3/Field {Stepper=false, Unit=100 %, Value=FF9900, Show unit=true, Show label=true, Label=#, State=Default} 148×28 "#" "FF9900" "100 %"
+          F Line 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=255, Show unit=false, Show label=true, Label=R, State=Default} 81×28 "R" "255" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=153, Show unit=false, Show label=true, Label=G, State=Default} 81×28 "G" "153" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=0, Show unit=false, Show label=true, Label=B, State=Default} 81×28 "B" "0" "px"
+          F Gradient bar 258×26 [V gap 2]
+            F Stops 258×10 [H gap 0]
+          F Line 258×28 [H gap 8]
+            I NF3/Checkbox {Show label=true, Label=Linear RGB, Value=Off, State=Default} 82×20 "Linear RGB"
+        I NF3/Section Header {Action icon=1:9260, Action=false, Title=Stroke, Open=Yes} 286×28 "Stroke"
+        F Section body 286×78 [V gap 8]
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=1.0, Show unit=true, Show label=true, Label=Width, State=Default} 125×28 "Width" "1.0" "px"
+            I NF3/Select {Value=Solid, Show label=true, Label=Style, State=Default} 125×28 "Style" "Solid"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Add to swatches, Kind=Secondary, State=Default} 258×28 "Add to swatches"
+    F Bitmap fill 288×443 [V gap 12]
+      T "Bitmap fill"
+      F Panel / Color 288×415 [V gap 0]
+        F Panel header 286×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Color, Selected=Yes} 57×34 "Color"
+          I NF3/Tab {Icon=1:9185, Show icon=false, Label=Swatches, Selected=No} 80×34 "Swatches"
+          F Spacer 117×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+        F Section body 286×273 [V gap 8]
+          F Wells 258×32 [H gap 8]
+            F Colour well 64×28 [H gap 8]
+              I NF2 Icon/16/bucket 16×16
+              I NF3/Swatch 18×18
+            F Colour well 64×28 [H gap 8]
+              I NF2 Icon/16/pencil 16×16
+              I NF3/Swatch 18×18
+            F Spacer 10×1 [H gap 0]
+            F Colour actions 96×32 [H gap 0]
+              I NF3/Tool Button {Icon 16=418:5920, Flyout=false, Icon 20=17:273, State=Default} 32×32
+              I NF3/Tool Button {Icon 16=418:5924, Flyout=false, Icon 20=17:277, State=Default} 32×32
+              I NF3/Tool Button {Icon 16=418:5928, Flyout=false, Icon 20=17:281, State=Default} 32×32
+          I NF3/Select {Value=Bitmap fill, Show label=true, Label=Type, State=Default} 258×28 "Type" "Bitmap fill"
+          F Bitmaps 258×52 [H gap 8]
+            F Bitmap 82×52 [H gap 0]
+            F Bitmap 80×52 [H gap 0]
+            F Bitmap 80×52 [H gap 0]
+          F Bitmaps 258×52 [H gap 8]
+            F Bitmap 81×52 [H gap 0]
+            F Bitmap 81×52 [H gap 0]
+            F Bitmap 81×52 [H gap 0]
+          F Line 258×28 [H gap 8]
+            I NF3/Button {Icon=1:9209, Show icon=true, Label=Import…, Kind=Secondary, State=Default} 94×28 "Import…"
+            I NF3/Checkbox {Show label=true, Label=Lock fill, Value=On, State=Default} 64×20 "Lock fill"
+          T "texture.png · 512×512 · tiles across selection"
+        I NF3/Section Header {Action icon=1:9260, Action=false, Title=Stroke, Open=Yes} 286×28 "Stroke"
+        F Section body 286×78 [V gap 8]
+          F Pair 258×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=1.0, Show unit=true, Show label=true, Label=Width, State=Default} 125×28 "Width" "1.0" "px"
+            I NF3/Select {Value=Solid, Show label=true, Label=Style, State=Default} 125×28 "Style" "Solid"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Add to swatches, Kind=Secondary, State=Default} 258×28 "Add to swatches"

@@ -1,0 +1,222 @@
+F Panel / Swatches 500×1033 [V gap 24]
+  F Board title 420×106 [V gap 6]
+    T "Panel / Swatches"
+    T "Current colour row (swatch · #HEX with alpha · None · Eyedropper · System picker), then collapsible Recent, Document (+ adds the current colour), Palette and Gradients, then the shared Used colours section (R-106). Replace colour across project and Import palette… live in the ⋯ menu."
+  F Panel / Swatches 288×823 [V gap 0]
+    F Panel header 286×34 [H gap 0]
+      I NF3/Tab {Icon=1:9185, Show icon=false, Label=Color, Selected=No} 57×34 "Color"
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=Swatches, Selected=Yes} 80×34 "Swatches"
+      F Spacer 117×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Section body 286×56 [V gap 8]
+      F Line 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=00FFCC, Show unit=true, Show label=true, Label=#, State=Default} 140×28 "#" "00FFCC" "100 %"
+        F Colour actions 84×28 [H gap 0]
+          I NF3/Icon Button {Icon=29:516, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9146, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=29:520, Kind=Ghost, State=Default} 28×28
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Recent, Open=Yes} 286×28 "Recent"
+    F Section body 286×32 [V gap 8]
+      F Swatch row 227×18 [H gap 1]
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Document, Open=Yes} 286×28 "Document"
+    F Section body 286×32 [V gap 8]
+      F Swatch row 132×18 [H gap 1]
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        F Add swatch 18×18 [H gap 0]
+          I NF2 Icon/12/plus 12×12
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Palette, Open=Yes} 286×28 "Palette"
+    F Section body 286×165 [V gap 8]
+      F Palette 227×151 [V gap 1]
+        F Swatch row 227×18 [H gap 1]
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+        F Swatch row 227×18 [H gap 1]
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+        F Swatch row 227×18 [H gap 1]
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+        F Swatch row 227×18 [H gap 1]
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+        F Swatch row 227×18 [H gap 1]
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+        F Swatch row 227×18 [H gap 1]
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+        F Swatch row 227×18 [H gap 1]
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+        F Swatch row 227×18 [H gap 1]
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+          I NF3/Swatch 18×18
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Gradients, Open=Yes} 286×28 "Gradients"
+    F Section body 286×32 [V gap 8]
+      F Gradients 148×18 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+        I NF3/Swatch 18×18
+    F Section Header / Used colours 286×28 [H gap 4]
+      I NF2 Icon/12/chevdown 12×12
+      T "Used colours"
+      I NF3/Checkbox {Show label=true, Label=Only on stage, Value=On, State=Default} 96×20 "Only on stage"
+      F More 16×28 [H gap 0]
+        I NF2 Icon/16/more 16×16
+    F Section body 286×330 [V gap 8]
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=8B9AB1, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "8B9AB1" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "5 × text"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=F1F4FA, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "F1F4FA" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "2 × text"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=FF8E4F, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "FF8E4F" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "2 × fill"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=233043, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "233043" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "1 × fill"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=303C4F, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "303C4F" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "1 × fill"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=44546D, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "44546D" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "1 × stroke"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=2D3C52, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "2D3C52" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "1 × stroke"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=66A0FF, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "66A0FF" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "1 × fill"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Replace bar 258×28 [H gap 8]
+        T "Replace"
+        I NF3/Swatch 18×18
+        I NF2 Icon/12/chevright 12×12
+        I NF3/Swatch 18×18
+        F Spacer 45×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Replace all, Kind=Secondary, State=Default} 83×28 "Replace all"

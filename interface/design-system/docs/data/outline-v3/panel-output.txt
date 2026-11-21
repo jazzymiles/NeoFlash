@@ -1,0 +1,32 @@
+F Panel / Output 800×382 [V gap 24]
+  F Board title 720×58 [V gap 6]
+    T "Panel / Output"
+    T "Bottom-dock panel, 720 pt wide here. One toolbar row: Show select with its label, filter field, Copy and Clear; one log row per message at size/row."
+  F Panel / Output 720×220 [V gap 0]
+    F Panel header 718×34 [H gap 0]
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=Output, Selected=Yes} 65×34 "Output"
+      I NF3/Tab {Icon=1:9185, Show icon=false, Label=Compiler errors, Selected=No} 110×34 "Compiler errors"
+      F Spacer 511×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Toolbar 718×38 [H gap 8]
+      I NF3/Select {Value=All, Show label=true, Label=Show, State=Default} 168×28 "Show" "All"
+      I NF3/Search {Clear=false, Value=Filter output, State=Default} 442×28 "Filter output"
+      I NF3/Icon Button {Icon=36:744, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+    F Log 718×146 [V gap 0]
+      F Log row 718×26 [H gap 8]
+        I NF2 Icon/16/info 16×16
+        T "12:04:18"
+        T "Test Movie started · Rust/WebAssembly runtime 0.9"
+      F Log row 718×26 [H gap 8]
+        I NF2 Icon/16/info 16×16
+        T "12:04:18"
+        T "trace: NeoFlash: the stage is ready"
+      F Log row 718×26 [H gap 8]
+        I NF2 Icon/16/warning 16×16
+        T "12:04:19"
+        T "Font "Inter Regular" is not embedded — fallback used"
+      F Log row 718×26 [H gap 8]
+        I NF2 Icon/16/error 16×16
+        T "12:04:21"
+        T "TypeError #1009: orbit_mc is null (Scene 1, frame 30)"

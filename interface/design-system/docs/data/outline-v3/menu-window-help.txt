@@ -1,0 +1,78 @@
+F Menu / Window, Help 1084×844 [V gap 24]
+  F Board title 900×90 [V gap 6]
+    T "Menu / Window, Help"
+    T "The v2.25 Document menu is gone as in the product: Document… (⌘J) is in Modify, Close and Close All are in File, and Next document, Previous document, Close other documents and the list of open documents close the Window menu. Window follows the shipped order with Minimize, Zoom, UI Layout Studio… and the Density submenu (Normal, Compact, Classic Flash); Planned panels left Window ▸ Panels; Help gains NeoFlash Help, Scripting Reference…, Check for Updates… and Send Beta Feedback…."
+  F Menus 1004×650 [H gap 32]
+    F Window 260×564 [V gap 8]
+      T "Window"
+      F Menu / Window 260×540 [V gap 0]
+        I NF3/Menu Item {Shortcut=⌘M, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Minimize, State=Default} 250×26 "Minimize" "⌘M"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Zoom, State=Default} 250×26 "Zoom" "⌘K"
+        I NF3/Menu Item {Submenu=false, Shortcut=⌥⌘K, Show shortcut=true, Checked=false, Check column=true, Label=Duplicate window, State=Disabled} 250×26 "Duplicate window" "⌥⌘K"
+        I NF3/Menu Separator 250×9
+        I NF3/Menu Item {Submenu=true, Checked=false, Check column=true, Show shortcut=false, Shortcut=⌘K, Label=Panels, State=Hover} 250×26 "Panels" "⌘K"
+        I NF3/Menu Item {Shortcut=F4, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Hide panels, State=Default} 250×26 "Hide panels" "F4"
+        I NF3/Menu Item {Shortcut=⌥⌘F3, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Inspector priority, State=Default} 250×26 "Inspector priority" "⌥⌘F3"
+        I NF3/Menu Item {Shortcut=⌥⌘L, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Library priority, State=Default} 250×26 "Library priority" "⌥⌘L"
+        I NF3/Menu Separator 250×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=true, Label=Workspaces, State=Default} 250×26 "Workspaces" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=true, Label=Appearance, State=Default} 250×26 "Appearance" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=true, Label=Density, State=Default} 250×26 "Density" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=true, Label=Detach panel, State=Default} 250×26 "Detach panel" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=true, Label=Dock panel, State=Default} 250×26 "Dock panel" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Customize tools…, State=Default} 250×26 "Customize tools…" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=UI Layout Studio…, State=Default} 250×26 "UI Layout Studio…" "⌘K"
+        I NF3/Menu Separator 250×9
+        I NF3/Menu Item {Shortcut=⌃⇥, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Next document, State=Default} 250×26 "Next document" "⌃⇥"
+        I NF3/Menu Item {Shortcut=⌃⇧⇥, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Previous document, State=Default} 250×26 "Previous document" "⌃⇧⇥"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Close other documents, State=Default} 250×26 "Close other documents" "⌘K"
+        I NF3/Menu Separator 250×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=true, Show shortcut=false, Check column=true, Label=Ideas in motion, State=Default} 250×26 "Ideas in motion" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Character study, State=Default} 250×26 "Character study" "⌘K"
+    F Window ▸ Panels 216×650 [V gap 8]
+      T "Window ▸ Panels"
+      F Menu / Window ▸ Panels 216×626 [V gap 0]
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Brushes, State=Default} 206×26 "Brushes" "⌘K"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌥⌘T, Submenu=false, Checked=true, Show shortcut=true, Check column=true, Label=Timeline, State=Default} 206×26 "Timeline" "⌥⌘T"
+        I NF3/Menu Item {Shortcut=⌘F2, Submenu=false, Checked=true, Show shortcut=true, Check column=true, Label=Tools, State=Default} 206×26 "Tools" "⌘F2"
+        I NF3/Menu Item {Shortcut=⌘F3, Submenu=false, Checked=true, Show shortcut=true, Check column=true, Label=Properties, State=Default} 206×26 "Properties" "⌘F3"
+        I NF3/Menu Item {Shortcut=⌘L, Submenu=false, Checked=true, Show shortcut=true, Check column=true, Label=Library, State=Default} 206×26 "Library" "⌘L"
+        I NF3/Menu Item {Shortcut=F9, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Actions, State=Default} 206×26 "Actions" "F9"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Align, State=Default} 206×26 "Align" "⌘K"
+        I NF3/Menu Item {Shortcut=⇧⌘F9, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Color, State=Default} 206×26 "Color" "⇧⌘F9"
+        I NF3/Menu Item {Shortcut=⌘F9, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Swatches, State=Default} 206×26 "Swatches" "⌘F9"
+        I NF3/Menu Item {Shortcut=⌘T, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Transform, State=Default} 206×26 "Transform" "⌘T"
+        I NF3/Menu Item {Shortcut=⌘I, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Info, State=Default} 206×26 "Info" "⌘I"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Ease, State=Default} 206×26 "Ease" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘F10, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=History, State=Default} 206×26 "History" "⌘F10"
+        I NF3/Menu Item {Shortcut=⇧F2, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Scene, State=Default} 206×26 "Scene" "⇧F2"
+        I NF3/Menu Item {Shortcut=F2, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Output, State=Default} 206×26 "Output" "F2"
+        I NF3/Menu Item {Shortcut=⌥F2, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Compiler errors, State=Default} 206×26 "Compiler errors" "⌥F2"
+        I NF3/Menu Item {Shortcut=⇧F11, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Accessibility, State=Default} 206×26 "Accessibility" "⇧F11"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Motion editor, State=Default} 206×26 "Motion editor" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Debugger, State=Default} 206×26 "Debugger" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Project, State=Default} 206×26 "Project" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Code snippets, State=Default} 206×26 "Code snippets" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Movie Explorer, State=Default} 206×26 "Movie Explorer" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Filters, State=Default} 206×26 "Filters" "⌘K"
+    F Window ▸ Density 216×112 [V gap 8]
+      T "Window ▸ Density"
+      F Menu / Window ▸ Density 216×88 [V gap 0]
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=true, Show shortcut=false, Check column=true, Label=Normal, State=Default} 206×26 "Normal" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Compact, State=Default} 206×26 "Compact" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Classic Flash, State=Default} 206×26 "Classic Flash" "⌘K"
+    F Help 216×243 [V gap 8]
+      T "Help"
+      F Menu / Help 216×219 [V gap 0]
+        I NF3/Menu Item {Shortcut=F1, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Search functions…, State=Default} 206×26 "Search functions…" "F1"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=NeoFlash Help, State=Default} 206×26 "NeoFlash Help" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Scripting Reference…, State=Default} 206×26 "Scripting Reference…" "⌘K"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Open example, State=Default} 206×26 "Open example" "⌘K"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Check for Updates…, State=Default} 206×26 "Check for Updates…" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Send Beta Feedback…, State=Default} 206×26 "Send Beta Feedback…" "⌘K"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=About NeoFlash, State=Default} 206×26 "About NeoFlash" "⌘K"

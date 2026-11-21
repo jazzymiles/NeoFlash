@@ -1,0 +1,77 @@
+F Dialog / Sound properties, Edit envelope 1360×583 [V gap 24]
+  F Board title 1100×58 [V gap 6]
+    T "Dialog / Sound properties, Edit envelope"
+    T "Sound properties: Compression, Bit rate and Quality are labelled rows; Update, Import… and Test stay on the left of the footer. Edit envelope: Effect select and the Seconds / Frames switch above the two channel lanes, transport and zoom icon buttons with the hint in the footer."
+  F Row 1280×421 [H gap 40]
+    F Dialog / Sound properties 500×421 [V gap 0]
+      I NF3/Dialog Header {Title=Sound properties} 498×48 "Sound properties"
+      F Body 498×314 [V gap 8]
+        F Sound 450×70 [H gap 14]
+          F Waveform 120×64 [H gap 2]
+          F Info 316×70 [V gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=music.mp3, Show unit=false, Show label=false, Label=X, State=Default} 316×28 "X" "music.mp3" "px"
+            T "~/Projects/ideas/audio/music.mp3"
+            T "44 kHz · Stereo · 16 bit · 32.4 s · 5.7 MB"
+        F Group caption 450×28 [H gap 0]
+          T "Export"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Compression"
+          I NF3/Select {Value=MP3, Show label=false, Label=Style, State=Default} 168×28 "Style" "MP3"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Bit rate"
+          I NF3/Select {Value=128 kbps, Show label=false, Label=Style, State=Default} 168×28 "Style" "128 kbps"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Quality"
+          I NF3/Select {Value=Best, Show label=false, Label=Style, State=Default} 168×28 "Style" "Best"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Checkbox {Show label=true, Label=Convert stereo to mono, Value=Off, State=Default} 148×20 "Convert stereo to mono"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Result"
+          T "128 kbps stereo, 518.6 kB — 9 % of original"
+      F Footer 498×57 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Update, Kind=Ghost, State=Default} 63×28 "Update"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Import…, Kind=Ghost, State=Default} 68×28 "Import…"
+        I NF3/Button {Icon=1:9188, Show icon=true, Label=Test, Kind=Ghost, State=Default} 71×28 "Test"
+        F Spacer 105×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=OK, Kind=Primary, State=Default} 40×28 "OK"
+    F Dialog / Edit envelope 740×343 [V gap 0]
+      I NF3/Dialog Header {Title=Edit envelope} 738×48 "Edit envelope"
+      F Body 738×236 [V gap 8]
+        F Options 690×28 [H gap 8]
+          I NF3/Select {Value=Fade in, Show label=true, Label=Effect, State=Default} 232×28 "Effect" "Fade in"
+          F Spacer 301×1 [H gap 0]
+          F Segmented 141×28 [H gap 0]
+            I NF3/Segment {Label=Seconds, Selected=Yes} 72×22 "Seconds"
+            I NF3/Segment {Label=Frames, Selected=No} 63×22 "Frames"
+        F Waveform lane L 690×72 [H gap 0]
+          F Channel L 676×72 [H gap 2]
+            T "L"
+        F Time ruler 690×12 [H gap 0]
+          T "0s"
+          T "4s"
+          T "8s"
+          T "12s"
+          T "16s"
+          T "20s"
+          T "24s"
+          T "28s"
+          T "32s"
+        F Waveform lane R 690×72 [H gap 0]
+          F Channel R 676×72 [H gap 2]
+            T "R"
+      F Footer 738×57 [H gap 8]
+        I NF3/Icon Button {Icon=1:9188, Kind=Ghost, State=Default} 28×28
+        I NF3/Icon Button {Icon=29:512, Kind=Ghost, State=Default} 28×28
+        I NF3/Icon Button {Icon=1:9159, Kind=Ghost, State=Default} 28×28
+        I NF3/Icon Button {Icon=1:9163, Kind=Ghost, State=Default} 28×28
+        T "Drag handles to shape volume · click a lane to add a point"
+        F Spacer 146×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=OK, Kind=Primary, State=Default} 40×28 "OK"

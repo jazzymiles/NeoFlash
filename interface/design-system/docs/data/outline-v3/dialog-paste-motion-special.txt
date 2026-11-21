@@ -1,0 +1,42 @@
+F Dialog / Paste motion special 580×629 [V gap 24]
+  F Board title 480×74 [V gap 6]
+    T "Dialog / Paste motion special"
+    T "Added after v2.25 (content from the editor code): nine property checkboxes in two equal columns, two override options, “Select none” as the ghost button on the left of the footer."
+  F Dialog / Paste motion special 500×451 [V gap 0]
+    I NF3/Dialog Header {Title=Paste motion special} 498×48 "Paste motion special"
+    F Body 498×344 [V gap 8]
+      F Group caption 450×28 [H gap 0]
+        T "Properties"
+      F Pair 450×28 [H gap 8]
+        F Cell 221×20 [H gap 0]
+          I NF3/Checkbox {Show label=true, Label=X position, Value=On, State=Default} 76×20 "X position"
+        F Cell 221×20 [H gap 0]
+          I NF3/Checkbox {Show label=true, Label=Y position, Value=On, State=Default} 76×20 "Y position"
+      F Pair 450×28 [H gap 8]
+        F Cell 221×20 [H gap 0]
+          I NF3/Checkbox {Show label=true, Label=Horizontal scale, Value=On, State=Default} 108×20 "Horizontal scale"
+        F Cell 221×20 [H gap 0]
+          I NF3/Checkbox {Show label=true, Label=Vertical scale, Value=On, State=Default} 94×20 "Vertical scale"
+      F Pair 450×28 [H gap 8]
+        F Cell 221×20 [H gap 0]
+          I NF3/Checkbox {Show label=true, Label=Rotation and skew, Value=On, State=Default} 120×20 "Rotation and skew"
+        F Cell 221×20 [H gap 0]
+          I NF3/Checkbox {Show label=true, Label=Colour, Value=On, State=Default} 59×20 "Colour"
+      F Pair 450×28 [H gap 8]
+        F Cell 221×20 [H gap 0]
+          I NF3/Checkbox {Show label=true, Label=Filters, Value=On, State=Default} 56×20 "Filters"
+        F Cell 221×20 [H gap 0]
+          I NF3/Checkbox {Show label=true, Label=Blend mode, Value=On, State=Default} 86×20 "Blend mode"
+      F Line 450×28 [H gap 8]
+        I NF3/Checkbox {Show label=true, Label=Ease, Value=On, State=Default} 49×20 "Ease"
+      F Group caption 450×28 [H gap 0]
+        T "Options"
+      F Line 450×28 [H gap 8]
+        I NF3/Checkbox {Show label=true, Label=Override target scale properties, Value=Off, State=Default} 190×20 "Override target scale properties"
+      F Line 450×28 [H gap 8]
+        I NF3/Checkbox {Show label=true, Label=Override target rotation and skew properties, Value=Off, State=Default} 256×20 "Override target rotation and skew properties"
+    F Footer 498×57 [H gap 8]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Select none, Kind=Ghost, State=Default} 87×28 "Select none"
+      F Spacer 222×1 [H gap 0]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Paste, Kind=Primary, State=Default} 54×28 "Paste"

@@ -1,0 +1,270 @@
+F Dialog / UI Layout Studio 1520×922 [V gap 24]
+  F Board title 1100×58 [V gap 6]
+    T "Dialog / UI Layout Studio"
+    T "Owner tool. One toolbar row in groups (board · panel · theme and density · history · wrap · file), fixed column widths, and the selected panel previewed in all three densities at once. Spacing is picked from the density system instead of free pixel values."
+  F Dialog / UI Layout Studio 1440×760 [V gap 0]
+    I NF3/Dialog Header {Title=UI Layout Studio} 1438×48 "UI Layout Studio"
+    F Studio toolbar 1438×38 [H gap 8]
+      F Segmented 219×28 [H gap 0]
+        I NF3/Segment {Label=Panels, Selected=Yes} 61×22 "Panels"
+        I NF3/Segment {Label=Workspace, Selected=No} 83×22 "Workspace"
+        I NF3/Segment {Label=Timeline, Selected=No} 69×22 "Timeline"
+      I NF3/Select {Value=Properties — Movie clip, Show label=true, Label=Panel, State=Default} 232×28 "Panel" "Properties — Movie clip"
+      I NF3/Button {Icon=1:9209, Show icon=true, Label=Add, Kind=Secondary, State=Default} 72×28 "Add"
+      I NF3/Icon Button {Icon=29:442, Kind=Outlined, State=Default} 28×28
+      I NF3/Select {Value=Light, Show label=false, Label=Style, State=Default} 104×28 "Style" "Light"
+      F Segmented 242×28 [H gap 0]
+        I NF3/Segment {Label=Normal, Selected=No} 62×22 "Normal"
+        I NF3/Segment {Label=Compact, Selected=No} 72×22 "Compact"
+        I NF3/Segment {Label=Classic, Selected=No} 62×22 "Classic"
+        I NF3/Segment {Label=All, Selected=Yes} 40×22 "All"
+      I NF3/Icon Button {Icon=1:9294, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=36:751, Kind=Ghost, State=Disabled} 28×28
+      F Spacer 134×1 [H gap 0]
+      I NF3/Select {Value=File, Show label=false, Label=Style, State=Default} 104×28 "Style" "File"
+      I NF3/Button {Icon=1:9267, Show icon=true, Label=Export code, Kind=Primary, State=Default} 112×28 "Export code"
+    F Dialog body 1438×648 [H gap 0]
+      F Hierarchy 248×648 [V gap 0]
+        F Tabs 247×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Hierarchy, Selected=Yes} 79×34 "Hierarchy"
+          I NF3/Tab {Icon=1:9185, Show icon=false, Label=Add, Selected=No} 50×34 "Add"
+          F Spacer 58×1 [H gap 0]
+          I NF3/Icon Button {Icon=7:159, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+        F Tree 247×304 [V gap 1]
+          I NF3/Tree Row {Show meta=true, Icon=17:534, Meta=288 × auto, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Properties — Movie clip, Level=0, State=Default} 239×26 "Properties — Movie clip" "288 × auto"
+          I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Type header, Show icon=true, Chevron=false, Icon=1:9119, Level=1, State=Default} 239×26 "Type header" "4"
+          I NF3/Tree Row {Meta=100 % × auto, Chevron=false, Show icon=true, Chevron icon=220:1338, Show meta=true, Icon=1:9119, Label=Name, Level=1, State=Selected} 239×26 "Name" "100 % × auto"
+          I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Position and size, Show icon=true, Chevron=true, Icon=7:132, Level=1, State=Default} 239×26 "Position and size" "4"
+          I NF3/Tree Row {Show meta=true, Label=X · Y, Icon=1:9119, Show icon=true, Chevron icon=220:1338, Meta=50 · 50 %, Chevron=false, Level=2, State=Default} 239×26 "X · Y" "50 · 50 %"
+          I NF3/Tree Row {Show meta=true, Label=W · H, Icon=1:9119, Show icon=true, Chevron icon=220:1338, Meta=50 · 50 %, Chevron=false, Level=2, State=Default} 239×26 "W · H" "50 · 50 %"
+          I NF3/Tree Row {Show meta=true, Label=Scale X · Scale Y, Icon=1:9119, Show icon=true, Chevron icon=220:1338, Meta=50 · 50 %, Chevron=false, Level=2, State=Default} 239×26 "Scale X · Scale Y" "50 · 50 %"
+          I NF3/Tree Row {Show meta=true, Label=Rotation · Skew, Icon=1:9119, Show icon=true, Chevron icon=220:1338, Meta=50 · 50 %, Chevron=false, Level=2, State=Default} 239×26 "Rotation · Skew" "50 · 50 %"
+          I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Display, Show icon=true, Chevron=true, Icon=7:132, Level=1, State=Default} 239×26 "Display" "4"
+          I NF3/Tree Row {Show meta=true, Label=Visible · Cache as bitmap, Icon=1:9239, Show icon=true, Chevron icon=220:1338, Meta=hug, Chevron=false, Level=2, State=Default} 239×26 "Visible · Cache as bitmap" "hug"
+          I NF3/Tree Row {Show meta=true, Label=Blend · Render, Icon=1:9119, Show icon=true, Chevron icon=220:1338, Meta=50 · 50 %, Chevron=false, Level=2, State=Default} 239×26 "Blend · Render" "50 · 50 %"
+      F Canvas 902×648 [V gap 14]
+        F Canvas bar 854×28 [H gap 14]
+          I NF3/Checkbox {Show label=true, Label=Outlines, Value=On, State=Default} 67×20 "Outlines"
+          I NF3/Checkbox {Show label=true, Label=Size badges, Value=On, State=Default} 88×20 "Size badges"
+          I NF3/Checkbox {Show label=true, Label=Solo panel, Value=Off, State=Default} 79×20 "Solo panel"
+          F Spacer 452×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9212, Kind=Outlined, State=Default} 28×28
+          T "100%"
+          I NF3/Icon Button {Icon=1:9209, Kind=Outlined, State=Default} 28×28
+        F Three paradigms 840×769 [H gap 20]
+          F Normal 288×769 [V gap 12]
+            T "Normal"
+            F Panel / Properties 288×741 [V gap 0]
+              F Panel header 286×34 [H gap 0]
+                I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+                I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+                F Spacer 89×1 [H gap 0]
+                I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+              F Type header 286×34 [H gap 8]
+                I NF2 Icon/16/movieclip 16×16
+                T "Movie clip"
+                T "Instance of “Orbit”"
+              F Section body 286×78 [V gap 8]
+                F Line 258×28 [H gap 8]
+                  I NF3/Field {Stepper=false, Unit=px, Value=mainOrbit, Show unit=false, Show label=true, Label=Name, State=Default} 185×28 "Name" "mainOrbit" "px"
+                  I NF3/Button {Icon=1:9209, Show icon=false, Label=Swap…, Kind=Secondary, State=Default} 65×28 "Swap…"
+                F Line 258×28 [H gap 8]
+                  I NF3/Select {Value=Movie Clip, Show label=false, Label=Style, State=Default} 186×28 "Style" "Movie Clip"
+                  I NF3/Icon Button {Icon=1:9228, Kind=Outlined, State=Default} 28×28
+                  I NF3/Icon Button {Icon=36:744, Kind=Outlined, State=Default} 28×28
+              I NF3/Section Header {Action icon=1:9281, Action=true, Title=Position and size, Open=Yes} 286×28 "Position and size"
+              F Section body 286×150 [V gap 8]
+                F Pair 258×28 [H gap 8]
+                  I NF3/Field {Stepper=false, Unit=px, Value=640, Show unit=false, Show label=true, Label=X, State=Default} 125×28 "X" "640" "px"
+                  I NF3/Field {Stepper=false, Unit=px, Value=180, Show unit=false, Show label=true, Label=Y, State=Default} 125×28 "Y" "180" "px"
+                F Pair 258×28 [H gap 8]
+                  I NF3/Field {Stepper=false, Unit=px, Value=216, Show unit=false, Show label=true, Label=W, State=Default} 125×28 "W" "216" "px"
+                  I NF3/Field {Stepper=false, Unit=px, Value=228, Show unit=false, Show label=true, Label=H, State=Default} 125×28 "H" "228" "px"
+                F Pair 258×28 [H gap 8]
+                  I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=true, Label=Scale X, State=Default} 125×28 "Scale X" "100" "%"
+                  I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=true, Label=Scale Y, State=Default} 125×28 "Scale Y" "100" "%"
+                F Pair 258×28 [H gap 8]
+                  I NF3/Field {Stepper=false, Unit=°, Value=0, Show unit=true, Show label=true, Label=Rotation, State=Default} 125×28 "Rotation" "0" "°"
+                  I NF3/Field {Stepper=false, Unit=°, Value=0, Show unit=true, Show label=true, Label=Skew, State=Default} 125×28 "Skew" "0" "°"
+              I NF3/Section Header {Action icon=1:9260, Action=false, Title=Timeline, Open=Yes} 286×28 "Timeline"
+              F Section body 286×63 [V gap 8]
+                F Pair 258×28 [H gap 8]
+                  I NF3/Field {Stepper=false, Unit=px, Value=1, Show unit=false, Show label=true, Label=Start frame, State=Default} 125×28 "Start frame" "1" "px"
+                  I NF3/Select {Value=Loop, Show label=true, Label=Play, State=Default} 125×28 "Play" "Loop"
+                T "Scripts that call gotoAndPlay take over after it starts."
+              I NF3/Section Header {Action icon=1:9260, Action=false, Title=Colour effect, Open=Yes} 286×28 "Colour effect"
+              F Section body 286×70 [V gap 8]
+                F Pair 258×28 [H gap 8]
+                  I NF3/Select {Value=Alpha, Show label=true, Label=Style, State=Default} 125×28 "Style" "Alpha"
+                  I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=true, Label=α, State=Default} 125×28 "α" "100" "%"
+                I NF3/Slider {State=Default} 258×20
+              I NF3/Section Header {Action icon=1:9260, Action=false, Title=Behaviour / linkage, Open=No} 286×28 "Behaviour / linkage"
+              I NF3/Section Header {Action icon=1:9260, Action=false, Title=Accessibility, Open=No} 286×28 "Accessibility"
+              I NF3/Section Header {Action icon=1:9260, Action=false, Title=Display, Open=Yes} 286×28 "Display"
+              F Section body 286×114 [V gap 8]
+                F Line 258×28 [H gap 8]
+                  I NF3/Checkbox {Show label=true, Label=Visible, Value=On, State=Default} 59×20 "Visible"
+                  I NF3/Checkbox {Show label=true, Label=Cache as bitmap, Value=Off, State=Default} 112×20 "Cache as bitmap"
+                I NF3/Select {Value=Normal, Show label=true, Label=Blend, State=Default} 258×28 "Blend" "Normal"
+                I NF3/Select {Value=Original, Show label=true, Label=Render, State=Default} 258×28 "Render" "Original"
+              I NF3/Section Header {Action icon=1:9260, Action=false, Title=Filters, Open=No} 286×28 "Filters"
+          F Compact 264×674 [V gap 12]
+            T "Compact"
+            F Panel / Properties 264×646 [V gap 0]
+              F Panel header 262×30 [H gap 0]
+                I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 79×30 "Properties"
+                I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 78×30 "Transform"
+                F Spacer 77×1 [H gap 0]
+                I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 24×24
+              F Type header 262×30 [H gap 6]
+                I NF2 Icon/16/movieclip 16×16
+                T "Movie clip"
+                T "Instance of “Orbit”"
+              F Section body 262×66 [V gap 6]
+                F Line 238×24 [H gap 6]
+                  I NF3/Field {Stepper=false, Unit=px, Value=mainOrbit, Show unit=false, Show label=true, Label=Name, State=Default} 171×24 "Name" "mainOrbit" "px"
+                  I NF3/Button {Icon=1:9209, Show icon=false, Label=Swap…, Kind=Secondary, State=Default} 61×24 "Swap…"
+                F Line 238×24 [H gap 6]
+                  I NF3/Select {Value=Movie Clip, Show label=false, Label=Style, State=Default} 178×24 "Style" "Movie Clip"
+                  I NF3/Icon Button {Icon=1:9228, Kind=Outlined, State=Default} 24×24
+                  I NF3/Icon Button {Icon=36:744, Kind=Outlined, State=Default} 24×24
+              I NF3/Section Header {Action icon=1:9281, Action=true, Title=Position and size, Open=Yes} 262×24 "Position and size"
+              F Section body 262×126 [V gap 6]
+                F Pair 238×24 [H gap 6]
+                  I NF3/Field {Stepper=false, Unit=px, Value=640, Show unit=false, Show label=true, Label=X, State=Default} 116×24 "X" "640" "px"
+                  I NF3/Field {Stepper=false, Unit=px, Value=180, Show unit=false, Show label=true, Label=Y, State=Default} 116×24 "Y" "180" "px"
+                F Pair 238×24 [H gap 6]
+                  I NF3/Field {Stepper=false, Unit=px, Value=216, Show unit=false, Show label=true, Label=W, State=Default} 116×24 "W" "216" "px"
+                  I NF3/Field {Stepper=false, Unit=px, Value=228, Show unit=false, Show label=true, Label=H, State=Default} 116×24 "H" "228" "px"
+                F Pair 238×24 [H gap 6]
+                  I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=true, Label=Scale X, State=Default} 116×24 "Scale X" "100" "%"
+                  I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=true, Label=Scale Y, State=Default} 116×24 "Scale Y" "100" "%"
+                F Pair 238×24 [H gap 6]
+                  I NF3/Field {Stepper=false, Unit=°, Value=0, Show unit=true, Show label=true, Label=Rotation, State=Default} 116×24 "Rotation" "0" "°"
+                  I NF3/Field {Stepper=false, Unit=°, Value=0, Show unit=true, Show label=true, Label=Skew, State=Default} 116×24 "Skew" "0" "°"
+              I NF3/Section Header {Action icon=1:9260, Action=false, Title=Timeline, Open=Yes} 262×24 "Timeline"
+              F Section body 262×68 [V gap 6]
+                F Pair 238×24 [H gap 6]
+                  I NF3/Field {Stepper=false, Unit=px, Value=1, Show unit=false, Show label=true, Label=Start frame, State=Default} 116×24 "Start frame" "1" "px"
+                  I NF3/Select {Value=Loop, Show label=true, Label=Play, State=Default} 116×24 "Play" "Loop"
+                T "Scripts that call gotoAndPlay take over after it starts."
+              I NF3/Section Header {Action icon=1:9260, Action=false, Title=Colour effect, Open=Yes} 262×24 "Colour effect"
+              F Section body 262×60 [V gap 6]
+                F Pair 238×24 [H gap 6]
+                  I NF3/Select {Value=Alpha, Show label=true, Label=Style, State=Default} 116×24 "Style" "Alpha"
+                  I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=true, Label=α, State=Default} 116×24 "α" "100" "%"
+                I NF3/Slider {State=Default} 238×18
+              I NF3/Section Header {Action icon=1:9260, Action=false, Title=Behaviour / linkage, Open=No} 262×24 "Behaviour / linkage"
+              I NF3/Section Header {Action icon=1:9260, Action=false, Title=Accessibility, Open=No} 262×24 "Accessibility"
+              I NF3/Section Header {Action icon=1:9260, Action=false, Title=Display, Open=Yes} 262×24 "Display"
+              F Section body 262×96 [V gap 6]
+                F Line 238×24 [H gap 6]
+                  I NF3/Checkbox {Show label=true, Label=Visible, Value=On, State=Default} 55×18 "Visible"
+                  I NF3/Checkbox {Show label=true, Label=Cache as bitmap, Value=Off, State=Default} 108×18 "Cache as bitmap"
+                I NF3/Select {Value=Normal, Show label=true, Label=Blend, State=Default} 238×24 "Blend" "Normal"
+                I NF3/Select {Value=Original, Show label=true, Label=Render, State=Default} 238×24 "Render" "Original"
+              I NF3/Section Header {Action icon=1:9260, Action=false, Title=Filters, Open=No} 262×24 "Filters"
+          F Classic Flash 248×610 [V gap 12]
+            T "Classic Flash"
+            F Panel / Properties 248×582 [V gap 0]
+              F Panel header 246×26 [H gap 0]
+                I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 75×26 "Properties"
+                I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 74×26 "Transform"
+                F Spacer 71×1 [H gap 0]
+                I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 22×22
+              F Type header 246×26 [H gap 6]
+                I NF2 Icon/16/movieclip 16×16
+                T "Movie clip"
+                T "Instance of “Orbit”"
+              F Section body 246×59 [V gap 5]
+                F Line 226×22 [H gap 6]
+                  I NF3/Field {Stepper=false, Unit=px, Value=mainOrbit, Show unit=false, Show label=true, Label=Name, State=Default} 159×22 "Name" "mainOrbit" "px"
+                  I NF3/Button {Icon=1:9209, Show icon=false, Label=Swap…, Kind=Secondary, State=Default} 61×22 "Swap…"
+                F Line 226×22 [H gap 6]
+                  I NF3/Select {Value=Movie Clip, Show label=false, Label=Style, State=Default} 170×22 "Style" "Movie Clip"
+                  I NF3/Icon Button {Icon=1:9228, Kind=Outlined, State=Default} 22×22
+                  I NF3/Icon Button {Icon=36:744, Kind=Outlined, State=Default} 22×22
+              I NF3/Section Header {Action icon=1:9281, Action=true, Title=Position and size, Open=Yes} 246×22 "Position and size"
+              F Section body 246×113 [V gap 5]
+                F Pair 226×22 [H gap 6]
+                  I NF3/Field {Stepper=false, Unit=px, Value=640, Show unit=false, Show label=true, Label=X, State=Default} 110×22 "X" "640" "px"
+                  I NF3/Field {Stepper=false, Unit=px, Value=180, Show unit=false, Show label=true, Label=Y, State=Default} 110×22 "Y" "180" "px"
+                F Pair 226×22 [H gap 6]
+                  I NF3/Field {Stepper=false, Unit=px, Value=216, Show unit=false, Show label=true, Label=W, State=Default} 110×22 "W" "216" "px"
+                  I NF3/Field {Stepper=false, Unit=px, Value=228, Show unit=false, Show label=true, Label=H, State=Default} 110×22 "H" "228" "px"
+                F Pair 226×22 [H gap 6]
+                  I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=true, Label=Scale X, State=Default} 110×22 "Scale X" "100" "%"
+                  I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=true, Label=Scale Y, State=Default} 110×22 "Scale Y" "100" "%"
+                F Pair 226×22 [H gap 6]
+                  I NF3/Field {Stepper=false, Unit=°, Value=0, Show unit=true, Show label=true, Label=Rotation, State=Default} 110×22 "Rotation" "0" "°"
+                  I NF3/Field {Stepper=false, Unit=°, Value=0, Show unit=true, Show label=true, Label=Skew, State=Default} 110×22 "Skew" "0" "°"
+              I NF3/Section Header {Action icon=1:9260, Action=false, Title=Timeline, Open=Yes} 246×22 "Timeline"
+              F Section body 246×63 [V gap 5]
+                F Pair 226×22 [H gap 6]
+                  I NF3/Field {Stepper=false, Unit=px, Value=1, Show unit=false, Show label=true, Label=Start frame, State=Default} 110×22 "Start frame" "1" "px"
+                  I NF3/Select {Value=Loop, Show label=true, Label=Play, State=Default} 110×22 "Play" "Loop"
+                T "Scripts that call gotoAndPlay take over after it starts."
+              I NF3/Section Header {Action icon=1:9260, Action=false, Title=Colour effect, Open=Yes} 246×22 "Colour effect"
+              F Section body 246×53 [V gap 5]
+                F Pair 226×22 [H gap 6]
+                  I NF3/Select {Value=Alpha, Show label=true, Label=Style, State=Default} 110×22 "Style" "Alpha"
+                  I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=true, Label=α, State=Default} 110×22 "α" "100" "%"
+                I NF3/Slider {State=Default} 226×16
+              I NF3/Section Header {Action icon=1:9260, Action=false, Title=Behaviour / linkage, Open=No} 246×22 "Behaviour / linkage"
+              I NF3/Section Header {Action icon=1:9260, Action=false, Title=Accessibility, Open=No} 246×22 "Accessibility"
+              I NF3/Section Header {Action icon=1:9260, Action=false, Title=Display, Open=Yes} 246×22 "Display"
+              F Section body 246×86 [V gap 5]
+                F Line 226×22 [H gap 6]
+                  I NF3/Checkbox {Show label=true, Label=Visible, Value=On, State=Default} 55×16 "Visible"
+                  I NF3/Checkbox {Show label=true, Label=Cache as bitmap, Value=Off, State=Default} 108×16 "Cache as bitmap"
+                I NF3/Select {Value=Normal, Show label=true, Label=Blend, State=Default} 226×22 "Blend" "Normal"
+                I NF3/Select {Value=Original, Show label=true, Label=Render, State=Default} 226×22 "Render" "Original"
+              I NF3/Section Header {Action icon=1:9260, Action=false, Title=Filters, Open=No} 246×22 "Filters"
+      F Node inspector 288×648 [V gap 0]
+        F Tabs 287×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Node, Selected=Yes} 57×34 "Node"
+          I NF3/Tab {Icon=1:9185, Show icon=false, Label=Systems, Selected=No} 74×34 "Systems"
+          I NF3/Tab {Icon=1:9185, Show icon=false, Label=Code, Selected=No} 57×34 "Code"
+        F Type header 287×34 [H gap 8]
+          I NF2 Icon/16/text 16×16
+          T "Field"
+          T "Name"
+        I NF3/Section Header {Action icon=1:9260, Action=false, Title=Node, Open=Yes} 287×28 "Node"
+        F Section body 287×78 [V gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=Name, Show unit=false, Show label=true, Label=Label, State=Default} 259×28 "Label" "Name" "px"
+          F Line 259×28 [H gap 8]
+            I NF3/Checkbox {Show label=true, Label=Visible, Value=On, State=Default} 59×20 "Visible"
+            I NF3/Checkbox {Show label=true, Label=Enabled, Value=On, State=Default} 66×20 "Enabled"
+        I NF3/Section Header {Action icon=1:9260, Action=false, Title=Box sizing, Open=Yes} 287×28 "Box sizing"
+        F Section body 287×150 [V gap 8]
+          F Pair 259×28 [H gap 8]
+            I NF3/Select {Value=Percent, Show label=true, Label=W, State=Default} 126×28 "W" "Percent"
+            I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=false, Label=X, State=Default} 126×28 "X" "100" "%"
+          F Pair 259×28 [H gap 8]
+            I NF3/Select {Value=Auto, Show label=true, Label=H, State=Default} 126×28 "H" "Auto"
+            I NF3/Field {Stepper=false, Show unit=false, Value=Hug content, Show label=false, Unit=px, Label=X, State=Disabled} 126×28 "X" "Hug content" "px"
+          F Segmented 259×28 [H gap 0]
+            I NF3/Segment {Label=25, Selected=No} 50×22 "25"
+            I NF3/Segment {Label=33, Selected=No} 50×22 "33"
+            I NF3/Segment {Label=50, Selected=No} 50×22 "50"
+            I NF3/Segment {Label=100, Selected=Yes} 52×22 "100"
+            I NF3/Segment {Label=Auto, Selected=No} 50×22 "Auto"
+          F Pair 259×28 [H gap 8]
+            I NF3/Field {Stepper=false, Unit=px, Value=0, Show unit=true, Show label=true, Label=Min W, State=Default} 126×28 "Min W" "0" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=0, Show unit=true, Show label=true, Label=Max W, State=Default} 126×28 "Max W" "0" "px"
+        I NF3/Section Header {Action icon=1:9260, Action=false, Title=Spacing from the density system, Open=Yes} 287×28 "Spacing from the density system"
+        F Section body 287×78 [V gap 8]
+          F Pair 259×28 [H gap 8]
+            I NF3/Select {Value=gap/control, Show label=true, Label=Gap, State=Default} 126×28 "Gap" "gap/control"
+            I NF3/Field {Stepper=false, Show unit=false, Value=8 · 6 · 6, Show label=false, Unit=px, Label=X, State=Disabled} 126×28 "X" "8 · 6 · 6" "px"
+          F Pair 259×28 [H gap 8]
+            I NF3/Select {Value=pad/panel, Show label=true, Label=Pad, State=Default} 126×28 "Pad" "pad/panel"
+            I NF3/Field {Stepper=false, Show unit=false, Value=14 · 12 · 10, Show label=false, Unit=px, Label=X, State=Disabled} 126×28 "X" "14 · 12 · 10" "px"
+        I NF3/Section Header {Action icon=1:9260, Action=false, Title=Typography, Open=Yes} 287×28 "Typography"
+        F Section body 287×42 [V gap 8]
+          I NF3/Select {Value=Body 11 / 14, Show label=true, Label=Style, State=Default} 259×28 "Style" "Body 11 / 14"
+    F Studio status 1438×24 [H gap 14]
+      T "Properties — Movie clip · 38 nodes"
+      F Spacer 1024×1 [H gap 0]
+      T "Saved to target/ui-studio/layout.json"

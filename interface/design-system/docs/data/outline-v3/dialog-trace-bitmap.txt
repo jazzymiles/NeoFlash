@@ -1,0 +1,81 @@
+F Dialog / Trace bitmap 820×721 [V gap 24]
+  F Board title 720×58 [V gap 6]
+    T "Dialog / Trace bitmap"
+    T "Two columns: the split preview with its result line, and the options on the label grid. Each slider row is slider · value · range, so the range captions no longer take a line of their own; Live preview stays in the footer."
+  F Dialog / Trace bitmap 740×559 [V gap 0]
+    I NF3/Dialog Header {Title=Trace bitmap} 738×48 "Trace bitmap"
+    F Body 738×452 [H gap 24]
+      F Preview 224×277 [V gap 8]
+        F Split preview 224×224 [H gap 0]
+          F Artwork 224×224
+            F Bitmap 112×224
+            F Traced 112×224
+        F Labels 224×13 [H gap 0]
+          T "Bitmap"
+          F Spacer 158×1 [H gap 0]
+          T "Traced"
+        T "texture.png · 512 × 512 → 1 284 paths, 30 colours"
+      F Options 442×424 [V gap 8]
+        F Form row 442×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Preset"
+          I NF3/Select {Value=[Default], Show label=false, Label=Style, State=Default} 232×28 "Style" "[Default]"
+        F Form row 442×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Mode"
+          I NF3/Select {Value=Colour, Show label=false, Label=Style, State=Default} 232×28 "Style" "Colour"
+        F Form row 442×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Palette"
+          I NF3/Select {Value=Limited, Show label=false, Label=Style, State=Default} 232×28 "Style" "Limited"
+        F Form row 442×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Colours"
+          I NF3/Slider {State=Default} 168×20
+          I NF3/Field {Stepper=false, Unit=px, Value=30, Show unit=false, Show label=false, Label=X, State=Default} 68×28 "X" "30" "px"
+          T "2 – 30"
+        F Section Header / Advanced options 442×28 [H gap 4]
+          I NF2 Icon/12/chevdown 12×12
+          T "Advanced options"
+        F Form row 442×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Paths"
+          I NF3/Slider {State=Default} 168×20
+          I NF3/Field {Stepper=false, Unit=%, Value=50, Show unit=true, Show label=false, Label=X, State=Default} 68×28 "X" "50" "%"
+          T "Low – High"
+        F Form row 442×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Corners"
+          I NF3/Slider {State=Default} 168×20
+          I NF3/Field {Stepper=false, Unit=%, Value=50, Show unit=true, Show label=false, Label=X, State=Default} 68×28 "X" "50" "%"
+          T "Less – More"
+        F Form row 442×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Noise"
+          I NF3/Slider {State=Default} 168×20
+          I NF3/Field {Stepper=false, Unit=px, Value=15, Show unit=true, Show label=false, Label=X, State=Default} 68×28 "X" "15" "px"
+          T "1 – 100"
+        F Form row 442×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Method"
+          I NF3/Radio {Label=Abutting, Value=Off, State=Default} 69×20 "Abutting"
+          I NF3/Radio {Label=Overlapping, Value=On, State=Default} 87×20 "Overlapping"
+        F Form row 442×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Create"
+          I NF3/Checkbox {Show label=true, Label=Fills, Value=On, State=Default} 45×20 "Fills"
+          I NF3/Checkbox {Show label=true, Label=Strokes, Value=Off, State=Default} 64×20 "Strokes"
+        F Form row 442×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Stroke"
+          I NF3/Field {Stepper=false, Show unit=true, Value=10, Show label=false, Unit=pt, Label=X, State=Disabled} 104×28 "X" "10" "pt"
+        F Form row 442×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Options"
+          I NF3/Checkbox {Show label=true, Label=Snap curves to lines, Value=Off, State=Default} 129×20 "Snap curves to lines"
+          I NF3/Checkbox {Show label=true, Label=Ignore white, Value=Off, State=Default} 89×20 "Ignore white"
+    F Footer 738×57 [H gap 8]
+      I NF3/Checkbox {Show label=true, Label=Live preview, Value=On, State=Default} 90×20 "Live preview"
+      F Spacer 459×1 [H gap 0]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Trace, Kind=Primary, State=Default} 54×28 "Trace"

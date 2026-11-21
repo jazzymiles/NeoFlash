@@ -1,0 +1,71 @@
+F Dialog / Auto instance namer, Randomize selection 1120×561 [V gap 24]
+  F Board title 1000×42 [V gap 6]
+    T "Dialog / Auto instance namer, Randomize selection"
+    T "Randomize: one row per property with min and max fields (ΔX, ΔY, Scale, Rotation, Alpha) instead of ten prefixed fields; the Seed caption is the row label."
+  F States 1040×415 [H gap 40]
+    F Dialog / Auto instance namer 500×307 [V gap 0]
+      I NF3/Dialog Header {Title=Auto instance namer} 498×48 "Auto instance namer"
+      F Body 498×200 [V gap 8]
+        F Group caption 450×28 [H gap 0]
+          T "Naming pattern"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Pattern"
+          I NF3/Select {Value=Prefix + sequence (<prefix><index>), Show label=false, Label=Style, State=Default} 322×28 "Style" "Prefix + sequence (<prefix><index>)"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Prefix"
+          I NF3/Field {Stepper=false, Unit=px, Value=item_, Show unit=false, Show label=false, Label=X, State=Default} 232×28 "X" "item_" "px"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Start"
+          I NF3/Field {Stepper=false, Unit=px, Value=1, Show unit=false, Show label=false, Label=X, State=Default} 68×28 "X" "1" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=2, Show unit=false, Show label=true, Label=Digits, State=Default} 104×28 "Digits" "2" "px"
+        F Line 450×28 [H gap 8]
+          I NF3/Checkbox {Show label=true, Label=Only rename unnamed instances when nothing is selected, Value=Off, State=Default} 327×20 "Only rename unnamed instances when nothing is selected"
+      F Footer 498×57 [H gap 8]
+        F Spacer 262×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Name instances, Kind=Primary, State=Default} 109×28 "Name instances"
+    F Dialog / Randomize selection 500×415 [V gap 0]
+      I NF3/Dialog Header {Title=Randomize selection} 498×48 "Randomize selection"
+      F Body 498×308 [V gap 8]
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Seed"
+          I NF3/Field {Stepper=false, Unit=px, Value=1234, Show unit=false, Show label=false, Label=X, State=Default} 104×28 "X" "1234" "px"
+        F Group caption 450×28 [H gap 0]
+          T "Transform and alpha ranges"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "ΔX"
+          I NF3/Field {Stepper=false, Unit=px, Value=−20, Show unit=false, Show label=true, Label=min, State=Default} 104×28 "min" "−20" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=20, Show unit=false, Show label=true, Label=max, State=Default} 104×28 "max" "20" "px"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "ΔY"
+          I NF3/Field {Stepper=false, Unit=px, Value=−20, Show unit=false, Show label=true, Label=min, State=Default} 104×28 "min" "−20" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=20, Show unit=false, Show label=true, Label=max, State=Default} 104×28 "max" "20" "px"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Scale"
+          I NF3/Field {Stepper=false, Unit=%, Value=80, Show unit=true, Show label=true, Label=min, State=Default} 104×28 "min" "80" "%"
+          I NF3/Field {Stepper=false, Unit=%, Value=120, Show unit=true, Show label=true, Label=max, State=Default} 104×28 "max" "120" "%"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Checkbox {Show label=true, Label=Uniform X/Y scale, Value=On, State=Default} 117×20 "Uniform X/Y scale"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Rotation"
+          I NF3/Field {Stepper=false, Unit=°, Value=−15, Show unit=true, Show label=true, Label=min, State=Default} 104×28 "min" "−15" "°"
+          I NF3/Field {Stepper=false, Unit=°, Value=15, Show unit=true, Show label=true, Label=max, State=Default} 104×28 "max" "15" "°"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Alpha"
+          I NF3/Field {Stepper=false, Unit=%, Value=60, Show unit=true, Show label=true, Label=min, State=Default} 104×28 "min" "60" "%"
+          I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=true, Label=max, State=Default} 104×28 "max" "100" "%"
+      F Footer 498×57 [H gap 8]
+        F Spacer 288×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Randomize, Kind=Primary, State=Default} 83×28 "Randomize"

@@ -1,0 +1,154 @@
+F Dialog / Document settings 1660×611 [V gap 24]
+  F Board title 1100×58 [V gap 6]
+    T "Dialog / Document settings"
+    T "Label column with controls at natural width; Make default stays in the footer. States: normal · scripts in other languages (Also compile JavaScript and the warning line) · no compatible language (the option stays in place, disabled). One height in all three states: the option row and the warning line keep their space when they are not shown."
+  F Row 1580×449 [H gap 40]
+    F Dialog / Document settings 500×449 [V gap 0]
+      I NF3/Dialog Header {Title=Document settings} 498×48 "Document settings"
+      F Body 498×342 [V gap 8]
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Stage size"
+          I NF3/Field {Stepper=false, Unit=px, Value=960, Show unit=true, Show label=true, Label=W, State=Default} 104×28 "W" "960" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=600, Show unit=true, Show label=true, Label=H, State=Default} 104×28 "H" "600" "px"
+          I NF3/Icon Button {Icon=1:9281, Kind=Ghost, State=Selected} 28×28
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Match contents, Kind=Ghost, State=Default} 107×28 "Match contents"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Match printer, Kind=Ghost, State=Default} 95×28 "Match printer"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Scale"
+          I NF3/Checkbox {Show label=true, Label=Scale content with stage, Value=On, State=Default} 153×20 "Scale content with stage"
+          F Registration picker 28×28 [V gap 3]
+            F Row 18×4 [H gap 3]
+            F Row 18×4 [H gap 3]
+            F Row 18×4 [H gap 3]
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Units"
+          I NF3/Select {Value=Pixels, Show label=false, Label=Style, State=Default} 168×28 "Style" "Pixels"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Background"
+          I NF3/Swatch 18×18
+          I NF3/Field {Stepper=false, Unit=100 %, Value=131824, Show unit=true, Show label=true, Label=#, State=Default} 168×28 "#" "131824" "100 %"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Frame rate"
+          I NF3/Field {Stepper=true, Unit=fps, Value=24.00, Show unit=true, Show label=false, Label=X, State=Default} 104×28 "X" "24.00" "fps"
+          T "120 frames · 5.00 s"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Script"
+          I NF3/Select {Value=ActionScript 3.0 · strict, Show label=false, Label=Style, State=Default} 232×28 "Style" "ActionScript 3.0 · strict"
+        F Reserved / option row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+        I NF3/Inline Message {Text=5 scripts are in other languages and stay in the document: 2 compile with a warning, 3 are skipped when publishing., Tone=Warning} 450×26 "5 scripts are in other languages and stay in the document: 2 compile with a warning, 3 are skipped when publishing."
+      F Footer 498×57 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Make default, Kind=Ghost, State=Default} 93×28 "Make default"
+        F Spacer 230×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=OK, Kind=Primary, State=Default} 40×28 "OK"
+    F Dialog / Document settings 500×449 [V gap 0]
+      I NF3/Dialog Header {Title=Document settings} 498×48 "Document settings"
+      F Body 498×342 [V gap 8]
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Stage size"
+          I NF3/Field {Stepper=false, Unit=px, Value=960, Show unit=true, Show label=true, Label=W, State=Default} 104×28 "W" "960" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=600, Show unit=true, Show label=true, Label=H, State=Default} 104×28 "H" "600" "px"
+          I NF3/Icon Button {Icon=1:9281, Kind=Ghost, State=Selected} 28×28
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Match contents, Kind=Ghost, State=Default} 107×28 "Match contents"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Match printer, Kind=Ghost, State=Default} 95×28 "Match printer"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Scale"
+          I NF3/Checkbox {Show label=true, Label=Scale content with stage, Value=On, State=Default} 153×20 "Scale content with stage"
+          F Registration picker 28×28 [V gap 3]
+            F Row 18×4 [H gap 3]
+            F Row 18×4 [H gap 3]
+            F Row 18×4 [H gap 3]
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Units"
+          I NF3/Select {Value=Pixels, Show label=false, Label=Style, State=Default} 168×28 "Style" "Pixels"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Background"
+          I NF3/Swatch 18×18
+          I NF3/Field {Stepper=false, Unit=100 %, Value=131824, Show unit=true, Show label=true, Label=#, State=Default} 168×28 "#" "131824" "100 %"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Frame rate"
+          I NF3/Field {Stepper=true, Unit=fps, Value=24.00, Show unit=true, Show label=false, Label=X, State=Default} 104×28 "X" "24.00" "fps"
+          T "120 frames · 5.00 s"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Script"
+          I NF3/Select {Value=TypeScript, Show label=false, Label=Style, State=Default} 232×28 "Style" "TypeScript"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Checkbox {Show label=true, Label=Also compile JavaScript, Value=On, State=Default} 148×20 "Also compile JavaScript"
+        I NF3/Inline Message {Text=5 scripts are in other languages and stay in the document: 2 compile with a warning, 3 are skipped when publishing., Tone=Warning} 450×26 "5 scripts are in other languages and stay in the document: 2 compile with a warning, 3 are skipped when publishing."
+      F Footer 498×57 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Make default, Kind=Ghost, State=Default} 93×28 "Make default"
+        F Spacer 230×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=OK, Kind=Primary, State=Default} 40×28 "OK"
+    F Dialog / Document settings 500×449 [V gap 0]
+      I NF3/Dialog Header {Title=Document settings} 498×48 "Document settings"
+      F Body 498×342 [V gap 8]
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Stage size"
+          I NF3/Field {Stepper=false, Unit=px, Value=960, Show unit=true, Show label=true, Label=W, State=Default} 104×28 "W" "960" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=600, Show unit=true, Show label=true, Label=H, State=Default} 104×28 "H" "600" "px"
+          I NF3/Icon Button {Icon=1:9281, Kind=Ghost, State=Selected} 28×28
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Match contents, Kind=Ghost, State=Default} 107×28 "Match contents"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Match printer, Kind=Ghost, State=Default} 95×28 "Match printer"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Scale"
+          I NF3/Checkbox {Show label=true, Label=Scale content with stage, Value=On, State=Default} 153×20 "Scale content with stage"
+          F Registration picker 28×28 [V gap 3]
+            F Row 18×4 [H gap 3]
+            F Row 18×4 [H gap 3]
+            F Row 18×4 [H gap 3]
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Units"
+          I NF3/Select {Value=Pixels, Show label=false, Label=Style, State=Default} 168×28 "Style" "Pixels"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Background"
+          I NF3/Swatch 18×18
+          I NF3/Field {Stepper=false, Unit=100 %, Value=131824, Show unit=true, Show label=true, Label=#, State=Default} 168×28 "#" "131824" "100 %"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Frame rate"
+          I NF3/Field {Stepper=true, Unit=fps, Value=24.00, Show unit=true, Show label=false, Label=X, State=Default} 104×28 "X" "24.00" "fps"
+          T "120 frames · 5.00 s"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Script"
+          I NF3/Select {Value=ActionScript 3.0, Show label=false, Label=Style, State=Default} 232×28 "Style" "ActionScript 3.0"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Checkbox {Show label=true, Label=Also compile compatible languages, Value=Off, State=Disabled} 208×20 "Also compile compatible languages"
+        I NF3/Inline Message {Text=5 scripts are in other languages and stay in the document: 2 compile with a warning, 3 are skipped when publishing., Tone=Warning} 450×26 "5 scripts are in other languages and stay in the document: 2 compile with a warning, 3 are skipped when publishing."
+      F Footer 498×57 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Make default, Kind=Ghost, State=Default} 93×28 "Make default"
+        F Spacer 230×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=OK, Kind=Primary, State=Default} 40×28 "OK"

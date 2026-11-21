@@ -1,0 +1,31 @@
+F Panel / Project 500×644 [V gap 24]
+  F Board title 420×74 [V gap 6]
+    T "Panel / Project"
+    T "Project select and search on top, the file tree at size/row (● = unsaved), New file / New folder / Settings / Delete and Publish in the footer, the link note as the last line."
+  F Panel / Project 288×466 [V gap 0]
+    F Panel header 286×34 [H gap 0]
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=Project, Selected=Yes} 66×34 "Project"
+      F Spacer 188×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Section body 286×92 [V gap 8]
+      I NF3/Select {Value=Ideas in motion (project), Show label=false, Label=Style, State=Default} 258×28 "Style" "Ideas in motion (project)"
+      I NF3/Search {Clear=false, Value=Find file, State=Default} 258×28 "Find file"
+    F List 286×250 [V gap 1]
+      I NF3/Tree Row {Show meta=false, Icon=7:132, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=src, Level=0, State=Default} 278×26 "src" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=com/neoflash, Show icon=true, Chevron=true, Icon=7:132, Level=1, State=Default} 278×26 "com/neoflash" "4"
+      I NF3/Tree Row {Show meta=true, Show icon=true, Chevron icon=220:1338, Icon=62:812, Chevron=false, Meta=●, Label=Orbit.as, Level=2, State=Selected} 278×26 "Orbit.as" "●"
+      I NF3/Tree Row {Show meta=false, Label=Planet.as, Icon=62:812, Show icon=true, Chevron icon=220:1338, Meta=4, Chevron=false, Level=2, State=Default} 278×26 "Planet.as" "4"
+      I NF3/Tree Row {Show meta=false, Label=Main.as, Icon=62:812, Show icon=true, Chevron icon=220:1338, Meta=4, Chevron=false, Level=2, State=Default} 278×26 "Main.as" "4"
+      I NF3/Tree Row {Show meta=false, Icon=1:9224, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=assets, Level=0, State=Default} 278×26 "assets" "4"
+      I NF3/Tree Row {Show meta=false, Icon=1:9224, Meta=4, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=publish, Level=0, State=Default} 278×26 "publish" "4"
+      I NF3/Tree Row {Show meta=false, Icon=1:9288, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=ideas.nfl, Level=0, State=Default} 278×26 "ideas.nfl" "4"
+      I NF3/Tree Row {Show meta=false, Icon=1:9298, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=project.json, Level=0, State=Default} 278×26 "project.json" "4"
+    F Panel footer 286×45 [H gap 8]
+      I NF3/Icon Button {Icon=36:767, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=7:159, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=1:9298, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+      F Spacer 41×1 [H gap 0]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Publish, Kind=Secondary, State=Default} 65×28 "Publish"
+    F Note 286×43 [H gap 0]
+      T "● unsaved changes · Orbit.as is linked to symbol "orbit""

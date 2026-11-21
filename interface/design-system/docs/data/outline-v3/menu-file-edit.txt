@@ -1,0 +1,69 @@
+F Menu / File, Edit 816×734 [V gap 24]
+  F Board title 720×74 [V gap 6]
+    T "Menu / File, Edit"
+    T "Rows are the v3 Menu Item at size/row; the items follow the shipped menu model: Close All joins File, Print… is not available yet, Duplicate comes before Clear, Edit ▸ Timeline gains Copy motion, Paste motion and Paste motion special…, and Send to AI… is listed only while an AI connection is ready."
+  F Menus 736×556 [H gap 32]
+    F File 216×417 [V gap 8]
+      T "File"
+      F Menu / File 216×393 [V gap 0]
+        I NF3/Menu Item {Shortcut=⌘N, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=New, State=Default} 206×26 "New" "⌘N"
+        I NF3/Menu Item {Shortcut=⌘O, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Open…, State=Default} 206×26 "Open…" "⌘O"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=false, Label=Open recent, State=Default} 206×26 "Open recent" "⌘K"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌘W, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Close, State=Default} 206×26 "Close" "⌘W"
+        I NF3/Menu Item {Shortcut=⌥⌘W, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Close All, State=Default} 206×26 "Close All" "⌥⌘W"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌘S, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Save, State=Default} 206×26 "Save" "⌘S"
+        I NF3/Menu Item {Shortcut=⇧⌘S, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Save as…, State=Default} 206×26 "Save as…" "⇧⌘S"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Revert, State=Default} 206×26 "Revert" "⌘K"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=false, Label=Import, State=Default} 206×26 "Import" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=false, Label=Export, State=Default} 206×26 "Export" "⌘K"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⇧F12, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Publish settings…, State=Default} 206×26 "Publish settings…" "⇧F12"
+        I NF3/Menu Item {Shortcut=⇧⌥F12, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Publish, State=Default} 206×26 "Publish" "⇧⌥F12"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Submenu=false, Shortcut=⌘P, Show shortcut=true, Checked=false, Check column=false, Label=Print…, State=Disabled} 206×26 "Print…" "⌘P"
+    F Edit 240×556 [V gap 8]
+      T "Edit"
+      F Menu / Edit 240×532 [V gap 0]
+        I NF3/Menu Item {Shortcut=⌘Z, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Undo Fill colour, State=Default} 230×26 "Undo Fill colour" "⌘Z"
+        I NF3/Menu Item {Shortcut=⇧⌘Z, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Redo, State=Default} 230×26 "Redo" "⇧⌘Z"
+        I NF3/Menu Separator 230×9
+        I NF3/Menu Item {Shortcut=⌘X, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Cut, State=Default} 230×26 "Cut" "⌘X"
+        I NF3/Menu Item {Shortcut=⌘C, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Copy, State=Default} 230×26 "Copy" "⌘C"
+        I NF3/Menu Item {Shortcut=⌘V, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Paste in centre, State=Default} 230×26 "Paste in centre" "⌘V"
+        I NF3/Menu Item {Shortcut=⇧⌘V, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Paste in place, State=Default} 230×26 "Paste in place" "⇧⌘V"
+        I NF3/Menu Item {Shortcut=⌘D, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Duplicate, State=Default} 230×26 "Duplicate" "⌘D"
+        I NF3/Menu Item {Shortcut=⌫, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Clear, State=Default} 230×26 "Clear" "⌫"
+        I NF3/Menu Separator 230×9
+        I NF3/Menu Item {Shortcut=⌘A, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Select all, State=Default} 230×26 "Select all" "⌘A"
+        I NF3/Menu Item {Shortcut=⇧⌘A, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Deselect, State=Default} 230×26 "Deselect" "⇧⌘A"
+        I NF3/Menu Separator 230×9
+        I NF3/Menu Item {Shortcut=⌘F, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Find and replace, State=Default} 230×26 "Find and replace" "⌘F"
+        I NF3/Menu Item {Submenu=true, Checked=false, Check column=false, Show shortcut=false, Shortcut=⌘K, Label=Timeline, State=Hover} 230×26 "Timeline" "⌘K"
+        I NF3/Menu Separator 230×9
+        I NF3/Menu Item {Shortcut=⌘E, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Edit symbols, State=Default} 230×26 "Edit symbols" "⌘E"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Edit selected, State=Default} 230×26 "Edit selected" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Edit in place, State=Default} 230×26 "Edit in place" "⌘K"
+        I NF3/Menu Separator 230×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Send to AI…, State=Default} 230×26 "Send to AI…" "⌘K"
+        I NF3/Menu Separator 230×9
+        I NF3/Menu Item {Shortcut=⌘U, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Preferences…, State=Default} 230×26 "Preferences…" "⌘U"
+        I NF3/Menu Item {Shortcut=⌥⇧⌘K, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Keyboard shortcuts…, State=Default} 230×26 "Keyboard shortcuts…" "⌥⇧⌘K"
+    F Edit ▸ Timeline 216×338 [V gap 8]
+      T "Edit ▸ Timeline"
+      F Menu / Edit ▸ Timeline 216×314 [V gap 0]
+        I NF3/Menu Item {Shortcut=⌥⌘X, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Cut frames, State=Default} 206×26 "Cut frames" "⌥⌘X"
+        I NF3/Menu Item {Shortcut=⌥⌘C, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Copy frames, State=Default} 206×26 "Copy frames" "⌥⌘C"
+        I NF3/Menu Item {Shortcut=⌥⌘V, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Paste frames, State=Default} 206×26 "Paste frames" "⌥⌘V"
+        I NF3/Menu Item {Shortcut=⌥⌫, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Clear frames, State=Default} 206×26 "Clear frames" "⌥⌫"
+        I NF3/Menu Item {Shortcut=⇧F5, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Remove frames, State=Default} 206×26 "Remove frames" "⇧F5"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Copy motion, State=Default} 206×26 "Copy motion" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Paste motion, State=Default} 206×26 "Paste motion" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Paste motion special…, State=Default} 206×26 "Paste motion special…" "⌘K"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌥⌘A, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Select all frames, State=Default} 206×26 "Select all frames" "⌥⌘A"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Reverse frames, State=Default} 206×26 "Reverse frames" "⌘K"
+        I NF3/Menu Item {Submenu=false, Shortcut=⌘K, Show shortcut=false, Checked=false, Check column=false, Label=Synchronise symbols, State=Disabled} 206×26 "Synchronise symbols" "⌘K"

@@ -1,0 +1,176 @@
+F Dialog / Customize tools panel 820×822 [V gap 24]
+  F Board title 720×58 [V gap 6]
+    T "Dialog / Customize tools panel"
+    T "Fixed size (width/dialog-l × height/dialog-xl): rail · available tools (search, scrolling list of all 30) · Add / Remove · the tools of the selected slot. A dot marks the default tool of the slot; Restore default stays on the left of the footer."
+  F Dialog / Customize tools panel 740×660 [V gap 0]
+    I NF3/Dialog Header {Title=Customize tools panel} 738×48 "Customize tools panel"
+    F Body 738×553 [H gap 14]
+      F Rail 44×508 [V gap 8]
+        T "Rail"
+        F Slots 44×488 [V gap 2]
+          I NF3/Tool Button {Icon 16=1:9097, Flyout=true, Icon 20=17:183, State=Default} 32×32
+          I NF3/Tool Button {Flyout=true, Icon 16=1:9107, Icon 20=17:194, State=Selected} 32×32
+          I NF3/Tool Button {Icon 16=1:9111, Flyout=false, Icon 20=17:205, State=Default} 32×32
+          I NF3/Tool Button {Icon 16=1:9116, Flyout=true, Icon 20=17:211, State=Default} 32×32
+          I NF3/Tool Button {Icon 16=1:9119, Flyout=false, Icon 20=17:214, State=Default} 32×32
+          I NF3/Tool Button {Icon 16=1:9122, Flyout=false, Icon 20=17:219, State=Default} 32×32
+          I NF3/Tool Button {Icon 16=1:9125, Flyout=true, Icon 20=17:225, State=Default} 32×32
+          I NF3/Tool Button {Icon 16=1:9131, Flyout=true, Icon 20=17:229, State=Default} 32×32
+          I NF3/Tool Button {Icon 16=1:9142, Flyout=true, Icon 20=17:243, State=Default} 32×32
+          I NF3/Tool Button {Icon 16=1:9146, Flyout=false, Icon 20=17:247, State=Default} 32×32
+          I NF3/Tool Button {Icon 16=1:9149, Flyout=false, Icon 20=17:252, State=Default} 32×32
+          I NF3/Tool Button {Icon 16=325:1795, Flyout=true, Icon 20=62:775, State=Default} 32×32
+          I NF3/Tool Button {Icon 16=325:1807, Flyout=true, Icon 20=62:762, State=Default} 32×32
+          I NF3/Tool Button {Icon 16=1:9155, Flyout=true, Icon 20=17:255, State=Default} 32×32
+      F Available 250×525 [V gap 8]
+        T "Available tools · 30"
+        I NF3/Search {Clear=false, Value=Find tool, State=Default} 250×28 "Find tool"
+        F List 250×469 [V gap 1]
+          F Tool / 3D rotation tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-3d-rotate 20×20
+            T "3D rotation tool"
+            T "W"
+          F Tool / 3D translation tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-3d-translate 20×20
+            T "3D translation tool"
+            T "G"
+          F Tool / Add anchor point tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-pen-add 20×20
+            T "Add anchor point tool"
+            T "="
+          F Tool / Bind tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-bind 20×20
+            T "Bind tool"
+            T "M"
+          F Tool / Bone tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-bone 20×20
+            T "Bone tool"
+            T "M"
+          F Tool / Brush tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-brush 20×20
+            T "Brush tool"
+            T "B"
+          F Tool / Convert anchor point tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-pen-convert 20×20
+            T "Convert anchor point tool"
+            T "C"
+          F Tool / Deco tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-deco 20×20
+            T "Deco tool"
+            T "U"
+          F Tool / Delete anchor point tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-pen-remove 20×20
+            T "Delete anchor point tool"
+            T "−"
+          F Tool / Eraser tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-eraser 20×20
+            T "Eraser tool"
+            T "E"
+          F Tool / Eyedropper tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-eyedropper 20×20
+            T "Eyedropper tool"
+            T "I"
+          F Tool / Free transform tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-transform 20×20
+            T "Free transform tool"
+            T "Q"
+          F Tool / Gradient transform tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-gradient 20×20
+            T "Gradient transform tool"
+            T "F"
+          F Tool / Hand tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-hand 20×20
+            T "Hand tool"
+            T "H"
+          F Tool / Ink bottle tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-ink 20×20
+            T "Ink bottle tool"
+            T "S"
+          F Tool / Lasso tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-lasso 20×20
+            T "Lasso tool"
+            T "L"
+          F Tool / Line tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-line 20×20
+            T "Line tool"
+            T "N"
+          F Tool / Oval tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-oval 20×20
+            T "Oval tool"
+            T "O"
+          F Tool / Oval primitive tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-oval-primitive 20×20
+            T "Oval primitive tool"
+            T "O"
+          F Tool / Paint bucket tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-bucket 20×20
+            T "Paint bucket tool"
+            T "K"
+          F Tool / Pen tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-pen 20×20
+            T "Pen tool"
+            T "P"
+          F Tool / Pencil tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-pencil 20×20
+            T "Pencil tool"
+            T "Y"
+          F Tool / PolyStar tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-polystar 20×20
+            T "PolyStar tool"
+            T "—"
+          F Tool / Rectangle tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-rect 20×20
+            T "Rectangle tool"
+            T "R"
+          F Tool / Rectangle primitive tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-rect-primitive 20×20
+            T "Rectangle primitive tool"
+            T "R"
+          F Tool / Selection tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-select 20×20
+            T "Selection tool"
+            T "V"
+          F Tool / Spray brush tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-spray 20×20
+            T "Spray brush tool"
+            T "B"
+          F Tool / Subselection tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-subselect 20×20
+            T "Subselection tool"
+            T "A"
+          F Tool / Text tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-text 20×20
+            T "Text tool"
+            T "T"
+          F Tool / Zoom tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-zoom 20×20
+            T "Zoom tool"
+            T "Z"
+      F Actions 104×525 [V gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Add ›, Kind=Secondary, State=Default} 104×28 "Add ›"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=‹ Remove, Kind=Secondary, State=Default} 104×28 "‹ Remove"
+      F Current 250×525 [V gap 8]
+        T "Slot 2 · current selection"
+        F List 250×471 [V gap 1]
+          F Tool / Free transform tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-transform 20×20
+            T "Free transform tool"
+            T "Q"
+          F Tool / Gradient transform tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-gradient 20×20
+            T "Gradient transform tool"
+            T "F"
+          F Tool / 3D rotation tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-3d-rotate 20×20
+            T "3D rotation tool"
+            T "W"
+          F Tool / 3D translation tool 240×32 [H gap 8]
+            I NF2 Icon/20/tool-3d-translate 20×20
+            T "3D translation tool"
+            T "G"
+        T "Tools in one slot form a flyout group. Drag to reorder; the first tool is the default shown on the rail."
+    F Footer 738×57 [H gap 8]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Restore default, Kind=Ghost, State=Default} 105×28 "Restore default"
+      F Spacer 458×1 [H gap 0]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=OK, Kind=Primary, State=Default} 40×28 "OK"

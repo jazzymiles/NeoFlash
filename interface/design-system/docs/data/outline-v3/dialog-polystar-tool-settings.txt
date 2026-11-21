@@ -1,0 +1,25 @@
+F Dialog / PolyStar tool settings 500×522 [V gap 24]
+  F Board title 420×58 [V gap 6]
+    T "Dialog / PolyStar tool settings"
+    T "width/dialog-s: shape preview on top, Style, Sides and Point size on the label grid with the hint below."
+  F Dialog / PolyStar tool settings 380×360 [V gap 0]
+    I NF3/Dialog Header {Title=PolyStar tool settings} 378×48 "PolyStar tool settings"
+    F Body 378×253 [V gap 8]
+      F Preview 330×96 [H gap 0]
+      F Form row 330×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Style"
+        I NF3/Select {Value=Star, Show label=false, Label=Style, State=Default} 168×28 "Style" "Star"
+      F Form row 330×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Sides"
+        I NF3/Field {Stepper=true, Unit=px, Value=5, Show unit=false, Show label=false, Label=X, State=Default} 104×28 "X" "5" "px"
+      F Form row 330×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Point size"
+        I NF3/Field {Stepper=true, Unit=px, Value=0.50, Show unit=false, Show label=false, Label=X, State=Default} 104×28 "X" "0.50" "px"
+      T "Point size 0–1: smaller = sharper points"
+    F Footer 378×57 [H gap 8]
+      F Spacer 211×1 [H gap 0]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=OK, Kind=Primary, State=Default} 40×28 "OK"

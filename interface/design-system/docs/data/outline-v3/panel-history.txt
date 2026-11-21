@@ -1,0 +1,20 @@
+F Panel / History 500×385 [V gap 24]
+  F Board title 420×58 [V gap 6]
+    T "Panel / History"
+    T "One row per step at size/row; the check column marks the current state, undone steps are disabled. Undo, Redo and Clear history in the footer."
+  F Panel / History 288×223 [V gap 0]
+    F Panel header 286×34 [H gap 0]
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=History, Selected=Yes} 67×34 "History"
+      F Spacer 187×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F List 286×142 [V gap 1]
+      I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Oval, State=Default} 278×26 "Oval" "⌘K"
+      I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Move, State=Default} 278×26 "Move" "⌘K"
+      I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=true, Show shortcut=false, Check column=true, Label=Fill colour, State=Default} 278×26 "Fill colour" "⌘K"
+      I NF3/Menu Item {Submenu=false, Shortcut=⌘K, Show shortcut=false, Checked=false, Check column=true, Label=Transform, State=Disabled} 278×26 "Transform" "⌘K"
+      I NF3/Menu Item {Submenu=false, Shortcut=⌘K, Show shortcut=false, Checked=false, Check column=true, Label=Delete, State=Disabled} 278×26 "Delete" "⌘K"
+    F Panel footer 286×45 [H gap 8]
+      I NF3/Icon Button {Icon=1:9294, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=36:751, Kind=Ghost, State=Default} 28×28
+      F Spacer 150×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28

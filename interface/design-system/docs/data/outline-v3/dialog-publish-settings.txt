@@ -1,0 +1,228 @@
+F Dialog / Publish settings 2860×762 [V gap 24]
+  F Board title 1100×58 [V gap 6]
+    T "Dialog / Publish settings"
+    T "One size for every target (width/dialog-xl × height/dialog-l). The target list, the Output row (field + “Browse…”) and the footer never move; a short page leaves empty space instead of shrinking the dialog. Profile actions (Duplicate, Import JSON, Export JSON) live in the ⋯ menu."
+  F Row 2780×600 [H gap 40]
+    F Dialog / Publish settings 900×600 [V gap 0]
+      I NF3/Dialog Header {Title=Publish settings} 898×48 "Publish settings"
+      F Dialog body 898×493 [H gap 0]
+        F Sidebar 216×493 [V gap 1]
+          F Profile 207×36 [H gap 8]
+            I NF3/Select {Value=Default, Show label=true, Label=Profile, State=Default} 171×28 "Profile" "Default"
+            I NF3/Icon Button {Icon=1:9260, Kind=Outlined, State=Default} 28×28
+          F Nav row 207×26 [H gap 8]
+            I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+            I NF2 Icon/16/globe 16×16
+            T "HTML5"
+          F Nav row 207×26 [H gap 8]
+            I NF3/Checkbox {Show label=false, Label=Option, Value=Off, State=Default} 16×20 "Option"
+            I NF2 Icon/16/desktop 16×16
+            T "Desktop app"
+          F Nav row 207×26 [H gap 8]
+            I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+            I NF2 Icon/16/video 16×16
+            T "Video (MP4)"
+          F Nav row 207×26 [H gap 8]
+            I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+            I NF2 Icon/16/grid 16×16
+            T "Image sequence"
+          F Nav row 207×26 [H gap 8]
+            I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+            I NF2 Icon/16/code 16×16
+            T "SVG animation"
+        F Page 682×493 [V gap 8]
+          T "HTML5 · Rust / WebAssembly"
+          F Group caption 634×28 [H gap 0]
+            T "Output"
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Folder"
+            I NF3/Field {Stepper=false, Unit=px, Value=~/Sites/ideas-in-motion, Show unit=false, Show label=false, Label=X, State=Default} 423×28 "X" "~/Sites/ideas-in-motion" "px"
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Browse…, Kind=Secondary, State=Default} 75×28 "Browse…"
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T ""
+            I NF3/Checkbox {Show label=true, Label=Include HTML wrapper, Value=On, State=Default} 143×20 "Include HTML wrapper"
+          F Group caption 634×28 [H gap 0]
+            T "Runtime"
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Size level"
+            F Segmented 258×28 [H gap 0]
+              I NF3/Segment {Label=Full, Selected=No} 43×22 "Full"
+              I NF3/Segment {Label=Balanced, Selected=Yes} 75×22 "Balanced"
+              I NF3/Segment {Label=Compact, Selected=No} 72×22 "Compact"
+              I NF3/Segment {Label=Shared, Selected=No} 62×22 "Shared"
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Budget"
+            I NF3/Field {Stepper=false, Unit=KB, Value=900, Show unit=true, Show label=true, Label=Max gzip, State=Default} 168×28 "Max gzip" "900" "KB"
+            T "On disk 1.36 MB · transfer 412 KB"
+          F Group caption 634×28 [H gap 0]
+            T "Playback"
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T ""
+            I NF3/Checkbox {Show label=true, Label=Loop, Value=On, State=Default} 51×20 "Loop"
+            I NF3/Checkbox {Show label=true, Label=Autoplay, Value=On, State=Default} 70×20 "Autoplay"
+            I NF3/Checkbox {Show label=true, Label=Preloader, Value=Off, State=Default} 74×20 "Preloader"
+            I NF3/Checkbox {Show label=true, Label=Fullscreen, Value=Off, State=Default} 77×20 "Fullscreen"
+          F Group caption 634×28 [H gap 0]
+            T "Assets"
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "JPEG quality"
+            I NF3/Slider {State=Default} 168×20
+            I NF3/Field {Stepper=false, Unit=%, Value=80, Show unit=true, Show label=false, Label=X, State=Default} 68×28 "X" "80" "%"
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Bitmaps"
+            I NF3/Checkbox {Show label=true, Label=Sprite sheets, Value=On, State=Default} 93×20 "Sprite sheets"
+            I NF3/Checkbox {Show label=true, Label=Embed fonts (subset), Value=On, State=Default} 136×20 "Embed fonts (subset)"
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Sequences"
+            I NF3/Select {Value=Keep individual frames, Show label=false, Label=Style, State=Default} 232×28 "Style" "Keep individual frames"
+          F Group caption 634×28 [H gap 0]
+            T "Scripts"
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T ""
+            I NF3/Checkbox {Show label=true, Label=Strict mode, Value=On, State=Default} 85×20 "Strict mode"
+            I NF3/Checkbox {Show label=true, Label=Include trace(), Value=Off, State=Default} 100×20 "Include trace()"
+            I NF3/Checkbox {Show label=true, Label=Minify, Value=On, State=Default} 56×20 "Minify"
+            I NF3/Checkbox {Show label=true, Label=Source maps, Value=Off, State=Default} 92×20 "Source maps"
+      F Footer 898×57 [H gap 8]
+        T "HTML5 · 1.36 MB on disk · 412 KB gzip"
+        F Spacer 444×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=OK, Kind=Secondary, State=Default} 42×28 "OK"
+        I NF3/Button {Icon=1:9278, Show icon=true, Label=Publish, Kind=Primary, State=Default} 87×28 "Publish"
+    F Dialog / Publish settings 900×600 [V gap 0]
+      I NF3/Dialog Header {Title=Publish settings} 898×48 "Publish settings"
+      F Dialog body 898×493 [H gap 0]
+        F Sidebar 216×493 [V gap 1]
+          F Profile 207×36 [H gap 8]
+            I NF3/Select {Value=Default, Show label=true, Label=Profile, State=Default} 171×28 "Profile" "Default"
+            I NF3/Icon Button {Icon=1:9260, Kind=Outlined, State=Default} 28×28
+          F Nav row 207×26 [H gap 8]
+            I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+            I NF2 Icon/16/globe 16×16
+            T "HTML5"
+          F Nav row 207×26 [H gap 8]
+            I NF3/Checkbox {Show label=false, Label=Option, Value=Off, State=Default} 16×20 "Option"
+            I NF2 Icon/16/desktop 16×16
+            T "Desktop app"
+          F Nav row 207×26 [H gap 8]
+            I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+            I NF2 Icon/16/video 16×16
+            T "Video (MP4)"
+          F Nav row 207×26 [H gap 8]
+            I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+            I NF2 Icon/16/grid 16×16
+            T "Image sequence"
+          F Nav row 207×26 [H gap 8]
+            I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+            I NF2 Icon/16/code 16×16
+            T "SVG animation"
+        F Page 682×493 [V gap 8]
+          T "Video (MP4)"
+          F Group caption 634×28 [H gap 0]
+            T "Output"
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "File"
+            I NF3/Field {Stepper=false, Unit=px, Value=~/Movies/ideas-in-motion.mp4, Show unit=false, Show label=false, Label=X, State=Default} 423×28 "X" "~/Movies/ideas-in-motion.mp4" "px"
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Browse…, Kind=Secondary, State=Default} 75×28 "Browse…"
+          F Group caption 634×28 [H gap 0]
+            T "Video"
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Size"
+            I NF3/Field {Stepper=false, Unit=px, Value=960, Show unit=true, Show label=true, Label=W, State=Default} 104×28 "W" "960" "px"
+            I NF3/Field {Stepper=false, Unit=px, Value=600, Show unit=true, Show label=true, Label=H, State=Default} 104×28 "H" "600" "px"
+            I NF3/Icon Button {Icon=1:9281, Kind=Ghost, State=Selected} 28×28
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Frame rate"
+            I NF3/Field {Stepper=true, Unit=fps, Value=24, Show unit=true, Show label=false, Label=X, State=Default} 104×28 "X" "24" "fps"
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Codec"
+            I NF3/Select {Value=H.264, Show label=false, Label=Style, State=Default} 168×28 "Style" "H.264"
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Quality"
+            I NF3/Slider {State=Default} 168×20
+            T "High (~2 Mbps)"
+          F Group caption 634×28 [H gap 0]
+            T "Content"
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T ""
+            I NF3/Checkbox {Show label=true, Label=Render nested movie clip animation and scripts, Value=On, State=Default} 270×20 "Render nested movie clip animation and scripts"
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Duration"
+            I NF3/Radio {Label=Stop at last frame, Value=On, State=Default} 117×20 "Stop at last frame"
+            I NF3/Radio {Label=Stop after, Value=Off, State=Default} 76×20 "Stop after"
+            I NF3/Field {Stepper=false, Show unit=true, Value=10, Show label=false, Unit=s, Label=X, State=Disabled} 68×28 "X" "10" "s"
+          F Group caption 634×28 [H gap 0]
+            T "Audio"
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T ""
+            I NF3/Checkbox {Show label=true, Label=Include audio, Value=On, State=Default} 94×20 "Include audio"
+            I NF3/Select {Value=AAC 192 kbps, Show label=false, Label=Style, State=Default} 168×28 "Style" "AAC 192 kbps"
+      F Footer 898×57 [H gap 8]
+        T "MP4 (H.264) · ~1.36 MB · 00:05 · 960 × 600"
+        F Spacer 418×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=OK, Kind=Secondary, State=Default} 42×28 "OK"
+        I NF3/Button {Icon=1:9278, Show icon=true, Label=Publish, Kind=Primary, State=Default} 87×28 "Publish"
+    F Dialog / Publish settings 900×600 [V gap 0]
+      I NF3/Dialog Header {Title=Publish settings} 898×48 "Publish settings"
+      F Dialog body 898×493 [H gap 0]
+        F Sidebar 216×493 [V gap 1]
+          F Profile 207×36 [H gap 8]
+            I NF3/Select {Value=Default, Show label=true, Label=Profile, State=Default} 171×28 "Profile" "Default"
+            I NF3/Icon Button {Icon=1:9260, Kind=Outlined, State=Default} 28×28
+          F Nav row 207×26 [H gap 8]
+            I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+            I NF2 Icon/16/globe 16×16
+            T "HTML5"
+          F Nav row 207×26 [H gap 8]
+            I NF3/Checkbox {Show label=false, Label=Option, Value=Off, State=Default} 16×20 "Option"
+            I NF2 Icon/16/desktop 16×16
+            T "Desktop app"
+          F Nav row 207×26 [H gap 8]
+            I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+            I NF2 Icon/16/video 16×16
+            T "Video (MP4)"
+          F Nav row 207×26 [H gap 8]
+            I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+            I NF2 Icon/16/grid 16×16
+            T "Image sequence"
+          F Nav row 207×26 [H gap 8]
+            I NF3/Checkbox {Show label=false, Label=Option, Value=On, State=Default} 16×20 "Option"
+            I NF2 Icon/16/code 16×16
+            T "SVG animation"
+        F Page 682×493 [V gap 8]
+          T "SVG animation"
+          F Group caption 634×28 [H gap 0]
+            T "Output"
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "File"
+            I NF3/Field {Stepper=false, Unit=px, Value=Choose a file, Show unit=false, Show label=false, Label=X, State=Default} 423×28 "X" "Choose a file" "px"
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Browse…, Kind=Secondary, State=Default} 75×28 "Browse…"
+          F Form row 634×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T ""
+            T "Exports vector SVG 1.1 (960 × 600 px)."
+      F Footer 898×57 [H gap 8]
+        T "SVG 1.1 · 960 × 600"
+        F Spacer 534×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=OK, Kind=Secondary, State=Default} 42×28 "OK"
+        I NF3/Button {Icon=1:9278, Show icon=true, Label=Publish, Kind=Primary, State=Default} 87×28 "Publish"

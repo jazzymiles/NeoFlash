@@ -1,0 +1,62 @@
+F Dialog / Import video 820×736 [V gap 24]
+  F Board title 720×58 [V gap 6]
+    T "Dialog / Import video"
+    T "Preview, filmstrip and In / Out stay in the artwork column; deployment, embedding and the four options follow the dialog form grid with one option per row."
+  F Dialog / Import video 740×574 [V gap 0]
+    I NF3/Dialog Header {Title=Import video} 738×48 "Import video"
+    F Body 738×467 [H gap 24]
+      F Preview column 240×224 [V gap 8]
+        F Preview 240×135 [H gap 16]
+          I NF2 Icon/16/video 16×16
+        F Filmstrip 240×24 [H gap 3]
+        F Pair 240×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=00:00.00, Show unit=false, Show label=true, Label=In, State=Default} 116×28 "In" "00:00.00" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=00:24.00, Show unit=false, Show label=true, Label=Out, State=Default} 116×28 "Out" "00:24.00" "px"
+        T "Drag the in / out handles on the strip to trim."
+      F Settings 426×439 [V gap 8]
+        F Form row 426×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "File"
+          I NF3/Field {Stepper=false, Unit=px, Value=~/Movies/intro.mp4, Show unit=false, Show label=false, Label=X, State=Default} 215×28 "X" "~/Movies/intro.mp4" "px"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Browse…, Kind=Secondary, State=Default} 75×28 "Browse…"
+        F Group caption 426×28 [H gap 0]
+          T "Deployment"
+        F Option 426×33 [V gap 0]
+          I NF3/Radio {Label=Embed in timeline, Value=On, State=Default} 117×20 "Embed in timeline"
+          T "Frames sync with the timeline; best for short clips"
+        F Option 426×33 [V gap 0]
+          I NF3/Radio {Label=Load external video, Value=Off, State=Default} 127×20 "Load external video"
+          T "Streams with a player component; keeps .nfl small"
+        F Option 426×33 [V gap 0]
+          I NF3/Radio {Label=Progressive download, Value=Off, State=Default} 139×20 "Progressive download"
+          T "Plays while downloading from a URL"
+        F Group caption 426×28 [H gap 0]
+          T "Embedding"
+        F Form row 426×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Symbol"
+          I NF3/Select {Value=Movie clip, Show label=false, Label=Style, State=Default} 168×28 "Style" "Movie clip"
+        F Form row 426×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Codec"
+          I NF3/Select {Value=H.264, Show label=false, Label=Style, State=Default} 168×28 "Style" "H.264"
+        F Form row 426×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Placement"
+          I NF3/Checkbox {Show label=true, Label=Place on stage, Value=On, State=Default} 101×20 "Place on stage"
+        F Form row 426×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Checkbox {Show label=true, Label=Expand timeline if needed, Value=On, State=Default} 159×20 "Expand timeline if needed"
+        F Form row 426×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Audio"
+          I NF3/Checkbox {Show label=true, Label=Include audio, Value=On, State=Default} 94×20 "Include audio"
+        F Form row 426×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Frame rate"
+          I NF3/Checkbox {Show label=true, Label=Match document frame rate, Value=On, State=Default} 170×20 "Match document frame rate"
+    F Footer 738×57 [H gap 8]
+      T "1280×720 · 30 fps → 24 fps · 24.0 s · ~6.1 MB"
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Import, Kind=Primary, State=Default} 59×28 "Import"

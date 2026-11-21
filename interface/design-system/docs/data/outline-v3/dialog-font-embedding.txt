@@ -1,0 +1,65 @@
+F Dialog / Font embedding 820×762 [V gap 24]
+  F Board title 720×58 [V gap 6]
+    T "Dialog / Font embedding"
+    T "Same shell as Preferences: the embedded fonts with Add / Remove in the sidebar, one page on the label grid, the character ranges in two columns; the glyph estimate sits in the footer. ActionScript class export is not available yet and stays disabled."
+  F Dialog / Font embedding 740×600 [V gap 0]
+    I NF3/Dialog Header {Title=Font embedding} 738×48 "Font embedding"
+    F Dialog body 738×493 [H gap 0]
+      F Sidebar 216×493 [V gap 1]
+        F Nav row 207×26 [H gap 8]
+          I NF2 Icon/16/font 16×16
+          T "Inter Regular"
+        F Nav row 207×26 [H gap 8]
+          I NF2 Icon/16/font 16×16
+          T "Inter Semi Bold"
+        F Nav row 207×26 [H gap 8]
+          I NF2 Icon/16/font 16×16
+          T "Roboto Mono"
+        F Font actions 207×36 [H gap 0]
+          I NF3/Icon Button {Icon=1:9209, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9212, Kind=Ghost, State=Default} 28×28
+      F Page 522×493 [V gap 8]
+        F Form row 474×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Name"
+          I NF3/Field {Stepper=false, Unit=px, Value=Inter Regular, Show unit=false, Show label=false, Label=X, State=Default} 346×28 "X" "Inter Regular" "px"
+        F Form row 474×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Family"
+          I NF3/Select {Value=Inter, Show label=false, Label=Style, State=Default} 232×28 "Style" "Inter"
+        F Form row 474×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Style"
+          I NF3/Select {Value=Regular, Show label=false, Label=Style, State=Default} 232×28 "Style" "Regular"
+        F Group caption 474×28 [H gap 0]
+          T "Character ranges"
+        F Range columns 474×104 [H gap 14]
+          F Ranges 230×104 [V gap 8]
+            I NF3/Checkbox {Show label=true, Label=Uppercase [A–Z] (27), Value=On, State=Default} 136×20 "Uppercase [A–Z] (27)"
+            I NF3/Checkbox {Show label=true, Label=Lowercase [a–z] (27), Value=On, State=Default} 133×20 "Lowercase [a–z] (27)"
+            I NF3/Checkbox {Show label=true, Label=Numerals [0–9] (11), Value=On, State=Default} 125×20 "Numerals [0–9] (11)"
+            I NF3/Checkbox {Show label=true, Label=Punctuation (52), Value=On, State=Default} 111×20 "Punctuation (52)"
+          F Ranges 230×104 [V gap 8]
+            I NF3/Checkbox {Show label=true, Label=Basic Latin (95), Value=Off, State=Default} 105×20 "Basic Latin (95)"
+            I NF3/Checkbox {Show label=true, Label=Cyrillic (256), Value=On, State=Default} 91×20 "Cyrillic (256)"
+            I NF3/Checkbox {Show label=true, Label=Latin Extended A (128), Value=Off, State=Default} 143×20 "Latin Extended A (128)"
+            I NF3/Checkbox {Show label=true, Label=Greek (117), Value=Off, State=Default} 83×20 "Greek (117)"
+        F Form row 474×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Also include"
+          I NF3/Field {Stepper=false, Unit=px, Value=→ ← ★ © ®, Show unit=false, Show label=false, Label=X, State=Default} 346×28 "X" "→ ← ★ © ®" "px"
+        F Group caption 474×28 [H gap 0]
+          T "ActionScript"
+        F Form row 474×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Checkbox {Show label=true, Label=Export for ActionScript, Value=On, State=Disabled} 143×20 "Export for ActionScript"
+        F Form row 474×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Class"
+          I NF3/Field {Stepper=false, Show unit=false, Value=InterRegular, Show label=false, Unit=px, Label=X, State=Disabled} 232×28 "X" "InterRegular" "px"
+    F Footer 738×57 [H gap 8]
+      I NF3/Badge {Label=378 glyphs · subset estimate ~ 46 kB, Tone=Accent} 190×20 "378 glyphs · subset estimate ~ 46 kB"
+      F Spacer 373×1 [H gap 0]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=OK, Kind=Primary, State=Default} 40×28 "OK"

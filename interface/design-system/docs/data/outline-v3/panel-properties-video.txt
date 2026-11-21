@@ -1,0 +1,110 @@
+F Panel / Properties — Video 696×933 [V gap 24]
+  F Board title 600×58 [V gap 6]
+    T "Panel / Properties — Video"
+    T "Left: video instance on the stage; right: frame video on a video layer. Playback options are checkboxes, cue points are one row per record, and Display (Opacity, R-100) is a collapsed section of the instance."
+  F States 616×771 [H gap 40]
+    F Panel / Properties 288×771 [V gap 0]
+      F Panel header 286×34 [H gap 0]
+        I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+        I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+        F Spacer 89×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+      F Type header 286×34 [H gap 8]
+        I NF2 Icon/16/video 16×16
+        T "Video"
+        T "Instance of “intro.mp4”"
+      F Section body 286×203 [V gap 8]
+        F Video preview 258×132 [V gap 0]
+          F Transport 258×24 [H gap 8]
+            I NF2 Icon/12/play 12×12
+            T "00:07 / 00:24"
+        F Line 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=intro_vid, Show unit=false, Show label=true, Label=Name, State=Default} 185×28 "Name" "intro_vid" "px"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Swap…, Kind=Secondary, State=Default} 65×28 "Swap…"
+        T "intro.mp4 · H.264 · 1280×720 · 30 fps · 24.0 s"
+      I NF3/Section Header {Action icon=1:9281, Action=true, Title=Position and size, Open=Yes} 286×28 "Position and size"
+      F Section body 286×78 [V gap 8]
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=96.0, Show unit=false, Show label=true, Label=X, State=Default} 125×28 "X" "96.0" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=64.0, Show unit=false, Show label=true, Label=Y, State=Default} 125×28 "Y" "64.0" "px"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=640.0, Show unit=false, Show label=true, Label=W, State=Default} 125×28 "W" "640.0" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=360.0, Show unit=false, Show label=true, Label=H, State=Default} 125×28 "H" "360.0" "px"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Display, Open=No} 286×28 "Display"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Playback, Open=Yes} 286×28 "Playback"
+      F Section body 286×178 [V gap 8]
+        I NF3/Select {Value=Embedded, Show label=true, Label=Deployment, State=Default} 258×28 "Deployment" "Embedded"
+        F Line 258×28 [H gap 8]
+          I NF3/Checkbox {Show label=true, Label=Autoplay, Value=On, State=Default} 70×20 "Autoplay"
+          I NF3/Checkbox {Show label=true, Label=Loop, Value=Off, State=Default} 51×20 "Loop"
+          I NF3/Checkbox {Show label=true, Label=Muted, Value=Off, State=Default} 58×20 "Muted"
+        I NF3/Select {Value=Minimal overlay, Show label=true, Label=Skin, State=Default} 258×28 "Skin" "Minimal overlay"
+        F Pair 258×28 [H gap 8]
+          I NF3/Select {Value=Fit, Show label=true, Label=Scale, State=Default} 125×28 "Scale" "Fit"
+          I NF3/Field {Stepper=false, Unit=%, Value=80, Show unit=true, Show label=true, Label=Volume, State=Default} 125×28 "Volume" "80" "%"
+        I NF3/Slider {State=Default} 258×20
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Cue points, Open=Yes} 286×28 "Cue points"
+      F Section body 286×130 [V gap 8]
+        F List 258×80 [V gap 0]
+          F Record 256×26 [H gap 8]
+            T "Name"
+            F Value 132×13 [H gap 0]
+              T "Time · Type"
+          F Record 256×26 [H gap 8]
+            T "titleIn"
+            F Value 132×13 [H gap 0]
+              T "00:01.500 · Event"
+          F Record 256×26 [H gap 8]
+            T "logoHit"
+            F Value 132×13 [H gap 0]
+              T "00:12.000 · Navigation"
+        F Line 258×28 [H gap 8]
+          I NF3/Icon Button {Icon=1:9209, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9212, Kind=Ghost, State=Default} 28×28
+          F Spacer 77×1 [H gap 0]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Edit in timeline, Kind=Ghost, State=Default} 101×28 "Edit in timeline"
+    F Panel / Properties 288×480 [V gap 0]
+      F Panel header 286×34 [H gap 0]
+        I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+        I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+        F Spacer 89×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+      F Type header 286×34 [H gap 8]
+        I NF2 Icon/16/frame 16×16
+        T "Frame 12"
+        T "Layer “intro.mp4” · video span"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Video, Open=Yes} 286×28 "Video"
+      F Section body 286×382 [V gap 8]
+        I NF3/Select {Value=intro.mp4, Show label=false, Label=Style, State=Default} 258×28 "Style" "intro.mp4"
+        F Line 258×28 [H gap 8]
+          I NF3/Select {Value=Stream, Show label=true, Label=Sync, State=Default} 140×28 "Sync" "Stream"
+          I NF3/Checkbox {Show label=true, Label=Loop, Value=Off, State=Default} 51×20 "Loop"
+          I NF3/Checkbox {Show label=true, Label=Mute, Value=Off, State=Default} 51×20 "Mute"
+        F Group caption 258×28 [H gap 0]
+          T "Trim"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=ms, Value=0, Show unit=true, Show label=true, Label=In, State=Default} 125×28 "In" "0" "ms"
+          I NF3/Field {Stepper=false, Unit=ms, Value=24 000, Show unit=true, Show label=true, Label=Out, State=Default} 125×28 "Out" "24 000" "ms"
+        F Line 258×28 [H gap 8]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Split at playhead, Kind=Secondary, State=Default} 114×28 "Split at playhead"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Extract audio, Kind=Secondary, State=Default} 96×28 "Extract audio"
+        F Line 258×28 [H gap 8]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Reset trim, Kind=Ghost, State=Default} 78×28 "Reset trim"
+        F Group caption 258×28 [H gap 0]
+          T "Cue points"
+        F List 258×80 [V gap 0]
+          F Record 256×26 [H gap 8]
+            T "Name"
+            F Value 72×13 [H gap 0]
+              T "Time"
+          F Record 256×26 [H gap 8]
+            T "titleIn"
+            F Value 72×13 [H gap 0]
+              T "1 500 ms"
+          F Record 256×26 [H gap 8]
+            T "logoHit"
+            F Value 72×13 [H gap 0]
+              T "12 000 ms"
+        F Line 258×28 [H gap 8]
+          I NF3/Icon Button {Icon=1:9209, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9212, Kind=Ghost, State=Default} 28×28

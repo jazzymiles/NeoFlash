@@ -1,0 +1,59 @@
+F Panel / Brushes 500×663 [V gap 24]
+  F Board title 420×74 [V gap 6]
+    T "Panel / Brushes"
+    T "One row per preset at size/row: stroke sample · name · size. Search with Brush options on top, the Size slider with its field above the footer (New brush, New group, Delete)."
+  F Panel / Brushes 288×485 [V gap 0]
+    F Panel header 286×34 [H gap 0]
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=Brushes, Selected=Yes} 71×34 "Brushes"
+      F Spacer 183×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Section body 286×56 [V gap 8]
+      F Line 258×28 [H gap 8]
+        I NF3/Search {Clear=false, Value=Find brush, State=Default} 222×28 "Find brush"
+        I NF3/Icon Button {Icon=1:9298, Kind=Ghost, State=Default} 28×28
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Basic, Open=Yes} 286×28 "Basic"
+    F Brush preset 286×26 [H gap 8]
+      F Stroke 60×12 [H gap 5]
+      T "Round"
+      T "12"
+    F Brush preset 286×26 [H gap 8]
+      F Stroke 60×12 [H gap 5]
+      T "Flat"
+      T "16"
+    F Brush preset 286×26 [H gap 8]
+      F Stroke 60×12 [H gap 5]
+      T "Chisel"
+      T "10"
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Artistic, Open=Yes} 286×28 "Artistic"
+    F Brush preset 286×26 [H gap 8]
+      F Stroke 60×12 [H gap 5]
+        F Column 56×5 [V gap 1]
+      T "Charcoal"
+      T "24"
+    F Brush preset 286×26 [H gap 8]
+      F Stroke 60×12 [H gap 5]
+      T "Ink pen"
+      T "6"
+    F Brush preset 286×26 [H gap 8]
+      F Stroke 60×12 [H gap 5]
+      T "Watercolour"
+      T "32"
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Pattern, Open=Yes} 286×28 "Pattern"
+    F Brush preset 286×26 [H gap 8]
+      F Stroke 60×12 [H gap 5]
+      T "Dots"
+      T "14"
+    F Brush preset 286×26 [H gap 8]
+      F Stroke 60×12 [H gap 5]
+      T "Vine"
+      T "20"
+    F Section body 286×56 [V gap 8]
+      F Line 258×28 [H gap 8]
+        T "Size"
+        I NF3/Slider {State=Default} 152×20
+        I NF3/Field {Stepper=false, Unit=px, Value=12, Show unit=true, Show label=false, Label=X, State=Default} 68×28 "X" "12" "px"
+    F Panel footer 286×45 [H gap 8]
+      I NF3/Icon Button {Icon=1:9209, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=7:159, Kind=Ghost, State=Default} 28×28
+      F Spacer 150×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28

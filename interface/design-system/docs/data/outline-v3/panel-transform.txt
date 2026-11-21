@@ -1,0 +1,35 @@
+F Panel / Transform 500×507 [V gap 24]
+  F Board title 420×74 [V gap 6]
+    T "Panel / Transform"
+    T "Two equal columns in every row. The two constrain toggles moved into the section headers (Position and size, Scale); rotate, flip and Reset transform sit in the footer."
+  F Panel / Transform 288×329 [V gap 0]
+    F Panel header 286×34 [H gap 0]
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=Transform, Selected=Yes} 82×34 "Transform"
+      F Spacer 172×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    I NF3/Section Header {Action icon=1:9281, Action=true, Title=Position and size, Open=Yes} 286×28 "Position and size"
+    F Section body 286×78 [V gap 8]
+      F Pair 258×28 [H gap 8]
+        I NF3/Field {Stepper=false, Unit=px, Value=64, Show unit=false, Show label=true, Label=X, State=Default} 125×28 "X" "64" "px"
+        I NF3/Field {Stepper=false, Unit=px, Value=337, Show unit=false, Show label=true, Label=Y, State=Default} 125×28 "Y" "337" "px"
+      F Pair 258×28 [H gap 8]
+        I NF3/Field {Stepper=false, Unit=px, Value=220, Show unit=false, Show label=true, Label=W, State=Default} 125×28 "W" "220" "px"
+        I NF3/Field {Stepper=false, Unit=px, Value=48, Show unit=false, Show label=true, Label=H, State=Default} 125×28 "H" "48" "px"
+    I NF3/Section Header {Action icon=1:9281, Action=true, Title=Scale, Open=Yes} 286×28 "Scale"
+    F Section body 286×42 [V gap 8]
+      F Pair 258×28 [H gap 8]
+        I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=true, Label=W, State=Default} 125×28 "W" "100" "%"
+        I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=true, Label=H, State=Default} 125×28 "H" "100" "%"
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Rotate and skew, Open=Yes} 286×28 "Rotate and skew"
+    F Section body 286×42 [V gap 8]
+      F Pair 258×28 [H gap 8]
+        I NF3/Field {Stepper=false, Unit=°, Value=0, Show unit=true, Show label=true, Label=Rotation, State=Default} 125×28 "Rotation" "0" "°"
+        I NF3/Field {Stepper=false, Unit=°, Value=0, Show unit=true, Show label=true, Label=Skew, State=Default} 125×28 "Skew" "0" "°"
+    F Panel footer 286×47 [H gap 8]
+      F Icon group 114×30 [H gap 0]
+        I NF3/Icon Button {Icon=17:381, Kind=Ghost, State=Default} 28×28
+        I NF3/Icon Button {Icon=17:377, Kind=Ghost, State=Default} 28×28
+        I NF3/Icon Button {Icon=17:386, Kind=Ghost, State=Default} 28×28
+        I NF3/Icon Button {Icon=17:391, Kind=Ghost, State=Default} 28×28
+      F Spacer 100×1 [H gap 0]
+      I NF3/Icon Button {Icon=17:396, Kind=Ghost, State=Default} 28×28

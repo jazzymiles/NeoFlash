@@ -1,0 +1,188 @@
+F Panel / Properties — Text 696×1812 [V gap 24]
+  F Board title 600×90 [V gap 6]
+    T "Panel / Properties — Text"
+    T "One layout that fits width/inspector in every density, so the v2.25 narrow fallback board is gone. The first section is “Position and size” (R-100); alignment and underline / strike / super / sub are icon groups instead of long selects. Left: text box, opacity stays in the colour field. Right: simple text with its own Display section holding Opacity."
+  F States 616×1618 [H gap 40]
+    F Panel / Properties 288×1618 [V gap 0]
+      F Panel header 286×34 [H gap 0]
+        I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+        I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+        F Spacer 89×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+      F Type header 286×34 [H gap 8]
+        I NF2 Icon/16/text 16×16
+        T "Text"
+        T "Text box · TLF"
+      F Section body 286×78 [V gap 8]
+        F Pair 258×28 [H gap 8]
+          I NF3/Select {Value=TLF Text (CS5), Show label=false, Label=Style, State=Default} 125×28 "Style" "TLF Text (CS5)"
+          I NF3/Select {Value=Editable, Show label=false, Label=Style, State=Default} 125×28 "Style" "Editable"
+        F Pair 258×28 [H gap 8]
+          I NF3/Select {Value=Horizontal, Show label=false, Label=Style, State=Default} 125×28 "Style" "Horizontal"
+          I NF3/Select {Value=LTR, Show label=false, Label=Style, State=Default} 125×28 "Style" "LTR"
+      I NF3/Section Header {Action icon=1:9281, Action=true, Title=Position and size, Open=Yes} 286×28 "Position and size"
+      F Section body 286×150 [V gap 8]
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=141.50, Show unit=false, Show label=true, Label=X, State=Default} 125×28 "X" "141.50" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=137.85, Show unit=false, Show label=true, Label=Y, State=Default} 125×28 "Y" "137.85" "px"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=303.10, Show unit=false, Show label=true, Label=W, State=Default} 125×28 "W" "303.10" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=151.20, Show unit=false, Show label=true, Label=H, State=Default} 125×28 "H" "151.20" "px"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=true, Label=Scale X, State=Default} 125×28 "Scale X" "100" "%"
+          I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=true, Label=Scale Y, State=Default} 125×28 "Scale Y" "100" "%"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=°, Value=0, Show unit=true, Show label=true, Label=Rotation, State=Default} 125×28 "Rotation" "0" "°"
+          I NF3/Field {Stepper=false, Unit=°, Value=0, Show unit=true, Show label=true, Label=Skew, State=Default} 125×28 "Skew" "0" "°"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Character, Open=Yes} 286×28 "Character"
+      F Section body 286×294 [V gap 8]
+        I NF3/Select {Value=Inter, Show label=false, Label=Style, State=Default} 258×28 "Style" "Inter"
+        F Line 258×28 [H gap 8]
+          I NF3/Select {Value=Regular, Show label=false, Label=Style, State=Default} 178×28 "Style" "Regular"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Embed…, Kind=Secondary, State=Default} 72×28 "Embed…"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=pt, Value=24, Show unit=true, Show label=true, Label=Size, State=Default} 125×28 "Size" "24" "pt"
+          I NF3/Field {Stepper=false, Unit=%, Value=120, Show unit=true, Show label=true, Label=Leading, State=Default} 125×28 "Leading" "120" "%"
+        F Paint / Color 258×28 [H gap 8]
+          I NF3/Swatch 18×18
+          I NF3/Field {Stepper=false, Unit=100 %, Value=1A1A1A, Show unit=true, Show label=true, Label=Color, State=Default} 232×28 "Color" "1A1A1A" "100 %"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=-5.0, Show unit=false, Show label=true, Label=Tracking, State=Default} 125×28 "Tracking" "-5.0" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=None, Show unit=false, Show label=true, Label=Highlight, State=Default} 125×28 "Highlight" "None" "px"
+        I NF3/Select {Value=Anti-alias for readability, Show label=false, Label=Style, State=Default} 258×28 "Style" "Anti-alias for readability"
+        F Line 258×28 [H gap 8]
+          F Icon group 118×28 [H gap 2]
+            I NF3/Icon Button {Icon=227:454310, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=227:454314, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=17:423, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=17:427, Kind=Ghost, State=Default} 28×28
+          F Spacer 49×1 [H gap 0]
+          I NF3/Checkbox {Show label=true, Label=Auto kern, Value=On, State=Default} 75×20 "Auto kern"
+        I NF3/Select {Value=Auto, Show label=true, Label=Glyph rotation, State=Default} 258×28 "Glyph rotation" "Auto"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Advanced character, Open=Yes} 286×28 "Advanced character"
+      F Section body 286×186 [V gap 8]
+        F Pair 258×28 [H gap 8]
+          I NF3/Select {Value=Default, Show label=true, Label=Case, State=Default} 125×28 "Case" "Default"
+          I NF3/Select {Value=Auto, Show label=true, Label=Break, State=Default} 125×28 "Break" "Auto"
+        I NF3/Select {Value=Default, Show label=true, Label=Digit case, State=Default} 258×28 "Digit case" "Default"
+        I NF3/Select {Value=Proportional, Show label=true, Label=Digit width, State=Default} 258×28 "Digit width" "Proportional"
+        I NF3/Select {Value=Common, Show label=true, Label=Ligatures, State=Default} 258×28 "Ligatures" "Common"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=0, Show unit=true, Show label=true, Label=Baseline, State=Default} 125×28 "Baseline" "0" "px"
+          I NF3/Select {Value=en-US, Show label=true, Label=Locale, State=Default} 125×28 "Locale" "en-US"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Paragraph, Open=Yes} 286×28 "Paragraph"
+      F Section body 286×150 [V gap 8]
+        F Line 258×28 [H gap 8]
+          F Icon group 148×28 [H gap 2]
+            I NF3/Icon Button {Icon=17:410, Kind=Ghost, State=Selected} 28×28
+            I NF3/Icon Button {Icon=17:413, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=17:416, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=17:419, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=227:454318, Kind=Ghost, State=Default} 28×28
+          I NF3/Field {Stepper=false, Unit=px, Value=0, Show unit=true, Show label=true, Label=Indent, State=Default} 102×28 "Indent" "0" "px"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=0, Show unit=true, Show label=true, Label=Left, State=Default} 125×28 "Left" "0" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=0, Show unit=true, Show label=true, Label=Right, State=Default} 125×28 "Right" "0" "px"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=pt, Value=0, Show unit=true, Show label=true, Label=Before, State=Default} 125×28 "Before" "0" "pt"
+          I NF3/Field {Stepper=false, Unit=pt, Value=0, Show unit=true, Show label=true, Label=After, State=Default} 125×28 "After" "0" "pt"
+        I NF3/Select {Value=Inter-word, Show label=true, Label=Text justify, State=Default} 258×28 "Text justify" "Inter-word"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Container and flow, Open=Yes} 286×28 "Container and flow"
+      F Section body 286×258 [V gap 8]
+        I NF3/Select {Value=Multiline, Show label=true, Label=Behavior, State=Default} 258×28 "Behavior" "Multiline"
+        I NF3/Select {Value=Top, Show label=true, Label=Vertical, State=Default} 258×28 "Vertical" "Top"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=2, Show unit=false, Show label=true, Label=Columns, State=Default} 125×28 "Columns" "2" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=20, Show unit=true, Show label=true, Label=Gutter, State=Default} 125×28 "Gutter" "20" "px"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=2, Show unit=true, Show label=true, Label=Padding L, State=Default} 125×28 "Padding L" "2" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=2, Show unit=true, Show label=true, Label=Padding R, State=Default} 125×28 "Padding R" "2" "px"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=2, Show unit=true, Show label=true, Label=Padding T, State=Default} 125×28 "Padding T" "2" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=2, Show unit=true, Show label=true, Label=Padding B, State=Default} 125×28 "Padding B" "2" "px"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=pt, Value=1, Show unit=true, Show label=true, Label=Border, State=Default} 125×28 "Border" "1" "pt"
+          I NF3/Field {Stepper=false, Unit=px, Value=None, Show unit=false, Show label=true, Label=Background, State=Default} 125×28 "Background" "None" "px"
+        F Pair 258×28 [H gap 8]
+          I NF3/Select {Value=Auto, Show label=true, Label=1st line, State=Default} 125×28 "1st line" "Auto"
+          I NF3/Field {Stepper=false, Unit=pt, Value=0, Show unit=true, Show label=true, Label=Offset, State=Default} 125×28 "Offset" "0" "pt"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Options, Open=Yes} 286×28 "Options"
+      F Section body 286×142 [V gap 8]
+        I NF3/Field {Stepper=false, Unit=px, Value=https://, Show unit=false, Show label=true, Label=URL, State=Default} 258×28 "URL" "https://" "px"
+        I NF3/Select {Value=_self, Show label=true, Label=Target, State=Default} 258×28 "Target" "_self"
+        I NF3/Checkbox {Show label=true, Label=Render as HTML, Value=Off, State=Default} 111×20 "Render as HTML"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value= , Show unit=false, Show label=true, Label=Variable, State=Default} 125×28 "Variable" " " "px"
+          I NF3/Field {Stepper=false, Unit=px, Value= , Show unit=false, Show label=true, Label=Restrict, State=Default} 125×28 "Restrict" " " "px"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Filters, Open=Yes} 286×28 "Filters"
+      F Section body 286×94 [V gap 8]
+        F List 258×80 [V gap 0]
+          F Record 256×26 [H gap 8]
+            T "Property"
+            F Value 124×13 [H gap 0]
+              T "Value"
+          F Record 256×26 [H gap 8]
+            T "Drop shadow"
+            F Value 124×13 [H gap 0]
+              T "Blur 4 px · 100 %"
+          F Record 256×26 [H gap 8]
+            T "Glow"
+            F Value 124×13 [H gap 0]
+              T "Blur 6 px · #FFCC00"
+    F Panel / Properties 288×694 [V gap 0]
+      F Panel header 286×34 [H gap 0]
+        I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+        I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+        F Spacer 89×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+      F Type header 286×34 [H gap 8]
+        I NF2 Icon/16/text 16×16
+        T "Text"
+        T "Simple text"
+      F Section body 286×34 [V gap 8]
+        I NF3/Checkbox {Show label=true, Label=Use text box, Value=Off, State=Default} 90×20 "Use text box"
+      I NF3/Section Header {Action icon=1:9281, Action=true, Title=Position and size, Open=Yes} 286×28 "Position and size"
+      F Section body 286×150 [V gap 8]
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=141.50, Show unit=false, Show label=true, Label=X, State=Default} 125×28 "X" "141.50" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=137.85, Show unit=false, Show label=true, Label=Y, State=Default} 125×28 "Y" "137.85" "px"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=303.10, Show unit=false, Show label=true, Label=W, State=Default} 125×28 "W" "303.10" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=151.20, Show unit=false, Show label=true, Label=H, State=Default} 125×28 "H" "151.20" "px"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=true, Label=Scale X, State=Default} 125×28 "Scale X" "100" "%"
+          I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=true, Label=Scale Y, State=Default} 125×28 "Scale Y" "100" "%"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=°, Value=0, Show unit=true, Show label=true, Label=Rotation, State=Default} 125×28 "Rotation" "0" "°"
+          I NF3/Field {Stepper=false, Unit=°, Value=0, Show unit=true, Show label=true, Label=Skew, State=Default} 125×28 "Skew" "0" "°"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Character, Open=Yes} 286×28 "Character"
+      F Section body 286×258 [V gap 8]
+        I NF3/Select {Value=Inter, Show label=false, Label=Style, State=Default} 258×28 "Style" "Inter"
+        F Line 258×28 [H gap 8]
+          I NF3/Select {Value=Regular, Show label=false, Label=Style, State=Default} 178×28 "Style" "Regular"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Embed…, Kind=Secondary, State=Default} 72×28 "Embed…"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=pt, Value=24, Show unit=true, Show label=true, Label=Size, State=Default} 125×28 "Size" "24" "pt"
+          I NF3/Field {Stepper=false, Unit=%, Value=120, Show unit=true, Show label=true, Label=Leading, State=Default} 125×28 "Leading" "120" "%"
+        F Paint / Color 258×28 [H gap 8]
+          I NF3/Swatch 18×18
+          I NF3/Field {Stepper=false, Unit=px, Value=1A1A1A, Show unit=false, Show label=true, Label=Color, State=Default} 232×28 "Color" "1A1A1A" "px"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=-5.0, Show unit=false, Show label=true, Label=Tracking, State=Default} 125×28 "Tracking" "-5.0" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=None, Show unit=false, Show label=true, Label=Highlight, State=Default} 125×28 "Highlight" "None" "px"
+        I NF3/Select {Value=Anti-alias for readability, Show label=false, Label=Style, State=Default} 258×28 "Style" "Anti-alias for readability"
+        F Line 258×28 [H gap 8]
+          F Icon group 118×28 [H gap 2]
+            I NF3/Icon Button {Icon=227:454310, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=227:454314, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=17:423, Kind=Ghost, State=Default} 28×28
+            I NF3/Icon Button {Icon=17:427, Kind=Ghost, State=Default} 28×28
+          F Spacer 49×1 [H gap 0]
+          I NF3/Checkbox {Show label=true, Label=Auto kern, Value=On, State=Default} 75×20 "Auto kern"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Paragraph, Open=No} 286×28 "Paragraph"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Display, Open=Yes} 286×28 "Display"
+      F Section body 286×42 [V gap 8]
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=%, Value=100, Show unit=true, Show label=true, Label=Opacity, State=Default} 136×28 "Opacity" "100" "%"
+          I NF3/Slider {State=Default} 114×20
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Filters, Open=No} 286×28 "Filters"

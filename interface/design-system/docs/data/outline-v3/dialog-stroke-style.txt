@@ -1,0 +1,31 @@
+F Dialog / Stroke style 680×513 [V gap 24]
+  F Board title 600×58 [V gap 6]
+    T "Dialog / Stroke style"
+    T "Preview on top, then Type, Thickness with the 4× zoom switch (it changes the preview at once), Dash and Gap, Sharp corners (not available yet, disabled); Reset on the left of the footer."
+  F Dialog / Stroke style 500×351 [V gap 0]
+    I NF3/Dialog Header {Title=Stroke style} 498×48 "Stroke style"
+    F Body 498×244 [V gap 8]
+      F Preview 450×72 [H gap 8]
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Type"
+        I NF3/Select {Value=Dashed, Show label=false, Label=Style, State=Default} 168×28 "Style" "Dashed"
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Thickness"
+        I NF3/Field {Stepper=false, Unit=pt, Value=4, Show unit=true, Show label=false, Label=X, State=Default} 104×28 "X" "4" "pt"
+        I NF3/Switch {Show label=true, Label=4× zoom, Value=On, State=Default} 82×20 "4× zoom"
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Dash"
+        I NF3/Field {Stepper=true, Unit=pt, Value=12, Show unit=true, Show label=false, Label=X, State=Default} 104×28 "X" "12" "pt"
+        I NF3/Field {Stepper=true, Unit=pt, Value=8, Show unit=true, Show label=true, Label=Gap, State=Default} 104×28 "Gap" "8" "pt"
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T ""
+        I NF3/Checkbox {Show label=true, Label=Sharp corners, Value=Off, State=Disabled} 98×20 "Sharp corners"
+    F Footer 498×57 [H gap 8]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Reset, Kind=Ghost, State=Default} 54×28 "Reset"
+      F Spacer 269×1 [H gap 0]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=OK, Kind=Primary, State=Default} 40×28 "OK"

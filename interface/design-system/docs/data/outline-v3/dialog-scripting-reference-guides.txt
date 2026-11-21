@@ -1,0 +1,90 @@
+F Dialog / Scripting Reference — Guides 1060×806 [V gap 24]
+  F Board title 900×42 [V gap 6]
+    T "Dialog / Scripting Reference — Guides"
+    T "Second tab of the same window: plain articles for the selected language with a table of contents; no tag clouds, cards or decorative blocks."
+  F Dialog / Scripting Reference 980×660 [V gap 0]
+    I NF3/Dialog Header {Title=Scripting Reference} 978×48 "Scripting Reference"
+    F Reference bar 978×57 [H gap 14]
+      F Segmented 354×28 [H gap 0]
+        I NF3/Segment {Label=ActionScript 2, Selected=No} 99×22 "ActionScript 2"
+        I NF3/Segment {Label=ActionScript 3, Selected=Yes} 102×22 "ActionScript 3"
+        I NF3/Segment {Label=JavaScript / TypeScript, Selected=No} 147×22 "JavaScript / TypeScript"
+      I NF3/Search {Clear=false, Value=Search guides for ActionScript 3, State=Default} 428×28 "Search guides for ActionScript 3"
+      I NF3/Badge {Label=Project: ActionScript 3, Tone=Accent} 120×20 "Project: ActionScript 3"
+    F Dialog body 978×529 [H gap 0]
+      F Reference tree 248×529 [V gap 0]
+        F Tabs 247×34 [H gap 0]
+          I NF3/Tab {Icon=1:9185, Show icon=false, Label=API, Selected=No} 46×34 "API"
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Guides, Selected=Yes} 65×34 "Guides"
+        F Tree 247×331 [V gap 1]
+          I NF3/Tree Row {Show meta=false, Icon=62:812, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=Language differences, Level=0, State=Default} 239×26 "Language differences" "4"
+          I NF3/Tree Row {Meta=4, Chevron=false, Show icon=true, Icon=62:812, Chevron icon=220:1338, Show meta=false, Label=Frame, object and module scripts, Level=0, State=Selected} 239×26 "Frame, object and module scripts" "4"
+          I NF3/Tree Row {Show meta=false, Icon=62:812, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=Events, Level=0, State=Default} 239×26 "Events" "4"
+          I NF3/Tree Row {Show meta=false, Icon=62:812, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=Display list, Level=0, State=Default} 239×26 "Display list" "4"
+          I NF3/Tree Row {Show meta=false, Icon=62:812, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=Timeline control, Level=0, State=Default} 239×26 "Timeline control" "4"
+          I NF3/Tree Row {Show meta=false, Icon=62:812, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=Text and fonts, Level=0, State=Default} 239×26 "Text and fonts" "4"
+          I NF3/Tree Row {Show meta=false, Icon=62:812, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=Sound, Level=0, State=Default} 239×26 "Sound" "4"
+          I NF3/Tree Row {Show meta=false, Icon=62:812, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=Loading and networking, Level=0, State=Default} 239×26 "Loading and networking" "4"
+          I NF3/Tree Row {Show meta=false, Icon=62:812, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=JavaScript runtime, Level=0, State=Default} 239×26 "JavaScript runtime" "4"
+          I NF3/Tree Row {Show meta=false, Icon=62:812, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=TypeScript, Level=0, State=Default} 239×26 "TypeScript" "4"
+          I NF3/Tree Row {Show meta=false, Icon=62:812, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=Browser and Web APIs, Level=0, State=Default} 239×26 "Browser and Web APIs" "4"
+          I NF3/Tree Row {Show meta=false, Icon=62:812, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=Unsupported features and diagnostics, Level=0, State=Default} 239×26 "Unsupported features and diagnostics" "4"
+      F Article 514×529 [V gap 14]
+        T "Frame, object and module scripts"
+        T "Where a script lives decides what “this” is and when the code runs. The table lists the three contexts in the current project language; the other languages are one click away in the language switch above."
+        F Table 466×111 [V gap 0]
+          F Table row 464×22 [H gap 0]
+            F Cell 155×21 [H gap 0]
+              T "Context"
+            F Cell 155×21 [H gap 0]
+              T "this"
+            F Cell 155×21 [H gap 0]
+              T "Runs"
+          F Table row 464×33 [H gap 0]
+            F Cell 155×20 [H gap 0]
+              T "Frame script"
+            F Cell 155×20 [H gap 0]
+              T "owning MovieClip"
+            F Cell 155×32 [H gap 0]
+              T "each time the playhead enters the keyframe"
+          F Table row 464×21 [H gap 0]
+            F Cell 155×20 [H gap 0]
+              T "Object script"
+            F Cell 155×20 [H gap 0]
+              T "target DisplayObject"
+            F Cell 155×20 [H gap 0]
+              T "when its event fires"
+          F Table row 464×33 [H gap 0]
+            F Cell 155×20 [H gap 0]
+              T "Class / module"
+            F Cell 155×32 [H gap 0]
+              T "instance or module scope"
+            F Cell 155×32 [H gap 0]
+              T "on construction / import"
+        T "Frame script"
+        T "Attach to a keyframe in the Actions panel (F9). Timeline methods are in scope."
+        F Code 466×87 [V gap 1]
+          T "stop();"
+          T "nextButton.addEventListener(MouseEvent.CLICK, function(e:MouseEvent):void {"
+          T "    gotoAndPlay("chapter2");"
+          T "});"
+        F Row 342×28 [H gap 8]
+          I NF3/Button {Icon=36:744, Show icon=true, Label=Copy, Kind=Secondary, State=Default} 78×28 "Copy"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Insert at cursor, Kind=Secondary, State=Default} 107×28 "Insert at cursor"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Open MovieClip in API, Kind=Ghost, State=Default} 141×28 "Open MovieClip in API"
+      F On this page 216×529 [V gap 8]
+        T "On this page"
+        T "Contexts"
+        T "Frame script"
+        T "Object script"
+        T "Class and module"
+        T "Common mistakes"
+    F Reference footer 978×24 [H gap 8]
+      T "Guides · 12 chapters · written for the project language"
+      F Spacer 428×1 [H gap 0]
+      I NF3/Kbd {Label=↑↓} 22×20 "↑↓"
+      T "move"
+      I NF3/Kbd {Label=↵} 20×20 "↵"
+      T "open"
+      I NF3/Kbd {Label=⌘↵} 28×20 "⌘↵"
+      T "insert at cursor"

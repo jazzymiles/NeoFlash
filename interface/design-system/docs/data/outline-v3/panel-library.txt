@@ -1,0 +1,33 @@
+F Panel / Library 500×688 [V gap 24]
+  F Board title 420×74 [V gap 6]
+    T "Panel / Library"
+    T "Inspector width (was 300 pt). Library select with Pin, preview, search and the item count with its sort control stay in this order; tree rows are size/row; New symbol, New folder, Properties and Delete in the footer."
+  F Panel / Library 288×510 [V gap 0]
+    F Panel header 286×34 [H gap 0]
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=Library, Selected=Yes} 65×34 "Library"
+      F Spacer 189×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Section body 286×232 [V gap 8]
+      F Line 258×28 [H gap 8]
+        I NF3/Select {Value=Ideas in motion.nfl, Show label=false, Label=Style, State=Default} 222×28 "Style" "Ideas in motion.nfl"
+        I NF3/Icon Button {Icon=17:522, Kind=Outlined, State=Default} 28×28
+      F Preview 258×96 [H gap 0]
+        F Orbit 72×72
+      I NF3/Search {Clear=false, Value=Search library, State=Default} 258×28 "Search library"
+      F Line 258×28 [H gap 8]
+        T "7 items"
+        I NF3/Icon Button {Icon=1:9242, Kind=Ghost, State=Default} 28×28
+    F List 286×196 [V gap 1]
+      I NF3/Tree Row {Show meta=false, Icon=7:132, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Library root, Level=0, State=Default} 278×26 "Library root" "4"
+      I NF3/Tree Row {Meta=4, Chevron=false, Show icon=true, Chevron icon=220:1338, Show meta=false, Icon=36:698, Label=orbit, Level=1, State=Selected} 278×26 "orbit" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=planet, Show icon=true, Chevron=false, Icon=36:702, Level=1, State=Default} 278×26 "planet" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=cta_btn, Show icon=true, Chevron=false, Icon=36:706, Level=1, State=Default} 278×26 "cta_btn" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=texture.png, Show icon=true, Chevron=false, Icon=36:711, Level=1, State=Default} 278×26 "texture.png" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=music.mp3, Show icon=true, Chevron=false, Icon=36:673, Level=1, State=Default} 278×26 "music.mp3" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Inter Regular, Show icon=true, Chevron=false, Icon=36:715, Level=1, State=Default} 278×26 "Inter Regular" "4"
+    F Panel footer 286×45 [H gap 8]
+      I NF3/Icon Button {Icon=1:9209, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=7:159, Kind=Ghost, State=Default} 28×28
+      I NF3/Icon Button {Icon=1:9298, Kind=Ghost, State=Default} 28×28
+      F Spacer 114×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28

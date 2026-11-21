@@ -1,0 +1,174 @@
+F Panel / Motion editor 1720×730 [V gap 24]
+  F Board title 1100×58 [V gap 6]
+    T "Panel / Motion editor"
+    T "Bottom-dock panel, 1120 pt wide here. The tools row (Wiggler, Motion sketch) is the first row and exists only while a motion tween is in context; property rows are size/timeline-controls with Value, Ease and keyframe navigation in fixed columns, the selected property expands its graph; Graph size, Expanded, Frames and the hint in the footer."
+  F States 1640×568 [H gap 40]
+    F Motion tween in context 1120×568 [V gap 12]
+      T "Motion tween in context"
+      F Panel / Motion editor 1120×540 [V gap 0]
+        F Panel header 1118×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Motion editor, Selected=Yes} 99×34 "Motion editor"
+          I NF3/Tab {Icon=1:9185, Show icon=false, Label=Timeline, Selected=No} 73×34 "Timeline"
+          F Spacer 914×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+        F Toolbar 1118×38 [H gap 8]
+          T "Wiggler"
+          I NF3/Field {Stepper=false, Unit=Hz, Value=3.0, Show unit=true, Show label=true, Label=Freq, State=Default} 104×28 "Freq" "3.0" "Hz"
+          I NF3/Field {Stepper=false, Unit=px, Value=12.0, Show unit=true, Show label=true, Label=Mag, State=Default} 104×28 "Mag" "12.0" "px"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Apply wiggler, Kind=Secondary, State=Default} 98×28 "Apply wiggler"
+          T "Motion sketch"
+          I NF3/Field {Stepper=false, Unit=px, Value=0.0, Show unit=false, Show label=true, Label=Smooth, State=Default} 104×28 "Smooth" "0.0" "px"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Capture sketch, Kind=Secondary, State=Default} 107×28 "Capture sketch"
+        F Main 1118×428 [H gap 0]
+          F Properties 500×428 [V gap 0]
+            F Row 499×26 [H gap 8]
+              T "Property"
+              F Value 104×12 [H gap 0]
+                T "Value"
+              F Ease 168×12 [H gap 0]
+                T "Ease"
+              F Keyframe 104×12 [H gap 0]
+                T "Keyframe"
+            F Row 499×28 [H gap 4]
+              I NF2 Icon/12/chevdown 12×12
+              T "Basic motion"
+              I NF3/Icon Button {Icon=1:9209, Kind=Ghost, State=Default} 28×28
+            F Row 499×88 [H gap 8]
+              T "X"
+              I NF3/Field {Stepper=false, Unit=px, Value=412.0 px, Show unit=false, Show label=false, Label=X, State=Default} 104×28 "X" "412.0 px" "px"
+              I NF3/Select {Value=Simple (slow), Show label=false, Label=Style, State=Default} 168×28 "Style" "Simple (slow)"
+              F Keyframe nav 104×28 [H gap 8]
+                I NF3/Icon Button {Icon=1:9203, Kind=Ghost, State=Default} 28×28
+                F Keyframe 10×10 [H gap 0]
+                I NF3/Icon Button {Icon=1:9206, Kind=Ghost, State=Default} 28×28
+            F Row 499×38 [H gap 8]
+              T "Y"
+              I NF3/Field {Stepper=false, Unit=px, Value=160.0 px, Show unit=false, Show label=false, Label=X, State=Default} 104×28 "X" "160.0 px" "px"
+              I NF3/Select {Value=No ease, Show label=false, Label=Style, State=Default} 168×28 "Style" "No ease"
+              F Keyframe nav 104×28 [H gap 8]
+                I NF3/Icon Button {Icon=1:9203, Kind=Ghost, State=Default} 28×28
+                F Keyframe 10×10 [H gap 0]
+                I NF3/Icon Button {Icon=1:9206, Kind=Ghost, State=Default} 28×28
+            F Row 499×38 [H gap 8]
+              T "Rotation Z"
+              I NF3/Field {Stepper=false, Unit=px, Value=0°, Show unit=false, Show label=false, Label=X, State=Default} 104×28 "X" "0°" "px"
+              I NF3/Select {Value=No ease, Show label=false, Label=Style, State=Default} 168×28 "Style" "No ease"
+              F Keyframe nav 104×28 [H gap 8]
+                I NF3/Icon Button {Icon=1:9203, Kind=Ghost, State=Default} 28×28
+                F Keyframe 10×10 [H gap 0]
+                I NF3/Icon Button {Icon=1:9206, Kind=Ghost, State=Default} 28×28
+            F Row 499×28 [H gap 4]
+              I NF2 Icon/12/chevdown 12×12
+              T "Transformation"
+              I NF3/Icon Button {Icon=1:9209, Kind=Ghost, State=Default} 28×28
+            F Row 499×38 [H gap 8]
+              T "Scale X"
+              I NF3/Field {Stepper=false, Unit=px, Value=100 %, Show unit=false, Show label=false, Label=X, State=Default} 104×28 "X" "100 %" "px"
+              I NF3/Select {Value=Bounce, Show label=false, Label=Style, State=Default} 168×28 "Style" "Bounce"
+              F Keyframe nav 104×28 [H gap 8]
+                I NF3/Icon Button {Icon=1:9203, Kind=Ghost, State=Default} 28×28
+                F Keyframe 10×10 [H gap 0]
+                I NF3/Icon Button {Icon=1:9206, Kind=Ghost, State=Default} 28×28
+            F Row 499×38 [H gap 8]
+              T "Scale Y"
+              I NF3/Field {Stepper=false, Unit=px, Value=100 %, Show unit=false, Show label=false, Label=X, State=Default} 104×28 "X" "100 %" "px"
+              I NF3/Select {Value=Bounce, Show label=false, Label=Style, State=Default} 168×28 "Style" "Bounce"
+              F Keyframe nav 104×28 [H gap 8]
+                I NF3/Icon Button {Icon=1:9203, Kind=Ghost, State=Default} 28×28
+                F Keyframe 10×10 [H gap 0]
+                I NF3/Icon Button {Icon=1:9206, Kind=Ghost, State=Default} 28×28
+            F Row 499×28 [H gap 4]
+              I NF2 Icon/12/chevdown 12×12
+              T "Colour effect"
+              I NF3/Icon Button {Icon=1:9209, Kind=Ghost, State=Default} 28×28
+            F Row 499×38 [H gap 8]
+              T "Alpha"
+              I NF3/Field {Stepper=false, Unit=px, Value=100 %, Show unit=false, Show label=false, Label=X, State=Default} 104×28 "X" "100 %" "px"
+              I NF3/Select {Value=No ease, Show label=false, Label=Style, State=Default} 168×28 "Style" "No ease"
+              F Keyframe nav 104×28 [H gap 8]
+                I NF3/Icon Button {Icon=1:9203, Kind=Ghost, State=Default} 28×28
+                F Keyframe 10×10 [H gap 0]
+                I NF3/Icon Button {Icon=1:9206, Kind=Ghost, State=Default} 28×28
+            F Row 499×28 [H gap 4]
+              I NF2 Icon/12/chevdown 12×12
+              T "Filters"
+              I NF3/Icon Button {Icon=1:9209, Kind=Ghost, State=Default} 28×28
+          F Graph 618×428 [V gap 0]
+            F Row 618×26 [H gap 0]
+              F 1 50×12 [H gap 0]
+                T "1"
+              F 6 50×12 [H gap 0]
+                T "6"
+              F 11 50×12 [H gap 0]
+                T "11"
+              F 16 50×12 [H gap 0]
+                T "16"
+              F 21 50×12 [H gap 0]
+                T "21"
+              F 26 50×12 [H gap 0]
+                T "26"
+              F 31 50×12 [H gap 0]
+                T "31"
+              F 36 50×12 [H gap 0]
+                T "36"
+              F 41 50×12 [H gap 0]
+                T "41"
+              F 46 50×12 [H gap 0]
+                T "46"
+              F 51 50×12 [H gap 0]
+                T "51"
+              F 56 50×12 [H gap 0]
+                T "56"
+            F Row 618×28 [H gap 8]
+            F Row 618×88 [H gap 8]
+              F Curve / X 600×80
+                F Keyframe 10×10 [H gap 0]
+                F Keyframe 10×10 [H gap 0]
+                F Keyframe 10×10 [H gap 0]
+                F Keyframe 10×10 [H gap 0]
+            F Row 618×38 [H gap 8]
+              F Curve / Y 600×20
+                F Keyframe 10×10 [H gap 0]
+                F Keyframe 10×10 [H gap 0]
+                F Keyframe 10×10 [H gap 0]
+            F Row 618×38 [H gap 8]
+              F Curve / Rotation Z 600×20
+                F Keyframe 10×10 [H gap 0]
+                F Keyframe 10×10 [H gap 0]
+            F Row 618×28 [H gap 8]
+            F Row 618×38 [H gap 8]
+              F Curve / Scale X 600×20
+                F Keyframe 10×10 [H gap 0]
+                F Keyframe 10×10 [H gap 0]
+                F Keyframe 10×10 [H gap 0]
+            F Row 618×38 [H gap 8]
+              F Curve / Scale Y 600×20
+                F Keyframe 10×10 [H gap 0]
+                F Keyframe 10×10 [H gap 0]
+                F Keyframe 10×10 [H gap 0]
+            F Row 618×28 [H gap 8]
+            F Row 618×38 [H gap 8]
+              F Curve / Alpha 600×20
+                F Keyframe 10×10 [H gap 0]
+                F Keyframe 10×10 [H gap 0]
+                F Keyframe 10×10 [H gap 0]
+            F Row 618×28 [H gap 8]
+        F Footer 1118×38 [H gap 14]
+          T "Graph size"
+          I NF3/Slider {State=Default} 96×20
+          T "Expanded"
+          I NF3/Slider {State=Default} 96×20
+          I NF3/Field {Stepper=true, Unit=px, Value=60, Show unit=false, Show label=true, Label=Frames, State=Default} 104×28 "Frames" "60" "px"
+          T "Click a curve to edit · ⌥-drag a keyframe to copy · ⇧ snaps to frames"
+    F No motion tween (no tools row) 480×228 [V gap 12]
+      T "No motion tween (no tools row)"
+      F Panel / Motion editor 480×200 [V gap 0]
+        F Panel header 478×34 [H gap 0]
+          I NF3/Tab {Show icon=false, Icon=1:9185, Label=Motion editor, Selected=Yes} 99×34 "Motion editor"
+          I NF3/Tab {Icon=1:9185, Show icon=false, Label=Timeline, Selected=No} 73×34 "Timeline"
+          F Spacer 274×1 [H gap 0]
+          I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+        F Empty state 478×107 [V gap 8]
+          I NF2 Icon/16/tween-motion 16×16
+          T "No motion tween"
+          T "Select a motion tween span on the Timeline"

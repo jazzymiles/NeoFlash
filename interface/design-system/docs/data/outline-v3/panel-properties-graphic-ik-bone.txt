@@ -1,0 +1,84 @@
+F Panel / Properties — Graphic, IK bone 696×734 [V gap 24]
+  F Board title 600×74 [V gap 6]
+    T "Panel / Properties — Graphic, IK bone"
+    T "One-line type headers. Graphic: Looping keeps its five radio options, First / Last and the frame picker. IK bone: joint and spring toggles are checkboxes; previous / next bone stay as icon buttons beside the name."
+  F States 616×556 [H gap 40]
+    F Panel / Properties 288×435 [V gap 0]
+      F Panel header 286×34 [H gap 0]
+        I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+        I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+        F Spacer 89×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+      F Type header 286×34 [H gap 8]
+        I NF2 Icon/16/graphic 16×16
+        T "Graphic"
+        T "Instance of “planet” · 24 frames"
+      F Section body 286×42 [V gap 8]
+        F Line 258×28 [H gap 8]
+          T "Graphics have no instance name — their timeline is synced to the parent."
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Swap…, Kind=Secondary, State=Default} 65×28 "Swap…"
+      I NF3/Section Header {Action icon=1:9281, Action=true, Title=Position and size, Open=No} 286×28 "Position and size"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Colour effect, Open=No} 286×28 "Colour effect"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Looping, Open=Yes} 286×28 "Looping"
+      F Section body 286×239 [V gap 8]
+        I NF3/Radio {Label=Loop, Value=On, State=Default} 51×20 "Loop"
+        I NF3/Radio {Label=Play once, Value=Off, State=Default} 75×20 "Play once"
+        I NF3/Radio {Label=Single frame, Value=Off, State=Default} 90×20 "Single frame"
+        I NF3/Radio {Label=Loop reverse, Value=Off, State=Default} 92×20 "Loop reverse"
+        I NF3/Radio {Label=Play once reverse, Value=Off, State=Default} 117×20 "Play once reverse"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=true, Unit=px, Value=1, Show unit=false, Show label=true, Label=First, State=Default} 125×28 "First" "1" "px"
+          I NF3/Field {Stepper=true, Unit=px, Value=24, Show unit=false, Show label=true, Label=Last, State=Default} 125×28 "Last" "24" "px"
+        F Frame picker 258×28 [H gap 2]
+          F Frame 1 28×28 [H gap 0]
+          F Frame 5 28×28 [H gap 0]
+          F Frame 9 28×28 [H gap 0]
+          F Frame 13 28×28 [H gap 0]
+          F Frame 17 28×28 [H gap 0]
+          F Frame 21 28×28 [H gap 0]
+          F Frame 25 28×28 [H gap 0]
+        T "Click a thumbnail to set the first frame"
+    F Panel / Properties 288×556 [V gap 0]
+      F Panel header 286×34 [H gap 0]
+        I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+        I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+        F Spacer 89×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+      F Type header 286×34 [H gap 8]
+        I NF2 Icon/16/armature 16×16
+        T "IK bone"
+        T "Armature “arm” · bone 2 of 3"
+      F Section body 286×42 [V gap 8]
+        F Line 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=arm_lower, Show unit=false, Show label=true, Label=Name, State=Default} 186×28 "Name" "arm_lower" "px"
+          I NF3/Icon Button {Icon=1:9248, Kind=Outlined, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9242, Kind=Outlined, State=Default} 28×28
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Position, Open=Yes} 286×28 "Position"
+      F Section body 286×78 [V gap 8]
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=210.4, Show unit=false, Show label=true, Label=X, State=Default} 125×28 "X" "210.4" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=188.0, Show unit=false, Show label=true, Label=Y, State=Default} 125×28 "Y" "188.0" "px"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=false, Unit=px, Value=96, Show unit=true, Show label=true, Label=Length, State=Default} 125×28 "Length" "96" "px"
+          I NF3/Field {Stepper=false, Unit=°, Value=−32, Show unit=true, Show label=true, Label=Angle, State=Default} 125×28 "Angle" "−32" "°"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Joint: rotation, Open=Yes} 286×28 "Joint: rotation"
+      F Section body 286×78 [V gap 8]
+        F Line 258×28 [H gap 8]
+          I NF3/Checkbox {Show label=true, Label=Enable, Value=On, State=Default} 60×20 "Enable"
+          I NF3/Checkbox {Show label=true, Label=Constrain, Value=On, State=Default} 75×20 "Constrain"
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=true, Unit=°, Value=−45, Show unit=true, Show label=true, Label=Min, State=Default} 125×28 "Min" "−45" "°"
+          I NF3/Field {Stepper=true, Unit=°, Value=90, Show unit=true, Show label=true, Label=Max, State=Default} 125×28 "Max" "90" "°"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Joint: X / Y translation, Open=No} 286×28 "Joint: X / Y translation"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Spring, Open=Yes} 286×28 "Spring"
+      F Section body 286×42 [V gap 8]
+        F Pair 258×28 [H gap 8]
+          I NF3/Field {Stepper=true, Unit=px, Value=20, Show unit=false, Show label=true, Label=Strength, State=Default} 125×28 "Strength" "20" "px"
+          I NF3/Field {Stepper=true, Unit=px, Value=40, Show unit=false, Show label=true, Label=Damping, State=Default} 125×28 "Damping" "40" "px"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Armature, Open=Yes} 286×28 "Armature"
+      F Section body 286×106 [V gap 8]
+        I NF3/Select {Value=Authortime, Show label=true, Label=Type, State=Default} 258×28 "Type" "Authortime"
+        F Pair 258×28 [H gap 8]
+          I NF3/Select {Value=Solid, Show label=true, Label=Style, State=Default} 125×28 "Style" "Solid"
+          I NF3/Field {Stepper=true, Unit=%, Value=100, Show unit=true, Show label=true, Label=Speed, State=Default} 125×28 "Speed" "100" "%"
+        I NF3/Checkbox {Show label=true, Label=Enable spring, Value=On, State=Default} 95×20 "Enable spring"

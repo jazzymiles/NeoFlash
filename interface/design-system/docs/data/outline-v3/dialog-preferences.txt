@@ -1,0 +1,178 @@
+F Dialog / Preferences 1600×746 [V gap 24]
+  F Board title 1100×42 [V gap 6]
+    T "Dialog / Preferences"
+    T "One size for every category (width/dialog-l × height/dialog-l). Label column + controls at their natural width; checkboxes for options, a switch only for Autosave."
+  F Row 1520×600 [H gap 40]
+    F Dialog / Preferences 740×600 [V gap 0]
+      I NF3/Dialog Header {Title=Preferences} 738×48 "Preferences"
+      F Dialog body 738×493 [H gap 0]
+        F Sidebar 168×493 [V gap 1]
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/settings 16×16
+            T "General"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/code 16×16
+            T "Code editor"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/film 16×16
+            T "Timeline"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/pen 16×16
+            T "Drawing"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/text 16×16
+            T "Text"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/paste 16×16
+            T "Clipboard"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/keyboard 16×16
+            T "Shortcuts"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/upload 16×16
+            T "Publish"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/wand 16×16
+            T "AI"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/history 16×16
+            T "Updates"
+        F Page 570×493 [V gap 8]
+          F Group caption 522×28 [H gap 0]
+            T "Interface"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Theme"
+            I NF3/Select {Value=Light, Show label=false, Label=Style, State=Default} 168×28 "Style" "Light"
+            I NF3/Checkbox {Show label=true, Label=Follow system, Value=Off, State=Disabled} 98×20 "Follow system"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Density"
+            F Segmented 235×28 [H gap 0]
+              I NF3/Segment {Label=Normal, Selected=Yes} 64×22 "Normal"
+              I NF3/Segment {Label=Compact, Selected=No} 72×22 "Compact"
+              I NF3/Segment {Label=Classic Flash, Selected=No} 93×22 "Classic Flash"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "UI scale"
+            I NF3/Select {Value=100 %, Show label=false, Label=Style, State=Default} 104×28 "Style" "100 %"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Accent"
+            I NF3/Swatch 18×18
+            I NF3/Swatch 18×18
+            I NF3/Swatch 18×18
+            I NF3/Swatch 18×18
+            I NF3/Swatch 18×18
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Language"
+            I NF3/Select {Show label=false, Value=English, Label=Style, State=Disabled} 168×28 "Style" "English"
+          F Group caption 522×28 [H gap 0]
+            T "Workspace"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "On launch"
+            I NF3/Select {Value=Open the example, Show label=false, Label=Style, State=Default} 232×28 "Style" "Open the example"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Undo levels"
+            I NF3/Field {Stepper=true, Unit=px, Value=150, Show unit=false, Show label=false, Label=X, State=Default} 104×28 "X" "150" "px"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Autosave"
+            I NF3/Switch {Show label=true, Label=Every, Value=On, State=Default} 66×20 "Every"
+            I NF3/Field {Stepper=true, Unit=min, Value=5, Show unit=true, Show label=false, Label=X, State=Default} 104×28 "X" "5" "min"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Tooltips"
+            I NF3/Checkbox {Show label=true, Label=Show shortcuts in tooltips, Value=On, State=Default} 160×20 "Show shortcuts in tooltips"
+          F Group caption 522×28 [H gap 0]
+            T "Selection"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Shift-select"
+            I NF3/Checkbox {Show label=true, Label=Add to the selection with Shift, Value=On, State=Default} 182×20 "Add to the selection with Shift"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Highlight"
+            I NF3/Select {Show label=false, Value=Layer colour, Label=Style, State=Disabled} 168×28 "Style" "Layer colour"
+      F Footer 738×57 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Reset to defaults, Kind=Ghost, State=Default} 114×28 "Reset to defaults"
+        F Spacer 439×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Save, Kind=Primary, State=Default} 50×28 "Save"
+    F Dialog / Preferences 740×600 [V gap 0]
+      I NF3/Dialog Header {Title=Preferences} 738×48 "Preferences"
+      F Dialog body 738×493 [H gap 0]
+        F Sidebar 168×493 [V gap 1]
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/settings 16×16
+            T "General"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/code 16×16
+            T "Code editor"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/film 16×16
+            T "Timeline"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/pen 16×16
+            T "Drawing"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/text 16×16
+            T "Text"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/paste 16×16
+            T "Clipboard"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/keyboard 16×16
+            T "Shortcuts"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/upload 16×16
+            T "Publish"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/wand 16×16
+            T "AI"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/history 16×16
+            T "Updates"
+        F Page 570×493 [V gap 8]
+          F Group caption 522×28 [H gap 0]
+            T "Defaults"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Font"
+            I NF3/Select {Value=Arial, Show label=false, Label=Style, State=Default} 232×28 "Style" "Arial"
+            I NF3/Field {Stepper=true, Unit=px, Value=32, Show unit=false, Show label=true, Label=Size, State=Default} 104×28 "Size" "32" "px"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Anti-alias"
+            I NF3/Select {Show label=false, Value=For readability, Label=Style, State=Disabled} 232×28 "Style" "For readability"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Substitution"
+            I NF3/Select {Value=Show warning, Show label=false, Label=Style, State=Default} 232×28 "Style" "Show warning"
+          F Group caption 522×28 [H gap 0]
+            T "Behaviour"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Fonts"
+            I NF3/Checkbox {Show label=true, Label=Embed used glyphs automatically, Value=On, State=Disabled} 199×20 "Embed used glyphs automatically"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Editing"
+            I NF3/Checkbox {Show label=true, Label=Spell check, Value=On, State=Disabled} 84×20 "Spell check"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Vertical text"
+            I NF3/Checkbox {Show label=true, Label=Right-to-left flow, Value=Off, State=Disabled} 114×20 "Right-to-left flow"
+            I NF3/Checkbox {Show label=true, Label=No kerning, Value=On, State=Disabled} 81×20 "No kerning"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Input method"
+            I NF3/Select {Show label=false, Value=System default, Label=Style, State=Disabled} 232×28 "Style" "System default"
+      F Footer 738×57 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Reset to defaults, Kind=Ghost, State=Default} 114×28 "Reset to defaults"
+        F Spacer 439×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Save, Kind=Primary, State=Default} 50×28 "Save"

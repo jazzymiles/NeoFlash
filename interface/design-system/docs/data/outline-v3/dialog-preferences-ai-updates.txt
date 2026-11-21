@@ -1,0 +1,160 @@
+F Dialog / Preferences — AI, Updates 1600×762 [V gap 24]
+  F Board title 1100×58 [V gap 6]
+    T "Dialog / Preferences — AI, Updates"
+    T "AI: one row per connection (name · provider and model · status badge), actions under the list. Updates: beta wording of the application — version line, Check now, channel, and the telemetry and extension options that are not available yet shown disabled."
+  F Row 1520×600 [H gap 40]
+    F Dialog / Preferences 740×600 [V gap 0]
+      I NF3/Dialog Header {Title=Preferences} 738×48 "Preferences"
+      F Dialog body 738×493 [H gap 0]
+        F Sidebar 168×493 [V gap 1]
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/settings 16×16
+            T "General"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/code 16×16
+            T "Code editor"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/film 16×16
+            T "Timeline"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/pen 16×16
+            T "Drawing"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/text 16×16
+            T "Text"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/paste 16×16
+            T "Clipboard"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/keyboard 16×16
+            T "Shortcuts"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/upload 16×16
+            T "Publish"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/wand 16×16
+            T "AI"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/history 16×16
+            T "Updates"
+        F Page 570×493 [V gap 8]
+          F Group caption 522×28 [H gap 0]
+            T "Connections"
+          F Connections 522×80 [V gap 0]
+            F Connection / Work — Anthropic 520×26 [H gap 8]
+              T "Work — Anthropic"
+              T "Anthropic · claude-sonnet-5-5"
+              I NF3/Badge {Label=Ready, Tone=Accent} 42×20 "Ready"
+            F Connection / Local Ollama 520×26 [H gap 8]
+              T "Local Ollama"
+              T "Local (OpenAI-compatible) · llama3.1"
+              I NF3/Badge {Label=Not tested, Tone=Neutral} 63×20 "Not tested"
+            F Connection / OpenAI 520×26 [H gap 8]
+              T "OpenAI"
+              T "OpenAI · gpt-4o"
+              I NF3/Badge {Label=No key, Tone=Warning} 45×20 "No key"
+          F Connection actions 522×28 [H gap 8]
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Add connection…, Kind=Secondary, State=Default} 118×28 "Add connection…"
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Edit…, Kind=Ghost, State=Default} 54×28 "Edit…"
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Test, Kind=Ghost, State=Default} 47×28 "Test"
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Remove, Kind=Ghost, State=Default} 67×28 "Remove"
+          F Group caption 522×28 [H gap 0]
+            T "Default"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Connection"
+            I NF3/Select {Value=Work — Anthropic, Show label=false, Label=Style, State=Default} 232×28 "Style" "Work — Anthropic"
+          F Group caption 522×28 [H gap 0]
+            T "Privacy"
+          I NF3/Inline Message {Text=Nothing is sent to a provider until you press Send in the review dialog. Every request lists what will leave this computer., Tone=Info} 522×26 "Nothing is sent to a provider until you press Send in the review dialog. Every request lists what will leave this computer."
+          I NF3/Inline Message {Text=API keys are kept in the system keychain. They are never written to the project, to preferences or to logs., Tone=Info} 522×16 "API keys are kept in the system keychain. They are never written to the project, to preferences or to logs."
+      F Footer 738×57 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Reset to defaults, Kind=Ghost, State=Default} 114×28 "Reset to defaults"
+        F Spacer 439×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Save, Kind=Primary, State=Default} 50×28 "Save"
+    F Dialog / Preferences 740×600 [V gap 0]
+      I NF3/Dialog Header {Title=Preferences} 738×48 "Preferences"
+      F Dialog body 738×493 [H gap 0]
+        F Sidebar 168×493 [V gap 1]
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/settings 16×16
+            T "General"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/code 16×16
+            T "Code editor"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/film 16×16
+            T "Timeline"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/pen 16×16
+            T "Drawing"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/text 16×16
+            T "Text"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/paste 16×16
+            T "Clipboard"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/keyboard 16×16
+            T "Shortcuts"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/upload 16×16
+            T "Publish"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/wand 16×16
+            T "AI"
+          F Nav row 159×26 [H gap 8]
+            I NF2 Icon/16/history 16×16
+            T "Updates"
+        F Page 570×493 [V gap 8]
+          F Group caption 522×28 [H gap 0]
+            T "Version"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Version"
+            T "NeoFlash 0.1.0-beta.1 · build 412"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Updates"
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Check now, Kind=Secondary, State=Default} 85×28 "Check now"
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Release notes, Kind=Ghost, State=Default} 98×28 "Release notes"
+            T "Up to date · Last checked just now"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Channel"
+            F Segmented 115×28 [H gap 0]
+              I NF3/Segment {Label=Stable, Selected=Yes} 60×22 "Stable"
+              I NF3/Segment {Label=Beta, Selected=No} 49×22 "Beta"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Automatic"
+            I NF3/Checkbox {Show label=true, Label=Check for updates automatically, Value=On, State=Default} 193×20 "Check for updates automatically"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Background"
+            I NF3/Checkbox {Show label=true, Label=Download in background, Value=Off, State=Disabled} 153×20 "Download in background"
+          F Group caption 522×28 [H gap 0]
+            T "Privacy"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Statistics"
+            I NF3/Checkbox {Show label=true, Label=Send anonymous usage statistics, Value=Off, State=Disabled} 199×20 "Send anonymous usage statistics"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Crash reports"
+            I NF3/Checkbox {Show label=true, Label=Send crash reports, Value=Off, State=Disabled} 124×20 "Send crash reports"
+          I NF3/Inline Message {Text=Usage telemetry and crash reports are disabled; no data is collected or transmitted., Tone=Info} 522×16 "Usage telemetry and crash reports are disabled; no data is collected or transmitted."
+          F Group caption 522×28 [H gap 0]
+            T "Extensions"
+          F Form row 522×28 [H gap 8]
+            F Label 120×14 [H gap 0]
+              T "Installed"
+            T "3 extensions installed"
+            I NF3/Button {Icon=1:9209, Show icon=false, Label=Manage…, Kind=Secondary, State=Disabled} 78×28 "Manage…"
+          T "Extension update checks are not available yet."
+      F Footer 738×57 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Reset to defaults, Kind=Ghost, State=Default} 114×28 "Reset to defaults"
+        F Spacer 439×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Save, Kind=Primary, State=Default} 50×28 "Save"

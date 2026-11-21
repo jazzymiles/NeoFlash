@@ -1,0 +1,59 @@
+F Dialog / Layer properties 680×701 [V gap 24]
+  F Board title 600×74 [V gap 6]
+    T "Dialog / Layer properties"
+    T "Visible, Locked, Sync and Attach to camera are checkboxes (the dialog applies on OK); Type is the label of two radio rows; Layer height and Blending get their own labelled rows. With Type = Mask the application adds a Mask mode select and Invert mask under the Type rows."
+  F Dialog / Layer properties 500×523 [V gap 0]
+    I NF3/Dialog Header {Title=Layer properties} 498×48 "Layer properties"
+    F Body 498×416 [V gap 8]
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Name"
+        I NF3/Field {Unit=px, Show unit=false, Show label=false, Stepper=false, Value=hand, Label=X, State=Focus} 322×28 "X" "hand" "px"
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T ""
+        I NF3/Checkbox {Show label=true, Label=Visible, Value=On, State=Default} 59×20 "Visible"
+        I NF3/Checkbox {Show label=true, Label=Locked, Value=Off, State=Default} 62×20 "Locked"
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Type"
+        I NF3/Radio {Label=Normal, Value=Off, State=Default} 62×20 "Normal"
+        I NF3/Radio {Label=Guide, Value=Off, State=Default} 55×20 "Guide"
+        I NF3/Radio {Label=Guided, Value=Off, State=Default} 62×20 "Guided"
+        I NF3/Radio {Label=Mask, Value=Off, State=Default} 52×20 "Mask"
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T ""
+        I NF3/Radio {Label=Masked, Value=On, State=Default} 65×20 "Masked"
+        I NF3/Radio {Label=Folder, Value=Off, State=Default} 57×20 "Folder"
+        I NF3/Radio {Label=Armature, Value=Off, State=Disabled} 72×20 "Armature"
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Layer height"
+        I NF3/Select {Value=100 %, Show label=false, Label=Style, State=Default} 168×28 "Style" "100 %"
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Blending"
+        I NF3/Select {Value=Normal, Show label=false, Label=Style, State=Default} 168×28 "Style" "Normal"
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T ""
+        I NF3/Checkbox {Show label=true, Label=Sync layer to timeline, Value=Off, State=Default} 136×20 "Sync layer to timeline"
+      F Group caption 450×28 [H gap 0]
+        T "Outline"
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Colour"
+        I NF3/Swatch 18×18
+        I NF3/Checkbox {Show label=true, Label=View layer as outlines, Value=Off, State=Default} 137×20 "View layer as outlines"
+      F Group caption 450×28 [H gap 0]
+        T "Camera"
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Z-depth"
+        I NF3/Field {Stepper=false, Unit=px, Value=0, Show unit=true, Show label=false, Label=X, State=Default} 104×28 "X" "0" "px"
+        I NF3/Checkbox {Show label=true, Label=Attach layer to camera, Value=Off, State=Default} 142×20 "Attach layer to camera"
+    F Footer 498×57 [H gap 8]
+      F Spacer 331×1 [H gap 0]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=OK, Kind=Primary, State=Default} 40×28 "OK"

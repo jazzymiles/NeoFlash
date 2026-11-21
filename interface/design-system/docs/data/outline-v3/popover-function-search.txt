@@ -1,0 +1,26 @@
+F Popover / Function search 600×456 [V gap 24]
+  F Board title 520×58 [V gap 6]
+    T "Popover / Function search"
+    T "Search field, one row per result at size/row with its shortcut, keyboard hints as key caps and Help & Reference… at the end."
+  F Popover / Function search 500×294 [V gap 0]
+    F Search 498×50 [H gap 0]
+      I NF3/Search {Clear=true, Value=color, State=Focus} 470×28 "color"
+    F Title 498×28 [H gap 0]
+      T "Menu items"
+    F List 498×169 [V gap 1]
+      I NF3/Menu Item {Submenu=false, Checked=false, Check column=false, Show shortcut=true, Shortcut=⌥⌘C, Label=Window > Panels > Color, State=Hover} 490×26 "Window > Panels > Color" "⌥⌘C"
+      I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Modify > Shape > Convert lines to fills, State=Default} 490×26 "Modify > Shape > Convert lines to fills" "⌘K"
+      I NF3/Menu Item {Shortcut=⌘F, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Edit > Find and replace > Colour, State=Default} 490×26 "Edit > Find and replace > Colour" "⌘F"
+      I NF3/Menu Item {Shortcut=⌘F9, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Window > Panels > Swatches, State=Default} 490×26 "Window > Panels > Swatches" "⌘F9"
+      I NF3/Menu Item {Shortcut=⌘J, Submenu=false, Checked=false, Show shortcut=true, Check column=false, Label=Document > Document settings > Background, State=Default} 490×26 "Document > Document settings > Background" "⌘J"
+      I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Help > NeoFlash Help & Reference…, State=Default} 490×26 "Help > NeoFlash Help & Reference…" "⌘K"
+    F Keyboard help 498×45 [H gap 8]
+      I NF3/Kbd {Label=↑↓} 22×20 "↑↓"
+      T "move"
+      I NF3/Kbd {Label=↵} 20×20 "↵"
+      T "run"
+      I NF3/Kbd {Label=Esc} 31×20 "Esc"
+      T "close"
+      F Spacer 115×1 [H gap 0]
+      I NF3/Kbd {Label=F1} 25×20 "F1"
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Help & Reference…, Kind=Secondary, State=Default} 126×28 "Help & Reference…"

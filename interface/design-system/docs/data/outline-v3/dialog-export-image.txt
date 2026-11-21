@@ -1,0 +1,198 @@
+F Dialog / Export image 2380×774 [V gap 24]
+  F Board title 1100×42 [V gap 6]
+    T "Dialog / Export image"
+    T "One size for every format (width/dialog-l × height/dialog-l): the common rows (range, size, background) never move, only the “… options” group changes; the SVG switches became checkboxes."
+  F States 2300×628 [H gap 40]
+    F AI 740×628 [V gap 12]
+      T "AI"
+      F Dialog / Export image 740×600 [V gap 0]
+        I NF3/Dialog Header {Title=Export image} 738×48 "Export image"
+        F Body 738×493 [H gap 24]
+          F Preview column 208×151 [V gap 8]
+            F Preview 208×130 [H gap 16]
+            T "Frame 30 of 120 · 960 × 600"
+          F Settings 458×352 [V gap 8]
+            F Line 458×28 [H gap 8]
+              F Segmented 231×28 [H gap 0]
+                I NF3/Segment {Label=PNG, Selected=No} 48×22 "PNG"
+                I NF3/Segment {Label=SVG, Selected=No} 47×22 "SVG"
+                I NF3/Segment {Label=PSD, Selected=No} 47×22 "PSD"
+                I NF3/Segment {Label=AI, Selected=Yes} 37×22 "AI"
+                I NF3/Segment {Label=PDF, Selected=No} 46×22 "PDF"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Range"
+              I NF3/Select {Value=Current frame, Show label=false, Label=Style, State=Default} 168×28 "Style" "Current frame"
+              I NF3/Field {Stepper=false, Show unit=false, Value=30, Show label=true, Unit=px, Label=Frames, State=Disabled} 104×28 "Frames" "30" "px"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Size"
+              I NF3/Field {Stepper=false, Unit=px, Value=960, Show unit=true, Show label=true, Label=W, State=Default} 104×28 "W" "960" "px"
+              I NF3/Field {Stepper=false, Unit=px, Value=600, Show unit=true, Show label=true, Label=H, State=Default} 104×28 "H" "600" "px"
+              I NF3/Icon Button {Icon=1:9281, Kind=Ghost, State=Selected} 28×28
+              I NF3/Select {Value=1×, Show label=false, Label=Style, State=Default} 68×28 "Style" "1×"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Background"
+              I NF3/Radio {Label=Stage colour, Value=On, State=Default} 90×20 "Stage colour"
+              I NF3/Radio {Label=Transparent, Value=Off, State=Default} 87×20 "Transparent"
+            F Group caption 458×28 [H gap 0]
+              T "AI options"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Version"
+              I NF3/Select {Value=Illustrator CS6+, Show label=false, Label=Style, State=Default} 168×28 "Style" "Illustrator CS6+"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Layers"
+              I NF3/Radio {Label=Each layer → AI layer, Value=On, State=Default} 133×20 "Each layer → AI layer"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T ""
+              I NF3/Radio {Label=Each keyframe → artboard, Value=Off, State=Default} 163×20 "Each keyframe → artboard"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Strokes"
+              I NF3/Checkbox {Show label=true, Label=Strokes as strokes (not outlines), Value=On, State=Default} 192×20 "Strokes as strokes (not outlines)"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Text"
+              I NF3/Checkbox {Show label=true, Label=Convert text to outlines, Value=Off, State=Default} 147×20 "Convert text to outlines"
+        F Footer 738×57 [H gap 8]
+          T "~ 260 kB · 6 layers"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+          I NF3/Button {Icon=1:9278, Show icon=true, Label=Export AI, Kind=Primary, State=Default} 97×28 "Export AI"
+    F PSD 740×628 [V gap 12]
+      T "PSD"
+      F Dialog / Export image 740×600 [V gap 0]
+        I NF3/Dialog Header {Title=Export image} 738×48 "Export image"
+        F Body 738×493 [H gap 24]
+          F Preview column 208×151 [V gap 8]
+            F Preview 208×130 [H gap 16]
+            T "Frame 30 of 120 · 960 × 600"
+          F Settings 458×424 [V gap 8]
+            F Line 458×28 [H gap 8]
+              F Segmented 231×28 [H gap 0]
+                I NF3/Segment {Label=PNG, Selected=No} 48×22 "PNG"
+                I NF3/Segment {Label=SVG, Selected=No} 47×22 "SVG"
+                I NF3/Segment {Label=PSD, Selected=Yes} 49×22 "PSD"
+                I NF3/Segment {Label=AI, Selected=No} 35×22 "AI"
+                I NF3/Segment {Label=PDF, Selected=No} 46×22 "PDF"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Range"
+              I NF3/Select {Value=Current frame, Show label=false, Label=Style, State=Default} 168×28 "Style" "Current frame"
+              I NF3/Field {Stepper=false, Show unit=false, Value=30, Show label=true, Unit=px, Label=Frames, State=Disabled} 104×28 "Frames" "30" "px"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Size"
+              I NF3/Field {Stepper=false, Unit=px, Value=960, Show unit=true, Show label=true, Label=W, State=Default} 104×28 "W" "960" "px"
+              I NF3/Field {Stepper=false, Unit=px, Value=600, Show unit=true, Show label=true, Label=H, State=Default} 104×28 "H" "600" "px"
+              I NF3/Icon Button {Icon=1:9281, Kind=Ghost, State=Selected} 28×28
+              I NF3/Select {Value=1×, Show label=false, Label=Style, State=Default} 68×28 "Style" "1×"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Background"
+              I NF3/Radio {Label=Stage colour, Value=On, State=Default} 90×20 "Stage colour"
+              I NF3/Radio {Label=Transparent, Value=Off, State=Default} 87×20 "Transparent"
+            F Group caption 458×28 [H gap 0]
+              T "PSD options"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Layers"
+              I NF3/Radio {Label=Keep timeline layers as Photoshop layers, Value=On, State=Default} 236×20 "Keep timeline layers as Photoshop layers"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T ""
+              I NF3/Radio {Label=Flatten to one layer, Value=Off, State=Default} 125×20 "Flatten to one layer"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Convert"
+              I NF3/Checkbox {Show label=true, Label=Folders → layer groups, Value=On, State=Default} 144×20 "Folders → layer groups"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T ""
+              I NF3/Checkbox {Show label=true, Label=Symbols → smart objects, Value=On, State=Default} 157×20 "Symbols → smart objects"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T ""
+              I NF3/Checkbox {Show label=true, Label=Keep text editable, Value=On, State=Default} 119×20 "Keep text editable"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Colour"
+              I NF3/Select {Value=sRGB 8-bit, Show label=false, Label=Style, State=Default} 168×28 "Style" "sRGB 8-bit"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Resolution"
+              I NF3/Select {Value=144 ppi, Show label=false, Label=Style, State=Default} 104×28 "Style" "144 ppi"
+        F Footer 738×57 [H gap 8]
+          T "~ 4.2 MB · 6 layers"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+          I NF3/Button {Icon=1:9278, Show icon=true, Label=Export PSD, Kind=Primary, State=Default} 108×28 "Export PSD"
+    F SVG 740×628 [V gap 12]
+      T "SVG"
+      F Dialog / Export image 740×600 [V gap 0]
+        I NF3/Dialog Header {Title=Export image} 738×48 "Export image"
+        F Body 738×493 [H gap 24]
+          F Preview column 208×151 [V gap 8]
+            F Preview 208×130 [H gap 16]
+            T "Frame 30 of 120 · 960 × 600"
+          F Settings 458×424 [V gap 8]
+            F Line 458×28 [H gap 8]
+              F Segmented 231×28 [H gap 0]
+                I NF3/Segment {Label=PNG, Selected=No} 48×22 "PNG"
+                I NF3/Segment {Label=SVG, Selected=Yes} 49×22 "SVG"
+                I NF3/Segment {Label=PSD, Selected=No} 47×22 "PSD"
+                I NF3/Segment {Label=AI, Selected=No} 35×22 "AI"
+                I NF3/Segment {Label=PDF, Selected=No} 46×22 "PDF"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Range"
+              I NF3/Select {Value=Current frame, Show label=false, Label=Style, State=Default} 168×28 "Style" "Current frame"
+              I NF3/Field {Stepper=false, Show unit=false, Value=30, Show label=true, Unit=px, Label=Frames, State=Disabled} 104×28 "Frames" "30" "px"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Size"
+              I NF3/Field {Stepper=false, Unit=px, Value=960, Show unit=true, Show label=true, Label=W, State=Default} 104×28 "W" "960" "px"
+              I NF3/Field {Stepper=false, Unit=px, Value=600, Show unit=true, Show label=true, Label=H, State=Default} 104×28 "H" "600" "px"
+              I NF3/Icon Button {Icon=1:9281, Kind=Ghost, State=Selected} 28×28
+              I NF3/Select {Value=1×, Show label=false, Label=Style, State=Default} 68×28 "Style" "1×"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Background"
+              I NF3/Radio {Label=Stage colour, Value=Off, State=Default} 90×20 "Stage colour"
+              I NF3/Radio {Label=Transparent, Value=On, State=Default} 87×20 "Transparent"
+            F Group caption 458×28 [H gap 0]
+              T "SVG options"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Images"
+              I NF3/Select {Value=Embed, Show label=false, Label=Style, State=Default} 168×28 "Style" "Embed"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Text"
+              I NF3/Select {Value=Convert to outlines, Show label=false, Label=Style, State=Default} 232×28 "Style" "Convert to outlines"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Output"
+              I NF3/Checkbox {Show label=true, Label=Minify output, Value=On, State=Default} 93×20 "Minify output"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T ""
+              I NF3/Checkbox {Show label=true, Label=Use CSS classes for styles, Value=Off, State=Default} 163×20 "Use CSS classes for styles"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T ""
+              I NF3/Checkbox {Show label=true, Label=Include hidden & guide layers, Value=Off, State=Default} 177×20 "Include hidden & guide layers"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "Precision"
+              I NF3/Field {Stepper=false, Unit=px, Value=2, Show unit=false, Show label=false, Label=X, State=Default} 68×28 "X" "2" "px"
+            F Form row 458×28 [H gap 8]
+              F Label 120×14 [H gap 0]
+                T "ID prefix"
+              I NF3/Field {Stepper=false, Unit=px, Value=nf-, Show unit=false, Show label=false, Label=X, State=Default} 104×28 "X" "nf-" "px"
+        F Footer 738×57 [H gap 8]
+          T "~ 18 kB · 42 paths"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+          I NF3/Button {Icon=1:9278, Show icon=true, Label=Export SVG, Kind=Primary, State=Default} 109×28 "Export SVG"

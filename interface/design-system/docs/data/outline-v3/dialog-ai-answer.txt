@@ -1,0 +1,85 @@
+F Dialog / AI answer 2200×850 [V gap 24]
+  F Board title 1100×58 [V gap 6]
+    T "Dialog / AI answer"
+    T "One size in all four states (width/dialog-m × height/dialog-xl) instead of a window that grows with the answer: the body scrolls. Proposal actions (Undo · Apply to timeline · Dismiss) moved to the end of each proposal header row."
+  F States 2120×688 [H gap 40]
+    F Waiting, retry scheduled 500×688 [V gap 12]
+      T "Waiting, retry scheduled"
+      F Dialog / AI answer 500×660 [V gap 0]
+        I NF3/Dialog Header {Title=AI answer} 498×48 "AI answer"
+        F Page 498×553 [V gap 8]
+          T "Work — Anthropic · claude-sonnet-5-5"
+          T "Waiting for the provider…"
+          I NF3/Progress 450×4
+          I NF3/Inline Message {Text=The provider limits requests. Trying again in 12 s (attempt 2 of 3)., Tone=Info} 450×16 "The provider limits requests. Trying again in 12 s (attempt 2 of 3)."
+        F Footer 498×57 [H gap 8]
+          F Spacer 391×1 [H gap 0]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Stop, Kind=Secondary, State=Default} 51×28 "Stop"
+    F Streaming 500×688 [V gap 12]
+      T "Streaming"
+      F Dialog / AI answer 500×660 [V gap 0]
+        I NF3/Dialog Header {Title=AI answer} 498×48 "AI answer"
+        F Page 498×553 [V gap 8]
+          T "Work — Anthropic · claude-sonnet-5-5"
+          T "Receiving the answer…"
+          I NF3/Progress 450×4
+          F Answer 450×58 [V gap 8]
+            T "The clip stops on a stop() call left in frame 30 of orbit_mc. It was needed for the intro, and the loop label after it is never reached, so"
+        F Footer 498×57 [H gap 8]
+          F Spacer 391×1 [H gap 0]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Stop, Kind=Secondary, State=Default} 51×28 "Stop"
+    F Proposals 500×688 [V gap 12]
+      T "Proposals"
+      F Dialog / AI answer 500×660 [V gap 0]
+        I NF3/Dialog Header {Title=AI answer} 498×48 "AI answer"
+        F Page 498×553 [V gap 8]
+          T "Work — Anthropic · claude-sonnet-5-5"
+          F Answer 450×94 [V gap 8]
+            T "The clip stops on a leftover stop() in frame 30."
+            T "It was needed for the intro, and the loop label after it is never reached. Jump back to the label instead of stopping, and ease the ball out before the hand-off so the loop does not jerk."
+          F Group caption 450×28 [H gap 0]
+            T "Proposals"
+          F Proposal / code — applied 450×154 [V gap 8]
+            F Line 420×28 [H gap 8]
+              I NF3/Badge {Label=ActionScript 3.0, Tone=Neutral} 90×20 "ActionScript 3.0"
+              T "Frame script · orbit_mc, frame 30"
+              I NF3/Button {Icon=1:9209, Show icon=false, Label=Undo, Kind=Ghost, State=Default} 53×28 "Undo"
+            F Code 420×43 [V gap 1]
+              T "// return to the loop instead of stopping"
+              T "gotoAndPlay("loop");"
+            T "Replaces the stop() call so the clip returns to the loop label."
+            I NF3/Inline Message {Text=Inserted into Actions at the caret., Tone=Success} 420×16 "Inserted into Actions at the caret."
+          F Proposal / timing 450×139 [V gap 8]
+            F Line 420×28 [H gap 8]
+              I NF3/Badge {Label=Timing, Tone=Neutral} 45×20 "Timing"
+              T "Layer ball"
+              I NF3/Button {Icon=1:9209, Show icon=false, Label=Apply to timeline, Kind=Secondary, State=Default} 115×28 "Apply to timeline"
+              I NF3/Button {Icon=1:9209, Show icon=false, Label=Dismiss, Kind=Ghost, State=Default} 65×28 "Dismiss"
+            F Table 420×52 [V gap 0]
+              F Table row 420×26 [H gap 0]
+                F Property 120×14 [H gap 0]
+                  T "Frames"
+                T "1 – 30"
+              F Table row 420×26 [H gap 0]
+                F Property 120×14 [H gap 0]
+                  T "Easing"
+                T "Ease out"
+            T "Slows the ball before the hand-off at frame 30."
+          I NF3/Inline Message {Text=NeoFlash does not check AI output. Read a proposal before applying it; each one is a single Undo step., Tone=Warning} 450×26 "NeoFlash does not check AI output. Read a proposal before applying it; each one is a single Undo step."
+        F Footer 498×57 [H gap 8]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=New request…, Kind=Ghost, State=Default} 100×28 "New request…"
+          F Spacer 282×1 [H gap 0]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Done, Kind=Primary, State=Default} 52×28 "Done"
+    F Failed 500×688 [V gap 12]
+      T "Failed"
+      F Dialog / AI answer 500×660 [V gap 0]
+        I NF3/Dialog Header {Title=AI answer} 498×48 "AI answer"
+        F Page 498×553 [V gap 8]
+          T "Work — Anthropic · claude-sonnet-5-5"
+          I NF3/Inline Message {Text=HTTP 401: invalid x-api-key, Tone=Error} 450×16 "HTTP 401: invalid x-api-key"
+          T "Nothing was changed in the document."
+        F Footer 498×57 [H gap 8]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Edit connection…, Kind=Ghost, State=Default} 115×28 "Edit connection…"
+          F Spacer 182×1 [H gap 0]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Close, Kind=Secondary, State=Default} 56×28 "Close"
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Try again, Kind=Primary, State=Default} 73×28 "Try again"

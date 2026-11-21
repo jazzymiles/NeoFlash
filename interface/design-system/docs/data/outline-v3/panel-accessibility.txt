@@ -1,0 +1,24 @@
+F Panel / Accessibility 500×465 [V gap 24]
+  F Board title 420×74 [V gap 6]
+    T "Panel / Accessibility"
+    T "Contextual: one-line type header. The three options are checkboxes (were switches); Name and Description are full-width text, Shortcut and Tab index share a row."
+  F Panel / Accessibility 288×287 [V gap 0]
+    F Panel header 286×34 [H gap 0]
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=Accessibility, Selected=Yes} 95×34 "Accessibility"
+      F Spacer 159×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Type header 286×34 [H gap 8]
+      I NF2 Icon/16/movieclip 16×16
+      T "Movie clip"
+      T "Instance of "orbit""
+    F Section body 286×217 [V gap 8]
+      I NF3/Checkbox {Show label=true, Label=Make object accessible, Value=On, State=Default} 146×20 "Make object accessible"
+      I NF3/Checkbox {Show label=true, Label=Make child objects accessible, Value=On, State=Default} 180×20 "Make child objects accessible"
+      I NF3/Checkbox {Show label=true, Label=Auto label, Value=Off, State=Default} 77×20 "Auto label"
+      I NF3/Field {Stepper=false, Unit=px, Value=Orbit animation, Show unit=false, Show label=true, Label=Name, State=Default} 258×28 "Name" "Orbit animation" "px"
+      F Description 258×47 [V gap 2]
+        T "Description"
+        T "An orange planet orbiting a blue core."
+      F Pair 258×28 [H gap 8]
+        I NF3/Field {Stepper=false, Unit=px, Value=⌥O, Show unit=false, Show label=true, Label=Shortcut, State=Default} 125×28 "Shortcut" "⌥O" "px"
+        I NF3/Field {Stepper=true, Unit=px, Value=3, Show unit=false, Show label=true, Label=Tab, State=Default} 125×28 "Tab" "3" "px"

@@ -1,0 +1,80 @@
+F Dialog / Batch rename, Batch linkage 1120×669 [V gap 24]
+  F Board title 1000×42 [V gap 6]
+    T "Dialog / Batch rename, Batch linkage"
+    T "Section headers became group captions; every field has its own labelled row at a natural width (Prefix, Suffix, Find, Replace), Start and Digits share a row."
+  F States 1040×523 [H gap 40]
+    F Dialog / Batch rename library items 500×523 [V gap 0]
+      I NF3/Dialog Header {Title=Batch rename library items} 498×48 "Batch rename library items"
+      F Body 498×416 [V gap 8]
+        F Group caption 450×28 [H gap 0]
+          T "Scope"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Items"
+          I NF3/Select {Value=Selected items / folder, Show label=false, Label=Style, State=Default} 232×28 "Style" "Selected items / folder"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Checkbox {Show label=true, Label=Also rename matching Stage instances, Value=On, State=Default} 226×20 "Also rename matching Stage instances"
+        F Group caption 450×28 [H gap 0]
+          T "Affixes and find / replace"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Prefix"
+          I NF3/Field {Stepper=false, Unit=px, Value=hero_, Show unit=false, Show label=false, Label=X, State=Default} 232×28 "X" "hero_" "px"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Suffix"
+          I NF3/Field {Stepper=false, Unit=px, Value= , Show unit=false, Show label=false, Label=X, State=Default} 232×28 "X" " " "px"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Find"
+          I NF3/Field {Stepper=false, Unit=px, Value=copy, Show unit=false, Show label=false, Label=X, State=Default} 232×28 "X" "copy" "px"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Replace"
+          I NF3/Field {Stepper=false, Unit=px, Value= , Show unit=false, Show label=false, Label=X, State=Default} 232×28 "X" " " "px"
+        F Group caption 450×28 [H gap 0]
+          T "Sequential numbering"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Checkbox {Show label=true, Label=Append sequential numbering, Value=On, State=Default} 180×20 "Append sequential numbering"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Start"
+          I NF3/Field {Stepper=false, Unit=px, Value=1, Show unit=false, Show label=false, Label=X, State=Default} 68×28 "X" "1" "px"
+          I NF3/Field {Stepper=false, Unit=px, Value=2, Show unit=false, Show label=true, Label=Digits, State=Default} 104×28 "Digits" "2" "px"
+      F Footer 498×57 [H gap 8]
+        F Spacer 304×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Rename, Kind=Primary, State=Default} 67×28 "Rename"
+    F Dialog / Batch linkage (Export for ActionScript) 500×343 [V gap 0]
+      I NF3/Dialog Header {Title=Batch linkage (Export for ActionScript)} 498×48 "Batch linkage (Export for ActionScript)"
+      F Body 498×236 [V gap 8]
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Scope"
+          I NF3/Select {Value=All library symbols and sounds, Show label=false, Label=Style, State=Default} 322×28 "Style" "All library symbols and sounds"
+        F Group caption 450×28 [H gap 0]
+          T "ActionScript linkage"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Checkbox {Show label=true, Label=Export for ActionScript, Value=On, State=Default} 143×20 "Export for ActionScript"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          I NF3/Checkbox {Show label=true, Label=Export in frame 1, Value=On, State=Default} 112×20 "Export in frame 1"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T "Prefix"
+          I NF3/Field {Stepper=false, Unit=px, Value=com.example., Show unit=false, Show label=false, Label=X, State=Default} 232×28 "X" "com.example." "px"
+        F Form row 450×28 [H gap 8]
+          F Label 120×14 [H gap 0]
+            T ""
+          T "Example class: com.example.HeroWalk"
+      F Footer 498×57 [H gap 8]
+        F Spacer 316×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Apply, Kind=Primary, State=Default} 55×28 "Apply"

@@ -1,0 +1,29 @@
+F Dialog / Batch bitmap compression 580×469 [V gap 24]
+  F Board title 480×58 [V gap 6]
+    T "Dialog / Batch bitmap compression"
+    T "Target, compression and quality as form rows; the selects no longer stretch to the dialog."
+  F Dialog / Batch bitmap compression and smoothing 500×307 [V gap 0]
+    I NF3/Dialog Header {Title=Batch bitmap compression and smoothing} 498×48 "Batch bitmap compression and smoothing"
+    F Body 498×200 [V gap 8]
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Target"
+        I NF3/Select {Value=All bitmap resources, Show label=false, Label=Style, State=Default} 232×28 "Style" "All bitmap resources"
+      F Group caption 450×28 [H gap 0]
+        T "Compression and quality"
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Compression"
+        I NF3/Select {Value=Photo (JPEG), Show label=false, Label=Style, State=Default} 168×28 "Style" "Photo (JPEG)"
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T "Quality"
+        I NF3/Field {Stepper=false, Unit=px, Value=80, Show unit=false, Show label=false, Label=X, State=Default} 68×28 "X" "80" "px"
+      F Form row 450×28 [H gap 8]
+        F Label 120×14 [H gap 0]
+          T ""
+        I NF3/Checkbox {Show label=true, Label=Allow smoothing, Value=On, State=Default} 110×20 "Allow smoothing"
+    F Footer 498×57 [H gap 8]
+      F Spacer 316×1 [H gap 0]
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Cancel, Kind=Secondary, State=Default} 63×28 "Cancel"
+      I NF3/Button {Icon=1:9209, Show icon=false, Label=Apply, Kind=Primary, State=Default} 55×28 "Apply"

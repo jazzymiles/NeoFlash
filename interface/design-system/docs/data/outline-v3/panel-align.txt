@@ -1,0 +1,51 @@
+F Panel / Align 500×558 [V gap 24]
+  F Board title 420×74 [V gap 6]
+    T "Panel / Align"
+    T "Align to stays on top as a segmented choice; Align, Distribute, Spacing and Match size are sections with joined icon groups; Gap is a labelled field."
+  F Panel / Align 288×380 [V gap 0]
+    F Panel header 286×34 [H gap 0]
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=Align, Selected=Yes} 55×34 "Align"
+      F Spacer 199×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Section body 286×56 [V gap 8]
+      F Line 258×28 [H gap 8]
+        T "Align to"
+        F Segmented 137×28 [H gap 0]
+          I NF3/Segment {Label=Selection, Selected=Yes} 76×22 "Selection"
+          I NF3/Segment {Label=Stage, Selected=No} 55×22 "Stage"
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Align, Open=Yes} 286×28 "Align"
+    F Section body 286×44 [V gap 8]
+      F Line 258×30 [H gap 8]
+        F Icon group 86×30 [H gap 0]
+          I NF3/Icon Button {Icon=17:286, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:291, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:296, Kind=Ghost, State=Default} 28×28
+        F Icon group 86×30 [H gap 0]
+          I NF3/Icon Button {Icon=17:301, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:306, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:311, Kind=Ghost, State=Default} 28×28
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Distribute, Open=Yes} 286×28 "Distribute"
+    F Section body 286×44 [V gap 8]
+      F Line 258×30 [H gap 8]
+        F Icon group 86×30 [H gap 0]
+          I NF3/Icon Button {Icon=17:317, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:323, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:329, Kind=Ghost, State=Default} 28×28
+        F Icon group 86×30 [H gap 0]
+          I NF3/Icon Button {Icon=17:335, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:341, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:347, Kind=Ghost, State=Default} 28×28
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Spacing, Open=Yes} 286×28 "Spacing"
+    F Section body 286×44 [V gap 8]
+      F Line 258×30 [H gap 8]
+        F Icon group 58×30 [H gap 0]
+          I NF3/Icon Button {Icon=17:352, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:357, Kind=Ghost, State=Default} 28×28
+        I NF3/Field {Stepper=false, Unit=px, Value=16, Show unit=true, Show label=true, Label=Gap, State=Default} 192×28 "Gap" "16" "px"
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Match size, Open=Yes} 286×28 "Match size"
+    F Section body 286×44 [V gap 8]
+      F Line 258×30 [H gap 8]
+        F Icon group 86×30 [H gap 0]
+          I NF3/Icon Button {Icon=17:361, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:365, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=17:369, Kind=Ghost, State=Default} 28×28

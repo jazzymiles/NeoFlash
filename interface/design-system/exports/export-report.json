@@ -1,6 +1,10 @@
 {
- "frames": 348,
- "singlePanels": 400,
+ "frames": 36,
+ "singlePanels": 0,
+ "v3": {
+  "pages": 12,
+  "frames": 1168
+ },
  "failed": [],
- "seconds": 169
+ "seconds": 465
 }

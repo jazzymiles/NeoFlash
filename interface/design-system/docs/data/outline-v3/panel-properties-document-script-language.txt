@@ -1,0 +1,46 @@
+F Panel / Properties — Document, script language 696×505 [V gap 24]
+  F Board title 600×58 [V gap 6]
+    T "Panel / Properties — Document, script language"
+    T "Only the Publish section changes with the script language. Left: every script is in a compatible language. Right: scripts in other languages add the inline warning between the option and “Publish settings…”."
+  F States 616×343 [H gap 40]
+    F Panel / Properties 288×296 [V gap 0]
+      F Panel header 286×34 [H gap 0]
+        I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+        I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+        F Spacer 89×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+      F Type header 286×34 [H gap 8]
+        I NF2 Icon/16/file-code 16×16
+        T "Document"
+        T "Ideas in motion"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Document, Open=No} 286×28 "Document"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Publish, Open=Yes} 286×28 "Publish"
+      F Section body 286×142 [V gap 8]
+        F Line 258×28 [H gap 8]
+          I NF3/Badge {Label=HTML5 · Rust / WebAssembly, Tone=Accent} 154×20 "HTML5 · Rust / WebAssembly"
+        I NF3/Select {Value=TypeScript, Show label=true, Label=Script, State=Default} 258×28 "Script" "TypeScript"
+        I NF3/Checkbox {Show label=true, Label=Also compile JavaScript, Value=On, State=Default} 148×20 "Also compile JavaScript"
+        F Line 258×28 [H gap 8]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Publish settings…, Kind=Secondary, State=Default} 119×28 "Publish settings…"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Used colours, Open=No} 286×28 "Used colours"
+    F Panel / Properties 288×343 [V gap 0]
+      F Panel header 286×34 [H gap 0]
+        I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+        I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+        F Spacer 89×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+      F Type header 286×34 [H gap 8]
+        I NF2 Icon/16/file-code 16×16
+        T "Document"
+        T "Ideas in motion"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Document, Open=No} 286×28 "Document"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Publish, Open=Yes} 286×28 "Publish"
+      F Section body 286×189 [V gap 8]
+        F Line 258×28 [H gap 8]
+          I NF3/Badge {Label=HTML5 · Rust / WebAssembly, Tone=Accent} 154×20 "HTML5 · Rust / WebAssembly"
+        I NF3/Select {Value=TypeScript, Show label=true, Label=Script, State=Default} 258×28 "Script" "TypeScript"
+        I NF3/Checkbox {Show label=true, Label=Also compile JavaScript, Value=On, State=Default} 148×20 "Also compile JavaScript"
+        I NF3/Inline Message {Text=5 scripts are in other languages and stay in the document: 2 compile with a warning, 3 are skipped when publishing., Tone=Warning} 258×39 "5 scripts are in other languages and stay in the document: 2 compile with a warning, 3 are skipped when publishing."
+        F Line 258×28 [H gap 8]
+          I NF3/Button {Icon=1:9209, Show icon=false, Label=Publish settings…, Kind=Secondary, State=Default} 119×28 "Publish settings…"
+      I NF3/Section Header {Action icon=1:9260, Action=false, Title=Used colours, Open=No} 286×28 "Used colours"

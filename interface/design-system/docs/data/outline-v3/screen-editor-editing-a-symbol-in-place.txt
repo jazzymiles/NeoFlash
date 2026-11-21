@@ -1,0 +1,266 @@
+F Screen / Editor — editing a symbol in place 1520×1078 [V gap 24]
+  F Board title 1100×74 [V gap 6]
+    T "Screen / Editor — editing a symbol in place"
+    T "The scene pill becomes the breadcrumb Scene 1 › Orbit; the parent scene is dimmed on the Stage while the symbol artwork keeps full opacity, the Timeline shows the layers of the symbol and Properties the selected instance inside it. The symbols and scenes picker (search, scenes, matches, recent, browse) opens under the breadcrumb, which sits beside the Tools rail here so the picker does not cover it."
+  F Editor window 1440×900 [V gap 0]
+    F Top bar 1438×40 [H gap 8]
+      T "NeoFlash"
+      F Menus 447×28 [H gap 0]
+        F File 33×28 [H gap 0]
+          T "File"
+        F Edit 35×28 [H gap 0]
+          T "Edit"
+        F View 40×28 [H gap 0]
+          T "View"
+        F Insert 44×28 [H gap 0]
+          T "Insert"
+        F Modify 50×28 [H gap 0]
+          T "Modify"
+        F Text 37×28 [H gap 0]
+          T "Text"
+        F Control 53×28 [H gap 0]
+          T "Control"
+        F Debug 49×28 [H gap 0]
+          T "Debug"
+        F Window 56×28 [H gap 0]
+          T "Window"
+        F Help 38×28 [H gap 0]
+          T "Help"
+      F Spacer 500×1 [H gap 0]
+      I NF3/Select {Value=Animator, Show label=false, Label=Style, State=Default} 168×28 "Style" "Animator"
+      I NF3/Button {Icon=1:9188, Show icon=true, Label=Test Movie, Kind=Secondary, State=Default} 108×28 "Test Movie"
+      I NF3/Button {Icon=1:9278, Show icon=true, Label=Publish, Kind=Primary, State=Default} 87×28 "Publish"
+    F Document tabs 1438×34 [H gap 0]
+      I NF3/Tab {Show icon=true, Icon=62:812, Label=Ideas in motion, Selected=Yes} 132×34 "Ideas in motion"
+      I NF3/Tab {Icon=62:812, Show icon=true, Label=Untitled-2, Selected=No} 106×34 "Untitled-2"
+      I NF3/Icon Button {Icon=1:9209, Kind=Ghost, State=Default} 28×28
+    F Workspace 1438×552 [H gap 0]
+      F Stage area 1150×552 [H gap 0]
+        F Stage 720×450
+          T "Ideas in motion."
+          T "One symbol. Many possibilities."
+          T "A familiar timeline. A modern canvas."
+        F Breadcrumb 186×28 [H gap 8]
+          I NF2 Icon/16/scene 16×16
+          T "Scene 1"
+          I NF2 Icon/12/chevright 12×12
+          I NF2 Icon/16/movieclip 16×16
+          T "Orbit"
+          I NF2 Icon/12/chevdown 12×12
+        F Panel / Tools — 1 column 44×597 [V gap 0]
+          F Grip 42×12 [H gap 0]
+            I NF2 Icon/12/grip-h 12×12
+          F Tool grid 42×380 [H gap 2]
+            I NF3/Tool Button {Flyout=true, Icon 16=1:9097, Icon 20=17:183, State=Selected} 32×32
+            I NF3/Tool Button {Icon 16=1:9107, Flyout=true, Icon 20=17:194, State=Default} 32×32
+            I NF3/Tool Button {Icon 16=1:9111, Flyout=true, Icon 20=17:205, State=Default} 32×32
+            I NF3/Tool Button {Icon 16=1:9116, Flyout=true, Icon 20=17:211, State=Default} 32×32
+            I NF3/Tool Button {Icon 16=1:9119, Flyout=false, Icon 20=17:214, State=Default} 32×32
+            I NF3/Tool Button {Icon 16=1:9125, Flyout=true, Icon 20=17:225, State=Default} 32×32
+            I NF3/Tool Button {Icon 16=1:9131, Flyout=true, Icon 20=17:229, State=Default} 32×32
+            I NF3/Tool Button {Icon 16=1:9142, Flyout=true, Icon 20=17:243, State=Default} 32×32
+            I NF3/Tool Button {Icon 16=1:9146, Flyout=false, Icon 20=17:247, State=Default} 32×32
+            I NF3/Tool Button {Icon 16=1:9149, Flyout=false, Icon 20=17:252, State=Default} 32×32
+            I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 32×28
+          F Tool grid 42×78 [H gap 2]
+            I NF3/Tool Button {Icon 16=1:9155, Flyout=false, Icon 20=17:255, State=Default} 32×32
+            I NF3/Tool Button {Icon 16=418:5906, Flyout=false, Icon 20=17:259, State=Default} 32×32
+          F Tool grid 42×78 [H gap 2]
+            F Stroke chip 32×32 [H gap 0]
+            F Fill chip 32×32 [H gap 0]
+          F Tool grid 42×44 [H gap 2]
+            I NF3/Tool Button {Flyout=false, Icon 16=418:5910, Icon 20=17:263, State=Selected} 32×32
+        F Stage toolbar 331×34 [H gap 2]
+          I NF3/Icon Button {Icon=1:9155, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9212, Kind=Ghost, State=Default} 28×28
+          F Zoom 44×14 [H gap 0]
+            T "130%"
+          I NF3/Icon Button {Icon=1:9209, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9166, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=29:435, Kind=Ghost, State=Selected} 28×28
+          I NF3/Icon Button {Icon=29:438, Kind=Ghost, State=Selected} 28×28
+          I NF3/Icon Button {Icon=29:442, Kind=Ghost, State=Selected} 28×28
+          I NF3/Icon Button {Icon=29:450, Kind=Ghost, State=Selected} 28×28
+          I NF3/Icon Button {Icon=29:529, Kind=Ghost, State=Default} 28×28
+      F Right dock 288×552 [V gap 0]
+        F Panel / Properties 288×518 [V gap 0]
+          F Panel header 286×34 [H gap 0]
+            I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+            I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+            F Spacer 89×1 [H gap 0]
+            I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+          F Type header 286×34 [H gap 8]
+            I NF2 Icon/16/graphic 16×16
+            T "Graphic"
+            T "Instance of “planet” · 24 frames"
+          F Section body 286×42 [V gap 8]
+            F Line 258×28 [H gap 8]
+              T "Graphics have no instance name — their timeline is synced to the parent."
+              I NF3/Button {Icon=1:9209, Show icon=false, Label=Swap…, Kind=Secondary, State=Default} 65×28 "Swap…"
+          I NF3/Section Header {Action icon=1:9281, Action=true, Title=Position and size, Open=No} 286×28 "Position and size"
+          I NF3/Section Header {Action icon=1:9260, Action=false, Title=Colour effect, Open=No} 286×28 "Colour effect"
+          I NF3/Section Header {Action icon=1:9260, Action=false, Title=Looping, Open=Yes} 286×28 "Looping"
+          F Section body 286×239 [V gap 8]
+            I NF3/Radio {Label=Loop, Value=On, State=Default} 51×20 "Loop"
+            I NF3/Radio {Label=Play once, Value=Off, State=Default} 75×20 "Play once"
+            I NF3/Radio {Label=Single frame, Value=Off, State=Default} 90×20 "Single frame"
+            I NF3/Radio {Label=Loop reverse, Value=Off, State=Default} 92×20 "Loop reverse"
+            I NF3/Radio {Label=Play once reverse, Value=Off, State=Default} 117×20 "Play once reverse"
+            F Pair 258×28 [H gap 8]
+              I NF3/Field {Stepper=true, Unit=px, Value=1, Show unit=false, Show label=true, Label=First, State=Default} 125×28 "First" "1" "px"
+              I NF3/Field {Stepper=true, Unit=px, Value=24, Show unit=false, Show label=true, Label=Last, State=Default} 125×28 "Last" "24" "px"
+            F Frame picker 258×28 [H gap 2]
+              F Frame 1 28×28 [H gap 0]
+              F Frame 5 28×28 [H gap 0]
+              F Frame 9 28×28 [H gap 0]
+              F Frame 13 28×28 [H gap 0]
+              F Frame 17 28×28 [H gap 0]
+              F Frame 21 28×28 [H gap 0]
+              F Frame 25 28×28 [H gap 0]
+            T "Click a thumbnail to set the first frame"
+        F Collapsed group 287×34 [H gap 0]
+          T "Library"
+          I NF3/Icon Button {Icon=1:9248, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Panel / Timeline 1438×248 [V gap 0]
+      F Dock tabs 1438×34 [H gap 0]
+        I NF3/Tab {Show icon=true, Icon=1:9288, Label=Timeline, Selected=Yes} 97×34 "Timeline"
+        I NF3/Tab {Icon=1:9185, Show icon=false, Label=Output, Selected=No} 65×34 "Output"
+        I NF3/Tab {Icon=1:9185, Show icon=false, Label=Compiler errors, Selected=No} 110×34 "Compiler errors"
+        F Spacer 1134×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+      F Timeline controls 1438×38 [H gap 8]
+        I NF3/Icon Button {Icon=7:155, Kind=Ghost, State=Default} 28×28
+        I NF3/Icon Button {Icon=7:159, Kind=Ghost, State=Default} 28×28
+        I NF3/Icon Button {Icon=7:164, Kind=Ghost, State=Default} 28×28
+        I NF3/Icon Button {Icon=1:9215, Kind=Ghost, State=Default} 28×28
+        I NF3/Icon Button {Icon=1:9196, Kind=Ghost, State=Default} 28×28
+        I NF3/Icon Button {Icon=1:9203, Kind=Ghost, State=Default} 28×28
+        I NF3/Icon Button {Icon=1:9188, Kind=Ghost, State=Selected} 28×28
+        I NF3/Icon Button {Icon=1:9206, Kind=Ghost, State=Default} 28×28
+        I NF3/Icon Button {Icon=1:9200, Kind=Ghost, State=Default} 28×28
+        I NF3/Icon Button {Icon=1:9284, Kind=Ghost, State=Selected} 28×28
+        T "1 / 120"
+        T "00:00.00"
+        I NF3/Select {Value=Scene 1, Show label=false, Label=Style, State=Default} 104×28 "Style" "Scene 1"
+        I NF3/Field {Stepper=false, Unit=px, Value=24, Show unit=false, Show label=true, Label=FPS, State=Default} 68×28 "FPS" "24" "px"
+        I NF3/Field {Stepper=false, Unit=s, Value=5.00, Show unit=true, Show label=true, Label=Duration, State=Default} 116×28 "Duration" "5.00" "s"
+        F Spacer 275×1 [H gap 0]
+        I NF3/Icon Button {Icon=1:9264, Kind=Ghost, State=Default} 28×28
+        I NF3/Icon Button {Icon=7:144, Kind=Ghost, State=Default} 28×28
+        I NF3/Icon Button {Icon=7:148, Kind=Ghost, State=Default} 28×28
+        I NF3/Icon Button {Icon=7:151, Kind=Ghost, State=Default} 28×28
+        I NF3/Icon Button {Icon=7:168, Kind=Ghost, State=Default} 28×28
+        I NF3/Slider {State=Default} 96×20
+        I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+      F Timeline body 1438×175 [H gap 0]
+        F Layer column 324×175 [V gap 0]
+          F Layers header 323×26 [H gap 4]
+            T "Layers"
+            T "Mode"
+            I NF2 Icon/12/eye 12×12
+            I NF2 Icon/12/lock 12×12
+            I NF2 Icon/12/layers 12×12
+          F Layer row 323×24 [H gap 4]
+            I NF2 Icon/12/layer 12×12
+            T "satellite"
+            T "Normal"
+          F Layer row 323×24 [H gap 4]
+            I NF2 Icon/12/graphic 12×12
+            T "planet"
+            I NF2 Icon/12/pencil 12×12
+            T "Normal"
+          F Layer row 323×24 [H gap 4]
+            I NF2 Icon/12/layer 12×12
+            T "rings"
+            T "Normal"
+        F Frame area 1114×175 [V gap 0]
+          F Frame ruler 1114×26 [H gap 0]
+            F 1 24×12 [H gap 0]
+              T "1"
+            F 5 60×12 [H gap 0]
+              T "5"
+            F 10 60×12 [H gap 0]
+              T "10"
+            F 15 60×12 [H gap 0]
+              T "15"
+            F 20 60×12 [H gap 0]
+              T "20"
+            F 25 60×12 [H gap 0]
+              T "25"
+            F 30 60×12 [H gap 0]
+              T "30"
+            F 35 60×12 [H gap 0]
+              T "35"
+            F 40 60×12 [H gap 0]
+              T "40"
+            F 45 60×12 [H gap 0]
+              T "45"
+            F 50 60×12 [H gap 0]
+              T "50"
+            F 55 60×12 [H gap 0]
+              T "55"
+            F 60 60×12 [H gap 0]
+              T "60"
+            F 65 60×12 [H gap 0]
+              T "65"
+            F 70 60×12 [H gap 0]
+              T "70"
+            F 75 60×12 [H gap 0]
+              T "75"
+            F 80 60×12 [H gap 0]
+              T "80"
+            F 85 60×12 [H gap 0]
+              T "85"
+            F 90 60×12 [H gap 0]
+              T "90"
+            F 95 60×12 [H gap 0]
+              T "95"
+            F 100 60×12 [H gap 0]
+              T "100"
+            F 105 60×12 [H gap 0]
+              T "105"
+            F 110 60×12 [H gap 0]
+              T "110"
+            F 115 60×12 [H gap 0]
+              T "115"
+          F Frames 1114×24 [H gap 0]
+            F Span / classic 480×23 [H gap 2]
+              I NF2 Icon/12/triright 12×12
+            F Span / static 492×23 [H gap 2]
+              F Spacer 473×1 [H gap 0]
+          F Frames 1114×24 [H gap 0]
+            F Span / static 972×23 [H gap 2]
+              F Spacer 953×1 [H gap 0]
+          F Frames 1114×24 [H gap 0]
+            F Span / static 972×23 [H gap 2]
+              F Spacer 953×1 [H gap 0]
+    F Status bar 1438×24 [H gap 14]
+      T "Selection tool"
+      T "960 × 600 · 24 fps"
+      F Spacer 1085×1 [H gap 0]
+      T "HTML5 · JavaScript"
+      T "Saved"
+    F Popover / Symbols and scenes 288×459 [V gap 0]
+      F Section body 286×56 [V gap 8]
+        I NF3/Search {Clear=true, Value=pla, State=Focus} 258×28 "pla"
+      F List 286×358 [V gap 1]
+        F Menu Section 278×26 [H gap 8]
+          T "Scenes · 4"
+        I NF3/Tree Row {Show meta=false, Icon=17:542, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=Scene 1, Level=0, State=Default} 278×26 "Scene 1" "4"
+        F Menu Section 278×26 [H gap 8]
+          T "Matches in symbols · 3 of 248"
+        I NF3/Tree Row {Meta=4, Chevron=false, Show icon=true, Icon=36:702, Chevron icon=220:1338, Show meta=false, Label=planet, Level=0, State=Selected} 278×26 "planet" "4"
+        I NF3/Tree Row {Show meta=false, Icon=36:702, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=planet_shadow, Level=0, State=Default} 278×26 "planet_shadow" "4"
+        I NF3/Tree Row {Show meta=false, Icon=36:698, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=planets_bg, Level=0, State=Default} 278×26 "planets_bg" "4"
+        F Menu Section 278×26 [H gap 8]
+          T "Recent"
+        I NF3/Tree Row {Show meta=false, Icon=36:698, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=orbit, Level=0, State=Default} 278×26 "orbit" "4"
+        I NF3/Tree Row {Show meta=false, Icon=36:706, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=cta_btn, Level=0, State=Default} 278×26 "cta_btn" "4"
+        F Menu Section 278×26 [H gap 8]
+          T "Browse"
+        I NF3/Tree Row {Show meta=true, Icon=1:9224, Meta=41, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Backgrounds, Level=0, State=Default} 278×26 "Backgrounds" "41"
+        I NF3/Tree Row {Show meta=true, Icon=1:9224, Meta=96, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=Characters, Level=0, State=Default} 278×26 "Characters" "96"
+        I NF3/Tree Row {Show meta=true, Icon=1:9224, Meta=111, Show icon=true, Chevron icon=220:1342, Chevron=true, Label=UI, Level=0, State=Default} 278×26 "UI" "111"
+      F Note 286×43 [H gap 0]
+        T "↑↓ move  ·  ↵ edit  ·  ⌥↵ edit in place  ·  ⌘↵ new window"

@@ -1,0 +1,35 @@
+F Panel / Movie Explorer 500×587 [V gap 24]
+  F Board title 420×74 [V gap 6]
+    T "Panel / Movie Explorer"
+    T "The two filter groups keep their icons (text · symbols · scripts · media, and frames / layers · customise); tree at size/row, the path of the selection as the last line."
+  F Panel / Movie Explorer 288×409 [V gap 0]
+    F Panel header 286×34 [H gap 0]
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=Movie Explorer, Selected=Yes} 107×34 "Movie Explorer"
+      F Spacer 147×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Section body 286×94 [V gap 8]
+      F Line 258×30 [H gap 8]
+        F Icon group 114×30 [H gap 0]
+          I NF3/Icon Button {Icon=36:715, Kind=Ghost, State=Selected} 28×28
+          I NF3/Icon Button {Icon=36:698, Kind=Ghost, State=Selected} 28×28
+          I NF3/Icon Button {Icon=1:9267, Kind=Ghost, State=Selected} 28×28
+          I NF3/Icon Button {Icon=36:719, Kind=Ghost, State=Default} 28×28
+        F Icon group 58×30 [H gap 0]
+          I NF3/Icon Button {Icon=17:546, Kind=Ghost, State=Default} 28×28
+          I NF3/Icon Button {Icon=1:9298, Kind=Ghost, State=Default} 28×28
+      I NF3/Search {Clear=false, Value=Find in movie, State=Default} 258×28 "Find in movie"
+    F List 286×250 [V gap 1]
+      I NF3/Tree Row {Show meta=false, Icon=1:9288, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Ideas in motion.nfl, Level=0, State=Default} 278×26 "Ideas in motion.nfl" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1338, Label=Scene 1, Show icon=true, Chevron=true, Icon=17:542, Level=1, State=Default} 278×26 "Scene 1" "4"
+      I NF3/Tree Row {Show meta=false, Label=Layer "orbit", Icon=7:111, Show icon=true, Chevron icon=220:1338, Meta=4, Chevron=true, Level=2, State=Default} 278×26 "Layer "orbit"" "4"
+      F Indent 278×26 [H gap 0]
+        I NF3/Tree Row {Show meta=false, Icon=17:546, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=true, Label=Frame 1, Level=0, State=Default} 236×26 "Frame 1" "4"
+      F Indent 278×26 [H gap 0]
+        I NF3/Tree Row {Meta=4, Chevron=false, Show icon=true, Icon=36:698, Chevron icon=220:1338, Show meta=false, Label=orbit_mc  ·  orbit, Level=0, State=Selected} 222×26 "orbit_mc  ·  orbit" "4"
+      F Indent 278×26 [H gap 0]
+        I NF3/Tree Row {Show meta=false, Icon=1:9267, Meta=4, Show icon=true, Chevron icon=220:1338, Chevron=false, Label=Actions for Frame 1, Level=0, State=Default} 222×26 "Actions for Frame 1" "4"
+      I NF3/Tree Row {Show meta=false, Label=Layer "labels", Icon=7:111, Show icon=true, Chevron icon=220:1342, Meta=4, Chevron=true, Level=2, State=Default} 278×26 "Layer "labels"" "4"
+      I NF3/Tree Row {Show meta=false, Label=Layer "music.mp3", Icon=36:667, Show icon=true, Chevron icon=220:1342, Meta=4, Chevron=true, Level=2, State=Default} 278×26 "Layer "music.mp3"" "4"
+      I NF3/Tree Row {Show meta=false, Meta=4, Chevron icon=220:1342, Label=Symbol definitions, Show icon=true, Chevron=true, Icon=1:9228, Level=1, State=Default} 278×26 "Symbol definitions" "4"
+    F Note 286×29 [H gap 0]
+      T "Scene 1 › orbit › Frame 1 › orbit_mc"

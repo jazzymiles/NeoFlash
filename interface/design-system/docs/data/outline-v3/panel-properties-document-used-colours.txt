@@ -1,0 +1,94 @@
+F Panel / Properties — Document, Used colours 500×882 [V gap 24]
+  F Board title 420×74 [V gap 6]
+    T "Panel / Properties — Document, Used colours"
+    T "R-106: one row per colour (swatch · #HEX with alpha · usage · select on stage), “Only on stage” in the section header, Replace as one bar, Import palette… in the ⋯ menu."
+  F Panel / Properties 288×704 [V gap 0]
+    F Panel header 286×34 [H gap 0]
+      I NF3/Tab {Show icon=false, Icon=1:9185, Label=Properties, Selected=Yes} 83×34 "Properties"
+      I NF3/Tab {Icon=1:9185, Show icon=false, Label=Transform, Selected=No} 82×34 "Transform"
+      F Spacer 89×1 [H gap 0]
+      I NF3/Icon Button {Icon=1:9260, Kind=Ghost, State=Default} 28×28
+    F Type header 286×34 [H gap 8]
+      I NF2 Icon/16/file-code 16×16
+      T "Document"
+      T "Ideas in motion"
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Document, Open=Yes} 286×28 "Document"
+    F Section body 286×78 [V gap 8]
+      F Pair 258×28 [H gap 8]
+        I NF3/Field {Stepper=false, Unit=px, Value=960, Show unit=true, Show label=true, Label=W, State=Default} 125×28 "W" "960" "px"
+        I NF3/Field {Stepper=false, Unit=px, Value=600, Show unit=true, Show label=true, Label=H, State=Default} 125×28 "H" "600" "px"
+      F Pair 258×28 [H gap 8]
+        I NF3/Field {Stepper=false, Unit=px, Value=24, Show unit=false, Show label=true, Label=FPS, State=Default} 136×28 "FPS" "24" "px"
+        F Stage colour 114×28 [H gap 8]
+          I NF3/Swatch 18×18
+          I NF3/Field {Stepper=false, Unit=px, Value=141926, Show unit=false, Show label=true, Label=#, State=Default} 88×28 "#" "141926" "px"
+    I NF3/Section Header {Action icon=1:9260, Action=false, Title=Publish, Open=Yes} 286×28 "Publish"
+    F Section body 286×142 [V gap 8]
+      F Line 258×28 [H gap 8]
+        I NF3/Badge {Label=HTML5 · Rust / WebAssembly, Tone=Accent} 154×20 "HTML5 · Rust / WebAssembly"
+      I NF3/Select {Value=JavaScript, Show label=true, Label=Script, State=Default} 258×28 "Script" "JavaScript"
+      I NF3/Checkbox {Show label=true, Label=Also compile TypeScript, Value=On, State=Default} 150×20 "Also compile TypeScript"
+      F Line 258×28 [H gap 8]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Publish settings…, Kind=Secondary, State=Default} 119×28 "Publish settings…"
+    F Section Header / Used colours 286×28 [H gap 4]
+      I NF2 Icon/12/chevdown 12×12
+      T "Used colours"
+      I NF3/Checkbox {Show label=true, Label=Only on stage, Value=On, State=Default} 96×20 "Only on stage"
+      F More 16×28 [H gap 0]
+        I NF2 Icon/16/more 16×16
+    F Section body 286×330 [V gap 8]
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=8B9AB1, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "8B9AB1" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "5 × text"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=F1F4FA, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "F1F4FA" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "2 × text"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=FF8E4F, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "FF8E4F" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "2 × fill"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=233043, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "233043" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "1 × fill"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=303C4F, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "303C4F" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "1 × fill"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=44546D, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "44546D" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "1 × stroke"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=2D3C52, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "2D3C52" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "1 × stroke"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Colour row 258×28 [H gap 8]
+        I NF3/Swatch 18×18
+        I NF3/Field {Stepper=false, Unit=100 %, Value=66A0FF, Show unit=true, Show label=true, Label=#, State=Default} 136×28 "#" "66A0FF" "100 %"
+        F Usage 52×13 [H gap 0]
+          T "1 × fill"
+        I NF3/Icon Button {Icon=17:373, Kind=Ghost, State=Default} 28×28
+      F Replace bar 258×28 [H gap 8]
+        T "Replace"
+        I NF3/Swatch 18×18
+        I NF2 Icon/12/chevright 12×12
+        I NF3/Swatch 18×18
+        F Spacer 45×1 [H gap 0]
+        I NF3/Button {Icon=1:9209, Show icon=false, Label=Replace all, Kind=Secondary, State=Default} 83×28 "Replace all"

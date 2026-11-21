@@ -1,0 +1,50 @@
+F Menu / Text, Control, Debug 860×570 [V gap 24]
+  F Board title 760×58 [V gap 6]
+    T "Menu / Text, Control, Debug"
+    T "Text and Debug are new against v2.25 (Text is shown with a text box selected, Debug idle with no breakpoints; its last three items toggle panels); Control gains Live ActionScript and the Work Area submenu."
+  F Menus 780×408 [H gap 32]
+    F Text 216×173 [V gap 8]
+      T "Text"
+      F Menu / Text 216×149 [V gap 0]
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=false, Label=Size, State=Default} 206×26 "Size" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=false, Label=Style, State=Default} 206×26 "Style" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=false, Label=Align, State=Default} 206×26 "Align" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=false, Label=Letter Spacing, State=Default} 206×26 "Letter Spacing" "⌘K"
+        I NF3/Menu Separator 206×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=false, Label=Font Embedding…, State=Default} 206×26 "Font Embedding…" "⌘K"
+    F Control 260×408 [V gap 8]
+      T "Control"
+      F Menu / Control 260×384 [V gap 0]
+        I NF3/Menu Item {Shortcut=↵, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Play, State=Default} 250×26 "Play" "↵"
+        I NF3/Menu Item {Shortcut=⌥⇧R, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Rewind, State=Default} 250×26 "Rewind" "⌥⇧R"
+        I NF3/Menu Item {Shortcut=⌥⇧., Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Go to end, State=Default} 250×26 "Go to end" "⌥⇧."
+        I NF3/Menu Item {Shortcut=., Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Step forward one frame, State=Default} 250×26 "Step forward one frame" "."
+        I NF3/Menu Item {Shortcut=,, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Step back one frame, State=Default} 250×26 "Step back one frame" ","
+        I NF3/Menu Separator 250×9
+        I NF3/Menu Item {Shortcut=⌘↵, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Test movie, State=Default} 250×26 "Test movie" "⌘↵"
+        I NF3/Menu Item {Shortcut=⌥⌘↵, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Test scene, State=Default} 250×26 "Test scene" "⌥⌘↵"
+        I NF3/Menu Separator 250×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=true, Show shortcut=false, Check column=true, Label=Loop playback, State=Default} 250×26 "Loop playback" "⌘K"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Play all scenes, State=Default} 250×26 "Play all scenes" "⌘K"
+        I NF3/Menu Item {Shortcut=⌥⌘M, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Mute sounds, State=Default} 250×26 "Mute sounds" "⌥⌘M"
+        I NF3/Menu Separator 250×9
+        I NF3/Menu Item {Shortcut=⌥⌘B, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Enable simple buttons, State=Default} 250×26 "Enable simple buttons" "⌥⌘B"
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Live ActionScript, State=Default} 250×26 "Live ActionScript" "⌘K"
+        I NF3/Menu Separator 250×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=true, Checked=false, Show shortcut=false, Check column=true, Label=Work Area, State=Default} 250×26 "Work Area" "⌘K"
+    F Debug 240×321 [V gap 8]
+      T "Debug"
+      F Menu / Debug 240×297 [V gap 0]
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Debug Movie, State=Default} 230×26 "Debug Movie" "⌘K"
+        I NF3/Menu Item {Submenu=false, Shortcut=⌘K, Show shortcut=false, Checked=false, Check column=true, Label=Stop Debugging, State=Disabled} 230×26 "Stop Debugging" "⌘K"
+        I NF3/Menu Separator 230×9
+        I NF3/Menu Item {Submenu=false, Shortcut=⌘K, Show shortcut=false, Checked=false, Check column=true, Label=Step Over, State=Disabled} 230×26 "Step Over" "⌘K"
+        I NF3/Menu Item {Submenu=false, Shortcut=⌘K, Show shortcut=false, Checked=false, Check column=true, Label=Step In, State=Disabled} 230×26 "Step In" "⌘K"
+        I NF3/Menu Item {Submenu=false, Shortcut=⌘K, Show shortcut=false, Checked=false, Check column=true, Label=Step Out, State=Disabled} 230×26 "Step Out" "⌘K"
+        I NF3/Menu Separator 230×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Toggle Breakpoint, State=Default} 230×26 "Toggle Breakpoint" "⌘K"
+        I NF3/Menu Item {Submenu=false, Shortcut=⌘K, Show shortcut=false, Checked=false, Check column=true, Label=Remove All Breakpoints, State=Disabled} 230×26 "Remove All Breakpoints" "⌘K"
+        I NF3/Menu Separator 230×9
+        I NF3/Menu Item {Shortcut=⌘K, Submenu=false, Checked=false, Show shortcut=false, Check column=true, Label=Debugger, State=Default} 230×26 "Debugger" "⌘K"
+        I NF3/Menu Item {Shortcut=⌥F2, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Compiler errors, State=Default} 230×26 "Compiler errors" "⌥F2"
+        I NF3/Menu Item {Shortcut=F2, Submenu=false, Checked=false, Show shortcut=true, Check column=true, Label=Output, State=Default} 230×26 "Output" "F2"

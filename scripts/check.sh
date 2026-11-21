@@ -12,6 +12,7 @@ esac
 # Developers can still opt in; ordinary direct cargo commands are unchanged.
 export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
 python3 scripts/design-lock.py
+python3 interface/design-system/tools/icon-masters/build.py --check
 python3 scripts/editor-api-index.py --check
 cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
