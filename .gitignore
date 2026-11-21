@@ -35,5 +35,8 @@ __pycache__/
 # Local screenshot history of the application’s evolution.
 /steps/
 
+# Local archived DMG packages kept outside the repository.
+/old_dmg/
+
 # Build product of the v3 Figma builder (interface/figma-plugin/v3/build.sh).
 /interface/figma-plugin/v3/code.js
