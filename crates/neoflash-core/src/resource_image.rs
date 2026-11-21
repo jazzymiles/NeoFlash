@@ -68,6 +68,9 @@ pub(crate) fn encoded_image_dimensions(bytes: &[u8]) -> Result<(u32, u32), Resou
     if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
         return gif_dimensions(bytes);
     }
+    if crate::pixels::jxr::is_jxr_bytes(bytes) {
+        return crate::pixels::jxr::jxr_dimensions(bytes).map_err(|e| ResourceError(e.to_string()));
+    }
     let format =
         image::guess_format(bytes).map_err(|e| ResourceError(format!("image format: {e}")))?;
     if !matches!(
@@ -100,6 +103,10 @@ pub(crate) fn decode_encoded_image(bytes: &[u8]) -> Result<DecodedImage, Resourc
     encoded_image_dimensions(bytes)?;
     if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
         return decode_gif(bytes);
+    }
+    if crate::pixels::jxr::is_jxr_bytes(bytes) {
+        return crate::pixels::jxr::decode_jxr_to_rgba(bytes)
+            .map_err(|e| ResourceError(e.to_string()));
     }
     let format = image::guess_format(bytes).map_err(|e| ResourceError(e.to_string()))?;
     let mut limits = Limits::default();

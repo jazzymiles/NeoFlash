@@ -13,7 +13,9 @@
     const audio = document?.createElement?.('audio'), video = document?.createElement?.('video');
     const facts = {
       language:String(navigator.language || ''), platform:String(navigator.userAgentData?.platform || navigator.platform || 'unknown'),
-      protocol:String(host.location?.protocol || ''), screenWidth:Number(screen.width || 0), screenHeight:Number(screen.height || 0),
+      protocol:String(host.location?.protocol || ''), host:String(host.location?.hostname || host.location?.host || ''),
+      localTrusted:Boolean(options.localTrusted ?? host.__neoflashLocalTrusted),
+      screenWidth:Number(screen.width || 0), screenHeight:Number(screen.height || 0),
       colorDepth:Number(screen.colorDepth || 0), audio:typeof host.Audio === 'function',
       mp3:!!audio?.canPlayType?.('audio/mpeg'), video:typeof video?.canPlayType === 'function',
       composition:typeof host.CompositionEvent === 'function', printing:typeof host.print === 'function'
@@ -168,11 +170,73 @@
     const onCompStart=ev=>handleDomComposition('start',ev);
     const onCompUpdate=ev=>handleDomComposition('update',ev);
     const onCompEnd=ev=>handleDomComposition('end',ev);
+    const pendingPolicies=new Map();
+    function applyLoadedPolicy(url,ok,xml){
+      if(disposed)return;
+      try{core.execute(JSON.stringify({op:'apply_policy_xml',url,ok:Boolean(ok),xml:String(xml??'')}));}catch(_){}
+    }
+    function checkDomain(domain,insecure=false){
+      return Boolean(platform({op:'check_domain',domain:String(domain??''),insecure:Boolean(insecure)}).allowed);
+    }
+    function checkPolicy(target,opts={}){
+      return platform({
+        op:'check_policy',
+        target:String(target??''),
+        targetSecure:opts?.targetSecure,
+        callerDomain:opts?.callerDomain,
+        callerSecure:opts?.callerSecure,
+        port:opts?.port
+      });
+    }
+    function whenPoliciesSettled(){
+      if(!pendingPolicies.size)return Promise.resolve();
+      return Promise.allSettled([...pendingPolicies.values()]).then(()=>{});
+    }
     const security=Object.freeze({
       get sandboxType(){active();return core.sandbox_type();},
       allowDomain(...domains){platform({op:'allow_domain',domains});},
       allowInsecureDomain(...domains){platform({op:'allow_insecure_domain',domains});},
-      loadPolicyFile(url){platform({op:'load_policy_file',url});}
+      loadPolicyFile(url){
+        platform({op:'load_policy_file',url});
+        const urlStr=String(url);
+        if(urlStr.startsWith('http://')||urlStr.startsWith('https://')){
+          const fetchFn=options.fetch||host.fetch||global.fetch;
+          if(typeof fetchFn==='function'){
+            const born=generation;
+            const job=Promise.resolve().then(()=>fetchFn(urlStr)).then(
+              async resp=>{
+                if(disposed||born!==generation)return;
+                const ok=Boolean(resp&&resp.ok);
+                const xml=ok&&typeof resp.text==='function'?await resp.text():'';
+                if(disposed||born!==generation)return;
+                applyLoadedPolicy(urlStr,ok,xml);
+              },
+              ()=>{
+                if(disposed||born!==generation)return;
+                applyLoadedPolicy(urlStr,false,'');
+              }
+            ).finally(()=>{
+              if(pendingPolicies.get(urlStr)===job)pendingPolicies.delete(urlStr);
+            });
+            pendingPolicies.set(urlStr,job);
+          }
+        }else if(urlStr.startsWith('xmlsocket://')&&typeof options.fetchSocketPolicy==='function'){
+          const born=generation;
+          const job=Promise.resolve().then(()=>options.fetchSocketPolicy(urlStr)).then(
+            xml=>{
+              if(disposed||born!==generation)return;
+              applyLoadedPolicy(urlStr,typeof xml==='string'&&xml.length>0,xml||'');
+            },
+            ()=>{
+              if(disposed||born!==generation)return;
+              applyLoadedPolicy(urlStr,false,'');
+            }
+          ).finally(()=>{
+            if(pendingPolicies.get(urlStr)===job)pendingPolicies.delete(urlStr);
+          });
+          pendingPolicies.set(urlStr,job);
+        }
+      }
     });
     const System=Object.freeze({
       capabilities,security,IME:Object.freeze(IME),
@@ -195,7 +259,7 @@
     document?.addEventListener?.('compositionupdate',onCompUpdate);
     document?.addEventListener?.('compositionend',onCompEnd);
     function observeKeyEvent(event){active();if(typeof event?.getModifierState==='function'){core.key_toggle(20,!!event.getModifierState('CapsLock'));core.key_toggle(144,!!event.getModifierState('NumLock'));}}
-    function reset(){active();for(const value of [...records])freeRecord(value);imeListeners.reset();imeReferences.clear();imeIdentities=new WeakMap();systemOnStatus=null;generation++;core.reset();}
+    function reset(){active();for(const value of [...records])freeRecord(value);pendingPolicies.clear();imeListeners.reset();imeReferences.clear();imeIdentities=new WeakMap();systemOnStatus=null;generation++;core.reset();}
     function dispose(){
       if(disposed)return;reset();disposed=true;
       document?.removeEventListener?.('compositionstart',onCompStart);
@@ -207,7 +271,7 @@
     }
     function getVersion(){active();return capabilities.version;}
     function updateAfterEvent(){active();if(typeof options.requestRender!=='function')throw new Error('AS2 updateAfterEvent requires the publication render-request hook.');options.requestRender();}
-    return Object.freeze({System,Delegate,EventDispatcher,getVersion,updateAfterEvent,observeKeyEvent,notifyComposition:handleDomComposition,isToggled(code){active();return core.is_toggled(Number(code)>>>0);},reset,dispose});
+    return Object.freeze({System,Delegate,EventDispatcher,getVersion,updateAfterEvent,observeKeyEvent,notifyComposition:handleDomComposition,checkDomain,checkPolicy,whenPoliciesSettled,applyLoadedPolicy,isToggled(code){active();return core.is_toggled(Number(code)>>>0);},reset,dispose});
   }
   const api=Object.freeze({create});
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAS2Platform=api;

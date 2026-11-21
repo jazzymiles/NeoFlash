@@ -11,12 +11,14 @@ function create(options={}){
  function state(map,value){const r=map.get(value);if(!r||!active(r))throw new Error('This AS2 connection belongs to a restarted publication.');return r;}
  function ensure(){
   if(disposed)throw new Error('AS2 connections disposed.');if(kernel)return;
-  const url=new URL(options.url||global.location.href);if(!['http:','https:'].includes(url.protocol))throw new Error('AS2 browser connections require an HTTP(S) publication.');
-  kernel=new wasm.ScriptAS2Connections(JSON.stringify({origin:url.origin,domain:url.hostname,clientNonce:global.crypto.randomUUID()}));
+  const url=new URL(options.url||global.location?.href||'http://localhost/');
+  if(!['http:','https:','file:'].includes(url.protocol))throw new Error('AS2 browser connections require an HTTP(S) or file: publication.');
+  const origin=url.protocol==='file:'?'file://':url.origin,domain=url.hostname||'localhost';
+  kernel=new wasm.ScriptAS2Connections(JSON.stringify({origin,domain,clientNonce:global.crypto.randomUUID()}));
  }
  function command(request,bytes=empty){ensure();try{return JSON.parse(kernel.execute(JSON.stringify({...request,now:now()}),bytes));}catch(e){throw new Error(String(e));}}
  function report(error){if(options.onError)options.onError(error);else throw error;}
- function invoke(record,target,name,arg){if(!active(record))return;try{const handler=target?.[name];if(typeof handler==='function')Reflect.apply(handler,target,[arg]);if(active(record))options.afterEvent?.();}catch(e){report(e);}}
+ function invoke(record,target,name,...args){if(!active(record))return;try{const handler=target?.[name];if(typeof handler==='function')Reflect.apply(handler,target,args);if(active(record))options.afterEvent?.();}catch(e){report(e);}}
  function localStatus(event,operation='send',description=''){const r=locals.get(event.owner);if(!r||!active(r))return;const info={level:event.level,operation,description,messageId:event.id};if(typeof r.receiver.onStatus==='function')invoke(r,r.receiver,'onStatus',info);else if(event.level==='error'&&typeof options.onSystemStatus==='function')options.onSystemStatus(info);}
  function post(wire){if(disposed||!bus)return;bus.postMessage(wire);const born=generation;queueMicrotask(()=>{if(!disposed&&generation===born)receive(wire);});}
  function receive(wire){
@@ -29,7 +31,12 @@ function create(options={}){
   post(event.ack);if(event.duplicate)return;
   try{
    const allow=event.insecure&&typeof r.receiver.allowInsecureDomain==='function'?r.receiver.allowInsecureDomain:r.receiver.allowDomain;
-   if(typeof allow==='function'&&!Reflect.apply(allow,r.receiver,[event.domain]))return;
+   if(typeof allow==='function'){if(!Reflect.apply(allow,r.receiver,[event.domain]))return;}
+   else{
+    const sec=options.getSecurity?.();
+    const myDomain=command({op:'domain'});
+    if(sec&&(event.insecure||event.domain!==myDomain)&&!sec.checkDomain?.(event.domain,Boolean(event.insecure)))return;
+   }
   }catch(error){report(error);return;}
   let args;try{args=amf.decode(amf.unbase64(event.body),0,{complete:true}).value;}catch(error){report(error);return;}
   try{const handler=r.receiver[event.method];if(typeof handler==='function')Reflect.apply(handler,r.receiver,args);if(active(r))options.afterEvent?.();}catch(error){report(error);}
@@ -72,7 +79,7 @@ function create(options={}){
   const sock=r.socket;r.socket=null;const wasOpen=r.open;r.open=false;
   if(sock){sock.onopen=sock.onmessage=sock.onerror=sock.onclose=null;try{sock.close?.();}catch(_){}}
   if(!disposed&&kernel&&r.generation===generation)try{command({op:'xmlClose',owner:r.id});}catch(_){}
-  if(notifyClose&&wasOpen&&active(r))invoke(r,r.receiver,'onClose',undefined);
+  if(notifyClose&&wasOpen&&active(r))invoke(r,r.receiver,'onClose');
  }
  class XMLSocket{
   constructor(){
@@ -89,33 +96,67 @@ function create(options={}){
   connect(host,port){
    const r=state(xmlStates,this);
    if(host!==null&&host!==undefined&&typeof host!=='string')return false;
-   if(!Number.isInteger(port)||port<0||port>65535)return false;
+   const isExplicitWs=typeof host==='string'&&/^wss?:\/\//i.test(host);
+   const normPort=(port===undefined&&isExplicitWs)?0:port;
+   if(!Number.isInteger(normPort)||normPort<0||normPort>65535)return false;
    stopXmlSocket(r,false);
-   let plan;try{plan=command({op:'xmlConnect',owner:r.id,host:host==null?'':host,port});}catch(_){return false;}
+   let plan;try{plan=command({op:'xmlConnect',owner:r.id,host:host==null?'':host,port:normPort});}catch(_){return false;}
    if(!plan.accepted)return false;
-   const token=++r.token,factory=options.createXmlSocket||(typeof global.WebSocket==='function'?(h,p)=>new global.WebSocket((new URL(options.url||global.location.href).protocol==='https:'?'wss://':'ws://')+h+':'+p):null);
-   if(!factory){queueMicrotask(()=>{if(!active(r)||r.token!==token)return;command({op:'xmlOpen',owner:r.id,ok:false});invoke(r,this,'onConnect',false);});return true;}
-   let sock;try{sock=factory(plan.host,plan.port);}catch(_){queueMicrotask(()=>{if(!active(r)||r.token!==token)return;command({op:'xmlOpen',owner:r.id,ok:false});invoke(r,this,'onConnect',false);});return true;}
-   r.socket=sock;
+   const token=++r.token,self=this;
    if(typeof global.setTimeout==='function'&&plan.timeout>0){
-    r.timer=global.setTimeout(()=>{if(!active(r)||r.token!==token||r.open)return;stopXmlSocket(r,false);command({op:'xmlOpen',owner:r.id,ok:false});invoke(r,this,'onConnect',false);},plan.timeout);
+    r.timer=global.setTimeout(()=>{if(!active(r)||r.token!==token||r.open)return;stopXmlSocket(r,false);command({op:'xmlOpen',owner:r.id,ok:false});invoke(r,self,'onConnect',false);},plan.timeout);
     r.timer?.unref?.();
    }
-   sock.onopen=()=>{if(!active(r)||r.token!==token)return;if(r.timer!==null){global.clearTimeout?.(r.timer);r.timer=null;}r.open=true;command({op:'xmlOpen',owner:r.id,ok:true});invoke(r,this,'onConnect',true);};
-   sock.onmessage=ev=>{
+   const WS=options.WebSocket||global.WebSocket;
+   const factory=options.createXmlSocket||(typeof WS==='function'?(_h,_p,wsUrl)=>{const ws=new WS(wsUrl);try{ws.binaryType='arraybuffer';}catch(_){}return ws;}:null);
+   const feedChunk=bytes=>{
     if(!active(r)||r.token!==token||!r.open)return;
-    const raw=ev&&typeof ev==='object'&&'data'in ev?ev.data:ev;
-    const bytes=typeof raw==='string'?encoder.encode(raw):raw instanceof Uint8Array?raw:raw instanceof ArrayBuffer?new Uint8Array(raw):encoder.encode(String(raw??''));
     let res;try{res=command({op:'xmlFeed',owner:r.id},bytes);}catch(error){stopXmlSocket(r,true);report(error);return;}
-    for(const frame of res.frames)if(active(r)&&r.token===token)invoke(r,this,'onData',frame);
+    for(const frame of res.frames)if(active(r)&&r.token===token)invoke(r,self,'onData',frame);
    };
-   sock.onerror=()=>{if(!active(r)||r.token!==token)return;if(!r.open){stopXmlSocket(r,false);command({op:'xmlOpen',owner:r.id,ok:false});invoke(r,this,'onConnect',false);}};
-   sock.onclose=()=>{if(!active(r)||r.token!==token)return;if(r.open)stopXmlSocket(r,true);else{stopXmlSocket(r,false);command({op:'xmlOpen',owner:r.id,ok:false});invoke(r,this,'onConnect',false);}};
+   const openSocket=()=>{
+    if(!active(r)||r.token!==token||r.open)return;
+    const sec=options.getSecurity?.();
+    if(sec&&typeof sec.checkPolicy==='function'){
+     let pol=null;
+     try{pol=sec.checkPolicy(plan.host,{port:plan.port,targetSecure:String(plan.wsUrl||'').startsWith('wss://')});}catch(_){}
+     if(pol&&pol.evaluated&&!pol.allowed){
+      queueMicrotask(()=>{if(!active(r)||r.token!==token)return;stopXmlSocket(r,false);command({op:'xmlOpen',owner:r.id,ok:false});invoke(r,self,'onConnect',false);});
+      return;
+     }
+    }
+    if(!factory){queueMicrotask(()=>{if(!active(r)||r.token!==token)return;stopXmlSocket(r,false);command({op:'xmlOpen',owner:r.id,ok:false});invoke(r,self,'onConnect',false);});return;}
+    let sock;try{sock=factory(plan.host,plan.port,plan.wsUrl);}catch(_){queueMicrotask(()=>{if(!active(r)||r.token!==token)return;stopXmlSocket(r,false);command({op:'xmlOpen',owner:r.id,ok:false});invoke(r,self,'onConnect',false);});return;}
+    r.socket=sock;
+    sock.onopen=()=>{if(!active(r)||r.token!==token)return;if(r.timer!==null){global.clearTimeout?.(r.timer);r.timer=null;}r.open=true;command({op:'xmlOpen',owner:r.id,ok:true});invoke(r,self,'onConnect',true);};
+    sock.onmessage=ev=>{
+     if(!active(r)||r.token!==token||!r.open)return;
+     const raw=ev&&typeof ev==='object'&&'data'in ev?ev.data:ev;
+     if(typeof raw==='string'){feedChunk(encoder.encode(raw));return;}
+     if(raw instanceof Uint8Array){feedChunk(raw);return;}
+     if(raw instanceof ArrayBuffer){feedChunk(new Uint8Array(raw));return;}
+     if(ArrayBuffer.isView(raw)){feedChunk(new Uint8Array(raw.buffer,raw.byteOffset,raw.byteLength));return;}
+     if(raw&&typeof raw.arrayBuffer==='function'){Promise.resolve(raw.arrayBuffer()).then(buf=>{if(active(r)&&r.token===token&&r.open)feedChunk(new Uint8Array(buf));},()=>{});return;}
+     feedChunk(encoder.encode(String(raw??'')));
+    };
+    sock.onerror=()=>{if(!active(r)||r.token!==token)return;if(!r.open){stopXmlSocket(r,false);command({op:'xmlOpen',owner:r.id,ok:false});invoke(r,self,'onConnect',false);}};
+    sock.onclose=()=>{if(!active(r)||r.token!==token)return;if(r.open)stopXmlSocket(r,true);else{stopXmlSocket(r,false);command({op:'xmlOpen',owner:r.id,ok:false});invoke(r,self,'onConnect',false);}};
+   };
+   const sec=options.getSecurity?.();
+   let hasPendingPolicy=false;
+   if(sec&&typeof sec.checkPolicy==='function'&&typeof sec.whenPoliciesSettled==='function'){
+    try{hasPendingPolicy=Boolean(sec.checkPolicy(plan.host,{port:plan.port})?.pending);}catch(_){}
+   }
+   if(hasPendingPolicy){
+    sec.whenPoliciesSettled().then(()=>{if(active(r)&&r.token===token&&!r.open)openSocket();});
+   }else{
+    openSocket();
+   }
    return true;
   }
   send(object){
    const r=state(xmlStates,this);if(!r.open||!r.socket)throw new Error('XMLSocket.send requires an open connection.');
-   const text=object===null||object===undefined?'':String(object);
+   const text=object===null||object===undefined?'':(typeof object==='object'&&typeof object.toString==='function'?String(object.toString()):String(object));
    const framed=amf.unbase64(command({op:'xmlSend',owner:r.id},encoder.encode(text)).wire);
    r.socket.send(decoder.decode(framed));
   }

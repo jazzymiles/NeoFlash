@@ -179,6 +179,43 @@
         current(token);options.afterCallback?.();return null;
       });
     }
+    function mmExecute(command){
+      if(disposed)throw new Error('Browser MMExecute belongs to a disposed publication.');
+      if(typeof command!=='string')throw new TypeError('AS2 MMExecute requires a JSFL command String.');
+      if(!command)return '';
+      const token=generation;
+      const bridgeFn=(typeof options.mmExecute==='function'?options.mmExecute:null)
+        ||(hostGlobal&&typeof hostGlobal.__neoflashMMExecute==='function'?hostGlobal.__neoflashMMExecute:null)
+        ||(typeof global.__neoflashMMExecute==='function'?global.__neoflashMMExecute:null);
+      if(bridgeFn){
+        return boundary(true,()=>{
+          let result='';
+          try{
+            const raw=Reflect.apply(bridgeFn,hostGlobal||global,[command]);
+            result=raw===undefined||raw===null?'':String(raw);
+          }catch(error){
+            exception(error,false);
+            return '';
+          }
+          current(token);
+          if(hostGlobal?.__neoflashOutputRelay&&!hostGlobal.__neoflashOutputRelay.disabled&&typeof hostGlobal.__neoflashOutputRelay.record==='function'){
+            try{hostGlobal.__neoflashOutputRelay.record('mmexecute',command);}catch(_){}
+          }
+          options.afterCallback?.();
+          return result;
+        })??'';
+      }
+      const relay=hostGlobal?.__neoflashOutputRelay||global.__neoflashOutputRelay;
+      if(relay&&!relay.disabled&&typeof relay.record==='function'){
+        try{
+          relay.record('mmexecute',command);
+          if(typeof (hostGlobal?.__neoflashMMExecuteResult??global.__neoflashMMExecuteResult)==='string'){
+            return String(hostGlobal?.__neoflashMMExecuteResult??global.__neoflashMMExecuteResult);
+          }
+        }catch(_){}
+      }
+      return '';
+    }
     function reset(){
       generation++;exceptions=false;
       for(const[name,record]of callbacks){if(Object.getOwnPropertyDescriptor(host,name)?.value===record.wrapper)delete host[name];}
@@ -186,7 +223,7 @@
       for(const{timer,remove}of forms.values()){global.clearTimeout(timer);remove();}forms.clear();
     }
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({ExternalInterface:staticFacade(false),LegacyExternalInterface:staticFacade(true),navigate,fscommand,reset,dispose});
+    return Object.freeze({ExternalInterface:staticFacade(false),LegacyExternalInterface:staticFacade(true),navigate,fscommand,mmExecute,reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashExternal=api;
 })(globalThis);

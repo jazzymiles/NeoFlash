@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 mod as2;
 mod as2_perlin;
+pub mod jxr;
 mod pipeline;
 pub use as2::As2BitmapCommand;
 pub use pipeline::{BitmapRect, PixelWrite};

@@ -64,8 +64,9 @@
     get colorSpace(){if(!jpegxrEncoderOptions.has(this))throw new TypeError('Expected JPEGXREncoderOptions.');return jpegxrEncoderOptions.get(this).colorSpace;}
     set colorSpace(value){
       if(!jpegxrEncoderOptions.has(this))throw new TypeError('Expected JPEGXREncoderOptions.');
+      if(value===null||value===undefined){const err=new TypeError('Error #2007: Parameter colorSpace must be non-null.');err.errorID=2007;throw err;}
       const next=String(value);
-      if(!VALID_COLORSPACES.has(next)){const err=new RangeError(`JPEGXREncoderOptions.colorSpace is invalid: '${next}'.`);err.name='ArgumentError';throw err;}
+      if(!VALID_COLORSPACES.has(next)){const err=new RangeError(`Error #2008: Parameter colorSpace must be one of the accepted values ('${next}').`);err.name='ArgumentError';err.errorID=2008;throw err;}
       jpegxrEncoderOptions.get(this).colorSpace=next;
     }
     get trimFlexBits(){if(!jpegxrEncoderOptions.has(this))throw new TypeError('Expected JPEGXREncoderOptions.');return jpegxrEncoderOptions.get(this).trimFlexBits;}
@@ -312,7 +313,10 @@
         const ref=key(refOf(this)),area=rectangle(sourceRect),spec=filter(value),r=JSON.parse(native('bitmap_generate_filter_rect',ref,...area,spec));return new geometry.Rectangle(r.x,r.y,r.width,r.height);
       }
       encode(rect,compressor,output=null){
-        const ref=key(refOf(this)),area=rectangle(rect),service=binary();
+        const ref=key(refOf(this));
+        if(rect===null||rect===undefined){const err=new TypeError('Error #2007: Parameter rect must be non-null.');err.errorID=2007;throw err;}
+        if(compressor===null||compressor===undefined){const err=new TypeError('Error #2007: Parameter compressor must be non-null.');err.errorID=2007;throw err;}
+        const area=rectangle(rect),service=binary();
         let produce;
         if(encoderOptions.has(compressor)){
           const fast=compressor.fastCompression;

@@ -1,6 +1,7 @@
 //! AS2 publication capabilities and input state. Capability query encoding and
 //! the separation of host facts from player policy are adapted from Ruffle's
 //! MIT system_properties.rs; see docs/AS2-PLATFORM-BATCH.md for the pinned source.
+use crate::xml::{XmlNodeKind, parse_xml};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -10,6 +11,8 @@ pub struct BrowserFacts {
     language: String,
     platform: String,
     protocol: String,
+    host: String,
+    local_trusted: bool,
     screen_width: u32,
     screen_height: u32,
     color_depth: u32,
@@ -20,10 +23,49 @@ pub struct BrowserFacts {
     printing: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PolicyStatus {
+    Pending,
+    Loaded,
+    Failed,
+}
+
+#[derive(Clone, Debug)]
+struct PolicyRule {
+    domain: String,
+    secure: bool,
+    all_ports: bool,
+    port_ranges: Vec<(u16, u16)>,
+}
+
+impl PolicyRule {
+    fn allows_port(&self, port: u16) -> bool {
+        if self.all_ports {
+            return true;
+        }
+        self.port_ranges
+            .iter()
+            .any(|&(lo, hi)| port >= lo && port <= hi)
+    }
+}
+
+#[derive(Clone, Debug)]
+struct PolicyFileRecord {
+    url: String,
+    target_host: String,
+    target_https: bool,
+    is_master: bool,
+    status: PolicyStatus,
+    permitted_policies: String,
+    rules: Vec<PolicyRule>,
+}
+
 pub struct ScriptAS2Platform {
     capabilities: Value,
     server_string: String,
     sandbox_type: &'static str,
+    page_host: String,
+    page_https: bool,
     caps_lock: bool,
     num_lock: bool,
     has_ime: bool,
@@ -32,7 +74,7 @@ pub struct ScriptAS2Platform {
     ime_composition: String,
     allowed_domains: Vec<String>,
     allowed_insecure_domains: Vec<String>,
-    policy_files: Vec<String>,
+    policy_files: Vec<PolicyFileRecord>,
 }
 
 impl ScriptAS2Platform {
@@ -104,14 +146,23 @@ impl ScriptAS2Platform {
         pairs.push(format!("R={}x{}", facts.screen_width, facts.screen_height));
         let server_string = pairs.join("&");
         capabilities["serverString"] = Value::String(server_string.clone());
+        let sandbox_type = if facts.protocol == "file:" {
+            if facts.local_trusted {
+                "localTrusted"
+            } else {
+                "localWithFile"
+            }
+        } else {
+            "remote"
+        };
+        let page_host = extract_host_from_domain_or_url(&facts.host);
+        let page_https = facts.protocol == "https:";
         Ok(Self {
             capabilities,
             server_string,
-            sandbox_type: if facts.protocol == "file:" {
-                "localWithNetwork"
-            } else {
-                "remote"
-            },
+            sandbox_type,
+            page_host,
+            page_https,
             caps_lock: false,
             num_lock: false,
             has_ime: facts.composition,
@@ -168,15 +219,16 @@ impl ScriptAS2Platform {
                 .filter(|v| !v.is_empty() && v.len() <= 32)
                 .ok_or("allowDomain requires 1..=32 domain strings")?;
             for item in values {
-                let d = item
+                let raw = item
                     .as_str()
                     .filter(|s| !s.is_empty() && s.len() <= 256 && !s.chars().any(char::is_control))
                     .ok_or("Domain entry requires 1..=256 printable characters")?;
-                if !list.iter().any(|existing| existing == d) {
+                let d = normalize_domain_pattern(raw)?;
+                if !list.iter().any(|existing| existing == &d) {
                     if list.len() >= 64 {
                         return Err("At most 64 allowed domains per publication".into());
                     }
-                    list.push(d.to_owned());
+                    list.push(d);
                 }
             }
             Ok(list.len())
@@ -265,6 +317,32 @@ impl ScriptAS2Platform {
                 &mut self.allowed_insecure_domains,
                 &q["domains"]
             )?),
+            "check_domain" => {
+                let raw = q["domain"]
+                    .as_str()
+                    .filter(|s| s.len() <= 512 && !s.chars().any(char::is_control))
+                    .ok_or("check_domain requires a domain string")?;
+                let candidate = extract_host_from_domain_or_url(raw);
+                let insecure = q["insecure"].as_bool().unwrap_or(false);
+                let allowed = if candidate.is_empty() {
+                    false
+                } else if !insecure && !self.page_host.is_empty() && candidate == self.page_host {
+                    true
+                } else if insecure {
+                    self.allowed_insecure_domains
+                        .iter()
+                        .any(|pat| domain_matches_pattern(&candidate, pat))
+                } else {
+                    self.allowed_domains
+                        .iter()
+                        .chain(self.allowed_insecure_domains.iter())
+                        .any(|pat| domain_matches_pattern(&candidate, pat))
+                };
+                json!({
+                    "allowed": allowed,
+                    "sandboxType": self.sandbox_type,
+                })
+            }
             "load_policy_file" => {
                 let url = q["url"]
                     .as_str()
@@ -277,13 +355,151 @@ impl ScriptAS2Platform {
                                 || s.starts_with("xmlsocket://"))
                     })
                     .ok_or("System.security.loadPolicyFile requires an http://, https:// or xmlsocket:// URL")?;
-                if !self.policy_files.iter().any(|existing| existing == url) {
+                let (target_host, target_https, path) = parse_policy_url_parts(url)?;
+                let is_master = path == "/crossdomain.xml";
+                if let Some(existing) = self.policy_files.iter_mut().find(|r| r.url == url) {
+                    existing.status = PolicyStatus::Pending;
+                    existing.rules.clear();
+                } else {
                     if self.policy_files.len() >= 64 {
                         return Err("At most 64 policy file URLs per publication".into());
                     }
-                    self.policy_files.push(url.to_owned());
+                    self.policy_files.push(PolicyFileRecord {
+                        url: url.to_owned(),
+                        target_host,
+                        target_https,
+                        is_master,
+                        status: PolicyStatus::Pending,
+                        permitted_policies: "all".into(),
+                        rules: Vec::new(),
+                    });
                 }
                 json!(true)
+            }
+            "apply_policy_xml" => {
+                let url = q["url"]
+                    .as_str()
+                    .ok_or("apply_policy_xml requires a policy URL")?;
+                let ok = q["ok"].as_bool().unwrap_or(false);
+                let xml_src = q["xml"].as_str().unwrap_or("");
+                if xml_src.len() > 512 * 1024 {
+                    return Err("crossdomain.xml exceeds 512 KiB".into());
+                }
+                let Some(idx) = self.policy_files.iter().position(|r| r.url == url) else {
+                    return Err("Unknown policy file URL".into());
+                };
+                if !ok {
+                    self.policy_files[idx].status = PolicyStatus::Failed;
+                    self.policy_files[idx].rules.clear();
+                    json!({"loaded": false, "ruleCount": 0})
+                } else {
+                    match parse_cross_domain_policy(xml_src) {
+                        Ok((permitted, rules)) => {
+                            let is_master = self.policy_files[idx].is_master;
+                            if is_master {
+                                self.policy_files[idx].permitted_policies = permitted.clone();
+                            }
+                            let target_host = self.policy_files[idx].target_host.clone();
+                            let master_perm = self
+                                .policy_files
+                                .iter()
+                                .find(|r| {
+                                    r.target_host == target_host
+                                        && r.is_master
+                                        && r.status == PolicyStatus::Loaded
+                                })
+                                .map(|r| r.permitted_policies.clone())
+                                .unwrap_or_else(|| permitted.clone());
+
+                            let effective_rules = if master_perm == "none"
+                                || (!is_master && master_perm == "master-only")
+                            {
+                                Vec::new()
+                            } else {
+                                rules
+                            };
+                            let count = effective_rules.len();
+                            self.policy_files[idx].status = PolicyStatus::Loaded;
+                            self.policy_files[idx].rules = effective_rules;
+                            json!({"loaded": true, "ruleCount": count})
+                        }
+                        Err(_) => {
+                            self.policy_files[idx].status = PolicyStatus::Failed;
+                            self.policy_files[idx].rules.clear();
+                            json!({"loaded": false, "ruleCount": 0})
+                        }
+                    }
+                }
+            }
+            "check_policy" => {
+                let target_raw = q["target"]
+                    .as_str()
+                    .filter(|s| !s.is_empty() && s.len() <= 4096)
+                    .ok_or("check_policy requires a target host or URL")?;
+                let (target_host, target_https_from_url, _) = if target_raw.contains("://") {
+                    parse_policy_url_parts(target_raw)?
+                } else {
+                    (
+                        extract_host_from_domain_or_url(target_raw),
+                        false,
+                        String::new(),
+                    )
+                };
+                let target_https = q["targetSecure"].as_bool().unwrap_or(target_https_from_url);
+                let caller_domain = q["callerDomain"]
+                    .as_str()
+                    .map(extract_host_from_domain_or_url)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| {
+                        if self.page_host.is_empty() {
+                            "localhost".into()
+                        } else {
+                            self.page_host.clone()
+                        }
+                    });
+                let caller_secure = q["callerSecure"].as_bool().unwrap_or(self.page_https);
+                let port = q["port"]
+                    .as_u64()
+                    .and_then(|n| u16::try_from(n).ok())
+                    .filter(|&p| p > 0);
+
+                if self.sandbox_type == "localTrusted" {
+                    json!({"allowed": true, "evaluated": true, "pending": false})
+                } else {
+                    let matching: Vec<&PolicyFileRecord> = self
+                        .policy_files
+                        .iter()
+                        .filter(|r| r.target_host == target_host)
+                        .collect();
+                    if matching.is_empty() {
+                        let same_host = !self.page_host.is_empty()
+                            && self.page_host == target_host
+                            && port.is_none();
+                        json!({"allowed": same_host, "evaluated": false, "pending": false})
+                    } else {
+                        let any_pending =
+                            matching.iter().any(|r| r.status == PolicyStatus::Pending);
+                        let master_blocks_all = matching.iter().any(|r| {
+                            r.is_master
+                                && r.status == PolicyStatus::Loaded
+                                && r.permitted_policies == "none"
+                        });
+                        let allowed = !master_blocks_all
+                            && matching.iter().any(|rec| {
+                                rec.status == PolicyStatus::Loaded
+                                    && rec.rules.iter().any(|rule| {
+                                        let dom_ok =
+                                            domain_matches_pattern(&caller_domain, &rule.domain);
+                                        let sec_ok = !(target_https || rec.target_https)
+                                            || !rule.secure
+                                            || caller_secure;
+                                        let port_ok = port.is_none_or(|p| rule.allows_port(p));
+                                        dom_ok && sec_ok && port_ok
+                                    })
+                            });
+                        json!({"allowed": allowed, "evaluated": true, "pending": any_pending})
+                    }
+                }
             }
             "set_clipboard" => {
                 q["text"]
@@ -303,6 +519,239 @@ impl ScriptAS2Platform {
         };
         Ok(value.to_string())
     }
+}
+
+fn extract_host_from_domain_or_url(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let after_scheme = if let Some((_, rest)) = trimmed.split_once("://") {
+        rest
+    } else {
+        trimmed
+    };
+    let end_auth = after_scheme
+        .find(['/', '?', '#'])
+        .unwrap_or(after_scheme.len());
+    let authority = &after_scheme[..end_auth];
+    let host_part = if let Some(after_b) = authority.strip_prefix('[') {
+        after_b
+            .split_once(']')
+            .map_or(authority, |(inside, _)| inside)
+    } else if let Some((h, _port)) = authority.rsplit_once(':') {
+        h
+    } else {
+        authority
+    };
+    host_part.trim_end_matches('.').to_ascii_lowercase()
+}
+
+fn normalize_domain_pattern(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed == "*" {
+        return Ok("*".into());
+    }
+    if let Some(rest) = trimmed.strip_prefix("*.") {
+        let host = extract_host_from_domain_or_url(rest);
+        if host.is_empty() || host.contains('*') {
+            return Err("Invalid wildcard domain pattern".into());
+        }
+        return Ok(format!("*.{host}"));
+    }
+    let host = extract_host_from_domain_or_url(trimmed);
+    if host.is_empty() || host.contains('*') {
+        return Err("Invalid domain pattern".into());
+    }
+    Ok(host)
+}
+
+fn domain_matches_pattern(candidate_host: &str, pattern: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    if let Some(suffix) = pattern.strip_prefix("*.") {
+        return candidate_host == suffix
+            || (candidate_host.len() > suffix.len()
+                && candidate_host.ends_with(suffix)
+                && candidate_host.as_bytes()[candidate_host.len() - suffix.len() - 1] == b'.');
+    }
+    candidate_host == pattern
+}
+
+fn parse_policy_url_parts(url: &str) -> Result<(String, bool, String), String> {
+    let lower = url.to_ascii_lowercase();
+    let (scheme_https, rest) = if let Some(r) = url.strip_prefix("https://") {
+        (true, r)
+    } else if let Some(r) = url.strip_prefix("http://") {
+        (false, r)
+    } else if let Some(r) = url.strip_prefix("xmlsocket://") {
+        (false, r)
+    } else if lower.starts_with("https://") {
+        (true, &url[8..])
+    } else if lower.starts_with("http://") {
+        (false, &url[7..])
+    } else if lower.starts_with("xmlsocket://") {
+        (false, &url[12..])
+    } else {
+        return Err("Unsupported policy URL scheme".into());
+    };
+    let path_idx = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..path_idx];
+    let raw_path = &rest[path_idx..];
+    let clean_path = raw_path.split(['?', '#']).next().unwrap_or("").to_owned();
+    let host = extract_host_from_domain_or_url(authority);
+    if host.is_empty() {
+        return Err("Policy URL requires a valid host".into());
+    }
+    let norm_path = if clean_path.is_empty() {
+        "/".into()
+    } else {
+        clean_path
+    };
+    Ok((host, scheme_https, norm_path))
+}
+
+fn strip_crossdomain_doctype(xml: &str) -> Result<String, String> {
+    if xml.to_ascii_uppercase().contains("<!ENTITY") {
+        return Err("XML entities in crossdomain.xml DTD are forbidden".into());
+    }
+    let mut out = String::with_capacity(xml.len());
+    let mut rest = xml;
+    while let Some(idx) = rest.to_ascii_uppercase().find("<!DOCTYPE") {
+        out.push_str(&rest[..idx]);
+        let after = &rest[idx + 9..];
+        let Some(end_gt) = after.find('>') else {
+            return Err("Unterminated DOCTYPE in crossdomain.xml".into());
+        };
+        if after[..end_gt].contains('[') {
+            return Err("Internal DTD subset in crossdomain.xml is forbidden".into());
+        }
+        rest = &after[end_gt + 1..];
+    }
+    out.push_str(rest);
+    Ok(out)
+}
+
+fn parse_to_ports(spec: &str) -> Result<(bool, Vec<(u16, u16)>), String> {
+    let trimmed = spec.trim();
+    if trimmed.is_empty() || trimmed == "*" {
+        return Ok((true, Vec::new()));
+    }
+    let mut ranges = Vec::new();
+    for part in trimmed.split(',') {
+        let p = part.trim();
+        if p.is_empty() {
+            continue;
+        }
+        if p == "*" {
+            return Ok((true, Vec::new()));
+        }
+        if let Some((lo_s, hi_s)) = p.split_once('-') {
+            let lo: u16 = lo_s
+                .trim()
+                .parse()
+                .map_err(|_| "Invalid port range start in to-ports")?;
+            let hi: u16 = hi_s
+                .trim()
+                .parse()
+                .map_err(|_| "Invalid port range end in to-ports")?;
+            if lo == 0 || hi < lo {
+                return Err("Invalid port range bounds in to-ports".into());
+            }
+            ranges.push((lo, hi));
+        } else {
+            let single: u16 = p.parse().map_err(|_| "Invalid port number in to-ports")?;
+            if single == 0 {
+                return Err("Port 0 is invalid in to-ports".into());
+            }
+            ranges.push((single, single));
+        }
+    }
+    if ranges.is_empty() {
+        return Err("Empty to-ports attribute in allow-access-from".into());
+    }
+    Ok((false, ranges))
+}
+
+fn parse_cross_domain_policy(xml_source: &str) -> Result<(String, Vec<PolicyRule>), String> {
+    let sanitized = strip_crossdomain_doctype(xml_source)?;
+    let tree = parse_xml(&sanitized).map_err(|e| e.to_string())?;
+    let elem_roots: Vec<usize> = tree
+        .roots
+        .iter()
+        .copied()
+        .filter(|&i| tree.nodes[i].kind == XmlNodeKind::Element)
+        .collect();
+    if elem_roots.len() != 1 {
+        return Err("crossdomain.xml requires a single root element".into());
+    }
+    let root = elem_roots[0];
+    let root_name = tree.nodes[root]
+        .name
+        .as_ref()
+        .map(|n| n.local.as_str())
+        .unwrap_or("");
+    if root_name != "cross-domain-policy" {
+        return Err("Expected <cross-domain-policy> root element".into());
+    }
+
+    let get_attr = |node_idx: usize, attr_name: &str| -> Option<&str> {
+        tree.nodes[node_idx]
+            .attributes
+            .iter()
+            .find(|a| a.name.local.eq_ignore_ascii_case(attr_name))
+            .map(|a| a.value.as_str())
+    };
+
+    let mut permitted = String::from("all");
+    let mut rules = Vec::new();
+    for &child_idx in &tree.nodes[root].children {
+        if tree.nodes[child_idx].kind != XmlNodeKind::Element {
+            continue;
+        }
+        let Some(tag_name) = tree.nodes[child_idx].name.as_ref() else {
+            continue;
+        };
+        match tag_name.local.as_str() {
+            "site-control" => {
+                if let Some(val) = get_attr(child_idx, "permitted-cross-domain-policies") {
+                    let norm = val.trim().to_ascii_lowercase();
+                    if matches!(
+                        norm.as_str(),
+                        "none" | "master-only" | "by-content-type" | "by-ftp-filename" | "all"
+                    ) {
+                        permitted = norm;
+                    }
+                }
+            }
+            "allow-access-from" => {
+                let Some(dom_raw) = get_attr(child_idx, "domain") else {
+                    continue;
+                };
+                let Ok(domain) = normalize_domain_pattern(dom_raw) else {
+                    continue;
+                };
+                let secure = get_attr(child_idx, "secure")
+                    .map(|s| !s.trim().eq_ignore_ascii_case("false"))
+                    .unwrap_or(true);
+                let (all_ports, port_ranges) = match get_attr(child_idx, "to-ports") {
+                    Some(spec) => parse_to_ports(spec)?,
+                    None => (true, Vec::new()),
+                };
+                if rules.len() < 256 {
+                    rules.push(PolicyRule {
+                        domain,
+                        secure,
+                        all_ports,
+                        port_ranges,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok((permitted, rules))
 }
 
 fn language_code(language: &str) -> String {
@@ -543,16 +992,79 @@ mod tests {
             .unwrap();
         assert_eq!(
             platform
-                .execute(r#"{"op":"allow_domain","domains":["example.com"]}"#)
+                .execute(r#"{"op":"allow_domain","domains":["*.example.com","api.partner.org"]}"#)
+                .unwrap(),
+            "2"
+        );
+        let dom_sub: Value = serde_json::from_str(
+            &platform
+                .execute(r#"{"op":"check_domain","domain":"cdn.sub.example.com","insecure":false}"#)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(dom_sub["allowed"], true);
+        let dom_insec_blocked: Value = serde_json::from_str(
+            &platform
+                .execute(r#"{"op":"check_domain","domain":"cdn.sub.example.com","insecure":true}"#)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(dom_insec_blocked["allowed"], false);
+        assert_eq!(
+            platform
+                .execute(r#"{"op":"allow_insecure_domain","domains":["*.legacy.example"]}"#)
                 .unwrap(),
             "1"
         );
+        let dom_insec_ok: Value = serde_json::from_str(
+            &platform
+                .execute(r#"{"op":"check_domain","domain":"http://a.legacy.example/app.swf","insecure":true}"#)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(dom_insec_ok["allowed"], true);
         assert_eq!(
             platform
                 .execute(r#"{"op":"load_policy_file","url":"https://example.com/crossdomain.xml"}"#)
                 .unwrap(),
             "true"
         );
+        let applied: Value = serde_json::from_str(
+            &platform
+                .execute(
+                    &json!({
+                        "op": "apply_policy_xml",
+                        "url": "https://example.com/crossdomain.xml",
+                        "ok": true,
+                        "xml": r#"<?xml version="1.0"?><!DOCTYPE cross-domain-policy SYSTEM "http://www.macromedia.com/xml/dtds/cross-domain-policy.dtd"><cross-domain-policy><allow-access-from domain="*.client.test" secure="false" to-ports="8080,9000-9010"/></cross-domain-policy>"#,
+                    })
+                    .to_string(),
+                )
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(applied, json!({"loaded": true, "ruleCount": 1}));
+        let pol_ok: Value = serde_json::from_str(
+            &platform
+                .execute(r#"{"op":"check_policy","target":"example.com","targetSecure":true,"callerDomain":"app.client.test","callerSecure":false,"port":9005}"#)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(pol_ok["allowed"], true);
+        let pol_bad_port: Value = serde_json::from_str(
+            &platform
+                .execute(r#"{"op":"check_policy","target":"example.com","targetSecure":true,"callerDomain":"app.client.test","callerSecure":false,"port":9999}"#)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(pol_bad_port["allowed"], false);
+
+        let local_file =
+            ScriptAS2Platform::new(r#"{"protocol":"file:","localTrusted":false}"#).unwrap();
+        assert_eq!(local_file.sandbox_type(), "localWithFile");
+        let local_trusted =
+            ScriptAS2Platform::new(r#"{"protocol":"file:","localTrusted":true}"#).unwrap();
+        assert_eq!(local_trusted.sandbox_type(), "localTrusted");
         assert_eq!(
             platform
                 .execute(r#"{"op":"set_clipboard","text":"copied"}"#)

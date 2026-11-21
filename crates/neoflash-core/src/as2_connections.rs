@@ -123,7 +123,9 @@ impl ScriptAS2Connections {
         let origin = text(&v, "origin")?;
         let domain = text(&v, "domain")?;
         let nonce = text(&v, "clientNonce")?;
-        if !(origin.starts_with("http://") || origin.starts_with("https://"))
+        if !(origin.starts_with("http://")
+            || origin.starts_with("https://")
+            || origin.starts_with("file://"))
             || domain.is_empty()
             || origin.len() > 4096
             || domain.len() > 256
@@ -131,7 +133,8 @@ impl ScriptAS2Connections {
             || nonce.len() > 128
         {
             return Err(
-                "LocalConnection requires HTTP(S) origin, host and browser client identity".into(),
+                "LocalConnection requires HTTP(S) or file origin, host and browser client identity"
+                    .into(),
             );
         }
         Ok(Self {
@@ -456,13 +459,13 @@ impl ScriptAS2Connections {
             }
             "xmlConnect" => {
                 let host_raw = text(&v, "host")?;
-                if host_raw.len() > 256
+                if host_raw.len() > 512
                     || host_raw
                         .chars()
                         .any(|c| c.is_control() || c.is_whitespace())
                 {
                     return Err(
-                        "XMLSocket host requires at most 256 printable non-whitespace characters"
+                        "XMLSocket host requires at most 512 printable non-whitespace characters"
                             .into(),
                     );
                 }
@@ -470,19 +473,22 @@ impl ScriptAS2Connections {
                     .as_i64()
                     .filter(|p| (0..=65535).contains(p))
                     .ok_or("XMLSocket port requires an integer from 0 through 65535")?;
-                let host = if host_raw.is_empty() {
-                    self.domain.clone()
-                } else {
-                    host_raw.to_owned()
-                };
                 let s = self
                     .xml_sockets
                     .get_mut(&id(&v, "owner")?)
                     .ok_or("Unknown XMLSocket")?;
                 s.connected = false;
                 s.buffer.clear();
-                let accepted = port >= 1024;
-                Ok(json!({"accepted":accepted,"host":host,"port":port,"timeout":s.timeout}))
+                let page_https = self.origin.starts_with("https://");
+                let (accepted, host, effective_port, ws_url) =
+                    resolve_xml_socket_endpoint(&self.domain, page_https, host_raw, port);
+                Ok(json!({
+                    "accepted": accepted,
+                    "host": host,
+                    "port": effective_port,
+                    "wsUrl": ws_url,
+                    "timeout": s.timeout,
+                }))
             }
             "xmlOpen" => {
                 let s = self
@@ -558,6 +564,104 @@ impl ScriptAS2Connections {
         }
     }
 }
+fn resolve_xml_socket_endpoint(
+    default_domain: &str,
+    page_https: bool,
+    host_raw: &str,
+    port: i64,
+) -> (bool, String, i64, String) {
+    let lower = host_raw.to_ascii_lowercase();
+    if lower.starts_with("ws://") || lower.starts_with("wss://") {
+        let scheme_len = if lower.starts_with("wss://") { 6 } else { 5 };
+        let scheme = &lower[..scheme_len - 3];
+        let rest = &host_raw[scheme_len..];
+        let split_at = rest.find(['/', '?']).unwrap_or(rest.len());
+        let authority = &rest[..split_at];
+        let suffix = &rest[split_at..];
+        if authority.is_empty() {
+            return (false, String::new(), port, String::new());
+        }
+        let (parsed_host, explicit_port) = if let Some(after_bracket) = authority.strip_prefix('[')
+        {
+            let Some(end_b) = after_bracket.find(']') else {
+                return (false, String::new(), port, String::new());
+            };
+            let ipv6 = &authority[..=end_b + 1];
+            let rem = &after_bracket[end_b + 1..];
+            if rem.is_empty() {
+                (ipv6.to_owned(), None)
+            } else if let Some(p_str) = rem.strip_prefix(':')
+                && let Ok(p) = p_str.parse::<i64>()
+                && (0..=65535).contains(&p)
+            {
+                (ipv6.to_owned(), Some(p))
+            } else {
+                return (false, String::new(), port, String::new());
+            }
+        } else if let Some((h, p_str)) = authority.rsplit_once(':') {
+            if h.is_empty() {
+                return (false, String::new(), port, String::new());
+            }
+            let Ok(p) = p_str.parse::<i64>() else {
+                return (false, String::new(), port, String::new());
+            };
+            if !(0..=65535).contains(&p) {
+                return (false, String::new(), port, String::new());
+            }
+            (h.to_owned(), Some(p))
+        } else {
+            (authority.to_owned(), None)
+        };
+
+        let effective_port = explicit_port.unwrap_or(port);
+        if !(1024..=65535).contains(&effective_port) {
+            return (false, parsed_host, effective_port, String::new());
+        }
+        let ws_url = if explicit_port.is_some() {
+            format!("{scheme}://{authority}{suffix}")
+        } else {
+            format!("{scheme}://{authority}:{effective_port}{suffix}")
+        };
+        let clean_host = parsed_host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .to_owned();
+        return (true, clean_host, effective_port, ws_url);
+    }
+
+    if host_raw.contains("://") {
+        return (false, host_raw.to_owned(), port, String::new());
+    }
+
+    let host = if host_raw.is_empty() {
+        default_domain.to_owned()
+    } else {
+        host_raw
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .to_owned()
+    };
+    if !(1024..=65535).contains(&port) {
+        return (false, host, port, String::new());
+    }
+    let is_loopback = matches!(
+        host.to_ascii_lowercase().as_str(),
+        "127.0.0.1" | "localhost" | "::1"
+    );
+    let scheme = if page_https && !is_loopback {
+        "wss"
+    } else {
+        "ws"
+    };
+    let bracketed = if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host.clone()
+    };
+    let ws_url = format!("{scheme}://{bracketed}:{port}");
+    (true, host, port, ws_url)
+}
+
 fn short(out: &mut Vec<u8>, value: &str) -> Result<(), String> {
     if value.len() > 4096 {
         return Err("AMF envelope URI exceeds 4096 UTF-8 bytes".into());
@@ -823,6 +927,21 @@ mod tests {
         );
         assert_eq!(plan["accepted"], true);
         assert_eq!(plan["host"], "example.test");
+        assert_eq!(plan["wsUrl"], "wss://example.test:8080");
+        let loopback_plan = execute(
+            &mut sender,
+            json!({"op":"xmlConnect","owner":xs,"host":"127.0.0.1","port":9100}),
+        );
+        assert_eq!(loopback_plan["accepted"], true);
+        assert_eq!(loopback_plan["wsUrl"], "ws://127.0.0.1:9100");
+        let explicit_ws = execute(
+            &mut sender,
+            json!({"op":"xmlConnect","owner":xs,"host":"ws://127.0.0.1:9234/xml","port":0}),
+        );
+        assert_eq!(explicit_ws["accepted"], true);
+        assert_eq!(explicit_ws["host"], "127.0.0.1");
+        assert_eq!(explicit_ws["port"], 9234);
+        assert_eq!(explicit_ws["wsUrl"], "ws://127.0.0.1:9234/xml");
         execute(&mut sender, json!({"op":"xmlOpen","owner":xs,"ok":true}));
         let framed = sender
             .execute(

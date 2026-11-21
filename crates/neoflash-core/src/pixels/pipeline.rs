@@ -1539,39 +1539,27 @@ impl BitmapRect {
         clip(self.x, self.y, self.width, self.height, full_w, full_h)
     }
 
-    /// Validates `JPEGXREncoderOptions` arguments (`quantization`, `color_space`, `trim_flex_bits`)
-    /// and reports an explicit diagnostic because ITU-T T.832 `.jxr` entropy coding is outside
-    /// the HTML5/WASM profile.
+    /// Encodes big-endian ARGB8 (`[A, R, G, B]` per pixel) into a spec-conformant ITU-T T.832
+    /// / ISO/IEC 29199-2 `.jxr` bitstream (`0x49, 0x49, 0xBC, 0x01`, `WMPHOTO\0` `IMAGE_HEADER`,
+    /// `YCoCg-R` + two-stage `4x4` `PCT` macroblock bitstream).
     pub fn encode_jpegxr_argb(
         cw: u32,
         ch: u32,
-        _transparent: bool,
+        transparent: bool,
         argb_be: &[u8],
-        _quantization: u8,
+        quantization: u8,
         color_space: &str,
         trim_flex_bits: u8,
     ) -> Result<Vec<u8>, BitmapError> {
-        if cw == 0 || ch == 0 {
-            return Err(error(
-                "JPEG-XR encoding requires a nonempty clipped rectangle",
-            ));
-        }
-        if trim_flex_bits > 15 {
-            return Err(error("JPEGXREncoderOptions.trimFlexBits requires 0..=15"));
-        }
-        if !matches!(color_space, "4:4:4" | "4:2:2" | "4:2:0" | "auto") {
-            return Err(error(
-                "JPEGXREncoderOptions.colorSpace requires 'auto', '4:4:4', '4:2:2' or '4:2:0'",
-            ));
-        }
-        let w = cw as usize;
-        let h = ch as usize;
-        if argb_be.len() != w.saturating_mul(h).saturating_mul(4) {
-            return Err(error("JPEG-XR ARGB input buffer length mismatch"));
-        }
-        Err(error(
-            "JPEGXREncoderOptions (ITU-T T.832 .jxr) encoding is not supported in the HTML5/WASM profile; use PNGEncoderOptions or JPEGEncoderOptions",
-        ))
+        super::jxr::encode_jxr_argb(
+            cw,
+            ch,
+            transparent,
+            argb_be,
+            quantization,
+            color_space,
+            trim_flex_bits,
+        )
     }
 }
 
@@ -1580,23 +1568,42 @@ mod jpegxr_tests {
     use super::*;
 
     #[test]
-    fn jpegxr_validates_options_then_reports_unsupported_html5_profile() {
-        let argb = vec![255u8; 4 * 4 * 4];
-        let trim_err = BitmapRect::encode_jpegxr_argb(4, 4, true, &argb, 20, "auto", 16)
+    fn jpegxr_validates_options_and_roundtrips_itu_t_832_bitstream() {
+        let mut argb = Vec::with_capacity(19 * 13 * 4);
+        for y in 0..13u8 {
+            for x in 0..19u8 {
+                argb.extend_from_slice(&[
+                    128u8.wrapping_add(x.wrapping_mul(5)),
+                    x.wrapping_mul(13),
+                    y.wrapping_mul(19),
+                    x.wrapping_add(y).wrapping_mul(7),
+                ]);
+            }
+        }
+        let trim_err = BitmapRect::encode_jpegxr_argb(19, 13, true, &argb, 20, "auto", 16)
             .expect_err("trimFlexBits > 15 rejected");
         assert!(trim_err.0.contains("trimFlexBits"));
 
-        let cs_err = BitmapRect::encode_jpegxr_argb(4, 4, true, &argb, 20, "invalid", 0)
+        let cs_err = BitmapRect::encode_jpegxr_argb(19, 13, true, &argb, 20, "invalid", 0)
             .expect_err("invalid colorSpace rejected");
         assert!(cs_err.0.contains("colorSpace"));
 
         for cs in ["auto", "4:4:4", "4:2:2", "4:2:0"] {
-            let err = BitmapRect::encode_jpegxr_argb(4, 4, true, &argb, 20, cs, 0)
-                .expect_err("fake .jxr bitstream must not be emitted");
-            assert_eq!(
-                err.0,
-                "JPEGXREncoderOptions (ITU-T T.832 .jxr) encoding is not supported in the HTML5/WASM profile; use PNGEncoderOptions or JPEGEncoderOptions"
-            );
+            let jxr = BitmapRect::encode_jpegxr_argb(19, 13, true, &argb, 0, cs, 0)
+                .expect("valid ITU-T T.832 .jxr bitstream emitted");
+            assert_eq!(&jxr[..4], &[0x49, 0x49, 0xBC, 0x01]);
+            let decoded = super::jxr::decode_jxr_to_rgba(&jxr).expect("decode .jxr");
+            assert_eq!((decoded.width, decoded.height), (19, 13));
+            if matches!(cs, "auto" | "4:4:4") {
+                for (px_in, px_out) in argb
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(decoded.rgba.as_chunks::<4>().0.iter())
+                {
+                    assert_eq!(*px_out, [px_in[1], px_in[2], px_in[3], px_in[0]]);
+                }
+            }
         }
     }
 

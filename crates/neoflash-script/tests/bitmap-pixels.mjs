@@ -272,11 +272,84 @@ export async function verifyBitmapPixels(root,cargo) {
     const jpgEncoded=encSrc.encode(encSrc.rect,new JpgOpts(85));
     jpgEncoded.position=0;
     assert.deepEqual([jpgEncoded.readUnsignedByte(),jpgEncoded.readUnsignedByte()],[0xff,0xd8]);
-    assert.throws(()=>new JxrOpts(20,'invalid-cs',0),err=>err.name==='ArgumentError');
-    assert.throws(
-      ()=>encSrc.encode(encSrc.rect,new JxrOpts(0,ColorSpaceEnum.COLORSPACE_4_4_4,0)),
-      /JPEGXREncoderOptions \(ITU-T T\.832 \.jxr\) encoding is not supported in the HTML5\/WASM profile/,
-    );
+    assert.throws(()=>new JxrOpts(20,'invalid-cs',0),err=>err.name==='ArgumentError'&&err.errorID===2008);
+    assert.throws(()=>{const o=new JxrOpts();o.colorSpace=null;},err=>err instanceof TypeError&&err.errorID===2007);
+    assert.throws(()=>encSrc.encode(null,new JxrOpts()),err=>err instanceof TypeError&&err.errorID===2007);
+    assert.throws(()=>encSrc.encode(encSrc.rect,null),err=>err instanceof TypeError&&err.errorID===2007);
+
+    // ITU-T T.832 JPEG-XR (.jxr): odd-dimension (19x13) lossless RGB & RGBA bit-exact round-trip
+    const ByteArrayClsForJxr=host.program().type('flash.utils.ByteArray');
+    const oddRgba=new BitmapData(19,13,true,0x00000000);
+    const oddRgb=new BitmapData(19,13,false,0x000000);
+    let seedJxr=0x9e3779b9>>>0;
+    for(let y=0;y<13;y++)for(let x=0;x<19;x++){
+      seedJxr=(Math.imul(seedJxr,1664525)+1013904223)>>>0;
+      const a=0x40+((seedJxr>>>24)&0xbf);
+      const r=(seedJxr>>>16)&0xff,g=(seedJxr>>>8)&0xff,b=seedJxr&0xff;
+      oddRgba.setPixel32(x,y,((a<<24)|(r<<16)|(g<<8)|b)>>>0);
+      oddRgb.setPixel(x,y,((r<<16)|(g<<8)|b)>>>0);
+    }
+    const expectedOddRgba=pixels(oddRgba);
+    const expectedOddRgb=pixels(oddRgb);
+
+    const jxrLosslessRgba=oddRgba.encode(oddRgba.rect,new JxrOpts(0,ColorSpaceEnum.COLORSPACE_4_4_4,0));
+    const jxrRgbaBytes=host.binary().toBytes(jxrLosslessRgba);
+    assert.deepEqual(Array.from(jxrRgbaBytes.slice(0,4)),[0x49,0x49,0xbc,0x01],'ITU-T T.832 .jxr magic header');
+    assert.ok(Buffer.from(jxrRgbaBytes).includes(Buffer.from('WMPHOTO\0','ascii')),'ITU-T T.832 WMPHOTO\\0 IMAGE_HEADER signature');
+    const decodedRgbaRef=JSON.parse(player.pixel_decode(jxrRgbaBytes));
+    const roundtripRgba=bitmap.fromRef(decodedRgbaRef);
+    assert.deepEqual([roundtripRgba.width,roundtripRgba.height],[19,13]);
+    assert.deepEqual(pixels(roundtripRgba),expectedOddRgba,'lossless 4:4:4 RGBA 19x13 round-trips bit-exact (max_diff == 0)');
+
+    const outIntoBa=new ByteArrayClsForJxr();
+    const returnedBa=oddRgb.encode(oddRgb.rect,new JxrOpts(0,ColorSpaceEnum.COLORSPACE_AUTO,0),outIntoBa);
+    assert.equal(returnedBa,outIntoBa);
+    const jxrRgbBytes=host.binary().toBytes(outIntoBa);
+    assert.deepEqual(Array.from(jxrRgbBytes.slice(0,4)),[0x49,0x49,0xbc,0x01]);
+    const decodedRgbRef=JSON.parse(player.pixel_decode(jxrRgbBytes));
+    const roundtripRgb=bitmap.fromRef(decodedRgbRef);
+    assert.deepEqual(pixels(roundtripRgb),expectedOddRgb,'lossless AUTO/4:4:4 opaque RGB 19x13 round-trips bit-exact (max_diff == 0)');
+
+    // Smooth gradient PSNR + monotonic byte sizes across quantization (20/60/90), subsampling (4:4:4/4:2:2/4:2:0), and trimFlexBits (0 vs 4)
+    const gradBmp=new BitmapData(48,32,false,0x000000);
+    const texBmp=new BitmapData(48,32,false,0x000000);
+    let texRng=0x2468ace1>>>0;
+    for(let y=0;y<32;y++)for(let x=0;x<48;x++){
+      const r=Math.round((x*255)/47),g=Math.round((y*255)/31),b=Math.round(((x+y)*255)/78);
+      gradBmp.setPixel(x,y,(r<<16)|(g<<8)|b);
+      texRng=(Math.imul(texRng,1664525)+1013904223)>>>0;
+      const tr=Math.min(255,r+((texRng>>>24)&0x1f)),tg=Math.min(255,g+((texRng>>>16)&0x1f)),tb=Math.min(255,b+((texRng>>>8)&0x1f));
+      texBmp.setPixel(x,y,(tr<<16)|(tg<<8)|tb);
+    }
+    const origGrad=pixels(gradBmp);
+    const computePsnr=(refPx,decPx)=>{
+      let mse=0,n=0;
+      for(let i=0;i<refPx.length;i+=4)for(let c=0;c<3;c++){const d=refPx[i+c]-decPx[i+c];mse+=d*d;n++;}
+      mse/=n;return mse===0?Infinity:10*Math.log10((255*255)/mse);
+    };
+    for(const cs of [ColorSpaceEnum.COLORSPACE_4_4_4,ColorSpaceEnum.COLORSPACE_4_2_2,ColorSpaceEnum.COLORSPACE_4_2_0]){
+      const encBa=gradBmp.encode(gradBmp.rect,new JxrOpts(20,cs,0));
+      const decBmp=bitmap.fromRef(JSON.parse(player.pixel_decode(host.binary().toBytes(encBa))));
+      const psnr=computePsnr(origGrad,pixels(decBmp));
+      assert.ok(psnr>36,`expected PSNR > 36 dB for ${cs} at q=20, got ${psnr.toFixed(2)} dB`);
+      decBmp.dispose();
+    }
+    const szQ0=texBmp.encode(texBmp.rect,new JxrOpts(0,ColorSpaceEnum.COLORSPACE_4_4_4,0)).length;
+    const szQ20=texBmp.encode(texBmp.rect,new JxrOpts(20,ColorSpaceEnum.COLORSPACE_4_4_4,0)).length;
+    const szQ60=texBmp.encode(texBmp.rect,new JxrOpts(60,ColorSpaceEnum.COLORSPACE_4_4_4,0)).length;
+    const szQ90=texBmp.encode(texBmp.rect,new JxrOpts(90,ColorSpaceEnum.COLORSPACE_4_4_4,0)).length;
+    assert.ok(szQ0>szQ20&&szQ20>szQ60&&szQ60>szQ90,`expected monotonic quantization byte sizes: ${szQ0} > ${szQ20} > ${szQ60} > ${szQ90}`);
+
+    const sz444=texBmp.encode(texBmp.rect,new JxrOpts(10,ColorSpaceEnum.COLORSPACE_4_4_4,0)).length;
+    const sz422=texBmp.encode(texBmp.rect,new JxrOpts(10,ColorSpaceEnum.COLORSPACE_4_2_2,0)).length;
+    const sz420=texBmp.encode(texBmp.rect,new JxrOpts(10,ColorSpaceEnum.COLORSPACE_4_2_0,0)).length;
+    assert.ok(sz444>sz422&&sz422>sz420,`expected monotonic chroma subsampling byte sizes: ${sz444} > ${sz422} > ${sz420}`);
+
+    const szTrim0=texBmp.encode(texBmp.rect,new JxrOpts(20,ColorSpaceEnum.COLORSPACE_4_4_4,0)).length;
+    const szTrim4=texBmp.encode(texBmp.rect,new JxrOpts(20,ColorSpaceEnum.COLORSPACE_4_4_4,4)).length;
+    assert.ok(szTrim0>szTrim4,`expected trimFlexBits=4 (${szTrim4}) < trimFlexBits=0 (${szTrim0})`);
+
+    for(const tmp of [oddRgba,oddRgb,roundtripRgba,roundtripRgb,gradBmp,texBmp])tmp.dispose();
 
     const RectCls=host.program().type('flash.geom.Rectangle');
     const lockBmp=new BitmapData(8,8,true,0xff112233);
