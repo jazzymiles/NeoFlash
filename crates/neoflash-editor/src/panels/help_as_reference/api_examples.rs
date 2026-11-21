@@ -1591,9 +1591,12 @@ fn curated_display_event_media_member(
         (true, "Event", "type") => Some(
             "import flash.events.Event;\n\nvar ev:Event = new Event(Event.COMPLETE);\ntrace(ev.type); // Output: complete".to_owned(),
         ),
-        (true, "Event", "bubbles" | "cancelable" | "isDefaultPrevented") => Some(format!(
+        (true, "Event", "bubbles" | "cancelable") => Some(format!(
             "import flash.events.Event;\n\nvar ev:Event = new Event(Event.COMPLETE);\ntrace(ev.{mname}); // Output: false"
         )),
+        (true, "Event", "isDefaultPrevented") => Some(
+            "import flash.events.Event;\n\nvar ev:Event = new Event(Event.COMPLETE);\ntrace(ev.isDefaultPrevented());\n// Output: false".to_owned(),
+        ),
         (true, "Event", "preventDefault") => Some(
             "import flash.events.Event;\n\nvar ev:Event = new Event(Event.CHANGE, false, true);\nev.preventDefault();\ntrace(ev.isDefaultPrevented()); // Output: true".to_owned(),
         ),
@@ -3372,6 +3375,11 @@ mod tests {
 
         // Globals
         push_as(ScriptLanguage::ActionScript3, "", "parseInt");
+        push_as(
+            ScriptLanguage::ActionScript3,
+            "flash.events.Event",
+            "isDefaultPrevented",
+        );
         push_as(ScriptLanguage::ActionScript3, "", "parseFloat");
         push_as(ScriptLanguage::ActionScript3, "", "encodeURIComponent");
 

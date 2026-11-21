@@ -804,7 +804,9 @@ fn default_member_usage(
             ("event" | "callback", false) => {
                 format!("{receiver}.{} = function():Void {{}};", m.name)
             }
-            ("constant", false) if m.is_static => format!("{owner}.{}", m.name),
+            ("constant", false) if m.is_static || class.key == "mx.video.FLVPlayback" => {
+                format!("{owner}.{}", m.name)
+            }
             ("constant", false) => format!("{receiver}.{}", m.name),
             ("property", false) if m.read_only => {
                 if m.is_static {
@@ -969,8 +971,13 @@ fn as_member_view(
             format!("const {}{}{val_suffix}", m.name, ty_suffix(":"))
         }
         (None, "constant") => {
+            let const_stat = if m.is_static || class.key == "mx.video.FLVPlayback" {
+                "static "
+            } else {
+                ""
+            };
             format!(
-                "{access}{stat}const {}{}{val_suffix}",
+                "{access}{const_stat}const {}{}{val_suffix}",
                 m.name,
                 ty_suffix(":")
             )
