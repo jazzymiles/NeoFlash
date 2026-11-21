@@ -3057,6 +3057,9 @@ impl Editor {
 
         let has_doc = self.has_document();
         let standalone_as = self.is_standalone_script_session();
+        let modal_open =
+            ctx.map_or_else(|| self.has_modal_dialog(), |c| self.has_modal_dialog_in(c));
+        let label_selection = ctx.is_some_and(crate::clipboard::has_egui_label_selection);
         let text_target = || {
             (!standalone_as && self.stage_text_edit.is_active(self))
                 || ctx.is_some_and(|c| {
@@ -3152,10 +3155,10 @@ impl Editor {
                 CommandId::FileRevert => self.can_revert(),
                 CommandId::EditUndo => self.history.can_undo(),
                 CommandId::EditRedo => self.history.can_redo(),
-                CommandId::EditCut
-                | CommandId::EditCopy
-                | CommandId::EditPaste
-                | CommandId::EditSelectAll => text_target(),
+                CommandId::EditCopy => text_target() || label_selection,
+                CommandId::EditCut | CommandId::EditPaste | CommandId::EditSelectAll => {
+                    text_target()
+                }
                 CommandId::EditSendToAi => self.has_ready_ai_connection(),
                 _ => false,
             },
@@ -3185,6 +3188,7 @@ impl Editor {
             | CommandId::WindowHidePanels
             | CommandId::WindowInspectorPriority
             | CommandId::WindowLibraryPriority => true,
+            CommandId::EditCopy if !has_doc => text_target() || label_selection,
             _ if !has_doc => false,
             CommandId::FileClose
             | CommandId::FileSave
@@ -3271,8 +3275,13 @@ impl Editor {
             CommandId::FileRevert => self.can_revert(),
             CommandId::EditUndo => self.history.can_undo() || self.vector.draft.is_some(),
             CommandId::EditRedo => self.history.can_redo(),
-            CommandId::EditCut | CommandId::EditCopy => {
-                (!standalone_as && !self.selection.is_empty()) || text_target()
+            CommandId::EditCut => {
+                (!modal_open && !standalone_as && !self.selection.is_empty()) || text_target()
+            }
+            CommandId::EditCopy => {
+                (!modal_open && !standalone_as && !self.selection.is_empty())
+                    || text_target()
+                    || label_selection
             }
             CommandId::EditPaste => (!standalone_as && has_doc) || text_target(),
             CommandId::EditPasteInPlace => !standalone_as && has_doc && !text_target(),

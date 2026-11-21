@@ -19,7 +19,8 @@ mod tests;
 pub(crate) use api_browser_ui::{
     ApiBrowserState, ApiSelection, NO_SCRIPT_EDITOR, RefActions, RefKeys, RefRow, api_class_column,
     api_detail_column, api_footer_text, api_selected_insertion, api_tree_column, code_box,
-    group_caption, group_thousands, render_topic_hits, set_insert_available, take_article_insert,
+    group_caption, group_caption_with_copy, group_thousands, render_topic_hits,
+    set_insert_available, take_article_insert,
 };
 #[allow(unused_imports)]
 pub(crate) use api_index::{

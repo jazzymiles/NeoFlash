@@ -1072,6 +1072,30 @@ impl crate::app::Editor {
         if !state.open {
             return;
         }
+        if self
+            .clipboard
+            .take_pending_label_copy_for(ctx.viewport_id())
+        {
+            ctx.input_mut(|i| {
+                if !i.events.iter().any(|e| matches!(e, egui::Event::Copy)) {
+                    i.events.push(egui::Event::Copy);
+                }
+            });
+        }
+        if !state.search_focused && crate::clipboard::has_egui_label_selection(ctx) {
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::C))
+                && !ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Copy)))
+            {
+                ctx.input_mut(|i| i.events.push(egui::Event::Copy));
+            }
+            if !super::dialog_helpers::is_any_popup_open(ctx)
+                && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+            {
+                ctx.plugin::<egui::text_selection::LabelSelectionState>()
+                    .lock()
+                    .clear_selection();
+            }
+        }
         let proj_lang = self.project.effective_script_language();
         state.normalize(proj_lang);
         let reference = state.mode == HelpManualMode::ScriptingReference;
@@ -1146,6 +1170,8 @@ impl crate::app::Editor {
             .frame(dialog_frame)
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
+                ui.style_mut().interaction.selectable_labels = true;
+                ui.style_mut().interaction.multi_widget_text_select = true;
                 // The whole window is claimed first; every region is a child at a fixed rect, so
                 // no tab, selection or search result can move or resize it.
                 ui.set_min_size(vec2(width, height));
@@ -5186,17 +5212,23 @@ mod tests {
             member.support,
             Some(super::super::help_as_reference::Support::Working)
         );
-        let texts = painted(&detail);
+        let mut texts = painted(&detail);
+        if let Some(pos) = window_state(&ctx).reading_position
+            && let Some(mut scroll) = egui::scroll_area::State::load(&ctx, pos.area)
+        {
+            scroll.offset.y = 320.0;
+            scroll.store(&ctx, pos.area);
+            let bottom = frame(&mut editor, &ctx, vec![]);
+            texts.extend(painted(&bottom));
+        }
         let shown = |needle: &str| texts.iter().any(|(text, _)| text == needle);
+        assert!(shown(&member.usage), "usage box missing: {texts:?}");
         assert!(
             shown(&member.declaration),
             "signature box missing: {texts:?}"
         );
         assert!(shown("frame") && shown("scene"), "parameters missing");
-        assert!(
-            shown("movieClip.gotoAndPlay(frame, scene);"),
-            "example missing"
-        );
+        assert!(shown(&member.example), "example missing");
         assert!(shown("Insert at cursor"));
         assert!(shown("gotoAndStop()"), "See also link missing");
     }
@@ -5635,5 +5667,319 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn t440_selectable_text_drag_cmd_c_and_edit_copy_across_help_and_reference_with_stage_selection()
+     {
+        use crate::commands::CommandId;
+        use crate::macos_menu::{MenuSyncFingerprint, NativeMenuSpec};
+        use crate::tests::primary_button;
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(
+            &ctx,
+            project_in(neoflash_core::ScriptLanguage::ActionScript3),
+        );
+        // Place and select a Rectangle on Stage behind the modal!
+        editor.add_element(
+            neoflash_core::ElementKind::Rectangle {
+                width: 140.0,
+                height: 90.0,
+                fill: neoflash_core::Color::default(),
+                stroke: neoflash_core::Color::default(),
+                stroke_width: 1.0,
+            },
+            120.0,
+            100.0,
+        );
+        assert!(
+            !editor.selection.is_empty(),
+            "Stage must have an active object selection behind the Help/Reference modal"
+        );
+        // While no modal is open, Stage selection enables Edit ▸ Copy.
+        assert!(
+            editor
+                .command_menu_state(Some(&ctx), CommandId::EditCopy)
+                .enabled
+        );
+
+        // Open Scripting Reference: with no text/label selected yet, Edit ▸ Copy MUST be disabled
+        // so invoking Copy never overwrites the clipboard with background Stage artwork!
+        editor.open_scripting_reference(&ctx);
+        let _ = frame(&mut editor, &ctx, vec![]);
+        assert!(!crate::clipboard::has_egui_label_selection(&ctx));
+        assert!(
+            !editor
+                .command_menu_state(Some(&ctx), CommandId::EditCopy)
+                .enabled,
+            "Edit ▸ Copy must not be enabled for a background Stage selection while Help/Reference modal is open"
+        );
+        let menu_without_sel = NativeMenuSpec::build(&editor, Some(&ctx));
+        assert!(matches!(
+            menu_without_sel.find_command(CommandId::EditCopy),
+            Some(crate::macos_menu::NativeMenuItemSpec::Action { enabled: false, .. })
+        ));
+        assert!(!editor.execute_menu_command(&ctx, CommandId::EditCopy));
+
+        let drag_and_copy = |editor: &mut Editor,
+                             ctx: &egui::Context,
+                             needle: &str,
+                             start_char: usize,
+                             end_char: usize,
+                             use_menu_cmd: bool|
+         -> String {
+            let out = frame(editor, ctx, vec![]);
+            let (pos, galley) = out
+                .shapes
+                .iter()
+                .find_map(|s| match &s.shape {
+                    egui::Shape::Text(t) if t.galley.text() == needle => {
+                        Some((t.pos, std::sync::Arc::clone(&t.galley)))
+                    }
+                    _ => None,
+                })
+                .or_else(|| {
+                    out.shapes.iter().find_map(|s| match &s.shape {
+                        egui::Shape::Text(t) if t.galley.text().contains(needle) => {
+                            Some((t.pos, std::sync::Arc::clone(&t.galley)))
+                        }
+                        _ => None,
+                    })
+                })
+                .unwrap_or_else(|| panic!("expected painted text containing {needle:?}"));
+            let p0 = pos
+                + galley
+                    .pos_from_cursor(egui::text::CCursor::new(start_char))
+                    .center()
+                    .to_vec2();
+            let p1 = pos
+                + galley
+                    .pos_from_cursor(egui::text::CCursor::new(end_char))
+                    .center()
+                    .to_vec2();
+
+            ctx.plugin::<egui::text_selection::LabelSelectionState>()
+                .lock()
+                .clear_selection();
+            let fp_before = MenuSyncFingerprint::capture(editor, Some(ctx));
+            let _ = frame(editor, ctx, vec![egui::Event::PointerMoved(p0)]);
+            let _ = frame(editor, ctx, vec![primary_button(p0, true)]);
+            let _ = frame(editor, ctx, vec![egui::Event::PointerMoved(p1)]);
+            let _ = frame(editor, ctx, vec![primary_button(p1, false)]);
+
+            assert!(
+                crate::clipboard::has_egui_label_selection(ctx),
+                "dragging across {needle:?} must create an active LabelSelectionState"
+            );
+            let fp_after = MenuSyncFingerprint::capture(editor, Some(ctx));
+            assert_ne!(
+                fp_before, fp_after,
+                "macOS menu fingerprint must update immediately when label selection becomes active"
+            );
+            assert!(
+                editor
+                    .command_menu_state(Some(ctx), CommandId::EditCopy)
+                    .enabled,
+                "Edit ▸ Copy must enable when Help/Reference label text is selected"
+            );
+            let menu_with_sel = NativeMenuSpec::build(editor, Some(ctx));
+            assert!(matches!(
+                menu_with_sel.find_command(CommandId::EditCopy),
+                Some(crate::macos_menu::NativeMenuItemSpec::Action { enabled: true, .. })
+            ));
+
+            let copy_out = if use_menu_cmd {
+                assert!(editor.execute_menu_command(ctx, CommandId::EditCopy));
+                frame(editor, ctx, vec![])
+            } else {
+                let cmd_c = egui::Event::Key {
+                    key: egui::Key::C,
+                    physical_key: Some(egui::Key::C),
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::COMMAND,
+                };
+                frame(editor, ctx, vec![cmd_c])
+            };
+            let copied = copy_out
+                .platform_output
+                .commands
+                .iter()
+                .find_map(|cmd| match cmd {
+                    egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "copying selection on {needle:?} (menu={use_menu_cmd}) must emit CopyText"
+                    )
+                });
+            assert!(
+                !copied.contains("\"elements\""),
+                "must copy Help text, never Stage JSON payload: {copied}"
+            );
+            copied
+        };
+
+        // 1–4. Scripting Reference API detail: code_box, description, Parameters, and In NeoFlash!
+        ctx.data_mut(|d| {
+            let s = d.get_temp_mut_or_default::<HelpManualState>(state_id());
+            s.lang_scope = LanguageScope::As3;
+            s.tab = ReferenceTab::Api;
+            let hit = super::super::help_as_reference::api_search(
+                LanguageScope::As3,
+                "Array.lastIndexOf",
+            )
+            .remove(0);
+            s.api.select(
+                LanguageScope::As3,
+                &hit.class_key,
+                hit.member_key.as_deref(),
+            );
+        });
+        let _ = frame(&mut editor, &ctx, vec![]);
+
+        // (a) code_box (`Usage` / `Signature`) via ⌘C
+        let copied_code = drag_and_copy(
+            &mut editor,
+            &ctx,
+            "public function lastIndexOf",
+            7,
+            27,
+            false,
+        );
+        assert_eq!(copied_code, "function lastIndexOf");
+
+        // (b) member.description via Edit ▸ Copy menu command (while Rectangle is selected on Stage!)
+        let desc = window_state(&ctx)
+            .api
+            .selected_member(LanguageScope::As3)
+            .unwrap()
+            .description
+            .clone();
+        let expected_desc: String = desc.chars().take(12).collect();
+        let copied_desc = drag_and_copy(&mut editor, &ctx, &expected_desc, 0, 12, true);
+        assert_eq!(copied_desc, expected_desc);
+
+        // (c) Parameter name (`searchElement`) via ⌘C
+        let copied_param = drag_and_copy(&mut editor, &ctx, "searchElement", 0, 13, false);
+        assert_eq!(copied_param, "searchElement");
+
+        // (d) In NeoFlash status message (including Partial boundary note on JS/TS `import`) via Edit ▸ Copy
+        ctx.data_mut(|d| {
+            let s = d.get_temp_mut_or_default::<HelpManualState>(state_id());
+            s.lang_scope = LanguageScope::JsTs;
+            s.tab = ReferenceTab::Api;
+            s.api.select(
+                LanguageScope::JsTs,
+                "Modules & JSX",
+                Some("Modules & JSX|import"),
+            );
+        });
+        let _ = frame(&mut editor, &ctx, vec![]);
+        let copied_status = drag_and_copy(&mut editor, &ctx, "Partial.", 0, 8, true);
+        assert_eq!(copied_status, "Partial.");
+
+        let scroll_text_into_view = |editor: &mut Editor, ctx: &egui::Context, needle: &str| {
+            let win = window_rect(editor, ctx);
+            let id = window_state(ctx).reading_position.unwrap().area;
+            for step in 0..16 {
+                let out = frame(editor, ctx, vec![]);
+                if let Some(y) = out.shapes.iter().find_map(|s| match &s.shape {
+                    egui::Shape::Text(t) if t.galley.text() == needle => Some(t.pos.y),
+                    _ => None,
+                }) {
+                    let mut scroll = egui::scroll_area::State::load(ctx, id).unwrap();
+                    scroll.offset.y = (scroll.offset.y + (y - win.center().y)).max(0.0);
+                    scroll.store(ctx, id);
+                    let _ = frame(editor, ctx, vec![]);
+                    return;
+                }
+                let mut scroll = egui::scroll_area::State::load(ctx, id).unwrap();
+                scroll.offset.y = (step as f32 + 1.0) * 260.0;
+                scroll.store(ctx, id);
+            }
+            panic!("could not scroll {needle:?} into view");
+        };
+
+        // 5a. Scripting Reference Guides `api_signature_table` (Ch.13 DisplayObjectContainer table)
+        open_scripting_reference_page(&ctx, 12);
+        let _ = frame(&mut editor, &ctx, vec![]);
+        scroll_text_into_view(&mut editor, &ctx, "getObjectsUnderPoint");
+        let copied_guide_table =
+            drag_and_copy(&mut editor, &ctx, "getObjectsUnderPoint", 0, 20, false);
+        assert_eq!(copied_guide_table, "getObjectsUnderPoint");
+
+        // 5b. NeoFlash Help Ch.10 50-chord `<ESC>` `api_signature_table` + multi-cell row drag + Escape deselection!
+        set_help_manual_page(&ctx, 9);
+        let _ = frame(&mut editor, &ctx, vec![]);
+        scroll_text_into_view(&mut editor, &ctx, "<ESC>fn");
+        let out = frame(&mut editor, &ctx, vec![]);
+        let esc_fn_pos = out
+            .shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                egui::Shape::Text(t) if t.galley.text() == "<ESC>fn" => Some(t.pos),
+                _ => None,
+            })
+            .expect("<ESC>fn cell in Ch.10 table");
+        let purpose_end = out
+            .shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                egui::Shape::Text(t) if t.galley.text() == "Declare named function block" => {
+                    Some(t.pos + t.galley.size())
+                }
+                _ => None,
+            })
+            .expect("Declare named function block cell in Ch.10 table");
+        let start = esc_fn_pos + vec2(1.0, 4.0);
+        let end = purpose_end - vec2(1.0, 2.0);
+        let _ = frame(&mut editor, &ctx, vec![egui::Event::PointerMoved(start)]);
+        let _ = frame(&mut editor, &ctx, vec![primary_button(start, true)]);
+        let _ = frame(&mut editor, &ctx, vec![egui::Event::PointerMoved(end)]);
+        let _ = frame(&mut editor, &ctx, vec![primary_button(end, false)]);
+        assert!(crate::clipboard::has_egui_label_selection(&ctx));
+        assert!(editor.execute_menu_command(&ctx, CommandId::EditCopy));
+        let row_copy_out = frame(&mut editor, &ctx, vec![]);
+        let row_copied = row_copy_out
+            .platform_output
+            .commands
+            .iter()
+            .find_map(|cmd| match cmd {
+                egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                _ => None,
+            })
+            .expect("dragging across Ch.10 <ESC>fn row and invoking Edit ▸ Copy must copy text");
+        assert!(
+            row_copied.contains("fn")
+                && row_copied.contains("function name ( ) { ... }")
+                && row_copied.contains("Declare named function block"),
+            "unexpected multi-cell table copy: {row_copied:?}"
+        );
+
+        // First Escape clears the active text selection WITHOUT closing NeoFlash Help; second Escape closes it!
+        let esc = || egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: Some(egui::Key::Escape),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let _ = frame(&mut editor, &ctx, vec![esc()]);
+        assert!(
+            !crate::clipboard::has_egui_label_selection(&ctx),
+            "first Escape must clear the label text selection"
+        );
+        assert!(
+            is_help_manual_open(&ctx),
+            "first Escape while text is selected must NOT close Help"
+        );
+        let _ = frame(&mut editor, &ctx, vec![esc()]);
+        assert!(
+            !is_help_manual_open(&ctx),
+            "second Escape with no active text selection closes Help"
+        );
     }
 }

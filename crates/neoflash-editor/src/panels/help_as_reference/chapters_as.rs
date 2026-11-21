@@ -1447,7 +1447,7 @@ var inventory:XML = <items>
     <weapon id=\"railgun\" dmg=\"90\"/>
 </items>;
 var heavy:XMLList = inventory.weapon.(Number(@dmg) >= 50);
-trace(\"Selected weapon:\", heavy.@id); // railgun",
+trace(\"Selected weapon:\", heavy.@id); // Output: Selected weapon: railgun",
         },
     );
 

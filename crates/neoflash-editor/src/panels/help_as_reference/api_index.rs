@@ -117,6 +117,8 @@ pub(crate) struct ApiMember {
     pub group: MemberGroup,
     /// Text after the name in the member list.
     pub row_signature: String,
+    /// Concise call or access expression shown at the top of the detail column.
+    pub usage: String,
     /// Declaration shown in the detail code box, wrapped by parameters.
     pub declaration: String,
     /// `(name, type and default)`.
@@ -144,6 +146,8 @@ pub(crate) struct ApiClass {
     /// `subset`, `partial`, `members`, or empty when the catalogue has no class status.
     pub status: String,
     pub description: String,
+    /// Runnable class-level example shown when no member is selected.
+    pub example: String,
     /// What Insert at cursor writes when no member is selected.
     pub insertion: Option<CodeCommand>,
     pub members: Vec<ApiMember>,
@@ -276,6 +280,7 @@ pub(super) fn split_params(params: &str) -> Vec<String> {
     let mut parts = Vec::new();
     let mut depth = 0_i32;
     let mut quote: Option<char> = None;
+    let mut prev: Option<char> = None;
     let mut current = String::new();
     for ch in params.chars() {
         match (quote, ch) {
@@ -283,14 +288,17 @@ pub(super) fn split_params(params: &str) -> Vec<String> {
             (Some(_), _) => {}
             (None, '"' | '\'') => quote = Some(ch),
             (None, '(' | '[' | '<' | '{') => depth += 1,
+            (None, '>') if prev == Some('=') => {}
             (None, ')' | ']' | '>' | '}') => depth -= 1,
             (None, ',') if depth <= 0 => {
                 parts.push(current.trim().to_owned());
                 current.clear();
+                prev = Some(ch);
                 continue;
             }
             _ => {}
         }
+        prev = Some(ch);
         current.push(ch);
     }
     if !current.trim().is_empty() {
@@ -347,10 +355,35 @@ pub(super) fn describe_param(raw: &str) -> (String, String) {
 }
 
 fn lower_first(name: &str) -> String {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(first) => first.to_lowercase().chain(chars).collect(),
-        None => String::new(),
+    let chars: Vec<char> = name.chars().collect();
+    if chars.is_empty() {
+        return String::new();
+    }
+    let upper_run = chars.iter().take_while(|c| c.is_ascii_uppercase()).count();
+    let lowered: String = if upper_run == chars.len() {
+        chars.iter().map(|c| c.to_ascii_lowercase()).collect()
+    } else if upper_run > 1 {
+        chars[..upper_run - 1]
+            .iter()
+            .map(|c| c.to_ascii_lowercase())
+            .chain(chars[upper_run - 1..].iter().copied())
+            .collect()
+    } else {
+        chars[0]
+            .to_lowercase()
+            .chain(chars[1..].iter().copied())
+            .collect()
+    };
+    match lowered.as_str() {
+        "function" => "fn".into(),
+        "class" => "cls".into(),
+        "namespace" => "ns".into(),
+        "package" => "pkg".into(),
+        "default" => "defaultValue".into(),
+        "int" => "intVal".into(),
+        "uint" => "uintVal".into(),
+        "void" => "voidVal".into(),
+        _ => lowered,
     }
 }
 
@@ -594,6 +627,7 @@ fn build_as_index(api: &'static script_api::LanguageApi, language: ScriptLanguag
                     &draft.implements,
                 )
             };
+        let example = default_class_example(language, &draft);
         let insertion = (!draft.pseudo).then(|| {
             crate::panels::actions_sidebar::toolbox_insertion(
                 &Member {
@@ -625,6 +659,7 @@ fn build_as_index(api: &'static script_api::LanguageApi, language: ScriptLanguag
                 chain,
                 status: draft.status,
                 description,
+                example,
                 insertion,
                 members,
             }),
@@ -665,6 +700,229 @@ fn as_member_key(m: &Member) -> String {
     )
 }
 
+fn default_member_usage(
+    m: &Member,
+    language: ScriptLanguage,
+    class: &AsClassDraft,
+    arg_names: &[String],
+) -> String {
+    let as3 = language == ScriptLanguage::ActionScript3;
+    let kind = m.kind.as_str();
+    let callable = m.params.is_some();
+    let args = arg_names
+        .iter()
+        .map(|name| name.strip_prefix("...").unwrap_or(name.as_str()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let owner = class.name.as_str();
+    let receiver = lower_first(owner);
+    if class.pseudo {
+        if callable {
+            format!("{}({args});", m.name)
+        } else if kind == "property" && !m.read_only && !m.name.starts_with('_') {
+            format!("{} = value;", m.name)
+        } else if kind == "event" && m.name == "on" {
+            "on (release) {\n}".to_owned()
+        } else if kind == "event" && m.name == "onClipEvent" {
+            "onClipEvent (enterFrame) {\n}".to_owned()
+        } else {
+            m.name.clone()
+        }
+    } else {
+        match (kind, callable) {
+            ("constructor", _) => format!("var {receiver}:{owner} = new {owner}({args});"),
+            (_, true) if m.is_static => format!("{owner}.{}({args});", m.name),
+            (_, true) => format!("{receiver}.{}({args});", m.name),
+            ("event" | "callback", false) if as3 => {
+                format!("{receiver}.addEventListener(\"{}\", listener);", m.name)
+            }
+            ("event" | "callback", false) => {
+                format!("{receiver}.{} = function():Void {{}};", m.name)
+            }
+            ("constant", false) => format!("{owner}.{}", m.name),
+            ("property", false) if m.read_only => {
+                if m.is_static {
+                    format!("{owner}.{}", m.name)
+                } else {
+                    format!("{receiver}.{}", m.name)
+                }
+            }
+            ("property", false) => {
+                if m.is_static {
+                    format!("{owner}.{} = value;", m.name)
+                } else {
+                    format!("{receiver}.{} = value;", m.name)
+                }
+            }
+            (_, false) if m.is_static => format!("{owner}.{}", m.name),
+            (_, false) => format!("{receiver}.{}", m.name),
+        }
+    }
+}
+
+fn default_member_example(
+    m: &Member,
+    language: ScriptLanguage,
+    class: &AsClassDraft,
+    usage: &str,
+) -> String {
+    let as3 = language == ScriptLanguage::ActionScript3;
+    let kind = m.kind.as_str();
+    let import_line = if !class.pseudo && class.key.contains('.') {
+        format!("import {};\n", class.key)
+    } else {
+        String::new()
+    };
+    let receiver = lower_first(&class.name);
+    if class.pseudo {
+        if m.params.is_some() {
+            let ret = m.ty.trim();
+            if !ret.is_empty() && !matches!(ret, "Void" | "void") {
+                format!("var result:{ret} = {usage}\ntrace(result);")
+            } else {
+                format!("{usage}\ntrace(\"{}\");", m.name)
+            }
+        } else {
+            format!("trace({});", m.name)
+        }
+    } else {
+        match kind {
+            "constructor" => format!("{import_line}{usage}\ntrace({receiver});"),
+            "constant" => format!("{import_line}trace({usage});"),
+            "property" if m.read_only => format!("{import_line}trace({usage});"),
+            "property" => {
+                let target = if m.is_static {
+                    format!("{}.{}", class.name, m.name)
+                } else {
+                    format!("{receiver}.{}", m.name)
+                };
+                format!("{import_line}{usage}\ntrace({target});")
+            }
+            "event" | "callback" if as3 => {
+                let event_ty = if m.ty.trim().is_empty() {
+                    "Event"
+                } else {
+                    script_api::short_name(m.ty.trim())
+                };
+                let event_import = if m.ty.trim().is_empty() {
+                    "import flash.events.Event;\n".to_owned()
+                } else if m.ty.contains('.') {
+                    format!("import {};\n", m.ty.trim())
+                } else {
+                    String::new()
+                };
+                format!(
+                    "{import_line}{event_import}{receiver}.addEventListener(\"{}\", function(event:{event_ty}):void {{\n    trace(event.type);\n}});",
+                    m.name
+                )
+            }
+            "event" | "callback" => format!(
+                "{import_line}{receiver}.{} = function():Void {{\n    trace(\"{}\");\n}};",
+                m.name, m.name
+            ),
+            _ if m.params.is_some() => {
+                let ret = m.ty.trim();
+                if !ret.is_empty() && !matches!(ret, "Void" | "void") {
+                    format!("{import_line}var result:{ret} = {usage}\ntrace(result);")
+                } else {
+                    format!(
+                        "{import_line}{usage}\ntrace(\"{}.{}\");",
+                        class.name, m.name
+                    )
+                }
+            }
+            _ => format!("{import_line}trace({usage});"),
+        }
+    }
+}
+
+fn default_class_example(language: ScriptLanguage, class: &AsClassDraft) -> String {
+    if class.pseudo {
+        return String::new();
+    }
+    let import_line = if class.key.contains('.') {
+        format!("import {};\n", class.key)
+    } else {
+        String::new()
+    };
+    let receiver = lower_first(&class.name);
+    if let Some(ctor) = class.members.iter().find(|m| m.kind == "constructor") {
+        let arg_names: Vec<String> = ctor
+            .params
+            .as_deref()
+            .map(split_params)
+            .unwrap_or_default()
+            .iter()
+            .map(|part| describe_param(part).0)
+            .filter(|name| !name.is_empty())
+            .collect();
+        let usage = default_member_usage(ctor, language, class, &arg_names);
+        return format!("{import_line}{usage}\ntrace({receiver});");
+    }
+    if let Some(first) = class.members.first() {
+        let arg_names: Vec<String> = first
+            .params
+            .as_deref()
+            .map(split_params)
+            .unwrap_or_default()
+            .iter()
+            .map(|part| describe_param(part).0)
+            .filter(|name| !name.is_empty())
+            .collect();
+        let usage = default_member_usage(first, language, class, &arg_names);
+        return default_member_example(first, language, class, &usage);
+    }
+    format!("{import_line}var {receiver}:{};", class.name)
+}
+
+fn format_js_ts_declaration(signature: &str, kind: JsTsEntryKind) -> String {
+    if !matches!(kind, JsTsEntryKind::Function | JsTsEntryKind::Member(_)) {
+        return signature.to_owned();
+    }
+    let mut depth = 0_i32;
+    let mut quote: Option<char> = None;
+    let mut prev: Option<char> = None;
+    let mut open_paren: Option<usize> = None;
+    let mut close_paren: Option<usize> = None;
+    for (idx, ch) in signature.char_indices() {
+        match (quote, ch) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(ch),
+            (None, '|' | ';') if depth == 0 => return signature.to_owned(),
+            (None, '(') => {
+                if depth == 0 && open_paren.is_none() {
+                    open_paren = Some(idx);
+                }
+                depth += 1;
+            }
+            (None, '[' | '<' | '{') => depth += 1,
+            (None, '>') if prev == Some('=') => {}
+            (None, ')') => {
+                depth -= 1;
+                if depth == 0 && open_paren.is_some() && close_paren.is_none() {
+                    close_paren = Some(idx);
+                }
+            }
+            (None, ']' | '>' | '}') => depth -= 1,
+            _ => {}
+        }
+        prev = Some(ch);
+    }
+    let (Some(open), Some(close)) = (open_paren, close_paren) else {
+        return signature.to_owned();
+    };
+    let inner = &signature[open + 1..close];
+    let parts = split_params(inner);
+    if parts.len() > 1 {
+        let head = &signature[..open];
+        let tail = &signature[close + 1..];
+        format!("{head}(\n    {}\n){tail}", parts.join(",\n    "))
+    } else {
+        signature.to_owned()
+    }
+}
+
 fn as_member_view(m: &Member, language: ScriptLanguage, class: &AsClassDraft) -> ApiMember {
     let as3 = language == ScriptLanguage::ActionScript3;
     let kind = m.kind.as_str();
@@ -697,6 +955,12 @@ fn as_member_view(m: &Member, language: ScriptLanguage, class: &AsClassDraft) ->
             let flag = match kind {
                 "constant" => "constant",
                 "event" | "callback" => "event",
+                "property" => match (m.is_static, m.read_only) {
+                    (true, true) => "static · read-only",
+                    (false, true) => "read-only",
+                    (true, false) => "static",
+                    (false, false) => "",
+                },
                 _ if m.is_static => "static",
                 _ => "",
             };
@@ -710,7 +974,13 @@ fn as_member_view(m: &Member, language: ScriptLanguage, class: &AsClassDraft) ->
     };
     let access = if class.pseudo { "" } else { "public " };
     let stat = if m.is_static { "static " } else { "" };
-    let owner = class.name.as_str();
+    let val_suffix = m
+        .value
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(|v| format!(" = {v}"))
+        .unwrap_or_default();
     let declaration = match (&m.params, kind) {
         (Some(params), _) => {
             let head = if constructor {
@@ -729,14 +999,37 @@ fn as_member_view(m: &Member, language: ScriptLanguage, class: &AsClassDraft) ->
                 format!("{head}({}){ret}", params.trim())
             }
         }
-        (None, "constant") if class.pseudo => format!("const {}{}", m.name, ty_suffix(":")),
-        (None, "constant") => format!("public static const {}{}", m.name, ty_suffix(":")),
+        (None, "constant") if class.pseudo => {
+            format!("const {}{}{val_suffix}", m.name, ty_suffix(":"))
+        }
+        (None, "constant") => {
+            format!(
+                "public static const {}{}{val_suffix}",
+                m.name,
+                ty_suffix(":")
+            )
+        }
+        (None, "property") if m.read_only && as3 => {
+            format!("{access}{stat}function get {}(){}", m.name, ty_suffix(":"))
+        }
+        (None, "property") if m.read_only => {
+            format!(
+                "{access}{stat}var {}{} // read-only",
+                m.name,
+                ty_suffix(":")
+            )
+        }
         (None, "property") => format!("{access}{stat}var {}{}", m.name, ty_suffix(":")),
         (None, "event" | "callback") if as3 && !class.pseudo => {
-            format!("addEventListener(\"{}\", listener)", m.name)
+            let event_ty = if m.ty.trim().is_empty() {
+                "flash.events.Event"
+            } else {
+                m.ty.trim()
+            };
+            format!("[Event(name=\"{}\", type=\"{event_ty}\")]", m.name)
         }
         (None, "event" | "callback") if !class.pseudo => {
-            format!("{}.{} = function() {{}}", lower_first(owner), m.name)
+            format!("public {} = function() {{}}", m.name)
         }
         _ => m.name.clone(),
     };
@@ -745,29 +1038,8 @@ fn as_member_view(m: &Member, language: ScriptLanguage, class: &AsClassDraft) ->
         .map(|part| describe_param(part).0)
         .filter(|name| !name.is_empty())
         .collect();
-    let args = arg_names.join(", ");
-    let receiver = lower_first(owner);
-    let example = if class.pseudo {
-        if callable {
-            format!("{}({args});", m.name)
-        } else {
-            m.name.clone()
-        }
-    } else {
-        match (kind, callable) {
-            ("constructor", _) => format!("var {receiver}:{owner} = new {owner}({args});"),
-            (_, true) if m.is_static => format!("{owner}.{}({args});", m.name),
-            (_, true) => format!("{receiver}.{}({args});", m.name),
-            ("event" | "callback", false) if as3 => {
-                format!("{receiver}.addEventListener(\"{}\", listener);", m.name)
-            }
-            ("event" | "callback", false) => {
-                format!("{receiver}.{} = function() {{\n}};", m.name)
-            }
-            (_, false) if m.is_static || kind == "constant" => format!("{owner}.{}", m.name),
-            (_, false) => format!("{receiver}.{}", m.name),
-        }
-    };
+    let usage = default_member_usage(m, language, class, &arg_names);
+    let example = default_member_example(m, language, class, &usage);
     let description =
         script_api::describe_as_member(language, &class.key, &class.name, class.pseudo, m);
     let kind_label = match (m.is_static, kind) {
@@ -787,6 +1059,7 @@ fn as_member_view(m: &Member, language: ScriptLanguage, class: &AsClassDraft) ->
         kind: kind_label,
         group: member_group(kind),
         row_signature,
+        usage,
         declaration,
         params: param_parts
             .iter()
@@ -868,6 +1141,9 @@ fn build_js_ts_index() -> ApiIndex {
                         entry.provenance, entry.support_note, entry.availability
                     )
                 };
+                let usage = entry.insertion.trim().to_owned();
+                let declaration = format_js_ts_declaration(entry.signature, entry.kind);
+                let example = entry.insertion.trim().to_owned();
                 ApiMember {
                     key: key_of(entry),
                     name: entry.name.to_owned(),
@@ -879,13 +1155,14 @@ fn build_js_ts_index() -> ApiIndex {
                     },
                     group,
                     row_signature,
-                    declaration: entry.signature.to_owned(),
+                    usage,
+                    declaration,
                     params: Vec::new(),
                     returns: String::new(),
                     support: Some(entry.support),
                     note,
                     description: entry.summary.to_owned(),
-                    example: entry.insertion.to_owned(),
+                    example,
                     insertion: crate::panels::actions::js_ts_toolbox_insertion(entry),
                     see_also,
                 }
@@ -899,6 +1176,10 @@ fn build_js_ts_index() -> ApiIndex {
         } else {
             "partial"
         };
+        let class_example = entries
+            .first()
+            .map(|e| e.insertion.trim().to_owned())
+            .unwrap_or_default();
         package
             .classes
             .push((category.to_owned(), category.to_owned()));
@@ -911,6 +1192,7 @@ fn build_js_ts_index() -> ApiIndex {
                 chain: Vec::new(),
                 status: class_status.into(),
                 description: format!("{description}."),
+                example: class_example,
                 insertion: None,
                 members,
             }),

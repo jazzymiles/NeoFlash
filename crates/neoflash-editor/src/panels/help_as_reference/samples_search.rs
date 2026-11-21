@@ -172,7 +172,7 @@ pub(crate) const CLASSIC_ESC_CHORDS: [(&str, &str, &str); 50] = [
 pub(crate) const AS2_FN_DECLARATIONS_AND_LITERALS_SAMPLE: &str =
     "// 1. Hoisting: named function declarations can be called before or after their definition
 var openingHit:Number = calcDamage(24, true);
-trace(\"Opening hit:\", openingHit);
+trace(\"Opening hit:\", openingHit); // Output: Opening hit: 48
 
 function calcDamage(base:Number, crit:Boolean):Number {
     if (base <= 0) {
@@ -186,14 +186,14 @@ function calcDamage(base:Number, crit:Boolean):Number {
 var easeOutQuad:Function = function(t:Number):Number {
     return t * (2 - t);
 };
-trace(\"Ease at 50%:\", easeOutQuad(0.5));
+trace(\"Ease at 50%:\", easeOutQuad(0.5)); // Output: Ease at 50%: 0.75
 
 // 3. Passing an anonymous function as a callback comparator to Array.sort()
 var highScores:Array = [120, 450, 80, 310];
 highScores.sort(function(a:Number, b:Number):Number {
     return b - a;
 });
-trace(\"Descending scores:\", highScores);";
+trace(\"Descending scores:\", highScores); // Output: Descending scores: 450,310,120,80";
 
 pub(crate) const AS2_FN_ARGUMENTS_CALL_APPLY_SAMPLE: &str =
     "// 1. Variadic function inspecting arguments.length, arguments[i], and arguments.caller
@@ -203,7 +203,7 @@ function sumAll():Number {
         total += Number(arguments[i]);
     }
     if (arguments.caller != null) {
-        trace(\"sumAll called from nested helper\");
+        trace(\"sumAll called from nested helper\"); // Output: sumAll called from nested helper
     }
     return total;
 }
@@ -211,7 +211,7 @@ function sumAll():Number {
 function awardWaveBonus():Number {
     return sumAll(10, 25, 50, 15);
 }
-trace(\"Wave bonus:\", awardWaveBonus());
+trace(\"Wave bonus:\", awardWaveBonus()); // Output: Wave bonus: 100
 
 // 2. Anonymous recursion via arguments.callee
 var factorial:Function = function(n:Number):Number {
@@ -220,7 +220,7 @@ var factorial:Function = function(n:Number):Number {
     }
     return n * Number(arguments.callee(n - 1));
 };
-trace(\"5! =\", factorial(5));
+trace(\"5! =\", factorial(5)); // Output: 5! = 120
 
 // 3. Function.call(thisObject, arg1, ...) & Function.apply(thisObject, argsArray)
 function translateClip(dx:Number, dy:Number):Void {
@@ -243,7 +243,7 @@ Enemy.prototype.step = function():Void {
 };
 var scout = new Enemy(240, 120, 3);
 scout.step();
-trace(\"Enemy x after step:\", scout.x);
+trace(\"Enemy x after step:\", scout.x); // Output: Enemy x after step: 237
 
 // 2. Local var activation scope & lexical closures vs timeline properties (this.score)
 this.score = 0;
@@ -255,7 +255,7 @@ function makeCounter(start:Number):Function {
     };
 }
 var nextWave:Function = makeCounter(1);
-trace(\"Wave A:\", nextWave(1), \"Wave B:\", nextWave(1));";
+trace(\"Wave A:\", nextWave(1), \"Wave B:\", nextWave(1)); // Output: Wave A: 2 Wave B: 3";
 
 pub(crate) const AS2_ONE_FRAME_GAME_LOOP_SAMPLE: &str =
     "// Single-frame AS2 game pattern on Frame 1 ('Actions' layer) — run with Test Movie!
@@ -330,7 +330,7 @@ var moveClip:Function = function(dx:Number, dy:Number):void {
 var actor:MovieClip = new MovieClip();
 moveClip.call(actor, 12, -4);
 moveClip.apply(actor, [8, 16]);
-trace(\"AS3 fn results:\", calcDamage(25, true), sumAll(10, 20, 30), nextWave(), actor.x, actor.y);";
+trace(\"AS3 fn results:\", calcDamage(25, true), sumAll(10, 20, 30), nextWave(), actor.x, actor.y); // Output: AS3 fn results: 50 60 2 20 12";
 
 pub(crate) const JS_FUNCTIONS_CLOSURES_AND_CALL_SAMPLE: &str = "// ES2023+ Functions: declarations, arrow callbacks, ...rest, closures & call / apply
 function calcDamage(base, crit = false) {
@@ -360,7 +360,7 @@ const spriteState = { x: 40, y: 60 };
 nudgeReceiver.call(spriteState, 10, -5);
 nudgeReceiver.apply(spriteState, [5, 15]);
 const nextId = makeCounter(100);
-trace(calcDamage(20, true), easeOutQuad(0.5), sumAll(5, 10, 15), nextId(), spriteState.x, spriteState.y);";
+trace(calcDamage(20, true), easeOutQuad(0.5), sumAll(5, 10, 15), nextId(), spriteState.x, spriteState.y); // Output: 40 0.75 30 101 55 70";
 
 pub(crate) const TS_TYPED_AND_GENERIC_FUNCTIONS_SAMPLE: &str = "type EasingFn = (t: number) => number;
 
@@ -387,7 +387,7 @@ function makeCounter(start: number): (step: number) => number {
 }
 
 const nextId = makeCounter(0);
-trace(calcDamage(30, true, 5), easeOutQuad(0.5), firstOrFallback([\"laser\", \"shield\"], \"none\"), nextId(1));";
+trace(calcDamage(30, true, 5), easeOutQuad(0.5), firstOrFallback([\"laser\", \"shield\"], \"none\"), nextId(1)); // Output: 65 0.75 laser 1";
 
 /// Structured search index entry covering language statements, core classes, multi-case examples,
 /// and authoring chords with explicit dialect badges (`[AS1/AS2]`, `[AS3]`, `[JS]`, `[TS]`).
@@ -737,7 +737,11 @@ pub(crate) fn api_signature_table(
     let p = neoflash_ui::palette(ui.ctx());
     ui.add_space(space::s3());
     outline_heading(ui, 1, title);
-    ui.add(egui::Label::new(rich(title, TextStyle::SmallStrong).color(p.text_secondary)).wrap());
+    ui.add(
+        egui::Label::new(rich(title, TextStyle::SmallStrong).color(p.text_secondary))
+            .selectable(true)
+            .wrap(),
+    );
     ui.add_space(space::s1());
 
     let width = ui.available_width().max(120.0);
@@ -772,14 +776,14 @@ pub(crate) fn api_signature_table(
     let total: f32 = laid.iter().map(|(_, height)| height).sum();
     let (rect, _) = ui.allocate_exact_size(vec2(width, total), egui::Sense::hover());
     if ui.is_rect_visible(rect) {
-        let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
+        let clip = rect.intersect(ui.clip_rect());
         let corner = radius::md() as u8;
         let line = Stroke::new(1.0_f32, p.border_subtle);
         let mut y = rect.top();
-        for (i, (galleys, height)) in laid.into_iter().enumerate() {
+        for (row_idx, (galleys, height)) in laid.into_iter().enumerate() {
             let row = Rect::from_min_size(egui::pos2(rect.left(), y), vec2(width, height));
-            if i == 0 {
-                painter.rect_filled(
+            if row_idx == 0 {
+                ui.painter().with_clip_rect(clip).rect_filled(
                     row,
                     egui::CornerRadius {
                         nw: corner,
@@ -790,21 +794,41 @@ pub(crate) fn api_signature_table(
                     p.bg_app,
                 );
             } else {
-                painter.hline(rect.x_range(), y, line);
+                ui.painter()
+                    .with_clip_rect(clip)
+                    .hline(rect.x_range(), y, line);
             }
             let mut x = rect.left();
-            for (galley, column) in galleys.into_iter().zip(columns) {
+            for (col_idx, (galley, col_w)) in galleys.into_iter().zip(columns).enumerate() {
+                let cell_rect = Rect::from_min_size(egui::pos2(x, y), vec2(col_w, height));
                 let color = galley
                     .job
                     .sections
                     .first()
                     .map_or(p.text_primary, |s| s.format.color);
-                painter.galley(egui::pos2(x + pad.x, y + pad.y), galley, color);
-                x += column;
+                let cell_id = ui.id().with(("table-cell", title, row_idx, col_idx));
+                let cell_resp = ui.interact(cell_rect, cell_id, egui::Sense::click_and_drag());
+                let cell_text = galley.text().to_owned();
+                let mut cell_ui = ui.new_child(egui::UiBuilder::new().max_rect(cell_rect));
+                cell_ui.set_clip_rect(cell_rect.intersect(clip));
+                cell_ui.style_mut().interaction.selectable_labels = true;
+                cell_ui.style_mut().interaction.multi_widget_text_select = true;
+                egui::text_selection::LabelSelectionState::label_text_selection(
+                    &cell_ui,
+                    &cell_resp,
+                    egui::pos2(x + pad.x, y + pad.y),
+                    galley,
+                    color,
+                    Stroke::NONE,
+                );
+                cell_resp.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &cell_text)
+                });
+                x += col_w;
             }
             y += height;
         }
-        painter.rect_stroke(
+        ui.painter().with_clip_rect(clip).rect_stroke(
             rect,
             egui::CornerRadius::same(corner),
             line,

@@ -2506,6 +2506,7 @@ impl MenuSyncFingerprint {
         }
         mix!(&editor.workspace.general.recent_files);
         mix!(editor.has_ready_ai_connection());
+        mix!(ctx.is_some_and(crate::clipboard::has_egui_label_selection));
 
         mix!(editor.debugger.startup_status.is_some());
         mix!(editor.debugger.breakpoints.len());

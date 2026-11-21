@@ -383,6 +383,12 @@ fn load_process_rich_clipboard() -> Option<RichTextClipboard> {
     None
 }
 
+pub(crate) fn has_egui_label_selection(ctx: &egui::Context) -> bool {
+    ctx.plugin::<egui::text_selection::LabelSelectionState>()
+        .lock()
+        .has_selection()
+}
+
 pub(crate) struct ClipboardState {
     pub(crate) session: String,
     pub(crate) menu_open: bool,
@@ -390,11 +396,20 @@ pub(crate) struct ClipboardState {
     pub(crate) menu_target: Option<ClipboardTarget>,
     pub(crate) rich_text: Option<RichTextClipboard>,
     pending: Option<Request>,
+    pending_label_copy: Option<egui::ViewportId>,
     view: Option<(Id, u64, [f64; 2])>,
 }
 impl ClipboardState {
     pub(crate) fn has_pending(&self) -> bool {
-        self.pending.is_some()
+        self.pending.is_some() || self.pending_label_copy.is_some()
+    }
+    pub(crate) fn take_pending_label_copy_for(&mut self, viewport: egui::ViewportId) -> bool {
+        if self.pending_label_copy == Some(viewport) {
+            self.pending_label_copy = None;
+            true
+        } else {
+            false
+        }
     }
 }
 impl Default for ClipboardState {
@@ -412,6 +427,7 @@ impl Default for ClipboardState {
             menu_target: None,
             rich_text: None,
             pending: None,
+            pending_label_copy: None,
             view: None,
         }
     }
@@ -1943,6 +1959,19 @@ impl Editor {
             self.message("Clipboard command canceled: the editing target changed.");
             return;
         }
+        if !target.is_text() && command == ClipboardCommand::Copy {
+            if has_egui_label_selection(ctx) {
+                self.clipboard.pending_label_copy = Some(ctx.viewport_id());
+                ctx.request_repaint();
+                return;
+            }
+            if self.has_modal_dialog_in(ctx) {
+                return;
+            }
+        }
+        if !target.is_text() && command == ClipboardCommand::Cut && self.has_modal_dialog_in(ctx) {
+            return;
+        }
         if self.is_standalone_script_session() && !target.is_text() {
             return;
         }
@@ -2023,6 +2052,19 @@ impl Editor {
             self.message("Clipboard command canceled: the editing target changed.");
             return;
         }
+        if !target.is_text() && command == ClipboardCommand::Copy {
+            if has_egui_label_selection(ctx) {
+                self.clipboard.pending_label_copy = Some(ctx.viewport_id());
+                ctx.request_repaint();
+                return;
+            }
+            if self.has_modal_dialog_in(ctx) {
+                return;
+            }
+        }
+        if !target.is_text() && command == ClipboardCommand::Cut && self.has_modal_dialog_in(ctx) {
+            return;
+        }
         if self.is_standalone_script_session() && !target.is_text() {
             return;
         }
@@ -2077,6 +2119,16 @@ impl Editor {
         ctx: &egui::Context,
         read_generation: impl FnOnce() -> Option<u64>,
     ) {
+        if self
+            .clipboard
+            .take_pending_label_copy_for(ctx.viewport_id())
+        {
+            ctx.input_mut(|input| {
+                if !input.events.iter().any(|ev| matches!(ev, Event::Copy)) {
+                    input.events.push(Event::Copy);
+                }
+            });
+        }
         let (mut events, now) =
             ctx.input_mut(|input| (std::mem::take(&mut input.events), input.time));
         let user_intervened = events.iter().any(|event| {
@@ -2118,6 +2170,12 @@ impl Editor {
                 continue;
             }
             if !matches!(event, Event::Copy | Event::Cut | Event::Paste(_)) {
+                retained.push(event.clone());
+                continue;
+            }
+            if matches!(event, Event::Copy)
+                && (has_egui_label_selection(ctx) || self.has_modal_dialog_in(ctx))
+            {
                 retained.push(event.clone());
                 continue;
             }

@@ -848,7 +848,7 @@ function applyPatch(actor: Actor, patch: ActorPatch): Actor {
 
 const hero: Actor = { id: \"p1\", x: 120, y: 240, hp: 100 };
 const moved: Actor = applyPatch(hero, { x: 160, hp: 95 });
-trace(\"Updated hero:\", moved.id, moved.x, moved.hp);",
+trace(\"Updated hero:\", moved.id, moved.x, moved.hp); // Output: Updated hero: p1 160 95",
         },
     );
 

@@ -594,20 +594,181 @@ fn t389_member_views_describe_parameters_and_examples() {
 
     let index = api_index(LanguageScope::As3);
     let point = index.class("flash.geom.Point").expect("Point");
+    assert!(
+        !point.example.is_empty(),
+        "non-pseudo classes carry a class summary example"
+    );
     let constructor = point
         .members
         .iter()
         .find(|m| m.kind == "constructor")
         .expect("Point constructor");
-    assert_eq!(constructor.example, "var point:Point = new Point(x, y);");
+    assert_eq!(constructor.usage, "var point:Point = new Point(x, y);");
     let distance = point
         .members
         .iter()
         .find(|m| m.name == "distance")
         .expect("Point.distance");
     assert_eq!(distance.kind, "static method");
-    assert_eq!(distance.example, "Point.distance(pt1, pt2);");
+    assert_eq!(distance.usage, "Point.distance(pt1, pt2);");
     assert_eq!(distance.returns, "Number");
+
+    let array = index.class("Array").expect("Array");
+    let last_index_of = array
+        .members
+        .iter()
+        .find(|m| m.name == "lastIndexOf")
+        .expect("Array.lastIndexOf");
+    assert_eq!(
+        last_index_of.usage,
+        "array.lastIndexOf(searchElement, fromIndex);"
+    );
+    assert_eq!(
+        last_index_of.declaration,
+        "public function lastIndexOf(\n    searchElement:*,\n    fromIndex:int = 0x7fffffff\n):int"
+    );
+
+    let byte_array = index.class("flash.utils.ByteArray").expect("ByteArray");
+    let read_u8 = byte_array
+        .members
+        .iter()
+        .find(|m| m.name == "readUnsignedByte")
+        .expect("ByteArray.readUnsignedByte");
+    assert_eq!(read_u8.usage, "byteArray.readUnsignedByte();");
+
+    let mc = index.class("flash.display.MovieClip").expect("MovieClip");
+    let current_frame = mc
+        .members
+        .iter()
+        .find(|m| m.name == "currentFrame")
+        .expect("MovieClip.currentFrame");
+    assert_eq!(current_frame.usage, "movieClip.currentFrame");
+    assert_eq!(
+        current_frame.declaration,
+        "public function get currentFrame():int"
+    );
+    assert_eq!(current_frame.row_signature, ": int  ·  read-only");
+
+    let disp = index
+        .class("flash.display.DisplayObject")
+        .expect("DisplayObject");
+    let prop_x = disp
+        .members
+        .iter()
+        .find(|m| m.name == "x")
+        .expect("DisplayObject.x");
+    assert_eq!(prop_x.usage, "displayObject.x = value;");
+    assert_eq!(prop_x.declaration, "public var x:Number");
+
+    let mouse_ev = index.class("flash.events.MouseEvent").expect("MouseEvent");
+    let click = mouse_ev
+        .members
+        .iter()
+        .find(|m| m.name == "CLICK")
+        .expect("MouseEvent.CLICK");
+    assert_eq!(click.usage, "MouseEvent.CLICK");
+    assert_eq!(
+        click.declaration,
+        "public static const CLICK:String = \"click\""
+    );
+
+    let math = index.class("Math").expect("Math");
+    let pi = math
+        .members
+        .iter()
+        .find(|m| m.name == "PI")
+        .expect("Math.PI");
+    assert_eq!(pi.usage, "Math.PI");
+    assert!(
+        pi.declaration
+            .starts_with("public static const PI:Number = 3.14159"),
+        "unexpected Math.PI declaration: {}",
+        pi.declaration
+    );
+
+    let dispatcher = index
+        .class("flash.events.EventDispatcher")
+        .expect("EventDispatcher");
+    let activate = dispatcher
+        .members
+        .iter()
+        .find(|m| m.name == "activate")
+        .expect("EventDispatcher.activate");
+    assert_eq!(
+        activate.usage,
+        "eventDispatcher.addEventListener(\"activate\", listener);"
+    );
+    assert_eq!(
+        activate.declaration,
+        "[Event(name=\"activate\", type=\"flash.events.Event\")]"
+    );
+
+    let globals = index.class(API_GLOBAL_KEY).expect("AS3 globals");
+    let nan = globals
+        .members
+        .iter()
+        .find(|m| m.name == "NaN")
+        .expect("NaN");
+    assert_eq!(nan.usage, "NaN");
+    let flash_utils = index.class("flash.utils").expect("flash.utils");
+    let get_timer = flash_utils
+        .members
+        .iter()
+        .find(|m| m.name == "getTimer")
+        .expect("getTimer");
+    assert_eq!(get_timer.usage, "getTimer();");
+
+    let as2 = api_index(LanguageScope::As1As2);
+    let as2_mc = as2.class("MovieClip").expect("AS2 MovieClip");
+    let as2_cf = as2_mc
+        .members
+        .iter()
+        .find(|m| m.name == "_currentframe")
+        .expect("AS2 _currentframe");
+    assert_eq!(
+        as2_cf.declaration,
+        "public var _currentframe:Number // read-only"
+    );
+    assert_eq!(as2_cf.row_signature, ": Number  ·  read-only");
+    let as2_enter_frame = as2_mc
+        .members
+        .iter()
+        .find(|m| m.name == "onEnterFrame")
+        .expect("AS2 onEnterFrame");
+    assert_eq!(
+        as2_enter_frame.usage,
+        "movieClip.onEnterFrame = function():Void {};"
+    );
+    assert_eq!(
+        as2_enter_frame.declaration,
+        "public onEnterFrame = function() {}"
+    );
+
+    let js = api_index(LanguageScope::JsTs);
+    let ctx_cat = js
+        .class("NeoFlash Context & Timeline")
+        .expect("NeoFlash Context & Timeline");
+    let js_goto = ctx_cat
+        .members
+        .iter()
+        .find(|m| m.name == "gotoAndPlay")
+        .expect("JS gotoAndPlay");
+    assert_eq!(
+        js_goto.declaration,
+        "gotoAndPlay(\n    frameOrLabel: number | string,\n    scene?: string\n): void"
+    );
+    let ecma_cat = js.class("ECMAScript & Async").expect("ECMAScript & Async");
+    let js_json = ecma_cat
+        .members
+        .iter()
+        .find(|m| m.name == "JSON")
+        .expect("JSON");
+    assert!(
+        !js_json.declaration.contains('\n'),
+        "multi-variant '|' JS/TS signatures stay single-line: {}",
+        js_json.declaration
+    );
+
     assert!(api_footer_text(LanguageScope::As3).starts_with("ActionScript 3 · "));
 }
 
@@ -769,4 +930,181 @@ fn t397_every_api_class_and_member_has_description_and_js_ts_status_coverage() {
         js_texts.contains("Partial") && js_texts.contains("SourceUnit"),
         "JS/TS detail column must render Partial badge and boundary note: {js_texts}"
     );
+}
+
+#[test]
+fn t440_api_detail_renders_usage_before_signature_before_example_and_all_copy_buttons_work() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let _ = crate::app::Editor::from_project(&ctx, neoflash_core::Project::blank());
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(520.0, 1400.0));
+
+    let index = api_index(LanguageScope::As3);
+    let array = index.class("Array").expect("Array");
+    let member = array
+        .members
+        .iter()
+        .find(|m| m.name == "lastIndexOf")
+        .expect("Array.lastIndexOf");
+    assert_ne!(member.usage, member.declaration);
+    assert_ne!(member.usage, member.example);
+
+    let mut state = ApiBrowserState::default();
+    state.select(LanguageScope::As3, "Array", Some(&member.key));
+
+    let run_pass = |state: &mut ApiBrowserState, events: Vec<egui::Event>| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                let mut actions = RefActions::default();
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    api_detail_column(ui, state, LanguageScope::As3, &mut actions);
+                });
+            },
+        )
+    };
+
+    let _ = run_pass(&mut state, vec![]);
+    let out = run_pass(&mut state, vec![]);
+
+    let find_y = |needle: &str| -> f32 {
+        out.shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                egui::Shape::Text(t)
+                    if t.galley.text() == needle
+                        || t.galley.text().eq_ignore_ascii_case(needle) =>
+                {
+                    Some(t.pos.y)
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("expected painted text {needle:?}"))
+    };
+
+    let y_usage_cap = find_y("Usage");
+    let y_usage_code = find_y(&member.usage);
+    let y_sig_cap = find_y("Signature");
+    let y_sig_code = find_y(&member.declaration);
+    let y_desc = find_y(&member.description);
+    let y_params = find_y("Parameters");
+    let y_returns = find_y("Returns");
+    let y_status = find_y("In NeoFlash");
+    let y_example_cap = find_y("Example");
+    let y_example_code = find_y(&member.example);
+
+    assert!(y_usage_cap < y_usage_code);
+    assert!(y_usage_code < y_sig_cap);
+    assert!(y_sig_cap < y_sig_code);
+    assert!(y_sig_code < y_desc);
+    assert!(y_desc < y_params);
+    assert!(y_params < y_returns);
+    assert!(y_returns < y_status);
+    assert!(y_status < y_example_cap);
+    assert!(y_example_cap < y_example_code);
+
+    let copy_button_centers = |out: &egui::FullOutput| -> Vec<egui::Pos2> {
+        let mut rects: Vec<egui::Rect> = out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .expect("accesskit")
+            .nodes
+            .iter()
+            .filter_map(|(_, node)| {
+                if node.role() == egui::accesskit::Role::Button && node.label() == Some("Copy") {
+                    let b = node.bounds()?;
+                    Some(egui::Rect::from_min_max(
+                        egui::pos2(b.x0 as f32, b.y0 as f32),
+                        egui::pos2(b.x1 as f32, b.y1 as f32),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        rects.sort_by(|a, b| a.min.y.total_cmp(&b.min.y));
+        rects.into_iter().map(|r| r.center()).collect()
+    };
+
+    let centers = copy_button_centers(&out);
+    assert_eq!(
+        centers.len(),
+        4,
+        "expected Usage icon Copy, Signature icon Copy, Example icon Copy, and bottom Copy button"
+    );
+
+    let click_and_read_copied = |state: &mut ApiBrowserState, pos: egui::Pos2| -> String {
+        let btn = |pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let _ = run_pass(state, vec![egui::Event::PointerMoved(pos)]);
+        let _ = run_pass(state, vec![btn(true)]);
+        let release_out = run_pass(state, vec![btn(false)]);
+        release_out
+            .platform_output
+            .commands
+            .iter()
+            .find_map(|cmd| match cmd {
+                egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("clicking Copy at {pos:?} must emit CopyText"))
+    };
+
+    assert_eq!(click_and_read_copied(&mut state, centers[0]), member.usage);
+    assert_eq!(
+        click_and_read_copied(&mut state, centers[1]),
+        member.declaration
+    );
+    assert_eq!(
+        click_and_read_copied(&mut state, centers[2]),
+        member.example
+    );
+    assert_eq!(
+        click_and_read_copied(&mut state, centers[3]),
+        member.example
+    );
+
+    // Class summary (no member selected) also renders its Example code box with working Copy buttons.
+    let point = index.class("flash.geom.Point").expect("Point");
+    state.select(LanguageScope::As3, "flash.geom.Point", None);
+    let _ = run_pass(&mut state, vec![]);
+    let class_out = run_pass(&mut state, vec![]);
+    let class_centers = copy_button_centers(&class_out);
+    assert_eq!(
+        class_centers.len(),
+        2,
+        "class_summary must expose Example header Copy icon button and bottom Copy button"
+    );
+    assert_eq!(
+        click_and_read_copied(&mut state, class_centers[0]),
+        point.example
+    );
+    assert_eq!(
+        click_and_read_copied(&mut state, class_centers[1]),
+        point.example
+    );
+}
+
+#[test]
+fn t440_browser_html_renders_declarations_examples_output_comments_and_selectable_css() {
+    let html = render_full_browser_help_html(Theme::Dark);
+    assert!(!html.contains("<script"));
+    assert!(html.contains("Member &amp; Signature"));
+    assert!(html.contains("Description &amp; Example"));
+    assert!(html.contains("Description, Boundary &amp; Example"));
+    assert!(html.contains("public function "));
+    assert!(html.contains("// Output: Opening hit: 48"));
+    assert!(html.contains("// Output: AS3 fn results: 50 60 2 20 12"));
+    assert!(html.contains("// Output: 40 0.75 30 101 55 70"));
+    assert!(html.contains("// Output: 65 0.75 laser 1"));
+    assert!(html.contains("user-select:text"));
 }

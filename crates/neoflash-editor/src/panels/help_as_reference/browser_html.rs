@@ -598,6 +598,7 @@ fn write_js_ts_entries_html(
     include_scope_summary: bool,
     out: &mut String,
 ) {
+    let index = api_index(LanguageScope::JsTs);
     out.push_str("<h3>");
     crate::panels::help_manual::escape_html(heading, out);
     out.push_str("</h3>");
@@ -607,17 +608,33 @@ fn write_js_ts_entries_html(
         out.push_str("</p>");
     }
     out.push_str(
-        "<table class=\"ref-table\"><thead><tr><th>Entry &amp; Signature</th><th>NeoFlash Status</th><th>Description &amp; Boundary</th></tr></thead><tbody>",
+        "<table class=\"ref-table\"><thead><tr><th>Entry &amp; Signature</th><th>NeoFlash Status</th><th>Description, Boundary &amp; Example</th></tr></thead><tbody>",
     );
     for entry in JS_TS_API_ENTRIES
         .iter()
         .filter(|e| categories.contains(&e.category))
     {
+        let member_key = format!("{}|{}", entry.category, entry.name);
+        let indexed = index
+            .class(entry.category)
+            .and_then(|cls| cls.member(&member_key));
+        let declaration = indexed.map_or(entry.signature, |m| m.declaration.as_str());
+        let usage = indexed.map_or(entry.insertion.trim(), |m| m.usage.as_str());
+        let example = indexed.map_or(entry.insertion.trim(), |m| m.example.as_str());
         out.push_str("<tr><td><code>");
         crate::panels::help_manual::escape_html(entry.name, out);
-        out.push_str("</code><br><code>");
-        crate::panels::help_manual::escape_html(entry.signature, out);
-        out.push_str("</code></td><td>");
+        out.push_str("</code>");
+        if !usage.is_empty() && usage != declaration {
+            out.push_str("<br><code>");
+            crate::panels::help_manual::escape_html(usage, out);
+            out.push_str("</code>");
+        }
+        if !declaration.is_empty() {
+            out.push_str("<pre class=\"code-block\"><code>");
+            crate::panels::help_manual::escape_html(declaration, out);
+            out.push_str("</code></pre>");
+        }
+        out.push_str("</td><td>");
         write_support_badge_html(Some(entry.support), "", out);
         out.push_str("<br><code>[");
         crate::panels::help_manual::escape_html(entry.provenance, out);
@@ -629,7 +646,13 @@ fn write_js_ts_entries_html(
         }
         out.push_str(" <em>Available in: ");
         crate::panels::help_manual::escape_html(entry.availability, out);
-        out.push_str(".</em></td></tr>");
+        out.push_str(".</em>");
+        if !example.is_empty() {
+            out.push_str("<pre class=\"code-block\"><code>");
+            crate::panels::help_manual::escape_html(example, out);
+            out.push_str("</code></pre>");
+        }
+        out.push_str("</td></tr>");
     }
     out.push_str("</tbody></table>");
 }
@@ -674,14 +697,30 @@ fn write_as_index_browser_html(
         };
         out.push_str("<details class=\"api-details\"><summary>");
         crate::panels::help_manual::escape_html(&class.name, out);
-        out.push_str(" — Core Member Descriptions</summary><table class=\"ref-table\"><thead><tr><th>Member</th><th>Status</th><th>Description</th></tr></thead><tbody>");
+        out.push_str(" — Core Member Descriptions</summary><table class=\"ref-table\"><thead><tr><th>Member &amp; Signature</th><th>Status</th><th>Description &amp; Example</th></tr></thead><tbody>");
         for member in class.members.iter().take(24) {
             out.push_str("<tr><td><code>");
             crate::panels::help_manual::escape_html(&member.label, out);
-            out.push_str("</code></td><td>");
+            out.push_str("</code>");
+            if !member.usage.is_empty() && member.usage != member.declaration {
+                out.push_str("<br><code>");
+                crate::panels::help_manual::escape_html(&member.usage, out);
+                out.push_str("</code>");
+            }
+            if !member.declaration.is_empty() {
+                out.push_str("<pre class=\"code-block\"><code>");
+                crate::panels::help_manual::escape_html(&member.declaration, out);
+                out.push_str("</code></pre>");
+            }
+            out.push_str("</td><td>");
             write_support_badge_html(member.support, "", out);
             out.push_str("</td><td>");
             crate::panels::help_manual::escape_html(&member.description, out);
+            if !member.example.is_empty() {
+                out.push_str("<pre class=\"code-block\"><code>");
+                crate::panels::help_manual::escape_html(&member.example, out);
+                out.push_str("</code></pre>");
+            }
             out.push_str("</td></tr>");
         }
         out.push_str("</tbody></table></details>");
@@ -810,7 +849,7 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
             out.push_str(
                 "</code></pre>\
                  <h3>AS3 Display List &amp; Coordinate Space Example</h3>\
-                 <pre class=\"code-block\"><code>package {\n    import flash.display.Sprite;\n    import flash.events.Event;\n    import flash.geom.Point;\n    public class Main extends Sprite {\n        public function Main() {\n            addEventListener(Event.ADDED_TO_STAGE, init);\n        }\n        private function init(e:Event):void {\n            var child:Sprite = new Sprite();\n            child.x = 120; child.y = 80;\n            addChild(child);\n            var globalPt:Point = child.localToGlobal(new Point(0, -18));\n            trace(\"Global position:\", globalPt.x, globalPt.y);\n        }\n    }\n}</code></pre>",
+                 <pre class=\"code-block\"><code>package {\n    import flash.display.Sprite;\n    import flash.events.Event;\n    import flash.geom.Point;\n    public class Main extends Sprite {\n        public function Main() {\n            addEventListener(Event.ADDED_TO_STAGE, init);\n        }\n        private function init(e:Event):void {\n            var child:Sprite = new Sprite();\n            child.x = 120; child.y = 80;\n            addChild(child);\n            var globalPt:Point = child.localToGlobal(new Point(0, -18));\n            trace(\"Global position:\", globalPt.x, globalPt.y); // Output: Global position: 120 62\n        }\n    }\n}</code></pre>",
             );
             write_as_index_browser_html(
                 LanguageScope::As3,
@@ -862,7 +901,7 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
                  <tr><td>Binary &amp; XML</td><td><code>ByteArray</code>, <code>XML</code>, <code>XMLList</code>, <code>SharedObject</code></td><td>Big/little-endian binary streams, E4X filtering, and persistent local state.</td></tr>\
                  </tbody></table>\
                  <h3>AS3 Graphics, GlowFilter, SoundChannel &amp; E4X XML Example</h3>\
-                 <pre class=\"code-block\"><code>import flash.display.Sprite;\nimport flash.filters.GlowFilter;\nimport flash.media.Sound;\nimport flash.media.SoundTransform;\nvar orb:Sprite = new Sprite();\norb.graphics.beginFill(0x3C6BF0, 0.85);\norb.graphics.drawCircle(0, 0, 36);\norb.graphics.endFill();\norb.filters = [new GlowFilter(0x6C93FF, 0.9, 16, 16, 2, 2)];\naddChild(orb);\nvar xml:XML = &lt;items&gt;&lt;weapon id=\"railgun\" dmg=\"90\"/&gt;&lt;/items&gt;;\ntrace(xml.weapon.(Number(@dmg) &gt;= 50).@id);</code></pre>",
+                 <pre class=\"code-block\"><code>import flash.display.Sprite;\nimport flash.filters.GlowFilter;\nimport flash.media.Sound;\nimport flash.media.SoundTransform;\nvar orb:Sprite = new Sprite();\norb.graphics.beginFill(0x3C6BF0, 0.85);\norb.graphics.drawCircle(0, 0, 36);\norb.graphics.endFill();\norb.filters = [new GlowFilter(0x6C93FF, 0.9, 16, 16, 2, 2)];\naddChild(orb);\nvar xml:XML = &lt;items&gt;&lt;weapon id=\"railgun\" dmg=\"90\"/&gt;&lt;/items&gt;;\ntrace(xml.weapon.(Number(@dmg) &gt;= 50).@id); // Output: railgun</code></pre>",
             );
             write_as_index_browser_html(
                 LanguageScope::As3,
@@ -932,7 +971,7 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
             out.push_str(
                 "</code></pre>\
                  <h3>TypeScript Interfaces, Unions &amp; Utility Types Example</h3>\
-                 <pre class=\"code-block\"><code>interface Actor {\n    readonly id: string;\n    x: number;\n    y: number;\n    hp: number;\n}\ntype ActorPatch = Partial&lt;Pick&lt;Actor, \"x\" | \"y\" | \"hp\"&gt;&gt;;\nfunction applyPatch(actor: Actor, patch: ActorPatch): Actor {\n    return { id: actor.id, x: patch.x ?? actor.x, y: patch.y ?? actor.y, hp: patch.hp ?? actor.hp };\n}</code></pre>",
+                 <pre class=\"code-block\"><code>interface Actor {\n    readonly id: string;\n    x: number;\n    y: number;\n    hp: number;\n}\ntype ActorPatch = Partial&lt;Pick&lt;Actor, \"x\" | \"y\" | \"hp\"&gt;&gt;;\nfunction applyPatch(actor: Actor, patch: ActorPatch): Actor {\n    return { id: actor.id, x: patch.x ?? actor.x, y: patch.y ?? actor.y, hp: patch.hp ?? actor.hp };\n}\nconst moved = applyPatch({ id: \"p1\", x: 120, y: 240, hp: 100 }, { x: 160, hp: 95 });\ntrace(moved.id, moved.x, moved.hp); // Output: p1 160 95</code></pre>",
             );
         }
         18 => {
@@ -1094,7 +1133,7 @@ pub(crate) fn render_browser_help_html_for_project(
          nav.sidebar a:hover{background:var(--bg-hover);color:var(--accent-default)}\
          .nav-dialect{font-size:10.5px;color:var(--text-tertiary);font-family:'Roboto Mono',ui-monospace,monospace;flex-shrink:0}\
          main{display:flex;flex-direction:column;gap:20px;min-width:0}\
-         section.chapter-card{background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:20px;scroll-margin-top:84px}\
+         section.chapter-card{background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:20px;scroll-margin-top:84px;user-select:text;-webkit-user-select:text}\
          section.chapter-card:target,section.chapter-card.is-opened-chapter{border-color:var(--accent-default);box-shadow:0 0 0 1px var(--accent-default)}\
          nav.sidebar a.is-opened-nav{background:var(--accent-subtle);color:var(--accent-default);font-weight:600}\
          .chapter-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--border-subtle);padding-bottom:10px;margin-bottom:12px}\
@@ -1107,8 +1146,9 @@ pub(crate) fn render_browser_help_html_for_project(
          .diagram-caption{margin-top:6px;font-size:11.5px;color:var(--text-secondary)}\
          ul.topic-list{margin:10px 0;padding-left:20px;color:var(--text-primary)}\
          ul.topic-list li{margin-bottom:6px}\
-         pre.code-block{background:var(--bg-field);border:1px solid var(--border-subtle);border-radius:6px;padding:12px;overflow-x:auto;font-family:'Roboto Mono',ui-monospace,monospace;font-size:11.5px;line-height:1.45;color:var(--text-primary)}\
-         table.ref-table{width:100%;border-collapse:collapse;margin:10px 0;font-size:12px}\
+         pre.code-block{background:var(--bg-field);border:1px solid var(--border-subtle);border-radius:6px;padding:12px;overflow-x:auto;font-family:'Roboto Mono',ui-monospace,monospace;font-size:11.5px;line-height:1.45;color:var(--text-primary);user-select:text;-webkit-user-select:text}\
+         table.ref-table{width:100%;border-collapse:collapse;margin:10px 0;font-size:12px;user-select:text;-webkit-user-select:text}\
+         table.ref-table pre.code-block{margin:6px 0 0;padding:8px 10px}\
          table.ref-table th,table.ref-table td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--border-subtle);vertical-align:top}\
          table.ref-table th{color:var(--accent-default);font-weight:600;background:var(--bg-raised)}\
          .status-working{color:var(--success-default);font-weight:600}\

@@ -329,12 +329,49 @@ impl<'a> RefRow<'a> {
 /// Overline caption of a block in the class and detail columns.
 pub(crate) fn group_caption(ui: &mut Ui, text: &str) {
     let p = neoflash_ui::palette(ui.ctx());
-    ui.add_space(space::s3());
+    let prev_y = ui.spacing().item_spacing.y;
+    let extra_top = (space::s3() - prev_y).max(0.0);
+    if extra_top > 0.0 {
+        ui.add_space(extra_top);
+    }
+    ui.spacing_mut().item_spacing.y = space::s1();
     ui.label(rich(text, TextStyle::Overline).color(p.text_tertiary));
-    ui.add_space(space::s1());
+    ui.spacing_mut().item_spacing.y = prev_y;
 }
 
-/// Code box: `bg/field`, 1 px `border/subtle`, syntax-coloured `Mono`, wrapped to the column.
+/// Overline caption of a code block with a right-aligned 1-click Copy icon button.
+pub(crate) fn group_caption_with_copy(ui: &mut Ui, text: &str, copy_code: &str) {
+    if copy_code.trim().is_empty() {
+        group_caption(ui, text);
+        return;
+    }
+    let p = neoflash_ui::palette(ui.ctx());
+    let prev_y = ui.spacing().item_spacing.y;
+    let extra_top = (space::s3() - prev_y).max(0.0);
+    if extra_top > 0.0 {
+        ui.add_space(extra_top);
+    }
+    let prev_h = ui.spacing().interact_size.y;
+    ui.spacing_mut().interact_size.y = neoflash_ui::metrics::ICON_UI;
+    ui.spacing_mut().item_spacing.y = space::s1();
+    ui.horizontal(|ui| {
+        ui.set_width(ui.available_width());
+        ui.label(rich(text, TextStyle::Overline).color(p.text_tertiary));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .add(c::IconButton::new(i16::COPY, "Copy").side(neoflash_ui::metrics::ICON_UI))
+                .clicked()
+            {
+                ui.ctx().copy_text(copy_code.to_owned());
+            }
+        });
+    });
+    ui.spacing_mut().interact_size.y = prev_h;
+    ui.spacing_mut().item_spacing.y = prev_y;
+}
+
+/// Code box: `bg/field`, 1 px `border/subtle`, syntax-coloured `Mono`, wrapped to the column,
+/// with full character/word/line pointer drag selection (`LabelSelectionState`).
 pub(crate) fn code_box(ui: &mut Ui, code: &str) -> egui::Response {
     let p = neoflash_ui::palette(ui.ctx());
     let pad = vec2(space::s3(), space::s2());
@@ -344,7 +381,7 @@ pub(crate) fn code_box(ui: &mut Ui, code: &str) -> egui::Response {
     let galley = ui.fonts_mut(|f| f.layout_job(job));
     let (rect, response) = ui.allocate_exact_size(
         vec2(width, galley.size().y + 2.0 * pad.y),
-        egui::Sense::hover(),
+        egui::Sense::click_and_drag(),
     );
     if ui.is_rect_visible(rect) {
         let corner = egui::CornerRadius::same(radius::md() as u8);
@@ -355,9 +392,18 @@ pub(crate) fn code_box(ui: &mut Ui, code: &str) -> egui::Response {
             Stroke::new(1.0_f32, p.border_subtle),
             StrokeKind::Inside,
         );
-        ui.painter()
-            .with_clip_rect(rect.intersect(ui.clip_rect()))
-            .galley(rect.min + pad, galley, p.text_primary);
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+        child.set_clip_rect(rect.intersect(ui.clip_rect()));
+        child.style_mut().interaction.selectable_labels = true;
+        child.style_mut().interaction.multi_widget_text_select = true;
+        egui::text_selection::LabelSelectionState::label_text_selection(
+            &child,
+            &response,
+            rect.min + pad,
+            galley,
+            p.text_primary,
+            Stroke::NONE,
+        );
     }
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, code));
     response
@@ -432,8 +478,38 @@ fn support_badge(ui: &mut Ui, support: Support) {
     ui.add(Badge::new(support.label(), tone));
 }
 
+/// Selectable inline status line matching `c::InlineMessage` (`16 pt` icon + `space::s2()` +
+/// wrapped `TextStyle::Small`) while keeping text 100% selectable via `LabelSelectionState`.
+fn selectable_status_message(
+    ui: &mut Ui,
+    icon: neoflash_ui::Icon,
+    color: egui::Color32,
+    text: &str,
+) {
+    let width = ui.available_width().max(48.0);
+    let icon_side = neoflash_ui::metrics::ICON_UI;
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = space::s2();
+        let (icon_rect, _) =
+            ui.allocate_exact_size(vec2(icon_side, icon_side), egui::Sense::hover());
+        if ui.is_rect_visible(icon_rect) {
+            icons::paint(ui.painter(), ui.ctx(), icon_rect, icon, color);
+        }
+        let text_w = (width - icon_side - space::s2()).max(24.0);
+        ui.vertical(|ui| {
+            ui.set_max_width(text_w);
+            ui.add(
+                egui::Label::new(rich(text, TextStyle::Small).color(color))
+                    .selectable(true)
+                    .wrap(),
+            );
+        });
+    });
+}
+
 /// "In NeoFlash" line: the catalogue status in words, with its note when there is one.
 fn support_message(ui: &mut Ui, support: Support, note: &str) {
+    let p = neoflash_ui::palette(ui.ctx());
     let text = match support {
         Support::Working if note.is_empty() => {
             "Working. The documented behaviour runs in Test Movie and HTML5 publish; only browser or sandbox limits may remain.".to_owned()
@@ -447,11 +523,12 @@ fn support_message(ui: &mut Ui, support: Support, note: &str) {
             "Missing. NeoFlash has no runtime path for it yet; the compiler reports its use.".to_owned()
         }
     };
-    ui.add(match support {
-        Support::Working => c::InlineMessage::success(&text),
-        Support::Partial => c::InlineMessage::warning(&text),
-        Support::Missing => c::InlineMessage::info(&text),
-    });
+    let (icon, color) = match support {
+        Support::Working => (i16::CHECK, p.success_default),
+        Support::Partial => (i16::WARNING, p.warning_default),
+        Support::Missing => (i16::INFO, p.text_secondary),
+    };
+    selectable_status_message(ui, icon, color, &text);
 }
 
 /// `Mono Small` text that opens another declaration: accent and underlined while hovered.
@@ -746,6 +823,8 @@ pub(crate) fn api_class_column(
     keys: RefKeys,
     actions: &mut RefActions,
 ) {
+    ui.style_mut().interaction.selectable_labels = true;
+    ui.style_mut().interaction.multi_widget_text_select = true;
     let p = neoflash_ui::palette(ui.ctx());
     let Some(class) = state.selected_class(scope) else {
         egui::Frame::new()
@@ -1010,6 +1089,8 @@ pub(crate) fn api_detail_column(
     scope: LanguageScope,
     actions: &mut RefActions,
 ) -> Option<egui::scroll_area::ScrollAreaOutput<()>> {
+    ui.style_mut().interaction.selectable_labels = true;
+    ui.style_mut().interaction.multi_widget_text_select = true;
     let p = neoflash_ui::palette(ui.ctx());
     let class = state.selected_class(scope)?;
     let member = state.selected_member(scope);
@@ -1035,12 +1116,13 @@ pub(crate) fn api_detail_column(
                         class_summary(ui, class, actions);
                         return;
                     };
-                    // Name, status, kind.
+                    // 1. Name, status, kind.
                     ui.horizontal_wrapped(|ui| {
                         ui.add(
                             egui::Label::new(
                                 rich(&member.label, TextStyle::Title).color(p.text_primary),
                             )
+                            .selectable(true)
                             .wrap(),
                         );
                         if let Some(support) = member.support {
@@ -1048,33 +1130,48 @@ pub(crate) fn api_detail_column(
                         }
                         ui.label(rich(&member.kind, TextStyle::Small).color(p.text_tertiary));
                     });
-                    code_box(ui, &member.declaration);
+                    // 2. Top — Usage.
+                    if !member.usage.is_empty() && member.usage != member.declaration {
+                        group_caption_with_copy(ui, "Usage", &member.usage);
+                        code_box(ui, &member.usage);
+                    }
+                    // 3. Next — Signature.
+                    if !member.declaration.is_empty() {
+                        group_caption_with_copy(ui, "Signature", &member.declaration);
+                        code_box(ui, &member.declaration);
+                    }
+                    // 4. Description.
                     if !member.description.is_empty() {
                         ui.add(
                             egui::Label::new(
                                 rich(&member.description, TextStyle::DialogBody)
                                     .color(p.text_secondary),
                             )
+                            .selectable(true)
                             .wrap(),
                         );
                     }
+                    // 5. Parameters.
                     if !member.params.is_empty() {
                         group_caption(ui, "Parameters");
                         let name_w = neoflash_ui::metrics::field_s().min(width * 0.4);
                         for (name, text) in &member.params {
                             ui.horizontal_top(|ui| {
                                 ui.spacing_mut().item_spacing.x = space::s2();
-                                let shown = fit_text_to_width(ui, name, TextStyle::Mono, name_w);
-                                let (rect, _) = ui.allocate_exact_size(
+                                ui.allocate_ui_with_layout(
                                     vec2(name_w, TextStyle::Body.spec().line_height),
-                                    egui::Sense::hover(),
-                                );
-                                ui.painter().text(
-                                    rect.left_center(),
-                                    egui::Align2::LEFT_CENTER,
-                                    shown,
-                                    font(TextStyle::Mono),
-                                    p.text_primary,
+                                    egui::Layout::top_down(egui::Align::Min),
+                                    |ui| {
+                                        ui.set_min_width(name_w);
+                                        ui.set_max_width(name_w);
+                                        ui.add(
+                                            egui::Label::new(
+                                                rich(name, TextStyle::Mono).color(p.text_primary),
+                                            )
+                                            .selectable(true)
+                                            .wrap(),
+                                        );
+                                    },
                                 );
                                 let rest = ui.available_width().max(24.0);
                                 ui.vertical(|ui| {
@@ -1083,29 +1180,41 @@ pub(crate) fn api_detail_column(
                                         egui::Label::new(
                                             rich(text, TextStyle::Body).color(p.text_secondary),
                                         )
+                                        .selectable(true)
                                         .wrap(),
                                     );
                                 });
                             });
                         }
                     }
+                    // 6. Returns.
                     if !member.returns.is_empty() {
                         group_caption(ui, "Returns");
                         ui.label(rich(&member.returns, TextStyle::Mono).color(p.text_primary));
                     }
+                    // 7. In NeoFlash.
                     group_caption(ui, "In NeoFlash");
                     match member.support {
                         Some(support) => support_message(ui, support, &member.note),
                         None if !member.note.is_empty() => {
-                            ui.add(c::InlineMessage::info(&member.note));
+                            selectable_status_message(
+                                ui,
+                                i16::INFO,
+                                p.text_secondary,
+                                &member.note,
+                            );
                         }
                         None => {
-                            ui.add(c::InlineMessage::info(
+                            selectable_status_message(
+                                ui,
+                                i16::INFO,
+                                p.text_secondary,
                                 "The progress catalogue has no status for this declaration.",
-                            ));
+                            );
                         }
                     }
-                    group_caption(ui, "Example");
+                    // 8. Example.
+                    group_caption_with_copy(ui, "Example", &member.example);
                     code_box(ui, &member.example);
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = space::s2();
@@ -1116,6 +1225,7 @@ pub(crate) fn api_detail_column(
                             actions.insert = Some(member.insertion.clone());
                         }
                     });
+                    // 9. See also.
                     if !member.see_also.is_empty() {
                         group_caption(ui, "See also");
                         ui.spacing_mut().interact_size.y = TextStyle::MonoSmall.spec().line_height;
@@ -1145,7 +1255,11 @@ pub(crate) fn api_detail_column(
 fn class_summary(ui: &mut Ui, class: &ApiClass, actions: &mut RefActions) {
     let p = neoflash_ui::palette(ui.ctx());
     ui.horizontal_wrapped(|ui| {
-        ui.add(egui::Label::new(rich(&class.name, TextStyle::Title).color(p.text_primary)).wrap());
+        ui.add(
+            egui::Label::new(rich(&class.name, TextStyle::Title).color(p.text_primary))
+                .selectable(true)
+                .wrap(),
+        );
         if let Some(support) = Support::of(&class.status) {
             support_badge(ui, support);
         }
@@ -1155,6 +1269,7 @@ fn class_summary(ui: &mut Ui, class: &ApiClass, actions: &mut RefActions) {
             egui::Label::new(
                 rich(&class.description, TextStyle::DialogBody).color(p.text_secondary),
             )
+            .selectable(true)
             .wrap(),
         );
     }
@@ -1166,20 +1281,32 @@ fn class_summary(ui: &mut Ui, class: &ApiClass, actions: &mut RefActions) {
             )
             .color(p.text_tertiary),
         )
+        .selectable(true)
         .wrap(),
     );
     if let Some(support) = Support::of(&class.status) {
         group_caption(ui, "In NeoFlash");
         support_message(ui, support, "");
     }
-    if let Some(insertion) = &class.insertion {
+    if !class.example.is_empty() {
+        group_caption_with_copy(ui, "Example", &class.example);
+        code_box(ui, &class.example);
+    }
+    if class.insertion.is_some() || !class.example.is_empty() {
         ui.add_space(space::s3());
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = space::s2();
             if ui.add(Button::new("Copy").icon(i16::COPY)).clicked() {
-                ui.ctx().copy_text(class.name.clone());
+                let to_copy = if class.example.is_empty() {
+                    class.name.clone()
+                } else {
+                    class.example.clone()
+                };
+                ui.ctx().copy_text(to_copy);
             }
-            if insert_button(ui, true) {
+            if let Some(insertion) = &class.insertion
+                && insert_button(ui, true)
+            {
                 actions.insert = Some(insertion.clone());
             }
         });
@@ -1206,6 +1333,8 @@ pub(crate) fn render_topic_hits(
     project_lang: ScriptLanguage,
     nav_target: &mut Option<usize>,
 ) {
+    ui.style_mut().interaction.selectable_labels = true;
+    ui.style_mut().interaction.multi_widget_text_select = true;
     let p = neoflash_ui::palette(ui.ctx());
     // Help (`None`) lists only its own authoring topics, never a scripting language.
     let (mut hits, _) =
@@ -1240,8 +1369,7 @@ pub(crate) fn render_topic_hits(
             egui::Label::new(rich(&hit.summary, TextStyle::Body).color(p.text_secondary)).wrap(),
         );
         if let Some(snippet) = hit.code_preview {
-            let preview: String = snippet.lines().take(8).collect::<Vec<_>>().join("\n");
-            code_box(ui, &preview);
+            code_box(ui, snippet);
         }
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = space::s2();
