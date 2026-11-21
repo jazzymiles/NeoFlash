@@ -23,6 +23,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod clipboard_vector;
+pub use clipboard_vector::{export_clipboard_eps, export_clipboard_pdf};
+
 /// Output format selected in `Dialog / Export image` (`DL-04`) or `Publish settings` sequence export (`T-255`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1401,7 +1404,27 @@ fn textbox_outline_runs(field: &neoflash_core::TextFieldState) -> Vec<OutlinedTe
         return Vec::new();
     };
     let mut runs_out: Vec<OutlinedTextRun> = Vec::new();
-    for run in &layout.runs {
+    let fallback_runs: Vec<neoflash_core::TextRun> = if layout.runs.is_empty() {
+        layout
+            .lines
+            .iter()
+            .map(|l| neoflash_core::TextRun {
+                text: l.text.clone(),
+                x: l.x,
+                y: l.y,
+                format: None,
+                rotation: 0.0,
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let effective_runs: &[neoflash_core::TextRun] = if layout.runs.is_empty() {
+        &fallback_runs
+    } else {
+        &layout.runs
+    };
+    for run in effective_runs {
         let fmt = run.format.as_ref().unwrap_or(&field.format);
         let size = fmt.size.max(1.0);
         let color = [

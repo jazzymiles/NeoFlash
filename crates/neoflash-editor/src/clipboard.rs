@@ -12,10 +12,21 @@ mod native;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct StageClipboardFlavors {
     pub(crate) generation: Option<u64>,
+    pub(crate) neoflash: Option<String>,
     pub(crate) plain_text: Option<String>,
     pub(crate) html: Option<String>,
+    pub(crate) pdf: Option<Vec<u8>>,
+    pub(crate) eps: Option<Vec<u8>>,
     pub(crate) svg: Option<String>,
     pub(crate) png: Option<Vec<u8>>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct StageClipboardBundle {
+    pub(crate) neoflash_text: String,
+    pub(crate) pdf_bytes: Option<Vec<u8>>,
+    pub(crate) eps_bytes: Option<Vec<u8>>,
+    pub(crate) svg_text: Option<String>,
 }
 
 #[cfg(test)]
@@ -60,8 +71,11 @@ fn read_stage_flavors_for_paste_event(
         let png = encode_arboard_image_png(&mut cb);
         Some(StageClipboardFlavors {
             generation,
+            neoflash: None,
             plain_text: None,
             html: Some(html),
+            pdf: None,
+            eps: None,
             svg: None,
             png,
         })
@@ -91,11 +105,14 @@ fn read_os_stage_clipboard_flavors(ctx: &egui::Context) -> Result<StageClipboard
                 .html
                 .as_deref()
                 .is_some_and(neoflash_import::contains_figma_clipboard_marker)
-                || (flavors
-                    .plain_text
-                    .as_deref()
-                    .is_none_or(|t| t.trim().is_empty())
-                    && flavors.svg.is_none()))
+                || (flavors.neoflash.is_none()
+                    && flavors.pdf.is_none()
+                    && flavors.eps.is_none()
+                    && flavors.svg.is_none()
+                    && flavors
+                        .plain_text
+                        .as_deref()
+                        .is_none_or(|t| t.trim().is_empty())))
             && let Ok(mut cb) = arboard::Clipboard::new()
         {
             flavors.png = encode_arboard_image_png(&mut cb);
@@ -115,8 +132,11 @@ fn read_os_stage_clipboard_flavors(ctx: &egui::Context) -> Result<StageClipboard
         .flatten();
     Ok(StageClipboardFlavors {
         generation: clipboard_generation(ctx),
+        neoflash: None,
         plain_text,
         html,
+        pdf: None,
+        eps: None,
         svg: None,
         png,
     })
@@ -187,6 +207,32 @@ fn copy_native_rich_text(
             // Keep the existing plain-text fallback, without trusting an
             // unconfirmed rich-cache generation.
             ctx.copy_text(text.to_owned());
+            None
+        }
+        native::WriteResult::Superseded => None,
+    }
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub(crate) fn copy_native_stage_clipboard(
+    ctx: &egui::Context,
+    fallback_text: &str,
+    write: impl FnOnce() -> native::WriteResult,
+) -> Option<u64> {
+    // Retire any deferred egui CopyText / CopyImage commands so end-of-frame platform
+    // output NEVER overwrites our multi-flavor NSPasteboard generation!
+    ctx.output_mut(|output| {
+        output.commands.retain(|command| {
+            !matches!(
+                command,
+                egui::OutputCommand::CopyText(_) | egui::OutputCommand::CopyImage(_)
+            )
+        });
+    });
+    match write() {
+        native::WriteResult::Written(generation) => Some(generation),
+        native::WriteResult::Unavailable => {
+            ctx.copy_text(fallback_text.to_owned());
             None
         }
         native::WriteResult::Superseded => None,
@@ -489,6 +535,88 @@ impl Editor {
         true
     }
 
+    pub(crate) fn capture_stage_clipboard_bundle(
+        &mut self,
+        ctx: &egui::Context,
+    ) -> Result<(StageClipboardBundle, usize), String> {
+        self.finish_edits();
+        self.normalize_targets();
+        let selected = self.sampled_targets();
+        if selected.is_empty() {
+            return Err("Nothing selected.".into());
+        }
+        let scene = evaluate(&self.project, self.symbol_id(), self.frame);
+        let painter = ctx.layer_painter(egui::LayerId::background());
+        let rect_bounds = self.selection_bounds(&scene, &painter);
+        let sel_bounds = rect_bounds.map(|b| {
+            [
+                f64::from(b.min.x),
+                f64::from(b.min.y),
+                f64::from(b.max.x),
+                f64::from(b.max.y),
+            ]
+        });
+        let anchor = rect_bounds
+            .map(|bounds| [bounds.center().x as f64, bounds.center().y as f64])
+            .unwrap_or_else(|| {
+                let mut min = [f64::INFINITY; 2];
+                let mut max = [f64::NEG_INFINITY; 2];
+                for (_, element) in &selected {
+                    min[0] = min[0].min(element.transform.x);
+                    min[1] = min[1].min(element.transform.y);
+                    max[0] = max[0].max(element.transform.x);
+                    max[1] = max[1].max(element.transform.y);
+                }
+                [(min[0] + max[0]) / 2., (min[1] + max[1]) / 2.]
+            });
+        let count = selected.len();
+        let elements: Vec<neoflash_core::Element> =
+            selected.iter().map(|(_, el)| el.clone()).collect();
+        let capture_project =
+            build_capture_project(&self.project, self.symbol_id(), self.frame, &elements)
+                .map_err(|e| e.to_string())?;
+        let neoflash_text = ClipboardPayload::capture_at_frame(
+            &capture_project,
+            &capture_project.root,
+            0,
+            elements,
+            &self.clipboard.session,
+            anchor,
+        )
+        .and_then(|payload| payload.to_text())
+        .map_err(|e| e.to_string())?;
+
+        let vector_project = build_vector_export_project(
+            &self.project,
+            self.symbol_id(),
+            self.frame,
+            &selected,
+            &capture_project,
+        );
+        let pdf_bytes =
+            neoflash_export::export_clipboard_pdf(&vector_project, None, 0, sel_bounds).ok();
+        let eps_bytes =
+            neoflash_export::export_clipboard_eps(&vector_project, None, 0, sel_bounds).ok();
+        let svg_text = neoflash_export::export_clipboard_svg(
+            &vector_project,
+            None,
+            0,
+            sel_bounds,
+            Some(&neoflash_text),
+        )
+        .ok();
+
+        Ok((
+            StageClipboardBundle {
+                neoflash_text,
+                pdf_bytes,
+                eps_bytes,
+                svg_text,
+            },
+            count,
+        ))
+    }
+
     pub(crate) fn copy_selection(&mut self, ctx: &egui::Context, cut: bool) {
         if !self.has_document() || self.confirm.is_some() || self.is_standalone_script_session() {
             return;
@@ -503,6 +631,35 @@ impl Editor {
         self.clipboard.rich_text = None;
         self.stage_text_edit.copied_rich_text = None;
         store_process_rich_clipboard(None);
+
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        if native_rich_clipboard_enabled(ctx) {
+            match self.capture_stage_clipboard_bundle(ctx) {
+                Ok((bundle, count)) => {
+                    copy_native_stage_clipboard(ctx, &bundle.neoflash_text, || {
+                        native::write_stage_clipboard(&native::StageClipboardWritePayload {
+                            neoflash_text: &bundle.neoflash_text,
+                            pdf_bytes: bundle.pdf_bytes.as_deref(),
+                            eps_bytes: bundle.eps_bytes.as_deref(),
+                            svg_text: bundle.svg_text.as_deref(),
+                        })
+                    });
+                    if cut {
+                        self.transact_named("Cut", |s| {
+                            s.delete_selected();
+                        });
+                    }
+                    self.message(format!(
+                        "{} {count} object(s).",
+                        if cut { "Cut" } else { "Copied" }
+                    ));
+                }
+                Err(err) if err == "Nothing selected." => {}
+                Err(error) => self.message(format!("Copy failed: {error}")),
+            }
+            return;
+        }
+
         self.finish_edits();
         self.normalize_targets();
         let selected = self.sampled_targets();
@@ -613,7 +770,9 @@ impl Editor {
             if explicit_in_place {
                 return;
             }
-            if matches!(ClipboardPayload::from_text(text), Ok(Some(_)) | Err(_)) {
+            if stage_flavors.and_then(|f| f.neoflash.as_deref()).is_some()
+                || matches!(ClipboardPayload::from_text(text), Ok(Some(_)) | Err(_))
+            {
                 return;
             }
             if !self.paste_plain_text_into_selected_text(text, generation) {
@@ -621,64 +780,119 @@ impl Editor {
             }
             return;
         }
-        let payload = match ClipboardPayload::from_text(text) {
-            Ok(Some(payload)) => payload,
-            Ok(None) => {
-                // Priority 1: Native Figma scene (`<!--(figma)...(/figma)-->` in HTML flavor or `text`).
-                if neoflash_import::contains_figma_clipboard_marker(text) {
-                    if text.len() > neoflash_import::figma::MAX_STAGE_HTML_CLIPBOARD_BYTES {
-                        self.message("Paste failed: Figma clipboard exceeds the 128 MiB limit.");
-                        return;
-                    }
-                    let fallback_png = stage_flavors.and_then(|f| f.png.as_deref());
-                    match neoflash_import::import_figma_clipboard(text, fallback_png) {
-                        Ok(output) => {
-                            self.paste_figma_clipboard_output(ctx, output, in_place);
-                        }
-                        Err(error) => self.message(format!("Paste failed: {error}")),
-                    }
+
+        // Priority 1: Lossless NeoFlash round-trip (`app.neoflash.stage-clipboard`, raw
+        // `NEOFLASH-CLIPBOARD\n...`, or `<svg>` carrying `<!--(neoflash)<b64>(/neoflash)-->`).
+        let mut resolved_payload = None;
+        for candidate_str in [
+            stage_flavors.and_then(|f| f.neoflash.as_deref()),
+            Some(text),
+            stage_flavors.and_then(|f| f.plain_text.as_deref()),
+            stage_flavors.and_then(|f| f.svg.as_deref()),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            match ClipboardPayload::from_text(candidate_str) {
+                Ok(Some(p)) => {
+                    resolved_payload = Some(p);
+                    break;
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    self.message(format!("Paste failed: {error}"));
                     return;
                 }
-                if let Some(flavors) = stage_flavors {
-                    if let Some(html) = flavors
-                        .html
-                        .as_deref()
-                        .filter(|h| neoflash_import::contains_figma_clipboard_marker(h))
-                    {
-                        if html.len() > neoflash_import::figma::MAX_STAGE_HTML_CLIPBOARD_BYTES {
-                            self.message(
-                                "Paste failed: Figma clipboard exceeds the 128 MiB limit.",
-                            );
-                            return;
-                        }
-                        match neoflash_import::import_figma_clipboard(html, flavors.png.as_deref())
-                        {
-                            Ok(output) => {
-                                self.paste_figma_clipboard_output(ctx, output, in_place);
-                            }
-                            Err(error) => self.message(format!("Paste failed: {error}")),
-                        }
-                        return;
-                    }
-                    if let Some(svg) = flavors.svg.as_deref().filter(|s| is_svg_clipboard_text(s)) {
-                        self.paste_svg(ctx, svg, in_place);
-                        return;
-                    }
+            }
+        }
+
+        let Some(payload) = resolved_payload else {
+            // Priority 2: Native Figma `fig-kiwi` HTML (`<!--(figma)...(/figma)-->`).
+            let figma_source = neoflash_import::contains_figma_clipboard_marker(text)
+                .then_some(text)
+                .or_else(|| {
+                    stage_flavors.and_then(|f| {
+                        f.html
+                            .as_deref()
+                            .filter(|h| neoflash_import::contains_figma_clipboard_marker(h))
+                            .or_else(|| {
+                                f.plain_text
+                                    .as_deref()
+                                    .filter(|t| neoflash_import::contains_figma_clipboard_marker(t))
+                            })
+                    })
+                });
+            if let Some(figma_html) = figma_source {
+                if figma_html.len() > neoflash_import::figma::MAX_STAGE_HTML_CLIPBOARD_BYTES {
+                    self.message("Paste failed: Figma clipboard exceeds the 128 MiB limit.");
+                    return;
                 }
-                // Priority 2: SVG vector clipboard (`Copy as SVG` in Figma / Illustrator / Browser).
-                if is_svg_clipboard_text(text) {
-                    self.paste_svg(ctx, text, in_place);
-                } else if let Some((media_type, bytes)) = parse_image_data_url(text) {
+                let fallback_png = stage_flavors.and_then(|f| f.png.as_deref());
+                match neoflash_import::import_figma_clipboard(figma_html, fallback_png) {
+                    Ok(output) => {
+                        self.paste_figma_clipboard_output(ctx, output, in_place);
+                    }
+                    Err(error) => self.message(format!("Paste failed: {error}")),
+                }
+                return;
+            }
+
+            let mut had_vector_flavor = false;
+
+            // Priority 3: Adobe Illustrator / Vector PDF (`com.adobe.pdf` / `public.pdf`).
+            if let Some(pdf_bytes) = stage_flavors.and_then(|f| f.pdf.as_deref()) {
+                had_vector_flavor = true;
+                if self.paste_pdf_clipboard(ctx, pdf_bytes, in_place) {
+                    return;
+                }
+            }
+
+            // Priority 4: Adobe Illustrator AICB / PostScript Level 3 EPS (`com.adobe.encapsulated-postscript`).
+            if let Some(eps_bytes) = stage_flavors.and_then(|f| f.eps.as_deref()) {
+                had_vector_flavor = true;
+                if self.paste_eps_clipboard(ctx, eps_bytes, in_place) {
+                    return;
+                }
+            }
+
+            // Priority 5: Clean SVG (`public.svg-image`, `com.adobe.svg`, or `<svg...>` plain text).
+            if let Some(svg) = stage_flavors
+                .and_then(|f| f.svg.as_deref())
+                .filter(|s| is_svg_clipboard_text(s))
+            {
+                had_vector_flavor = true;
+                if self.paste_svg(ctx, svg, in_place) {
+                    return;
+                }
+            } else if is_svg_clipboard_text(text) {
+                had_vector_flavor = true;
+                if self.paste_svg(ctx, text, in_place) {
+                    return;
+                }
+            }
+
+            if had_vector_flavor {
+                // Vector flavors existed and failed validation/decoding; preserve `Paste failed: ...`
+                // and NEVER silently paste a flat raster PNG screenshot in place of vector artwork!
+                return;
+            }
+
+            // Priority 6: Plain text (`data:image/...` or selected Stage text replacement) / PNG raster fallback.
+            if !text.trim().is_empty() {
+                if let Some((media_type, bytes)) = parse_image_data_url(text) {
                     self.paste_image_bytes(ctx, &bytes, &media_type, in_place);
-                } else if !self.paste_plain_text_into_selected_text(text, generation) {
-                    self.message("The clipboard does not contain NeoFlash objects.");
+                    return;
                 }
+                if self.paste_plain_text_into_selected_text(text, generation) {
+                    return;
+                }
+            }
+            if let Some(png) = stage_flavors.and_then(|f| f.png.as_deref()) {
+                self.paste_image_bytes(ctx, png, "image/png", in_place);
                 return;
             }
-            Err(error) => {
-                self.message(format!("Paste failed: {error}"));
-                return;
-            }
+            self.message("The clipboard does not contain NeoFlash objects.");
+            return;
         };
         self.finish_edits();
         if !self.layer_editable() {
@@ -1018,6 +1232,185 @@ impl Editor {
             ));
         } else {
             self.message(format!("Pasted {count} object(s) from Figma."));
+        }
+        true
+    }
+    pub(crate) fn paste_pdf_clipboard(
+        &mut self,
+        ctx: &egui::Context,
+        bytes: &[u8],
+        in_place: bool,
+    ) -> bool {
+        if !self.has_document() || self.confirm.is_some() || self.is_standalone_script_session() {
+            return false;
+        }
+        match neoflash_import::import_pdf_clipboard(bytes, "clipboard.pdf") {
+            Ok(output) => self.paste_vector_clipboard_output(ctx, output, "PDF", in_place),
+            Err(error) => {
+                self.message(format!("Paste failed: {error}"));
+                false
+            }
+        }
+    }
+    pub(crate) fn paste_eps_clipboard(
+        &mut self,
+        ctx: &egui::Context,
+        bytes: &[u8],
+        in_place: bool,
+    ) -> bool {
+        if !self.has_document() || self.confirm.is_some() || self.is_standalone_script_session() {
+            return false;
+        }
+        match neoflash_import::import_eps_clipboard(bytes, "clipboard.eps") {
+            Ok(output) => self.paste_vector_clipboard_output(ctx, output, "EPS", in_place),
+            Err(error) => {
+                self.message(format!("Paste failed: {error}"));
+                false
+            }
+        }
+    }
+    pub(crate) fn paste_vector_clipboard_output(
+        &mut self,
+        ctx: &egui::Context,
+        output: neoflash_import::VectorClipboardImport,
+        format_label: &str,
+        in_place: bool,
+    ) -> bool {
+        if !self.has_document() || self.confirm.is_some() || self.is_standalone_script_session() {
+            return false;
+        }
+        let in_place = in_place || self.workspace.paste_in_place;
+        self.finish_edits();
+        let symbol_id = self.symbol_id().to_owned();
+        if self.frame >= self.symbol().timeline.frame_count {
+            self.message("Paste failed: destination frame is outside the timeline.");
+            return false;
+        }
+
+        let local_w = f64::from(output.project.width).max(1.0);
+        let local_h = f64::from(output.project.height).max(1.0);
+        let sw = f64::from(self.project.width);
+        let sh = f64::from(self.project.height);
+        let placement_matrix = if !in_place {
+            let center = self.paste_center();
+            [
+                1.0,
+                0.0,
+                0.0,
+                1.0,
+                center[0] - local_w * 0.5,
+                center[1] - local_h * 0.5,
+            ]
+        } else {
+            let [sb_x0, sb_y0, sb_x1, sb_y1] = output.stage_bounds;
+            let near_stage = sb_x0.is_finite()
+                && sb_y0.is_finite()
+                && sb_x1.is_finite()
+                && sb_y1.is_finite()
+                && sb_x0 <= 2.0 * sw
+                && sb_x1 >= -sw
+                && sb_y0 <= 2.0 * sh
+                && sb_y1 >= -sh;
+            let desired_top_left = if near_stage {
+                [sb_x0, sb_y0]
+            } else {
+                [0.0, 0.0]
+            };
+            let stage_translation = [1.0, 0.0, 0.0, 1.0, desired_top_left[0], desired_top_left[1]];
+            if self.editing_in_place() {
+                let Some(stage_to_edit) = self
+                    .edit_stage_mapping()
+                    .ok()
+                    .and_then(|m| neoflash_core::invert_affine_matrix(m.matrix()))
+                else {
+                    self.message("Paste failed: edited symbol placement is not invertible.");
+                    return false;
+                };
+                neoflash_core::affine_multiply(stage_to_edit, stage_translation)
+            } else {
+                stage_translation
+            }
+        };
+
+        let active_solo_hidden = self.has_any_solo_layers()
+            && !self
+                .symbol()
+                .timeline
+                .layers
+                .get(self.layer)
+                .is_some_and(|l| self.is_layer_id_effectively_soloed(&l.id));
+        let mut candidate = self.project.clone();
+        let (target_layer_idx, layer_id, element_ids, created_new_layer) =
+            match merge_imported_clipboard_project(
+                &mut candidate,
+                output.project,
+                &symbol_id,
+                self.layer,
+                active_solo_hidden,
+                self.frame,
+                placement_matrix,
+                self.workspace.timeline_prefs.auto_keyframe,
+            ) {
+                Ok(res) => res,
+                Err(error) => {
+                    self.message(format!("Paste failed: {error}"));
+                    return false;
+                }
+            };
+
+        let count = element_ids.len();
+        self.set_playing(false);
+        let tx_label = if in_place { "Paste in place" } else { "Paste" };
+        self.transact_named(tx_label, |editor| {
+            editor.project = candidate;
+            editor.layer = target_layer_idx;
+            editor.set_selection(
+                element_ids
+                    .into_iter()
+                    .map(|element| SelectionTarget {
+                        layer: layer_id.clone(),
+                        element,
+                    })
+                    .collect(),
+            );
+        });
+        if created_new_layer && self.has_any_solo_layers() {
+            self.solo_layers
+                .entry(symbol_id)
+                .or_default()
+                .insert(layer_id);
+        }
+        self.load_project_fonts(ctx);
+
+        let mut warn_count = 0usize;
+        let mut first_warn: Option<String> = None;
+        for d in &output.report.diagnostics {
+            if d.severity == neoflash_import::Severity::Info {
+                continue;
+            }
+            warn_count += 1;
+            if first_warn.is_none() {
+                first_warn = Some(format!("[{}] {}", d.code, d.message));
+            }
+            let sev = match d.severity {
+                neoflash_import::Severity::Warning => {
+                    crate::output_pipeline::OutputSeverity::Warning
+                }
+                neoflash_import::Severity::Error => crate::output_pipeline::OutputSeverity::Error,
+                neoflash_import::Severity::Info => crate::output_pipeline::OutputSeverity::Info,
+            };
+            self.push_output_coalesced(crate::output_pipeline::OutputEvent::new(
+                sev,
+                crate::output_pipeline::OutputSource::Import,
+                format!("[{}] {}: {}", d.code, d.location, d.message),
+            ));
+        }
+        if let Some(summary) = first_warn {
+            self.message(format!(
+                "Pasted {count} object(s) from {format_label} ({warn_count} warning(s): {summary})"
+            ));
+        } else {
+            self.message(format!("Pasted {count} object(s) from {format_label}."));
         }
         true
     }
@@ -1516,6 +1909,9 @@ impl Editor {
                     return;
                 }
             };
+            if flavors.neoflash.is_some() {
+                return;
+            }
             if let Some(plain) = flavors.plain_text.filter(|t| !t.is_empty()) {
                 self.paste_objects_with_stage_flavors(
                     ctx,
@@ -1536,82 +1932,18 @@ impl Editor {
             }
         };
         let in_place = command == ClipboardCommand::PasteInPlace;
-
-        // Priority 0: Internal NeoFlash clipboard payload.
-        if let Some(ref text) = flavors.plain_text
-            && matches!(ClipboardPayload::from_text(text), Ok(Some(_)) | Err(_))
-        {
-            self.paste_objects_with_stage_flavors(
-                ctx,
-                &text.replace("\r\n", "\n"),
-                in_place,
-                flavors.generation,
-                None,
-            );
-            return;
-        }
-
-        // Priority 1: Native Figma scene (`<!--(figma)...(/figma)-->` in HTML or plain text).
-        if let Some(figma_html) = flavors
-            .html
+        let plain_norm = flavors
+            .plain_text
             .as_deref()
-            .filter(|h| neoflash_import::contains_figma_clipboard_marker(h))
-            .or_else(|| {
-                flavors
-                    .plain_text
-                    .as_deref()
-                    .filter(|t| neoflash_import::contains_figma_clipboard_marker(t))
-            })
-        {
-            match neoflash_import::import_figma_clipboard(figma_html, flavors.png.as_deref()) {
-                Ok(output) => {
-                    self.paste_figma_clipboard_output(ctx, output, in_place);
-                }
-                Err(error) => {
-                    self.message(format!("Paste failed: {error}"));
-                }
-            }
-            return;
-        }
-
-        // Priority 2: SVG vector clipboard (`public.svg-image` / `image/svg+xml` or `<svg...>` text).
-        if let Some(svg) = flavors
-            .svg
-            .as_deref()
-            .filter(|s| is_svg_clipboard_text(s))
-            .or_else(|| {
-                flavors
-                    .plain_text
-                    .as_deref()
-                    .filter(|t| is_svg_clipboard_text(t))
-            })
-        {
-            self.paste_svg(ctx, svg, in_place);
-            return;
-        }
-
-        // Priority 3: Non-empty plain text (`data:image/...` or selected Stage text replacement).
-        if let Some(ref plain) = flavors.plain_text
-            && !plain.trim().is_empty()
-        {
-            self.paste_objects_with_stage_flavors(
-                ctx,
-                &plain.replace("\r\n", "\n"),
-                in_place,
-                flavors.generation,
-                Some(&flavors),
-            );
-            return;
-        }
-
-        // Priority 4: Raster bitmap fallback when no structured vector/Figma/text flavor exists.
-        if let Some(ref png) = flavors.png {
-            self.paste_image_bytes(ctx, png, "image/png", in_place);
-            return;
-        }
-        if self.has_document() && self.confirm.is_none() {
-            self.message("The clipboard does not contain NeoFlash objects.");
-        }
+            .unwrap_or("")
+            .replace("\r\n", "\n");
+        self.paste_objects_with_stage_flavors(
+            ctx,
+            &plain_norm,
+            in_place,
+            flavors.generation,
+            Some(&flavors),
+        );
     }
     pub(crate) fn request_clipboard_with(
         &mut self,
@@ -2670,6 +3002,150 @@ fn vector_styles_equal_modulo_id_and_name(
         && a.stroke == b.stroke
         && (a.stroke_width - b.stroke_width).abs() <= 1e-9
         && a.modifiers == b.modifiers
+}
+
+/// Build a vector-export `Project` from `capture_project`, attaching any active Stage `LayerRole::Mask`
+/// layers that mask selected elements so `export_clipboard_pdf`, `export_clipboard_eps`, and
+/// `export_clipboard_svg` preserve `W`/`W*` clipping masks alongside unmasked selection items.
+fn build_vector_export_project(
+    source_project: &neoflash_core::Project,
+    symbol_id: &str,
+    frame: u32,
+    selected: &[(SelectionTarget, neoflash_core::Element)],
+    capture_project: &neoflash_core::Project,
+) -> neoflash_core::Project {
+    let Some(src_sym) = source_project.symbol(symbol_id) else {
+        return capture_project.clone();
+    };
+    let mask_for_layer = |lid: &str| -> Option<&neoflash_core::Layer> {
+        let layer = src_sym.timeline.layers.iter().find(|l| l.id == lid)?;
+        let mask_id = layer.properties.mask.as_deref()?;
+        src_sym
+            .timeline
+            .layers
+            .iter()
+            .find(|m| m.id == mask_id && m.properties.role == neoflash_core::LayerRole::Mask)
+    };
+
+    if !selected
+        .iter()
+        .any(|(target, _)| mask_for_layer(&target.layer).is_some())
+    {
+        return capture_project.clone();
+    }
+
+    let mut vector_project = capture_project.clone();
+    let root_id = vector_project.root.clone();
+    let Some((base_bfs, base_apps)) = vector_project
+        .symbol(&root_id)
+        .and_then(|s| s.timeline.layers.first())
+        .and_then(|l| l.keyframes.first())
+        .map(|kf| (kf.bitmap_fills.clone(), kf.appearances.clone()))
+    else {
+        return capture_project.clone();
+    };
+
+    let mut occupied = collect_occupied_project_ids(&vector_project);
+    let mut new_layers: Vec<neoflash_core::Layer> = Vec::new();
+    let mut emitted_masks = std::collections::HashMap::<Id, Id>::new();
+    let fps = f64::from(source_project.fps);
+
+    let mut idx = 0usize;
+    while idx < selected.len() {
+        let first_mask = mask_for_layer(&selected[idx].0.layer);
+        let first_mask_src_id = first_mask.map(|m| m.id.as_str());
+        let mut end = idx + 1;
+        while end < selected.len()
+            && mask_for_layer(&selected[end].0.layer).map(|m| m.id.as_str()) == first_mask_src_id
+        {
+            end += 1;
+        }
+
+        let mapped_mask_id = if let Some(src_mask) = first_mask {
+            if let Some(existing) = emitted_masks.get(&src_mask.id) {
+                Some(existing.clone())
+            } else {
+                let mut mask_els =
+                    neoflash_core::sample_layer_in_at_fps(&src_sym.timeline, src_mask, frame, fps);
+                for mel in &mut mask_els {
+                    mel.id = alloc_unique_id("mask-el", &mut occupied);
+                }
+                if mask_els.is_empty() {
+                    None
+                } else {
+                    let mid = alloc_unique_id("export-mask", &mut occupied);
+                    new_layers.push(neoflash_core::Layer {
+                        id: mid.clone(),
+                        name: src_mask.name.clone(),
+                        visible: true,
+                        locked: false,
+                        properties: neoflash_core::LayerProperties {
+                            role: neoflash_core::LayerRole::Mask,
+                            mask_mode: src_mask.properties.mask_mode,
+                            ..Default::default()
+                        },
+                        keyframes: vec![neoflash_core::Keyframe {
+                            frame: 0,
+                            elements: mask_els,
+                            ..Default::default()
+                        }],
+                    });
+                    emitted_masks.insert(src_mask.id.clone(), mid.clone());
+                    Some(mid)
+                }
+            }
+        } else {
+            None
+        };
+
+        let run_elements: Vec<neoflash_core::Element> = selected[idx..end]
+            .iter()
+            .map(|(_, el)| el.clone())
+            .collect();
+        let run_ids: std::collections::HashSet<&str> =
+            run_elements.iter().map(|e| e.id.as_str()).collect();
+        let run_bfs: Vec<_> = base_bfs
+            .iter()
+            .filter(|bf| run_ids.contains(bf.element_id.as_str()))
+            .cloned()
+            .collect();
+        let run_apps: Vec<_> = base_apps
+            .iter()
+            .filter(|app| run_ids.contains(app.element_id.as_str()))
+            .cloned()
+            .collect();
+
+        let lid = alloc_unique_id("export-layer", &mut occupied);
+        new_layers.push(neoflash_core::Layer {
+            id: lid,
+            name: format!("Selection {}", new_layers.len() + 1),
+            visible: true,
+            locked: false,
+            properties: neoflash_core::LayerProperties {
+                mask: mapped_mask_id,
+                ..Default::default()
+            },
+            keyframes: vec![neoflash_core::Keyframe {
+                frame: 0,
+                elements: run_elements,
+                bitmap_fills: run_bfs,
+                appearances: run_apps,
+                ..Default::default()
+            }],
+        });
+
+        idx = end;
+    }
+
+    if let Some(root_sym) = vector_project.symbol_mut(&root_id) {
+        root_sym.timeline.layers = new_layers;
+    }
+    crate::timeline_commands::upgrade_all_format_versions(&mut vector_project);
+    if vector_project.validate().is_ok() {
+        vector_project
+    } else {
+        capture_project.clone()
+    }
 }
 
 /// Build a lean, validated donor `Project` containing only the exact Stage selection and its

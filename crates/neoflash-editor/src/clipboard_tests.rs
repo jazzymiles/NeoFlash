@@ -3282,6 +3282,7 @@ fn t413_figma_clipboard_paste_centre_and_in_place_near_and_infinite_canvas_doubl
             html: Some(near_html.clone()),
             svg: None,
             png: Some(flat_png.clone()),
+            ..StageClipboardFlavors::default()
         }),
     );
 
@@ -3469,6 +3470,7 @@ fn t413_figma_clipboard_paste_centre_and_in_place_near_and_infinite_canvas_doubl
             html: Some(far_html),
             svg: None,
             png: Some(far_png),
+            ..StageClipboardFlavors::default()
         })
     });
     editor.project.validate().unwrap();
@@ -3516,6 +3518,7 @@ fn t413_locked_and_solo_hidden_layers_block_figma_and_svg_paste_and_svg_respects
             html: Some(figma_html.clone()),
             svg: None,
             png: Some(flat_png.clone()),
+            ..StageClipboardFlavors::default()
         })
     });
     editor.project.validate().unwrap();
@@ -3551,6 +3554,7 @@ fn t413_locked_and_solo_hidden_layers_block_figma_and_svg_paste_and_svg_respects
             html: Some(figma_html.clone()),
             svg: None,
             png: Some(flat_png.clone()),
+            ..StageClipboardFlavors::default()
         })
     });
     editor.project.validate().unwrap();
@@ -3615,6 +3619,7 @@ fn t413_locked_and_solo_hidden_layers_block_figma_and_svg_paste_and_svg_respects
             html: Some(figma_html.clone()),
             svg: Some(copy_as_svg.to_owned()),
             png: None,
+            ..StageClipboardFlavors::default()
         }),
     );
     let mut actions_code = String::new();
@@ -3885,6 +3890,7 @@ fn t414_p1_5_standalone_as_session_blocks_unfocused_stage_paste_and_menu_command
             html: Some(figma_html),
             svg: Some(svg_text.to_owned()),
             png: Some(flat_png),
+            ..StageClipboardFlavors::default()
         }),
     );
     for payload in [stage_payload, svg_text.to_owned(), "Hero Title".to_owned()] {
@@ -4332,4 +4338,323 @@ fn t414_p2_14_stage_inline_text_edit_ignores_object_payload_and_paste_in_place()
     });
     assert_eq!(editor.project, before);
     assert!(editor.is_stage_inline_text_editing());
+}
+
+#[test]
+fn t415_editor_illustrator_pdf_and_eps_placement_edit_in_place_locked_layer_dedup_1_undo_and_bounds_rejection()
+ {
+    use crate::clipboard::{StageClipboardFlavors, set_test_stage_clipboard_flavors};
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank()); // 960 x 600
+
+    // Build a realistic Illustrator PDF clipboard payload with `/MediaBox [0 0 960 600]` and
+    // `/ArtBox [120 330 420 510]` -> Stage `[120, 90, 420, 270]` (300 x 180) containing:
+    // - `/FmBadge Do` Form XObject,
+    // - `2x2` RGBA `/SMask` Image XObject,
+    // - `q ... W n ... Q` clipped path,
+    // - unsupported `/ShMissing sh` operator so an approximation warning is emitted to `Output`!
+    let build_pdf_with_artbox = |ax0: f64, ay0: f64, ax1: f64, ay1: f64| -> Vec<u8> {
+        use std::io::Write as _;
+        let mut pdf = Vec::new();
+        pdf.extend_from_slice(b"%PDF-1.4\n");
+        let mut offsets = [0usize; 9];
+        offsets[1] = pdf.len();
+        pdf.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+        offsets[2] = pdf.len();
+        pdf.extend_from_slice(b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+        offsets[3] = pdf.len();
+        let _ = write!(
+            pdf,
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 960 600] /ArtBox [{ax0} {ay0} {ax1} {ay1}] /Resources 5 0 R /Contents 4 0 R >>\nendobj\n"
+        );
+        let stream = format!(
+            "0.9 0.2 0.3 rg {ax0} {ay0} 60 40 re f \
+             q {} {} 50 50 re W n 0.1 0.7 0.4 rg {} {} 60 60 re f Q \
+             q 1 0 0 1 {ax0} {ay0} cm /FmB Do Q \
+             q 16 0 0 16 {} {ay0} cm /ImA Do Q \
+             /ShMissing sh\n",
+            ax0 + 80.0,
+            ay0 + 10.0,
+            ax0 + 75.0,
+            ay0 + 5.0,
+            ax0 + 160.0
+        );
+        offsets[4] = pdf.len();
+        let _ = write!(
+            pdf,
+            "4 0 obj\n<< /Length {} >>\nstream\n{stream}endstream\nendobj\n",
+            stream.len()
+        );
+        offsets[5] = pdf.len();
+        pdf.extend_from_slice(b"5 0 obj\n<< /XObject << /FmB 6 0 R /ImA 7 0 R >> >>\nendobj\n");
+        let fm_stream = b"0.2 0.4 0.9 rg 0 0 20 20 re f\n";
+        offsets[6] = pdf.len();
+        let _ = write!(
+            pdf,
+            "6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] /Length {} >>\nstream\n",
+            fm_stream.len()
+        );
+        pdf.extend_from_slice(fm_stream);
+        pdf.extend_from_slice(b"endstream\nendobj\n");
+
+        let rgb_raw = [255u8, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0];
+        offsets[7] = pdf.len();
+        let _ = write!(
+            pdf,
+            "7 0 obj\n<< /Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 8 0 R /Length {} >>\nstream\n",
+            rgb_raw.len()
+        );
+        pdf.extend_from_slice(&rgb_raw);
+        pdf.extend_from_slice(b"\nendstream\nendobj\n");
+
+        let alpha_raw = [255u8, 128, 64, 255];
+        offsets[8] = pdf.len();
+        let _ = write!(
+            pdf,
+            "8 0 obj\n<< /Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 8 /Length {} >>\nstream\n",
+            alpha_raw.len()
+        );
+        pdf.extend_from_slice(&alpha_raw);
+        pdf.extend_from_slice(b"\nendstream\nendobj\n");
+
+        let xref_pos = pdf.len();
+        let _ = writeln!(pdf, "xref\n0 9\n0000000000 65535 f ");
+        for &off in &offsets[1..9] {
+            let _ = writeln!(pdf, "{off:010} 00000 n ");
+        }
+        let _ = write!(
+            pdf,
+            "trailer\n<< /Size 9 /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n"
+        );
+        pdf
+    };
+
+    let near_pdf = build_pdf_with_artbox(120.0, 330.0, 420.0, 510.0);
+    let far_pdf = build_pdf_with_artbox(25_000.0, -18_000.0, 25_300.0, -17_820.0);
+    let aicb_eps = b"%!PS-Adobe-3.0 EPSF-3.0\n%%HiResBoundingBox: 60.0 340.0 260.0 500.0\n%AI5_ArtSize: 960 600\n0.9 0.3 0.1 XA 60 340 m 260 340 l 260 500 l 60 500 l closepath fill\n%%EOF\n".to_vec();
+
+    let mut flat_png = Vec::new();
+    image::RgbaImage::from_pixel(2, 2, image::Rgba([200, 0, 200, 255]))
+        .write_to(
+            &mut std::io::Cursor::new(&mut flat_png),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+
+    let before = editor.project.clone();
+
+    // 1. `⌘V` (`Paste`) with `com.adobe.pdf` + `AICB` EPS + flat PNG on pasteboard:
+    //    PDF wins over EPS & PNG, centers `300x180` artwork at `remember_paste_view([700, 400])`
+    //    -> top-left `(550, 310)`, emits warning to `Output`, and undoes in 1 `⌘Z`!
+    editor.remember_paste_view([700.0, 400.0]);
+    set_test_stage_clipboard_flavors(
+        &ctx,
+        Some(StageClipboardFlavors {
+            generation: Some(0),
+            pdf: Some(near_pdf.clone()),
+            eps: Some(aicb_eps.clone()),
+            png: Some(flat_png.clone()),
+            ..StageClipboardFlavors::default()
+        }),
+    );
+    frame(
+        &mut editor,
+        &ctx,
+        0.5,
+        vec![
+            key(Key::V, true, Modifiers::COMMAND),
+            Event::Paste(String::new()),
+        ],
+        Modifiers::COMMAND,
+        None,
+    );
+    editor.project.validate().unwrap();
+    assert_eq!(editor.history.undo_len(), 1);
+    assert!(
+        editor
+            .output
+            .iter()
+            .any(|line| line.contains("pdf-unsupported-operator")),
+        "PDF approximation warning must be logged to Output panel"
+    );
+    {
+        let first_path = editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .iter()
+            .find(|e| matches!(e.kind, ElementKind::Path { .. }))
+            .unwrap();
+        assert!((first_path.transform.x - 550.0).abs() < 1e-6);
+        assert!((first_path.transform.y - 310.0).abs() < 1e-6);
+    }
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // 2. Repeated `5x` PDF paste deduplicates `/Form` symbol, `Clipped Group` mask symbol, AND RGBA `ResourceUnit`!
+    for _ in 0..5 {
+        assert!(editor.paste_pdf_clipboard(&ctx, &near_pdf, true));
+    }
+    editor.project.validate().unwrap();
+    assert_eq!(
+        editor.project.resources.len(),
+        1,
+        "5x repeated PDF paste must deduplicate identical RGBA ResourceUnit"
+    );
+    let non_root_sym_count = editor
+        .project
+        .symbols
+        .iter()
+        .filter(|s| s.id != editor.project.root)
+        .count();
+    assert_eq!(
+        non_root_sym_count, 2,
+        "5x repeated PDF paste must deduplicate Clipped Group + FmB Form symbols to 2 total"
+    );
+    for _ in 0..5 {
+        editor.undo();
+    }
+    assert_eq!(editor.project, before);
+
+    // 3. Off-stage `/ArtBox` `(25_000, -18_000)` on `⌘⇧V` (`Paste in Place`) normalizes top-left to `(0, 0)`!
+    assert!(editor.paste_pdf_clipboard(&ctx, &far_pdf, true));
+    editor.project.validate().unwrap();
+    {
+        let first_path = editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .iter()
+            .find(|e| matches!(e.kind, ElementKind::Path { .. }))
+            .unwrap();
+        assert!(first_path.transform.x.abs() < 1e-6 && first_path.transform.y.abs() < 1e-6);
+    }
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // 4. Locked active layer auto-creates an unlocked `Normal` layer on BOTH PDF & EPS paste and undoes in 1 `⌘Z`!
+    editor.symbol_mut().timeline.layers[0].locked = true;
+    let locked_before = editor.project.clone();
+    assert!(editor.paste_pdf_clipboard(&ctx, &near_pdf, true));
+    editor.project.validate().unwrap();
+    assert_eq!(editor.symbol().timeline.layers.len(), 2);
+    editor.undo();
+    assert_eq!(editor.project, locked_before);
+
+    editor.layer = 0;
+    assert!(editor.paste_eps_clipboard(&ctx, &aicb_eps, true));
+    editor.project.validate().unwrap();
+    assert_eq!(editor.symbol().timeline.layers.len(), 2);
+    {
+        // HiResBoundingBox [60, 340, 260, 500] on 960x600 -> Stage top-left `(60, 100)`!
+        let eps_el = &editor.symbol().timeline.layers[editor.layer].keyframes[0].elements[0];
+        assert!((eps_el.transform.x - 60.0).abs() < 1e-6);
+        assert!((eps_el.transform.y - 100.0).abs() < 1e-6);
+    }
+    editor.undo();
+    assert_eq!(editor.project, locked_before);
+    editor.symbol_mut().timeline.layers[0].locked = false;
+    editor.layer = 0;
+    assert_eq!(editor.project, before);
+
+    // 5. `Edit in Place` inside a `(200, 100)` translated + `2x` scaled MovieClip container:
+    //    `⌘⇧V` (`Paste in Place`) of PDF `/ArtBox` Stage `(120, 90)` maps through inverse `StageMapping`
+    //    `[0.5, 0, 0, 0.5, -100, -50]` -> local `(-40, -5)` at `0.5x` scale!
+    let mc_id = new_id("mc");
+    editor.project.symbols.push(Symbol {
+        id: mc_id.clone(),
+        name: "EditInPlaceContainer".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        timeline: Timeline {
+            frame_count: 1,
+            layers: vec![Layer {
+                id: new_id("layer"),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe::default()],
+                properties: LayerProperties::default(),
+            }],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+        class_name: None,
+        linkage_id: None,
+    });
+    let inst_id = new_id("inst");
+    let root_lid = editor.symbol().timeline.layers[0].id.clone();
+    editor.symbol_mut().timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: inst_id.clone(),
+            name: "Container".into(),
+            transform: Transform {
+                x: 200.0,
+                y: 100.0,
+                scale_x: 2.0,
+                scale_y: 2.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::Instance {
+                symbol_id: mc_id,
+                playback: InstancePlayback::Independent,
+            },
+            ..Element::default()
+        });
+    editor.set_selection(vec![crate::selection::SelectionTarget {
+        layer: root_lid,
+        element: inst_id,
+    }]);
+    assert!(editor.enter_selected_symbol_in_place());
+    assert!(editor.editing_in_place());
+    editor.history.clear();
+    let in_place_before = editor.project.clone();
+
+    assert!(editor.paste_pdf_clipboard(&ctx, &near_pdf, true));
+    editor.project.validate().unwrap();
+    {
+        let first_path = editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .iter()
+            .find(|e| matches!(e.kind, ElementKind::Path { .. }))
+            .unwrap();
+        assert!(
+            (first_path.transform.x + 40.0).abs() < 1e-6
+                && (first_path.transform.y + 5.0).abs() < 1e-6,
+            "Stage (120, 90) inside (200,100)@2x symbol must map to local (-40, -5), got {:?}",
+            first_path.transform
+        );
+        assert!(
+            (first_path.transform.scale_x - 0.5).abs() < 1e-6
+                && (first_path.transform.scale_y - 0.5).abs() < 1e-6
+        );
+    }
+    editor.undo();
+    assert_eq!(editor.project, in_place_before);
+    assert!(editor.leave_symbol_to_level(0));
+
+    // 6. Malformed PDF / malformed EPS / oversized NeoFlash SVG comment rejected with `0` Undo steps
+    //    and NEVER fall back to flat PNG screenshot when corrupt vector flavor was present!
+    editor.history.clear();
+    let clean_state = editor.project.clone();
+    editor.request_stage_clipboard_with(&ctx, ClipboardCommand::Paste, || {
+        Ok(StageClipboardFlavors {
+            generation: Some(99),
+            pdf: Some(b"%PDF-1.5\ncorrupt-not-a-valid-xref".to_vec()),
+            png: Some(flat_png.clone()),
+            ..StageClipboardFlavors::default()
+        })
+    });
+    assert_eq!(editor.project, clean_state);
+    assert!(!editor.history.can_undo());
+    assert!(editor.status.starts_with("Paste failed:"));
+
+    let oversized_comment_svg = format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\"><!--(neoflash){}(/neoflash)--></svg>",
+        "A".repeat((neoflash_core::MAX_CLIPBOARD_BYTES * 4 / 3) + 64)
+    );
+    editor.paste_objects(&ctx, &oversized_comment_svg, false);
+    assert_eq!(editor.project, clean_state);
+    assert!(!editor.history.can_undo());
+    assert!(editor.status.starts_with("Paste failed:"));
+
+    set_test_stage_clipboard_flavors(&ctx, None);
 }

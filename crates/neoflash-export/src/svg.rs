@@ -1053,6 +1053,60 @@ pub fn export_project_svg(
     })
 }
 
+/// Export a selection-cropped standalone SVG string for Stage clipboard (`public.svg-image`,
+/// `com.adobe.svg`, and `NSPasteboardTypeString`), optionally embedding the lossless
+/// `<!--(neoflash)<base64>(/neoflash)-->` payload comment immediately after `<svg ...>`.
+pub fn export_clipboard_svg(
+    project: &Project,
+    symbol_id: Option<&str>,
+    frame: u32,
+    selection_bounds: Option<[f64; 4]>,
+    neoflash_payload_text: Option<&str>,
+) -> Result<String, ExportError> {
+    let opts = SvgOptions {
+        symbol_id: symbol_id.map(str::to_owned),
+        frame,
+        end_frame: None,
+        width: None,
+        height: None,
+        transparent_background: true,
+        include_guides: false,
+        text_as_outlines: false,
+        precision: 3,
+    };
+    let (mut svg, _, _) = render_frame_svg(project, &opts)?;
+
+    if let Some([min_x, min_y, max_x, max_y]) = selection_bounds
+        && [min_x, min_y, max_x, max_y].iter().all(|v| v.is_finite())
+        && max_x > min_x
+        && max_y > min_y
+        && let Some(tag_end) = svg.find('>')
+    {
+        let w = (max_x - min_x).max(1.0);
+        let h = (max_y - min_y).max(1.0);
+        let prec = 3usize;
+        let new_open = format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{}\" height=\"{}\" viewBox=\"{} {} {} {}\">",
+            fmt_num(w, prec),
+            fmt_num(h, prec),
+            fmt_num(min_x, prec),
+            fmt_num(min_y, prec),
+            fmt_num(w, prec),
+            fmt_num(h, prec),
+        );
+        svg.replace_range(..=tag_end, &new_open);
+    }
+
+    if let Some(payload_text) = neoflash_payload_text
+        && let Ok(tagged) =
+            neoflash_core::ClipboardPayload::embed_comment_in_svg(&svg, payload_text)
+    {
+        return Ok(tagged);
+    }
+
+    Ok(svg)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

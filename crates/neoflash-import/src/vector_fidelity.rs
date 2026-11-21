@@ -10,18 +10,37 @@
 
 mod eps;
 mod pdf;
+mod pdf_color_fn;
+mod pdf_interp;
+mod pdf_text_font;
+mod pdf_xref;
 mod stylesheet;
+use pdf_interp::{ctm_stroke_scale, dash_subdivide_path, invert_affine_2x2_with_origin};
+pub use pdf_interp::{import_eps_clipboard, import_pdf_clipboard};
 use stylesheet::SvgStyles;
 
 use crate::{Diagnostic, ImportError, ImportFormat, ImportReport, Severity, Statistics};
 use neoflash_core::{
-    Color, Element, ElementKind, FillRule, FilterSpec, GradientKind, GradientPaint, GradientStop,
-    InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, MaskMode, PathCommand, Project,
-    Symbol, SymbolKind, Timeline, Transform, affine_multiply, new_id, validate_path_commands,
+    BlendMode, Color, Element, ElementKind, FillRule, FilterSpec, GradientKind, GradientPaint,
+    GradientStop, InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, MaskMode,
+    PathCommand, Project, ResourceUnit, Symbol, SymbolKind, Timeline, Transform, affine_multiply,
+    new_id, validate_path_commands,
 };
 use roxmltree::{Document, Node};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, io::Read};
+use std::collections::{BTreeMap, HashMap};
+
+/// Maximum byte size accepted on the native Stage vector clipboard (`64 MiB`).
+pub const MAX_STAGE_VECTOR_CLIPBOARD_BYTES: usize = 64 * 1024 * 1024;
+
+/// Output of importing a PDF or EPS/AICB Stage clipboard payload.
+#[derive(Clone, Debug)]
+pub struct VectorClipboardImport {
+    pub project: Project,
+    pub report: ImportReport,
+    /// Stage-space `[min_x, min_y, max_x, max_y]` bounds (for `Paste in Place` `⌘⇧V`).
+    pub stage_bounds: [f64; 4],
+}
 
 /// How top-level SVG `<g>` groups or PDF/AI layer groups map into NeoFlash structures.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -884,16 +903,40 @@ fn parse_svg_defs<'a>(root: Node<'a, 'a>, styles: &SvgStyles<'a>) -> SvgDefiniti
                             })
                             .unwrap_or(default)
                     };
-                    let matrix = if tag == "linearGradient" {
-                        axial_gradient_matrix(
-                            coordinate("x1", 0.),
-                            coordinate("y1", 0.),
-                            coordinate("x2", 1.),
-                            coordinate("y2", 0.),
+                    let (matrix, focal_point_ratio) = if tag == "linearGradient" {
+                        (
+                            axial_gradient_matrix(
+                                coordinate("x1", 0.),
+                                coordinate("y1", 0.),
+                                coordinate("x2", 1.),
+                                coordinate("y2", 0.),
+                            ),
+                            0.0,
                         )
                     } else {
-                        let r = coordinate("r", 0.5) / 819.2;
-                        [r, 0., 0., r, coordinate("cx", 0.5), coordinate("cy", 0.5)]
+                        let r_raw = coordinate("r", 0.5);
+                        let cx = coordinate("cx", 0.5);
+                        let cy = coordinate("cy", 0.5);
+                        let fx = coordinate("fx", cx);
+                        let fy = coordinate("fy", cy);
+                        let s = r_raw / 819.2;
+                        let dx = fx - cx;
+                        let dy = fy - cy;
+                        let dist = dx.hypot(dy);
+                        if r_raw > 1e-9 && dist > 1e-9 {
+                            if dy.abs() <= 1e-9 {
+                                ([s, 0., 0., s, cx, cy], (dx / r_raw).clamp(-0.999, 0.999))
+                            } else {
+                                let cos_t = dx / dist;
+                                let sin_t = dy / dist;
+                                (
+                                    [s * cos_t, s * sin_t, -s * sin_t, s * cos_t, cx, cy],
+                                    (dist / r_raw).clamp(-0.999, 0.999),
+                                )
+                            }
+                        } else {
+                            ([s, 0., 0., s, cx, cy], 0.0)
+                        }
                     };
                     let gradient_transform = node
                         .attribute("gradientTransform")
@@ -912,7 +955,7 @@ fn parse_svg_defs<'a>(root: Node<'a, 'a>, styles: &SvgStyles<'a>) -> SvgDefiniti
                                 },
                                 stops,
                                 matrix: affine_multiply(gradient_transform, matrix),
-                                focal_point_ratio: 0.0,
+                                focal_point_ratio,
                                 ..Default::default()
                             },
                         },
@@ -1794,854 +1837,8 @@ pub fn import_pdf_ai_into_project(
     source_name: &str,
     options: &VectorImportOptions,
 ) -> Result<ImportReport, ImportError> {
-    if bytes.len() > 128 * 1024 * 1024 {
-        return Err(ImportError::Container(
-            "Vector input exceeds 128 MiB.".into(),
-        ));
-    }
-    if bytes.starts_with(eps::MAGIC) {
-        return eps::import(project, bytes, source_name, options);
-    }
-    let header_str = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]);
-    if header_str.starts_with("%!PS-Adobe")
-        && header_str
-            .lines()
-            .next()
-            .is_some_and(|line| line.contains("EPSF"))
-    {
-        return Err(ImportError::Container(format!(
-            "{source_name}: EPS has no binary TIFF preview. Export the artwork as PDF or SVG."
-        )));
-    }
-    if !header_str.contains("%PDF-") && !header_str.contains("%!PS-Adobe") {
-        return Err(ImportError::Container(
-            "Source is not a recognized PDF or Adobe Illustrator document (missing %PDF- or %!PS-Adobe header).".into(),
-        ));
-    }
-
-    let pages = match pdf::pages(bytes) {
-        Ok(pages) => pages,
-        // Older NeoFlash exchange snippets have no xref or page tree, just textual operators.
-        Err(_)
-            if bytes.len() <= 1024 * 1024
-                && !bytes.windows(9).any(|w| w == b"startxref")
-                && !bytes.windows(7).any(|w| w == b"/Filter") =>
-        {
-            let text = String::from_utf8_lossy(bytes);
-            let (w, h) = parse_pdf_media_box(&text).unwrap_or((project.width, project.height));
-            vec![pdf::Page {
-                content: extract_pdf_streams(bytes).join("\n"),
-                bounds: [0., 0., f64::from(w), f64::from(h)],
-                rotation: 0,
-                shadings: BTreeMap::new(),
-                patterns: BTreeMap::new(),
-                warnings: Vec::new(),
-            }]
-        }
-        Err(e) => return Err(e),
-    };
-    if options.resize_stage_to_viewbox {
-        (project.width, project.height) = pages[0].size_and_transform().0;
-    }
-
-    let mut report = ImportReport {
-        source: source_name.to_owned(),
-        format: ImportFormat::Unknown,
-        version: Some("PDF/AI".to_owned()),
-        can_import: false,
-        statistics: Statistics::default(),
-        diagnostics: Vec::new(),
-        binary_fla: None,
-        swf: None,
-        swc: None,
-    };
-
-    let mut buckets: Vec<VectorGroupBucket> = Vec::new();
-    let mut current_bucket = VectorGroupBucket {
-        name: format!("{source_name} Layer 1"),
-        elements: Vec::new(),
-        mask_elements: Vec::new(),
-        mask_mode: MaskMode::Geometry,
-    };
-
-    #[derive(Clone)]
-    struct PdfGState {
-        ctm: [f64; 6],
-        fill_color: Color,
-        stroke_color: Color,
-        fill_pattern: Option<GradientPaint>,
-        stroke_pattern: Option<GradientPaint>,
-        line_width: f64,
-        font_size: f64,
-        text_pos: (f64, f64),
-        clip: Option<std::sync::Arc<Element>>,
-        clip_geom: Option<(Vec<PathCommand>, FillRule)>,
-    }
-
-    impl Default for PdfGState {
-        fn default() -> Self {
-            Self {
-                ctm: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-                fill_color: [0, 0, 0, 255],
-                stroke_color: [0, 0, 0, 255],
-                fill_pattern: None,
-                stroke_pattern: None,
-                line_width: 1.0,
-                font_size: 16.0,
-                text_pos: (0.0, 20.0),
-                clip: None,
-                clip_geom: None,
-            }
-        }
-    }
-
-    fn invert_affine(m: [f64; 6]) -> Option<[f64; 6]> {
-        let det = m[0] * m[3] - m[1] * m[2];
-        if !det.is_finite() || det.abs() <= 1e-12 {
-            return None;
-        }
-        let inv_det = 1.0 / det;
-        let a = m[3] * inv_det;
-        let b = -m[1] * inv_det;
-        let c = -m[2] * inv_det;
-        let d = m[0] * inv_det;
-        let e = -(a * m[4] + c * m[5]);
-        let f = -(b * m[4] + d * m[5]);
-        Some([a, b, c, d, e, f])
-    }
-
-    fn cmyk_to_rgba(c: f64, m: f64, y: f64, k: f64) -> Color {
-        let inv_k = 1.0 - k.clamp(0.0, 1.0);
-        [
-            ((1.0 - c.clamp(0.0, 1.0)) * inv_k * 255.0).round() as u8,
-            ((1.0 - m.clamp(0.0, 1.0)) * inv_k * 255.0).round() as u8,
-            ((1.0 - y.clamp(0.0, 1.0)) * inv_k * 255.0).round() as u8,
-            255,
-        ]
-    }
-
-    let mut total_ops = 0usize;
-
-    for (stream_idx, page) in pages.iter().enumerate() {
-        for (res_name, msg) in &page.warnings {
-            report.warning(
-                "pdf-shading-approximated",
-                format!("{source_name}::stream[{stream_idx}]::{res_name}"),
-                msg.clone(),
-            );
-        }
-        let page_matrix = page.size_and_transform().1;
-        let tokens = pdf::tokenize_pdf_content(&page.content)?;
-        let mut operand_stack: Vec<String> = Vec::new();
-        let mut gstate = PdfGState {
-            ctm: page_matrix,
-            ..PdfGState::default()
-        };
-        let mut gstate_stack: Vec<PdfGState> = Vec::new();
-        let mut current_path: Vec<PathCommand> = Vec::new();
-        let mut cur_pt = (0.0, 0.0);
-        let mut pending_clip = None;
-
-        let pop_f64 = |stack: &mut Vec<String>| -> Option<f64> { stack.pop()?.parse::<f64>().ok() };
-
-        for tok in tokens {
-            let is_num = tok.parse::<f64>().is_ok();
-            if is_num
-                || tok.starts_with('(')
-                || tok.starts_with('<')
-                || tok == ">>"
-                || tok.starts_with('/')
-                || tok == "["
-                || tok == "]"
-            {
-                operand_stack.push(tok);
-                continue;
-            }
-
-            total_ops += 1;
-            let loc = format!("{source_name}::stream[{stream_idx}]::{tok}");
-
-            let is_known_shading = tok == "sh"
-                && operand_stack
-                    .last()
-                    .and_then(|name| page.shadings.get(name.trim_start_matches('/')))
-                    .is_some();
-            // `sh` already consumes `gstate.clip` / `gstate.clip_geom` directly as its
-            // `PaintedPath` geometry, so attaching a Timeline Mask layer as well would
-            // duplicate the clip layer on round-trip.
-            let effective_clip = if is_known_shading {
-                None
-            } else {
-                gstate.clip.as_deref()
-            };
-            if matches!(
-                tok.as_str(),
-                "S" | "s" | "f" | "F" | "f*" | "B" | "B*" | "b" | "b*" | "Tj" | "TJ" | "sh"
-            ) && current_bucket.mask_elements.first().map(|e| &e.id)
-                != effective_clip.map(|e| &e.id)
-            {
-                if !current_bucket.elements.is_empty() {
-                    let next = VectorGroupBucket {
-                        name: current_bucket.name.clone(),
-                        elements: vec![],
-                        mask_elements: vec![],
-                        mask_mode: MaskMode::Geometry,
-                    };
-                    buckets.push(std::mem::replace(&mut current_bucket, next));
-                }
-                current_bucket.mask_elements = effective_clip.cloned().into_iter().collect();
-            }
-            match tok.as_str() {
-                "q" => {
-                    gstate_stack.push(gstate.clone());
-                }
-                "Q" => {
-                    if let Some(prev) = gstate_stack.pop() {
-                        gstate = prev;
-                    }
-                }
-                "cm" => {
-                    if operand_stack.len() >= 6 {
-                        let f = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let e = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let d = pop_f64(&mut operand_stack).unwrap_or(1.0);
-                        let c = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let b = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let a = pop_f64(&mut operand_stack).unwrap_or(1.0);
-                        gstate.ctm = affine_multiply(gstate.ctm, [a, b, c, d, e, f]);
-                    }
-                    operand_stack.clear();
-                }
-                "w" => {
-                    if let Some(lw) = pop_f64(&mut operand_stack) {
-                        gstate.line_width = lw.max(0.0);
-                    }
-                    operand_stack.clear();
-                }
-                "rg" => {
-                    if operand_stack.len() >= 3 {
-                        let b = (pop_f64(&mut operand_stack).unwrap_or(0.0).clamp(0.0, 1.0) * 255.0)
-                            .round() as u8;
-                        let g = (pop_f64(&mut operand_stack).unwrap_or(0.0).clamp(0.0, 1.0) * 255.0)
-                            .round() as u8;
-                        let r = (pop_f64(&mut operand_stack).unwrap_or(0.0).clamp(0.0, 1.0) * 255.0)
-                            .round() as u8;
-                        gstate.fill_color = [r, g, b, 255];
-                        gstate.fill_pattern = None;
-                    }
-                    operand_stack.clear();
-                }
-                "RG" => {
-                    if operand_stack.len() >= 3 {
-                        let b = (pop_f64(&mut operand_stack).unwrap_or(0.0).clamp(0.0, 1.0) * 255.0)
-                            .round() as u8;
-                        let g = (pop_f64(&mut operand_stack).unwrap_or(0.0).clamp(0.0, 1.0) * 255.0)
-                            .round() as u8;
-                        let r = (pop_f64(&mut operand_stack).unwrap_or(0.0).clamp(0.0, 1.0) * 255.0)
-                            .round() as u8;
-                        gstate.stroke_color = [r, g, b, 255];
-                        gstate.stroke_pattern = None;
-                    }
-                    operand_stack.clear();
-                }
-                "g" => {
-                    if let Some(gray) = pop_f64(&mut operand_stack) {
-                        let v = (gray.clamp(0.0, 1.0) * 255.0).round() as u8;
-                        gstate.fill_color = [v, v, v, 255];
-                        gstate.fill_pattern = None;
-                    }
-                    operand_stack.clear();
-                }
-                "G" => {
-                    if let Some(gray) = pop_f64(&mut operand_stack) {
-                        let v = (gray.clamp(0.0, 1.0) * 255.0).round() as u8;
-                        gstate.stroke_color = [v, v, v, 255];
-                        gstate.stroke_pattern = None;
-                    }
-                    operand_stack.clear();
-                }
-                "k" => {
-                    if operand_stack.len() >= 4 {
-                        let k = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let y = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let m = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let c = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        gstate.fill_color = cmyk_to_rgba(c, m, y, k);
-                        gstate.fill_pattern = None;
-                    }
-                    operand_stack.clear();
-                }
-                "K" => {
-                    if operand_stack.len() >= 4 {
-                        let k = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let y = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let m = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let c = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        gstate.stroke_color = cmyk_to_rgba(c, m, y, k);
-                        gstate.stroke_pattern = None;
-                    }
-                    operand_stack.clear();
-                }
-                "cs" => {
-                    if operand_stack.last().map(String::as_str) != Some("/Pattern") {
-                        gstate.fill_pattern = None;
-                    }
-                    operand_stack.clear();
-                }
-                "CS" => {
-                    if operand_stack.last().map(String::as_str) != Some("/Pattern") {
-                        gstate.stroke_pattern = None;
-                    }
-                    operand_stack.clear();
-                }
-                "sc" | "scn" => {
-                    if let Some(pat) = operand_stack
-                        .last()
-                        .filter(|s| s.starts_with('/'))
-                        .and_then(|s| page.patterns.get(s.trim_start_matches('/')))
-                    {
-                        gstate.fill_pattern = Some(pat.clone());
-                    } else {
-                        let nums: Vec<f64> = operand_stack
-                            .iter()
-                            .filter_map(|s| s.parse::<f64>().ok())
-                            .collect();
-                        match nums.as_slice() {
-                            [gray] => {
-                                let v = (gray.clamp(0.0, 1.0) * 255.0).round() as u8;
-                                gstate.fill_color = [v, v, v, 255];
-                                gstate.fill_pattern = None;
-                            }
-                            [r, g, b] => {
-                                gstate.fill_color = [
-                                    (r.clamp(0.0, 1.0) * 255.0).round() as u8,
-                                    (g.clamp(0.0, 1.0) * 255.0).round() as u8,
-                                    (b.clamp(0.0, 1.0) * 255.0).round() as u8,
-                                    255,
-                                ];
-                                gstate.fill_pattern = None;
-                            }
-                            [c, m, y, k] => {
-                                gstate.fill_color = cmyk_to_rgba(*c, *m, *y, *k);
-                                gstate.fill_pattern = None;
-                            }
-                            _ => {}
-                        }
-                    }
-                    operand_stack.clear();
-                }
-                "SC" | "SCN" => {
-                    if let Some(pat) = operand_stack
-                        .last()
-                        .filter(|s| s.starts_with('/'))
-                        .and_then(|s| page.patterns.get(s.trim_start_matches('/')))
-                    {
-                        gstate.stroke_pattern = Some(pat.clone());
-                    } else {
-                        let nums: Vec<f64> = operand_stack
-                            .iter()
-                            .filter_map(|s| s.parse::<f64>().ok())
-                            .collect();
-                        match nums.as_slice() {
-                            [gray] => {
-                                let v = (gray.clamp(0.0, 1.0) * 255.0).round() as u8;
-                                gstate.stroke_color = [v, v, v, 255];
-                                gstate.stroke_pattern = None;
-                            }
-                            [r, g, b] => {
-                                gstate.stroke_color = [
-                                    (r.clamp(0.0, 1.0) * 255.0).round() as u8,
-                                    (g.clamp(0.0, 1.0) * 255.0).round() as u8,
-                                    (b.clamp(0.0, 1.0) * 255.0).round() as u8,
-                                    255,
-                                ];
-                                gstate.stroke_pattern = None;
-                            }
-                            [c, m, y, k] => {
-                                gstate.stroke_color = cmyk_to_rgba(*c, *m, *y, *k);
-                                gstate.stroke_pattern = None;
-                            }
-                            _ => {}
-                        }
-                    }
-                    operand_stack.clear();
-                }
-                "m" => {
-                    if operand_stack.len() >= 2 {
-                        let y = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let x = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        current_path.push(PathCommand::MoveTo { x, y });
-                        cur_pt = (x, y);
-                    }
-                    operand_stack.clear();
-                }
-                "l" => {
-                    if operand_stack.len() >= 2 {
-                        let y = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let x = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        current_path.push(PathCommand::LineTo { x, y });
-                        cur_pt = (x, y);
-                    }
-                    operand_stack.clear();
-                }
-                "c" => {
-                    if operand_stack.len() >= 6 {
-                        let y = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let x = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let cy2 = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let cx2 = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let cy1 = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let cx1 = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        current_path.push(PathCommand::CubicTo {
-                            cx1,
-                            cy1,
-                            cx2,
-                            cy2,
-                            x,
-                            y,
-                        });
-                        cur_pt = (x, y);
-                    }
-                    operand_stack.clear();
-                }
-                "v" => {
-                    if operand_stack.len() >= 4 {
-                        let y = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let x = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let cy2 = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let cx2 = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        current_path.push(PathCommand::CubicTo {
-                            cx1: cur_pt.0,
-                            cy1: cur_pt.1,
-                            cx2,
-                            cy2,
-                            x,
-                            y,
-                        });
-                        cur_pt = (x, y);
-                    }
-                    operand_stack.clear();
-                }
-                "y" => {
-                    if operand_stack.len() >= 4 {
-                        let y = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let x = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let cy1 = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let cx1 = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        current_path.push(PathCommand::CubicTo {
-                            cx1,
-                            cy1,
-                            cx2: x,
-                            cy2: y,
-                            x,
-                            y,
-                        });
-                        cur_pt = (x, y);
-                    }
-                    operand_stack.clear();
-                }
-                "re" => {
-                    if operand_stack.len() >= 4 {
-                        let h = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let w = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let y = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let x = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        current_path.push(PathCommand::MoveTo { x, y });
-                        current_path.push(PathCommand::LineTo { x: x + w, y });
-                        current_path.push(PathCommand::LineTo { x: x + w, y: y + h });
-                        current_path.push(PathCommand::LineTo { x, y: y + h });
-                        current_path.push(PathCommand::Close);
-                        cur_pt = (x, y);
-                    }
-                    operand_stack.clear();
-                }
-                "h" => {
-                    current_path.push(PathCommand::Close);
-                    operand_stack.clear();
-                }
-                "W" | "W*" => {
-                    pending_clip = Some(if tok == "W*" {
-                        FillRule::EvenOdd
-                    } else {
-                        FillRule::NonZero
-                    });
-                    operand_stack.clear();
-                }
-                "S" | "s" | "f" | "F" | "f*" | "B" | "B*" | "b" | "b*" | "n" => {
-                    if matches!(tok.as_str(), "s" | "b" | "b*") {
-                        current_path.push(PathCommand::Close);
-                    }
-                    if let Some(clip_rule) = pending_clip.take()
-                        && !current_path.is_empty()
-                    {
-                        let baked = bake_matrix_into_commands(&current_path, gstate.ctm);
-                        gstate.clip_geom = Some((baked.clone(), clip_rule));
-                        match options.mask_handling {
-                            VectorMaskHandling::MaskLayers => {
-                                gstate.clip = Some(std::sync::Arc::new(Element {
-                                    id: new_id("element"),
-                                    name: "PDF Clip Path".to_owned(),
-                                    transform: Transform::default(),
-                                    kind: ElementKind::Path {
-                                        commands: baked,
-                                        fill_rule: clip_rule,
-                                        fill: [255, 255, 255, 255],
-                                        stroke: [0, 0, 0, 0],
-                                        stroke_width: 0.0,
-                                    },
-                                    ..Element::default()
-                                }));
-                                report.diagnostics.push(Diagnostic {
-                                    severity: Severity::Info,
-                                    code: "pdf-clipping-path-mapped".to_owned(),
-                                    location: loc.clone(),
-                                    message:
-                                        "Mapped PDF clipping path (W) to a Timeline Mask layer."
-                                            .to_owned(),
-                                });
-                            }
-                            VectorMaskHandling::FlattenClip => {
-                                report.warning(
-                                    "pdf-clipping-path-flattened",
-                                    loc.clone(),
-                                    "PDF clipping path (W) was flattened according to VectorMaskHandling::FlattenClip.",
-                                );
-                            }
-                        }
-                    }
-                    if tok != "n" && !current_path.is_empty() {
-                        let do_fill =
-                            matches!(tok.as_str(), "f" | "F" | "f*" | "B" | "B*" | "b" | "b*");
-                        let do_stroke = matches!(tok.as_str(), "S" | "s" | "B" | "B*" | "b" | "b*");
-                        let fill_rule = if tok.ends_with('*') {
-                            FillRule::EvenOdd
-                        } else {
-                            FillRule::NonZero
-                        };
-                        let (final_cmds, elem_transform, elem_mat) =
-                            match options.transform_handling {
-                                VectorTransformHandling::BakeTransformsIntoPaths => (
-                                    bake_matrix_into_commands(&current_path, gstate.ctm),
-                                    Transform::default(),
-                                    identity_matrix(),
-                                ),
-                                VectorTransformHandling::KeepElementTransforms => {
-                                    if let Some(tf) = Transform::from_matrix(gstate.ctm) {
-                                        (current_path.clone(), tf, gstate.ctm)
-                                    } else {
-                                        (
-                                            bake_matrix_into_commands(&current_path, gstate.ctm),
-                                            Transform::default(),
-                                            identity_matrix(),
-                                        )
-                                    }
-                                }
-                            };
-                        let resolve_pat = |pat: &GradientPaint| -> Option<GradientPaint> {
-                            let mut p = pat.clone();
-                            let stage_mat = affine_multiply(page_matrix, p.matrix);
-                            p.matrix = if elem_mat == identity_matrix() {
-                                stage_mat
-                            } else {
-                                affine_multiply(invert_affine(elem_mat)?, stage_mat)
-                            };
-                            p.validate().ok()?;
-                            Some(p)
-                        };
-                        let fill_grad = if do_fill {
-                            gstate.fill_pattern.as_ref().and_then(resolve_pat)
-                        } else {
-                            None
-                        };
-                        let stroke_grad = if do_stroke {
-                            gstate.stroke_pattern.as_ref().and_then(resolve_pat)
-                        } else {
-                            None
-                        };
-                        if validate_path_commands(&final_cmds).is_ok() {
-                            let fill_col = if do_fill && fill_grad.is_none() {
-                                gstate.fill_color
-                            } else {
-                                [0, 0, 0, 0]
-                            };
-                            let stroke_col = if do_stroke && stroke_grad.is_none() {
-                                gstate.stroke_color
-                            } else {
-                                [0, 0, 0, 0]
-                            };
-                            let sw = if do_stroke { gstate.line_width } else { 0.0 };
-                            let kind = if fill_grad.is_some() || stroke_grad.is_some() {
-                                ElementKind::PaintedPath {
-                                    commands: final_cmds,
-                                    fill_rule,
-                                    fill: fill_col,
-                                    stroke: stroke_col,
-                                    fill_gradient: fill_grad,
-                                    stroke_gradient: stroke_grad,
-                                    stroke_width: sw,
-                                }
-                            } else {
-                                ElementKind::Path {
-                                    commands: final_cmds,
-                                    fill_rule,
-                                    fill: fill_col,
-                                    stroke: stroke_col,
-                                    stroke_width: sw,
-                                }
-                            };
-                            current_bucket.elements.push(Element {
-                                id: new_id("element"),
-                                name: format!("PDF Path {}", current_bucket.elements.len() + 1),
-                                transform: elem_transform,
-                                kind,
-                                ..Element::default()
-                            });
-                            report.statistics.elements += 1;
-                        }
-                    }
-                    current_path.clear();
-                    operand_stack.clear();
-                }
-                "BT" => {
-                    gstate.text_pos = (0.0, 20.0);
-                    operand_stack.clear();
-                }
-                "ET" => {
-                    operand_stack.clear();
-                }
-                "Tf" => {
-                    if let Some(sz) = pop_f64(&mut operand_stack) {
-                        gstate.font_size = sz.abs().max(1.0);
-                    }
-                    operand_stack.clear();
-                }
-                "Td" | "TD" => {
-                    if operand_stack.len() >= 2 {
-                        let ty = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let tx = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        gstate.text_pos = (gstate.text_pos.0 + tx, gstate.text_pos.1 + ty);
-                    }
-                    operand_stack.clear();
-                }
-                "Tm" => {
-                    if operand_stack.len() >= 6 {
-                        let ty = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let tx = pop_f64(&mut operand_stack).unwrap_or(0.0);
-                        let _d = pop_f64(&mut operand_stack);
-                        let _c = pop_f64(&mut operand_stack);
-                        let _b = pop_f64(&mut operand_stack);
-                        let _a = pop_f64(&mut operand_stack);
-                        gstate.text_pos = (tx, ty);
-                    }
-                    operand_stack.clear();
-                }
-                "Tj" | "TJ" => {
-                    let text_str: String = operand_stack
-                        .iter()
-                        .filter_map(|s| pdf::decode_pdf_string_token(s))
-                        .collect::<Vec<_>>()
-                        .join("");
-                    if !text_str.is_empty() {
-                        match options.text_handling {
-                            VectorTextHandling::EditableText => {
-                                let (tx, ty) = transform_point(
-                                    gstate.ctm,
-                                    gstate.text_pos.0,
-                                    gstate.text_pos.1,
-                                );
-                                current_bucket.elements.push(Element {
-                                    id: new_id("element"),
-                                    name: format!("PDF Text ({text_str})"),
-                                    transform: Transform {
-                                        x: tx,
-                                        y: ty,
-                                        ..Transform::default()
-                                    },
-                                    kind: ElementKind::Text {
-                                        text: text_str,
-                                        font_family: "sans-serif".to_owned(),
-                                        font_size: gstate.font_size,
-                                        color: gstate.fill_color,
-                                    },
-                                    ..Element::default()
-                                });
-                                report.statistics.elements += 1;
-                            }
-                            VectorTextHandling::ConvertToPaths => {
-                                report.warning(
-                                    "pdf-text-converted-to-paths",
-                                    loc.clone(),
-                                    format!(
-                                        "Converted PDF text '{text_str}' to vector outline paths."
-                                    ),
-                                );
-                                let cmds = text_to_outline_commands(
-                                    &text_str,
-                                    gstate.text_pos.0,
-                                    gstate.text_pos.1,
-                                    gstate.font_size,
-                                );
-                                let baked = bake_matrix_into_commands(&cmds, gstate.ctm);
-                                current_bucket.elements.push(Element {
-                                    id: new_id("element"),
-                                    name: format!("PDF Outlined Text ({text_str})"),
-                                    transform: Transform::default(),
-                                    kind: ElementKind::Path {
-                                        commands: baked,
-                                        fill_rule: FillRule::NonZero,
-                                        fill: gstate.fill_color,
-                                        stroke: [0, 0, 0, 0],
-                                        stroke_width: 0.0,
-                                    },
-                                    ..Element::default()
-                                });
-                                report.statistics.elements += 1;
-                            }
-                        }
-                    }
-                    operand_stack.clear();
-                }
-                "BDC" | "BMC" => {
-                    let group_label = operand_stack
-                        .iter()
-                        .find(|s| s.starts_with('/'))
-                        .map(|s| s.trim_start_matches('/').to_owned())
-                        .unwrap_or_else(|| format!("Layer {}", buckets.len() + 1));
-                    if !current_bucket.elements.is_empty()
-                        || !current_bucket.mask_elements.is_empty()
-                    {
-                        buckets.push(current_bucket);
-                    }
-                    current_bucket = VectorGroupBucket {
-                        name: group_label,
-                        elements: Vec::new(),
-                        mask_elements: Vec::new(),
-                        mask_mode: MaskMode::Geometry,
-                    };
-                    operand_stack.clear();
-                }
-                "EMC" => {
-                    if !current_bucket.elements.is_empty()
-                        || !current_bucket.mask_elements.is_empty()
-                    {
-                        buckets.push(current_bucket);
-                        current_bucket = VectorGroupBucket {
-                            name: format!("{source_name} Layer {}", buckets.len() + 1),
-                            elements: Vec::new(),
-                            mask_elements: Vec::new(),
-                            mask_mode: MaskMode::Geometry,
-                        };
-                    }
-                    operand_stack.clear();
-                }
-                "sh" if operand_stack
-                    .last()
-                    .and_then(|name| page.shadings.get(name.trim_start_matches('/')))
-                    .is_some() =>
-                {
-                    let mut paint = page.shadings
-                        [operand_stack.last().unwrap().trim_start_matches('/')]
-                    .clone();
-                    paint.matrix = affine_multiply(gstate.ctm, paint.matrix);
-                    if paint.validate().is_ok() {
-                        let (commands, rule) = if let Some(Element {
-                            kind:
-                                ElementKind::Path {
-                                    commands,
-                                    fill_rule,
-                                    ..
-                                },
-                            ..
-                        }) = gstate.clip.as_deref()
-                        {
-                            (commands.clone(), *fill_rule)
-                        } else if let Some((commands, fill_rule)) = &gstate.clip_geom {
-                            (commands.clone(), *fill_rule)
-                        } else {
-                            let ((w, h), _) = page.size_and_transform();
-                            (
-                                vec![
-                                    PathCommand::MoveTo { x: 0., y: 0. },
-                                    PathCommand::LineTo {
-                                        x: f64::from(w),
-                                        y: 0.,
-                                    },
-                                    PathCommand::LineTo {
-                                        x: f64::from(w),
-                                        y: f64::from(h),
-                                    },
-                                    PathCommand::LineTo {
-                                        x: 0.,
-                                        y: f64::from(h),
-                                    },
-                                    PathCommand::Close,
-                                ],
-                                FillRule::NonZero,
-                            )
-                        };
-                        let name = match paint.kind {
-                            GradientKind::Radial => "PDF radial shading",
-                            _ => "PDF axial shading",
-                        };
-                        current_bucket.elements.push(Element {
-                            id: new_id("element"),
-                            name: name.into(),
-                            kind: ElementKind::PaintedPath {
-                                commands,
-                                fill_rule: rule,
-                                fill: [0; 4],
-                                stroke: [0; 4],
-                                stroke_width: 0.,
-                                fill_gradient: Some(paint),
-                                stroke_gradient: None,
-                            },
-                            ..Default::default()
-                        });
-                        report.statistics.elements += 1;
-                    } else {
-                        report.warning(
-                            "pdf-unsupported-operator",
-                            loc,
-                            "PDF shading transform became singular and was skipped.".to_owned(),
-                        );
-                    }
-                    operand_stack.clear();
-                }
-                "sh" | "Do" => {
-                    report.warning(
-                        "pdf-unsupported-operator",
-                        loc,
-                        format!(
-                            "PDF operator '{tok}' (external XObject or shading dictionary) is not directly supported and was recorded in the fidelity report."
-                        ),
-                    );
-                    operand_stack.clear();
-                }
-                _ => {
-                    operand_stack.clear();
-                }
-            }
-        }
-    }
-
-    if !current_bucket.elements.is_empty() || !current_bucket.mask_elements.is_empty() {
-        buckets.push(current_bucket);
-    }
-
-    report.diagnostics.push(Diagnostic {
-        severity: Severity::Info,
-        code: "pdf-content-stream-parsed".to_owned(),
-        location: source_name.to_owned(),
-        message: format!(
-            "Parsed {} PDF/AI vector operator(s) across {} page(s).",
-            total_ops,
-            pages.len()
-        ),
-    });
-
-    assemble_vector_buckets(project, buckets, source_name, options, &mut report);
-    report.can_import = true;
-    Ok(report)
+    pdf_interp::import_pdf_ai_with_bounds(project, bytes, source_name, options, 128 * 1024 * 1024)
+        .map(|(report, _)| report)
 }
 
 /// Import a PDF or Adobe Illustrator (`.pdf` / `.ai`) byte buffer into a fresh [`Project`].

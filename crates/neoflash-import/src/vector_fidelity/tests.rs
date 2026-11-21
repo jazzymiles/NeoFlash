@@ -501,9 +501,640 @@ BT /F1 18 Tf 10 80 Td <48656C6C6F> Tj 0 -20 Td [<0048> -10 <0069>] TJ 0 -20 Td <
     let texts: Vec<&str> = els
         .iter()
         .filter_map(|e| match &e.kind {
-            ElementKind::Text { text, .. } => Some(text.as_str()),
+            ElementKind::Text { text, .. } | ElementKind::TextBox { text, .. } => {
+                Some(text.as_str())
+            }
             _ => None,
         })
         .collect();
     assert_eq!(texts, vec!["Hello", "Hi", "Пр", "С\nLine2\t(ok)"]);
+}
+
+fn zlib_compress_test(data: &[u8]) -> Vec<u8> {
+    use flate2::{Compression, write::ZlibEncoder};
+    use std::io::Write as _;
+    let mut enc = ZlibEncoder::new(Vec::new(), Compression::default());
+    enc.write_all(data).unwrap();
+    enc.finish().unwrap()
+}
+
+fn png_up_filter_rows(raw: &[u8], cols: usize) -> Vec<u8> {
+    assert_eq!(raw.len() % cols, 0);
+    let mut out = Vec::with_capacity((raw.len() / cols) * (cols + 1));
+    let mut prev = vec![0u8; cols];
+    for row in raw.chunks_exact(cols) {
+        out.push(2); // PNG Up filter
+        for c in 0..cols {
+            out.push(row[c].wrapping_sub(prev[c]));
+        }
+        prev.copy_from_slice(row);
+    }
+    out
+}
+
+/// Build a genuine PDF 1.5 byte buffer using ONLY `/Type /ObjStm` compressed objects and a
+/// PNG-Up-predicted `/Type /XRef` cross-reference stream (zero classic `xref` table), matching
+/// Adobe Illustrator CC's `com.adobe.pdf` clipboard output.
+fn build_illustrator_pdf15_clipboard_fixture() -> Vec<u8> {
+    // Object ID layout:
+    //  1 (in ObjStm 20): /Catalog
+    //  2 (in ObjStm 20): /Pages
+    //  3 (in ObjStm 20): /Page (/MediaBox [0 0 960 600], /ArtBox [120 330 420 510])
+    //  4 (in ObjStm 20): Page /Resources
+    //  5 (in ObjStm 20): /ExtGState /GS1 (ca=0.5, CA=0.8, BM=/Multiply)
+    //  6 (in ObjStm 20): /FunctionType 3 multi-stop stitching function (Red -> Gold -> Blue)
+    //  7 (in ObjStm 20): /ShadingType 2 axial shading -> Function 6
+    //  8 (in ObjStm 20): /ShadingType 3 radial shading -> Function 6
+    //  9 (in ObjStm 20): /PatternType 2 shading pattern /P1 -> Shading 7
+    // 10 (in ObjStm 20): /Font /Type0 /F1 -> ToUnicode 15
+    // 11 (stream): Page /Contents (FlateDecode)
+    // 12 (stream): /Subtype /Form /Fm1 (FlateDecode)
+    // 13 (stream): /Subtype /Image /Im1 (2x2 RGB FlateDecode, /SMask 14 0 R)
+    // 14 (stream): /Subtype /Image SMask (2x2 DeviceGray FlateDecode)
+    // 15 (stream): /ToUnicode CMap for Cyrillic "Привет, мир!"
+    // 16 (stream): /FunctionType 4 PostScript tint transform for /Separation /SpotCoral
+    // 20 (stream): /Type /ObjStm containing objects 1..=10
+    // 21 (stream): /Type /XRef with FlateDecode + Predictor 12 (PNG Up), Columns 5
+    let objstm_entries: Vec<(u32, String)> = vec![
+        (1, "<< /Type /Catalog /Pages 2 0 R >>".into()),
+        (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into()),
+        (
+            3,
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 960 600] /CropBox [0 0 960 600] /ArtBox [120 330 420 510] /Resources 4 0 R /Contents 11 0 R >>".into(),
+        ),
+        (
+            4,
+            "<< /ColorSpace << /CSspot [/Separation /SpotCoral /DeviceCMYK 16 0 R] >> /ExtGState << /GS1 5 0 R >> /Shading << /Sh2 7 0 R /Sh3 8 0 R >> /Pattern << /P1 9 0 R >> /Font << /F1 10 0 R >> /XObject << /Fm1 12 0 R /Im1 13 0 R >> >>".into(),
+        ),
+        (
+            5,
+            "<< /Type /ExtGState /ca 0.5 /CA 0.8 /BM /Multiply >>".into(),
+        ),
+        (
+            6,
+            "<< /FunctionType 3 /Domain [0 1] /Bounds [0.5] /Encode [0 1 0 1] /Functions [ << /FunctionType 2 /Domain [0 1] /N 1 /C0 [1 0 0] /C1 [1 0.8 0] >> << /FunctionType 2 /Domain [0 1] /N 1 /C0 [1 0.8 0] /C1 [0 0.3 1] >> ] >>".into(),
+        ),
+        (
+            7,
+            "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [130 480 230 480] /Extend [true true] /Function 6 0 R >>".into(),
+        ),
+        (
+            8,
+            "<< /ShadingType 3 /ColorSpace /DeviceRGB /Coords [280 460 2 280 460 35] /Extend [true true] /Function 6 0 R >>".into(),
+        ),
+        (
+            9,
+            "<< /Type /Pattern /PatternType 2 /Shading 7 0 R /Matrix [1 0 0 1 0 0] >>".into(),
+        ),
+        (
+            10,
+            "<< /Type /Font /Subtype /Type0 /BaseFont /ABCDEF+Inter-Bold /Encoding /Identity-H /ToUnicode 15 0 R /DescendantFonts [ << /Type /Font /Subtype /CIDFontType2 /BaseFont /ABCDEF+Inter-Bold /DW 600 >> ] >>".into(),
+        ),
+    ];
+
+    let mut header_part = String::new();
+    let mut body_part = String::new();
+    for (oid, body) in &objstm_entries {
+        let rel_offset = body_part.len();
+        header_part.push_str(&format!("{oid} {rel_offset} "));
+        body_part.push_str(body);
+        body_part.push('\n');
+    }
+    let first_offset = header_part.len();
+    let mut objstm_raw = header_part.into_bytes();
+    objstm_raw.extend_from_slice(body_part.as_bytes());
+    let objstm_zlib = zlib_compress_test(&objstm_raw);
+
+    // Page content stream (in PDF coordinates; ArtBox is [120, 330, 420, 510]):
+    // 1. EvenOdd compound shape with hole + CMYK stroke + SpotCoral Separation fill + dash
+    // 2. Pattern /P1 multi-stop linear gradient fill (`CS /Pattern /P1 scn ... f`)
+    // 3. Clipped radial `/Sh3 sh` + `/GS1 gs` (`/ca 0.5 /BM /Multiply`) + clipped path (`W n ... Q`)
+    // 4. `/Fm1 Do` Form XObject
+    // 5. Two `/Im1 Do` RGBA `/SMask` Image XObject placements (proving deduplication)
+    // 6. `BT .. ET` `/F1` Cyrillic ToUnicode `"Привет, мир!"`
+    let page_ops = "\
+q /CSspot cs 0.85 scn 0.9 0.1 0.0 0.0 K 3 w 1 J 1 j 6 M [4 2] 0 d \
+125 430 70 70 re 145 450 30 30 re B* Q \
+q /Pattern cs /P1 scn 130 380 100 40 re f Q \
+q 245 425 70 70 re W n /Sh3 sh Q \
+q 330 430 60 60 re W n /GS1 gs 0.2 0.8 0.4 rg 325 425 70 70 re f Q \
+q 1 0 0 1 130 340 cm /Fm1 Do Q \
+q 24 0 0 24 220 340 cm /Im1 Do Q \
+q 24 0 0 24 260 340 cm /Im1 Do Q \
+BT /F1 18 Tf 0.1 0.1 0.15 rg 1 0 0 1 300 355 Tm <000100020003000400050006000700080009000A000B000C> Tj ET\n";
+    let page_zlib = zlib_compress_test(page_ops.as_bytes());
+
+    let form_ops = "0.95 0.35 0.15 rg 0 0 m 30 0 l 30 25 l 0 25 l h f\n";
+    let form_zlib = zlib_compress_test(form_ops.as_bytes());
+
+    // 2x2 RGB pixels + 2x2 Grayscale SMask alpha ([255, 128, 64, 0])
+    let img_rgb_zlib = zlib_compress_test(&[
+        255, 0, 0, 0, 255, 0, // row 0
+        0, 0, 255, 255, 255, 0, // row 1
+    ]);
+    let img_alpha_zlib = zlib_compress_test(&[255, 128, 64, 0]);
+
+    // Cyrillic "Привет, мир!" UTF-16BE:
+    // П=041F р=0440 и=0438 в=0432 е=0435 т=0442 ,=002C ' '=0020 м=043C и=0438 р=0440 !=0021
+    let cmap_text = "\
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+12 beginbfchar
+<0001> <041F>
+<0002> <0440>
+<0003> <0438>
+<0004> <0432>
+<0005> <0435>
+<0006> <0442>
+<0007> <002C>
+<0008> <0020>
+<0009> <043C>
+<000A> <0438>
+<000B> <0440>
+<000C> <0021>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end\n";
+    let cmap_zlib = zlib_compress_test(cmap_text.as_bytes());
+
+    // Type 4 PostScript tint transform: tint -> [0.1*t, 0.8*t, 0.6*t, 0.0]
+    let fn4_ps = b"{ dup 0.1 mul exch dup 0.8 mul exch 0.6 mul 0.0 }";
+    let fn4_zlib = zlib_compress_test(fn4_ps);
+
+    let mut pdf = Vec::new();
+    pdf.extend_from_slice(b"%PDF-1.5\n%\xE2\xE3\xCF\xD3\n");
+
+    let mut file_offsets = std::collections::HashMap::<u32, usize>::new();
+    let push_stream_obj = |buf: &mut Vec<u8>,
+                           offsets: &mut std::collections::HashMap<u32, usize>,
+                           oid: u32,
+                           dict_extra: &str,
+                           zlib_bytes: &[u8]| {
+        offsets.insert(oid, buf.len());
+        let header = format!(
+            "{oid} 0 obj\n<< {dict_extra} /Filter /FlateDecode /Length {} >>\nstream\n",
+            zlib_bytes.len()
+        );
+        buf.extend_from_slice(header.as_bytes());
+        buf.extend_from_slice(zlib_bytes);
+        buf.extend_from_slice(b"\nendstream\nendobj\n");
+    };
+
+    push_stream_obj(&mut pdf, &mut file_offsets, 11, "", &page_zlib);
+    push_stream_obj(
+        &mut pdf,
+        &mut file_offsets,
+        12,
+        "/Type /XObject /Subtype /Form /FormType 1 /BBox [0 0 30 25] /Matrix [1 0 0 1 0 0]",
+        &form_zlib,
+    );
+    push_stream_obj(
+        &mut pdf,
+        &mut file_offsets,
+        13,
+        "/Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 14 0 R",
+        &img_rgb_zlib,
+    );
+    push_stream_obj(
+        &mut pdf,
+        &mut file_offsets,
+        14,
+        "/Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 8",
+        &img_alpha_zlib,
+    );
+    push_stream_obj(&mut pdf, &mut file_offsets, 15, "", &cmap_zlib);
+    push_stream_obj(
+        &mut pdf,
+        &mut file_offsets,
+        16,
+        "/FunctionType 4 /Domain [0 1] /Range [0 1 0 1 0 1 0 1]",
+        &fn4_zlib,
+    );
+    push_stream_obj(
+        &mut pdf,
+        &mut file_offsets,
+        20,
+        &format!(
+            "/Type /ObjStm /N {} /First {first_offset}",
+            objstm_entries.len()
+        ),
+        &objstm_zlib,
+    );
+
+    let xref_offset = pdf.len();
+    file_offsets.insert(21, xref_offset);
+
+    // Build /Type /XRef stream for IDs 0..=21 with /W [1 3 1] (5 bytes/row) + PNG Up Predictor 12!
+    let total_ids = 22u32;
+    let mut xref_raw = Vec::with_capacity((total_ids as usize) * 5);
+    for oid in 0..total_ids {
+        if oid == 0 {
+            xref_raw.extend_from_slice(&[0, 0, 0, 0, 255]);
+        } else if (1..=10).contains(&oid) {
+            let idx_in_objstm = (oid - 1) as u8;
+            // Type 2: compressed in ObjStm 20 at index `idx_in_objstm`
+            xref_raw.extend_from_slice(&[2, 0, 0, 20, idx_in_objstm]);
+        } else if let Some(&off) = file_offsets.get(&oid) {
+            let b0 = ((off >> 16) & 0xFF) as u8;
+            let b1 = ((off >> 8) & 0xFF) as u8;
+            let b2 = (off & 0xFF) as u8;
+            xref_raw.extend_from_slice(&[1, b0, b1, b2, 0]);
+        } else {
+            xref_raw.extend_from_slice(&[0, 0, 0, 0, 0]);
+        }
+    }
+    let xref_predicted = png_up_filter_rows(&xref_raw, 5);
+    let xref_zlib = zlib_compress_test(&xref_predicted);
+    let xref_header = format!(
+        "21 0 obj\n<< /Type /XRef /Size {total_ids} /Root 1 0 R /W [1 3 1] \
+         /Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 5 >> /Length {} >>\nstream\n",
+        xref_zlib.len()
+    );
+    pdf.extend_from_slice(xref_header.as_bytes());
+    pdf.extend_from_slice(&xref_zlib);
+    pdf.extend_from_slice(
+        format!("\nendstream\nendobj\nstartxref\n{xref_offset}\n%%EOF\n").as_bytes(),
+    );
+    pdf
+}
+
+#[test]
+fn t415_illustrator_pdf15_xref_objstm_artbox_cmyk_separation_evenodd_fn3_masks_extgstate_form_smask_image_and_cyrillic_tounicode()
+ {
+    let pdf_bytes = build_illustrator_pdf15_clipboard_fixture();
+    assert!(
+        !pdf_bytes.windows(5).any(|w| w == b"\nxref"),
+        "fixture must use pure PDF 1.5 /Type /XRef + /ObjStm with zero classic xref table"
+    );
+
+    let out = import_pdf_clipboard(&pdf_bytes, "illustrator-clipboard.pdf")
+        .expect("PDF 1.5 /XRef + /ObjStm clipboard import must succeed");
+    out.project.validate().unwrap();
+
+    // 1. `/ArtBox [120 330 420 510]` inside `/MediaBox [0 0 960 600]` -> Stage `[120, 90, 420, 270]` (300 x 180)!
+    assert_eq!(out.project.width, 300);
+    assert_eq!(out.project.height, 180);
+    assert!((out.stage_bounds[0] - 120.0).abs() < 1e-6);
+    assert!((out.stage_bounds[1] - 90.0).abs() < 1e-6);
+    assert!((out.stage_bounds[2] - 420.0).abs() < 1e-6);
+    assert!((out.stage_bounds[3] - 270.0).abs() < 1e-6);
+
+    let root_sym = out.project.symbol(&out.project.root).unwrap();
+    let all_root_els: Vec<&Element> = root_sym
+        .timeline
+        .layers
+        .iter()
+        .flat_map(|l| &l.keyframes)
+        .flat_map(|k| &k.elements)
+        .collect();
+
+    // 2. EvenOdd compound path with hole (`B*`) + SpotCoral `/Separation` Type 4 tint fill!
+    let even_odd_fill = all_root_els
+        .iter()
+        .find(|el| {
+            matches!(
+                &el.kind,
+                ElementKind::Path {
+                    fill_rule: FillRule::EvenOdd,
+                    fill,
+                    ..
+                } if fill[3] == 255 && fill[0] > 200 && fill[1] < 120
+            )
+        })
+        .expect("expected EvenOdd SpotCoral Separation compound path");
+    if let ElementKind::Path { commands, .. } = &even_odd_fill.kind {
+        let move_count = commands
+            .iter()
+            .filter(|c| matches!(c, PathCommand::MoveTo { .. }))
+            .count();
+        assert!(move_count >= 2, "compound hole must retain both subpaths");
+    }
+
+    // 3. Multi-stop `/FunctionType 3` gradients via BOTH `/Pattern` (`scn`) AND `/Sh3 sh`!
+    let linear_grads: Vec<&GradientPaint> = all_root_els
+        .iter()
+        .filter_map(|el| match &el.kind {
+            ElementKind::PaintedPath {
+                fill_gradient: Some(g),
+                ..
+            } if g.kind == GradientKind::Linear => Some(g),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        linear_grads.iter().any(|g| g.stops.len() >= 3),
+        "Pattern /P1 -> Type 2 /FunctionType 3 stitching gradient must have >= 3 stops"
+    );
+    let radial_grads: Vec<&GradientPaint> = all_root_els
+        .iter()
+        .filter_map(|el| match &el.kind {
+            ElementKind::PaintedPath {
+                fill_gradient: Some(g),
+                ..
+            } if g.kind == GradientKind::Radial => Some(g),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        radial_grads.iter().any(|g| g.stops.len() >= 3),
+        "/Sh3 sh Type 3 radial /FunctionType 3 stitching gradient must have >= 3 stops"
+    );
+
+    // 4. `q ... W n /GS1 gs ... Q` -> wrapped `Clipped Group` MovieClip symbol with `LayerRole::Mask`
+    //    AND `/ExtGState` `/ca 0.5` + `/BM /Multiply` inside!
+    let clipped_sym = out
+        .project
+        .symbols
+        .iter()
+        .find(|s| {
+            s.id != out.project.root
+                && s.timeline
+                    .layers
+                    .iter()
+                    .any(|l| l.properties.role == LayerRole::Mask)
+        })
+        .expect("W n clipping path must produce a masked MovieClip symbol");
+    let has_multiply_half_alpha = clipped_sym
+        .timeline
+        .layers
+        .iter()
+        .filter(|l| l.properties.role == LayerRole::Normal)
+        .flat_map(|l| &l.keyframes)
+        .flat_map(|k| &k.elements)
+        .any(|e| {
+            e.blend_mode == BlendMode::Multiply
+                && matches!(e.kind, ElementKind::Path { fill, .. } if (120..=135).contains(&fill[3]))
+        });
+    assert!(
+        has_multiply_half_alpha,
+        "clipped element must preserve /ExtGState /BM /Multiply and /ca 0.5"
+    );
+
+    // 5. `/Fm1 Do` Form XObject -> nested `MovieClip` symbol + `ElementKind::Instance`!
+    assert!(
+        all_root_els
+            .iter()
+            .any(|e| e.name.contains("Fm1") && matches!(e.kind, ElementKind::Instance { .. })),
+        "/Fm1 Do must import as nested MovieClip Instance"
+    );
+
+    // 6. `/Im1 Do` RGBA `/SMask` Image XObject (invoked twice) -> 2 `Bitmap` elements, 1 deduplicated `ResourceUnit`!
+    let bitmaps: Vec<&Element> = all_root_els
+        .iter()
+        .copied()
+        .filter(|e| matches!(e.kind, ElementKind::Bitmap { .. }))
+        .collect();
+    assert_eq!(
+        bitmaps.len(),
+        2,
+        "two /Im1 Do invocations must place 2 Bitmap elements"
+    );
+    assert_eq!(
+        out.project.resources.len(),
+        1,
+        "identical /Im1 Image XObject must deduplicate to 1 lossless PNG ResourceUnit"
+    );
+    let decoded_png = image::load_from_memory(&out.project.resources[0].decoded_bytes().unwrap())
+        .unwrap()
+        .to_rgba8();
+    assert_eq!(decoded_png.dimensions(), (2, 2));
+    assert_eq!(decoded_png.get_pixel(0, 0).0, [255, 0, 0, 255]);
+    assert_eq!(decoded_png.get_pixel(1, 0).0, [0, 255, 0, 128]);
+    assert_eq!(decoded_png.get_pixel(0, 1).0, [0, 0, 255, 64]);
+    assert_eq!(decoded_png.get_pixel(1, 1).0, [255, 255, 0, 0]);
+
+    // 7. `BT .. ET` `/ToUnicode` Cyrillic text -> editable `ElementKind::TextBox`!
+    let cyrillic_tb = all_root_els
+        .iter()
+        .find_map(|e| match &e.kind {
+            ElementKind::TextBox { text, format, .. } if text == "Привет, мир!" => {
+                Some((text.as_str(), format))
+            }
+            _ => None,
+        })
+        .expect("Cyrillic /ToUnicode BT..ET text must import as editable TextBox");
+    assert_eq!(cyrillic_tb.1.font, "Inter");
+    assert!(cyrillic_tb.1.bold);
+}
+
+#[test]
+fn t415_illustrator_aicb_and_binary_eps_vectors_strokes_colors_clip_and_security_caps() {
+    // 1. ASCII AICB / PostScript Level 3 EPS with HiResBoundingBox, %AI5_ArtSize, compound *u/*U
+    //    EvenOdd hole, AICB XA/XR, CMYK k/K, dashed stroke, gsave..clip..grestore, and shfill!
+    let aicb_eps = "\
+%!PS-Adobe-3.0 EPSF-3.0
+%%Creator: Adobe Illustrator(R) 28.0
+%%BoundingBox: 80 220 321 400
+%%HiResBoundingBox: 80.5 220.0 320.5 400.0
+%AI5_ArtSize: 960 600
+%%EndComments
+1 XR
+*u
+0.95 0.25 0.15 XA
+0.1 0.8 0.2 0.0 K
+2.5 w 1 J 1 j 5 M [6 3] 0 d
+85 310 m 175 310 l 175 390 l 85 390 l h
+105 330 m 155 330 l 155 370 l 105 370 l h
+B*
+*U
+0 XR
+gsave
+190 230 110 80 rectclip
+0.2 0.6 0.95 rg
+180 220 m 220 320 260 320 310 220 c 310 300 v 190 300 y closepath fill
+<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [195 240 295 240] \
+   /Function << /FunctionType 2 /Domain [0 1] /N 1 /C0 [1 0.9 0] /C1 [0.9 0 0.5] >> >> shfill
+grestore
+showpage
+%%EOF
+";
+    let eps_out = import_eps_clipboard(aicb_eps.as_bytes(), "aicb-clipboard.eps")
+        .expect("AICB / Level 3 EPS vector clipboard must parse");
+    eps_out.project.validate().unwrap();
+    // HiResBoundingBox [80.5, 220, 320.5, 400] on %AI5_ArtSize 960x600 -> Stage [80.5, 200.0, 320.5, 380.0] (240 x 180)
+    assert_eq!(eps_out.project.width, 240);
+    assert_eq!(eps_out.project.height, 180);
+    assert!((eps_out.stage_bounds[0] - 80.5).abs() < 1e-6);
+    assert!((eps_out.stage_bounds[1] - 200.0).abs() < 1e-6);
+    assert!((eps_out.stage_bounds[2] - 320.5).abs() < 1e-6);
+    assert!((eps_out.stage_bounds[3] - 380.0).abs() < 1e-6);
+    assert!(
+        eps_out.project.resources.is_empty(),
+        "vector EPS must NOT create raster preview resources"
+    );
+
+    let root_els: Vec<&Element> = eps_out
+        .project
+        .symbol(&eps_out.project.root)
+        .unwrap()
+        .timeline
+        .layers
+        .iter()
+        .flat_map(|l| &l.keyframes)
+        .flat_map(|k| &k.elements)
+        .collect();
+    assert!(
+        root_els.iter().any(|e| matches!(
+            e.kind,
+            ElementKind::Path {
+                fill_rule: FillRule::EvenOdd,
+                ..
+            }
+        )),
+        "AICB 1 XR + *u..*U B* must import EvenOdd compound hole"
+    );
+    assert!(
+        eps_out.project.symbols.iter().any(|s| {
+            s.id != eps_out.project.root
+                && s.timeline
+                    .layers
+                    .iter()
+                    .any(|l| l.properties.role == LayerRole::Mask)
+        }),
+        "gsave..rectclip..grestore must preserve clipping mask symbol"
+    );
+    assert!(
+        eps_out
+            .project
+            .symbols
+            .iter()
+            .flat_map(|s| &s.timeline.layers)
+            .flat_map(|l| &l.keyframes)
+            .flat_map(|k| &k.elements)
+            .any(|e| matches!(
+                e.kind,
+                ElementKind::PaintedPath {
+                    fill_gradient: Some(_),
+                    ..
+                }
+            )),
+        "Level 3 shfill must import as vector PaintedPath gradient"
+    );
+
+    // 2. DOS Binary EPS (`0xC5D0D3C6`) containing BOTH PostScript vectors AND an embedded TIFF preview:
+    //    must decode editable vector paths and NEVER fall back to the raster TIFF preview!
+    let ps_sec = b"%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 10 20 110 80\n1 0 0 rg 10 20 m 110 20 l 110 80 l 10 80 l closepath fill\n%%EOF\n";
+    let mut tiff_preview = Vec::new();
+    {
+        let preview_img = image::RgbaImage::from_pixel(4, 4, image::Rgba([0, 255, 0, 255]));
+        preview_img
+            .write_to(
+                &mut std::io::Cursor::new(&mut tiff_preview),
+                image::ImageFormat::Tiff,
+            )
+            .unwrap();
+    }
+    let ps_offset = 30u32;
+    let ps_len = ps_sec.len() as u32;
+    let tiff_offset = ps_offset + ps_len;
+    let tiff_len = tiff_preview.len() as u32;
+    let mut dos_eps = Vec::with_capacity((tiff_offset + tiff_len) as usize);
+    dos_eps.extend_from_slice(&[0xC5, 0xD0, 0xD3, 0xC6]);
+    dos_eps.extend_from_slice(&ps_offset.to_le_bytes());
+    dos_eps.extend_from_slice(&ps_len.to_le_bytes());
+    dos_eps.extend_from_slice(&0u32.to_le_bytes()); // WMF offset
+    dos_eps.extend_from_slice(&0u32.to_le_bytes()); // WMF len
+    dos_eps.extend_from_slice(&tiff_offset.to_le_bytes());
+    dos_eps.extend_from_slice(&tiff_len.to_le_bytes());
+    dos_eps.extend_from_slice(&0xFFFFu16.to_le_bytes());
+    dos_eps.extend_from_slice(ps_sec);
+    dos_eps.extend_from_slice(&tiff_preview);
+
+    let bin_out = import_eps_clipboard(&dos_eps, "dos-binary.eps").unwrap();
+    bin_out.project.validate().unwrap();
+    assert!(
+        bin_out.project.resources.is_empty(),
+        "DOS binary EPS with vector paths must NOT fall back to embedded TIFF preview"
+    );
+    assert!(
+        bin_out
+            .project
+            .symbol(&bin_out.project.root)
+            .unwrap()
+            .timeline
+            .layers[0]
+            .keyframes[0]
+            .elements
+            .iter()
+            .any(|e| matches!(e.kind, ElementKind::Path { .. })),
+        "DOS binary EPS must produce editable vector Path"
+    );
+
+    // 3. Security caps: >32,768 path commands, >64 gsave stack, and >32 /Form recursion rejected cleanly!
+    let mut huge_eps = String::from("%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 100 100\n0 0 m\n");
+    for i in 0..32_800 {
+        huge_eps.push_str(&format!("{} {} l\n", i % 90, (i / 90) % 90));
+    }
+    huge_eps.push_str("f\n%%EOF\n");
+    assert!(
+        import_eps_clipboard(huge_eps.as_bytes(), "bomb.eps").is_err(),
+        "EPS exceeding 32,768 path commands must be rejected"
+    );
+
+    let mut deep_gsave = String::from("%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 100 100\n");
+    for _ in 0..70 {
+        deep_gsave.push_str("gsave\n");
+    }
+    deep_gsave.push_str("0 0 10 10 rectfill\n%%EOF\n");
+    assert!(
+        import_eps_clipboard(deep_gsave.as_bytes(), "deep-gsave.eps").is_err(),
+        "EPS exceeding 64 gsave depth must be rejected"
+    );
+
+    // Cyclic / deep Form XObject recursion (>32) in PDF rejected cleanly!
+    {
+        use lopdf::{Document, Object, Stream, dictionary};
+        let mut doc = Document::with_version("1.5");
+        let tree = doc.new_object_id();
+        let fm_id = doc.new_object_id();
+        let fm_res = dictionary! {
+            "XObject" => dictionary! { "FmLoop" => Object::Reference(fm_id) }
+        };
+        doc.objects.insert(
+            fm_id,
+            Stream::new(
+                dictionary! {
+                    "Type" => "XObject",
+                    "Subtype" => "Form",
+                    "BBox" => vec![0.into(), 0.into(), 20.into(), 20.into()],
+                    "Resources" => fm_res.clone(),
+                },
+                b"/FmLoop Do".to_vec(),
+            )
+            .into(),
+        );
+        let contents = doc.add_object(Stream::new(dictionary! {}, b"/FmLoop Do".to_vec()));
+        let page = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => tree,
+            "MediaBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
+            "Resources" => fm_res,
+            "Contents" => contents,
+        });
+        doc.objects.insert(
+            tree,
+            dictionary! {
+                "Type" => "Pages",
+                "Count" => 1,
+                "Kids" => vec![Object::Reference(page)],
+            }
+            .into(),
+        );
+        let root = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => tree });
+        doc.trailer.set("Root", root);
+        let mut loop_pdf = Vec::new();
+        doc.save_to(&mut loop_pdf).unwrap();
+        assert!(
+            import_pdf_clipboard(&loop_pdf, "loop.pdf").is_err(),
+            "self-referential /Form XObject recursion must be rejected"
+        );
+    }
 }

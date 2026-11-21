@@ -1,15 +1,108 @@
-//! Follow PDF page references. Illustrator also embeds previews, private editing data and ICC
-//! profiles as streams; none of those streams consists of page marking operators.
+//! PDF 1.4–1.7 & Adobe Illustrator (`.ai` / `com.adobe.pdf`) page tree, box priority
+//! (`/ArtBox` > `/TrimBox` > `/BleedBox` > `/CropBox` > `/MediaBox`), scoped resources,
+//! `/ExtGState`, `/Shading`, `/Pattern`, `/Font`, `/Form` XObjects (`<= 32` depth),
+//! and `/Image` XObjects (`DCTDecode` / `FlateDecode` + `/SMask`, `<= 4096x4096`, `<= 64 MiB`).
+
+use super::pdf_color_fn::{
+    PdfColorSpace, cmyk_to_rgba, function_dict, numbers, parse_pdf_color_space,
+    parse_shading_pattern_with_cs, parse_shading_with_cs, scalar,
+};
+use super::pdf_text_font::{PdfFontResource, parse_pdf_font_resource};
+use super::pdf_xref::{
+    MAX_PDF_DECODED_STREAM_BYTES, decode_pdf_stream_bounded, decode_pdf_stream_with_doc,
+    load_pdf_document_bounded,
+};
 use super::*;
+use image::{ImageEncoder, Limits, RgbaImage};
 use lopdf::{Dictionary, Document, Object, ObjectId};
+use neoflash_core::BlendMode;
+use std::collections::{HashMap, HashSet};
+use std::io::Cursor;
+use std::sync::Arc;
+
+pub(super) const MAX_PDF_FORM_DEPTH: usize = 32;
+pub(super) const MAX_PDF_IMAGE_DIM: u32 = 4096;
+pub(super) const MAX_PDF_IMAGE_BYTES: usize = 64 * 1024 * 1024;
+
+#[derive(Clone, Debug)]
+pub(super) struct PdfSoftMask {
+    pub mode: MaskMode,
+    pub form: Box<PdfFormXObject>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(super) struct PdfExtGState {
+    pub fill_alpha: Option<f64>,
+    pub stroke_alpha: Option<f64>,
+    pub blend_mode: Option<BlendMode>,
+    pub blend_approx: Option<String>,
+    pub line_width: Option<f64>,
+    pub line_cap: Option<i64>,
+    pub line_join: Option<i64>,
+    pub miter_limit: Option<f64>,
+    pub dash: Option<(Vec<f64>, f64)>,
+    pub clear_smask: bool,
+    pub smask: Option<PdfSoftMask>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct PdfFormXObject {
+    pub id: Option<ObjectId>,
+    pub name: String,
+    pub bbox: [f64; 4],
+    pub matrix: [f64; 6],
+    pub content: String,
+    pub scope: Box<PdfResourceScope>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct PdfImageXObject {
+    pub width: u32,
+    pub height: u32,
+    pub png_bytes: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct PdfResourceScope {
+    pub doc: Arc<Document>,
+    pub color_spaces: BTreeMap<String, PdfColorSpace>,
+    pub shadings: BTreeMap<String, GradientPaint>,
+    pub patterns: BTreeMap<String, GradientPaint>,
+    pub ext_gstates: BTreeMap<String, PdfExtGState>,
+    pub fonts: BTreeMap<String, PdfFontResource>,
+    pub forms: BTreeMap<String, PdfFormXObject>,
+    pub cyclic_forms: HashSet<String>,
+    pub images: BTreeMap<String, PdfImageXObject>,
+    pub unsupported_xobjects: BTreeMap<String, String>,
+    pub warnings: Vec<(String, String)>,
+}
+
+impl PdfResourceScope {
+    pub fn empty() -> Self {
+        Self {
+            doc: Arc::new(Document::new()),
+            color_spaces: BTreeMap::new(),
+            shadings: BTreeMap::new(),
+            patterns: BTreeMap::new(),
+            ext_gstates: BTreeMap::new(),
+            fonts: BTreeMap::new(),
+            forms: BTreeMap::new(),
+            cyclic_forms: HashSet::new(),
+            images: BTreeMap::new(),
+            unsupported_xobjects: BTreeMap::new(),
+            warnings: Vec::new(),
+        }
+    }
+}
 
 pub(super) struct Page {
     pub content: String,
+    /// Active artwork bounds (`/ArtBox` > `/TrimBox` > `/BleedBox` > `/CropBox` > `/MediaBox`).
     pub bounds: [f64; 4],
+    /// Full artboard/page `/MediaBox` when present, used to compute exact Stage coordinates for `Paste in Place`.
+    pub media_box: Option<[f64; 4]>,
     pub rotation: i64,
-    pub shadings: BTreeMap<String, GradientPaint>,
-    pub patterns: BTreeMap<String, GradientPaint>,
-    pub warnings: Vec<(String, String)>,
+    pub scope: PdfResourceScope,
 }
 
 impl Page {
@@ -24,59 +117,20 @@ impl Page {
             _ => ((w, h), [1., 0., 0., -1., -x0, y1]),
         }
     }
-}
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ShadingColorSpace {
-    Gray,
-    Rgb,
-    Cmyk,
-}
-
-impl ShadingColorSpace {
-    fn channels(self) -> usize {
-        match self {
-            Self::Gray => 1,
-            Self::Rgb => 3,
-            Self::Cmyk => 4,
+    /// Stage-space `[min_x, min_y, max_x, max_y]` (Y-down relative to `/MediaBox` top-left).
+    pub fn stage_bounds(&self) -> [f64; 4] {
+        let [bx0, by0, bx1, by1] = self.bounds;
+        let bw = (bx1 - bx0).max(0.0);
+        let bh = (by1 - by0).max(0.0);
+        if let Some([mx0, _my0, _mx1, my1]) = self.media_box
+            && self.media_box != Some(self.bounds)
+        {
+            let sx0 = bx0 - mx0;
+            let sy0 = my1 - by1;
+            return [sx0, sy0, sx0 + bw, sy0 + bh];
         }
-    }
-
-    fn to_rgba(self, comps: &[f64]) -> Option<Color> {
-        match self {
-            Self::Gray => {
-                let g = (*comps.first()?).clamp(0.0, 1.0);
-                let v = (g * 255.0).round() as u8;
-                Some([v, v, v, 255])
-            }
-            Self::Rgb => {
-                if comps.len() < 3 {
-                    return None;
-                }
-                Some([
-                    (comps[0].clamp(0.0, 1.0) * 255.0).round() as u8,
-                    (comps[1].clamp(0.0, 1.0) * 255.0).round() as u8,
-                    (comps[2].clamp(0.0, 1.0) * 255.0).round() as u8,
-                    255,
-                ])
-            }
-            Self::Cmyk => {
-                if comps.len() < 4 {
-                    return None;
-                }
-                let c = comps[0].clamp(0.0, 1.0);
-                let m = comps[1].clamp(0.0, 1.0);
-                let y = comps[2].clamp(0.0, 1.0);
-                let k = comps[3].clamp(0.0, 1.0);
-                let inv_k = 1.0 - k;
-                Some([
-                    ((1.0 - c) * inv_k * 255.0).round() as u8,
-                    ((1.0 - m) * inv_k * 255.0).round() as u8,
-                    ((1.0 - y) * inv_k * 255.0).round() as u8,
-                    255,
-                ])
-            }
-        }
+        [0.0, 0.0, bw, bh]
     }
 }
 
@@ -91,646 +145,721 @@ fn inherited<'a>(doc: &'a Document, mut id: ObjectId, key: &[u8]) -> Option<&'a 
     None
 }
 
-fn scalar(object: &Object) -> Option<f64> {
-    object
-        .as_float()
-        .ok()
-        .map(f64::from)
-        .or_else(|| object.as_i64().ok().map(|i| i as f64))
-}
-
-fn numbers(object: &Object) -> Option<Vec<f64>> {
-    object.as_array().ok()?.iter().map(scalar).collect()
-}
-
-fn parse_color_space(doc: &Document, obj: &Object) -> Option<ShadingColorSpace> {
-    let resolved = doc.dereference(obj).map_or(obj, |(_, o)| o);
-    if let Ok(name) = resolved.as_name() {
-        return match name {
-            b"DeviceRGB" | b"CalRGB" => Some(ShadingColorSpace::Rgb),
-            b"DeviceGray" | b"CalGray" => Some(ShadingColorSpace::Gray),
-            b"DeviceCMYK" => Some(ShadingColorSpace::Cmyk),
-            _ => None,
-        };
-    }
-    let arr = resolved.as_array().ok()?;
-    let kind = arr.first()?.as_name().ok()?;
-    match kind {
-        b"DeviceRGB" | b"CalRGB" => Some(ShadingColorSpace::Rgb),
-        b"DeviceGray" | b"CalGray" => Some(ShadingColorSpace::Gray),
-        b"DeviceCMYK" => Some(ShadingColorSpace::Cmyk),
-        b"ICCBased" => {
-            let stream_obj = doc.dereference(arr.get(1)?).ok()?.1;
-            let dict = match stream_obj {
-                Object::Stream(s) => &s.dict,
-                Object::Dictionary(d) => d,
-                _ => return None,
-            };
-            if let Ok(alt) = dict.get(b"Alternate")
-                && let Some(cs) = parse_color_space(doc, alt)
-            {
-                return Some(cs);
-            }
-            match dict.get(b"N").ok().and_then(|n| n.as_i64().ok())? {
-                1 => Some(ShadingColorSpace::Gray),
-                3 => Some(ShadingColorSpace::Rgb),
-                4 => Some(ShadingColorSpace::Cmyk),
-                _ => None,
-            }
-        }
-        _ => None,
-    }
-}
-
-fn function_dict<'a>(doc: &'a Document, obj: &'a Object) -> Option<&'a Dictionary> {
-    let resolved = doc.dereference(obj).map_or(obj, |(_, o)| o);
-    match resolved {
-        Object::Dictionary(d) => Some(d),
-        Object::Stream(s) => Some(&s.dict),
-        _ => None,
-    }
-}
-
-fn function_domain(dict: &Dictionary) -> [f64; 2] {
-    dict.get(b"Domain")
-        .ok()
-        .and_then(numbers)
-        .and_then(|v| <[f64; 2]>::try_from(v).ok())
-        .filter(|d| d[0].is_finite() && d[1].is_finite())
-        .unwrap_or([0.0, 1.0])
-}
-
-fn eval_pdf_function(
-    doc: &Document,
-    fn_obj: &Object,
-    u: f64,
-    expected_channels: usize,
-    depth: usize,
-) -> Option<Vec<f64>> {
-    if depth > 8 || !u.is_finite() {
+fn valid_box(obj: &Object) -> Option<[f64; 4]> {
+    let raw = numbers(obj)?;
+    let [mut x0, mut y0, mut x1, mut y1] = <[f64; 4]>::try_from(raw).ok()?;
+    if ![x0, y0, x1, y1].iter().all(|v| v.is_finite()) {
         return None;
     }
-    let resolved = doc.dereference(fn_obj).map_or(fn_obj, |(_, o)| o);
-    if let Ok(arr) = resolved.as_array() {
-        if arr.len() != expected_channels {
-            return None;
-        }
-        let mut out = Vec::with_capacity(expected_channels);
-        for item in arr {
-            let vals = eval_pdf_function(doc, item, u, 1, depth + 1)?;
-            out.push(*vals.first()?);
-        }
-        return Some(out);
+    if x1 < x0 {
+        std::mem::swap(&mut x0, &mut x1);
+    }
+    if y1 < y0 {
+        std::mem::swap(&mut y0, &mut y1);
+    }
+    (x1 > x0 && y1 > y0).then_some([x0, y0, x1, y1])
+}
+
+fn map_pdf_blend_mode_name(name: &[u8]) -> Option<(BlendMode, Option<String>)> {
+    match name {
+        b"Normal" | b"Compatible" => Some((BlendMode::Normal, None)),
+        b"Multiply" => Some((BlendMode::Multiply, None)),
+        b"Screen" => Some((BlendMode::Screen, None)),
+        b"Overlay" => Some((BlendMode::Overlay, None)),
+        b"Darken" => Some((BlendMode::Darken, None)),
+        b"Lighten" => Some((BlendMode::Lighten, None)),
+        b"HardLight" => Some((BlendMode::Hardlight, None)),
+        b"Difference" => Some((BlendMode::Difference, None)),
+        b"Exclusion" => Some((
+            BlendMode::Difference,
+            Some("PDF /Exclusion blend mode was approximated to Difference.".into()),
+        )),
+        b"ColorDodge" => Some((
+            BlendMode::Add,
+            Some("PDF /ColorDodge blend mode was approximated to Add.".into()),
+        )),
+        b"ColorBurn" => Some((
+            BlendMode::Multiply,
+            Some("PDF /ColorBurn blend mode was approximated to Multiply.".into()),
+        )),
+        b"SoftLight" => Some((
+            BlendMode::Overlay,
+            Some("PDF /SoftLight blend mode was approximated to Overlay.".into()),
+        )),
+        _ => None,
+    }
+}
+
+struct PdfParseCaches {
+    decoded_images: HashMap<ObjectId, PdfImageXObject>,
+    total_decoded_bytes: usize,
+}
+
+fn decode_image_raw_to_rgba(
+    doc: &Document,
+    dict: &Dictionary,
+    raw: &[u8],
+    width: u32,
+    height: u32,
+    resources_cs: Option<&Dictionary>,
+) -> Option<RgbaImage> {
+    let bpc = dict
+        .get(b"BitsPerComponent")
+        .ok()
+        .and_then(|o| o.as_i64().ok())
+        .unwrap_or(8) as u32;
+    if !matches!(bpc, 1 | 2 | 4 | 8 | 16) {
+        return None;
     }
 
-    let dict = function_dict(doc, resolved)?;
-    let fn_type = dict.get(b"FunctionType").ok()?.as_i64().ok()?;
-    let [d0, d1] = function_domain(dict);
-    let lo = d0.min(d1);
-    let hi = d0.max(d1);
-    let x = u.clamp(lo, hi);
+    let is_image_mask = dict
+        .get(b"ImageMask")
+        .ok()
+        .and_then(|o| o.as_bool().ok())
+        .unwrap_or(false);
+    let cs = if is_image_mask {
+        PdfColorSpace::Gray { gamma: 1.0 }
+    } else if let Ok(cs_obj) = dict.get(b"ColorSpace") {
+        parse_pdf_color_space(doc, cs_obj, resources_cs, 0)?
+    } else {
+        PdfColorSpace::Gray { gamma: 1.0 }
+    };
 
-    match fn_type {
-        2 => {
-            // Exponential interpolation: c(x) = C0 + t^N * (C1 - C0)
-            let n = dict.get(b"N").ok().and_then(scalar)?;
-            if !n.is_finite() || n <= 0.0 {
-                return None;
+    let n_ch = cs.channels().max(1);
+    let decode_arr = dict.get(b"Decode").ok().and_then(numbers);
+
+    let default_max = if matches!(cs, PdfColorSpace::Indexed { .. }) {
+        ((1u32 << bpc.min(16)) - 1) as f64
+    } else {
+        1.0
+    };
+
+    let row_bits = (width as usize)
+        .checked_mul(n_ch)?
+        .checked_mul(bpc as usize)?;
+    let row_bytes = row_bits.div_ceil(8);
+    if raw.len() < row_bytes.checked_mul(height as usize)? {
+        return None;
+    }
+
+    let max_sample = ((1u32 << bpc.min(16)) - 1).max(1) as f64;
+    let mut rgba = Vec::with_capacity((width as usize) * (height as usize) * 4);
+    let mut comps = vec![0.0f64; n_ch];
+
+    for y in 0..(height as usize) {
+        let row = &raw[y * row_bytes..(y + 1) * row_bytes];
+        for x in 0..(width as usize) {
+            for (c, slot) in comps.iter_mut().enumerate().take(n_ch) {
+                let sample_idx = x * n_ch + c;
+                let sample_val: u32 = match bpc {
+                    8 => u32::from(*row.get(sample_idx)?),
+                    16 => {
+                        let b = sample_idx * 2;
+                        u32::from(u16::from_be_bytes([*row.get(b)?, *row.get(b + 1)?]))
+                    }
+                    1 | 2 | 4 => {
+                        let bit_offset = sample_idx * (bpc as usize);
+                        let byte = *row.get(bit_offset / 8)?;
+                        let shift = 8 - (bpc as usize) - (bit_offset % 8);
+                        u32::from((byte >> shift) & ((1u8 << bpc) - 1))
+                    }
+                    _ => return None,
+                };
+                let frac = (sample_val as f64) / max_sample;
+                let d0 = decode_arr
+                    .as_ref()
+                    .and_then(|d| d.get(2 * c).copied())
+                    .unwrap_or(0.0);
+                let d1 = decode_arr
+                    .as_ref()
+                    .and_then(|d| d.get(2 * c + 1).copied())
+                    .unwrap_or(default_max);
+                *slot = d0 + frac * (d1 - d0);
             }
-            let c0 = dict
-                .get(b"C0")
-                .ok()
-                .and_then(numbers)
-                .unwrap_or_else(|| vec![0.0; expected_channels]);
-            let c1 = dict
-                .get(b"C1")
-                .ok()
-                .and_then(numbers)
-                .unwrap_or_else(|| vec![1.0; expected_channels]);
-            if c0.len() < expected_channels || c1.len() < expected_channels {
-                return None;
-            }
-            let t = if (d1 - d0).abs() < 1e-12 {
-                0.0
+            if is_image_mask {
+                // Stencil mask: 0 paints, 1 leaves transparent (after /Decode)
+                let paint_opacity = ((1.0 - comps[0].clamp(0.0, 1.0)) * 255.0).round() as u8;
+                rgba.extend_from_slice(&[0, 0, 0, paint_opacity]);
             } else {
-                ((x - d0) / (d1 - d0)).clamp(0.0, 1.0)
-            };
-            let factor = if (n - 1.0).abs() < 1e-9 { t } else { t.powf(n) };
-            let mut out = Vec::with_capacity(expected_channels);
-            for i in 0..expected_channels {
-                out.push(c0[i] + factor * (c1[i] - c0[i]));
+                let col = cs.to_rgba(doc, &comps, 0)?;
+                rgba.extend_from_slice(&col);
             }
-            if let Ok(range_obj) = dict.get(b"Range")
-                && let Some(ranges) = numbers(range_obj)
-            {
-                for (i, pair) in ranges
-                    .as_chunks::<2>()
-                    .0
-                    .iter()
-                    .take(expected_channels)
-                    .enumerate()
-                {
-                    out[i] = out[i].clamp(pair[0].min(pair[1]), pair[0].max(pair[1]));
-                }
-            }
-            Some(out)
         }
-        3 => {
-            // Stitching function over k sub-functions
-            let functions = dict.get(b"Functions").ok()?.as_array().ok()?;
-            let k = functions.len();
-            if k == 0 || k > 64 {
-                return None;
+    }
+
+    RgbaImage::from_raw(width, height, rgba)
+}
+
+fn decode_pdf_image_rgba(
+    doc: &Document,
+    stream: &lopdf::Stream,
+    resources_cs: Option<&Dictionary>,
+    depth: usize,
+) -> Result<Option<RgbaImage>, ImportError> {
+    if depth > 4 {
+        return Ok(None);
+    }
+    let dict = &stream.dict;
+    let width = dict
+        .get(b"Width")
+        .or_else(|_| dict.get(b"W"))
+        .ok()
+        .and_then(|o| o.as_i64().ok())
+        .unwrap_or(0);
+    let height = dict
+        .get(b"Height")
+        .or_else(|_| dict.get(b"H"))
+        .ok()
+        .and_then(|o| o.as_i64().ok())
+        .unwrap_or(0);
+    if width <= 0 || height <= 0 {
+        return Ok(None);
+    }
+    if width > i64::from(MAX_PDF_IMAGE_DIM) || height > i64::from(MAX_PDF_IMAGE_DIM) {
+        return Err(ImportError::Container(format!(
+            "PDF Image XObject dimensions ({width}x{height}) exceed maximum {MAX_PDF_IMAGE_DIM}x{MAX_PDF_IMAGE_DIM}."
+        )));
+    }
+    let width = width as u32;
+    let height = height as u32;
+    let raw_rgba_budget = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|px| px.checked_mul(4))
+        .ok_or_else(|| ImportError::Container("PDF Image XObject size overflow.".into()))?;
+    if raw_rgba_budget > MAX_PDF_IMAGE_BYTES {
+        return Err(ImportError::Container(
+            "PDF Image XObject exceeds 64 MiB decoded pixel budget.".into(),
+        ));
+    }
+
+    // Inspect filter list to detect DCTDecode (JPEG) or JPXDecode
+    let filter_names: Vec<Vec<u8>> = match dict.get(b"Filter").or_else(|_| dict.get(b"F")) {
+        Ok(Object::Name(n)) => vec![n.clone()],
+        Ok(Object::Array(arr)) => arr
+            .iter()
+            .filter_map(|o| {
+                doc.dereference(o)
+                    .map_or(o, |(_, r)| r)
+                    .as_name()
+                    .ok()
+                    .map(|s| s.to_vec())
+            })
+            .collect(),
+        Ok(other) => doc
+            .dereference(other)
+            .ok()
+            .and_then(|(_, r)| r.as_name().ok().map(|s| vec![s.to_vec()]))
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+
+    if filter_names.iter().any(|f| {
+        f.as_slice() == b"JPXDecode"
+            || f.as_slice() == b"CCITTFaxDecode"
+            || f.as_slice() == b"JBIG2Decode"
+    }) {
+        return Ok(None);
+    }
+
+    let (decoded_bytes, is_dct_jpeg) =
+        decode_pdf_stream_with_doc(stream, Some(doc), MAX_PDF_IMAGE_BYTES, true)?;
+    let mut base_img = if is_dct_jpeg {
+        let mut reader = image::ImageReader::with_format(
+            Cursor::new(decoded_bytes.as_slice()),
+            image::ImageFormat::Jpeg,
+        );
+        let mut limits = Limits::default();
+        limits.max_image_width = Some(MAX_PDF_IMAGE_DIM);
+        limits.max_image_height = Some(MAX_PDF_IMAGE_DIM);
+        limits.max_alloc = Some(MAX_PDF_IMAGE_BYTES as u64);
+        reader.limits(limits);
+        let decoded = reader
+            .decode()
+            .map_err(|e| ImportError::Container(format!("PDF DCTDecode JPEG error: {e}")))?;
+        let rgba = decoded.to_rgba8();
+        if rgba.width() > MAX_PDF_IMAGE_DIM || rgba.height() > MAX_PDF_IMAGE_DIM {
+            return Err(ImportError::Container(
+                "PDF DCTDecode JPEG dimensions exceed 4096x4096.".into(),
+            ));
+        }
+        rgba
+    } else {
+        let Some(img) =
+            decode_image_raw_to_rgba(doc, dict, &decoded_bytes, width, height, resources_cs)
+        else {
+            return Ok(None);
+        };
+        img
+    };
+
+    // Apply `/SMask` soft-mask Image XObject alpha channel when present!
+    if let Ok(smask_obj) = dict.get(b"SMask")
+        && let Object::Stream(smask_stream) =
+            doc.dereference(smask_obj).map_or(smask_obj, |(_, r)| r)
+        && let Some(mask_img) = decode_pdf_image_rgba(doc, smask_stream, resources_cs, depth + 1)?
+    {
+        let mw = mask_img.width().max(1);
+        let mh = mask_img.height().max(1);
+        let bw = base_img.width();
+        let bh = base_img.height();
+        let mask_raw = mask_img.as_raw();
+        let base_raw = base_img.as_mut();
+        for y in 0..bh {
+            let my = ((u64::from(y) * u64::from(mh)) / u64::from(bh)).min(u64::from(mh - 1)) as u32;
+            for x in 0..bw {
+                let mx =
+                    ((u64::from(x) * u64::from(mw)) / u64::from(bw)).min(u64::from(mw - 1)) as u32;
+                let m_idx = ((my * mw + mx) * 4) as usize;
+                let b_idx = ((y * bw + x) * 4) as usize;
+                let alpha = mask_raw[m_idx]; // Grayscale mask has R == G == B == luminance
+                base_raw[b_idx + 3] =
+                    ((u16::from(base_raw[b_idx + 3]) * u16::from(alpha) + 127) / 255) as u8;
             }
-            let bounds = if k == 1 {
-                Vec::new()
+        }
+    }
+
+    Ok(Some(base_img))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn parse_form_xobject(
+    doc: &Arc<Document>,
+    obj_id: Option<ObjectId>,
+    name: &str,
+    stream: &lopdf::Stream,
+    parent_scope: Option<&PdfResourceScope>,
+    caches: &mut PdfParseCaches,
+    active_forms: &mut HashSet<ObjectId>,
+    form_depth: usize,
+) -> Result<PdfFormXObject, ImportError> {
+    if form_depth >= MAX_PDF_FORM_DEPTH {
+        return Err(ImportError::Container(format!(
+            "PDF Form XObject nesting exceeds maximum depth of {MAX_PDF_FORM_DEPTH}."
+        )));
+    }
+    if let Some(id) = obj_id
+        && !active_forms.insert(id)
+    {
+        return Err(ImportError::Container(
+            "Cyclic PDF Form XObject reference detected.".into(),
+        ));
+    }
+
+    let result = (|| {
+        let dict = &stream.dict;
+        let bbox = dict
+            .get(b"BBox")
+            .ok()
+            .and_then(|o| doc.dereference(o).ok().map(|(_, r)| r).or(Some(o)))
+            .and_then(numbers)
+            .and_then(|v| <[f64; 4]>::try_from(v).ok())
+            .filter(|b| b.iter().all(|v| v.is_finite()))
+            .unwrap_or([0.0, 0.0, 100.0, 100.0]);
+        let matrix = dict
+            .get(b"Matrix")
+            .ok()
+            .and_then(|o| doc.dereference(o).ok().map(|(_, r)| r).or(Some(o)))
+            .and_then(numbers)
+            .and_then(|v| <[f64; 6]>::try_from(v).ok())
+            .filter(|m| m.iter().all(|v| v.is_finite()))
+            .unwrap_or([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+
+        let remaining = MAX_PDF_DECODED_STREAM_BYTES.saturating_sub(caches.total_decoded_bytes);
+        if remaining == 0 {
+            return Err(ImportError::Container(
+                "PDF Form XObject streams exceed the 64 MiB decoding budget.".into(),
+            ));
+        }
+        let raw = decode_pdf_stream_bounded(stream, remaining.min(16 * 1024 * 1024))?;
+        caches.total_decoded_bytes = caches.total_decoded_bytes.saturating_add(raw.len());
+
+        let res_dict = dict
+            .get(b"Resources")
+            .ok()
+            .and_then(|o| function_dict(doc, o));
+        let scope = parse_resource_scope(
+            doc,
+            res_dict,
+            parent_scope,
+            caches,
+            active_forms,
+            form_depth + 1,
+        )?;
+
+        Ok(PdfFormXObject {
+            id: obj_id,
+            name: name.to_owned(),
+            bbox,
+            matrix,
+            content: String::from_utf8_lossy(&raw).into_owned(),
+            scope: Box::new(scope),
+        })
+    })();
+
+    if let Some(id) = obj_id {
+        active_forms.remove(&id);
+    }
+    result
+}
+
+fn parse_ext_gstate(
+    doc: &Arc<Document>,
+    obj: &Object,
+    parent_scope: Option<&PdfResourceScope>,
+    caches: &mut PdfParseCaches,
+    active_forms: &mut HashSet<ObjectId>,
+    form_depth: usize,
+) -> Result<Option<PdfExtGState>, ImportError> {
+    let Some(dict) = function_dict(doc, obj) else {
+        return Ok(None);
+    };
+    let mut gs = PdfExtGState::default();
+    if let Some(ca) = dict.get(b"ca").ok().and_then(scalar) {
+        gs.fill_alpha = Some(ca.clamp(0.0, 1.0));
+    }
+    if let Some(stroke_ca) = dict.get(b"CA").ok().and_then(scalar) {
+        gs.stroke_alpha = Some(stroke_ca.clamp(0.0, 1.0));
+    }
+    if let Ok(bm_obj) = dict.get(b"BM") {
+        let resolved_bm = doc.dereference(bm_obj).map_or(bm_obj, |(_, o)| o);
+        if let Ok(name) = resolved_bm.as_name() {
+            if let Some((bm, warn)) = map_pdf_blend_mode_name(name) {
+                gs.blend_mode = Some(bm);
+                gs.blend_approx = warn;
             } else {
-                numbers(dict.get(b"Bounds").ok()?)?
-            };
-            let encode = numbers(dict.get(b"Encode").ok()?)?;
-            if bounds.len() + 1 != k || encode.len() != 2 * k {
-                return None;
+                gs.blend_mode = Some(BlendMode::Normal);
+                gs.blend_approx = Some(format!(
+                    "PDF blend mode '/{}' was approximated to Normal.",
+                    String::from_utf8_lossy(name)
+                ));
             }
-            let ascending = d1 >= d0;
-            let mut seg = k - 1;
-            for (idx, &b) in bounds.iter().enumerate() {
-                if (ascending && x < b) || (!ascending && x > b) {
-                    seg = idx;
+        } else if let Ok(arr) = resolved_bm.as_array() {
+            for candidate in arr {
+                if let Ok(name) = candidate.as_name()
+                    && let Some((bm, warn)) = map_pdf_blend_mode_name(name)
+                {
+                    gs.blend_mode = Some(bm);
+                    gs.blend_approx = warn;
                     break;
                 }
             }
-            let seg_start = if seg == 0 { d0 } else { bounds[seg - 1] };
-            let seg_end = if seg + 1 == k { d1 } else { bounds[seg] };
-            let e0 = encode[2 * seg];
-            let e1 = encode[2 * seg + 1];
-            let mapped = if (seg_end - seg_start).abs() < 1e-12 {
-                e0
-            } else {
-                let frac = ((x - seg_start) / (seg_end - seg_start)).clamp(0.0, 1.0);
-                e0 + frac * (e1 - e0)
-            };
-            eval_pdf_function(doc, &functions[seg], mapped, expected_channels, depth + 1)
         }
-        _ => None,
     }
-}
-
-fn exact_linear_ramp(
-    doc: &Document,
-    fn_obj: &Object,
-    cs: ShadingColorSpace,
-) -> Option<(Color, Color)> {
-    let dict = function_dict(doc, fn_obj)?;
-    if dict.get(b"FunctionType").ok()?.as_i64().ok()? != 2 {
-        return None;
+    if let Some(lw) = dict.get(b"LW").ok().and_then(scalar) {
+        gs.line_width = Some(lw.max(0.0));
     }
-    let n = dict.get(b"N").ok().and_then(scalar)?;
-    if (n - 1.0).abs() > 1e-6 {
-        return None;
+    if let Some(lc) = dict.get(b"LC").ok().and_then(|o| o.as_i64().ok()) {
+        gs.line_cap = Some(lc.clamp(0, 2));
     }
-    let [d0, d1] = function_domain(dict);
-    let a = cs.to_rgba(&eval_pdf_function(doc, fn_obj, d0, cs.channels(), 0)?)?;
-    let b = cs.to_rgba(&eval_pdf_function(doc, fn_obj, d1, cs.channels(), 0)?)?;
-    Some((a, b))
-}
-
-fn extract_shading_stops(
-    doc: &Document,
-    fn_obj: &Object,
-    cs: ShadingColorSpace,
-    domain_override: Option<[f64; 2]>,
-) -> Option<Vec<GradientStop>> {
-    let resolved = doc.dereference(fn_obj).map_or(fn_obj, |(_, o)| o);
-    let [t0, t1] = domain_override
-        .or_else(|| function_dict(doc, resolved).map(function_domain))
-        .unwrap_or([0.0, 1.0]);
-
-    // 1. Exact 2-stop linear FunctionType 2
-    if domain_override.is_none()
-        && let Some((c0, c1)) = exact_linear_ramp(doc, resolved, cs)
+    if let Some(lj) = dict.get(b"LJ").ok().and_then(|o| o.as_i64().ok()) {
+        gs.line_join = Some(lj.clamp(0, 2));
+    }
+    if let Some(ml) = dict.get(b"ML").ok().and_then(scalar) {
+        gs.miter_limit = Some(ml.max(1.0));
+    }
+    if let Ok(d_obj) = dict.get(b"D")
+        && let Ok(d_arr) = doc.dereference(d_obj).map_or(d_obj, |(_, o)| o).as_array()
+        && d_arr.len() >= 2
+        && let (Some(pattern), Some(phase)) = (numbers(&d_arr[0]), scalar(&d_arr[1]))
     {
-        return Some(vec![
-            GradientStop {
-                ratio: 0,
-                color: c0,
-            },
-            GradientStop {
-                ratio: 255,
-                color: c1,
-            },
-        ]);
+        gs.dash = Some((pattern, phase));
     }
-
-    // 2. Exact multi-stop piecewise-linear FunctionType 3 when <= 14 continuous intervals
-    if let Some(dict) = function_dict(doc, resolved)
-        && dict.get(b"FunctionType").ok().and_then(|v| v.as_i64().ok()) == Some(3)
-        && let (Some(functions), Some(bounds), Some(encode)) = (
-            dict.get(b"Functions").ok().and_then(|v| v.as_array().ok()),
-            dict.get(b"Bounds").ok().and_then(numbers),
-            dict.get(b"Encode").ok().and_then(numbers),
-        )
-        && !functions.is_empty()
-        && functions.len() <= 14
-        && bounds.len() + 1 == functions.len()
-        && encode.len() == 2 * functions.len()
-        && (t1 - t0).abs() > 1e-9
-    {
-        let mut exact_stops: Vec<GradientStop> = Vec::with_capacity(functions.len() + 1);
-        let mut exact_ok = true;
-        for (idx, sub_fn) in functions.iter().enumerate() {
-            let Some(sub_dict) = function_dict(doc, sub_fn) else {
-                exact_ok = false;
-                break;
-            };
-            let is_linear_sub = sub_dict
-                .get(b"FunctionType")
-                .ok()
-                .and_then(|v| v.as_i64().ok())
-                == Some(2)
-                && sub_dict
-                    .get(b"N")
-                    .ok()
-                    .and_then(scalar)
-                    .is_some_and(|n| (n - 1.0).abs() < 1e-6);
-            if !is_linear_sub {
-                exact_ok = false;
-                break;
-            }
-            let e0 = encode[2 * idx];
-            let e1 = encode[2 * idx + 1];
-            let (Some(start_vals), Some(end_vals)) = (
-                eval_pdf_function(doc, sub_fn, e0, cs.channels(), 1),
-                eval_pdf_function(doc, sub_fn, e1, cs.channels(), 1),
-            ) else {
-                exact_ok = false;
-                break;
-            };
-            let (Some(start_color), Some(end_color)) =
-                (cs.to_rgba(&start_vals), cs.to_rgba(&end_vals))
-            else {
-                exact_ok = false;
-                break;
-            };
-            if idx == 0 {
-                exact_stops.push(GradientStop {
-                    ratio: 0,
-                    color: start_color,
-                });
-            } else if exact_stops
-                .last()
-                .is_some_and(|prev| prev.color != start_color)
-            {
-                exact_ok = false;
-                break;
-            }
-            let raw_end = if idx + 1 == functions.len() {
-                t1
-            } else {
-                bounds[idx]
-            };
-            let frac = ((raw_end - t0) / (t1 - t0)).clamp(0.0, 1.0);
-            let ratio = (frac * 255.0).round() as u8;
-            if exact_stops.last().is_some_and(|prev| prev.ratio >= ratio) {
-                exact_ok = false;
-                break;
-            }
-            exact_stops.push(GradientStop {
-                ratio,
-                color: end_color,
-            });
-        }
-        if exact_ok && exact_stops.len() >= 2 && exact_stops.len() <= 15 {
-            return Some(exact_stops);
-        }
-    }
-
-    // 3. General curve / stitched / channel-array sampling into <= 15 monotonic stops
-    //    (covers exponential FunctionType 2 N != 1, arbitrary Encode/Domain FunctionType 3,
-    //    discontinuous stitched transitions, and per-channel Function arrays).
-    let mut sample_fracs: Vec<f64> = Vec::with_capacity(15);
-    sample_fracs.push(0.0);
-    sample_fracs.push(1.0);
-    if let Some(dict) = function_dict(doc, resolved)
-        && dict.get(b"FunctionType").ok().and_then(|v| v.as_i64().ok()) == Some(3)
-        && let Some(bounds) = dict.get(b"Bounds").ok().and_then(numbers)
-        && (t1 - t0).abs() > 1e-9
-    {
-        for b in bounds {
-            let f = ((b - t0) / (t1 - t0)).clamp(0.0, 1.0);
-            sample_fracs.push((f - 0.004).clamp(0.0, 1.0));
-            sample_fracs.push(f);
-            sample_fracs.push((f + 0.004).clamp(0.0, 1.0));
-        }
-    }
-    const UNIFORM_GRID: [f64; 9] = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0];
-    sample_fracs.extend_from_slice(&UNIFORM_GRID);
-    sample_fracs.sort_by(|a, b| a.total_cmp(b));
-
-    let mut ratio_grid: Vec<u8> = sample_fracs
-        .into_iter()
-        .map(|f| (f.clamp(0.0, 1.0) * 255.0).round() as u8)
-        .collect();
-    ratio_grid.dedup();
-    if ratio_grid.len() > 15 {
-        let total = ratio_grid.len();
-        let mut thinned = Vec::with_capacity(15);
-        for i in 0..15 {
-            let pick = (i * (total - 1) + 7) / 14;
-            thinned.push(ratio_grid[pick]);
-        }
-        thinned.dedup();
-        ratio_grid = thinned;
-    }
-
-    let mut stops = Vec::with_capacity(ratio_grid.len());
-    for ratio in ratio_grid {
-        let frac = f64::from(ratio) / 255.0;
-        let u = t0 + frac * (t1 - t0);
-        let comps = eval_pdf_function(doc, resolved, u, cs.channels(), 0)?;
-        let color = cs.to_rgba(&comps)?;
-        stops.push(GradientStop { ratio, color });
-    }
-    (stops.len() >= 2 && stops.len() <= 15).then_some(stops)
-}
-
-fn remap_inner_radius_stops(stops: Vec<GradientStop>, inner_ratio: f64) -> Vec<GradientStop> {
-    let r_frac = inner_ratio.clamp(0.0, 0.98);
-    if r_frac <= 1e-4 || stops.is_empty() {
-        return stops;
-    }
-    let start_ratio = (r_frac * 255.0).round().clamp(1.0, 250.0) as u8;
-    let max_extra = 14usize;
-    let src = if stops.len() > max_extra {
-        let n = stops.len();
-        (0..max_extra)
-            .map(|i| stops[(i * (n - 1)) / (max_extra - 1)].clone())
-            .collect::<Vec<_>>()
-    } else {
-        stops
-    };
-    let mut out = Vec::with_capacity(src.len() + 1);
-    out.push(GradientStop {
-        ratio: 0,
-        color: src[0].color,
-    });
-    for st in src {
-        let mapped = (f64::from(start_ratio)
-            + (f64::from(st.ratio) / 255.0) * f64::from(255 - start_ratio))
-        .round()
-        .clamp(f64::from(start_ratio), 255.0) as u8;
-        if let Some(last) = out.last_mut()
-            && last.ratio == mapped
+    if let Ok(sm_obj) = dict.get(b"SMask") {
+        let resolved_sm = doc.dereference(sm_obj).map_or(sm_obj, |(_, o)| o);
+        if resolved_sm.as_name().ok() == Some(b"None") {
+            gs.clear_smask = true;
+        } else if let Some(sm_dict) = function_dict(doc, resolved_sm)
+            && let Ok(g_ref) = sm_dict.get(b"G")
         {
-            last.color = st.color;
-            continue;
-        }
-        out.push(GradientStop {
-            ratio: mapped,
-            color: st.color,
-        });
-    }
-    out
-}
-
-pub(super) fn parse_shading(
-    doc: &Document,
-    object: &Object,
-) -> Option<(GradientPaint, Option<String>)> {
-    let shading = function_dict(doc, object)?;
-    let shading_type = shading.get(b"ShadingType").ok()?.as_i64().ok()?;
-    if !matches!(shading_type, 2 | 3) {
-        return None;
-    }
-    let cs = parse_color_space(doc, shading.get(b"ColorSpace").ok()?)?;
-    let fn_obj = shading.get(b"Function").ok()?;
-    let domain_override = shading
-        .get(b"Domain")
-        .ok()
-        .and_then(numbers)
-        .and_then(|v| <[f64; 2]>::try_from(v).ok())
-        .filter(|d| d[0].is_finite() && d[1].is_finite());
-    let mut stops = extract_shading_stops(doc, fn_obj, cs, domain_override)?;
-    let mut approx_warning = None;
-
-    let paint = match shading_type {
-        2 => {
-            let coords = numbers(shading.get(b"Coords").ok()?)?;
-            let [x1, y1, x2, y2] = *coords.as_slice() else {
-                return None;
-            };
-            if (x2 - x1).hypot(y2 - y1) <= 1e-9 {
-                return None;
-            }
-            GradientPaint {
-                kind: GradientKind::Linear,
-                matrix: axial_gradient_matrix(x1, y1, x2, y2),
-                stops,
-                ..Default::default()
-            }
-        }
-        3 => {
-            let coords = numbers(shading.get(b"Coords").ok()?)?;
-            let [mut x0, mut y0, mut r0, mut x1, mut y1, mut r1] = *coords.as_slice() else {
-                return None;
-            };
-            if r0 < 0.0 || r1 < 0.0 || (r0 <= 1e-9 && r1 <= 1e-9) {
-                return None;
-            }
-            if r0 > r1 {
-                std::mem::swap(&mut x0, &mut x1);
-                std::mem::swap(&mut y0, &mut y1);
-                std::mem::swap(&mut r0, &mut r1);
-                for st in &mut stops {
-                    st.ratio = 255u8.saturating_sub(st.ratio);
-                }
-                stops.reverse();
-            }
-            if r1 <= 1e-9 {
-                return None;
-            }
-            let dx = x0 - x1;
-            let dy = y0 - y1;
-            let dist = dx.hypot(dy);
-            let dr = r1 - r0;
-            if dr <= 1e-9 {
-                approx_warning = Some(
-                    "PDF ShadingType 3 equal-radius (r0 == r1) shading cannot be represented as a conical radial focal gradient and was approximated."
-                        .to_owned(),
-                );
-                if dist > 1e-9 {
-                    GradientPaint {
-                        kind: GradientKind::Linear,
-                        matrix: axial_gradient_matrix(x0, y0, x1, y1),
-                        stops,
-                        ..Default::default()
-                    }
-                } else {
-                    let s = r1 / 819.2;
-                    let col = stops.last().map(|st| st.color).unwrap_or([0, 0, 0, 255]);
-                    GradientPaint {
-                        kind: GradientKind::Radial,
-                        matrix: [s, 0.0, 0.0, s, x1, y1],
-                        stops: vec![
-                            GradientStop {
-                                ratio: 0,
-                                color: col,
-                            },
-                            GradientStop {
-                                ratio: 255,
-                                color: col,
-                            },
-                        ],
-                        focal_point_ratio: 0.0,
-                        ..Default::default()
-                    }
-                }
+            let subtype = sm_dict
+                .get(b"S")
+                .ok()
+                .and_then(|o| o.as_name().ok())
+                .unwrap_or(b"Luminosity");
+            let mode = if subtype == b"Alpha" {
+                MaskMode::Alpha
             } else {
-                stops = remap_inner_radius_stops(stops, r0 / r1);
-                let s = r1 / 819.2;
-                let (matrix, focal_point_ratio) = if dist > 1e-9 {
-                    let cos_t = dx / dist;
-                    let sin_t = dy / dist;
-                    (
-                        [s * cos_t, s * sin_t, -s * sin_t, s * cos_t, x1, y1],
-                        (dist / dr).clamp(-0.999, 0.999),
-                    )
-                } else {
-                    ([s, 0.0, 0.0, s, x1, y1], 0.0)
-                };
-                GradientPaint {
-                    kind: GradientKind::Radial,
-                    matrix,
-                    stops,
-                    focal_point_ratio,
-                    ..Default::default()
+                MaskMode::Luminance
+            };
+            let (form_oid, resolved_g) = match doc.dereference(g_ref) {
+                Ok((oid, o)) => (oid, o),
+                Err(_) => (None, g_ref),
+            };
+            if let Object::Stream(g_stream) = resolved_g {
+                let form = parse_form_xobject(
+                    doc,
+                    form_oid,
+                    "SMask",
+                    g_stream,
+                    parent_scope,
+                    caches,
+                    active_forms,
+                    form_depth,
+                )?;
+                gs.smask = Some(PdfSoftMask {
+                    mode,
+                    form: Box::new(form),
+                });
+            }
+        }
+    }
+
+    Ok(Some(gs))
+}
+
+fn parse_resource_scope(
+    doc: &Arc<Document>,
+    resources: Option<&Dictionary>,
+    parent_scope: Option<&PdfResourceScope>,
+    caches: &mut PdfParseCaches,
+    active_forms: &mut HashSet<ObjectId>,
+    form_depth: usize,
+) -> Result<PdfResourceScope, ImportError> {
+    let mut scope = if let Some(parent) = parent_scope {
+        let mut inherited_scope = parent.clone();
+        inherited_scope.warnings.clear();
+        inherited_scope
+    } else {
+        let mut s = PdfResourceScope::empty();
+        s.doc = Arc::clone(doc);
+        s
+    };
+
+    let Some(res) = resources else {
+        return Ok(scope);
+    };
+
+    let cs_dict = res
+        .get(b"ColorSpace")
+        .ok()
+        .and_then(|obj| function_dict(doc, obj));
+
+    if let Some(dict) = cs_dict {
+        for (name, value) in dict.iter() {
+            if let Some(cs) = parse_pdf_color_space(doc, value, Some(dict), 0) {
+                scope
+                    .color_spaces
+                    .insert(String::from_utf8_lossy(name).into_owned(), cs);
+            }
+        }
+    }
+
+    if let Some(dict) = res
+        .get(b"Shading")
+        .ok()
+        .and_then(|obj| function_dict(doc, obj))
+    {
+        for (name, value) in dict.iter() {
+            if let Some((paint, warn)) = parse_shading_with_cs(doc, value, cs_dict) {
+                let key = String::from_utf8_lossy(name).into_owned();
+                if let Some(msg) = warn {
+                    scope.warnings.push((key.clone(), msg));
+                }
+                scope.shadings.insert(key, paint);
+            }
+        }
+    }
+
+    if let Some(dict) = res
+        .get(b"Pattern")
+        .ok()
+        .and_then(|obj| function_dict(doc, obj))
+    {
+        for (name, value) in dict.iter() {
+            if let Some((paint, warn)) = parse_shading_pattern_with_cs(doc, value, cs_dict) {
+                let key = String::from_utf8_lossy(name).into_owned();
+                if let Some(msg) = warn {
+                    scope.warnings.push((key.clone(), msg));
+                }
+                scope.patterns.insert(key, paint);
+            }
+        }
+    }
+
+    if let Some(dict) = res
+        .get(b"Font")
+        .ok()
+        .and_then(|obj| function_dict(doc, obj))
+    {
+        for (name, value) in dict.iter() {
+            if let Some(font) = parse_pdf_font_resource(doc, value) {
+                scope
+                    .fonts
+                    .insert(String::from_utf8_lossy(name).into_owned(), font);
+            }
+        }
+    }
+
+    if let Some(dict) = res
+        .get(b"ExtGState")
+        .ok()
+        .and_then(|obj| function_dict(doc, obj))
+    {
+        for (name, value) in dict.iter() {
+            if let Some(gs) =
+                parse_ext_gstate(doc, value, Some(&scope), caches, active_forms, form_depth)?
+            {
+                scope
+                    .ext_gstates
+                    .insert(String::from_utf8_lossy(name).into_owned(), gs);
+            }
+        }
+    }
+
+    if let Some(dict) = res
+        .get(b"XObject")
+        .ok()
+        .and_then(|obj| function_dict(doc, obj))
+    {
+        for (name, value) in dict.iter() {
+            let key = String::from_utf8_lossy(name).into_owned();
+            let (oid, resolved) = match doc.dereference(value) {
+                Ok((oid, r)) => (oid, r),
+                Err(_) => (None, value),
+            };
+            let Object::Stream(stream) = resolved else {
+                continue;
+            };
+            let subtype = stream
+                .dict
+                .get(b"Subtype")
+                .ok()
+                .and_then(|o| o.as_name().ok())
+                .unwrap_or(b"");
+            match subtype {
+                b"Form" => {
+                    if let Some(id) = oid
+                        && active_forms.contains(&id)
+                    {
+                        // Shared `/Resources` dictionaries often list ancestor `/Form` XObjects;
+                        // record in `cyclic_forms` so only an actual recursive `Do` invocation errors!
+                        scope.forms.remove(&key);
+                        scope.cyclic_forms.insert(key);
+                        continue;
+                    }
+                    let form = parse_form_xobject(
+                        doc,
+                        oid,
+                        &key,
+                        stream,
+                        Some(&scope),
+                        caches,
+                        active_forms,
+                        form_depth,
+                    )?;
+                    scope.forms.insert(key, form);
+                }
+                b"Image" => {
+                    if let Some(id) = oid
+                        && let Some(cached) = caches.decoded_images.get(&id)
+                    {
+                        scope.images.insert(key, cached.clone());
+                        continue;
+                    }
+                    if let Some(rgba) = decode_pdf_image_rgba(doc, stream, cs_dict, 0)? {
+                        let w = rgba.width();
+                        let h = rgba.height();
+                        let mut png = Vec::new();
+                        image::codecs::png::PngEncoder::new(&mut png)
+                            .write_image(rgba.as_raw(), w, h, image::ExtendedColorType::Rgba8)
+                            .map_err(|e| {
+                                ImportError::Container(format!(
+                                    "PDF Image XObject PNG encode failed: {e}"
+                                ))
+                            })?;
+                        let img_xobj = PdfImageXObject {
+                            width: w,
+                            height: h,
+                            png_bytes: png,
+                        };
+                        if let Some(id) = oid {
+                            caches.decoded_images.insert(id, img_xobj.clone());
+                        }
+                        scope.images.insert(key, img_xobj);
+                    } else {
+                        scope
+                            .unsupported_xobjects
+                            .insert(key, "Unsupported PDF Image XObject encoding".into());
+                    }
+                }
+                other => {
+                    scope.unsupported_xobjects.insert(
+                        key,
+                        format!(
+                            "Unsupported PDF XObject subtype '/{}'",
+                            String::from_utf8_lossy(other)
+                        ),
+                    );
                 }
             }
         }
-        _ => return None,
-    };
-    paint.validate().ok()?;
-    Some((paint, approx_warning))
-}
+    }
 
-fn parse_shading_pattern(
-    doc: &Document,
-    object: &Object,
-) -> Option<(GradientPaint, Option<String>)> {
-    let pat = function_dict(doc, object)?;
-    if pat.get(b"PatternType").ok()?.as_i64().ok()? != 2 {
-        return None;
-    }
-    let (mut paint, warn) = parse_shading(doc, pat.get(b"Shading").ok()?)?;
-    if let Some(mat) = pat
-        .get(b"Matrix")
-        .ok()
-        .and_then(numbers)
-        .and_then(|v| <[f64; 6]>::try_from(v).ok())
-    {
-        paint.matrix = affine_multiply(mat, paint.matrix);
-        paint.validate().ok()?;
-    }
-    Some((paint, warn))
+    Ok(scope)
 }
 
 pub(super) fn pages(bytes: &[u8]) -> Result<Vec<Page>, ImportError> {
     let error = |msg: &str| ImportError::Container(format!("PDF page import: {msg}"));
-    let doc = Document::load_mem(bytes).map_err(|e| error(&e.to_string()))?;
+    let doc = Arc::new(load_pdf_document_bounded(bytes)?);
     if doc.is_encrypted() {
         return Err(error("Unlock the document and save an unencrypted PDF."));
     }
     let mut result = Vec::new();
-    let mut total = 0usize;
+    let mut caches = PdfParseCaches {
+        decoded_images: HashMap::new(),
+        total_decoded_bytes: 0,
+    };
+
     for id in doc.page_iter() {
         if result.len() >= 256 {
             return Err(error("document exceeds 256 pages"));
         }
-        let bounds = inherited(&doc, id, b"CropBox")
-            .or_else(|| inherited(&doc, id, b"MediaBox"))
-            .and_then(numbers)
-            .and_then(|v| <[f64; 4]>::try_from(v).ok())
+        let media_box = inherited(&doc, id, b"MediaBox").and_then(valid_box);
+        // Illustrator selection clipboard sets `/ArtBox` to exact copied artwork bounds while
+        // `/MediaBox` holds the artboard! Box priority: ArtBox > TrimBox > BleedBox > CropBox > MediaBox.
+        let bounds = inherited(&doc, id, b"ArtBox")
+            .and_then(valid_box)
+            .or_else(|| inherited(&doc, id, b"TrimBox").and_then(valid_box))
+            .or_else(|| inherited(&doc, id, b"BleedBox").and_then(valid_box))
+            .or_else(|| inherited(&doc, id, b"CropBox").and_then(valid_box))
+            .or(media_box)
             .ok_or_else(|| error("missing or invalid page bounds"))?;
-        if bounds[2] <= bounds[0] || bounds[3] <= bounds[1] {
-            return Err(error("empty page bounds"));
-        }
+
         let rotation = inherited(&doc, id, b"Rotate")
             .and_then(|v| v.as_i64().ok())
             .unwrap_or(0);
+
         let mut content = Vec::new();
-        let limit = (64 * 1024 * 1024usize - total).min(16 * 1024 * 1024);
+        let page_limit = (MAX_PDF_DECODED_STREAM_BYTES.saturating_sub(caches.total_decoded_bytes))
+            .min(16 * 1024 * 1024);
         for stream_id in doc.get_page_contents(id) {
             let stream = doc
                 .get_object(stream_id)
                 .and_then(Object::as_stream)
                 .map_err(|e| error(&e.to_string()))?;
-            let remaining = limit.saturating_sub(content.len());
-            match stream.filters().unwrap_or_default().as_slice() {
-                [] if stream.content.len() <= remaining => {
-                    content.extend_from_slice(&stream.content)
-                }
-                [b"FlateDecode" | b"Fl"] => {
-                    flate2::read::ZlibDecoder::new(stream.content.as_slice())
-                        .take(remaining as u64 + 1)
-                        .read_to_end(&mut content)
-                        .map_err(|e| error(&e.to_string()))?;
-                }
-                [] => return Err(error("page instructions exceed the decoding budget")),
-                _ => {
-                    return Err(error(
-                        "unsupported page compression; save the PDF using Flate compression or export to SVG.",
-                    ));
-                }
+            let remaining = page_limit.saturating_sub(content.len());
+            if remaining == 0 {
+                return Err(error("page instructions exceed the decoding budget"));
             }
+            let decoded = decode_pdf_stream_bounded(stream, remaining)?;
+            content.extend_from_slice(&decoded);
             content.push(b'\n');
-            if content.len() > limit {
+            if content.len() > page_limit {
                 return Err(error("page instructions exceed the decoding budget"));
             }
         }
-        total += content.len();
-        let mut shadings = BTreeMap::new();
-        let mut patterns = BTreeMap::new();
-        let mut warnings = Vec::new();
-        if let Some(resources) = inherited(&doc, id, b"Resources").and_then(|v| v.as_dict().ok()) {
-            if let Some(dict) = resources
-                .get(b"Shading")
-                .ok()
-                .and_then(|obj| doc.dereference(obj).ok())
-                .and_then(|v| v.1.as_dict().ok())
-            {
-                for (name, value) in dict.iter() {
-                    if let Some((paint, warn)) = parse_shading(&doc, value) {
-                        let key = String::from_utf8_lossy(name).into_owned();
-                        if let Some(msg) = warn {
-                            warnings.push((key.clone(), msg));
-                        }
-                        shadings.insert(key, paint);
-                    }
-                }
-            }
-            if let Some(dict) = resources
-                .get(b"Pattern")
-                .ok()
-                .and_then(|obj| doc.dereference(obj).ok())
-                .and_then(|v| v.1.as_dict().ok())
-            {
-                for (name, value) in dict.iter() {
-                    if let Some((paint, warn)) = parse_shading_pattern(&doc, value) {
-                        let key = String::from_utf8_lossy(name).into_owned();
-                        if let Some(msg) = warn {
-                            warnings.push((key.clone(), msg));
-                        }
-                        patterns.insert(key, paint);
-                    }
-                }
-            }
-        }
+        caches.total_decoded_bytes = caches.total_decoded_bytes.saturating_add(content.len());
+
+        let res_dict = inherited(&doc, id, b"Resources").and_then(|v| function_dict(&doc, v));
+        let mut active_forms = HashSet::new();
+        let scope = parse_resource_scope(&doc, res_dict, None, &mut caches, &mut active_forms, 0)?;
+
         result.push(Page {
             content: String::from_utf8_lossy(&content).into_owned(),
             bounds,
+            media_box,
             rotation,
-            shadings,
-            patterns,
-            warnings,
+            scope,
         });
     }
     if result.is_empty() {
@@ -847,157 +976,52 @@ pub(super) fn tokenize_pdf_content(stream: &str) -> Result<Vec<String>, ImportEr
     Ok(tokens)
 }
 
-fn pdf_doc_byte_to_char(b: u8) -> char {
-    match b {
-        0x80 => '\u{2022}',
-        0x81 => '\u{2020}',
-        0x82 => '\u{2021}',
-        0x83 => '\u{2026}',
-        0x84 => '\u{2014}',
-        0x85 => '\u{2013}',
-        0x86 => '\u{0192}',
-        0x87 => '\u{2044}',
-        0x88 => '\u{2039}',
-        0x89 => '\u{203A}',
-        0x8A => '\u{2212}',
-        0x8B => '\u{2030}',
-        0x8C => '\u{201E}',
-        0x8D => '\u{201C}',
-        0x8E => '\u{201D}',
-        0x8F => '\u{2018}',
-        0x90 => '\u{2019}',
-        0x91 => '\u{201A}',
-        0x92 => '\u{2122}',
-        0x93 => '\u{FB01}',
-        0x94 => '\u{FB02}',
-        0x95 => '\u{0141}',
-        0x96 => '\u{0152}',
-        0x97 => '\u{0160}',
-        0x98 => '\u{0178}',
-        0x99 => '\u{017D}',
-        0x9A => '\u{0131}',
-        0x9B => '\u{0142}',
-        0x9C => '\u{0153}',
-        0x9D => '\u{0161}',
-        0x9E => '\u{017E}',
-        0xA0 => '\u{20AC}',
-        other => char::from(other),
-    }
-}
-
-fn decode_pdf_bytes_to_string(bytes: &[u8], prefer_be16_on_nul: bool) -> String {
-    if bytes.starts_with(&[0xFE, 0xFF]) {
-        let units: Vec<u16> = bytes[2..]
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .copied()
-            .map(u16::from_be_bytes)
-            .collect();
-        return char::decode_utf16(units)
-            .map(|r| r.unwrap_or('\u{FFFD}'))
-            .filter(|&c| c != '\0')
-            .collect();
-    }
-    if prefer_be16_on_nul && bytes.len() >= 2 && bytes.len().is_multiple_of(2) && bytes.contains(&0)
-    {
-        let units: Vec<u16> = bytes
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .copied()
-            .map(u16::from_be_bytes)
-            .collect();
-        return char::decode_utf16(units)
-            .map(|r| r.unwrap_or('\u{FFFD}'))
-            .filter(|&c| c != '\0')
-            .collect();
-    }
-    if let Ok(utf8) = std::str::from_utf8(bytes)
-        && !utf8.contains('\0')
-    {
-        return utf8.to_owned();
-    }
-    bytes
-        .iter()
-        .copied()
-        .filter(|&b| b != 0)
-        .map(pdf_doc_byte_to_char)
-        .collect()
-}
-
-pub(super) fn decode_pdf_string_token(tok: &str) -> Option<String> {
-    if tok.starts_with('(') && tok.ends_with(')') && tok.len() >= 2 {
-        let inner = &tok[1..tok.len() - 1];
-        let mut bytes = Vec::with_capacity(inner.len());
-        let mut chars = inner.chars().peekable();
-        while let Some(c) = chars.next() {
-            if c == '\\' {
-                let Some(esc) = chars.next() else {
-                    break;
-                };
-                match esc {
-                    'n' => bytes.push(b'\n'),
-                    'r' => bytes.push(b'\r'),
-                    't' => bytes.push(b'\t'),
-                    'b' => bytes.push(0x08),
-                    'f' => bytes.push(0x0C),
-                    '(' => bytes.push(b'('),
-                    ')' => bytes.push(b')'),
-                    '\\' => bytes.push(b'\\'),
-                    '\r' => {
-                        if chars.peek() == Some(&'\n') {
-                            chars.next();
-                        }
-                    }
-                    '\n' => {}
-                    '0'..='7' => {
-                        let mut val = (esc as u32) - ('0' as u32);
-                        for _ in 0..2 {
-                            if let Some(&d @ '0'..='7') = chars.peek() {
-                                chars.next();
-                                val = val * 8 + ((d as u32) - ('0' as u32));
-                            } else {
-                                break;
-                            }
-                        }
-                        bytes.push((val & 0xFF) as u8);
-                    }
-                    other => {
-                        if other.is_ascii() {
-                            bytes.push(other as u8);
-                        } else {
-                            let mut buf = [0u8; 4];
-                            bytes.extend_from_slice(other.encode_utf8(&mut buf).as_bytes());
-                        }
-                    }
+#[allow(dead_code)]
+pub(super) fn resolve_color_in_cs(
+    scope: &PdfResourceScope,
+    cs_name: Option<&str>,
+    comps: &[f64],
+) -> Option<Color> {
+    if let Some(name) = cs_name {
+        match name {
+            "DeviceGray" | "G" => {
+                let v = (comps.first()?.clamp(0.0, 1.0) * 255.0).round() as u8;
+                return Some([v, v, v, 255]);
+            }
+            "DeviceRGB" | "RGB" => {
+                if comps.len() >= 3 {
+                    return Some([
+                        (comps[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+                        (comps[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+                        (comps[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+                        255,
+                    ]);
                 }
-            } else if c.is_ascii() {
-                bytes.push(c as u8);
-            } else {
-                let mut buf = [0u8; 4];
-                bytes.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+            }
+            "DeviceCMYK" | "CMYK" => {
+                if comps.len() >= 4 {
+                    return Some(cmyk_to_rgba(comps[0], comps[1], comps[2], comps[3]));
+                }
+            }
+            other => {
+                if let Some(cs) = scope.color_spaces.get(other) {
+                    return cs.to_rgba(&scope.doc, comps, 0);
+                }
             }
         }
-        return Some(decode_pdf_bytes_to_string(&bytes, false));
     }
-
-    if tok.starts_with('<') && tok.ends_with('>') && tok != "<<" && tok.len() >= 2 {
-        let mut nibbles: Vec<u8> = tok[1..tok.len() - 1]
-            .chars()
-            .filter_map(|c| c.to_digit(16).map(|d| d as u8))
-            .collect();
-        if !nibbles.len().is_multiple_of(2) {
-            nibbles.push(0);
+    match comps {
+        [gray] => {
+            let v = (gray.clamp(0.0, 1.0) * 255.0).round() as u8;
+            Some([v, v, v, 255])
         }
-        let bytes: Vec<u8> = nibbles
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|pair| (pair[0] << 4) | pair[1])
-            .collect();
-        return Some(decode_pdf_bytes_to_string(&bytes, true));
+        [r, g, b] => Some([
+            (r.clamp(0.0, 1.0) * 255.0).round() as u8,
+            (g.clamp(0.0, 1.0) * 255.0).round() as u8,
+            (b.clamp(0.0, 1.0) * 255.0).round() as u8,
+            255,
+        ]),
+        [c, m, y, k] => Some(cmyk_to_rgba(*c, *m, *y, *k)),
+        _ => None,
     }
-
-    None
 }

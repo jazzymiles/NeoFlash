@@ -1,6 +1,7 @@
 //! Bounded authoring clipboard data. Parsing never executes scripts, reads files,
 //! or mutates a document; pasting validates a complete candidate before returning.
 use crate::*;
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
@@ -221,15 +222,67 @@ impl ClipboardPayload {
         Ok(payload)
     }
 
-    /// Foreign clipboard text is ignored, including large ordinary text. Only
-    /// our exact prefix opts a string into parsing and actionable diagnostics.
-    pub fn from_text(text: &str) -> Result<Option<Self>, ClipboardError> {
-        let Some(json) = text.strip_prefix(CLIPBOARD_PREFIX) else {
-            return Ok(None);
-        };
-        if text.len() > MAX_CLIPBOARD_BYTES {
+    pub const SVG_COMMENT_OPEN: &'static str = "<!--(neoflash)";
+    pub const SVG_COMMENT_CLOSE: &'static str = "(/neoflash)-->";
+
+    /// Embed a serialized `NEOFLASH-CLIPBOARD\n...` payload as a lossless base64 XML comment
+    /// immediately after the root `<svg ...>` opening tag (`T-415`).
+    pub fn embed_comment_in_svg(svg: &str, payload_text: &str) -> Result<String, ClipboardError> {
+        if !payload_text.starts_with(CLIPBOARD_PREFIX) {
+            return invalid("NeoFlash clipboard comment requires a NEOFLASH-CLIPBOARD payload");
+        }
+        if payload_text.len() > MAX_CLIPBOARD_BYTES {
             return Err(ClipboardError::TooLarge);
         }
+        let Some((tag_end, self_closing)) = find_svg_opening_tag_end(svg) else {
+            return invalid("SVG markup has no closing '>' on its <svg> root tag");
+        };
+        let encoded = BASE64.encode(payload_text.as_bytes());
+        let mut out = String::with_capacity(
+            svg.len()
+                + Self::SVG_COMMENT_OPEN.len()
+                + encoded.len()
+                + Self::SVG_COMMENT_CLOSE.len()
+                + 8,
+        );
+        if self_closing {
+            out.push_str(&svg[..tag_end - 2]);
+            out.push('>');
+            out.push_str(Self::SVG_COMMENT_OPEN);
+            out.push_str(&encoded);
+            out.push_str(Self::SVG_COMMENT_CLOSE);
+            out.push_str("</svg>");
+            out.push_str(&svg[tag_end..]);
+        } else {
+            out.push_str(&svg[..tag_end]);
+            out.push_str(Self::SVG_COMMENT_OPEN);
+            out.push_str(&encoded);
+            out.push_str(Self::SVG_COMMENT_CLOSE);
+            out.push_str(&svg[tag_end..]);
+        }
+        Ok(out)
+    }
+
+    /// Foreign clipboard text is ignored, including large ordinary text. Only
+    /// our exact prefix or `<svg...><!--(neoflash)<b64>(/neoflash)-->` opts a
+    /// string into parsing and actionable diagnostics.
+    pub fn from_text(text: &str) -> Result<Option<Self>, ClipboardError> {
+        if let Some(json) = text.strip_prefix(CLIPBOARD_PREFIX) {
+            if text.len() > MAX_CLIPBOARD_BYTES {
+                return Err(ClipboardError::TooLarge);
+            }
+            return Self::parse_json_payload(json).map(Some);
+        }
+        if let Some(decoded_text) = extract_svg_neoflash_payload_text(text)? {
+            let Some(json) = decoded_text.strip_prefix(CLIPBOARD_PREFIX) else {
+                return invalid("embedded NeoFlash SVG clipboard payload is missing its header");
+            };
+            return Self::parse_json_payload(json).map(Some);
+        }
+        Ok(None)
+    }
+
+    fn parse_json_payload(json: &str) -> Result<Self, ClipboardError> {
         // Parse typed data first, retaining serde's duplicate-known-field and
         // recursion checks. Model structs intentionally remain forward-tolerant
         // for documents; clipboard transfer must not silently discard fields.
@@ -241,7 +294,7 @@ impl ClipboardPayload {
         reject_unknown_fields(&input, &serde_json::to_value(&payload)?, "clipboard")?;
         payload.validate()?;
         payload.encode()?;
-        Ok(Some(payload))
+        Ok(payload)
     }
 
     pub fn to_text(&self) -> Result<String, ClipboardError> {
@@ -888,6 +941,158 @@ impl ClipboardPayload {
         // serde_json writes UTF-8, and the prefix is ASCII.
         Ok(String::from_utf8(writer.bytes).expect("JSON serializer produced UTF-8"))
     }
+}
+
+fn floor_char_boundary_at(s: &str, mut idx: usize) -> usize {
+    idx = idx.min(s.len());
+    while idx > 0 && !s.is_char_boundary(idx) {
+        idx -= 1;
+    }
+    idx
+}
+
+fn find_svg_opening_tag_end(svg: &str) -> Option<(usize, bool)> {
+    let head = &svg[..floor_char_boundary_at(svg, 65_536)];
+    let lower = head.to_ascii_lowercase();
+    let mut search = 0usize;
+    let svg_start = loop {
+        let pos = lower[search..].find("<svg")? + search;
+        let next = head.as_bytes().get(pos + 4).copied()?;
+        if next.is_ascii_whitespace() || next == b'>' || next == b'/' {
+            break pos;
+        }
+        search = pos + 4;
+    };
+    let bytes = svg.as_bytes();
+    let mut i = svg_start + 4;
+    let mut quote: Option<u8> = None;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if let Some(q) = quote {
+            if b == q {
+                quote = None;
+            }
+        } else if b == b'"' || b == b'\'' {
+            quote = Some(b);
+        } else if b == b'>' {
+            let self_closing = i > svg_start + 4 && bytes[i - 1] == b'/';
+            return Some((i + 1, self_closing));
+        }
+        i += 1;
+    }
+    None
+}
+
+fn decode_bounded_svg_base64(raw: &str, max_bytes: usize) -> Result<Vec<u8>, ClipboardError> {
+    let max_encoded = (max_bytes / 3 + 1) * 4 + 4096;
+    if raw.len() > max_encoded {
+        return Err(ClipboardError::TooLarge);
+    }
+    let sextet = |b: u8| -> Option<u8> {
+        match b {
+            b'A'..=b'Z' => Some(b - b'A'),
+            b'a'..=b'z' => Some(b - b'a' + 26),
+            b'0'..=b'9' => Some(b - b'0' + 52),
+            b'+' | b'-' => Some(62),
+            b'/' | b'_' => Some(63),
+            _ => None,
+        }
+    };
+    let cap = (raw.len() / 4 * 3).min(max_bytes).min(256 * 1024);
+    let mut out = Vec::with_capacity(cap);
+    let mut quantum = [0u8; 4];
+    let mut qlen = 0usize;
+    let mut saw_pad = false;
+    for &b in raw.as_bytes() {
+        if b.is_ascii_whitespace() {
+            continue;
+        }
+        if b == b'=' {
+            saw_pad = true;
+            continue;
+        }
+        if saw_pad {
+            return invalid("invalid padding inside NeoFlash SVG clipboard base64");
+        }
+        let Some(v) = sextet(b) else {
+            return invalid("invalid base64 character in NeoFlash SVG clipboard comment");
+        };
+        quantum[qlen] = v;
+        qlen += 1;
+        if qlen == 4 {
+            if out.len().saturating_add(3) > max_bytes {
+                return Err(ClipboardError::TooLarge);
+            }
+            out.push((quantum[0] << 2) | (quantum[1] >> 4));
+            out.push((quantum[1] << 4) | (quantum[2] >> 2));
+            out.push((quantum[2] << 6) | quantum[3]);
+            qlen = 0;
+        }
+    }
+    match qlen {
+        0 => {}
+        1 => return invalid("truncated base64 quantum in NeoFlash SVG clipboard comment"),
+        2 => {
+            if out.len().saturating_add(1) > max_bytes {
+                return Err(ClipboardError::TooLarge);
+            }
+            out.push((quantum[0] << 2) | (quantum[1] >> 4));
+        }
+        3 => {
+            if out.len().saturating_add(2) > max_bytes {
+                return Err(ClipboardError::TooLarge);
+            }
+            out.push((quantum[0] << 2) | (quantum[1] >> 4));
+            out.push((quantum[1] << 4) | (quantum[2] >> 2));
+        }
+        _ => unreachable!(),
+    }
+    if out.is_empty() {
+        return invalid("empty NeoFlash SVG clipboard comment");
+    }
+    Ok(out)
+}
+
+fn extract_svg_neoflash_payload_text(text: &str) -> Result<Option<String>, ClipboardError> {
+    let trimmed = text.trim_start_matches('\u{feff}').trim_start();
+    if !trimmed.starts_with('<') {
+        return Ok(None);
+    }
+    let head = &trimmed[..floor_char_boundary_at(trimmed, 65_536)];
+    let Some(open_idx) = head.find(ClipboardPayload::SVG_COMMENT_OPEN) else {
+        return Ok(None);
+    };
+    if !head[..open_idx].to_ascii_lowercase().contains("<svg") {
+        return Ok(None);
+    }
+    let content_start = open_idx + ClipboardPayload::SVG_COMMENT_OPEN.len();
+    let max_encoded = (MAX_CLIPBOARD_BYTES / 3 + 1) * 4 + 4096;
+    let search_limit = floor_char_boundary_at(
+        trimmed,
+        content_start
+            .saturating_add(max_encoded)
+            .saturating_add(ClipboardPayload::SVG_COMMENT_CLOSE.len()),
+    );
+    let Some(rel_close) =
+        trimmed[content_start..search_limit].find(ClipboardPayload::SVG_COMMENT_CLOSE)
+    else {
+        return Err(
+            if trimmed.len().saturating_sub(content_start) > max_encoded {
+                ClipboardError::TooLarge
+            } else {
+                ClipboardError::Invalid("unterminated NeoFlash SVG clipboard comment".into())
+            },
+        );
+    };
+    let b64_slice = &trimmed[content_start..content_start + rel_close];
+    let bytes = decode_bounded_svg_base64(b64_slice, MAX_CLIPBOARD_BYTES)?;
+    if bytes.len() > MAX_CLIPBOARD_BYTES {
+        return Err(ClipboardError::TooLarge);
+    }
+    let decoded = String::from_utf8(bytes).map_err(|_| {
+        ClipboardError::Invalid("NeoFlash SVG clipboard comment is not UTF-8".into())
+    })?;
+    Ok(Some(decoded))
 }
 
 fn invalid<T>(message: impl Into<String>) -> Result<T, ClipboardError> {
@@ -1620,5 +1825,80 @@ mod tests {
                 .is_err(),
             "paste_into must reject child layer whose ancestor Folder is locked"
         );
+    }
+
+    #[test]
+    fn svg_embedded_neoflash_comment_roundtrips_and_enforces_byte_budget() {
+        let mut src = Project::blank();
+        let el = Element {
+            id: "hero-path".into(),
+            name: "HeroStar".into(),
+            transform: Transform {
+                x: 42.5,
+                y: 87.25,
+                ..Transform::default()
+            },
+            kind: ElementKind::Rectangle {
+                width: 64.0,
+                height: 48.0,
+                fill: [240, 80, 40, 255],
+                stroke: [20, 30, 40, 255],
+                stroke_width: 3.0,
+            },
+            scripts: vec![ObjectScript {
+                event: ObjectEvent::Click,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "trace('lossless');".into(),
+                },
+            }],
+            ..Element::default()
+        };
+        src.symbols[0].timeline.layers[0].keyframes[0].elements = vec![el.clone()];
+        let payload =
+            ClipboardPayload::capture(&src, vec![el], "sess-svg-1", [74.5, 111.25]).unwrap();
+        let raw_text = payload.to_text().unwrap();
+
+        let clean_svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="64" height="48" viewBox="42.5 87.25 64 48"><rect x="42.5" y="87.25" width="64" height="48" fill="#f05028"/></svg>"##;
+        let tagged_svg = ClipboardPayload::embed_comment_in_svg(clean_svg, &raw_text).unwrap();
+        assert!(tagged_svg.contains("<!--(neoflash)"));
+        assert!(tagged_svg.contains("(/neoflash)-->"));
+
+        // Clean SVG without comment returns Ok(None) so SVG importer handles it.
+        assert!(ClipboardPayload::from_text(clean_svg).unwrap().is_none());
+
+        // Tagged SVG decodes losslessly back into the exact ClipboardPayload!
+        let decoded = ClipboardPayload::from_text(&tagged_svg)
+            .unwrap()
+            .expect("tagged SVG must decode NeoFlash payload");
+        assert_eq!(decoded.source_session(), "sess-svg-1");
+        assert_eq!(decoded.anchor(), [74.5, 111.25]);
+        assert_eq!(decoded.elements().len(), 1);
+        assert_eq!(decoded.elements()[0].scripts.len(), 1);
+
+        // Self-closing <svg .../> also embeds well-formed comment + </svg>.
+        let self_closing = ClipboardPayload::embed_comment_in_svg(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>"#,
+            &raw_text,
+        )
+        .unwrap();
+        assert!(self_closing.ends_with("</svg>"));
+        assert!(
+            ClipboardPayload::from_text(&self_closing)
+                .unwrap()
+                .is_some()
+        );
+
+        // Malformed base64 or unterminated comment inside <svg> fails with Invalid.
+        assert!(ClipboardPayload::from_text("<svg><!--(neoflash)%%%(/neoflash)--></svg>").is_err());
+        assert!(ClipboardPayload::from_text("<svg><!--(neoflash)YWJj</svg>").is_err());
+
+        // Oversized base64 payload (> MAX_CLIPBOARD_BYTES) fails with TooLarge.
+        let huge_b64 = "AAAA".repeat(MAX_CLIPBOARD_BYTES / 3 + 16);
+        let oversized_svg = format!("<svg><!--(neoflash){huge_b64}(/neoflash)--></svg>");
+        assert!(matches!(
+            ClipboardPayload::from_text(&oversized_svg),
+            Err(ClipboardError::TooLarge)
+        ));
     }
 }
