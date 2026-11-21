@@ -34,7 +34,135 @@ impl Reader<'_> {
         color.effect_rgba = Some(self.dword()?);
         Ok(color)
     }
+    fn historical_wide_string(
+        &mut self,
+        detect_byte_order: bool,
+    ) -> Result<(TimelineString, Option<String>)> {
+        let start = self.pos;
+        let byte_len = self.dword()? as usize;
+        if (byte_len & 1) != 0 || byte_len > MAX_STRING {
+            return stop(
+                "fla_string_limit",
+                "Invalid or oversized historical wide string byte count.",
+            );
+        }
+        let data = self.span(byte_len)?;
+        let raw = &self.data[data.start..data.end];
+        let swapped = detect_byte_order && byte_len >= 2 && raw[0] == 0 && raw[1] != 0;
+        let mut units = Vec::with_capacity(byte_len / 2);
+        for chunk in raw.as_chunks::<2>().0 {
+            let u = if swapped {
+                u16::from_be_bytes(*chunk)
+            } else {
+                u16::from_le_bytes(*chunk)
+            };
+            if u == 0 {
+                break;
+            }
+            units.push(u);
+        }
+        let decoded = String::from_utf16(&units).map_err(|_| Stop {
+            code: "fla_string_encoding".into(),
+            message: "Invalid UTF-16 in historical wide string.".into(),
+        })?;
+        let trimmed_data = if !swapped {
+            TimelineByteSpan {
+                start: data.start,
+                end: data.start + units.len() * 2,
+            }
+        } else {
+            TimelineByteSpan {
+                start: data.start,
+                end: data.start,
+            }
+        };
+        Ok((
+            TimelineString {
+                encoded: TimelineByteSpan {
+                    start,
+                    end: self.pos,
+                },
+                data: trimmed_data,
+                utf16: true,
+            },
+            swapped.then_some(decoded),
+        ))
+    }
+    fn timeline_effect(&mut self, symbol_revision: u8) -> Result<TimelineByteSpan> {
+        let start = self.pos;
+        self.string()?; // effectName
+        self.string()?; // groupName
+        self.string()?; // symbolType
+        if symbol_revision >= 18 {
+            self.string()?; // originalLayerName
+        }
+        if symbol_revision >= 19 {
+            self.string()?; // effectId
+        }
+        self.string()?; // sourceScriptFilename
+        let raw_count = self.dword()? as i32;
+        let count = raw_count.max(0) as usize;
+        if count > MAX_RECORDS || count > (self.data.len() - self.pos) / 5 {
+            return stop(
+                "fla_record_limit",
+                "Timeline-effect parameter count exceeds 50000 or remaining input.",
+            );
+        }
+        for _ in 0..count {
+            self.retain_budget()?;
+            self.string()?; // name
+            let ptype = self.dword()?;
+            match ptype {
+                0 | 3 | 4 => {
+                    self.dword()?;
+                }
+                1 | 6 => {
+                    let _ = self.double()?;
+                }
+                2 => {
+                    self.string()?;
+                }
+                5 => {
+                    let list_raw = self.dword()? as i32;
+                    let list_count = list_raw.max(0) as usize;
+                    if list_count > MAX_RECORDS || list_count > self.data.len() - self.pos {
+                        return stop(
+                            "fla_record_limit",
+                            "Timeline-effect list parameter exceeds budget.",
+                        );
+                    }
+                    for _ in 0..list_count {
+                        self.retain_budget()?;
+                        self.string()?;
+                    }
+                    self.dword()?; // selectedIndex
+                }
+                _ => {
+                    return stop(
+                        "fla_timeline_effect_param_unsupported",
+                        format!("Timeline-effect parameter type {ptype} is not implemented."),
+                    );
+                }
+            }
+            self.dword()?; // minimum
+            self.dword()?; // maximum
+            self.dword()?; // maximumLength
+            self.string()?; // variableName
+            self.dword()?; // displayOrder
+        }
+        Ok(TimelineByteSpan {
+            start,
+            end: self.pos,
+        })
+    }
     pub(super) fn accessibility(&mut self, unicode: bool) -> Result<TimelineAccessibility> {
+        self.accessibility_inner(unicode, false)
+    }
+    fn accessibility_inner(
+        &mut self,
+        unicode: bool,
+        historical_wide: bool,
+    ) -> Result<TimelineAccessibility> {
         let revision = self.dword()?;
         if revision > 2 {
             return stop(
@@ -48,9 +176,20 @@ impl Reader<'_> {
         };
         if revision != 0 {
             access.flags = Some(self.dword()?);
-            access.name = Some(self.string()?);
-            access.description = Some(self.string()?);
-            access.shortcut = Some(self.string()?);
+            if historical_wide {
+                let (n_span, n_swapped) = self.historical_wide_string(false)?;
+                let (d_span, d_swapped) = self.historical_wide_string(false)?;
+                let (s_span, _) = self.historical_wide_string(false)?;
+                access.name = Some(n_span);
+                access.description = Some(d_span);
+                access.shortcut = Some(s_span);
+                access.historical_wide_name = n_swapped;
+                access.historical_wide_description = d_swapped;
+            } else {
+                access.name = Some(self.string()?);
+                access.description = Some(self.string()?);
+                access.shortcut = Some(self.string()?);
+            }
             if unicode && revision >= 2 {
                 access.tab_index = Some(self.string()?);
                 access.reserved = Some(self.string()?);
@@ -110,16 +249,12 @@ impl Reader<'_> {
                 });
             }
             if revision >= 11 && self.byte()? != 0 {
-                return stop(
-                    "fla_timeline_effect_unsupported",
-                    "Timeline effects require a dedicated decoder.",
-                );
+                let span = self.timeline_effect(revision)?;
+                value.metadata.push(span);
             }
             if revision >= 12 && self.byte()? != 0 {
-                return stop(
-                    "fla_instance_persistent_data_unsupported",
-                    "Instance persistent data requires a dedicated decoder.",
-                );
+                let span = self.persistent_data()?;
+                value.metadata.push(span);
             }
             if revision >= 14 {
                 value.is_extensible = Some(self.byte()?);
@@ -172,7 +307,7 @@ impl Reader<'_> {
                 value.is_visible = Some(self.dword()?);
             }
             match class {
-                Class::Sprite => {
+                Class::Sprite | Class::Screen => {
                     let rev = self.revision(8, "CPicSprite")?;
                     value.extension_revision = Some(rev);
                     if rev >= 2 {
@@ -203,6 +338,20 @@ impl Reader<'_> {
                             end: self.pos,
                         });
                     }
+                    if class == Class::Screen {
+                        let start = self.pos;
+                        let srev = self.revision(5, "CPicScreen")?;
+                        self.dword()?; // hidden
+                        self.dword()?; // reservedScreenValue
+                        if srev >= 3 {
+                            self.dword()?; // autoRegUpdate
+                        }
+                        self.string()?; // screenName
+                        value.metadata.push(TimelineByteSpan {
+                            start,
+                            end: self.pos,
+                        });
+                    }
                 }
                 Class::Button => {
                     let rev = self.revision(11, "CPicButton")?;
@@ -222,15 +371,14 @@ impl Reader<'_> {
                         value.track_as_menu = Some(self.byte()?);
                     }
                     if rev == 9 || rev == 10 {
-                        return stop(
-                            "fla_button_name_unsupported",
-                            "Historical wide button names require a dedicated decoder.",
-                        );
+                        let (name_span, swapped_name) = self.historical_wide_string(rev == 9)?;
+                        value.instance_name = Some(name_span);
+                        value.historical_wide_name = swapped_name;
                     } else if rev >= 6 {
                         value.instance_name = Some(self.string()?);
                     }
                     if rev >= 8 {
-                        value.accessibility = Some(self.accessibility(rev >= 11)?);
+                        value.accessibility = Some(self.accessibility_inner(rev >= 11, rev == 9)?);
                     }
                 }
                 _ => {}
@@ -343,6 +491,187 @@ impl Reader<'_> {
         })();
         let index = self.object_index(id);
         self.objects[index].payload = Some(TimelinePayload::Video(Box::new(value)));
+        parsed
+    }
+    /// CPicASObj / CPicThreeDObject / CPicTLFText auxiliary stage objects.
+    pub(super) fn as_or_tlf_object(&mut self, id: u32, class: Class) -> Result<()> {
+        let mut aux = TimelineAuxiliaryObject::default();
+        let parsed = (|| {
+            let rev = self.revision(5, class.name())?;
+            aux.revision = Some(rev);
+            aux.matrix_words = Some(self.signed_words()?);
+            aux.bounds_words = Some(self.signed_words()?);
+            aux.class_name = Some(self.string()?);
+            aux.source = Some(self.string()?);
+            if rev >= 2 {
+                let (_filters, _span, result) = self.filters();
+                result?;
+                self.word()?; // selectedEffectIndex
+                for _ in 0..16 {
+                    let _ = self.float()?;
+                }
+                for _ in 0..3 {
+                    let _ = self.double()?;
+                }
+                let _ = self.signed_words::<3>()?;
+            }
+            if rev >= 3 {
+                self.byte()?; // blendMode
+            }
+            if rev >= 4 {
+                let _ = self.color_transform()?;
+            }
+            if rev >= 5 {
+                let raw_count = self.dword()? as i32;
+                let count = raw_count.max(0) as usize;
+                if count > MAX_RECORDS || count > (self.data.len() - self.pos) / 5 {
+                    return stop(
+                        "fla_record_limit",
+                        "AS-object instance relation count exceeds budget.",
+                    );
+                }
+                for _ in 0..count {
+                    self.retain_budget()?;
+                    self.dword()?;
+                    let mut terminated = false;
+                    for _ in 0..40 {
+                        if self.byte()? == 0 {
+                            terminated = true;
+                            break;
+                        }
+                    }
+                    if !terminated {
+                        return stop(
+                            "fla_identifier_limit",
+                            "AS-object relation identifier exceeds 39 bytes.",
+                        );
+                    }
+                }
+            }
+            if class == Class::TlfText {
+                self.byte()?; // tlfRevision
+                self.string()?; // localizationStringId
+                self.string()?; // variableName
+                let children = self.objects[self.object_index(id)].children.clone();
+                let mut linked_children = 0usize;
+                for child_id in children {
+                    let child_obj = &self.objects[self.object_index(child_id)];
+                    if let Some(span) = child_obj.base.as_ref().and_then(|b| b.identifier)
+                        && span.end > span.start + 1
+                    {
+                        linked_children += 1;
+                    }
+                }
+                for _ in 0..linked_children {
+                    self.dword()?; // markupChildId
+                }
+            }
+            Ok(())
+        })();
+        let index = self.object_index(id);
+        self.objects[index].payload = Some(TimelinePayload::Auxiliary(Box::new(aux)));
+        parsed
+    }
+    fn inline_library_metadata(&mut self) -> Result<()> {
+        let v = self.dword()?;
+        if v > 7 {
+            return stop(
+                "fla_record_revision_unsupported",
+                "Inline library metadata revision exceeds 7.",
+            );
+        }
+        if v <= 3 {
+            self.dword()?;
+        } else if self.dword()? != 0 {
+            self.dword()?;
+            self.dword()?;
+        }
+        if v > 1 {
+            if v <= 3 {
+                self.dword()?;
+            } else if self.dword()? != 0 {
+                self.dword()?;
+                self.dword()?;
+            }
+        }
+        if v > 2 {
+            self.dword()?;
+        }
+        if v >= 5 {
+            let lrev = self.revision(7, "inline linkage")?;
+            self.dword()?;
+            self.string()?;
+            self.string()?;
+            if lrev >= 5 {
+                self.string()?;
+            }
+            if lrev >= 1 {
+                self.byte()?;
+            }
+            if lrev >= 2 {
+                let aux = self.dword()?;
+                if aux > 3 {
+                    return stop(
+                        "fla_record_revision_unsupported",
+                        "Inline linkage auxiliary revision exceeds 3.",
+                    );
+                }
+                self.string()?;
+                self.string()?;
+                self.dword()?;
+                if aux >= 1 {
+                    self.dword()?;
+                }
+                if self.dword()? != 0 {
+                    self.dword()?;
+                    self.dword()?;
+                }
+            }
+            if lrev >= 6 {
+                self.byte()?;
+            }
+            if lrev >= 7 {
+                self.string()?;
+            }
+        }
+        if v >= 6 && self.byte()? != 0 {
+            let _ = self.persistent_data()?;
+        }
+        Ok(())
+    }
+    pub(super) fn font_object(&mut self, id: u32) -> Result<()> {
+        let mut aux = TimelineAuxiliaryObject::default();
+        let parsed = (|| {
+            let mode = self.byte()?;
+            aux.revision = Some(mode);
+            if mode != 0 {
+                self.word()?;
+            } else {
+                let rev = self.revision(3, "CPicFont")?;
+                self.string()?;
+                self.word()?;
+                self.dword()?;
+                let _ = self.text_style()?;
+                self.inline_library_metadata()?;
+                if rev >= 3 {
+                    self.dword()?;
+                }
+            }
+            Ok(())
+        })();
+        let index = self.object_index(id);
+        self.objects[index].payload = Some(TimelinePayload::Auxiliary(Box::new(aux)));
+        parsed
+    }
+    pub(super) fn temp_clipboard_object(&mut self, id: u32) -> Result<()> {
+        let mut aux = TimelineAuxiliaryObject::default();
+        let parsed = (|| {
+            aux.revision = Some(self.byte()?);
+            aux.matrix_words = Some(self.signed_words()?);
+            Ok(())
+        })();
+        let index = self.object_index(id);
+        self.objects[index].payload = Some(TimelinePayload::Auxiliary(Box::new(aux)));
         parsed
     }
 }

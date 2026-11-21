@@ -60,7 +60,7 @@ impl Reader<'_> {
         }
         Ok(string)
     }
-    fn text_style(&mut self) -> Result<TimelineTextStyle> {
+    pub(super) fn text_style(&mut self) -> Result<TimelineTextStyle> {
         let revision = self.revision(15, "text style")?;
         let mut style = TimelineTextStyle {
             revision,

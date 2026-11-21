@@ -13,6 +13,28 @@ const MAX_INPUT: usize = 64 * 1024 * 1024;
 const MAX_PIXELS: usize = 4096 * 4096;
 const MAX_BYTES: usize = MAX_PIXELS * 4;
 
+pub(crate) fn resize_rgba_proportional(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    target_max_side: u32,
+) -> Option<(u32, u32, Vec<u8>)> {
+    if width == 0 || height == 0 || target_max_side == 0 {
+        return None;
+    }
+    let max_side = width.max(height);
+    if max_side <= target_max_side {
+        return None;
+    }
+    let scale = f64::from(target_max_side) / f64::from(max_side);
+    let new_w = ((f64::from(width) * scale).round() as u32).clamp(1, target_max_side);
+    let new_h = ((f64::from(height) * scale).round() as u32).clamp(1, target_max_side);
+    let src = image::RgbaImage::from_raw(width, height, rgba.to_vec())?;
+    let resized =
+        image::imageops::resize(&src, new_w, new_h, image::imageops::FilterType::Triangle);
+    Some((new_w, new_h, resized.into_raw()))
+}
+
 #[derive(Clone, Debug)]
 pub struct DecodedBinaryBitmap {
     pub width: u32,

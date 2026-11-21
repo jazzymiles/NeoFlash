@@ -2,6 +2,7 @@ use super::*;
 use crate::legacy::contents::{BinaryContentsPrefix, ContentsDescriptorClass};
 use crate::legacy::media::{
     BinaryVideoPayload, decode_binary_bitmap, decode_binary_sound, decode_binary_video,
+    resize_rgba_proportional,
 };
 use image::{
     ExtendedColorType, ImageEncoder,
@@ -19,6 +20,8 @@ pub(super) struct BitmapAsset {
     pub resource_id: String,
     pub width: f64,
     pub height: f64,
+    pub scale_x: f64,
+    pub scale_y: f64,
     pub smoothing: bool,
     pub average_color: Color,
 }
@@ -300,6 +303,136 @@ pub(super) fn compact_bitmaps_under_pressure(
                 used_paths.insert(old_lower);
             }
         }
+    }
+}
+
+fn encode_rgba_for_budget(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    prefer_jpeg: bool,
+) -> Option<(Vec<u8>, &'static str, &'static str)> {
+    let is_opaque = rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 255);
+    if prefer_jpeg && is_opaque {
+        let mut rgb = Vec::with_capacity((width as usize) * (height as usize) * 3);
+        for px in rgba.as_chunks::<4>().0 {
+            rgb.extend_from_slice(&px[..3]);
+        }
+        let mut jpg = Vec::new();
+        if JpegEncoder::new_with_quality(&mut jpg, 85)
+            .encode(&rgb, width, height, ExtendedColorType::Rgb8)
+            .is_ok()
+        {
+            return Some((jpg, "image/jpeg", "jpg"));
+        }
+    }
+    let mut png = Vec::new();
+    PngEncoder::new_with_quality(&mut png, CompressionType::Best, FilterType::Adaptive)
+        .write_image(rgba, width, height, ExtendedColorType::Rgba8)
+        .ok()?;
+    Some((png, "image/png", "png"))
+}
+
+pub(super) fn downscale_bitmaps_under_pressure(
+    resources: &mut [ResourceUnit],
+    bitmaps: &mut BTreeMap<u16, BitmapAsset>,
+    used_paths: &mut BTreeSet<String>,
+    total: &mut usize,
+    needed_bytes: usize,
+    report: &mut ImportReport,
+) {
+    const MIN_SIDE: u32 = 64;
+    let budget = MAX_RESOURCE_TOTAL_BYTES - PROVENANCE_RESERVE;
+    for _ in 0..256 {
+        if total.checked_add(needed_bytes).is_some_and(|n| n <= budget) {
+            break;
+        }
+        let mut best: Option<(usize, usize)> = None;
+        for (idx, res) in resources.iter().enumerate() {
+            if !res.id.starts_with("legacy-bitmap-") || res.byte_len() <= 32 * 1024 {
+                continue;
+            }
+            let Some((w, h)) = bitmaps
+                .values()
+                .find(|a| a.resource_id == res.id)
+                .map(|a| (a.width as u32, a.height as u32))
+                .or_else(|| {
+                    let bytes = res.decoded_bytes().ok()?;
+                    image::ImageReader::new(std::io::Cursor::new(&bytes))
+                        .with_guessed_format()
+                        .ok()?
+                        .into_dimensions()
+                        .ok()
+                })
+            else {
+                continue;
+            };
+            if w.max(h) <= MIN_SIDE {
+                continue;
+            }
+            if best.is_none_or(|(best_len, _)| res.byte_len() > best_len) {
+                best = Some((res.byte_len(), idx));
+            }
+        }
+        let Some((old_len, idx)) = best else {
+            break;
+        };
+        let res = &mut resources[idx];
+        let Ok(decoded) = res.decode_image() else {
+            break;
+        };
+        let target_max = (decoded.width.max(decoded.height) / 2).max(MIN_SIDE);
+        let Some((new_w, new_h, resized)) =
+            resize_rgba_proportional(&decoded.rgba, decoded.width, decoded.height, target_max)
+        else {
+            break;
+        };
+        let prefer_jpeg = res.media_type == "image/jpeg";
+        let Some((bytes, mime, _ext)) = encode_rgba_for_budget(&resized, new_w, new_h, prefer_jpeg)
+        else {
+            break;
+        };
+        if bytes.len() >= old_len {
+            break;
+        }
+        let old_path = res.path.clone();
+        let new_path = if mime == "image/jpeg" && res.media_type != "image/jpeg" {
+            used_paths.remove(&old_path.to_ascii_lowercase());
+            let p = allocate_unique_jpg_path(&old_path, used_paths);
+            used_paths.insert(p.to_ascii_lowercase());
+            p
+        } else {
+            old_path
+        };
+        let Ok(updated) = ResourceUnit::from_bytes(res.id.clone(), new_path, mime, &bytes) else {
+            break;
+        };
+        let res_id = res.id.clone();
+        let sx = f64::from(decoded.width) / f64::from(new_w);
+        let sy = f64::from(decoded.height) / f64::from(new_h);
+        *total = total
+            .saturating_sub(old_len)
+            .saturating_add(updated.byte_len());
+        *res = updated;
+        for asset in bitmaps.values_mut() {
+            if asset.resource_id == res_id {
+                asset.width = f64::from(new_w);
+                asset.height = f64::from(new_h);
+                asset.scale_x *= sx;
+                asset.scale_y *= sy;
+            }
+        }
+        let loc = res_id
+            .strip_prefix("legacy-bitmap-")
+            .map(|mid| format!("media {mid}"))
+            .unwrap_or(res_id);
+        report.warning(
+            "fla_bitmap_downscaled",
+            loc,
+            format!(
+                "Bitmap was downscaled to {new_w}x{new_h} px (preserving Stage dimensions via transform scale) to fit the 64 MiB project resource budget."
+            ),
+        );
     }
 }
 
@@ -643,6 +776,19 @@ pub(super) fn resources(
                         report,
                     );
                 }
+                if total
+                    .checked_add(decoded.bytes.len())
+                    .is_none_or(|n| n > budget)
+                {
+                    downscale_bitmaps_under_pressure(
+                        &mut resources,
+                        &mut bitmaps,
+                        &mut used_paths,
+                        &mut total,
+                        decoded.bytes.len(),
+                        report,
+                    );
+                }
             }
             if resources.len() >= MAX_RESOURCES - 2 {
                 if let Some(lid) = explicit_linkage {
@@ -923,6 +1069,19 @@ pub(super) fn resources(
                                 report,
                             );
                         }
+                        if total
+                            .checked_add(video_bytes.len())
+                            .is_none_or(|n| n > budget)
+                        {
+                            downscale_bitmaps_under_pressure(
+                                &mut resources,
+                                &mut bitmaps,
+                                &mut used_paths,
+                                &mut total,
+                                video_bytes.len(),
+                                report,
+                            );
+                        }
                     }
                     if resources.len() >= MAX_RESOURCES - 2
                         || total
@@ -1048,6 +1207,8 @@ pub(super) fn resources(
                         resource_id: format!("legacy-swf-icon-{id}"),
                         width: f64::from(decoded_icon.width),
                         height: f64::from(decoded_icon.height),
+                        scale_x: 1.0,
+                        scale_y: 1.0,
                         smoothing: false,
                         average_color: avg,
                     },
@@ -1171,7 +1332,7 @@ pub(super) fn resources(
             continue;
         }
         decoded_streams.insert(stream.index);
-        let decoded = match decode_binary_bitmap(&stream.bytes, settings.encoded_byte_count) {
+        let mut decoded = match decode_binary_bitmap(&stream.bytes, settings.encoded_byte_count) {
             Ok(decoded) if decoded.original_bytes == stream.bytes => decoded,
             Ok(_) => {
                 report.warning("fla_bitmap_skipped",&location,"The bitmap payload does not match its media stream; it becomes an unresolved placeholder.");
@@ -1184,75 +1345,26 @@ pub(super) fn resources(
                 continue;
             }
         };
+        let (orig_w, orig_h) = (decoded.width, decoded.height);
+        let mut downscaled = false;
         if decoded.bounds_words[0] != 0 || decoded.bounds_words[2] != 0 {
             report.warning("fla_bitmap_origin",&location,"The bitmap's stored bounds start away from 0,0; the image is placed at its instance origin.");
         }
         let average_color = crate::average_bitmap_color(&decoded.rgba);
-        let png = decoded.png_bytes().map_err(|e| e.to_string())?;
-        if png.len() > MAX_RESOURCE_BYTES {
-            report.warning(
-                "fla_bitmap_skipped",
-                &location,
-                "Encoded bitmap PNG exceeds the 16 MiB single-resource limit; this bitmap becomes an unresolved placeholder.",
-            );
-            skipped_bitmaps.insert(id);
-            continue;
-        }
-        let over_count = resources.len() >= MAX_RESOURCES - 2;
-        let over_bytes = total.checked_add(png.len()).is_none_or(|n| n > budget);
-        if over_count || over_bytes {
-            compact_duplicate_media_under_pressure(
-                &mut resources,
-                &mut bitmaps,
-                &mut sounds,
-                &mut videos,
-                &mut compiled_clips,
-                &mut used_paths,
-                &mut total,
-            );
-            if let Some(existing_id) = find_identical_resource_id(&resources, "image/png", &png) {
-                if bitmaps
-                    .insert(
-                        id,
-                        BitmapAsset {
-                            resource_id: existing_id,
-                            width: f64::from(decoded.width),
-                            height: f64::from(decoded.height),
-                            smoothing: settings.smoothing,
-                            average_color,
-                        },
-                    )
-                    .is_some()
-                {
-                    return Err("Bitmap descriptors have duplicate media identifiers.".into());
-                }
-                continue;
-            }
-            if total.checked_add(png.len()).is_none_or(|n| n > budget) {
-                compact_bitmaps_under_pressure(
-                    &mut resources,
-                    &mut used_paths,
-                    &mut total,
-                    png.len(),
-                    report,
-                );
-            }
-        }
-        if resources.len() >= MAX_RESOURCES - 2 {
-            report.warning("fla_bitmap_skipped",&location,"The project resource limit is reached; this bitmap becomes an unresolved placeholder.");
-            skipped_bitmaps.insert(id);
-            continue;
-        }
-        // Keep room for the embedded original FLA and provenance.
-        let (final_bytes, final_mime, final_ext) = if total
-            .checked_add(png.len())
-            .is_some_and(|n| n <= budget)
-        {
-            total += png.len();
-            (png, "image/png", "png")
-        } else {
+        let is_opaque = decoded
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|px| px[3] == 255);
+        let mut cand_bytes = decoded.png_bytes().map_err(|e| e.to_string())?;
+        let mut cand_mime = "image/png";
+        let mut cand_ext = "png";
+        let mut reencoded_jpeg = false;
+
+        if cand_bytes.len() > MAX_RESOURCE_BYTES {
             let mut best_png = Vec::new();
-            let fits_best_png = PngEncoder::new_with_quality(
+            let fits_best = PngEncoder::new_with_quality(
                 &mut best_png,
                 CompressionType::Best,
                 FilterType::Adaptive,
@@ -1264,6 +1376,166 @@ pub(super) fn resources(
                 ExtendedColorType::Rgba8,
             )
             .is_ok()
+                && best_png.len() <= MAX_RESOURCE_BYTES;
+            if fits_best {
+                cand_bytes = best_png;
+            } else {
+                let mut jpg = Vec::new();
+                let fits_jpg = if is_opaque {
+                    let mut rgb = Vec::with_capacity(
+                        (decoded.width as usize) * (decoded.height as usize) * 3,
+                    );
+                    for px in decoded.rgba.as_chunks::<4>().0 {
+                        rgb.extend_from_slice(&px[..3]);
+                    }
+                    JpegEncoder::new_with_quality(&mut jpg, 90)
+                        .encode(&rgb, decoded.width, decoded.height, ExtendedColorType::Rgb8)
+                        .is_ok()
+                        && jpg.len() <= MAX_RESOURCE_BYTES
+                } else {
+                    false
+                };
+                if fits_jpg {
+                    cand_bytes = jpg;
+                    cand_mime = "image/jpeg";
+                    cand_ext = "jpg";
+                    reencoded_jpeg = true;
+                } else {
+                    while cand_bytes.len() > MAX_RESOURCE_BYTES {
+                        let cur_max = decoded.width.max(decoded.height);
+                        if cur_max <= 32 {
+                            break;
+                        }
+                        let target = (cur_max / 2).max(32);
+                        let Some((nw, nh, resized)) = resize_rgba_proportional(
+                            &decoded.rgba,
+                            decoded.width,
+                            decoded.height,
+                            target,
+                        ) else {
+                            break;
+                        };
+                        decoded.width = nw;
+                        decoded.height = nh;
+                        decoded.rgba = resized;
+                        downscaled = true;
+                        let Some((enc, mime, ext)) =
+                            encode_rgba_for_budget(&decoded.rgba, nw, nh, is_opaque)
+                        else {
+                            break;
+                        };
+                        if mime == "image/jpeg" {
+                            reencoded_jpeg = true;
+                        }
+                        cand_bytes = enc;
+                        cand_mime = mime;
+                        cand_ext = ext;
+                    }
+                }
+            }
+        }
+        if cand_bytes.len() > MAX_RESOURCE_BYTES {
+            report.warning(
+                "fla_bitmap_skipped",
+                &location,
+                "Encoded bitmap PNG exceeds the 16 MiB single-resource limit; this bitmap becomes an unresolved placeholder.",
+            );
+            skipped_bitmaps.insert(id);
+            continue;
+        }
+        let over_count = resources.len() >= MAX_RESOURCES - 2;
+        let over_bytes = total
+            .checked_add(cand_bytes.len())
+            .is_none_or(|n| n > budget);
+        if over_count || over_bytes {
+            compact_duplicate_media_under_pressure(
+                &mut resources,
+                &mut bitmaps,
+                &mut sounds,
+                &mut videos,
+                &mut compiled_clips,
+                &mut used_paths,
+                &mut total,
+            );
+            if let Some(existing_id) =
+                find_identical_resource_id(&resources, cand_mime, &cand_bytes)
+            {
+                if reencoded_jpeg {
+                    report.warning(
+                        "fla_bitmap_reencoded",
+                        &location,
+                        "Opaque bitmap was re-encoded from lossless PNG to high-quality JPEG (quality 90) to fit project resource limits; lossless source bytes remain in the original FLA.",
+                    );
+                }
+                if downscaled {
+                    report.warning(
+                        "fla_bitmap_downscaled",
+                        &location,
+                        format!(
+                            "Bitmap was downscaled from {orig_w}x{orig_h} px to {}x{} px (preserving Stage dimensions via transform scale) to fit project bitmap limits.",
+                            decoded.width, decoded.height
+                        ),
+                    );
+                }
+                if bitmaps
+                    .insert(
+                        id,
+                        BitmapAsset {
+                            resource_id: existing_id,
+                            width: f64::from(decoded.width),
+                            height: f64::from(decoded.height),
+                            scale_x: f64::from(orig_w) / f64::from(decoded.width),
+                            scale_y: f64::from(orig_h) / f64::from(decoded.height),
+                            smoothing: settings.smoothing,
+                            average_color,
+                        },
+                    )
+                    .is_some()
+                {
+                    return Err("Bitmap descriptors have duplicate media identifiers.".into());
+                }
+                continue;
+            }
+            if total
+                .checked_add(cand_bytes.len())
+                .is_none_or(|n| n > budget)
+            {
+                compact_bitmaps_under_pressure(
+                    &mut resources,
+                    &mut used_paths,
+                    &mut total,
+                    cand_bytes.len(),
+                    report,
+                );
+            }
+        }
+        if resources.len() >= MAX_RESOURCES - 2 {
+            report.warning("fla_bitmap_skipped",&location,"The project resource limit is reached; this bitmap becomes an unresolved placeholder.");
+            skipped_bitmaps.insert(id);
+            continue;
+        }
+        // Keep room for the embedded original FLA and provenance.
+        let (final_bytes, final_mime, final_ext) = if total
+            .checked_add(cand_bytes.len())
+            .is_some_and(|n| n <= budget)
+        {
+            total += cand_bytes.len();
+            (cand_bytes, cand_mime, cand_ext)
+        } else {
+            let mut best_png = Vec::new();
+            let fits_best_png = cand_mime == "image/png"
+                && PngEncoder::new_with_quality(
+                    &mut best_png,
+                    CompressionType::Best,
+                    FilterType::Adaptive,
+                )
+                .write_image(
+                    &decoded.rgba,
+                    decoded.width,
+                    decoded.height,
+                    ExtendedColorType::Rgba8,
+                )
+                .is_ok()
                 && total
                     .checked_add(best_png.len())
                     .is_some_and(|n| n <= budget);
@@ -1271,14 +1543,8 @@ pub(super) fn resources(
                 total += best_png.len();
                 (best_png, "image/png", "png")
             } else {
-                let is_opaque = decoded
-                    .rgba
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .all(|px| px[3] == 255);
                 let mut jpg = Vec::new();
-                let encoded_jpg = if is_opaque {
+                let encoded_jpg = if is_opaque && cand_mime == "image/png" {
                     let mut rgb = Vec::with_capacity(
                         (decoded.width as usize) * (decoded.height as usize) * 3,
                     );
@@ -1292,20 +1558,103 @@ pub(super) fn resources(
                     false
                 };
                 if encoded_jpg && total.checked_add(jpg.len()).is_some_and(|n| n <= budget) {
-                    report.warning(
-                        "fla_bitmap_reencoded",
-                        &location,
-                        "Opaque bitmap was re-encoded from lossless PNG to high-quality JPEG (quality 90) to fit the 64 MiB project resource budget; lossless source bytes remain in the original FLA.",
-                    );
+                    reencoded_jpeg = true;
                     total += jpg.len();
                     (jpg, "image/jpeg", "jpg")
                 } else {
-                    report.warning("fla_bitmap_skipped",&location,"Decoded bitmaps exceed the project's resource budget (64 MiB including import provenance); this bitmap becomes an unresolved placeholder.");
-                    skipped_bitmaps.insert(id);
-                    continue;
+                    if encoded_jpg && jpg.len() < cand_bytes.len() {
+                        cand_bytes = jpg;
+                        cand_mime = "image/jpeg";
+                        cand_ext = "jpg";
+                        reencoded_jpeg = true;
+                    } else if !best_png.is_empty() && best_png.len() < cand_bytes.len() {
+                        cand_bytes = best_png;
+                    }
+                    downscale_bitmaps_under_pressure(
+                        &mut resources,
+                        &mut bitmaps,
+                        &mut used_paths,
+                        &mut total,
+                        cand_bytes.len(),
+                        report,
+                    );
+                    while total
+                        .checked_add(cand_bytes.len())
+                        .is_none_or(|n| n > budget)
+                    {
+                        let cur_max = decoded.width.max(decoded.height);
+                        if cur_max <= 64 {
+                            break;
+                        }
+                        let target = (cur_max / 2).max(64);
+                        let Some((nw, nh, resized)) = resize_rgba_proportional(
+                            &decoded.rgba,
+                            decoded.width,
+                            decoded.height,
+                            target,
+                        ) else {
+                            break;
+                        };
+                        decoded.width = nw;
+                        decoded.height = nh;
+                        decoded.rgba = resized;
+                        downscaled = true;
+                        let Some((enc, mime, ext)) =
+                            encode_rgba_for_budget(&decoded.rgba, nw, nh, is_opaque)
+                        else {
+                            break;
+                        };
+                        if mime == "image/jpeg" {
+                            reencoded_jpeg = true;
+                        }
+                        cand_bytes = enc;
+                        cand_mime = mime;
+                        cand_ext = ext;
+                        if total
+                            .checked_add(cand_bytes.len())
+                            .is_none_or(|n| n > budget)
+                        {
+                            downscale_bitmaps_under_pressure(
+                                &mut resources,
+                                &mut bitmaps,
+                                &mut used_paths,
+                                &mut total,
+                                cand_bytes.len(),
+                                report,
+                            );
+                        }
+                    }
+                    if total
+                        .checked_add(cand_bytes.len())
+                        .is_some_and(|n| n <= budget)
+                    {
+                        total += cand_bytes.len();
+                        (cand_bytes, cand_mime, cand_ext)
+                    } else {
+                        report.warning("fla_bitmap_skipped",&location,"Decoded bitmaps exceed the project's resource budget (64 MiB including import provenance); this bitmap becomes an unresolved placeholder.");
+                        skipped_bitmaps.insert(id);
+                        continue;
+                    }
                 }
             }
         };
+        if reencoded_jpeg {
+            report.warning(
+                "fla_bitmap_reencoded",
+                &location,
+                "Opaque bitmap was re-encoded from lossless PNG to high-quality JPEG (quality 90) to fit the 64 MiB project resource budget; lossless source bytes remain in the original FLA.",
+            );
+        }
+        if downscaled {
+            report.warning(
+                "fla_bitmap_downscaled",
+                &location,
+                format!(
+                    "Bitmap was downscaled from {orig_w}x{orig_h} px to {}x{} px (preserving Stage dimensions via transform scale) to fit project bitmap limits.",
+                    decoded.width, decoded.height
+                ),
+            );
+        }
         let resource_id = format!("legacy-bitmap-{id}");
         used_ids.insert(resource_id.clone());
         let fallback = format!("legacy/bitmaps/{id}/bitmap.{final_ext}");
@@ -1360,6 +1709,8 @@ pub(super) fn resources(
                     resource_id,
                     width: f64::from(decoded.width),
                     height: f64::from(decoded.height),
+                    scale_x: f64::from(orig_w) / f64::from(decoded.width),
+                    scale_y: f64::from(orig_h) / f64::from(decoded.height),
                     smoothing: settings.smoothing,
                     average_color,
                 },

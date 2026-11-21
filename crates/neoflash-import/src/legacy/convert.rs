@@ -654,6 +654,7 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         include_hidden,
         contents_revision: c.revision,
         generated: vec![],
+        inline_resources: vec![],
         compiled_clip_sources: vec![],
         provenance: vec![],
         missing_bitmaps: BTreeMap::new(),
@@ -779,6 +780,16 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         });
     }
     symbols.append(&mut context.generated);
+    for inline_res in context.inline_resources.drain(..) {
+        let used_total: usize = resources.iter().map(ResourceUnit::byte_len).sum();
+        if resources.len() < MAX_RESOURCES - 2
+            && used_total
+                .checked_add(inline_res.byte_len())
+                .is_some_and(|n| n <= MAX_RESOURCE_TOTAL_BYTES - 512 * 1024)
+        {
+            resources.push(inline_res);
+        }
+    }
     normalize_playback(&mut symbols, context.report);
     attach_companion_includes(&context.report.source, &symbols, &mut resources);
     // The exact original is embedded when it fits the project resource budget,
@@ -1068,6 +1079,7 @@ struct Context<'a> {
     include_hidden: bool,
     contents_revision: Option<u8>,
     generated: Vec<Symbol>,
+    inline_resources: Vec<ResourceUnit>,
     compiled_clip_sources: Vec<SourceUnit>,
     provenance: Vec<serde_json::Value>,
     missing_bitmaps: BTreeMap<u16, String>,
@@ -1712,6 +1724,13 @@ impl Context<'_> {
                         "Motion-tween XML is imported as its stored keyframe poses.",
                     );
                 }
+                if f.pose_matrices.is_some() && l.animation_type.unwrap_or(0) == 0 {
+                    self.report.warning(
+                        "fla_layer_animation",
+                        &at,
+                        "IK pose matrices are retained in the embedded source; the keyframe uses its stored pose.",
+                    );
+                }
                 let mut elements = Vec::new();
                 let mut bitmap_fills = Vec::new();
                 let mut appearances = Vec::new();
@@ -2149,10 +2168,18 @@ impl Context<'_> {
                         }
                     }
                 }
-                element.name = optional_text(
-                    &s.original_bytes,
-                    i.instance_name.as_ref().or(i.legacy_name.as_ref()),
-                )?;
+                element.name = i
+                    .historical_wide_name
+                    .clone()
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| {
+                        optional_text(
+                            &s.original_bytes,
+                            i.instance_name.as_ref().or(i.legacy_name.as_ref()),
+                        )
+                        .ok()
+                    })
+                    .unwrap_or_default();
                 element.transform = Transform::from_matrix(shape::matrix(
                     i.matrix_words.ok_or("Missing instance matrix")?,
                 ))
@@ -2305,47 +2332,79 @@ impl Context<'_> {
                 element = convert_timeline_text(s, t, id, "", self.contents_revision, self.report)?;
             }
             Some(TimelinePayload::Bitmap(b)) => {
-                let media = b.media_id.ok_or("Missing bitmap identity")?;
-                element.transform = Transform::from_matrix(shape::matrix(
-                    b.matrix_words.ok_or("Missing bitmap matrix")?,
-                ))
-                .ok_or("Invalid bitmap matrix")?;
-                if let Some(asset) = self.bitmaps.get(&media) {
-                    element.kind = ElementKind::Bitmap {
-                        resource_id: asset.resource_id.clone(),
-                        width: asset.width as u32,
-                        height: asset.height as u32,
-                        smoothing: asset.smoothing,
-                    };
-                } else {
-                    let symbol_id = if let Some(id) = self.missing_bitmaps.get(&media) {
-                        id.clone()
+                let raw_mat = shape::matrix(b.matrix_words.ok_or("Missing bitmap matrix")?);
+                if let Some(media) = b.media_id {
+                    if let Some(asset) = self.bitmaps.get(&media) {
+                        let mut scaled_mat = raw_mat;
+                        scaled_mat[0] *= asset.scale_x;
+                        scaled_mat[1] *= asset.scale_x;
+                        scaled_mat[2] *= asset.scale_y;
+                        scaled_mat[3] *= asset.scale_y;
+                        element.transform = Transform::from_matrix(scaled_mat)
+                            .or_else(|| Transform::from_matrix(raw_mat))
+                            .ok_or("Invalid bitmap matrix")?;
+                        element.kind = ElementKind::Bitmap {
+                            resource_id: asset.resource_id.clone(),
+                            width: asset.width as u32,
+                            height: asset.height as u32,
+                            smoothing: asset.smoothing,
+                        };
                     } else {
-                        let id = format!("fla-missing-bitmap-{media}");
-                        self.generated.push(group_symbol(
-                            &id,
-                            format!("Unresolved bitmap #{media}"),
-                            vec![],
-                        ));
-                        self.missing_bitmaps.insert(media, id.clone());
-                        id
-                    };
-                    element.kind = ElementKind::Instance {
-                        symbol_id,
-                        playback: InstancePlayback::SingleFrame(0),
-                    };
-                    element.name = format!("Unresolved source bitmap #{media}");
-                    if self.skipped_bitmaps.contains(&media) {
-                        self.report.warning(
-                            "fla_bitmap_skipped",
-                            &location,
-                            format!(
-                                "Bitmap #{media} could not be decoded or exceeded project resource limits; an unresolved placeholder preserves its stage transform."
-                            ),
-                        );
-                    } else {
-                        self.report.warning("fla_source_bitmap_missing",&location,format!("Bitmap #{media} is already absent from the source archive. The placement and unresolved reference are retained; no image was invented."));
+                        element.transform =
+                            Transform::from_matrix(raw_mat).ok_or("Invalid bitmap matrix")?;
+                        let symbol_id = if let Some(id) = self.missing_bitmaps.get(&media) {
+                            id.clone()
+                        } else {
+                            let id = format!("fla-missing-bitmap-{media}");
+                            self.generated.push(group_symbol(
+                                &id,
+                                format!("Unresolved bitmap #{media}"),
+                                vec![],
+                            ));
+                            self.missing_bitmaps.insert(media, id.clone());
+                            id
+                        };
+                        element.kind = ElementKind::Instance {
+                            symbol_id,
+                            playback: InstancePlayback::SingleFrame(0),
+                        };
+                        element.name = format!("Unresolved source bitmap #{media}");
+                        if self.skipped_bitmaps.contains(&media) {
+                            self.report.warning(
+                                "fla_bitmap_skipped",
+                                &location,
+                                format!(
+                                    "Bitmap #{media} could not be decoded or exceeded project resource limits; an unresolved placeholder preserves its stage transform."
+                                ),
+                            );
+                        } else {
+                            self.report.warning("fla_source_bitmap_missing",&location,format!("Bitmap #{media} is already absent from the source archive. The placement and unresolved reference are retained; no image was invented."));
+                        }
                     }
+                } else if let Some(span) = b.inline_raster
+                    && let Some(raw) = s.original_bytes.get(span.start..span.end)
+                    && let Ok(decoded) = crate::legacy::media::decode_binary_bitmap(raw, 0)
+                    && let Ok(png) = decoded.png_bytes()
+                    && png.len() <= MAX_RESOURCE_BYTES
+                {
+                    element.transform =
+                        Transform::from_matrix(raw_mat).ok_or("Invalid bitmap matrix")?;
+                    let res_id = format!("legacy-inline-bitmap-{}-{object_id}", s.index);
+                    let res_path = format!("legacy/inline-bitmaps/{}-{object_id}.png", s.index);
+                    if let Ok(unit) = ResourceUnit::from_bytes(&res_id, res_path, "image/png", &png)
+                    {
+                        self.inline_resources.push(unit);
+                        element.kind = ElementKind::Bitmap {
+                            resource_id: res_id,
+                            width: decoded.width,
+                            height: decoded.height,
+                            smoothing: false,
+                        };
+                    } else {
+                        return Err("Inline bitmap resource exceeded limits".into());
+                    }
+                } else {
+                    return Err("Missing bitmap identity".into());
                 }
             }
             Some(TimelinePayload::Shape) => {
@@ -2709,6 +2768,29 @@ impl Context<'_> {
                     symbol_id,
                     playback: InstancePlayback::SingleFrame(0),
                 };
+            }
+            Some(TimelinePayload::Auxiliary(aux)) => {
+                let tf = aux
+                    .matrix_words
+                    .and_then(|m| Transform::from_matrix(shape::matrix(m)))
+                    .unwrap_or_default();
+                if o.class == TimelineClass::TlfText {
+                    self.report.warning(
+                        "fla_text_approximated",
+                        &location,
+                        "TLF text record is retained in the embedded source; an empty placeholder preserves its placement.",
+                    );
+                } else {
+                    self.report.warning(
+                        "fla_object_placeholder",
+                        &location,
+                        format!(
+                            "Auxiliary {:?} record is retained in the embedded source; an empty placeholder keeps its place.",
+                            o.class
+                        ),
+                    );
+                }
+                element = self.placeholder_element(id.into(), tf);
             }
             _ => {
                 return Err(format!(
@@ -3815,6 +3897,18 @@ fn fit_project_json_budget(
         *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
     }
 
+    // 1b. Downscale/compress imported bitmap resources (legacy-bitmap-*, largest first)
+    //     while preserving Stage placement size before shedding any bitmap to a placeholder.
+    while json.len() > MAX_PROJECT_JSON_BYTES {
+        let excess = json.len() - MAX_PROJECT_JSON_BYTES;
+        if !downscale_bitmap_resources_for_json(project, report, excess) {
+            break;
+        }
+        project.format_version = 5;
+        project.upgrade_format_for_features();
+        *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
+    }
+
     // 2. Shed imported bitmap resources (legacy-bitmap-*, largest first).
     while json.len() > MAX_PROJECT_JSON_BYTES {
         let excess = json.len() - MAX_PROJECT_JSON_BYTES;
@@ -3980,6 +4074,270 @@ fn shed_audio_resources(project: &mut Project, report: &mut ImportReport, excess
         }
     }
     true
+}
+
+fn downscale_one_project_bitmap_resource(
+    project: &mut Project,
+    res_id: &str,
+    min_side: u32,
+    require_b64_shrink: bool,
+    report: &mut ImportReport,
+    reason_budget: &str,
+) -> Option<usize> {
+    use image::{
+        ExtendedColorType, ImageEncoder,
+        codecs::jpeg::JpegEncoder,
+        codecs::png::{CompressionType, FilterType, PngEncoder},
+    };
+    let res_idx = project.resources.iter().position(|r| r.id == res_id)?;
+    let old_b64_len = project.resources[res_idx].data_base64.len();
+    let old_media_type = project.resources[res_idx].media_type.clone();
+    let old_path = project.resources[res_idx].path.clone();
+    let decoded = project.resources[res_idx].decode_image().ok()?;
+    let cur_max = decoded.width.max(decoded.height);
+    if cur_max <= min_side {
+        return None;
+    }
+    let target_max = (cur_max / 2).max(min_side);
+    let (new_w, new_h, resized) = crate::legacy::media::resize_rgba_proportional(
+        &decoded.rgba,
+        decoded.width,
+        decoded.height,
+        target_max,
+    )?;
+    let sx = f64::from(decoded.width) / f64::from(new_w);
+    let sy = f64::from(decoded.height) / f64::from(new_h);
+
+    // Preflight all ElementKind::Bitmap and AuthoredBitmapFill bounds before mutating.
+    for symbol in &project.symbols {
+        for layer in &symbol.timeline.layers {
+            for key in &layer.keyframes {
+                for bf in &key.bitmap_fills {
+                    if bf.resource_id == res_id {
+                        let m = [
+                            bf.matrix[0] * sx,
+                            bf.matrix[1] * sx,
+                            bf.matrix[2] * sy,
+                            bf.matrix[3] * sy,
+                        ];
+                        if !m.iter().all(|v| v.is_finite() && v.abs() <= 1e9) {
+                            return None;
+                        }
+                    }
+                }
+                for elem in &key.elements {
+                    if matches!(
+                        &elem.kind,
+                        ElementKind::Bitmap { resource_id, .. } if resource_id == res_id
+                    ) {
+                        if let Some([px, py]) = elem.transform.pivot {
+                            let npx = px / sx;
+                            let npy = py / sy;
+                            if !npx.is_finite()
+                                || !npy.is_finite()
+                                || npx.abs() > 1e9
+                                || npy.abs() > 1e9
+                            {
+                                return None;
+                            }
+                        }
+                        let geom = Transform {
+                            x: elem.transform.x,
+                            y: elem.transform.y,
+                            scale_x: elem.transform.scale_x,
+                            scale_y: elem.transform.scale_y,
+                            rotation: elem.transform.rotation,
+                            skew: elem.transform.skew,
+                            ..Transform::default()
+                        };
+                        let mut mat = neoflash_core::transform_matrix(geom);
+                        mat[0] *= sx;
+                        mat[1] *= sx;
+                        mat[2] *= sy;
+                        mat[3] *= sy;
+                        Transform::from_matrix(mat)?;
+                    }
+                }
+            }
+        }
+    }
+
+    let is_opaque = resized.as_chunks::<4>().0.iter().all(|px| px[3] == 255);
+    let use_jpeg = old_media_type == "image/jpeg" || (require_b64_shrink && is_opaque);
+    let (encoded_bytes, new_mime, new_path) = if use_jpeg {
+        let mut rgb = Vec::with_capacity((new_w as usize) * (new_h as usize) * 3);
+        for px in resized.as_chunks::<4>().0 {
+            rgb.extend_from_slice(&px[..3]);
+        }
+        let mut jpg = Vec::new();
+        JpegEncoder::new_with_quality(&mut jpg, 85)
+            .encode(&rgb, new_w, new_h, ExtendedColorType::Rgb8)
+            .ok()?;
+        let path = if old_media_type == "image/jpeg" {
+            old_path
+        } else {
+            let used_lower: std::collections::BTreeSet<String> = project
+                .resources
+                .iter()
+                .enumerate()
+                .filter(|&(i, _)| i != res_idx)
+                .map(|(_, r)| r.path.to_ascii_lowercase())
+                .collect();
+            let stem = old_path
+                .strip_suffix(".png")
+                .or_else(|| old_path.strip_suffix(".PNG"))
+                .unwrap_or(&old_path);
+            let mut seq = 1usize;
+            loop {
+                let cand = if seq == 1 {
+                    format!("{stem}.jpg")
+                } else {
+                    format!("{stem}-{seq}.jpg")
+                };
+                if !used_lower.contains(&cand.to_ascii_lowercase()) {
+                    break cand;
+                }
+                seq += 1;
+            }
+        };
+        (jpg, "image/jpeg", path)
+    } else {
+        let mut png = Vec::new();
+        PngEncoder::new_with_quality(&mut png, CompressionType::Best, FilterType::Adaptive)
+            .write_image(&resized, new_w, new_h, ExtendedColorType::Rgba8)
+            .ok()?;
+        (png, "image/png", old_path)
+    };
+
+    let updated = ResourceUnit::from_bytes(res_id, new_path, new_mime, &encoded_bytes).ok()?;
+    let new_b64_len = updated.data_base64.len();
+    if require_b64_shrink && new_b64_len >= old_b64_len {
+        return None;
+    }
+
+    project.resources[res_idx] = updated;
+    for symbol in &mut project.symbols {
+        for layer in &mut symbol.timeline.layers {
+            for key in &mut layer.keyframes {
+                for bf in &mut key.bitmap_fills {
+                    if bf.resource_id == res_id {
+                        bf.matrix[0] *= sx;
+                        bf.matrix[1] *= sx;
+                        bf.matrix[2] *= sy;
+                        bf.matrix[3] *= sy;
+                    }
+                }
+                for elem in &mut key.elements {
+                    if let ElementKind::Bitmap {
+                        resource_id,
+                        width,
+                        height,
+                        ..
+                    } = &mut elem.kind
+                        && resource_id == res_id
+                    {
+                        *width = new_w;
+                        *height = new_h;
+                        if let Some(pivot) = &mut elem.transform.pivot {
+                            pivot[0] /= sx;
+                            pivot[1] /= sy;
+                        }
+                        let geom = Transform {
+                            x: elem.transform.x,
+                            y: elem.transform.y,
+                            scale_x: elem.transform.scale_x,
+                            scale_y: elem.transform.scale_y,
+                            rotation: elem.transform.rotation,
+                            skew: elem.transform.skew,
+                            ..Transform::default()
+                        };
+                        let mut mat = neoflash_core::transform_matrix(geom);
+                        mat[0] *= sx;
+                        mat[1] *= sx;
+                        mat[2] *= sy;
+                        mat[3] *= sy;
+                        if let Some(new_tf) = Transform::from_matrix(mat) {
+                            elem.transform.x = new_tf.x;
+                            elem.transform.y = new_tf.y;
+                            elem.transform.scale_x = new_tf.scale_x;
+                            elem.transform.scale_y = new_tf.scale_y;
+                            elem.transform.rotation = new_tf.rotation;
+                            elem.transform.skew = new_tf.skew;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let loc = res_id
+        .strip_prefix("legacy-bitmap-")
+        .map(|mid| format!("media {mid}"))
+        .unwrap_or_else(|| res_id.to_owned());
+    report.warning(
+        "fla_bitmap_downscaled",
+        loc,
+        format!(
+            "Bitmap was downscaled from {}x{} px to {new_w}x{new_h} px (preserving Stage dimensions via transform scale) to fit the {reason_budget}; full-resolution bytes remain in the original FLA.",
+            decoded.width, decoded.height
+        ),
+    );
+    Some(old_b64_len.saturating_sub(new_b64_len))
+}
+
+fn downscale_bitmap_resources_for_json(
+    project: &mut Project,
+    report: &mut ImportReport,
+    excess: usize,
+) -> bool {
+    let mut saved = 0usize;
+    for _ in 0..512 {
+        let mut candidates: Vec<(usize, u16, String)> = project
+            .resources
+            .iter()
+            .filter_map(|r| {
+                let suffix = r.id.strip_prefix("legacy-bitmap-")?;
+                let media_id = suffix.parse::<u16>().ok()?;
+                if r.data_base64.len() <= 16 * 1024 {
+                    return None;
+                }
+                let raw = r.decoded_bytes().ok()?;
+                let (w, h) = image::ImageReader::new(std::io::Cursor::new(&raw))
+                    .with_guessed_format()
+                    .ok()?
+                    .into_dimensions()
+                    .ok()?;
+                if w.max(h) <= 64 {
+                    return None;
+                }
+                Some((r.data_base64.len(), media_id, r.id.clone()))
+            })
+            .collect();
+        if candidates.is_empty() {
+            break;
+        }
+        candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
+        let mut progressed = false;
+        for (_, _, res_id) in candidates {
+            if let Some(delta) = downscale_one_project_bitmap_resource(
+                project,
+                &res_id,
+                64,
+                true,
+                report,
+                "128 MiB project JSON budget",
+            ) && delta > 0
+            {
+                saved = saved.saturating_add(delta);
+                progressed = true;
+                break;
+            }
+        }
+        if !progressed || saved >= excess {
+            break;
+        }
+    }
+    saved > 0
 }
 
 fn shed_bitmap_resources(project: &mut Project, report: &mut ImportReport, excess: usize) -> bool {
@@ -4469,7 +4827,64 @@ fn enforce_project_structural_limits(
     }
 
     // 2. Enforce runtime placed-bitmap budgets (256 distinct bitmap buffers and
-    //    MAX_BITMAP_BYTES = 128 MiB of decoded RGBA pixels).
+    //    MAX_BITMAP_BYTES = 128 MiB of decoded RGBA pixels). First proportionally
+    //    downscale the largest placed bitmaps so visible Stage bitmaps stay within
+    //    the 128 MiB pixel budget before falling back to placeholders.
+    for _ in 0..512 {
+        let mut seen = std::collections::HashSet::<String>::new();
+        let mut total_rgba = 0usize;
+        let mut largest: Option<(usize, String)> = None;
+        for sym in &project.symbols {
+            for layer in &sym.timeline.layers {
+                for key in &layer.keyframes {
+                    for elem in &key.elements {
+                        if let ElementKind::Bitmap {
+                            resource_id,
+                            width,
+                            height,
+                            ..
+                        } = &elem.kind
+                        {
+                            if seen.len() >= MAX_PLACED_BITMAPS && !seen.contains(resource_id) {
+                                continue;
+                            }
+                            if seen.insert(resource_id.clone()) {
+                                let rgba = (*width as usize)
+                                    .saturating_mul(*height as usize)
+                                    .saturating_mul(4);
+                                total_rgba = total_rgba.saturating_add(rgba);
+                                if (*width).max(*height) > 64
+                                    && resource_id.starts_with("legacy-")
+                                    && largest.as_ref().is_none_or(|(best, _)| rgba > *best)
+                                {
+                                    largest = Some((rgba, resource_id.clone()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if total_rgba <= MAX_BITMAP_BYTES {
+            break;
+        }
+        let Some((_, res_id)) = largest else {
+            break;
+        };
+        if downscale_one_project_bitmap_resource(
+            project,
+            &res_id,
+            64,
+            false,
+            report,
+            "128 MiB runtime pixel budget",
+        )
+        .is_none()
+        {
+            break;
+        }
+    }
+
     let mut kept_placed_bitmaps = std::collections::HashSet::<String>::new();
     let mut placed_rgba_bytes = 0usize;
     let mut degraded_bitmap_placements = Vec::<(usize, usize, usize, usize, String)>::new();
@@ -5122,8 +5537,26 @@ fn convert_accessibility(
     if acc.revision == 0 {
         return Ok(None);
     }
-    let raw_name = optional_text(&stream.original_bytes, acc.name.as_ref())?;
-    let raw_desc = optional_text(&stream.original_bytes, acc.description.as_ref())?;
+    let raw_name = acc
+        .historical_wide_name
+        .clone()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            acc.name
+                .as_ref()
+                .and_then(|sp| optional_text(&stream.original_bytes, Some(sp)).ok())
+        })
+        .unwrap_or_default();
+    let raw_desc = acc
+        .historical_wide_description
+        .clone()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            acc.description
+                .as_ref()
+                .and_then(|sp| optional_text(&stream.original_bytes, Some(sp)).ok())
+        })
+        .unwrap_or_default();
     let raw_shortcut = optional_text(&stream.original_bytes, acc.shortcut.as_ref())?;
     let raw_tab = optional_text(&stream.original_bytes, acc.tab_index.as_ref())?;
     let tab_order = raw_tab.trim().parse::<u32>().unwrap_or(0).min(10_000);

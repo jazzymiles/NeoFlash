@@ -30,6 +30,12 @@ pub enum TimelineClass {
     CompiledClip,
     VideoStream,
     LinkedVideo,
+    AsObject,
+    ThreeDObject,
+    TlfText,
+    Screen,
+    Font,
+    TempClipboardObj,
     Unknown,
 }
 impl TimelineClass {
@@ -53,6 +59,12 @@ impl TimelineClass {
             b"CPicSwf" => Self::CompiledClip,
             b"CPicVideoStream" => Self::VideoStream,
             b"CPicVideo" => Self::LinkedVideo,
+            b"CPicASObj" => Self::AsObject,
+            b"CPicThreeDObject" => Self::ThreeDObject,
+            b"CPicTLFText" => Self::TlfText,
+            b"CPicScreen" => Self::Screen,
+            b"CPicFont" => Self::Font,
+            b"CPicTempClipboardObj" => Self::TempClipboardObj,
             _ => Self::Unknown,
         }
     }
@@ -76,6 +88,12 @@ impl TimelineClass {
             Self::CompiledClip => "CPicSwf",
             Self::VideoStream => "CPicVideoStream",
             Self::LinkedVideo => "CPicVideo",
+            Self::AsObject => "CPicASObj",
+            Self::ThreeDObject => "CPicThreeDObject",
+            Self::TlfText => "CPicTLFText",
+            Self::Screen => "CPicScreen",
+            Self::Font => "CPicFont",
+            Self::TempClipboardObj => "CPicTempClipboardObj",
             Self::Unknown => "Unknown",
         }
     }
@@ -295,6 +313,8 @@ pub struct TimelineFrame {
     pub visible_animation_keyframes: Option<u32>,
     #[serde(default)]
     pub tween_instance_name: Option<TimelineString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pose_matrices: Option<TimelineByteSpan>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -319,6 +339,10 @@ pub struct TimelineAccessibility {
     pub reserved: Option<TimelineString>,
     pub force_simple: Option<u32>,
     pub auto_labeling: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub historical_wide_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub historical_wide_description: Option<String>,
 }
 
 /// Component instance parameters, in archive order. Revision 0 lists carry a
@@ -400,6 +424,8 @@ pub struct TimelineInstance {
     pub is_visible: Option<u32>,
     pub extension_revision: Option<u8>,
     pub instance_name: Option<TimelineString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub historical_wide_name: Option<String>,
     pub actions: Option<TimelineActions>,
     pub track_as_menu: Option<u8>,
     pub property_count: Option<u32>,
@@ -483,6 +509,10 @@ pub struct TimelineBitmap {
     pub matrix_words: Option<[i32; 6]>,
     pub media_id: Option<u16>,
     pub extension_present: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inline_raster: Option<TimelineByteSpan>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persistent_data: Option<TimelineByteSpan>,
 }
 
 /// Instance blend modes. Archive byte 0 and 1 are both normal; values above 14
@@ -714,6 +744,15 @@ pub struct TimelineVideo {
     pub media_id: Option<u16>,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TimelineAuxiliaryObject {
+    pub revision: Option<u8>,
+    pub matrix_words: Option<[i32; 6]>,
+    pub bounds_words: Option<[i32; 4]>,
+    pub class_name: Option<TimelineString>,
+    pub source: Option<TimelineString>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "fields", rename_all = "snake_case")]
 pub enum TimelinePayload {
@@ -731,6 +770,7 @@ pub enum TimelinePayload {
     Primitive(Box<TimelinePrimitive>),
     CompiledClip(Box<TimelineCompiledClip>),
     Video(Box<TimelineVideo>),
+    Auxiliary(Box<TimelineAuxiliaryObject>),
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TimelineObject {

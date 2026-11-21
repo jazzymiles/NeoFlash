@@ -1,15 +1,23 @@
-//! Layered Adobe Photoshop (`.psd` / `.psb`) binary parser and timeline/symbol/keyframe importer (`T-115`).
+//! Layered Adobe Photoshop (`.psd` / `.psb`) binary parser and timeline/symbol/keyframe importer (`T-115`, `T-418`).
 //!
 //! Decodes PSD v1 and PSB v2 headers, layer records, Pascal and `luni` Unicode layer names,
 //! `lsct` folder hierarchies, blend modes, opacity, visibility flags, clipping mask chains,
-//! `TySh` text descriptors, `vmsk`/`vsms` vector mask notices, raw (`0`) and PackBits RLE (`1`)
-//! channel image planes, and merged composite image data.
+//! `TySh` text descriptors, `lfx2`/`lmfx`/`lrFX` editable Layer Styles (`FilterSpec` & `ColorTransform`),
+//! `vmsk`/`vsms` vector mask notices, raw (`0`) and PackBits RLE (`1`) channel image planes,
+//! and merged composite image data.
+
+pub mod layer_styles;
+pub use layer_styles::{
+    PsdDescriptor, PsdDescriptorValue, PsdParsedLayerEffects, convert_lfx2_descriptor,
+    descriptor_color_to_rgb24, extract_psd_global_lighting_angle, parse_descriptor_body,
+    parse_legacy_lrfx_block, parse_versioned_effects_descriptor, photoshop_light_to_flash_angle,
+};
 
 use crate::{ImportError, ImportFormat, ImportReport, Statistics};
 use neoflash_core::{
-    BlendMode, Color, Element, ElementKind, FillRule, InstancePlayback, Keyframe, Layer,
-    LayerProperties, LayerRole, MAX_BITMAP_DIMENSION, MaskMode, PathCommand, Project, ResourceUnit,
-    Symbol, SymbolKind, Timeline, Transform, new_id,
+    BlendMode, Color, ColorTransform, Element, ElementKind, FillRule, FilterSpec, InstancePlayback,
+    Keyframe, Layer, LayerProperties, LayerRole, MAX_BITMAP_DIMENSION, MAX_OBJECT_FILTERS,
+    MaskMode, PathCommand, Project, ResourceUnit, Symbol, SymbolKind, Timeline, Transform, new_id,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -150,6 +158,16 @@ pub struct PsdLayerRecord {
     pub has_layer_mask: bool,
     pub is_adjustment_layer: Option<String>,
     pub is_smart_object: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub filters: Vec<FilterSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_overlay_tint: Option<ColorTransform>,
+    #[serde(skip)]
+    pub folder_color_overlay_filter: Option<FilterSpec>,
+    #[serde(skip)]
+    pub effects_approximations: Vec<String>,
+    #[serde(skip)]
+    pub solid_fill_color: Option<Color>,
     #[serde(skip)]
     pub channels_meta: Vec<(i16, usize)>,
     #[serde(skip)]
@@ -370,32 +388,54 @@ fn parse_tysh_block(block: &[u8]) -> Option<PsdTextLayerData> {
         }
     }
     let rest = &block[pos..];
-    // Look for "Txt " key followed by "TEXT" type tag and u32 UTF-16BE length in standard PSD descriptors
+    // Structured version-16 Action Descriptor inside `TySh` (text_version == 50, desc_version == 16)
+    if rest.len() >= 6
+        && u16::from_be_bytes([rest[0], rest[1]]) == 50
+        && u32::from_be_bytes([rest[2], rest[3], rest[4], rest[5]]) == 16
+    {
+        let mut dpos = 6usize;
+        if let Some(desc) = parse_descriptor_body(rest, &mut dpos, 0)
+            && let Some(PsdDescriptorValue::Text(txt)) = desc.get("Txt ")
+        {
+            let decoded = txt.replace('\r', "\n").trim_end_matches('\0').to_owned();
+            if !decoded.is_empty() {
+                return Some(PsdTextLayerData {
+                    text: decoded,
+                    font_family: "Arial".to_owned(),
+                    font_size: 24.0,
+                    color: [255, 255, 255, 255],
+                    transform,
+                });
+            }
+        }
+    }
+    // Look for "Txt " key followed by "TEXT" type tag and u32 UTF-16BE length in compact/standard PSD descriptors
     if let Some(txt_idx) = rest.windows(8).position(|w| w == b"Txt TEXT") {
         let mut tpos = txt_idx + 8;
-        if let Ok(char_len) = read_u32_be(rest, &mut tpos) {
-            let byte_len = (char_len as usize).saturating_mul(2);
-            if tpos + byte_len <= rest.len() {
-                let units: Vec<u16> = rest[tpos..tpos + byte_len]
-                    .as_chunks::<2>()
-                    .0
-                    .iter()
-                    .map(|c| u16::from_be_bytes([c[0], c[1]]))
-                    .filter(|&u| u != 0)
-                    .collect();
-                let decoded = String::from_utf16_lossy(&units)
-                    .replace('\r', "\n")
-                    .trim_end_matches('\0')
-                    .to_owned();
-                if !decoded.is_empty() {
-                    return Some(PsdTextLayerData {
-                        text: decoded,
-                        font_family: "Arial".to_owned(),
-                        font_size: 24.0,
-                        color: [255, 255, 255, 255],
-                        transform,
-                    });
-                }
+        if let Ok(char_len) = read_u32_be(rest, &mut tpos)
+            && let Some(byte_len) = (char_len as usize).checked_mul(2)
+            && let Some(end) = tpos.checked_add(byte_len)
+            && end <= rest.len()
+        {
+            let units: Vec<u16> = rest[tpos..end]
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                .filter(|&u| u != 0)
+                .collect();
+            let decoded = String::from_utf16_lossy(&units)
+                .replace('\r', "\n")
+                .trim_end_matches('\0')
+                .to_owned();
+            if !decoded.is_empty() {
+                return Some(PsdTextLayerData {
+                    text: decoded,
+                    font_family: "Arial".to_owned(),
+                    font_size: 24.0,
+                    color: [255, 255, 255, 255],
+                    transform,
+                });
             }
         }
     }
@@ -813,6 +853,7 @@ fn parse_psd_document_with_plan(
     let resources_len = read_u32_be(bytes, &mut pos)? as usize;
     let resources_end = checked_section_end(pos, resources_len, bytes.len(), "Image Resources")?;
     let has_composite = has_saved_composite(&bytes[pos..resources_end]);
+    let doc_global_angle = extract_psd_global_lighting_angle(&bytes[pos..resources_end]);
     pos = resources_end;
 
     // 3. Layer and Mask Information
@@ -930,6 +971,10 @@ fn parse_psd_document_with_plan(
                 let mut has_vector_mask = false;
                 let mut is_adjustment_layer = None;
                 let mut is_smart_object = false;
+                let mut solid_fill_color: Option<Color> = None;
+                let mut raw_lmfx: Option<&[u8]> = None;
+                let mut raw_lfx2: Option<&[u8]> = None;
+                let mut raw_lrfx: Option<&[u8]> = None;
 
                 // Additional Layer Information tagged blocks
                 while pos.saturating_add(12) <= extra_end {
@@ -941,7 +986,31 @@ fn parse_psd_document_with_plan(
                     let mut key_bytes = [0u8; 4];
                     key_bytes.copy_from_slice(&bytes[pos..pos + 4]);
                     pos += 4;
-                    let block_len = read_u32_be(bytes, &mut pos)? as usize;
+                    let uses_u64_len = version == 2
+                        && matches!(
+                            &key_bytes,
+                            b"LMsk"
+                                | b"Lr16"
+                                | b"Lr32"
+                                | b"Layr"
+                                | b"Mt16"
+                                | b"Mt32"
+                                | b"Mtrn"
+                                | b"Alph"
+                                | b"FMsk"
+                                | b"lnk2"
+                                | b"FEid"
+                                | b"FXid"
+                                | b"PxSD"
+                        );
+                    let block_len = if uses_u64_len {
+                        checked_section_end(pos, 8, extra_end, "PSB 64-bit block length")?;
+                        usize::try_from(read_u64_be(bytes, &mut pos)?).map_err(|_| {
+                            ImportError::Container("PSB block length overflows usize".into())
+                        })?
+                    } else {
+                        read_u32_be(bytes, &mut pos)? as usize
+                    };
                     let block_end = checked_section_end(
                         pos,
                         block_len,
@@ -956,9 +1025,11 @@ fn parse_psd_document_with_plan(
                                 let char_count =
                                     u32::from_be_bytes([block[0], block[1], block[2], block[3]])
                                         as usize;
-                                let byte_len = char_count.saturating_mul(2);
-                                if 4 + byte_len <= block.len() {
-                                    let units: Vec<u16> = block[4..4 + byte_len]
+                                if let Some(byte_len) = char_count.checked_mul(2)
+                                    && let Some(end) = 4usize.checked_add(byte_len)
+                                    && end <= block.len()
+                                {
+                                    let units: Vec<u16> = block[4..end]
                                         .as_chunks::<2>()
                                         .0
                                         .iter()
@@ -995,7 +1066,28 @@ fn parse_psd_document_with_plan(
                                 })
                             });
                         }
-                        b"lrFX" | b"lfx2" | b"lmfx" => has_visible_effects |= visible,
+                        b"lmfx" => raw_lmfx = Some(block),
+                        b"lfx2" => raw_lfx2 = Some(block),
+                        b"lrFX" => raw_lrfx = Some(block),
+                        b"SoCo" => {
+                            if block.len() >= 4
+                                && u32::from_be_bytes([block[0], block[1], block[2], block[3]])
+                                    == 16
+                            {
+                                let mut dpos = 4usize;
+                                if let Some(desc) = parse_descriptor_body(block, &mut dpos, 0)
+                                    && let Some(clr) = desc.object("Clr ")
+                                {
+                                    let rgb = descriptor_color_to_rgb24(clr, 0x00_0000);
+                                    solid_fill_color = Some([
+                                        ((rgb >> 16) & 0xff) as u8,
+                                        ((rgb >> 8) & 0xff) as u8,
+                                        (rgb & 0xff) as u8,
+                                        255,
+                                    ]);
+                                }
+                            }
+                        }
                         b"vmsk" | b"vsms" => {
                             has_vector_mask = true;
                         }
@@ -1017,7 +1109,37 @@ fn parse_psd_document_with_plan(
                         extra_end,
                         "additional layer information padding",
                     )?;
+                    if pos.saturating_add(6) <= extra_end
+                        && bytes[pos..pos + 2] == [0, 0]
+                        && (&bytes[pos + 2..pos + 6] == b"8BIM"
+                            || &bytes[pos + 2..pos + 6] == b"8B64")
+                    {
+                        pos += 2;
+                    }
                 }
+
+                let parsed_effects = if let Some(desc) =
+                    raw_lmfx.and_then(parse_versioned_effects_descriptor)
+                {
+                    convert_lfx2_descriptor(&desc, doc_global_angle)
+                } else if let Some(desc) = raw_lfx2.and_then(parse_versioned_effects_descriptor) {
+                    convert_lfx2_descriptor(&desc, doc_global_angle)
+                } else if let Some(legacy) =
+                    raw_lrfx.and_then(|b| parse_legacy_lrfx_block(b, doc_global_angle))
+                {
+                    legacy
+                } else if raw_lmfx.is_some() || raw_lfx2.is_some() || raw_lrfx.is_some() {
+                    PsdParsedLayerEffects {
+                        has_unreconstructable_effect: true,
+                        approximations: vec![
+                            "PSD layer effects block (lfx2/lrFX) was malformed or used an unsupported descriptor version and could not be reconstructed.".to_owned(),
+                        ],
+                        ..PsdParsedLayerEffects::default()
+                    }
+                } else {
+                    PsdParsedLayerEffects::default()
+                };
+                has_visible_effects |= visible && parsed_effects.has_unreconstructable_effect;
 
                 pos = extra_end;
                 layers.push(PsdLayerRecord {
@@ -1036,6 +1158,11 @@ fn parse_psd_document_with_plan(
                     has_layer_mask,
                     is_adjustment_layer,
                     is_smart_object,
+                    filters: parsed_effects.filters,
+                    color_overlay_tint: parsed_effects.color_overlay_tint,
+                    folder_color_overlay_filter: parsed_effects.folder_color_overlay_filter,
+                    effects_approximations: parsed_effects.approximations,
+                    solid_fill_color,
                     channels_meta,
                     rgba_pixels: None,
                 });
@@ -1210,6 +1337,7 @@ fn outline_paths_for_text(text: &str, font_size: f64, color: Color) -> ElementKi
 ///
 /// Emits location-aware [`crate::Diagnostic`] entries in [`ImportReport`]:
 /// - `psd-unsupported-blend-mode`
+/// - `psd-layer-effect-approximated`
 /// - `psd-adjustment-layer-approximated`
 /// - `psd-vector-mask-approximated`
 /// - `psd-smart-object-rasterized`
@@ -1403,6 +1531,14 @@ fn import_psd_into_project_inner(
             continue;
         }
 
+        for approx_msg in &rec.effects_approximations {
+            report.warning(
+                "psd-layer-effect-approximated",
+                loc.clone(),
+                approx_msg.clone(),
+            );
+        }
+
         if matches!(
             rec.section_divider,
             PsdSectionDivider::OpenFolder | PsdSectionDivider::ClosedFolder
@@ -1413,6 +1549,38 @@ fn import_psd_into_project_inner(
                 mapping,
                 PsdLayerMapping::TimelineLayers | PsdLayerMapping::MovieClipSymbols
             ) {
+                let (folder_blend, exact_folder_blend) = if options.preserve_blend_modes {
+                    map_psd_blend_mode(&rec.blend_key)
+                } else {
+                    (BlendMode::Normal, true)
+                };
+                if options.preserve_blend_modes && !exact_folder_blend {
+                    report.warning(
+                        "psd-unsupported-blend-mode",
+                        loc.clone(),
+                        format!(
+                            "PSD folder blend mode '{}' is not natively supported; approximated as '{}'.",
+                            rec.blend_key,
+                            folder_blend.label()
+                        ),
+                    );
+                }
+                let mut folder_filters = rec.filters.clone();
+                if let Some(cm) = rec.folder_color_overlay_filter.clone()
+                    && cm.validate().is_ok()
+                {
+                    if folder_filters.len() < MAX_OBJECT_FILTERS {
+                        folder_filters.push(cm);
+                    } else {
+                        report.warning(
+                            "psd-layer-effect-approximated",
+                            loc.clone(),
+                            format!(
+                                "PSD group Color Overlay ('SoFi') omitted because the folder already carries {MAX_OBJECT_FILTERS} active filters."
+                            ),
+                        );
+                    }
+                }
                 built_layers.push(Layer {
                     id: folder_id.clone(),
                     name: rec.name.clone(),
@@ -1427,6 +1595,8 @@ fn import_psd_into_project_inner(
                         role: LayerRole::Folder,
                         parent: parent_id,
                         collapsed: rec.section_divider == PsdSectionDivider::ClosedFolder,
+                        blend_mode: folder_blend,
+                        filters: folder_filters,
                         ..LayerProperties::default()
                     },
                 });
@@ -1559,22 +1729,42 @@ fn import_psd_into_project_inner(
                     },
                     ..Element::default()
                 }
+            } else if let Some(fill_col) = rec.solid_fill_color {
+                Element {
+                    id: new_id("element"),
+                    name: rec.name.clone(),
+                    transform: Transform {
+                        x: rec.left as f64,
+                        y: rec.top as f64,
+                        alpha,
+                        ..Transform::default()
+                    },
+                    blend_mode: mapped_blend,
+                    kind: ElementKind::Rectangle {
+                        width: f64::from(lw),
+                        height: f64::from(lh),
+                        fill: fill_col,
+                        stroke: [0; 4],
+                        stroke_width: 0.0,
+                    },
+                    ..Element::default()
+                }
             } else {
                 if decode_report.budget_skipped_layers.contains(&i) {
                     report.warning(
-                        "psd-layer-decode-budget-exceeded",
-                        loc.clone(),
-                        format!(
-                            "PSD layer pixels exceeded the {} MiB aggregate decode budget; retained the layer with an explicit vector placeholder.",
-                            MAX_PSD_DECODE_BYTES / (1024 * 1024)
-                        ),
-                    );
+                            "psd-layer-decode-budget-exceeded",
+                            loc.clone(),
+                            format!(
+                                "PSD layer pixels exceeded the {} MiB aggregate decode budget; retained the layer with an explicit vector placeholder.",
+                                MAX_PSD_DECODE_BYTES / (1024 * 1024)
+                            ),
+                        );
                 } else {
                     report.warning(
-                        "psd-layer-pixels-unavailable",
-                        loc.clone(),
-                        "PSD layer pixels were missing or unreadable; inserted an explicit vector placeholder.",
-                    );
+                            "psd-layer-pixels-unavailable",
+                            loc.clone(),
+                            "PSD layer pixels were missing or unreadable; inserted an explicit vector placeholder.",
+                        );
                 }
                 Element {
                     id: new_id("element"),
@@ -1630,10 +1820,18 @@ fn import_psd_into_project_inner(
             }
         };
 
+        let mut element = element;
+        let layer_filters = rec.filters.clone();
+        let layer_tint = rec.color_overlay_tint;
+
         report.statistics.elements += 1;
 
         match mapping {
             PsdLayerMapping::Keyframes => {
+                element.filters = layer_filters;
+                if let Some(tint) = layer_tint {
+                    element.transform.color_transform = tint;
+                }
                 keyframe_mode_frames.push((rec.name.clone(), element));
             }
             PsdLayerMapping::MovieClipSymbols | PsdLayerMapping::TimelineLayers => {
@@ -1682,9 +1880,11 @@ fn import_psd_into_project_inner(
                             transform: Transform {
                                 x: sym_pos[0],
                                 y: sym_pos[1],
+                                color_transform: layer_tint.unwrap_or_default(),
                                 ..Transform::default()
                             },
                             blend_mode: mapped_blend,
+                            filters: layer_filters,
                             kind: ElementKind::Instance {
                                 symbol_id: sym_id,
                                 playback: InstancePlayback::Independent,
@@ -1692,6 +1892,10 @@ fn import_psd_into_project_inner(
                             ..Element::default()
                         }
                     } else {
+                        element.filters = layer_filters;
+                        if let Some(tint) = layer_tint {
+                            element.transform.color_transform = tint;
+                        }
                         element
                     };
 
@@ -1773,6 +1977,16 @@ fn import_psd_into_project_inner(
         .any(|l| !l.properties.is_default())
     {
         project.format_version = project.format_version.max(4);
+    }
+    if project
+        .symbols
+        .iter()
+        .flat_map(|s| &s.timeline.layers)
+        .flat_map(|l| &l.keyframes)
+        .flat_map(|k| &k.elements)
+        .any(|e| !e.transform.color_transform.is_identity())
+    {
+        project.format_version = project.format_version.max(5);
     }
     project.upgrade_format_for_features();
     report.can_import = true;

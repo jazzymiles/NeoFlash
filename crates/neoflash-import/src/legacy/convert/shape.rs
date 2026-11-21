@@ -889,25 +889,32 @@ fn paint(fill: &BinaryFill, bitmaps: &BTreeMap<u16, super::assets::BitmapAsset>)
             ..
         } if (*flags & 0x70) == 0x40 => {
             let raw = matrix(*matrix_words);
-            let fill_matrix = [
-                raw[0] / 20.0,
-                raw[1] / 20.0,
-                raw[2] / 20.0,
-                raw[3] / 20.0,
-                raw[4],
-                raw[5],
-            ];
-            if let Some(asset) = bitmaps.get(media_id)
-                && fill_matrix.iter().all(|v| v.is_finite() && v.abs() <= 1e9)
-            {
-                let repeat = (*flags & 1) == 0;
-                let smoothing = (*flags & 2) == 0;
-                (
-                    asset.average_color,
-                    None,
-                    Some((*media_id, fill_matrix, repeat, smoothing)),
-                    None,
-                )
+            if let Some(asset) = bitmaps.get(media_id) {
+                let fill_matrix = [
+                    (raw[0] / 20.0) * asset.scale_x,
+                    (raw[1] / 20.0) * asset.scale_x,
+                    (raw[2] / 20.0) * asset.scale_y,
+                    (raw[3] / 20.0) * asset.scale_y,
+                    raw[4],
+                    raw[5],
+                ];
+                if fill_matrix.iter().all(|v| v.is_finite() && v.abs() <= 1e9) {
+                    let repeat = (*flags & 1) == 0;
+                    let smoothing = (*flags & 2) == 0;
+                    (
+                        asset.average_color,
+                        None,
+                        Some((*media_id, fill_matrix, repeat, smoothing)),
+                        None,
+                    )
+                } else {
+                    (
+                        STANDIN,
+                        None,
+                        None,
+                        Some("unresolved bitmap fill is shown as neutral gray"),
+                    )
+                }
             } else {
                 (
                     STANDIN,

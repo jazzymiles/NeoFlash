@@ -729,6 +729,7 @@ fn component_props_only_attach_to_implemented_avm1_movieclips_and_broken_tweens_
         include_hidden: true,
         contents_revision: Some(0x3f),
         generated: vec![],
+        inline_resources: vec![],
         compiled_clip_sources: vec![],
         provenance: vec![],
         missing_bitmaps: BTreeMap::new(),

@@ -505,6 +505,12 @@ impl<'a> Reader<'a> {
                     | Class::CompiledClip
                     | Class::VideoStream
                     | Class::LinkedVideo
+                    | Class::AsObject
+                    | Class::ThreeDObject
+                    | Class::TlfText
+                    | Class::Screen
+                    | Class::Font
+                    | Class::TempClipboardObj
             ) {
                 // Unrecognized archive class names may be private; only
                 // known Flash class names appear in public diagnostics.
@@ -533,7 +539,9 @@ impl<'a> Reader<'a> {
                     self.frame(id, depth)?;
                 }
                 Class::Bitmap => self.bitmap(id)?,
-                Class::Symbol | Class::Sprite | Class::Button => self.instance(id, class)?,
+                Class::Symbol | Class::Sprite | Class::Button | Class::Screen => {
+                    self.instance(id, class)?
+                }
                 Class::Text => self.text(id)?,
                 Class::Rect | Class::Oval => {
                     self.shape(id)?;
@@ -542,6 +550,11 @@ impl<'a> Reader<'a> {
                 Class::CompiledClip => self.compiled_clip(id)?,
                 Class::VideoStream => self.video(id)?,
                 Class::LinkedVideo => self.linked_video(id)?,
+                Class::AsObject | Class::ThreeDObject | Class::TlfText => {
+                    self.as_or_tlf_object(id, class)?
+                }
+                Class::Font => self.font_object(id)?,
+                Class::TempClipboardObj => self.temp_clipboard_object(id)?,
                 _ => unreachable!("class checked above"),
             }
             Ok(())
@@ -841,10 +854,15 @@ impl<'a> Reader<'a> {
                 frame.tween_instance_name = Some(self.string()?);
             }
             if rev >= 29 && kind == 4 {
-                return stop(
-                    "fla_pose_animation_unsupported",
-                    "Pose matrix animation requires a dedicated adapter.",
-                );
+                let bone_count = self.dword()? as usize;
+                if bone_count > MAX_RECORDS {
+                    return stop("fla_record_limit", "Pose bone count exceeds 50000.");
+                }
+                let duration = usize::from(frame.duration.unwrap_or(0));
+                let Some(total_matrices) = bone_count.checked_mul(duration) else {
+                    return stop("fla_record_limit", "Pose matrix count overflow.");
+                };
+                frame.pose_matrices = Some(self.collection(total_matrices, 24)?);
             }
             Ok(())
         })();
@@ -971,27 +989,134 @@ impl<'a> Reader<'a> {
         actions.complete = parsed.is_ok();
         (actions, parsed)
     }
+    pub(super) fn persistent_data(&mut self) -> Result<TimelineByteSpan> {
+        let start = self.pos;
+        let _header = self.dword()?;
+        let raw_count = self.dword()? as i32;
+        let count = raw_count.max(0) as usize;
+        if count > MAX_RECORDS || count > self.data.len() - self.pos {
+            return stop(
+                "fla_record_limit",
+                "Persistent-data entry count exceeds 50000 or remaining input.",
+            );
+        }
+        for _ in 0..count {
+            self.retain_budget()?;
+            let kind = self.byte()?;
+            if !matches!(kind, 0 | 1 | 3 | 4 | 5 | 7) {
+                return stop(
+                    "fla_persistent_data_type_unsupported",
+                    format!("Persistent-data value type {kind} is not implemented."),
+                );
+            }
+            self.string()?;
+            match kind {
+                0 => {
+                    self.dword()?;
+                }
+                3 => {
+                    let _ = self.double()?;
+                }
+                5 => {
+                    self.string()?;
+                }
+                1 => {
+                    let n = self.dword()? as usize;
+                    self.collection(n, 4)?;
+                }
+                4 => {
+                    let n = self.dword()? as usize;
+                    if n > MAX_RECORDS || n > (self.data.len() - self.pos) / 8 {
+                        return stop(
+                            "fla_record_limit",
+                            "Persistent-data float array exceeds budget.",
+                        );
+                    }
+                    for _ in 0..n {
+                        let _ = self.double()?;
+                    }
+                }
+                _ => {
+                    let n = self.dword()? as usize;
+                    self.collection(n, 1)?;
+                }
+            }
+        }
+        Ok(TimelineByteSpan {
+            start,
+            end: self.pos,
+        })
+    }
+    fn inline_raster(&mut self) -> Result<TimelineByteSpan> {
+        let start = self.pos;
+        let rev = self.revision(3, "inline bitmap raster")?;
+        let format = self.byte()?;
+        if format > 5 {
+            return stop(
+                "fla_bitmap_format_unsupported",
+                "Inline bitmap pixel format is unsupported.",
+            );
+        }
+        let stride = usize::from(self.word()?);
+        let _width = self.word()?;
+        let height = usize::from(self.word()?);
+        let _bounds = self.signed_words::<4>()?;
+        if rev >= 3 {
+            let _alpha = self.byte()?;
+        }
+        if format < 4 {
+            let count = usize::from(self.word()?);
+            if count > 256 {
+                return stop(
+                    "fla_record_limit",
+                    "Inline bitmap palette exceeds 256 entries.",
+                );
+            }
+            let entry_bytes = if rev >= 3 { 4 } else { 6 };
+            self.span(count * entry_bytes)?;
+        }
+        let compressed = if rev >= 2 {
+            self.byte()? != 0
+        } else {
+            rev == 1
+        };
+        if !compressed {
+            self.span(stride * height)?;
+        } else {
+            let mut chunks = 0usize;
+            loop {
+                let len = usize::from(self.word()?);
+                if len == 0 {
+                    break;
+                }
+                chunks += 1;
+                if chunks > 262_144 {
+                    return stop("fla_record_limit", "Too many inline bitmap zlib chunks.");
+                }
+                self.span(len)?;
+            }
+        }
+        Ok(TimelineByteSpan {
+            start,
+            end: self.pos,
+        })
+    }
     fn bitmap(&mut self, id: u32) -> Result<()> {
         let mut bitmap = TimelineBitmap::default();
         let parsed = (|| {
             let rev = self.revision(2, "CPicBitmap")?;
             bitmap.revision = Some(rev);
-            if rev == 0 {
-                return stop(
-                    "fla_bitmap_revision_unsupported",
-                    "Embedded historical raster records are not implemented.",
-                );
-            }
             bitmap.matrix_words = Some(self.signed_words()?);
+            if rev == 0 {
+                bitmap.inline_raster = Some(self.inline_raster()?);
+                return Ok(());
+            }
             bitmap.media_id = Some(self.word()?);
             if rev == 2 {
                 let present = self.byte()?;
                 bitmap.extension_present = Some(present);
                 if present != 0 {
-                    return stop(
-                        "fla_bitmap_extension_unsupported",
-                        "Bitmap instance extension is not implemented.",
-                    );
+                    bitmap.persistent_data = Some(self.persistent_data()?);
                 }
             }
             Ok(())
