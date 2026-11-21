@@ -1154,7 +1154,17 @@ pub(crate) fn api_detail_column(
                     // 5. Parameters.
                     if !member.params.is_empty() {
                         group_caption(ui, "Parameters");
-                        let name_w = neoflash_ui::metrics::field_s().min(width * 0.4);
+                        let max_param_w = member
+                            .params
+                            .iter()
+                            .map(|(name, _)| {
+                                crate::panels::help_manual::text_width(ui, name, TextStyle::Mono)
+                                    + space::s1()
+                            })
+                            .fold(neoflash_ui::metrics::field_s(), f32::max);
+                        let name_w = max_param_w
+                            .min(neoflash_ui::metrics::field_m())
+                            .min(width * 0.45);
                         for (name, text) in &member.params {
                             ui.horizontal_top(|ui| {
                                 ui.spacing_mut().item_spacing.x = space::s2();

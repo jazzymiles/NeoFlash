@@ -321,6 +321,9 @@ pub(crate) fn close_help_manual(ctx: &egui::Context) {
         let s = d.get_temp_mut_or_default::<HelpManualState>(state_id());
         s.open = false;
     });
+    ctx.plugin::<egui::text_selection::LabelSelectionState>()
+        .lock()
+        .clear_selection();
 }
 
 pub(crate) fn is_help_manual_open(ctx: &egui::Context) -> bool {
@@ -1536,6 +1539,9 @@ impl crate::app::Editor {
         }
         if should_close {
             state.open = false;
+            ctx.plugin::<egui::text_selection::LabelSelectionState>()
+                .lock()
+                .clear_selection();
         }
         let open_mode = state.mode;
         let open_page = state.page;
@@ -5981,5 +5987,13 @@ mod tests {
             !is_help_manual_open(&ctx),
             "second Escape with no active text selection closes Help"
         );
+        // Immediately after Help closes, Edit ▸ Copy re-enables for the selected Stage Rectangle!
+        assert!(
+            editor
+                .command_menu_state(Some(&ctx), CommandId::EditCopy)
+                .enabled,
+            "Edit ▸ Copy must immediately re-enable for the selected Stage object once Help closes"
+        );
+        assert!(editor.execute_menu_command(&ctx, CommandId::EditCopy));
     }
 }

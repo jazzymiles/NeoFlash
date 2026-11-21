@@ -6,6 +6,7 @@
 //! The window shell is `help_manual.rs`.
 
 mod api_browser_ui;
+mod api_examples;
 mod api_index;
 mod browser_html;
 mod chapters_as;

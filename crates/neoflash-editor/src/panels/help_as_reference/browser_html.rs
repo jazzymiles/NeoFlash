@@ -619,8 +619,8 @@ fn write_js_ts_entries_html(
             .class(entry.category)
             .and_then(|cls| cls.member(&member_key));
         let declaration = indexed.map_or(entry.signature, |m| m.declaration.as_str());
-        let usage = indexed.map_or(entry.insertion.trim(), |m| m.usage.as_str());
-        let example = indexed.map_or(entry.insertion.trim(), |m| m.example.as_str());
+        let usage = indexed.map_or(entry.usage, |m| m.usage.as_str());
+        let example = indexed.map_or(entry.example, |m| m.example.as_str());
         out.push_str("<tr><td><code>");
         crate::panels::help_manual::escape_html(entry.name, out);
         out.push_str("</code>");

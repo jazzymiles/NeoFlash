@@ -1,4 +1,4 @@
-use super::{JS_TS_API_ENTRIES, JS_TS_CATEGORIES, JsTsApiEntry, JsTsEntryKind};
+use super::{JS_TS_API_ENTRIES, JS_TS_CATEGORIES, JsTsApiEntry, JsTsEntryKind, api_examples};
 use crate::code_tools::CodeCommand;
 use crate::panels::help_manual::LanguageScope;
 use crate::script_api::{self, Member};
@@ -544,12 +544,17 @@ fn build_as_index(api: &'static script_api::LanguageApi, language: ScriptLanguag
     let (mut member_count, mut status_count) = (0, 0);
     for draft in drafts {
         let near = script_api::package_of(&draft.key).to_owned();
+        let ctor_params = draft
+            .members
+            .iter()
+            .find(|m| m.kind == "constructor")
+            .and_then(|m| m.params.as_deref());
         let mut used: HashMap<String, usize> = HashMap::new();
         let mut members: Vec<ApiMember> = draft
             .members
             .iter()
             .map(|m| {
-                let mut view = as_member_view(m, language, &draft);
+                let mut view = as_member_view(m, language, &draft, ctor_params);
                 let seen = used.entry(view.key.clone()).or_insert(0);
                 *seen += 1;
                 if *seen > 1 {
@@ -627,7 +632,14 @@ fn build_as_index(api: &'static script_api::LanguageApi, language: ScriptLanguag
                     &draft.implements,
                 )
             };
-        let example = default_class_example(language, &draft);
+        let example = api_examples::synthesize_as_class_example(
+            language,
+            &draft.key,
+            &draft.name,
+            &draft.package,
+            &draft.kind,
+            ctor_params,
+        );
         let insertion = (!draft.pseudo).then(|| {
             crate::panels::actions_sidebar::toolbox_insertion(
                 &Member {
@@ -730,6 +742,9 @@ fn default_member_usage(
         }
     } else {
         match (kind, callable) {
+            ("constructor", _) if owner == "Vector" && as3 => {
+                format!("var {receiver}:Vector.<T> = new Vector.<T>({args});")
+            }
             ("constructor", _) => format!("var {receiver}:{owner} = new {owner}({args});"),
             (_, true) if m.is_static => format!("{owner}.{}({args});", m.name),
             (_, true) => format!("{receiver}.{}({args});", m.name),
@@ -758,121 +773,6 @@ fn default_member_usage(
             (_, false) => format!("{receiver}.{}", m.name),
         }
     }
-}
-
-fn default_member_example(
-    m: &Member,
-    language: ScriptLanguage,
-    class: &AsClassDraft,
-    usage: &str,
-) -> String {
-    let as3 = language == ScriptLanguage::ActionScript3;
-    let kind = m.kind.as_str();
-    let import_line = if !class.pseudo && class.key.contains('.') {
-        format!("import {};\n", class.key)
-    } else {
-        String::new()
-    };
-    let receiver = lower_first(&class.name);
-    if class.pseudo {
-        if m.params.is_some() {
-            let ret = m.ty.trim();
-            if !ret.is_empty() && !matches!(ret, "Void" | "void") {
-                format!("var result:{ret} = {usage}\ntrace(result);")
-            } else {
-                format!("{usage}\ntrace(\"{}\");", m.name)
-            }
-        } else {
-            format!("trace({});", m.name)
-        }
-    } else {
-        match kind {
-            "constructor" => format!("{import_line}{usage}\ntrace({receiver});"),
-            "constant" => format!("{import_line}trace({usage});"),
-            "property" if m.read_only => format!("{import_line}trace({usage});"),
-            "property" => {
-                let target = if m.is_static {
-                    format!("{}.{}", class.name, m.name)
-                } else {
-                    format!("{receiver}.{}", m.name)
-                };
-                format!("{import_line}{usage}\ntrace({target});")
-            }
-            "event" | "callback" if as3 => {
-                let event_ty = if m.ty.trim().is_empty() {
-                    "Event"
-                } else {
-                    script_api::short_name(m.ty.trim())
-                };
-                let event_import = if m.ty.trim().is_empty() {
-                    "import flash.events.Event;\n".to_owned()
-                } else if m.ty.contains('.') {
-                    format!("import {};\n", m.ty.trim())
-                } else {
-                    String::new()
-                };
-                format!(
-                    "{import_line}{event_import}{receiver}.addEventListener(\"{}\", function(event:{event_ty}):void {{\n    trace(event.type);\n}});",
-                    m.name
-                )
-            }
-            "event" | "callback" => format!(
-                "{import_line}{receiver}.{} = function():Void {{\n    trace(\"{}\");\n}};",
-                m.name, m.name
-            ),
-            _ if m.params.is_some() => {
-                let ret = m.ty.trim();
-                if !ret.is_empty() && !matches!(ret, "Void" | "void") {
-                    format!("{import_line}var result:{ret} = {usage}\ntrace(result);")
-                } else {
-                    format!(
-                        "{import_line}{usage}\ntrace(\"{}.{}\");",
-                        class.name, m.name
-                    )
-                }
-            }
-            _ => format!("{import_line}trace({usage});"),
-        }
-    }
-}
-
-fn default_class_example(language: ScriptLanguage, class: &AsClassDraft) -> String {
-    if class.pseudo {
-        return String::new();
-    }
-    let import_line = if class.key.contains('.') {
-        format!("import {};\n", class.key)
-    } else {
-        String::new()
-    };
-    let receiver = lower_first(&class.name);
-    if let Some(ctor) = class.members.iter().find(|m| m.kind == "constructor") {
-        let arg_names: Vec<String> = ctor
-            .params
-            .as_deref()
-            .map(split_params)
-            .unwrap_or_default()
-            .iter()
-            .map(|part| describe_param(part).0)
-            .filter(|name| !name.is_empty())
-            .collect();
-        let usage = default_member_usage(ctor, language, class, &arg_names);
-        return format!("{import_line}{usage}\ntrace({receiver});");
-    }
-    if let Some(first) = class.members.first() {
-        let arg_names: Vec<String> = first
-            .params
-            .as_deref()
-            .map(split_params)
-            .unwrap_or_default()
-            .iter()
-            .map(|part| describe_param(part).0)
-            .filter(|name| !name.is_empty())
-            .collect();
-        let usage = default_member_usage(first, language, class, &arg_names);
-        return default_member_example(first, language, class, &usage);
-    }
-    format!("{import_line}var {receiver}:{};", class.name)
 }
 
 fn format_js_ts_declaration(signature: &str, kind: JsTsEntryKind) -> String {
@@ -923,7 +823,12 @@ fn format_js_ts_declaration(signature: &str, kind: JsTsEntryKind) -> String {
     }
 }
 
-fn as_member_view(m: &Member, language: ScriptLanguage, class: &AsClassDraft) -> ApiMember {
+fn as_member_view(
+    m: &Member,
+    language: ScriptLanguage,
+    class: &AsClassDraft,
+    ctor_params: Option<&str>,
+) -> ApiMember {
     let as3 = language == ScriptLanguage::ActionScript3;
     let kind = m.kind.as_str();
     let callable = m.params.is_some();
@@ -1039,7 +944,15 @@ fn as_member_view(m: &Member, language: ScriptLanguage, class: &AsClassDraft) ->
         .filter(|name| !name.is_empty())
         .collect();
     let usage = default_member_usage(m, language, class, &arg_names);
-    let example = default_member_example(m, language, class, &usage);
+    let example = api_examples::synthesize_as_member_example(
+        language,
+        &class.key,
+        &class.name,
+        class.pseudo,
+        &class.kind,
+        ctor_params,
+        m,
+    );
     let description =
         script_api::describe_as_member(language, &class.key, &class.name, class.pseudo, m);
     let kind_label = match (m.is_static, kind) {
@@ -1141,9 +1054,9 @@ fn build_js_ts_index() -> ApiIndex {
                         entry.provenance, entry.support_note, entry.availability
                     )
                 };
-                let usage = entry.insertion.trim().to_owned();
+                let usage = entry.usage.to_owned();
                 let declaration = format_js_ts_declaration(entry.signature, entry.kind);
-                let example = entry.insertion.trim().to_owned();
+                let example = entry.example.to_owned();
                 ApiMember {
                     key: key_of(entry),
                     name: entry.name.to_owned(),
@@ -1178,7 +1091,7 @@ fn build_js_ts_index() -> ApiIndex {
         };
         let class_example = entries
             .first()
-            .map(|e| e.insertion.trim().to_owned())
+            .map(|e| e.example.to_owned())
             .unwrap_or_default();
         package
             .classes
