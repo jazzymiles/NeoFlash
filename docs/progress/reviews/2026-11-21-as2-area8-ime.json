@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "d7bdc1c0a6e73b1c8d207fb28d53fd7537ec59f518dca8fd790ef507eb5b9375",
+  "reviews": [
+    {
+      "id": "AS2-AREA8-IME-20261121",
+      "date": "2026-11-21",
+      "commit": "657aacb1504ee081797b80eb960320ea91167b3b",
+      "title": "Close AS2 Area 8 System.IME conversion modes, composition, and AsBroadcaster",
+      "summary": "Implements AS2 System.IME mode constants, getEnabled/setEnabled, getConversionMode/setConversionMode validation, setCompositionString, doConversion, AsBroadcaster addListener/removeListener, and DOM compositionend onIMEComposition dispatch.",
+      "tests": [
+        "crates/neoflash-core/src/as2_platform.rs",
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "web/tests/text-graphemes-ime.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:System/IME.html#class",
+          "status": "working",
+          "note": "AS2 System.IME singleton wired across Rust As2ImeState, web/as2-platform.js, and DOM composition events with AsBroadcaster listener dispatch."
+        },
+        {
+          "catalogId": "as2:System/IME.html#ALPHANUMERIC_FULL",
+          "status": "working",
+          "note": "Constant 'ALPHANUMERIC_FULL' accepted and returned by System.IME.setConversionMode/getConversionMode."
+        },
+        {
+          "catalogId": "as2:System/IME.html#ALPHANUMERIC_HALF",
+          "status": "working",
+          "note": "Constant 'ALPHANUMERIC_HALF' accepted and returned by System.IME.setConversionMode/getConversionMode."
+        },
+        {
+          "catalogId": "as2:System/IME.html#CHINESE",
+          "status": "working",
+          "note": "Constant 'CHINESE' accepted and returned by System.IME.setConversionMode/getConversionMode."
+        },
+        {
+          "catalogId": "as2:System/IME.html#JAPANESE_HIRAGANA",
+          "status": "working",
+          "note": "Constant 'JAPANESE_HIRAGANA' accepted and returned by System.IME.setConversionMode/getConversionMode."
+        },
+        {
+          "catalogId": "as2:System/IME.html#JAPANESE_KATAKANA_FULL",
+          "status": "working",
+          "note": "Constant 'JAPANESE_KATAKANA_FULL' accepted and returned by System.IME.setConversionMode/getConversionMode."
+        },
+        {
+          "catalogId": "as2:System/IME.html#JAPANESE_KATAKANA_HALF",
+          "status": "working",
+          "note": "Constant 'JAPANESE_KATAKANA_HALF' accepted and returned by System.IME.setConversionMode/getConversionMode."
+        },
+        {
+          "catalogId": "as2:System/IME.html#KOREAN",
+          "status": "working",
+          "note": "Constant 'KOREAN' accepted and returned by System.IME.setConversionMode/getConversionMode."
+        },
+        {
+          "catalogId": "as2:System/IME.html#UNKNOWN",
+          "status": "working",
+          "note": "Constant 'UNKNOWN' accepted and returned by System.IME.setConversionMode/getConversionMode."
+        },
+        {
+          "catalogId": "as2:System/IME.html#addListener()",
+          "status": "working",
+          "note": "Registers a listener on System.IME._listeners via AsBroadcaster and returns true."
+        },
+        {
+          "catalogId": "as2:System/IME.html#doConversion()",
+          "status": "working",
+          "note": "Commits the active IME composition string when enabled and broadcasts onIMEComposition(str) to registered listeners."
+        },
+        {
+          "catalogId": "as2:System/IME.html#event:onIMEComposition",
+          "status": "working",
+          "note": "Broadcasts onIMEComposition(str) to System.IME listeners on DOM compositionend and System.IME.doConversion()."
+        },
+        {
+          "catalogId": "as2:System/IME.html#getConversionMode()",
+          "status": "working",
+          "note": "Returns the active System.IME conversion mode constant (or UNKNOWN when disabled)."
+        },
+        {
+          "catalogId": "as2:System/IME.html#getEnabled()",
+          "status": "working",
+          "note": "Returns the boolean enabled state of System.IME synchronized with the browser DOM input bridge."
+        },
+        {
+          "catalogId": "as2:System/IME.html#removeListener()",
+          "status": "working",
+          "note": "Removes a registered listener from System.IME._listeners and returns true when found."
+        },
+        {
+          "catalogId": "as2:System/IME.html#setCompositionString()",
+          "status": "working",
+          "note": "Sets the active IME composition buffer when enabled and returns a boolean success status."
+        },
+        {
+          "catalogId": "as2:System/IME.html#setConversionMode()",
+          "status": "working",
+          "note": "Validates and sets known System.IME conversion-mode constants when enabled, returning false on invalid modes."
+        },
+        {
+          "catalogId": "as2:System/IME.html#setEnabled()",
+          "status": "working",
+          "note": "Enables or disables System.IME composition handling on the Stage text/IME bridge and returns boolean success."
+        }
+      ]
+    }
+  ]
+}

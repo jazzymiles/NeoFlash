@@ -18,12 +18,12 @@ Open-source vector animation, interactive media and application authoring studio
 
 | Area | Functions working | Partial | Planned | Capability groups (closed / partial / planned) |
 | --- | ---: | ---: | ---: | ---: |
-| Editor and graphics | 167 of 169 | 1 | 1 | 10 / 2 / 0 |
+| Editor and graphics | 168 of 170 | 1 | 1 | 10 / 2 / 0 |
 | Timelines and animation | 84 of 84 | 0 | 0 | 10 / 0 / 0 |
 | HTML5 and interactivity | 108 of 109 | 1 | 0 | 11 / 1 / 0 |
 | Import and file compatibility | 63 of 68 | 5 | 0 | 5 / 5 / 0 |
-| Platform and quality | 60 of 67 | 5 | 2 | 7 / 3 / 0 |
-| **All areas** | 482 of 497 | 12 | 3 | 43 / 11 / 0 |
+| Platform and quality | 61 of 67 | 4 | 2 | 7 / 3 / 0 |
+| **All areas** | 484 of 498 | 11 | 3 | 43 / 11 / 0 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
@@ -31,8 +31,8 @@ Each capability group lists its user-visible functions; a group is closed only w
 
 | Language | Now (areas 1–6 working) | All Flash Player areas working | Partial / missing | Outside target (never in %) |
 | --- | ---: | ---: | ---: | --- |
-| ActionScript 3 — Flash Player | 1,928 of 1,939 (99.4%) | 3,710 of 4,164 (89.1%) | 454 / 0 | AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138 |
-| ActionScript 2 — Flash Player | 925 of 925 (100.0%) | 1,204 of 1,238 (97.3%) | 34 / 0 | AS2 UI components 1,044 · Other libraries and extensions 25 |
+| ActionScript 3 — Flash Player | 1,928 of 1,939 (99.4%) | 3,756 of 4,164 (90.2%) | 408 / 0 | AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138 |
+| ActionScript 2 — Flash Player | 925 of 925 (100.0%) | 1,222 of 1,238 (98.7%) | 16 / 0 | AS2 UI components 1,044 · Other libraries and extensions 25 |
 
 Test-backed declaration statuses only (not an overall Flash compatibility score); last status review: 2026-11-21. Full eight-area breakdown and per-declaration provenance: [ActionScript declaration audit](docs/progress/ACTIONSCRIPT.md).
 

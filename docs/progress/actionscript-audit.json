@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "d7bdc1c0a6e73b1c8d207fb28d53fd7537ec59f518dca8fd790ef507eb5b9375",
+  "catalogSha256": "cce2e4c72b442a1f0125dfd68ab03d33c895a1a84da354c4662114668d6a80f3",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -37012,6 +37012,33 @@
             "evidenceKind": "test_backed_review"
           }
         ]
+      },
+      {
+        "id": "AS3-ACCESSIBILITY-HOST-20261115",
+        "title": "Accessibility implementation host boundary",
+        "reason": "The HTML5 adapter consumes child-zero name/value callbacks for placement semantics. The shared host family verifies that custom child trees, roles, states and actions remain unconnected; the existing Partial classification is retained with a precise limitation.",
+        "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+        "evidence": [
+          {
+            "path": "web/tests/as3-media-events.test.cjs",
+            "sha256": "1ecb7d96d968a8bb5bee62ed51c728db8721886e7b469521c75bf7a7ee0470d5"
+          }
+        ],
+        "reviewedEntries": [
+          {
+            "catalogId": "AS3:class:flash/accessibility/AccessibilityImplementation.html#",
+            "status": "partial",
+            "scopeNote": "The HTML5 host uses get_accName(0) and get_accValue(0) for a placement's label and description. Child-ID trees and custom role, state, selection and default-action behavior are not bridged."
+          }
+        ],
+        "previousEntries": [
+          {
+            "catalogId": "AS3:class:flash/accessibility/AccessibilityImplementation.html#",
+            "status": "partial",
+            "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+            "evidenceKind": "test_backed_review"
+          }
+        ]
       }
     ],
     "normalizedReviewInputs": [
@@ -37491,6 +37518,22 @@
         "reviewIds": [
           "AS3-AUDIT-RECALIBRATION-20261121"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-21-as2-area8-ime.json",
+        "sha256": "2884c85bc4b4e617b1426a4f831880118c41bfcaf77415fdbff0d85697f313c0",
+        "baseCatalogSha256": "d7bdc1c0a6e73b1c8d207fb28d53fd7537ec59f518dca8fd790ef507eb5b9375",
+        "reviewIds": [
+          "AS2-AREA8-IME-20261121"
+        ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-21-as3-area8-ui-ime-a11y.json",
+        "sha256": "b867526758df33acb344af45fb2aff7469073748d3f9c41641fad526853a1bc7",
+        "baseCatalogSha256": "f70676767936a5070bc0530003fc2e4f960621e3c9af262b7e0b58b9749e8a8e",
+        "reviewIds": [
+          "AS3-AREA8-UI-IME-A11Y-20261121"
+        ]
       }
     ],
     "statusReviews": [
@@ -37940,28 +37983,46 @@
         "changes": {
           "partial": 13
         }
+      },
+      {
+        "id": "AS2-AREA8-IME-20261121",
+        "date": "2026-11-21",
+        "commit": "657aacb1504ee081797b80eb960320ea91167b3b",
+        "path": "docs/progress/reviews/2026-11-21-as2-area8-ime.json",
+        "changes": {
+          "working": 18
+        }
+      },
+      {
+        "id": "AS3-AREA8-UI-IME-A11Y-20261121",
+        "date": "2026-11-21",
+        "commit": "657aacb1504ee081797b80eb960320ea91167b3b",
+        "path": "docs/progress/reviews/2026-11-21-as3-area8-ui-ime-a11y.json",
+        "changes": {
+          "working": 55
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 5787,
-      "partial": 1630,
+      "implemented_subset": 5860,
+      "partial": 1557,
       "missing": 38630,
       "needs_review": 0,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
-        "implemented_subset": 1204,
-        "partial": 465,
+        "implemented_subset": 1222,
+        "partial": 447,
         "missing": 638,
         "needs_review": 0,
         "total": 2307
       },
       "AS3": {
-        "implemented_subset": 4583,
-        "partial": 1165,
+        "implemented_subset": 4638,
+        "partial": 1110,
         "missing": 37992,
         "needs_review": 0,
         "total": 43740
@@ -38004,8 +38065,8 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 4958,
-        "partial": 1074,
+        "implemented_subset": 5031,
+        "partial": 1001,
         "missing": 126,
         "needs_review": 0,
         "total": 6158
@@ -38049,8 +38110,8 @@
           "total": 10
         },
         "runtime": {
-          "implemented_subset": 875,
-          "partial": 33,
+          "implemented_subset": 893,
+          "partial": 15,
           "missing": 0,
           "needs_review": 0,
           "total": 908
@@ -38093,8 +38154,8 @@
           "total": 161
         },
         "runtime": {
-          "implemented_subset": 4083,
-          "partial": 1041,
+          "implemented_subset": 4138,
+          "partial": 986,
           "missing": 126,
           "needs_review": 0,
           "total": 5250
@@ -176489,33 +176550,6 @@
       ]
     },
     {
-      "id": "AS3-ACCESSIBILITY-HOST-20261115",
-      "title": "Accessibility implementation host boundary",
-      "reason": "The HTML5 adapter consumes child-zero name/value callbacks for placement semantics. The shared host family verifies that custom child trees, roles, states and actions remain unconnected; the existing Partial classification is retained with a precise limitation.",
-      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
-      "evidence": [
-        {
-          "path": "web/tests/as3-media-events.test.cjs",
-          "sha256": "1ecb7d96d968a8bb5bee62ed51c728db8721886e7b469521c75bf7a7ee0470d5"
-        }
-      ],
-      "reviewedEntries": [
-        {
-          "catalogId": "AS3:class:flash/accessibility/AccessibilityImplementation.html#",
-          "status": "partial",
-          "scopeNote": "The HTML5 host uses get_accName(0) and get_accValue(0) for a placement's label and description. Child-ID trees and custom role, state, selection and default-action behavior are not bridged."
-        }
-      ],
-      "previousEntries": [
-        {
-          "catalogId": "AS3:class:flash/accessibility/AccessibilityImplementation.html#",
-          "status": "partial",
-          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
-          "evidenceKind": "test_backed_review"
-        }
-      ]
-    },
-    {
       "id": "AS2-AREAS2TO5-20261120",
       "title": "Close AS2 Areas 2-5 Boolean, Selection, ContextMenu, setMask and showRedrawRegions gaps",
       "reason": "Supports boxed new Boolean(v) alongside primitive Boolean(v), string and relative target paths in Selection.setFocus() and MovieClip.setMask() with cached soft alpha masking, all eight ContextMenuBuiltInItems flags with live loop/quality/zoom actions, and Canvas/DOM dirty-bounds outlines for showRedrawRegions().",
@@ -177811,6 +177845,885 @@
           "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
           "status": "implemented_subset",
           "ruleId": "AS3-AREAS2TO8-20261121",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS2-AREA8-IME-20261121",
+      "title": "Close AS2 Area 8 System.IME conversion modes, composition, and AsBroadcaster",
+      "reason": "Implements AS2 System.IME mode constants, getEnabled/setEnabled, getConversionMode/setConversionMode validation, setCompositionString, doConversion, AsBroadcaster addListener/removeListener, and DOM compositionend onIMEComposition dispatch.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as2_platform.rs",
+          "sha256": "ef36c28e35e271bedc55c392f296fe16945c2f741fd5291e176756a670a3d258"
+        },
+        {
+          "path": "crates/neoflash-script/tests/as2-project-input.mjs",
+          "sha256": "e7304be21ea3852aaa68be1d72f63da6fd7fdfb27646355bc3f2b373e0c5c800"
+        },
+        {
+          "path": "web/tests/text-graphemes-ime.test.cjs",
+          "sha256": "ec9b418c5a4492d6937aab4af18c7abb8d9dc3efaafc96531fc3488b29ed7fb0"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:System/IME.html#class",
+          "status": "implemented_subset",
+          "scopeNote": "AS2 System.IME singleton wired across Rust As2ImeState, web/as2-platform.js, and DOM composition events with AsBroadcaster listener dispatch."
+        },
+        {
+          "catalogId": "as2:System/IME.html#ALPHANUMERIC_FULL",
+          "status": "implemented_subset",
+          "scopeNote": "Constant 'ALPHANUMERIC_FULL' accepted and returned by System.IME.setConversionMode/getConversionMode."
+        },
+        {
+          "catalogId": "as2:System/IME.html#ALPHANUMERIC_HALF",
+          "status": "implemented_subset",
+          "scopeNote": "Constant 'ALPHANUMERIC_HALF' accepted and returned by System.IME.setConversionMode/getConversionMode."
+        },
+        {
+          "catalogId": "as2:System/IME.html#CHINESE",
+          "status": "implemented_subset",
+          "scopeNote": "Constant 'CHINESE' accepted and returned by System.IME.setConversionMode/getConversionMode."
+        },
+        {
+          "catalogId": "as2:System/IME.html#JAPANESE_HIRAGANA",
+          "status": "implemented_subset",
+          "scopeNote": "Constant 'JAPANESE_HIRAGANA' accepted and returned by System.IME.setConversionMode/getConversionMode."
+        },
+        {
+          "catalogId": "as2:System/IME.html#JAPANESE_KATAKANA_FULL",
+          "status": "implemented_subset",
+          "scopeNote": "Constant 'JAPANESE_KATAKANA_FULL' accepted and returned by System.IME.setConversionMode/getConversionMode."
+        },
+        {
+          "catalogId": "as2:System/IME.html#JAPANESE_KATAKANA_HALF",
+          "status": "implemented_subset",
+          "scopeNote": "Constant 'JAPANESE_KATAKANA_HALF' accepted and returned by System.IME.setConversionMode/getConversionMode."
+        },
+        {
+          "catalogId": "as2:System/IME.html#KOREAN",
+          "status": "implemented_subset",
+          "scopeNote": "Constant 'KOREAN' accepted and returned by System.IME.setConversionMode/getConversionMode."
+        },
+        {
+          "catalogId": "as2:System/IME.html#UNKNOWN",
+          "status": "implemented_subset",
+          "scopeNote": "Constant 'UNKNOWN' accepted and returned by System.IME.setConversionMode/getConversionMode."
+        },
+        {
+          "catalogId": "as2:System/IME.html#addListener()",
+          "status": "implemented_subset",
+          "scopeNote": "Registers a listener on System.IME._listeners via AsBroadcaster and returns true."
+        },
+        {
+          "catalogId": "as2:System/IME.html#doConversion()",
+          "status": "implemented_subset",
+          "scopeNote": "Commits the active IME composition string when enabled and broadcasts onIMEComposition(str) to registered listeners."
+        },
+        {
+          "catalogId": "as2:System/IME.html#event:onIMEComposition",
+          "status": "implemented_subset",
+          "scopeNote": "Broadcasts onIMEComposition(str) to System.IME listeners on DOM compositionend and System.IME.doConversion()."
+        },
+        {
+          "catalogId": "as2:System/IME.html#getConversionMode()",
+          "status": "implemented_subset",
+          "scopeNote": "Returns the active System.IME conversion mode constant (or UNKNOWN when disabled)."
+        },
+        {
+          "catalogId": "as2:System/IME.html#getEnabled()",
+          "status": "implemented_subset",
+          "scopeNote": "Returns the boolean enabled state of System.IME synchronized with the browser DOM input bridge."
+        },
+        {
+          "catalogId": "as2:System/IME.html#removeListener()",
+          "status": "implemented_subset",
+          "scopeNote": "Removes a registered listener from System.IME._listeners and returns true when found."
+        },
+        {
+          "catalogId": "as2:System/IME.html#setCompositionString()",
+          "status": "implemented_subset",
+          "scopeNote": "Sets the active IME composition buffer when enabled and returns a boolean success status."
+        },
+        {
+          "catalogId": "as2:System/IME.html#setConversionMode()",
+          "status": "implemented_subset",
+          "scopeNote": "Validates and sets known System.IME conversion-mode constants when enabled, returning false on invalid modes."
+        },
+        {
+          "catalogId": "as2:System/IME.html#setEnabled()",
+          "status": "implemented_subset",
+          "scopeNote": "Enables or disables System.IME composition handling on the Stage text/IME bridge and returns boolean success."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "as2:System/IME.html#class",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/IME.html#ALPHANUMERIC_FULL",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/IME.html#ALPHANUMERIC_HALF",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/IME.html#CHINESE",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/IME.html#JAPANESE_HIRAGANA",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/IME.html#JAPANESE_KATAKANA_FULL",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/IME.html#JAPANESE_KATAKANA_HALF",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/IME.html#KOREAN",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/IME.html#UNKNOWN",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/IME.html#addListener()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/IME.html#doConversion()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/IME.html#event:onIMEComposition",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/IME.html#getConversionMode()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/IME.html#getEnabled()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/IME.html#removeListener()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/IME.html#setCompositionString()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/IME.html#setConversionMode()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/IME.html#setEnabled()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS3-AREA8-UI-IME-A11Y-20261121",
+      "title": "Close AS3 Area 8 ContextMenu, IME/IIMEClient, and AccessibilityImplementation gaps",
+      "reason": "Implements ContextMenu item/index/clipboard contracts, flash.system.IME with positioned DOM IIMEClient and CompositionAttributeRange clause composition, and AccessibilityImplementation MSAA-to-ARIA child tree projection and action routing.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/accessibility.rs",
+          "sha256": "6b91cd01d5853f32b9764b0aaaee955004ca8d277f0bef71889f6acf4ffcf283"
+        },
+        {
+          "path": "crates/neoflash-core/src/as3_media_events.rs",
+          "sha256": "d307d44ef1efdfd9ff96d0898674595c6240c3f777facbbcfb202e97f39fc1c2"
+        },
+        {
+          "path": "crates/neoflash-core/src/as3_object.rs",
+          "sha256": "6486a8e4549d8293901ef8d2131eb3482df6e334036ff94ef5af8c8457401f84"
+        },
+        {
+          "path": "crates/neoflash-script/tests/as3_media_events_surface.rs",
+          "sha256": "86b192c80b17e1aff71782442948b97ebadbe9a6834cebb2fd1743c5fcc204f1"
+        },
+        {
+          "path": "web/tests/as3-media-events.test.cjs",
+          "sha256": "a9e988b6ec41e9461541b661ee4c8afe7b492236ce76b534de34313fa3d2cfd6"
+        },
+        {
+          "path": "web/tests/as3-net-sys.test.cjs",
+          "sha256": "3f15a3be23f168032534924550b9ad66c0fa57ddaeb59ce640513de1a78d5ca3"
+        },
+        {
+          "path": "web/tests/as3-fte-3d.test.cjs",
+          "sha256": "6ee55d94564691537112c850600245f1472e65e09e1e966836e1f47ea3ccaf23"
+        },
+        {
+          "path": "web/tests/accessibility.test.cjs",
+          "sha256": "b8c2d514394debce2fc4ea1fb372f5a1b1fca99385ece248250788d3bd296220"
+        },
+        {
+          "path": "web/tests/stage.test.cjs",
+          "sha256": "b6fb4aee3aa762ea87813ca08906bf170ce6d6c7c3b07e20616615e0e8236d5b"
+        },
+        {
+          "path": "web/tests/text-graphemes-ime.test.cjs",
+          "sha256": "ec9b418c5a4492d6937aab4af18c7abb8d9dc3efaafc96531fc3488b29ed7fb0"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#addItemAt()",
+          "status": "implemented_subset",
+          "scopeNote": "Inserts a ContextMenuItem at index 0..=numItems with Rust-backed RangeError #2006 bounds checking."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#containsItem()",
+          "status": "implemented_subset",
+          "scopeNote": "Checks direct items and nested submenu hierarchies for a ContextMenuItem reference."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#display()",
+          "status": "implemented_subset",
+          "scopeNote": "Opens the custom HTML5 Stage context-menu overlay at (stageX, stageY) and dispatches ContextMenuEvent.MENU_SELECT."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#getItemAt()",
+          "status": "implemented_subset",
+          "scopeNote": "Returns the ContextMenuItem at index 0..<numItems or throws RangeError #2006."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#getItemIndex()",
+          "status": "implemented_subset",
+          "scopeNote": "Returns the zero-based index of item in ContextMenu.items or -1 when absent."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#removeAllItems()",
+          "status": "implemented_subset",
+          "scopeNote": "Clears all items from ContextMenu.items/customItems and updates numItems to 0."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#removeItemAt()",
+          "status": "implemented_subset",
+          "scopeNote": "Removes and returns the ContextMenuItem at index 0..<numItems or throws RangeError #2006."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/ContextMenu.html#items",
+          "status": "implemented_subset",
+          "scopeNote": "Synchronized Array of custom menu items backing numItems, addItemAt, getItemAt, and removeItemAt."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/ContextMenu.html#numItems",
+          "status": "implemented_subset",
+          "scopeNote": "Read-only count of items in ContextMenu.items/customItems."
+        },
+        {
+          "catalogId": "AS3:class:flash/system/IME.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Flash Player IME service singleton with #2012 instantiation guard, conversion modes, and DOM composition dispatch."
+        },
+        {
+          "catalogId": "AS3:event:flash/system/IME.html#event:imeComposition",
+          "status": "implemented_subset",
+          "scopeNote": "Dispatches IMEEvent.IME_COMPOSITION with committed text on DOM compositionend and IME.doConversion()."
+        },
+        {
+          "catalogId": "AS3:method:flash/system/IME.html#compositionAbandoned()",
+          "status": "implemented_subset",
+          "scopeNote": "Aborts active inline IME composition on the focused IIMEClient and clears the hidden DOM IME input."
+        },
+        {
+          "catalogId": "AS3:method:flash/system/IME.html#compositionSelectionChanged()",
+          "status": "implemented_subset",
+          "scopeNote": "Updates active inline composition clause selection offsets (start, end) on the IME bridge."
+        },
+        {
+          "catalogId": "AS3:method:flash/system/IME.html#doConversion()",
+          "status": "implemented_subset",
+          "scopeNote": "Commits the pending composition string to the focused IIMEClient / InteractiveObject and dispatches IMEEvent.IME_COMPOSITION."
+        },
+        {
+          "catalogId": "AS3:method:flash/system/IME.html#setCompositionString()",
+          "status": "implemented_subset",
+          "scopeNote": "Sets the pending IME composition string (throwing TypeError #2007 on null) and updates the focused IIMEClient."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/IME.html#conversionMode",
+          "status": "implemented_subset",
+          "scopeNote": "Gets and sets validated IMEConversionMode values (throwing Error #2004 on unknown mode strings)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/IME.html#enabled",
+          "status": "implemented_subset",
+          "scopeNote": "Enables or disables IME composition on the HTML5 Stage/text input bridge."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/IME.html#isSupported",
+          "status": "implemented_subset",
+          "scopeNote": "Reports true in the HTML5 browser host where DOM InputEvent / CompositionEvent IME input is supported."
+        },
+        {
+          "catalogId": "AS3:class:flash/system/IMEConversionMode.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Defines all eight Adobe IMEConversionMode string constants consumed by IME.conversionMode."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/System.html#ime",
+          "status": "implemented_subset",
+          "scopeNote": "Returns the live flash.system.IME singleton dispatcher synchronized with Stage IME composition."
+        },
+        {
+          "catalogId": "AS3:interface:flash/text/ime/IIMEClient.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Inline IME client interface wired to a positioned DOM <input data-neoflash-ime-client> on Stage focus."
+        },
+        {
+          "catalogId": "AS3:event:flash/text/ime/IIMEClient.html#event:imeStartComposition",
+          "status": "implemented_subset",
+          "scopeNote": "Dispatches cancelable IMEEvent.IME_START_COMPOSITION to the focused IIMEClient on DOM compositionstart."
+        },
+        {
+          "catalogId": "AS3:event:flash/text/ime/IIMEClient.html#event:textInput",
+          "status": "implemented_subset",
+          "scopeNote": "Dispatches cancelable TextEvent.TEXT_INPUT to the focused IIMEClient when composition commits text."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#confirmComposition()",
+          "status": "implemented_subset",
+          "scopeNote": "Invoked on DOM compositionend, Escape cancel, or IME.doConversion() to finalize inline composition."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#getTextBounds()",
+          "status": "implemented_subset",
+          "scopeNote": "Queried by the Stage IME bridge to position the hidden DOM IME input at the client's caret/clause bounds."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#getTextInRange()",
+          "status": "implemented_subset",
+          "scopeNote": "Queried by the Stage IME bridge to read existing client text across anchor/active index ranges."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#selectRange()",
+          "status": "implemented_subset",
+          "scopeNote": "Invoked by DOM selection changes on the IME input bridge to synchronize anchor and active indices."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#updateComposition()",
+          "status": "implemented_subset",
+          "scopeNote": "Invoked on DOM compositionupdate / setCompositionString with Vector.<CompositionAttributeRange> clause attributes."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#compositionEndIndex",
+          "status": "implemented_subset",
+          "scopeNote": "Read by the Stage IME bridge to track the end character index of active inline composition."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#compositionStartIndex",
+          "status": "implemented_subset",
+          "scopeNote": "Read by the Stage IME bridge to track the start character index of active inline composition."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#selectionActiveIndex",
+          "status": "implemented_subset",
+          "scopeNote": "Read by the Stage IME bridge to synchronize caret/selection active index and query getTextBounds."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#selectionAnchorIndex",
+          "status": "implemented_subset",
+          "scopeNote": "Read by the Stage IME bridge to synchronize selection anchor index and query getTextBounds."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#verticalTextLayout",
+          "status": "implemented_subset",
+          "scopeNote": "Configures writing-mode: vertical-rl on the DOM IME input bridge when verticalTextLayout is true."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/ime/CompositionAttributeRange.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Represents an inline IME clause attribute span passed in Vector.<CompositionAttributeRange> to IIMEClient.updateComposition."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/ime/CompositionAttributeRange.html#CompositionAttributeRange()",
+          "status": "implemented_subset",
+          "scopeNote": "Constructs CompositionAttributeRange(relativeStart, relativeEnd, selected, converted) with typed fields."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/CompositionAttributeRange.html#converted",
+          "status": "implemented_subset",
+          "scopeNote": "Boolean flag indicating whether the IME clause range has been converted."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/CompositionAttributeRange.html#relativeEnd",
+          "status": "implemented_subset",
+          "scopeNote": "Clause-relative end offset from the beginning of the inline composition string."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/CompositionAttributeRange.html#relativeStart",
+          "status": "implemented_subset",
+          "scopeNote": "Clause-relative start offset from the beginning of the inline composition string."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/CompositionAttributeRange.html#selected",
+          "status": "implemented_subset",
+          "scopeNote": "Boolean flag indicating whether the IME clause range is currently selected for conversion."
+        },
+        {
+          "catalogId": "AS3:class:flash/accessibility/AccessibilityImplementation.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Custom accessibility provider base class bridged to live WAI-ARIA host and child nodes in the HTML5 DOM semantic layer."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/accessibility/AccessibilityImplementation.html#AccessibilityImplementation()",
+          "status": "implemented_subset",
+          "scopeNote": "Initializes AccessibilityImplementation with stub = false and errno = 0 (throwing ArgumentError #1063 on extra args)."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#accDoDefaultAction()",
+          "status": "implemented_subset",
+          "scopeNote": "Invoked with childID (0 for host, >0 for simple children) on DOM click, Enter, or Space activation in the semantic overlay."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#accLocation()",
+          "status": "implemented_subset",
+          "scopeNote": "Queried per childID to position projected WAI-ARIA child elements from returned Rectangle bounds."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#accSelect()",
+          "status": "implemented_subset",
+          "scopeNote": "Invoked with MSAA SELFLAG_* flags and childID when DOM focus or selection changes on projected child nodes."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#getChildIDArray()",
+          "status": "implemented_subset",
+          "scopeNote": "Queried during Accessibility.updateProperties() and Stage sync to materialize ARIA child nodes for each childID."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accDefaultAction()",
+          "status": "implemented_subset",
+          "scopeNote": "Queried for host (0) and childIDs to expose action descriptions and enable click/keyboard activation."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accFocus()",
+          "status": "implemented_subset",
+          "scopeNote": "Queried to set aria-activedescendant to the focused childID node on the host semantic element."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accName()",
+          "status": "implemented_subset",
+          "scopeNote": "Queried for host (0) and childIDs to populate aria-label on projected semantic DOM elements."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accRole()",
+          "status": "implemented_subset",
+          "scopeNote": "Throws Error #2143 if un-overridden; maps MSAA ROLE_SYSTEM_* codes to WAI-ARIA roles via Rust msaa_role_to_aria."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accSelection()",
+          "status": "implemented_subset",
+          "scopeNote": "Queried to mark selected childIDs with aria-selected='true' in the projected semantic DOM tree."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accState()",
+          "status": "implemented_subset",
+          "scopeNote": "Throws Error #2144 if un-overridden; decodes MSAA STATE_SYSTEM_* bitmasks into aria-disabled/selected/checked/pressed/expanded/readonly."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accValue()",
+          "status": "implemented_subset",
+          "scopeNote": "Queried for host (0) and childIDs to populate aria-valuetext / value on projected semantic DOM elements."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#isLabeledBy()",
+          "status": "implemented_subset",
+          "scopeNote": "Evaluates label spatial association for custom accessible components with Rectangle bounds."
+        },
+        {
+          "catalogId": "AS3:property:flash/accessibility/AccessibilityImplementation.html#errno",
+          "status": "implemented_subset",
+          "scopeNote": "Unsigned error status code property initialized to 0 and preserved on AccessibilityImplementation instances."
+        },
+        {
+          "catalogId": "AS3:property:flash/accessibility/AccessibilityImplementation.html#stub",
+          "status": "implemented_subset",
+          "scopeNote": "Boolean stub flag initialized to false; setting stub = true suppresses custom AccessibilityImplementation DOM projection."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#addItemAt()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#containsItem()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#display()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#getItemAt()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#getItemIndex()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#removeAllItems()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#removeItemAt()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/ContextMenu.html#items",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/ContextMenu.html#numItems",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/system/IME.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/system/IME.html#event:imeComposition",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/IME.html#compositionAbandoned()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/IME.html#compositionSelectionChanged()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/IME.html#doConversion()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/IME.html#setCompositionString()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/IME.html#conversionMode",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/IME.html#enabled",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/IME.html#isSupported",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/system/IMEConversionMode.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/System.html#ime",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:interface:flash/text/ime/IIMEClient.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/text/ime/IIMEClient.html#event:imeStartComposition",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/text/ime/IIMEClient.html#event:textInput",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#confirmComposition()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#getTextBounds()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#getTextInRange()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#selectRange()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#updateComposition()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#compositionEndIndex",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#compositionStartIndex",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#selectionActiveIndex",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#selectionAnchorIndex",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#verticalTextLayout",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/ime/CompositionAttributeRange.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/ime/CompositionAttributeRange.html#CompositionAttributeRange()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/CompositionAttributeRange.html#converted",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/CompositionAttributeRange.html#relativeEnd",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/CompositionAttributeRange.html#relativeStart",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/CompositionAttributeRange.html#selected",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/accessibility/AccessibilityImplementation.html#",
+          "status": "partial",
+          "ruleId": "AS3-ACCESSIBILITY-HOST-20261115",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/accessibility/AccessibilityImplementation.html#AccessibilityImplementation()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#accDoDefaultAction()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#accLocation()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#accSelect()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#getChildIDArray()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accDefaultAction()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accFocus()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accName()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accRole()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accSelection()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accState()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accValue()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#isLabeledBy()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/accessibility/AccessibilityImplementation.html#errno",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/accessibility/AccessibilityImplementation.html#stub",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
           "evidenceKind": "test_backed_review"
         }
       ]

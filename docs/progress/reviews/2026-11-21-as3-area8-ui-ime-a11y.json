@@ -1,0 +1,302 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "f70676767936a5070bc0530003fc2e4f960621e3c9af262b7e0b58b9749e8a8e",
+  "reviews": [
+    {
+      "id": "AS3-AREA8-UI-IME-A11Y-20261121",
+      "date": "2026-11-21",
+      "commit": "657aacb1504ee081797b80eb960320ea91167b3b",
+      "title": "Close AS3 Area 8 ContextMenu, IME/IIMEClient, and AccessibilityImplementation gaps",
+      "summary": "Implements ContextMenu item/index/clipboard contracts, flash.system.IME with positioned DOM IIMEClient and CompositionAttributeRange clause composition, and AccessibilityImplementation MSAA-to-ARIA child tree projection and action routing.",
+      "tests": [
+        "crates/neoflash-core/src/accessibility.rs",
+        "crates/neoflash-core/src/as3_media_events.rs",
+        "crates/neoflash-core/src/as3_object.rs",
+        "crates/neoflash-script/tests/as3_media_events_surface.rs",
+        "web/tests/as3-media-events.test.cjs",
+        "web/tests/as3-net-sys.test.cjs",
+        "web/tests/as3-fte-3d.test.cjs",
+        "web/tests/accessibility.test.cjs",
+        "web/tests/stage.test.cjs",
+        "web/tests/text-graphemes-ime.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#addItemAt()",
+          "status": "working",
+          "note": "Inserts a ContextMenuItem at index 0..=numItems with Rust-backed RangeError #2006 bounds checking."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#containsItem()",
+          "status": "working",
+          "note": "Checks direct items and nested submenu hierarchies for a ContextMenuItem reference."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#display()",
+          "status": "working",
+          "note": "Opens the custom HTML5 Stage context-menu overlay at (stageX, stageY) and dispatches ContextMenuEvent.MENU_SELECT."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#getItemAt()",
+          "status": "working",
+          "note": "Returns the ContextMenuItem at index 0..<numItems or throws RangeError #2006."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#getItemIndex()",
+          "status": "working",
+          "note": "Returns the zero-based index of item in ContextMenu.items or -1 when absent."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#removeAllItems()",
+          "status": "working",
+          "note": "Clears all items from ContextMenu.items/customItems and updates numItems to 0."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#removeItemAt()",
+          "status": "working",
+          "note": "Removes and returns the ContextMenuItem at index 0..<numItems or throws RangeError #2006."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/ContextMenu.html#items",
+          "status": "working",
+          "note": "Synchronized Array of custom menu items backing numItems, addItemAt, getItemAt, and removeItemAt."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/ContextMenu.html#numItems",
+          "status": "working",
+          "note": "Read-only count of items in ContextMenu.items/customItems."
+        },
+        {
+          "catalogId": "AS3:class:flash/system/IME.html#",
+          "status": "working",
+          "note": "Flash Player IME service singleton with #2012 instantiation guard, conversion modes, and DOM composition dispatch."
+        },
+        {
+          "catalogId": "AS3:event:flash/system/IME.html#event:imeComposition",
+          "status": "working",
+          "note": "Dispatches IMEEvent.IME_COMPOSITION with committed text on DOM compositionend and IME.doConversion()."
+        },
+        {
+          "catalogId": "AS3:method:flash/system/IME.html#compositionAbandoned()",
+          "status": "working",
+          "note": "Aborts active inline IME composition on the focused IIMEClient and clears the hidden DOM IME input."
+        },
+        {
+          "catalogId": "AS3:method:flash/system/IME.html#compositionSelectionChanged()",
+          "status": "working",
+          "note": "Updates active inline composition clause selection offsets (start, end) on the IME bridge."
+        },
+        {
+          "catalogId": "AS3:method:flash/system/IME.html#doConversion()",
+          "status": "working",
+          "note": "Commits the pending composition string to the focused IIMEClient / InteractiveObject and dispatches IMEEvent.IME_COMPOSITION."
+        },
+        {
+          "catalogId": "AS3:method:flash/system/IME.html#setCompositionString()",
+          "status": "working",
+          "note": "Sets the pending IME composition string (throwing TypeError #2007 on null) and updates the focused IIMEClient."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/IME.html#conversionMode",
+          "status": "working",
+          "note": "Gets and sets validated IMEConversionMode values (throwing Error #2004 on unknown mode strings)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/IME.html#enabled",
+          "status": "working",
+          "note": "Enables or disables IME composition on the HTML5 Stage/text input bridge."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/IME.html#isSupported",
+          "status": "working",
+          "note": "Reports true in the HTML5 browser host where DOM InputEvent / CompositionEvent IME input is supported."
+        },
+        {
+          "catalogId": "AS3:class:flash/system/IMEConversionMode.html#",
+          "status": "working",
+          "note": "Defines all eight Adobe IMEConversionMode string constants consumed by IME.conversionMode."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/System.html#ime",
+          "status": "working",
+          "note": "Returns the live flash.system.IME singleton dispatcher synchronized with Stage IME composition."
+        },
+        {
+          "catalogId": "AS3:interface:flash/text/ime/IIMEClient.html#",
+          "status": "working",
+          "note": "Inline IME client interface wired to a positioned DOM <input data-neoflash-ime-client> on Stage focus."
+        },
+        {
+          "catalogId": "AS3:event:flash/text/ime/IIMEClient.html#event:imeStartComposition",
+          "status": "working",
+          "note": "Dispatches cancelable IMEEvent.IME_START_COMPOSITION to the focused IIMEClient on DOM compositionstart."
+        },
+        {
+          "catalogId": "AS3:event:flash/text/ime/IIMEClient.html#event:textInput",
+          "status": "working",
+          "note": "Dispatches cancelable TextEvent.TEXT_INPUT to the focused IIMEClient when composition commits text."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#confirmComposition()",
+          "status": "working",
+          "note": "Invoked on DOM compositionend, Escape cancel, or IME.doConversion() to finalize inline composition."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#getTextBounds()",
+          "status": "working",
+          "note": "Queried by the Stage IME bridge to position the hidden DOM IME input at the client's caret/clause bounds."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#getTextInRange()",
+          "status": "working",
+          "note": "Queried by the Stage IME bridge to read existing client text across anchor/active index ranges."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#selectRange()",
+          "status": "working",
+          "note": "Invoked by DOM selection changes on the IME input bridge to synchronize anchor and active indices."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#updateComposition()",
+          "status": "working",
+          "note": "Invoked on DOM compositionupdate / setCompositionString with Vector.<CompositionAttributeRange> clause attributes."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#compositionEndIndex",
+          "status": "working",
+          "note": "Read by the Stage IME bridge to track the end character index of active inline composition."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#compositionStartIndex",
+          "status": "working",
+          "note": "Read by the Stage IME bridge to track the start character index of active inline composition."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#selectionActiveIndex",
+          "status": "working",
+          "note": "Read by the Stage IME bridge to synchronize caret/selection active index and query getTextBounds."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#selectionAnchorIndex",
+          "status": "working",
+          "note": "Read by the Stage IME bridge to synchronize selection anchor index and query getTextBounds."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#verticalTextLayout",
+          "status": "working",
+          "note": "Configures writing-mode: vertical-rl on the DOM IME input bridge when verticalTextLayout is true."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/ime/CompositionAttributeRange.html#",
+          "status": "working",
+          "note": "Represents an inline IME clause attribute span passed in Vector.<CompositionAttributeRange> to IIMEClient.updateComposition."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/ime/CompositionAttributeRange.html#CompositionAttributeRange()",
+          "status": "working",
+          "note": "Constructs CompositionAttributeRange(relativeStart, relativeEnd, selected, converted) with typed fields."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/CompositionAttributeRange.html#converted",
+          "status": "working",
+          "note": "Boolean flag indicating whether the IME clause range has been converted."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/CompositionAttributeRange.html#relativeEnd",
+          "status": "working",
+          "note": "Clause-relative end offset from the beginning of the inline composition string."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/CompositionAttributeRange.html#relativeStart",
+          "status": "working",
+          "note": "Clause-relative start offset from the beginning of the inline composition string."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/CompositionAttributeRange.html#selected",
+          "status": "working",
+          "note": "Boolean flag indicating whether the IME clause range is currently selected for conversion."
+        },
+        {
+          "catalogId": "AS3:class:flash/accessibility/AccessibilityImplementation.html#",
+          "status": "working",
+          "note": "Custom accessibility provider base class bridged to live WAI-ARIA host and child nodes in the HTML5 DOM semantic layer."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/accessibility/AccessibilityImplementation.html#AccessibilityImplementation()",
+          "status": "working",
+          "note": "Initializes AccessibilityImplementation with stub = false and errno = 0 (throwing ArgumentError #1063 on extra args)."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#accDoDefaultAction()",
+          "status": "working",
+          "note": "Invoked with childID (0 for host, >0 for simple children) on DOM click, Enter, or Space activation in the semantic overlay."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#accLocation()",
+          "status": "working",
+          "note": "Queried per childID to position projected WAI-ARIA child elements from returned Rectangle bounds."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#accSelect()",
+          "status": "working",
+          "note": "Invoked with MSAA SELFLAG_* flags and childID when DOM focus or selection changes on projected child nodes."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#getChildIDArray()",
+          "status": "working",
+          "note": "Queried during Accessibility.updateProperties() and Stage sync to materialize ARIA child nodes for each childID."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accDefaultAction()",
+          "status": "working",
+          "note": "Queried for host (0) and childIDs to expose action descriptions and enable click/keyboard activation."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accFocus()",
+          "status": "working",
+          "note": "Queried to set aria-activedescendant to the focused childID node on the host semantic element."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accName()",
+          "status": "working",
+          "note": "Queried for host (0) and childIDs to populate aria-label on projected semantic DOM elements."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accRole()",
+          "status": "working",
+          "note": "Throws Error #2143 if un-overridden; maps MSAA ROLE_SYSTEM_* codes to WAI-ARIA roles via Rust msaa_role_to_aria."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accSelection()",
+          "status": "working",
+          "note": "Queried to mark selected childIDs with aria-selected='true' in the projected semantic DOM tree."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accState()",
+          "status": "working",
+          "note": "Throws Error #2144 if un-overridden; decodes MSAA STATE_SYSTEM_* bitmasks into aria-disabled/selected/checked/pressed/expanded/readonly."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accValue()",
+          "status": "working",
+          "note": "Queried for host (0) and childIDs to populate aria-valuetext / value on projected semantic DOM elements."
+        },
+        {
+          "catalogId": "AS3:method:flash/accessibility/AccessibilityImplementation.html#isLabeledBy()",
+          "status": "working",
+          "note": "Evaluates label spatial association for custom accessible components with Rectangle bounds."
+        },
+        {
+          "catalogId": "AS3:property:flash/accessibility/AccessibilityImplementation.html#errno",
+          "status": "working",
+          "note": "Unsigned error status code property initialized to 0 and preserved on AccessibilityImplementation instances."
+        },
+        {
+          "catalogId": "AS3:property:flash/accessibility/AccessibilityImplementation.html#stub",
+          "status": "working",
+          "note": "Boolean stub flag initialized to false; setting stub = true suppresses custom AccessibilityImplementation DOM projection."
+        }
+      ]
+    }
+  ]
+}

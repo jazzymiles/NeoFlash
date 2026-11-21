@@ -19,9 +19,9 @@ Both languages are counted against the same eight Flash Player areas. Areas 1–
 | 5. Graphics, bitmaps and filters | 313 | 302 | 11 | 0 | 0 | 96.5% | 100.0% |
 | 6. Text and fonts | 174 | 174 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 7. File audio and video playback | 91 | 91 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 8. Services and advanced Player APIs | 2,134 | 1,691 | 443 | 0 | 0 | 79.2% | 100.0% |
+| 8. Services and advanced Player APIs | 2,134 | 1,737 | 397 | 0 | 0 | 81.4% | 100.0% |
 | **Now: areas 1–6** | 1,939 | 1,928 | 11 | 0 | 0 | 99.4% | 100.0% |
-| **All Flash Player areas** | 4,164 | 3,710 | 454 | 0 | 0 | 89.1% | 100.0% |
+| **All Flash Player areas** | 4,164 | 3,756 | 408 | 0 | 0 | 90.2% | 100.0% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
@@ -36,9 +36,9 @@ Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, compo
 | 5. Graphics, bitmaps and filters | 145 | 145 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 6. Text and fonts | 118 | 118 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 7. File audio and video playback | 83 | 83 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 8. Services and advanced Player APIs | 230 | 196 | 34 | 0 | 0 | 85.2% | 100.0% |
+| 8. Services and advanced Player APIs | 230 | 214 | 16 | 0 | 0 | 93.0% | 100.0% |
 | **Now: areas 1–6** | 925 | 925 | 0 | 0 | 0 | 100.0% | 100.0% |
-| **All Flash Player areas** | 1,238 | 1,204 | 34 | 0 | 0 | 97.3% | 100.0% |
+| **All Flash Player areas** | 1,238 | 1,222 | 16 | 0 | 0 | 98.7% | 100.0% |
 
 Outside the target and never in a percentage: AS2 UI components 1,044 · Other libraries and extensions 25.
 
@@ -53,13 +53,13 @@ Every documented declaration, including AIR, Flex and components, for provenance
 | AS2 | framework | 15 | 0 | 15 | 0 | 0 |
 | AS2 | language | 185 | 184 | 1 | 0 | 0 |
 | AS2 | platform_extension | 10 | 0 | 0 | 10 | 0 |
-| AS2 | runtime | 908 | 875 | 33 | 0 | 0 |
+| AS2 | runtime | 908 | 893 | 15 | 0 | 0 |
 | AS3 | component | 2,039 | 0 | 124 | 1,915 | 0 |
 | AS3 | core | 376 | 376 | 0 | 0 | 0 |
 | AS3 | framework | 35,790 | 0 | 0 | 35,790 | 0 |
 | AS3 | language | 124 | 124 | 0 | 0 | 0 |
 | AS3 | platform_extension | 161 | 0 | 0 | 161 | 0 |
-| AS3 | runtime | 5,250 | 4,083 | 1,041 | 126 | 0 |
+| AS3 | runtime | 5,250 | 4,138 | 986 | 126 | 0 |
 
 Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:00, baseline `f05cd2e35a34`) set the starting statuses; later reviews below change them.
 
@@ -67,6 +67,8 @@ Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:0
 
 | Review | Date | Commit | Changed entries |
 | --- | --- | --- | --- |
+| `AS3-AREA8-UI-IME-A11Y-20261121` | 2026-11-21 | `657aacb1504e` | 55 → working |
+| `AS2-AREA8-IME-20261121` | 2026-11-21 | `657aacb1504e` | 18 → working |
 | `AS3-AUDIT-RECALIBRATION-20261121` | 2026-11-21 | `f709a977c6b2` | 13 → partial |
 | `AS3-AREAS2TO8-20261121` | 2026-11-21 | `ac651dd45d53` | 6 → working |
 | `AS2-AREA7-20261121` | 2026-11-21 | `ac651dd45d53` | 4 → working |
@@ -12921,16 +12923,6 @@ Partial entries name their missing behavior; working entries are covered by the 
 
 Evidence: [web/tests/text-graphemes-ime.test.cjs](../../web/tests/text-graphemes-ime.test.cjs), [crates/neoflash-core/tests/text_field.rs](../../crates/neoflash-core/tests/text_field.rs), [crates/neoflash-core/src/as3_sound_media.rs](../../crates/neoflash-core/src/as3_sound_media.rs), [web/tests/media-netstream.test.cjs](../../web/tests/media-netstream.test.cjs), [crates/neoflash-script/tests/media-netstream.mjs](../../crates/neoflash-script/tests/media-netstream.mjs)
 
-### AS3-ACCESSIBILITY-HOST-20261115 — Accessibility implementation host boundary
-
-The HTML5 adapter consumes child-zero name/value callbacks for placement semantics. The shared host family verifies that custom child trees, roles, states and actions remain unconnected; the existing Partial classification is retained with a precise limitation.
-
-Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
-
-- `AS3:class:flash/accessibility/AccessibilityImplementation.html#` — **partial**: The HTML5 host uses get_accName(0) and get_accValue(0) for a placement's label and description. Child-ID trees and custom role, state, selection and default-action behavior are not bridged.
-
-Evidence: [web/tests/as3-media-events.test.cjs](../../web/tests/as3-media-events.test.cjs)
-
 ### AS2-AREAS2TO5-20261120 — Close AS2 Areas 2-5 Boolean, Selection, ContextMenu, setMask and showRedrawRegions gaps
 
 Supports boxed new Boolean(v) alongside primitive Boolean(v), string and relative target paths in Selection.setFocus() and MovieClip.setMask() with cached soft alpha masking, all eight ContextMenuBuiltInItems flags with live loop/quality/zoom actions, and Canvas/DOM dirty-bounds outlines for showRedrawRegions().
@@ -13085,3 +13077,94 @@ Partial entries name their missing behavior; working entries are covered by the 
 - `AS3:method:flash/display/Loader.html#loadBytes()` — **partial**: Decodes in-memory PNG/JPEG/GIF/WebP ByteArrays and bounded FWS/CWS/ZWS SWF ByteArrays into live Bitmap or MovieClip content with sandboxed subset AVM1/AVM2 bytecode and unload/reparenting cleanup; unsupported SWF opcodes, closures, non-root SymbolClass bindings, and PlaceObject3 filters emit explicit warnings.
 
 Evidence: [crates/neoflash-core/src/pixels/pipeline.rs](../../crates/neoflash-core/src/pixels/pipeline.rs), [crates/neoflash-core/src/runtime_graph/loader.rs](../../crates/neoflash-core/src/runtime_graph/loader.rs), [crates/neoflash-web/src/swf_loader/tests.rs](../../crates/neoflash-web/src/swf_loader/tests.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [crates/neoflash-script/tests/function-workflow.mjs](../../crates/neoflash-script/tests/function-workflow.mjs), [crates/neoflash-script/tests/interfaces-accessors.mjs](../../crates/neoflash-script/tests/interfaces-accessors.mjs), [crates/neoflash-script/tests/bitmap-pixels.mjs](../../crates/neoflash-script/tests/bitmap-pixels.mjs), [crates/neoflash-script/tests/loader-gallery.mjs](../../crates/neoflash-script/tests/loader-gallery.mjs), [web/tests/as3-fte-3d.test.cjs](../../web/tests/as3-fte-3d.test.cjs), [web/tests/swf-loader.test.cjs](../../web/tests/swf-loader.test.cjs)
+
+### AS2-AREA8-IME-20261121 — Close AS2 Area 8 System.IME conversion modes, composition, and AsBroadcaster
+
+Implements AS2 System.IME mode constants, getEnabled/setEnabled, getConversionMode/setConversionMode validation, setCompositionString, doConversion, AsBroadcaster addListener/removeListener, and DOM compositionend onIMEComposition dispatch.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `as2:System/IME.html#class` — **working**: AS2 System.IME singleton wired across Rust As2ImeState, web/as2-platform.js, and DOM composition events with AsBroadcaster listener dispatch.
+- `as2:System/IME.html#ALPHANUMERIC_FULL` — **working**: Constant 'ALPHANUMERIC_FULL' accepted and returned by System.IME.setConversionMode/getConversionMode.
+- `as2:System/IME.html#ALPHANUMERIC_HALF` — **working**: Constant 'ALPHANUMERIC_HALF' accepted and returned by System.IME.setConversionMode/getConversionMode.
+- `as2:System/IME.html#CHINESE` — **working**: Constant 'CHINESE' accepted and returned by System.IME.setConversionMode/getConversionMode.
+- `as2:System/IME.html#JAPANESE_HIRAGANA` — **working**: Constant 'JAPANESE_HIRAGANA' accepted and returned by System.IME.setConversionMode/getConversionMode.
+- `as2:System/IME.html#JAPANESE_KATAKANA_FULL` — **working**: Constant 'JAPANESE_KATAKANA_FULL' accepted and returned by System.IME.setConversionMode/getConversionMode.
+- `as2:System/IME.html#JAPANESE_KATAKANA_HALF` — **working**: Constant 'JAPANESE_KATAKANA_HALF' accepted and returned by System.IME.setConversionMode/getConversionMode.
+- `as2:System/IME.html#KOREAN` — **working**: Constant 'KOREAN' accepted and returned by System.IME.setConversionMode/getConversionMode.
+- `as2:System/IME.html#UNKNOWN` — **working**: Constant 'UNKNOWN' accepted and returned by System.IME.setConversionMode/getConversionMode.
+- `as2:System/IME.html#addListener()` — **working**: Registers a listener on System.IME._listeners via AsBroadcaster and returns true.
+- `as2:System/IME.html#doConversion()` — **working**: Commits the active IME composition string when enabled and broadcasts onIMEComposition(str) to registered listeners.
+- `as2:System/IME.html#event:onIMEComposition` — **working**: Broadcasts onIMEComposition(str) to System.IME listeners on DOM compositionend and System.IME.doConversion().
+- `as2:System/IME.html#getConversionMode()` — **working**: Returns the active System.IME conversion mode constant (or UNKNOWN when disabled).
+- `as2:System/IME.html#getEnabled()` — **working**: Returns the boolean enabled state of System.IME synchronized with the browser DOM input bridge.
+- `as2:System/IME.html#removeListener()` — **working**: Removes a registered listener from System.IME._listeners and returns true when found.
+- `as2:System/IME.html#setCompositionString()` — **working**: Sets the active IME composition buffer when enabled and returns a boolean success status.
+- `as2:System/IME.html#setConversionMode()` — **working**: Validates and sets known System.IME conversion-mode constants when enabled, returning false on invalid modes.
+- `as2:System/IME.html#setEnabled()` — **working**: Enables or disables System.IME composition handling on the Stage text/IME bridge and returns boolean success.
+
+Evidence: [crates/neoflash-core/src/as2_platform.rs](../../crates/neoflash-core/src/as2_platform.rs), [crates/neoflash-script/tests/as2-project-input.mjs](../../crates/neoflash-script/tests/as2-project-input.mjs), [web/tests/text-graphemes-ime.test.cjs](../../web/tests/text-graphemes-ime.test.cjs)
+
+### AS3-AREA8-UI-IME-A11Y-20261121 — Close AS3 Area 8 ContextMenu, IME/IIMEClient, and AccessibilityImplementation gaps
+
+Implements ContextMenu item/index/clipboard contracts, flash.system.IME with positioned DOM IIMEClient and CompositionAttributeRange clause composition, and AccessibilityImplementation MSAA-to-ARIA child tree projection and action routing.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `AS3:method:flash/ui/ContextMenu.html#addItemAt()` — **working**: Inserts a ContextMenuItem at index 0..=numItems with Rust-backed RangeError #2006 bounds checking.
+- `AS3:method:flash/ui/ContextMenu.html#containsItem()` — **working**: Checks direct items and nested submenu hierarchies for a ContextMenuItem reference.
+- `AS3:method:flash/ui/ContextMenu.html#display()` — **working**: Opens the custom HTML5 Stage context-menu overlay at (stageX, stageY) and dispatches ContextMenuEvent.MENU_SELECT.
+- `AS3:method:flash/ui/ContextMenu.html#getItemAt()` — **working**: Returns the ContextMenuItem at index 0..<numItems or throws RangeError #2006.
+- `AS3:method:flash/ui/ContextMenu.html#getItemIndex()` — **working**: Returns the zero-based index of item in ContextMenu.items or -1 when absent.
+- `AS3:method:flash/ui/ContextMenu.html#removeAllItems()` — **working**: Clears all items from ContextMenu.items/customItems and updates numItems to 0.
+- `AS3:method:flash/ui/ContextMenu.html#removeItemAt()` — **working**: Removes and returns the ContextMenuItem at index 0..<numItems or throws RangeError #2006.
+- `AS3:property:flash/ui/ContextMenu.html#items` — **working**: Synchronized Array of custom menu items backing numItems, addItemAt, getItemAt, and removeItemAt.
+- `AS3:property:flash/ui/ContextMenu.html#numItems` — **working**: Read-only count of items in ContextMenu.items/customItems.
+- `AS3:class:flash/system/IME.html#` — **working**: Flash Player IME service singleton with #2012 instantiation guard, conversion modes, and DOM composition dispatch.
+- `AS3:event:flash/system/IME.html#event:imeComposition` — **working**: Dispatches IMEEvent.IME_COMPOSITION with committed text on DOM compositionend and IME.doConversion().
+- `AS3:method:flash/system/IME.html#compositionAbandoned()` — **working**: Aborts active inline IME composition on the focused IIMEClient and clears the hidden DOM IME input.
+- `AS3:method:flash/system/IME.html#compositionSelectionChanged()` — **working**: Updates active inline composition clause selection offsets (start, end) on the IME bridge.
+- `AS3:method:flash/system/IME.html#doConversion()` — **working**: Commits the pending composition string to the focused IIMEClient / InteractiveObject and dispatches IMEEvent.IME_COMPOSITION.
+- `AS3:method:flash/system/IME.html#setCompositionString()` — **working**: Sets the pending IME composition string (throwing TypeError #2007 on null) and updates the focused IIMEClient.
+- `AS3:property:flash/system/IME.html#conversionMode` — **working**: Gets and sets validated IMEConversionMode values (throwing Error #2004 on unknown mode strings).
+- `AS3:property:flash/system/IME.html#enabled` — **working**: Enables or disables IME composition on the HTML5 Stage/text input bridge.
+- `AS3:property:flash/system/IME.html#isSupported` — **working**: Reports true in the HTML5 browser host where DOM InputEvent / CompositionEvent IME input is supported.
+- `AS3:class:flash/system/IMEConversionMode.html#` — **working**: Defines all eight Adobe IMEConversionMode string constants consumed by IME.conversionMode.
+- `AS3:property:flash/system/System.html#ime` — **working**: Returns the live flash.system.IME singleton dispatcher synchronized with Stage IME composition.
+- `AS3:interface:flash/text/ime/IIMEClient.html#` — **working**: Inline IME client interface wired to a positioned DOM <input data-neoflash-ime-client> on Stage focus.
+- `AS3:event:flash/text/ime/IIMEClient.html#event:imeStartComposition` — **working**: Dispatches cancelable IMEEvent.IME_START_COMPOSITION to the focused IIMEClient on DOM compositionstart.
+- `AS3:event:flash/text/ime/IIMEClient.html#event:textInput` — **working**: Dispatches cancelable TextEvent.TEXT_INPUT to the focused IIMEClient when composition commits text.
+- `AS3:method:flash/text/ime/IIMEClient.html#confirmComposition()` — **working**: Invoked on DOM compositionend, Escape cancel, or IME.doConversion() to finalize inline composition.
+- `AS3:method:flash/text/ime/IIMEClient.html#getTextBounds()` — **working**: Queried by the Stage IME bridge to position the hidden DOM IME input at the client's caret/clause bounds.
+- `AS3:method:flash/text/ime/IIMEClient.html#getTextInRange()` — **working**: Queried by the Stage IME bridge to read existing client text across anchor/active index ranges.
+- `AS3:method:flash/text/ime/IIMEClient.html#selectRange()` — **working**: Invoked by DOM selection changes on the IME input bridge to synchronize anchor and active indices.
+- `AS3:method:flash/text/ime/IIMEClient.html#updateComposition()` — **working**: Invoked on DOM compositionupdate / setCompositionString with Vector.<CompositionAttributeRange> clause attributes.
+- `AS3:property:flash/text/ime/IIMEClient.html#compositionEndIndex` — **working**: Read by the Stage IME bridge to track the end character index of active inline composition.
+- `AS3:property:flash/text/ime/IIMEClient.html#compositionStartIndex` — **working**: Read by the Stage IME bridge to track the start character index of active inline composition.
+- `AS3:property:flash/text/ime/IIMEClient.html#selectionActiveIndex` — **working**: Read by the Stage IME bridge to synchronize caret/selection active index and query getTextBounds.
+- `AS3:property:flash/text/ime/IIMEClient.html#selectionAnchorIndex` — **working**: Read by the Stage IME bridge to synchronize selection anchor index and query getTextBounds.
+- `AS3:property:flash/text/ime/IIMEClient.html#verticalTextLayout` — **working**: Configures writing-mode: vertical-rl on the DOM IME input bridge when verticalTextLayout is true.
+- `AS3:class:flash/text/ime/CompositionAttributeRange.html#` — **working**: Represents an inline IME clause attribute span passed in Vector.<CompositionAttributeRange> to IIMEClient.updateComposition.
+- `AS3:constructor:flash/text/ime/CompositionAttributeRange.html#CompositionAttributeRange()` — **working**: Constructs CompositionAttributeRange(relativeStart, relativeEnd, selected, converted) with typed fields.
+- `AS3:property:flash/text/ime/CompositionAttributeRange.html#converted` — **working**: Boolean flag indicating whether the IME clause range has been converted.
+- `AS3:property:flash/text/ime/CompositionAttributeRange.html#relativeEnd` — **working**: Clause-relative end offset from the beginning of the inline composition string.
+- `AS3:property:flash/text/ime/CompositionAttributeRange.html#relativeStart` — **working**: Clause-relative start offset from the beginning of the inline composition string.
+- `AS3:property:flash/text/ime/CompositionAttributeRange.html#selected` — **working**: Boolean flag indicating whether the IME clause range is currently selected for conversion.
+- `AS3:class:flash/accessibility/AccessibilityImplementation.html#` — **working**: Custom accessibility provider base class bridged to live WAI-ARIA host and child nodes in the HTML5 DOM semantic layer.
+- `AS3:constructor:flash/accessibility/AccessibilityImplementation.html#AccessibilityImplementation()` — **working**: Initializes AccessibilityImplementation with stub = false and errno = 0 (throwing ArgumentError #1063 on extra args).
+- `AS3:method:flash/accessibility/AccessibilityImplementation.html#accDoDefaultAction()` — **working**: Invoked with childID (0 for host, >0 for simple children) on DOM click, Enter, or Space activation in the semantic overlay.
+- `AS3:method:flash/accessibility/AccessibilityImplementation.html#accLocation()` — **working**: Queried per childID to position projected WAI-ARIA child elements from returned Rectangle bounds.
+- `AS3:method:flash/accessibility/AccessibilityImplementation.html#accSelect()` — **working**: Invoked with MSAA SELFLAG_* flags and childID when DOM focus or selection changes on projected child nodes.
+- `AS3:method:flash/accessibility/AccessibilityImplementation.html#getChildIDArray()` — **working**: Queried during Accessibility.updateProperties() and Stage sync to materialize ARIA child nodes for each childID.
+- `AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accDefaultAction()` — **working**: Queried for host (0) and childIDs to expose action descriptions and enable click/keyboard activation.
+- `AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accFocus()` — **working**: Queried to set aria-activedescendant to the focused childID node on the host semantic element.
+- `AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accName()` — **working**: Queried for host (0) and childIDs to populate aria-label on projected semantic DOM elements.
+- `AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accRole()` — **working**: Throws Error #2143 if un-overridden; maps MSAA ROLE_SYSTEM_* codes to WAI-ARIA roles via Rust msaa_role_to_aria.
+- `AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accSelection()` — **working**: Queried to mark selected childIDs with aria-selected='true' in the projected semantic DOM tree.
+- `AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accState()` — **working**: Throws Error #2144 if un-overridden; decodes MSAA STATE_SYSTEM_* bitmasks into aria-disabled/selected/checked/pressed/expanded/readonly.
+- `AS3:method:flash/accessibility/AccessibilityImplementation.html#get_accValue()` — **working**: Queried for host (0) and childIDs to populate aria-valuetext / value on projected semantic DOM elements.
+- `AS3:method:flash/accessibility/AccessibilityImplementation.html#isLabeledBy()` — **working**: Evaluates label spatial association for custom accessible components with Rectangle bounds.
+- `AS3:property:flash/accessibility/AccessibilityImplementation.html#errno` — **working**: Unsigned error status code property initialized to 0 and preserved on AccessibilityImplementation instances.
+- `AS3:property:flash/accessibility/AccessibilityImplementation.html#stub` — **working**: Boolean stub flag initialized to false; setting stub = true suppresses custom AccessibilityImplementation DOM projection.
+
+Evidence: [crates/neoflash-core/src/accessibility.rs](../../crates/neoflash-core/src/accessibility.rs), [crates/neoflash-core/src/as3_media_events.rs](../../crates/neoflash-core/src/as3_media_events.rs), [crates/neoflash-core/src/as3_object.rs](../../crates/neoflash-core/src/as3_object.rs), [crates/neoflash-script/tests/as3_media_events_surface.rs](../../crates/neoflash-script/tests/as3_media_events_surface.rs), [web/tests/as3-media-events.test.cjs](../../web/tests/as3-media-events.test.cjs), [web/tests/as3-net-sys.test.cjs](../../web/tests/as3-net-sys.test.cjs), [web/tests/as3-fte-3d.test.cjs](../../web/tests/as3-fte-3d.test.cjs), [web/tests/accessibility.test.cjs](../../web/tests/accessibility.test.cjs), [web/tests/stage.test.cjs](../../web/tests/stage.test.cjs), [web/tests/text-graphemes-ime.test.cjs](../../web/tests/text-graphemes-ime.test.cjs)
