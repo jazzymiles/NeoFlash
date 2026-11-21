@@ -451,7 +451,7 @@
         },
       },
     });
-    const _as3Hook=Object.freeze({createRemoteModern,state:v=>state(v,false),bytes,encoding,hub,events,warn,MAX_BYTES,isDisposed:()=>disposed,getGeneration:()=>generation,broadcastSync,handleRemoteSyncMessage});
+    const _as3Hook=Object.freeze({createRemoteModern,remoteRecords,state:v=>state(v,false),bytes,amf,encoding,hub,events,warn,MAX_BYTES,isDisposed:()=>disposed,getGeneration:()=>generation,broadcastSync,handleRemoteSyncMessage,makeSyncEvent});
     function flushAll(){open();const failures=[];for(const record of records.values()){try{flushRecord(record);}catch(error){failures.push(error);warn(error);}}return failures;}
     function reset(){open();generation++;records.clear();remoteRecords.clear();hub.clear();defaultEncoding=3;dynamicWriter=null;}
     function dispose(){if(disposed)return;reset();try{syncChannel?.close?.();}catch(_){}syncChannel=null;disposed=true;}

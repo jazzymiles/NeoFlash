@@ -79,7 +79,10 @@ function __nfSourceFunction(body,configuration){
             const hasXmlNs=as3&&typeof __nfXML!=='undefined'&&typeof __nfXML?.getDefaultNamespace==='function'&&typeof __nfXML?.setDefaultNamespace==='function';
             const prevXmlNs=hasXmlNs?__nfXML.getDefaultNamespace():'';
             if(hasXmlNs&&prevXmlNs!=='')__nfXML.setDefaultNamespace('');
-            try{return __nfApply(body,actual,[{values,callee:selfFn,caller,as3}]);}
+            try{
+                if(callable.__nfOnInvoke)callable.__nfOnInvoke(actual);
+                return __nfApply(body,actual,[{values,callee:selfFn,caller,as3}]);
+            }
             finally{stack.pop();if(hasXmlNs)__nfXML.setDefaultNamespace(prevXmlNs);}
         };
         __nfDefineProperty(callable,'length',{value:length,writable:false,configurable:false});
@@ -90,12 +93,18 @@ function __nfSourceFunction(body,configuration){
         }
         __nfDefineProperty(callable,__nfSourceFunctionBrand,{value:Object.freeze({
             bound:isBound,
+            savedThis:isBound?receiver:(defaultReceiver??null),
+            lexicalScopes:Array.isArray(configuration.lexicalScopes)?configuration.lexicalScopes:[],
             constructible:!isBound&&constructible,
             construct(args){return invokeConstruct(args);},
             bind(target){
                 if(isBound)return callable;
                 if(target===null||(typeof target!=='object'&&typeof target!=='function'))throw new __nfTypeError('A bound source method requires an object receiver.');
-                if(!bound.has(target))bound.set(target,make(target,true));
+                if(!bound.has(target)){
+                    const bfn=make(target,true);
+                    if(callable.__nfOnInvoke)__nfDefineProperty(bfn,'__nfOnInvoke',{value:callable.__nfOnInvoke});
+                    bound.set(target,bfn);
+                }
                 return bound.get(target);
             },
         })});

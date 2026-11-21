@@ -1058,18 +1058,259 @@
     }
     tagType(AVTagData, 'AVTagData', v => avTagStates.has(v));
 
+    let avTagNetSysKernel = null;
+    function getAvTagKernel() {
+      if (disposed) return null;
+      if (!avTagNetSysKernel && typeof wasm?.As3NetSysKernel === 'function') {
+        try { avTagNetSysKernel = new wasm.As3NetSysKernel(); } catch (_) { avTagNetSysKernel = null; }
+      }
+      return avTagNetSysKernel;
+    }
+
+    function bytesToBase64(u8) {
+      if (typeof Buffer === 'function') {
+        return Buffer.from(u8.buffer, u8.byteOffset, u8.byteLength).toString('base64');
+      }
+      let s = '';
+      for (let i = 0; i < u8.byteLength; i++) s += String.fromCharCode(u8[i]);
+      return global.btoa(s);
+    }
+
+    function appendBytesPreservingPos(ba, chunk) {
+      if (!ba || !chunk || !chunk.byteLength) return;
+      const saved = ba.position;
+      ba.position = ba.length;
+      if (typeof binary?.writeFromHost === 'function') {
+        binary.writeFromHost(ba, chunk);
+      } else {
+        for (let i = 0; i < chunk.byteLength; i++) ba.writeByte(chunk[i]);
+      }
+      ba.position = saved;
+    }
+
+    function extractAvTagsFromBytes(u8, baseTime = 0) {
+      if (!u8 || !u8.byteLength) return [];
+      const k = getAvTagKernel();
+      if (k && typeof k.execute_json === 'function') {
+        try {
+          const res = JSON.parse(
+            k.execute_json(
+              JSON.stringify({
+                op: 'inspect_av_stream_tags',
+                base64: bytesToBase64(u8),
+                baseTime: Number(baseTime) || 0,
+              })
+            )
+          );
+          if (Array.isArray(res?.tags)) return res.tags;
+        } catch (_) {}
+      }
+      return [];
+    }
+
+    function dispatchAvExtractedTags(targets, u8, emittedSet, baseTime = 0) {
+      const tags = extractAvTagsFromBytes(u8, baseTime);
+      for (const entry of tags) {
+        const srcDict =
+          entry.dictionary && typeof entry.dictionary === 'object'
+            ? entry.dictionary
+            : entry.values && typeof entry.values === 'object'
+              ? entry.values
+              : null;
+        const resolvedTagName = String(entry.tagName || srcDict?.tag || 'ID3');
+        const sig = `${resolvedTagName}|${entry.localTime}|${entry.data}`;
+        if (emittedSet.has(sig)) continue;
+        emittedSet.add(sig);
+        const tagObj = new AVTagData(entry.data, entry.localTime);
+        const dict = Object.create(Object.prototype);
+        if (srcDict) {
+          for (const [vk, vv] of Object.entries(srcDict)) {
+            if (vk !== 'tag') dict[vk] = vv;
+          }
+        }
+        Object.defineProperty(dict, 'tag', { value: tagObj, enumerable: true, configurable: true });
+        Object.defineProperty(dict, 'tagName', { value: resolvedTagName, enumerable: true, configurable: true });
+        Object.defineProperty(dict, 'data', { value: tagObj.data, enumerable: true, configurable: true });
+        Object.defineProperty(dict, 'localTime', { value: tagObj.localTime, enumerable: true, configurable: true });
+        for (const t of targets) {
+          if (t && typeof t.dispatchEvent === 'function') {
+            t.dispatchEvent(
+              new AVDictionaryDataEvent(
+                AVDictionaryDataEvent.AV_DICTIONARY_DATA,
+                false,
+                false,
+                dict,
+                Number(entry.localTime) || 0
+              )
+            );
+          }
+        }
+      }
+    }
+
+    function makeAvProgressEvent(loaded, total) {
+      if (typeof events?.ProgressEvent === 'function') {
+        return new events.ProgressEvent('progress', false, false, loaded, total);
+      }
+      const ev = new BaseEvent('progress', false, false);
+      ev.bytesLoaded = loaded;
+      ev.bytesTotal = total;
+      return ev;
+    }
+
+    function makeAvHttpStatusEvent(status) {
+      if (typeof events?.HTTPStatusEvent === 'function') {
+        return new events.HTTPStatusEvent('httpStatus', false, false, status);
+      }
+      const ev = new BaseEvent('httpStatus', false, false);
+      ev.status = status;
+      return ev;
+    }
+
+    function makeAvIoErrorEvent(text) {
+      if (typeof events?.IOErrorEvent === 'function') {
+        return new events.IOErrorEvent('ioError', false, false, String(text || 'AV HTTP load failed'), 2032);
+      }
+      return new BaseErrorEvent('ioError', false, false, String(text || 'AV HTTP load failed'), 2032);
+    }
+
+    function buildResponseHeadersArray(headersObj) {
+      const out = [];
+      if (!headersObj || typeof headersObj.forEach !== 'function') return out;
+      headersObj.forEach((value, name) => {
+        if (typeof net?.URLRequestHeader === 'function') {
+          try { out.push(new net.URLRequestHeader(String(name), String(value))); return; } catch (_) {}
+        }
+        out.push({ name: String(name), value: String(value) });
+      });
+      return out;
+    }
+
+    function isDirectHttpUrl(url) {
+      if (typeof url !== 'string' || !/^https?:\/\//i.test(url.trim())) return false;
+      if (typeof net?.mediaSource === 'function') {
+        try {
+          const src = net.mediaSource(url);
+          if (src?.kind === 'resource') return false;
+        } catch (_) {}
+      }
+      return true;
+    }
+
+    function runHttpAvStreamFetch(request, cookieHeader, handlers) {
+      const fetchFn = options.fetch || global.fetch;
+      if (typeof fetchFn !== 'function') return null;
+      const url = String(request.url).trim();
+      const abortCtl = typeof AbortController === 'function' ? new AbortController() : null;
+      let cancelled = false;
+      const headers = {};
+      if (Array.isArray(request.requestHeaders)) {
+        for (const h of request.requestHeaders) {
+          if (h && h.name) headers[String(h.name)] = String(h.value ?? '');
+        }
+      }
+      const isBrowserDom = typeof global.window !== 'undefined' && typeof global.document !== 'undefined';
+      if (cookieHeader) {
+        if (!isBrowserDom || options.fetch) {
+          headers['Cookie'] = String(cookieHeader);
+        } else {
+          headers['X-NeoFlash-Cookie'] = String(cookieHeader);
+        }
+      }
+      const method = request.method ? String(request.method).toUpperCase() : 'GET';
+      const init = {
+        method,
+        headers,
+        credentials: cookieHeader ? 'include' : 'same-origin',
+        ...(abortCtl ? { signal: abortCtl.signal } : {}),
+      };
+      if (method !== 'GET' && method !== 'HEAD' && request.data !== undefined && request.data !== null) {
+        if (isByteArray(request.data) && typeof binary?.toBytes === 'function') {
+          init.body = binary.toBytes(request.data);
+        } else {
+          init.body = String(request.data);
+        }
+      }
+
+      Promise.resolve()
+        .then(() => fetchFn(url, init))
+        .then(async resp => {
+          if (cancelled || disposed) return;
+          const status = Number(resp?.status) | 0;
+          const finalUrl = resp?.url ? String(resp.url) : url;
+          const respHeaders = buildResponseHeadersArray(resp?.headers);
+          handlers.onOpen?.();
+          handlers.onHttpResponseStatus?.(status, finalUrl, respHeaders);
+          if (!resp || (!resp.ok && status !== 206)) {
+            handlers.onError?.(`HTTP ${status} loading ${url}`);
+            return;
+          }
+          const cl = Number(resp.headers?.get?.('content-length') || 0);
+          const total = Number.isFinite(cl) && cl > 0 ? cl : 0;
+          const reader = resp.body?.getReader?.();
+          if (!reader) {
+            const ab = await resp.arrayBuffer();
+            if (cancelled || disposed) return;
+            const u8 = new Uint8Array(ab);
+            handlers.onChunk?.(u8, u8.byteLength, total || u8.byteLength);
+            handlers.onComplete?.(u8, total || u8.byteLength);
+            return;
+          }
+          const chunks = [];
+          let loaded = 0;
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (cancelled || disposed) {
+              try { await reader.cancel(); } catch (_) {}
+              return;
+            }
+            if (done) break;
+            if (value && value.byteLength > 0) {
+              const u8 = value instanceof Uint8Array ? value : new Uint8Array(value);
+              chunks.push(u8);
+              loaded += u8.byteLength;
+              handlers.onChunk?.(u8, loaded, total);
+            }
+          }
+          const merged = new Uint8Array(loaded);
+          let off = 0;
+          for (const c of chunks) {
+            merged.set(c, off);
+            off += c.byteLength;
+          }
+          handlers.onComplete?.(merged, total || loaded);
+        })
+        .catch(err => {
+          if (cancelled || disposed || err?.name === 'AbortError') return;
+          handlers.onError?.(String(err?.message || err));
+        });
+
+      return {
+        abort() {
+          cancelled = true;
+          try { abortCtl?.abort(); } catch (_) {}
+        },
+      };
+    }
+
+    const activeAvFetches = new Set();
+
     const avUrlLoaderStates = new WeakMap();
     class AVURLLoader extends BaseDispatcher {
       constructor(request = null) {
         super();
         const inner = net?.URLLoader ? new net.URLLoader() : null;
+        const backingStream = new AVURLStream();
         const st = {
           inner,
+          stream: backingStream,
           cookieHeader: '',
           data: undefined,
           dataFormat: 'text',
           bytesLoaded: 0,
           bytesTotal: 0,
+          useDirectHttp: false,
+          fetchHandle: null,
         };
         avUrlLoaderStates.set(this, st);
         if (inner) {
@@ -1083,9 +1324,39 @@
             'securityError',
           ]) {
             inner.addEventListener(evName, ev => {
+              if (st.useDirectHttp) return;
               st.data = inner.data;
               st.bytesLoaded = inner.bytesLoaded ?? st.bytesLoaded;
               st.bytesTotal = inner.bytesTotal ?? st.bytesTotal;
+              if (evName === 'httpStatus' || evName === 'httpResponseStatus') {
+                this.dispatchEvent(
+                  new AVHTTPStatusEvent(
+                    AVHTTPStatusEvent.AV_HTTP_RESPONSE_STATUS,
+                    false,
+                    false,
+                    ev.status ?? 200,
+                    ev.responseURL ?? null,
+                    ev.responseHeaders ?? []
+                  )
+                );
+              }
+              if (evName === 'complete') {
+                let rawBytes = null;
+                if (isByteArray(inner.data) && typeof binary?.toBytes === 'function') {
+                  rawBytes = binary.toBytes(inner.data);
+                } else if (typeof inner.data === 'string') {
+                  rawBytes = new TextEncoder().encode(inner.data);
+                }
+                if (rawBytes) {
+                  const sSt = avUrlStreamStates.get(backingStream);
+                  if (sSt?.buffer) {
+                    sSt.buffer.clear();
+                    appendBytesPreservingPos(sSt.buffer, rawBytes);
+                    sSt.connected = true;
+                  }
+                  dispatchAvExtractedTags([backingStream, this], rawBytes, new Set(), 0);
+                }
+              }
               this.dispatchEvent(ev.clone());
             });
           }
@@ -1094,11 +1365,16 @@
           this.load(request);
         }
       }
+      get stream() { return avUrlLoaderStates.get(this).stream; }
       get cookieHeader() { return avUrlLoaderStates.get(this).cookieHeader; }
-      set cookieHeader(v) { avUrlLoaderStates.get(this).cookieHeader = v == null ? '' : String(v); }
+      set cookieHeader(v) {
+        const st = avUrlLoaderStates.get(this);
+        st.cookieHeader = v == null ? '' : String(v);
+        if (st.stream) st.stream.cookieHeader = st.cookieHeader;
+      }
       get data() {
         const st = avUrlLoaderStates.get(this);
-        return st.inner ? st.inner.data : st.data;
+        return !st.useDirectHttp && st.inner ? st.inner.data : st.data;
       }
       set data(v) {
         const st = avUrlLoaderStates.get(this);
@@ -1107,7 +1383,7 @@
       }
       get dataFormat() {
         const st = avUrlLoaderStates.get(this);
-        return st.inner ? st.inner.dataFormat : st.dataFormat;
+        return !st.useDirectHttp && st.inner ? st.inner.dataFormat : st.dataFormat;
       }
       set dataFormat(v) {
         const st = avUrlLoaderStates.get(this);
@@ -1116,14 +1392,99 @@
       }
       get bytesLoaded() {
         const st = avUrlLoaderStates.get(this);
-        return st.inner ? st.inner.bytesLoaded : st.bytesLoaded;
+        return !st.useDirectHttp && st.inner ? st.inner.bytesLoaded : st.bytesLoaded;
       }
       get bytesTotal() {
         const st = avUrlLoaderStates.get(this);
-        return st.inner ? st.inner.bytesTotal : st.bytesTotal;
+        return !st.useDirectHttp && st.inner ? st.inner.bytesTotal : st.bytesTotal;
       }
       load(request) {
         const st = avUrlLoaderStates.get(this);
+        if (!request || typeof request !== 'object' || typeof request.url !== 'string') {
+          throw new TypeError('TypeError: Error #2007: Parameter request must be non-null.');
+        }
+        if (st.fetchHandle) {
+          st.fetchHandle.abort();
+          activeAvFetches.delete(st.fetchHandle);
+          st.fetchHandle = null;
+        }
+        const sSt = avUrlStreamStates.get(st.stream);
+        if (isDirectHttpUrl(request.url) && typeof (options.fetch || global.fetch) === 'function') {
+          st.useDirectHttp = true;
+          st.bytesLoaded = 0;
+          st.bytesTotal = 0;
+          st.data = undefined;
+          if (sSt?.buffer) sSt.buffer.clear();
+          const accumChunks = [];
+          const emittedTags = new Set();
+          const handle = runHttpAvStreamFetch(request, st.cookieHeader, {
+            onOpen: () => {
+              if (sSt) sSt.connected = true;
+              const openEv = new BaseEvent('open', false, false);
+              st.stream.dispatchEvent(openEv.clone());
+              this.dispatchEvent(openEv);
+            },
+            onHttpResponseStatus: (status, finalUrl, respHeaders) => {
+              const avStatus = new AVHTTPStatusEvent(
+                AVHTTPStatusEvent.AV_HTTP_RESPONSE_STATUS,
+                false,
+                false,
+                status,
+                finalUrl,
+                respHeaders
+              );
+              st.stream.dispatchEvent(avStatus.clone());
+              this.dispatchEvent(avStatus);
+              const httpEv = makeAvHttpStatusEvent(status);
+              st.stream.dispatchEvent(httpEv.clone());
+              this.dispatchEvent(httpEv);
+            },
+            onChunk: (u8, loaded, total) => {
+              st.bytesLoaded = loaded;
+              st.bytesTotal = total;
+              if (sSt?.buffer) appendBytesPreservingPos(sSt.buffer, u8);
+              accumChunks.push(u8);
+              const joined = new Uint8Array(loaded);
+              let p = 0;
+              for (const c of accumChunks) { joined.set(c, p); p += c.byteLength; }
+              dispatchAvExtractedTags([st.stream, this], joined, emittedTags, 0);
+              const progEv = makeAvProgressEvent(loaded, total);
+              st.stream.dispatchEvent(progEv.clone());
+              this.dispatchEvent(progEv);
+            },
+            onComplete: (merged, total) => {
+              activeAvFetches.delete(handle);
+              if (st.fetchHandle === handle) st.fetchHandle = null;
+              st.bytesLoaded = merged.byteLength;
+              st.bytesTotal = total;
+              dispatchAvExtractedTags([st.stream, this], merged, emittedTags, 0);
+              if (st.dataFormat === 'binary') {
+                st.data = binary?.fromBytes ? binary.fromBytes(merged) : merged;
+              } else if (st.dataFormat === 'variables' && typeof net?.URLVariables === 'function') {
+                st.data = new net.URLVariables(new TextDecoder('utf-8').decode(merged));
+              } else {
+                st.data = new TextDecoder('utf-8').decode(merged);
+              }
+              const doneEv = new BaseEvent('complete', false, false);
+              st.stream.dispatchEvent(doneEv.clone());
+              this.dispatchEvent(doneEv);
+            },
+            onError: message => {
+              activeAvFetches.delete(handle);
+              if (st.fetchHandle === handle) st.fetchHandle = null;
+              if (sSt) sSt.connected = false;
+              const errEv = makeAvIoErrorEvent(message);
+              st.stream.dispatchEvent(errEv.clone());
+              this.dispatchEvent(errEv);
+            },
+          });
+          if (handle) {
+            st.fetchHandle = handle;
+            activeAvFetches.add(handle);
+            return;
+          }
+        }
+        st.useDirectHttp = false;
         if (!st.inner) {
           throw new Error('AVURLLoader.load requires the shared NeoFlashNet service.');
         }
@@ -1131,7 +1492,13 @@
       }
       close() {
         const st = avUrlLoaderStates.get(this);
-        if (st.inner) st.inner.close();
+        if (st.fetchHandle) {
+          st.fetchHandle.abort();
+          activeAvFetches.delete(st.fetchHandle);
+          st.fetchHandle = null;
+        }
+        if (st.stream) st.stream.close();
+        if (!st.useDirectHttp && st.inner) st.inner.close();
       }
     }
     tagType(AVURLLoader, 'AVURLLoader', v => avUrlLoaderStates.has(v));
@@ -1148,30 +1515,58 @@
           buffer,
           cookieHeader: '',
           connected: false,
+          useDirectHttp: false,
+          fetchHandle: null,
         };
         avUrlStreamStates.set(this, st);
         if (inner) {
           inner.addEventListener('open', ev => {
+            if (st.useDirectHttp) return;
             st.connected = true;
             this.dispatchEvent(ev.clone());
           });
-          inner.addEventListener('progress', ev => this.dispatchEvent(ev.clone()));
-          inner.addEventListener('httpStatus', ev => this.dispatchEvent(ev.clone()));
-          inner.addEventListener('httpResponseStatus', ev => this.dispatchEvent(ev.clone()));
+          inner.addEventListener('progress', ev => {
+            if (st.useDirectHttp) return;
+            this.dispatchEvent(ev.clone());
+          });
+          inner.addEventListener('httpStatus', ev => {
+            if (st.useDirectHttp) return;
+            this.dispatchEvent(
+              new AVHTTPStatusEvent(
+                AVHTTPStatusEvent.AV_HTTP_RESPONSE_STATUS,
+                false,
+                false,
+                ev.status ?? 200,
+                ev.responseURL ?? null,
+                ev.responseHeaders ?? []
+              )
+            );
+            this.dispatchEvent(ev.clone());
+          });
+          inner.addEventListener('httpResponseStatus', ev => {
+            if (st.useDirectHttp) return;
+            this.dispatchEvent(ev.clone());
+          });
           inner.addEventListener('complete', ev => {
+            if (st.useDirectHttp) return;
             st.connected = true;
             if (isByteArray(inner.data) && st.buffer) {
               st.buffer.clear();
               if (inner.data.length > 0) st.buffer.writeBytes(inner.data, 0, inner.data.length);
               st.buffer.position = 0;
+              if (typeof binary?.toBytes === 'function') {
+                dispatchAvExtractedTags([this], binary.toBytes(st.buffer), new Set(), 0);
+              }
             }
             this.dispatchEvent(ev.clone());
           });
           inner.addEventListener('ioError', ev => {
+            if (st.useDirectHttp) return;
             st.connected = false;
             this.dispatchEvent(ev.clone());
           });
           inner.addEventListener('securityError', ev => {
+            if (st.useDirectHttp) return;
             st.connected = false;
             this.dispatchEvent(ev.clone());
           });
@@ -1202,6 +1597,67 @@
       }
       load(request) {
         const st = avUrlStreamStates.get(this);
+        if (!request || typeof request !== 'object' || typeof request.url !== 'string') {
+          throw new TypeError('TypeError: Error #2007: Parameter request must be non-null.');
+        }
+        if (st.fetchHandle) {
+          st.fetchHandle.abort();
+          activeAvFetches.delete(st.fetchHandle);
+          st.fetchHandle = null;
+        }
+        if (isDirectHttpUrl(request.url) && typeof (options.fetch || global.fetch) === 'function') {
+          st.useDirectHttp = true;
+          st.connected = false;
+          if (st.buffer) st.buffer.clear();
+          const accumChunks = [];
+          const emittedTags = new Set();
+          const handle = runHttpAvStreamFetch(request, st.cookieHeader, {
+            onOpen: () => {
+              st.connected = true;
+              this.dispatchEvent(new BaseEvent('open', false, false));
+            },
+            onHttpResponseStatus: (status, finalUrl, respHeaders) => {
+              this.dispatchEvent(
+                new AVHTTPStatusEvent(
+                  AVHTTPStatusEvent.AV_HTTP_RESPONSE_STATUS,
+                  false,
+                  false,
+                  status,
+                  finalUrl,
+                  respHeaders
+                )
+              );
+              this.dispatchEvent(makeAvHttpStatusEvent(status));
+            },
+            onChunk: (u8, loaded, total) => {
+              if (st.buffer) appendBytesPreservingPos(st.buffer, u8);
+              accumChunks.push(u8);
+              const joined = new Uint8Array(loaded);
+              let p = 0;
+              for (const c of accumChunks) { joined.set(c, p); p += c.byteLength; }
+              dispatchAvExtractedTags([this], joined, emittedTags, 0);
+              this.dispatchEvent(makeAvProgressEvent(loaded, total));
+            },
+            onComplete: merged => {
+              activeAvFetches.delete(handle);
+              if (st.fetchHandle === handle) st.fetchHandle = null;
+              dispatchAvExtractedTags([this], merged, emittedTags, 0);
+              this.dispatchEvent(new BaseEvent('complete', false, false));
+            },
+            onError: message => {
+              activeAvFetches.delete(handle);
+              if (st.fetchHandle === handle) st.fetchHandle = null;
+              st.connected = false;
+              this.dispatchEvent(makeAvIoErrorEvent(message));
+            },
+          });
+          if (handle) {
+            st.fetchHandle = handle;
+            activeAvFetches.add(handle);
+            return;
+          }
+        }
+        st.useDirectHttp = false;
         if (!st.inner) {
           throw new Error('AVURLStream.load requires the shared NeoFlashNet service.');
         }
@@ -1211,7 +1667,12 @@
       close() {
         const st = avUrlStreamStates.get(this);
         st.connected = false;
-        if (st.inner) st.inner.close();
+        if (st.fetchHandle) {
+          st.fetchHandle.abort();
+          activeAvFetches.delete(st.fetchHandle);
+          st.fetchHandle = null;
+        }
+        if (!st.useDirectHttp && st.inner) st.inner.close();
       }
       readBoolean() { return avUrlStreamStates.get(this).buffer.readBoolean(); }
       readByte() { return avUrlStreamStates.get(this).buffer.readByte(); }
@@ -4145,6 +4606,10 @@
     function reset() {
       if (disposed) return;
       closeContextMenu();
+      for (const h of activeAvFetches) {
+        try { h.abort(); } catch (_) {}
+      }
+      activeAvFetches.clear();
       activeTouches.clear();
       primaryTouchId = null;
       activeGestureState = null;
@@ -4155,6 +4620,7 @@
       cachedStageVideosVector = null;
       gameDevInstances.clear();
       audioMgrSingleton = null;
+      try { avTagNetSysKernel?.reset?.(); } catch (_) {}
       kernel.reset();
     }
 
@@ -4162,6 +4628,10 @@
       if (disposed) return;
       disposed = true;
       closeContextMenu();
+      for (const h of activeAvFetches) {
+        try { h.abort(); } catch (_) {}
+      }
+      activeAvFetches.clear();
       if (canvasEl && typeof canvasEl.removeEventListener === 'function') {
         try { delete canvasEl.__nfHasAs3ContextMenu; } catch (_) {}
         canvasEl.removeEventListener('contextmenu', onCanvasContextMenu);
@@ -4179,6 +4649,8 @@
       cachedStageVideosVector = null;
       gameDevInstances.clear();
       audioMgrSingleton = null;
+      try { avTagNetSysKernel?.free?.(); } catch (_) {}
+      avTagNetSysKernel = null;
       kernel.free();
       kernel = null;
     }

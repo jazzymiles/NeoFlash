@@ -333,15 +333,30 @@ const __nfProgram = (() => {
         for (const method of definition.methods.filter(method => method.static === isStatic)) {
             if(definition.dialect==='as2')Object.defineProperty(raw,method.name,{configurable:true,enumerable:false,writable:true,value:method.fn});
             else {
+                if (typeof method.fn === 'function' && !method.fn.__nfOnInvoke) {
+                    const mName = method.name;
+                    const mStatic = Boolean(method.static);
+                    const ownerFacade = () => definition.facade;
+                    Object.defineProperty(method.fn, '__nfOnInvoke', {
+                        configurable: true,
+                        value: recv => { builtins.__nfSampler?.onCall?.(ownerFacade(), recv, mName, mStatic); },
+                    });
+                }
                 const value=__nfBindFunction(method.fn,selfReceiver);
                 installSlot(raw,method,'method',()=>value,()=>{throw new TypeError(`AS3 method ${method.name} is read-only.`);});
             }
         }
     }
-    function accessorDescriptor(name, pair, receiver) {
+    function accessorDescriptor(name, pair, receiver, ownerFacadeFn = null, isStatic = false) {
         return { configurable: true, enumerable: false,
-            get: pair.get ? () => Reflect.apply(pair.get, receiver, []) : () => { throw new TypeError(`AS3 property ${name} is write-only.`); },
-            set: pair.set ? value => Reflect.apply(pair.set, receiver, [value]) : () => { throw new TypeError(`AS3 property ${name} is read-only.`); } };
+            get: pair.get ? () => {
+                builtins.__nfSampler?.onGet?.(ownerFacadeFn ? ownerFacadeFn() : null, receiver, name, isStatic);
+                return Reflect.apply(pair.get, receiver, []);
+            } : () => { throw new TypeError(`AS3 property ${name} is write-only.`); },
+            set: pair.set ? value => {
+                builtins.__nfSampler?.onSet?.(ownerFacadeFn ? ownerFacadeFn() : null, receiver, name, isStatic);
+                return Reflect.apply(pair.set, receiver, [value]);
+            } : () => { throw new TypeError(`AS3 property ${name} is read-only.`); } };
     }
     function installAccessors(receiver, definition, isStatic, selfReceiver = receiver) {
         const raw = unwrapProxy(receiver);
@@ -366,7 +381,7 @@ const __nfProgram = (() => {
             const inherited = slots.get(accessor.slot);
             const pair = { get: accessor.get || inherited?.get, set: accessor.set || inherited?.set };
             slots.set(accessor.slot, pair);
-            const descriptor=accessorDescriptor(accessor.name,pair,selfReceiver);
+            const descriptor=accessorDescriptor(accessor.name,pair,selfReceiver,()=>definition.facade,isStatic);
             installSlot(raw,accessor,'accessor',descriptor.get,descriptor.set,Boolean(pair.get));
         }
     }
@@ -377,6 +392,7 @@ const __nfProgram = (() => {
         if (seen.has(name)) throw new Error(`Constructor ${name} was invoked more than once on this object.`);
         seen.add(name);
         const definition = definitions.get(name);
+        if (definition.dialect === 'as3') builtins.__nfSampler?.onCall?.(definition.facade, raw, null, false);
         if (definition.ctor) return Reflect.apply(definition.ctor, receiver, args);
         if (args.length && definition.dialect !== 'as2') throw new TypeError(`${name} default constructor expects no arguments.`);
         superConstruct(name, receiver, []);
@@ -525,9 +541,12 @@ const __nfProgram = (() => {
                 const receiver = Object.create(ctor.prototype);
                 Object.defineProperty(receiver, '__constructor__', { configurable: true, writable: true, enumerable: false, value: ctor });
                 ctor.apply(receiver, args);
+                builtins.__nfSampler?.onAlloc?.(receiver, ctor, name);
                 return receiver;
             }
-            return Reflect.construct(ctor, args);
+            const inst = Reflect.construct(ctor, args);
+            builtins.__nfSampler?.onAlloc?.(inst, ctor, name);
+            return inst;
         }
         const parents = chain(name), nativeBase = parents[0].base;
         const nativeType = nativeBase ? type(nativeBase) : null;
@@ -540,7 +559,9 @@ const __nfProgram = (() => {
         if (receiver === null || (typeof receiver !== 'object' && typeof receiver !== 'function')) {
             throw new TypeError(`Native allocation for ${name} did not return an object.`);
         }
-        return attach(name, receiver, args);
+        const inst = attach(name, receiver, args);
+        builtins.__nfSampler?.onAlloc?.(inst, type(name), name);
+        return inst;
     }
     function defineInterface(name,reflection=null) {
         const facade = function(value) {
@@ -891,7 +912,55 @@ const __nfProgram = (() => {
         }
         return { className: name, customToString: false, entries };
     }
-    return Object.freeze({ type, is, cast, as2Cast, define, defineInterface, defineNamespace, declareIntrinsic, registerInitClip, runInitClips, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, isDynamic: dynamicAllowed, ref, assertDynamicWrite, objectDescriptor, isClass, isInterface, constructClass, className, resolveClass: reflectionClass, reflect, defaultObjectMethod, isProxy, hasTrait, invokeProxy, resolveQualifiedSlot, traceObjectInfo,
+    function samplerTraits(target, instanceNames = false) {
+        if (target === null || target === undefined || (typeof target !== 'object' && typeof target !== 'function')) return null;
+        const raw = unwrapProxy(target);
+        let clsName = null, wantStatic = false;
+        if (classFacades.has(target) || classFacades.has(raw)) {
+            clsName = classFacades.get(target) || classFacades.get(raw);
+            wantStatic = !instanceNames;
+        } else if (identities.has(target) || identities.has(raw)) {
+            clsName = identities.get(target) || identities.get(raw);
+            wantStatic = false;
+        }
+        if (!clsName || !definitions.has(clsName)) return null;
+        const defs = wantStatic ? [definitions.get(clsName)] : chain(clsName);
+        const out = [], seen = new Set();
+        for (const def of defs) {
+            for (const f of def.fields) {
+                if (Boolean(f.static) !== wantStatic) continue;
+                const k = `${f.namespace || ''}::${f.name}`;
+                if (seen.has(k)) continue;
+                seen.add(k);
+                out.push({ name: f.name, uri: f.access === 'public' ? '' : (f.namespace || ''), isGetterSetter: false });
+            }
+            for (const m of def.methods) {
+                if (Boolean(m.static) !== wantStatic) continue;
+                const k = `${m.namespace || ''}::${m.name}`;
+                if (seen.has(k)) continue;
+                seen.add(k);
+                out.push({ name: m.name, uri: m.access === 'public' ? '' : (m.namespace || ''), isGetterSetter: false });
+            }
+            for (const a of def.accessors) {
+                if (Boolean(a.static) !== wantStatic) continue;
+                const k = `${a.namespace || ''}::${a.name}`;
+                const prev = out.find(e => e.name === a.name && e.uri === (a.access === 'public' ? '' : (a.namespace || '')));
+                if (prev) { prev.isGetterSetter = true; continue; }
+                seen.add(k);
+                out.push({ name: a.name, uri: a.access === 'public' ? '' : (a.namespace || ''), isGetterSetter: true });
+            }
+        }
+        if (!wantStatic && dynamicAllowed(target)) {
+            for (const k of Object.keys(raw)) {
+                if (k.startsWith('__nf') || seen.has(`::${k}`)) continue;
+                seen.add(`::${k}`);
+                out.push({ name: k, uri: '', isGetterSetter: false });
+            }
+        }
+        return out;
+    }
+    return Object.freeze({ type, is, cast, as2Cast, define, defineInterface, defineNamespace, declareIntrinsic, registerInitClip, runInitClips, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, isDynamic: dynamicAllowed, ref, assertDynamicWrite, objectDescriptor, isClass, isInterface, constructClass, className, resolveClass: reflectionClass, reflect, defaultObjectMethod, isProxy, hasTrait, invokeProxy, resolveQualifiedSlot, traceObjectInfo, samplerTraits,
+        listDefinitions:()=>[...definitions.keys()],
         instanceClassName:value=>identities.get(value)||null,
         setNativeTypes:names=>{nativeTypeNames=names;},
         dialect:name=>definitions.get(name)?.dialect });

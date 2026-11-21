@@ -145,3 +145,172 @@ fn groupspec_flv_x509_and_kernel_workflows() {
     assert_eq!(cert.issuer.country_name.as_deref(), Some("US"));
     assert!(cert.valid_not_after_ms > cert.valid_not_before_ms);
 }
+
+#[test]
+fn x509_chain_verification_cross_domain_policy_and_netgroup_replication() {
+    // 1. X.509 chain verification: trusted CA, untrusted signer, mismatch, expired
+    let ca_der = build_custom_x509_der(
+        "NeoFlash Root CA",
+        "NeoFlash Root CA",
+        "20250101000000Z",
+        "20350101000000Z",
+    );
+    let leaf_der = build_custom_x509_der(
+        "*.api.neoflash.dev",
+        "NeoFlash Root CA",
+        "20250101000000Z",
+        "20350101000000Z",
+    );
+    let now_2026 = 1_795_000_000_000.0;
+
+    let (st_ok, _) = verify_x509_certificate_chain(
+        &leaf_der,
+        "edge.api.neoflash.dev",
+        now_2026,
+        &[(ca_der.clone(), true)],
+        false,
+    );
+    assert_eq!(st_ok, "trusted");
+
+    let (st_untrusted, _) = verify_x509_certificate_chain(
+        &leaf_der,
+        "edge.api.neoflash.dev",
+        now_2026,
+        &[(ca_der.clone(), false)],
+        false,
+    );
+    assert_eq!(st_untrusted, "untrustedSigners");
+
+    let (st_mismatch, _) = verify_x509_certificate_chain(
+        &leaf_der,
+        "wrong.domain.org",
+        now_2026,
+        &[(ca_der.clone(), true)],
+        false,
+    );
+    assert_eq!(st_mismatch, "principalMismatch");
+
+    let expired_der = build_custom_x509_der(
+        "edge.api.neoflash.dev",
+        "NeoFlash Root CA",
+        "20200101000000Z",
+        "20220101000000Z",
+    );
+    let (st_expired, _) = verify_x509_certificate_chain(
+        &expired_der,
+        "edge.api.neoflash.dev",
+        now_2026,
+        &[(ca_der, true)],
+        false,
+    );
+    assert_eq!(st_expired, "expired");
+
+    // 2. Cross-domain policy XML parsing and port/domain/secure evaluation
+    let xml = r#"<?xml version="1.0"?>
+        <cross-domain-policy>
+            <site-control permitted-cross-domain-policies="master-only"/>
+            <allow-access-from domain="*.partner.example.com" to-ports="443,8080-8090" secure="true"/>
+            <allow-http-request-headers-from domain="*.partner.example.com" headers="X-Api-Key,Authorization" secure="false"/>
+        </cross-domain-policy>"#;
+    let policy = parse_cross_domain_policy_xml(xml).unwrap();
+    assert_eq!(policy.site_control, "master-only");
+    assert!(policy_allows_access(
+        &policy,
+        "app.partner.example.com",
+        Some(8085),
+        true
+    ));
+    assert!(!policy_allows_access(
+        &policy,
+        "app.partner.example.com",
+        Some(8085),
+        false
+    ));
+    assert!(!policy_allows_access(
+        &policy,
+        "app.partner.example.com",
+        Some(9090),
+        true
+    ));
+    assert!(!policy_allows_access(&policy, "evil.org", Some(443), true));
+
+    // 3. GroupSpecifier auth commitment + NetGroup posting auth & rarestFirst object replication
+    let mut gs = GroupSpecifierState::new("replicated-room", 1).unwrap();
+    gs.posting_enabled = true;
+    gs.object_replication_enabled = true;
+    gs.set_posting_password(Some("room-secret"), Some("s1"));
+    let with_auth = gs.groupspec_with_authorizations();
+    let without_auth = gs.groupspec_without_authorizations();
+
+    let mut kernel = As3NetSysKernel::new();
+    let g1: Value = serde_json::from_str(
+        &kernel
+            .execute_json(
+                &json!({ "op": "netgroup_new", "groupspec": with_auth, "peerID": "peer-seed-1" })
+                    .to_string(),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    let g2: Value = serde_json::from_str(
+        &kernel
+            .execute_json(&json!({ "op": "netgroup_new", "groupspec": without_auth, "peerID": "peer-leech-2" }).to_string())
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(g1["canonicalBase"], g2["canonicalBase"]);
+    assert_eq!(g1["postingAuthorized"], json!(true));
+    assert_eq!(g2["postingAuthorized"], json!(false));
+
+    // Unauthorized member cannot post; authorized member posts to unauthorized subscriber!
+    let denied_post: Value = serde_json::from_str(
+        &kernel
+            .execute_json(&json!({ "op": "netgroup_op", "id": g2["id"], "action": "post", "payloadSummary": "nope", "byteLength": 4 }).to_string())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(denied_post["messageID"].is_null());
+
+    let ok_post: Value = serde_json::from_str(
+        &kernel
+            .execute_json(&json!({ "op": "netgroup_op", "id": g1["id"], "action": "post", "payloadSummary": "hello", "byteLength": 32 }).to_string())
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(ok_post["recipients"], json!([g2["id"]]));
+
+    // Object replication: seed has [0..2], leech wants [1..2] -> ticket scheduled -> reply updates send & receive bytes!
+    kernel
+        .execute_json(&json!({ "op": "netgroup_op", "id": g1["id"], "action": "have_want", "kind": "addHave", "start": 0, "end": 2 }).to_string())
+        .unwrap();
+    let want_res: Value = serde_json::from_str(
+        &kernel
+            .execute_json(&json!({ "op": "netgroup_op", "id": g2["id"], "action": "have_want", "kind": "addWant", "start": 1, "end": 1 }).to_string())
+            .unwrap(),
+    )
+    .unwrap();
+    let req_id = want_res["fetchRequests"][0]["requestID"].as_i64().unwrap();
+    assert_eq!(want_res["fetchRequests"][0]["index"], json!(1));
+
+    let reply_res: Value = serde_json::from_str(
+        &kernel
+            .execute_json(&json!({ "op": "netgroup_op", "id": g1["id"], "action": "replication_reply", "requestID": req_id, "byteLength": 128, "deny": false }).to_string())
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(reply_res["requesterId"], g2["id"]);
+    assert_eq!(reply_res["index"], json!(1));
+
+    let snap2: Value = serde_json::from_str(
+        &kernel
+            .execute_json(
+                &json!({ "op": "netgroup_op", "id": g2["id"], "action": "snapshot" }).to_string(),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        snap2["info"]["objectReplicationReceiveBytesPerSecond"],
+        json!(128.0)
+    );
+}

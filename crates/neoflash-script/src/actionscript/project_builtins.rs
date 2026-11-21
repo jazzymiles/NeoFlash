@@ -662,17 +662,23 @@ pub(super) const BUILTIN_FUNCTIONS: &[&str] = &[
     "flash.net.getClassByAlias",
     "flash.crypto.generateRandomBytes",
     "flash.media.scanHardware",
+    "flash.profiler.profile",
     "flash.profiler.showRedrawRegions",
     "flash.sampler.clearSamples",
     "flash.sampler.getGetterInvocationCount",
     "flash.sampler.getInvocationCount",
+    "flash.sampler.getLexicalScopes",
+    "flash.sampler.getMasterString",
     "flash.sampler.getMemberNames",
     "flash.sampler.getSampleCount",
     "flash.sampler.getSamples",
+    "flash.sampler.getSavedThis",
     "flash.sampler.getSetterInvocationCount",
     "flash.sampler.getSize",
     "flash.sampler.isGetterSetter",
     "flash.sampler.pauseSampling",
+    "flash.sampler.sampleInternalAllocs",
+    "flash.sampler.setSamplerCallback",
     "flash.sampler.startSampling",
     "flash.sampler.stopSampling",
     "flash.system.fscommand",
@@ -1172,6 +1178,11 @@ pub(in crate::actionscript) fn is_host_method(name: &str) -> bool {
                 | "removeHaveObjects"
                 | "removeWantObjects"
                 | "satisfyRequestedObject"
+                | "writeRequestedObject"
+                | "addBinaryChainBuildingCertificate"
+                | "getRemote"
+                | "compositionSelectionChanged"
+                | "compositionAbandoned"
                 | "sendToAllNeighbors"
                 | "sendToNearest"
                 | "sendToNeighbor"

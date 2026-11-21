@@ -54,8 +54,49 @@ struct SamplerEntry {
     stack: Vec<(String, String, u32, u64)>,
 }
 
+#[derive(Clone, Debug)]
+struct ReplicationTicket {
+    requester_id: u32,
+    provider_id: u32,
+    index: u64,
+}
+
+fn parse_sampler_stack(
+    req: &Value,
+    default_fn: &str,
+    default_file: &str,
+) -> Vec<(String, String, u32, u64)> {
+    if let Some(arr) = req.get("stack").and_then(Value::as_array) {
+        let parsed: Vec<(String, String, u32, u64)> = arr
+            .iter()
+            .take(64)
+            .filter_map(|item| {
+                let a = item.as_array()?;
+                let name = a
+                    .first()
+                    .and_then(Value::as_str)
+                    .unwrap_or(default_fn)
+                    .to_owned();
+                let file = a
+                    .get(1)
+                    .and_then(Value::as_str)
+                    .unwrap_or(default_file)
+                    .to_owned();
+                let line = a.get(2).and_then(Value::as_u64).unwrap_or(1) as u32;
+                let sid = a.get(3).and_then(Value::as_u64).unwrap_or(1);
+                Some((name, file, line, sid))
+            })
+            .collect();
+        if !parsed.is_empty() {
+            return parsed;
+        }
+    }
+    vec![(default_fn.to_owned(), default_file.to_owned(), 1, 1)]
+}
+
 pub struct As3NetSysKernel {
     next_id: u32,
+    next_replication_req_id: i64,
     rng_counter: u64,
     default_locale: String,
     currency_formatters: HashMap<u32, CurrencyFormatterState>,
@@ -63,6 +104,7 @@ pub struct As3NetSysKernel {
     string_tools: HashMap<u32, StringToolsState>,
     group_specs: HashMap<u32, GroupSpecifierState>,
     net_groups: HashMap<u32, NetGroupMember>,
+    replication_tickets: HashMap<i64, ReplicationTicket>,
     flv_streams: HashMap<u32, FlvStreamState>,
     local_connections: HashMap<u32, LocalConnectionEndpoint>,
     lc_by_name: HashMap<String, u32>,
@@ -76,10 +118,19 @@ pub struct As3NetSysKernel {
     conditions: HashMap<u32, u32>, // condition_id -> mutex_id
     sampling_active: bool,
     sampling_paused: bool,
+    sample_internal_allocs: bool,
     samples: VecDeque<SamplerEntry>,
     invocation_counts: HashMap<String, u64>,
     telemetry_commands: HashSet<String>,
     telemetry_metrics: Vec<(String, Value)>,
+    profiler_active: bool,
+    redraw_regions_shown: bool,
+    redraw_regions_color: u32,
+    policy_files: Vec<(String, CrossDomainPolicyFile)>,
+    disable_avm1_loading: bool,
+    last_security_panel: Option<String>,
+    system_paused: bool,
+    last_exit_code: Option<u32>,
 }
 
 impl Default for As3NetSysKernel {
@@ -92,6 +143,7 @@ impl As3NetSysKernel {
     pub fn new() -> Self {
         let mut kernel = Self {
             next_id: 2,
+            next_replication_req_id: 1,
             rng_counter: 0x9e37_79b9_7f4a_7c15,
             default_locale: "en-US".into(),
             currency_formatters: HashMap::new(),
@@ -99,6 +151,7 @@ impl As3NetSysKernel {
             string_tools: HashMap::new(),
             group_specs: HashMap::new(),
             net_groups: HashMap::new(),
+            replication_tickets: HashMap::new(),
             flv_streams: HashMap::new(),
             local_connections: HashMap::new(),
             lc_by_name: HashMap::new(),
@@ -112,10 +165,19 @@ impl As3NetSysKernel {
             conditions: HashMap::new(),
             sampling_active: false,
             sampling_paused: false,
+            sample_internal_allocs: false,
             samples: VecDeque::new(),
             invocation_counts: HashMap::new(),
             telemetry_commands: HashSet::new(),
             telemetry_metrics: Vec::new(),
+            profiler_active: false,
+            redraw_regions_shown: false,
+            redraw_regions_color: 0xff0000,
+            policy_files: Vec::new(),
+            disable_avm1_loading: false,
+            last_security_panel: None,
+            system_paused: false,
+            last_exit_code: None,
         };
         kernel.workers.insert(
             1,
@@ -197,6 +259,76 @@ impl As3NetSysKernel {
                 }
             }
         }
+    }
+
+    fn schedule_replication_requests(&mut self, groupspec_base: &str) -> Vec<Value> {
+        let mut availability: BTreeMap<u64, Vec<u32>> = BTreeMap::new();
+        let mut requester_ids = Vec::new();
+        for m in self.net_groups.values() {
+            if m.closed || m.groupspec_base != groupspec_base {
+                continue;
+            }
+            for &idx in &m.have_objects {
+                availability.entry(idx).or_default().push(m.id);
+            }
+            if !m.want_objects.is_empty() {
+                requester_ids.push((m.id, m.replication_strategy.clone()));
+            }
+        }
+        requester_ids.sort_by_key(|(id, _)| *id);
+
+        let mut scheduled = Vec::new();
+        for (req_member_id, strategy) in requester_ids {
+            let pending_wants: Vec<u64> = match self.net_groups.get(&req_member_id) {
+                Some(m) => m
+                    .want_objects
+                    .iter()
+                    .copied()
+                    .filter(|idx| !m.in_flight_wants.contains(idx) && !m.have_objects.contains(idx))
+                    .collect(),
+                None => continue,
+            };
+            let mut candidates: Vec<(u64, Vec<u32>)> = pending_wants
+                .into_iter()
+                .filter_map(|idx| {
+                    let providers: Vec<u32> = availability
+                        .get(&idx)?
+                        .iter()
+                        .copied()
+                        .filter(|&pid| pid != req_member_id)
+                        .collect();
+                    (!providers.is_empty()).then_some((idx, providers))
+                })
+                .collect();
+            if strategy == "rarestFirst" {
+                candidates.sort_by(|a, b| a.1.len().cmp(&b.1.len()).then_with(|| a.0.cmp(&b.0)));
+            } else {
+                candidates.sort_by_key(|(idx, _)| *idx);
+            }
+            for (idx, providers) in candidates {
+                let provider_id = providers[0];
+                let ticket_id = self.next_replication_req_id;
+                self.next_replication_req_id = self.next_replication_req_id.wrapping_add(1).max(1);
+                self.replication_tickets.insert(
+                    ticket_id,
+                    ReplicationTicket {
+                        requester_id: req_member_id,
+                        provider_id,
+                        index: idx,
+                    },
+                );
+                if let Some(m) = self.net_groups.get_mut(&req_member_id) {
+                    m.in_flight_wants.insert(idx);
+                }
+                scheduled.push(json!({
+                    "requestID": ticket_id,
+                    "requesterId": req_member_id,
+                    "providerId": provider_id,
+                    "index": idx,
+                }));
+            }
+        }
+        scheduled
     }
 
     fn dispatch(&mut self, op: &str, req: &Value) -> Result<Value, String> {
@@ -527,8 +659,8 @@ impl As3NetSysKernel {
                 } else {
                     peer_id.to_owned()
                 };
-                // Normalize base groupspec by stripping trailing auth tags 0x13/0x15 if present.
-                let base = groupspec.to_owned();
+                let parsed = parse_groupspec_hex(groupspec);
+                let base = parsed.canonical_base;
                 let id = self.alloc_id();
                 let address = peer_id_to_group_address(&peer_id);
                 let member = NetGroupMember {
@@ -536,12 +668,15 @@ impl As3NetSysKernel {
                     groupspec_base: base.clone(),
                     peer_id: peer_id.clone(),
                     address: address.clone(),
+                    posting_authorized: parsed.posting_authorized,
+                    publish_authorized: parsed.publish_authorized,
                     receive_mode: "exact".into(),
                     replication_strategy: "lowestFirst".into(),
                     neighbors: BTreeSet::new(),
                     member_hints: BTreeSet::new(),
                     have_objects: BTreeSet::new(),
                     want_objects: BTreeSet::new(),
+                    in_flight_wants: BTreeSet::new(),
                     seen_posts: HashSet::new(),
                     info: NetGroupInfoSnapshot::default(),
                     closed: false,
@@ -556,7 +691,11 @@ impl As3NetSysKernel {
                     .collect();
                 Ok(json!({
                     "id": id,
+                    "peerID": peer_id,
                     "address": address,
+                    "canonicalBase": base,
+                    "postingAuthorized": parsed.posting_authorized,
+                    "publishAuthorized": parsed.publish_authorized,
                     "existingGroupIds": peer_ids,
                 }))
             }
@@ -588,6 +727,8 @@ impl As3NetSysKernel {
                             "replicationStrategy": m.replication_strategy,
                             "info": m.info,
                             "closed": m.closed,
+                            "postingAuthorized": m.posting_authorized,
+                            "publishAuthorized": m.publish_authorized,
                         }))
                     }
                     "set_mode" => {
@@ -641,30 +782,40 @@ impl As3NetSysKernel {
                                 "RangeError: NetGroup object index range is invalid.".into()
                             );
                         }
-                        let m = self
-                            .net_groups
-                            .get_mut(&id)
-                            .ok_or_else(|| "Unknown NetGroup".to_owned())?;
-                        for idx in start..=end {
-                            match kind {
-                                "addHave" => {
-                                    m.have_objects.insert(idx);
+                        let (base, have_count, want_count) = {
+                            let m = self
+                                .net_groups
+                                .get_mut(&id)
+                                .ok_or_else(|| "Unknown NetGroup".to_owned())?;
+                            for idx in start..=end {
+                                match kind {
+                                    "addHave" => {
+                                        m.have_objects.insert(idx);
+                                    }
+                                    "removeHave" => {
+                                        m.have_objects.remove(&idx);
+                                    }
+                                    "addWant" => {
+                                        m.want_objects.insert(idx);
+                                    }
+                                    "removeWant" => {
+                                        m.want_objects.remove(&idx);
+                                        m.in_flight_wants.remove(&idx);
+                                    }
+                                    _ => {}
                                 }
-                                "removeHave" => {
-                                    m.have_objects.remove(&idx);
-                                }
-                                "addWant" => {
-                                    m.want_objects.insert(idx);
-                                }
-                                "removeWant" => {
-                                    m.want_objects.remove(&idx);
-                                }
-                                _ => {}
                             }
-                        }
+                            (
+                                m.groupspec_base.clone(),
+                                m.have_objects.len(),
+                                m.want_objects.len(),
+                            )
+                        };
+                        let fetch_requests = self.schedule_replication_requests(&base);
                         Ok(json!({
-                            "haveCount": m.have_objects.len(),
-                            "wantCount": m.want_objects.len(),
+                            "haveCount": have_count,
+                            "wantCount": want_count,
+                            "fetchRequests": fetch_requests,
                         }))
                     }
                     "replication_reply" => {
@@ -672,14 +823,87 @@ impl As3NetSysKernel {
                         let bytes =
                             req.get("byteLength").and_then(Value::as_u64).unwrap_or(0) as f64;
                         let deny = req.get("deny").and_then(Value::as_bool).unwrap_or(false);
+                        if let Some(m) = self.net_groups.get_mut(&id)
+                            && !deny
+                        {
+                            m.info.object_replication_send_bytes_per_second += bytes;
+                        }
+                        let mut requester_id = None;
+                        let mut index = None;
+                        if let Some(ticket) = self.replication_tickets.remove(&req_id)
+                            && ticket.provider_id == id
+                        {
+                            requester_id = Some(ticket.requester_id);
+                            index = Some(ticket.index);
+                            if let Some(requester) = self.net_groups.get_mut(&ticket.requester_id) {
+                                requester.in_flight_wants.remove(&ticket.index);
+                                if !deny {
+                                    requester.want_objects.remove(&ticket.index);
+                                    requester.have_objects.insert(ticket.index);
+                                    requester.info.object_replication_receive_bytes_per_second +=
+                                        bytes;
+                                }
+                            }
+                        }
+                        Ok(json!({
+                            "requestID": req_id,
+                            "denied": deny,
+                            "requesterId": requester_id,
+                            "index": index,
+                        }))
+                    }
+                    "ingest_remote" => {
+                        let remote_kind = req.get("kind").and_then(Value::as_str).unwrap_or("");
+                        let bytes =
+                            req.get("byteLength").and_then(Value::as_u64).unwrap_or(16) as f64;
+                        let msg_id = req.get("messageID").and_then(Value::as_str).unwrap_or("");
+                        let peer_id = req.get("peerID").and_then(Value::as_str).unwrap_or("");
                         let m = self
                             .net_groups
                             .get_mut(&id)
                             .ok_or_else(|| "Unknown NetGroup".to_owned())?;
-                        if !deny {
-                            m.info.object_replication_send_bytes_per_second += bytes;
+                        if m.closed {
+                            return Ok(json!({ "accepted": false }));
                         }
-                        Ok(json!({ "requestID": req_id, "denied": deny }))
+                        if !peer_id.is_empty() && peer_id != m.peer_id {
+                            m.neighbors.insert(peer_id.to_owned());
+                        }
+                        let accepted = match remote_kind {
+                            "post" => {
+                                if !msg_id.is_empty() && m.seen_posts.insert(msg_id.to_owned()) {
+                                    m.info.posting_receive_data_bytes_per_second += bytes;
+                                    m.info.posting_receive_control_bytes_per_second += 8.0;
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                            "route" => {
+                                m.info.routing_receive_bytes_per_second += bytes;
+                                true
+                            }
+                            "replication_result" => {
+                                if let Some(idx) = req.get("index").and_then(Value::as_u64) {
+                                    m.in_flight_wants.remove(&idx);
+                                    if m.want_objects.remove(&idx) {
+                                        m.have_objects.insert(idx);
+                                        m.info.object_replication_receive_bytes_per_second += bytes;
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                }
+                            }
+                            "replication_send" => {
+                                m.info.object_replication_send_bytes_per_second += bytes;
+                                true
+                            }
+                            "neighbor_join" => true,
+                            _ => false,
+                        };
+                        Ok(json!({ "accepted": accepted }))
                     }
                     "post" => {
                         let payload_hash = req
@@ -689,14 +913,14 @@ impl As3NetSysKernel {
                         let bytes =
                             req.get("byteLength").and_then(Value::as_u64).unwrap_or(16) as f64;
                         self.rng_counter = self.rng_counter.wrapping_add(1);
-                        let (base, closed) = {
+                        let (base, closed, authorized) = {
                             let m = self
                                 .net_groups
                                 .get(&id)
                                 .ok_or_else(|| "Unknown NetGroup".to_owned())?;
-                            (m.groupspec_base.clone(), m.closed)
+                            (m.groupspec_base.clone(), m.closed, m.posting_authorized)
                         };
-                        if closed {
+                        if closed || !authorized {
                             return Ok(json!({ "messageID": Value::Null, "recipients": [] }));
                         }
                         let msg_id = hex_encode(&sha256(
@@ -705,6 +929,7 @@ impl As3NetSysKernel {
                         if let Some(sender) = self.net_groups.get_mut(&id) {
                             sender.seen_posts.insert(msg_id.clone());
                             sender.info.posting_send_data_bytes_per_second += bytes;
+                            sender.info.posting_send_control_bytes_per_second += 8.0;
                         }
                         let mut recipients = Vec::new();
                         for other in self.net_groups.values_mut() {
@@ -714,6 +939,7 @@ impl As3NetSysKernel {
                                 && other.seen_posts.insert(msg_id.clone())
                             {
                                 other.info.posting_receive_data_bytes_per_second += bytes;
+                                other.info.posting_receive_control_bytes_per_second += 8.0;
                                 recipients.push(other.id);
                             }
                         }
@@ -750,6 +976,9 @@ impl As3NetSysKernel {
                             .map(|x| (x.id, x.address.clone()))
                             .collect();
                         if peers.is_empty() {
+                            if has_neighbors && let Some(sender) = self.net_groups.get_mut(&id) {
+                                sender.info.routing_send_bytes_per_second += bytes;
+                            }
                             return Ok(json!({
                                 "result": if has_neighbors { "sent" } else { "noRoute" },
                                 "recipients": []
@@ -810,6 +1039,14 @@ impl As3NetSysKernel {
                     "backBufferLength": st.back_buffer_length,
                     "backBufferByteLength": st.back_buffer_byte_length,
                 }))
+            }
+            "flv_multicast_op" => {
+                let id = req.get("streamId").and_then(Value::as_u64).unwrap_or(0) as u32;
+                let kind = req.get("kind").and_then(Value::as_str).unwrap_or("");
+                let bytes = req.get("bytes").and_then(Value::as_f64).unwrap_or(0.0);
+                let fragments = req.get("fragments").and_then(Value::as_f64).unwrap_or(1.0);
+                let st = self.flv_streams.entry(id).or_default();
+                Ok(st.multicast_op(kind, bytes, fragments))
             }
             // LocalConnection
             "lc_new" => {
@@ -1457,16 +1694,17 @@ impl As3NetSysKernel {
                         self.sampling_paused = false;
                         let now_us = req.get("timeUs").and_then(Value::as_f64).unwrap_or(1000.0);
                         if self.samples.is_empty() {
+                            let stack = parse_sampler_stack(req, "startSampling", "flash.sampler");
                             self.samples.push_back(SamplerEntry {
                                 kind: "sample".into(),
                                 time_us: now_us,
                                 id: 0,
                                 size: 0,
                                 class_name: None,
-                                stack: vec![("startSampling".into(), "flash.sampler".into(), 1, 1)],
+                                stack,
                             });
                         }
-                        Ok(json!({ "active": true }))
+                        Ok(json!({ "active": true, "internalAllocs": self.sample_internal_allocs }))
                     }
                     "pause" => {
                         if self.sampling_active {
@@ -1483,8 +1721,39 @@ impl As3NetSysKernel {
                         self.samples.clear();
                         Ok(json!({ "count": 0 }))
                     }
-                    "record_alloc" => {
+                    "set_internal_allocs" => {
+                        self.sample_internal_allocs =
+                            req.get("enabled").and_then(Value::as_bool).unwrap_or(false);
+                        Ok(json!({ "internalAllocs": self.sample_internal_allocs }))
+                    }
+                    "record_sample" => {
                         if self.sampling_active && !self.sampling_paused {
+                            let time_us =
+                                req.get("timeUs").and_then(Value::as_f64).unwrap_or(1000.0);
+                            let stack = parse_sampler_stack(req, "sample", "runtime.as");
+                            if self.samples.len() >= 4096 {
+                                self.samples.pop_front();
+                            }
+                            self.samples.push_back(SamplerEntry {
+                                kind: "sample".into(),
+                                time_us,
+                                id: 0,
+                                size: 0,
+                                class_name: None,
+                                stack,
+                            });
+                        }
+                        Ok(json!({ "count": self.samples.len() }))
+                    }
+                    "record_alloc" => {
+                        let is_internal = req
+                            .get("internal")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false);
+                        if self.sampling_active
+                            && !self.sampling_paused
+                            && (!is_internal || self.sample_internal_allocs)
+                        {
                             let id = req.get("allocId").and_then(Value::as_u64).unwrap_or(1);
                             let size = req.get("size").and_then(Value::as_u64).unwrap_or(32);
                             let cname = req
@@ -1494,7 +1763,8 @@ impl As3NetSysKernel {
                                 .to_owned();
                             let time_us =
                                 req.get("timeUs").and_then(Value::as_f64).unwrap_or(1000.0);
-                            if self.samples.len() >= 2048 {
+                            let stack = parse_sampler_stack(req, &cname, "runtime.as");
+                            if self.samples.len() >= 4096 {
                                 self.samples.pop_front();
                             }
                             self.samples.push_back(SamplerEntry {
@@ -1503,7 +1773,7 @@ impl As3NetSysKernel {
                                 id,
                                 size,
                                 class_name: Some(cname),
-                                stack: vec![("alloc".into(), "runtime".into(), 1, 1)],
+                                stack,
                             });
                         }
                         Ok(json!({ "count": self.samples.len() }))
@@ -1514,7 +1784,12 @@ impl As3NetSysKernel {
                             let size = req.get("size").and_then(Value::as_u64).unwrap_or(32);
                             let time_us =
                                 req.get("timeUs").and_then(Value::as_f64).unwrap_or(1000.0);
-                            if self.samples.len() >= 2048 {
+                            let stack = if req.get("stack").is_some() {
+                                parse_sampler_stack(req, "gc", "runtime.as")
+                            } else {
+                                Vec::new()
+                            };
+                            if self.samples.len() >= 4096 {
                                 self.samples.pop_front();
                             }
                             self.samples.push_back(SamplerEntry {
@@ -1523,7 +1798,7 @@ impl As3NetSysKernel {
                                 id,
                                 size,
                                 class_name: None,
-                                stack: Vec::new(),
+                                stack,
                             });
                         }
                         Ok(json!({ "count": self.samples.len() }))
@@ -1544,6 +1819,12 @@ impl As3NetSysKernel {
                         let count = self.invocation_counts.get(key).copied().unwrap_or(0);
                         Ok(json!({ "count": count as f64 }))
                     }
+                    "state" => Ok(json!({
+                        "active": self.sampling_active,
+                        "paused": self.sampling_paused,
+                        "internalAllocs": self.sample_internal_allocs,
+                        "count": self.samples.len(),
+                    })),
                     _ => Err(format!("Unknown sampler_op {action}")),
                 }
             }
@@ -1570,8 +1851,207 @@ impl As3NetSysKernel {
                         self.telemetry_metrics.push((metric.to_owned(), val));
                         Ok(json!({ "recorded": self.telemetry_metrics.len() }))
                     }
+                    "span_metric" => {
+                        let metric = req.get("metric").and_then(Value::as_str).unwrap_or("");
+                        let start = req
+                            .get("startSpanMarker")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0);
+                        let end = req
+                            .get("endSpanMarker")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(start);
+                        let span_ms = (end - start).max(0.0);
+                        let val = req.get("value").cloned().unwrap_or(Value::Null);
+                        let entry = json!({
+                            "startSpanMarker": start,
+                            "durationMs": span_ms,
+                            "value": val,
+                        });
+                        if self.telemetry_metrics.len() >= 1024 {
+                            self.telemetry_metrics.remove(0);
+                        }
+                        self.telemetry_metrics.push((metric.to_owned(), entry));
+                        Ok(
+                            json!({ "recorded": self.telemetry_metrics.len(), "durationMs": span_ms }),
+                        )
+                    }
+                    "drain_metrics" => {
+                        let list: Vec<Value> = self
+                            .telemetry_metrics
+                            .iter()
+                            .map(|(m, v)| json!({ "metric": m, "value": v }))
+                            .collect();
+                        Ok(json!({
+                            "metrics": list,
+                            "commands": self.telemetry_commands.iter().cloned().collect::<Vec<_>>(),
+                            "profilerActive": self.profiler_active,
+                            "redrawRegions": {
+                                "shown": self.redraw_regions_shown,
+                                "color": self.redraw_regions_color,
+                            }
+                        }))
+                    }
+                    "profile" => {
+                        let enable = req.get("enable").and_then(Value::as_bool).unwrap_or(false);
+                        self.profiler_active = enable;
+                        if enable {
+                            self.sampling_active = true;
+                            self.sampling_paused = false;
+                        } else {
+                            self.sampling_active = false;
+                            self.sampling_paused = false;
+                        }
+                        Ok(json!({ "profilerActive": self.profiler_active }))
+                    }
+                    "show_redraw" => {
+                        self.redraw_regions_shown =
+                            req.get("on").and_then(Value::as_bool).unwrap_or(false);
+                        self.redraw_regions_color =
+                            req.get("color").and_then(Value::as_u64).unwrap_or(0xff0000) as u32;
+                        Ok(json!({
+                            "shown": self.redraw_regions_shown,
+                            "color": self.redraw_regions_color,
+                        }))
+                    }
                     _ => Err(format!("Unknown telemetry_op {action}")),
                 }
+            }
+            "security_op" => {
+                let action = req.get("action").and_then(Value::as_str).unwrap_or("");
+                match action {
+                    "load_policy_xml" => {
+                        let url = req.get("url").and_then(Value::as_str).unwrap_or("");
+                        let xml = req.get("xml").and_then(Value::as_str).unwrap_or("");
+                        let parsed = parse_cross_domain_policy_xml(xml)?;
+                        let snap = serde_json::to_value(&parsed).map_err(|e| e.to_string())?;
+                        self.policy_files.push((url.to_owned(), parsed));
+                        Ok(json!({ "ok": true, "policy": snap }))
+                    }
+                    "check_access" => {
+                        let requester = req
+                            .get("requesterDomain")
+                            .and_then(Value::as_str)
+                            .unwrap_or("localhost");
+                        let port = req
+                            .get("port")
+                            .and_then(Value::as_u64)
+                            .and_then(|p| u16::try_from(p).ok());
+                        let is_secure = req.get("secure").and_then(Value::as_bool).unwrap_or(true);
+                        let allowed = self
+                            .policy_files
+                            .iter()
+                            .any(|(_, pf)| policy_allows_access(pf, requester, port, is_secure));
+                        Ok(json!({
+                            "allowed": allowed,
+                            "policyCount": self.policy_files.len(),
+                        }))
+                    }
+                    "set_disable_avm1" => {
+                        if req.get("value").and_then(Value::as_bool).unwrap_or(false) {
+                            self.disable_avm1_loading = true;
+                        }
+                        Ok(json!({ "disableAVM1Loading": self.disable_avm1_loading }))
+                    }
+                    "show_settings" => {
+                        let panel = req
+                            .get("panel")
+                            .and_then(Value::as_str)
+                            .unwrap_or("default")
+                            .to_owned();
+                        self.last_security_panel = Some(panel.clone());
+                        Ok(json!({ "panel": panel }))
+                    }
+                    "state" => Ok(json!({
+                        "disableAVM1Loading": self.disable_avm1_loading,
+                        "lastPanel": self.last_security_panel,
+                        "policyCount": self.policy_files.len(),
+                    })),
+                    _ => Err(format!("Unknown security_op {action}")),
+                }
+            }
+            "system_op" => {
+                let action = req.get("action").and_then(Value::as_str).unwrap_or("");
+                match action {
+                    "pause" => {
+                        self.system_paused = true;
+                        Ok(json!({ "paused": true }))
+                    }
+                    "resume" => {
+                        self.system_paused = false;
+                        Ok(json!({ "paused": false }))
+                    }
+                    "exit" => {
+                        let code = req.get("code").and_then(Value::as_u64).unwrap_or(0) as u32;
+                        self.last_exit_code = Some(code);
+                        Ok(json!({ "exitCode": code }))
+                    }
+                    "state" => Ok(json!({
+                        "paused": self.system_paused,
+                        "exitCode": self.last_exit_code,
+                    })),
+                    _ => Err(format!("Unknown system_op {action}")),
+                }
+            }
+            "x509_verify" => {
+                let server_b64 = req
+                    .get("serverBase64")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let server_der = STANDARD.decode(server_b64.as_bytes()).unwrap_or_default();
+                let host = req.get("host").and_then(Value::as_str).unwrap_or("");
+                let now_ms = req.get("nowMs").and_then(Value::as_f64).unwrap_or(0.0);
+                let os_verified = req
+                    .get("osVerified")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let mut chain = Vec::new();
+                if let Some(arr) = req.get("chain").and_then(Value::as_array) {
+                    for entry in arr.iter().take(32) {
+                        if let Some(b64) = entry.get("base64").and_then(Value::as_str)
+                            && let Ok(der) = STANDARD.decode(b64.as_bytes())
+                        {
+                            let trusted = entry
+                                .get("trusted")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false);
+                            chain.push((der, trusted));
+                        }
+                    }
+                }
+                let (status, cert) =
+                    verify_x509_certificate_chain(&server_der, host, now_ms, &chain, os_verified);
+                Ok(json!({
+                    "status": status,
+                    "certificate": cert,
+                }))
+            }
+            "x509_build_custom" => {
+                let subject = req
+                    .get("subjectCN")
+                    .and_then(Value::as_str)
+                    .unwrap_or("localhost");
+                let issuer = req
+                    .get("issuerCN")
+                    .and_then(Value::as_str)
+                    .unwrap_or(subject);
+                let nb = req
+                    .get("notBefore")
+                    .and_then(Value::as_str)
+                    .unwrap_or("20250101000000Z");
+                let na = req
+                    .get("notAfter")
+                    .and_then(Value::as_str)
+                    .unwrap_or("20350101000000Z");
+                let der = build_custom_x509_der(subject, issuer, nb, na);
+                Ok(json!({ "base64": STANDARD.encode(&der) }))
+            }
+            "inspect_av_stream_tags" => {
+                let b64 = req.get("base64").and_then(Value::as_str).unwrap_or("");
+                let base_time = req.get("baseTime").and_then(Value::as_f64).unwrap_or(0.0);
+                let bytes = STANDARD.decode(b64.as_bytes()).unwrap_or_default();
+                let tags = crate::as3_media_events::inspect_av_stream_tags(&bytes, base_time);
+                Ok(json!({ "tags": tags }))
             }
             "fast_mem_op" => {
                 let kind = req.get("kind").and_then(Value::as_str).unwrap_or("");

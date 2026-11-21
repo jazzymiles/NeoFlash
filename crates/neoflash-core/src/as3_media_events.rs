@@ -1533,6 +1533,443 @@ impl MediaEventsError {
     }
 }
 
+// ---------------------------------------------------------------------------
+// HLS Manifest (`#EXTM3U`) & ID3v2 / MPEG-TS Timed Metadata Tag Extraction
+// for `AVURLLoader`, `AVURLStream`, `AVTagData`, and `AVDictionaryDataEvent`
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AvStreamTagEntry {
+    pub data: String,
+    pub local_time: f64,
+    pub dictionary: std::collections::BTreeMap<String, String>,
+}
+
+fn av_synchsafe_u32(bytes: &[u8]) -> Option<usize> {
+    if bytes.len() != 4 || bytes.iter().any(|b| b & 0x80 != 0) {
+        return None;
+    }
+    Some(
+        bytes
+            .iter()
+            .fold(0usize, |acc, &b| (acc << 7) | (b as usize)),
+    )
+}
+
+fn av_decode_id3_text(bytes: &[u8], enc: u8) -> Option<String> {
+    let text = match enc {
+        0 => bytes
+            .iter()
+            .take_while(|&&b| b != 0)
+            .map(|&b| char::from(b))
+            .collect::<String>(),
+        3 => std::str::from_utf8(bytes)
+            .ok()?
+            .split('\0')
+            .next()
+            .unwrap_or("")
+            .to_owned(),
+        1 | 2 => {
+            let (payload, le) = if enc == 1 {
+                if bytes.starts_with(&[0xFF, 0xFE]) {
+                    (&bytes[2..], true)
+                } else if bytes.starts_with(&[0xFE, 0xFF]) {
+                    (&bytes[2..], false)
+                } else {
+                    (bytes, true)
+                }
+            } else {
+                (bytes, false)
+            };
+            let words: Vec<u16> = payload
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|&c| {
+                    if le {
+                        u16::from_le_bytes(c)
+                    } else {
+                        u16::from_be_bytes(c)
+                    }
+                })
+                .take_while(|&w| w != 0)
+                .collect();
+            String::from_utf16(&words).ok()?
+        }
+        _ => return None,
+    };
+    Some(text.trim_end_matches('\0').trim().to_owned())
+}
+
+fn av_split_id3_null(bytes: &[u8], enc: u8) -> (&[u8], &[u8]) {
+    let width = if enc == 1 || enc == 2 { 2 } else { 1 };
+    if let Some(pos) = bytes
+        .chunks_exact(width)
+        .position(|c| c.iter().all(|&b| b == 0))
+    {
+        let head = &bytes[..pos * width];
+        let tail_start = ((pos + 1) * width).min(bytes.len());
+        (head, &bytes[tail_start..])
+    } else {
+        (bytes, &[])
+    }
+}
+
+fn parse_id3v2_dictionary_block(
+    bytes: &[u8],
+    local_time: f64,
+) -> Option<(usize, AvStreamTagEntry)> {
+    if bytes.len() < 10 || &bytes[0..3] != b"ID3" {
+        return None;
+    }
+    let version = bytes[3];
+    if !(2..=4).contains(&version) {
+        return None;
+    }
+    let flags = bytes[5];
+    let tag_size = av_synchsafe_u32(&bytes[6..10])?;
+    let total_end = 10usize.checked_add(tag_size)?.min(bytes.len());
+    let body = &bytes[10..total_end];
+    let mut offset = 0usize;
+    if (version == 3 || version == 4) && (flags & 0x40 != 0) && body.len() >= 4 {
+        let ext_len = if version == 4 {
+            av_synchsafe_u32(&body[0..4]).unwrap_or(0)
+        } else {
+            u32::from_be_bytes([body[0], body[1], body[2], body[3]]) as usize
+        };
+        offset = if version == 4 {
+            ext_len.min(body.len())
+        } else {
+            (4 + ext_len).min(body.len())
+        };
+    }
+
+    let mut dict = std::collections::BTreeMap::new();
+    let mut summary_parts = Vec::new();
+
+    while offset < body.len() && body[offset] != 0 {
+        let (frame_id, frame_size, hdr_len) = if version == 2 {
+            if offset + 6 > body.len() {
+                break;
+            }
+            let id_b = &body[offset..offset + 3];
+            if !id_b
+                .iter()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+            {
+                break;
+            }
+            let sz = ((body[offset + 3] as usize) << 16)
+                | ((body[offset + 4] as usize) << 8)
+                | (body[offset + 5] as usize);
+            (std::str::from_utf8(id_b).unwrap_or(""), sz, 6usize)
+        } else {
+            if offset + 10 > body.len() {
+                break;
+            }
+            let id_b = &body[offset..offset + 4];
+            if !id_b
+                .iter()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+            {
+                break;
+            }
+            let sz = if version == 4 {
+                av_synchsafe_u32(&body[offset + 4..offset + 8]).unwrap_or_else(|| {
+                    u32::from_be_bytes([
+                        body[offset + 4],
+                        body[offset + 5],
+                        body[offset + 6],
+                        body[offset + 7],
+                    ]) as usize
+                })
+            } else {
+                u32::from_be_bytes([
+                    body[offset + 4],
+                    body[offset + 5],
+                    body[offset + 6],
+                    body[offset + 7],
+                ]) as usize
+            };
+            (std::str::from_utf8(id_b).unwrap_or(""), sz, 10usize)
+        };
+        offset += hdr_len;
+        if offset + frame_size > body.len() {
+            break;
+        }
+        let frame = &body[offset..offset + frame_size];
+        offset += frame_size;
+        if frame.is_empty() {
+            continue;
+        }
+        if frame_id == "PRIV" {
+            let (owner_b, val_b) = av_split_id3_null(frame, 0);
+            let owner = String::from_utf8_lossy(owner_b).trim().to_owned();
+            let val = match std::str::from_utf8(val_b) {
+                Ok(s) if s.chars().all(|c| !c.is_control() || c == '\t') => s.trim().to_owned(),
+                _ => val_b.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+            };
+            let key = if owner.is_empty() {
+                "PRIV".to_owned()
+            } else {
+                format!("PRIV:{owner}")
+            };
+            summary_parts.push(format!("{key}={val}"));
+            dict.insert(key, val);
+            continue;
+        }
+        let enc = frame[0];
+        let rest = &frame[1..];
+        if frame_id == "TXXX" || frame_id == "TXX" {
+            let (desc_b, val_b) = av_split_id3_null(rest, enc);
+            let desc = av_decode_id3_text(desc_b, enc).unwrap_or_default();
+            let val = av_decode_id3_text(val_b, enc).unwrap_or_default();
+            let key = if desc.is_empty() {
+                "TXXX".to_owned()
+            } else {
+                desc
+            };
+            summary_parts.push(format!("{key}={val}"));
+            dict.insert(key, val);
+        } else if frame_id == "COMM" || frame_id == "COM" {
+            if rest.len() >= 3 {
+                let (_desc_b, val_b) = av_split_id3_null(&rest[3..], enc);
+                if let Some(val) = av_decode_id3_text(val_b, enc) {
+                    summary_parts.push(format!("{frame_id}={val}"));
+                    dict.insert(frame_id.to_owned(), val);
+                }
+            }
+        } else if frame_id.starts_with('T')
+            && let Some(val) = av_decode_id3_text(rest, enc)
+        {
+            summary_parts.push(format!("{frame_id}={val}"));
+            dict.insert(frame_id.to_owned(), val);
+        }
+    }
+
+    if dict.is_empty() {
+        return None;
+    }
+    dict.insert("format".to_owned(), format!("ID3v2.{version}"));
+    let data = format!("ID3:{}", summary_parts.join(";"));
+    Some((
+        total_end,
+        AvStreamTagEntry {
+            data,
+            local_time,
+            dictionary: dict,
+        },
+    ))
+}
+
+fn parse_hls_attribute_pairs(
+    raw_attrs: &str,
+    dict: &mut std::collections::BTreeMap<String, String>,
+) {
+    let bytes = raw_attrs.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        while i < bytes.len() && (bytes[i] == b',' || bytes[i].is_ascii_whitespace()) {
+            i += 1;
+        }
+        let key_start = i;
+        while i < bytes.len() && bytes[i] != b'=' && bytes[i] != b',' {
+            i += 1;
+        }
+        let key = raw_attrs[key_start..i].trim();
+        if i >= bytes.len() || bytes[i] != b'=' {
+            if !key.is_empty() {
+                dict.insert("VALUE".to_owned(), key.to_owned());
+            }
+            while i < bytes.len() && bytes[i] != b',' {
+                i += 1;
+            }
+            continue;
+        }
+        i += 1; // skip '='
+        let val = if i < bytes.len() && bytes[i] == b'"' {
+            i += 1;
+            let val_start = i;
+            while i < bytes.len() && bytes[i] != b'"' {
+                i += 1;
+            }
+            let extracted = &raw_attrs[val_start..i];
+            if i < bytes.len() && bytes[i] == b'"' {
+                i += 1;
+            }
+            extracted.to_owned()
+        } else {
+            let val_start = i;
+            while i < bytes.len() && bytes[i] != b',' {
+                i += 1;
+            }
+            raw_attrs[val_start..i].trim().to_owned()
+        };
+        if !key.is_empty() {
+            dict.insert(key.to_owned(), val);
+        }
+    }
+}
+
+fn parse_pes_pts_seconds(pes: &[u8]) -> Option<(usize, f64)> {
+    // PES start code prefix: 0x00 0x00 0x01 <stream_id> <len_hi> <len_lo> <flags1> <pts_dts_flags> <pes_hdr_len>
+    if pes.len() < 14 || pes[0] != 0x00 || pes[1] != 0x00 || pes[2] != 0x01 {
+        return None;
+    }
+    let pts_dts_flags = pes[7];
+    let pes_hdr_data_len = pes[8] as usize;
+    let payload_start = 9usize.checked_add(pes_hdr_data_len)?;
+    if payload_start > pes.len() {
+        return None;
+    }
+    let pts_sec = if (pts_dts_flags & 0x80) != 0 && pes_hdr_data_len >= 5 && pes.len() >= 14 {
+        let p0 = ((pes[9] >> 1) & 0x07) as u64;
+        let p1 = (pes[10] as u64) << 7 | ((pes[11] >> 1) as u64);
+        let p2 = (pes[12] as u64) << 7 | ((pes[13] >> 1) as u64);
+        let pts_90khz = (p0 << 30) | (p1 << 15) | p2;
+        ((pts_90khz as f64) / 90_000.0 * 1000.0).round() / 1000.0
+    } else {
+        0.0
+    };
+    Some((payload_start, pts_sec))
+}
+
+/// Extracts HLS (`#EXTM3U`) custom/timed tags and ID3v2 / MPEG-TS timed-ID3 metadata
+/// dictionaries for `AVURLLoader` and `AVURLStream`.
+pub fn inspect_av_stream_tags(bytes: &[u8], base_time: f64) -> Vec<AvStreamTagEntry> {
+    let mut out = Vec::new();
+    let start_time = if base_time.is_finite() && base_time >= 0.0 {
+        base_time
+    } else {
+        0.0
+    };
+
+    // 1. Leading ID3v2 header (MP3 / AAC / ADTS elementary HLS segment)
+    if bytes.starts_with(b"ID3")
+        && let Some((_end, entry)) = parse_id3v2_dictionary_block(bytes, start_time)
+    {
+        out.push(entry);
+    }
+
+    // 2. 188-byte MPEG-TS (`0x47`) packets carrying PES timed ID3 metadata (stream_id 0xBD)
+    if bytes.len() >= 188 && bytes[0] == 0x47 && (bytes.len() < 376 || bytes[188] == 0x47) {
+        let mut reassembled_pes: std::collections::BTreeMap<u16, Vec<u8>> =
+            std::collections::BTreeMap::new();
+        for pkt in bytes.as_chunks::<188>().0 {
+            if pkt[0] != 0x47 {
+                break;
+            }
+            let pusi = (pkt[1] & 0x40) != 0;
+            let pid = (((pkt[1] & 0x1F) as u16) << 8) | (pkt[2] as u16);
+            if pid == 0x0000 || pid == 0x1FFF {
+                continue;
+            }
+            let afc = (pkt[3] >> 4) & 0x03;
+            let mut payload_off = 4usize;
+            if afc == 2 {
+                continue; // adaptation-only
+            }
+            if afc == 3 {
+                let adap_len = pkt[4] as usize;
+                payload_off = 5usize.saturating_add(adap_len);
+            }
+            if payload_off >= 188 {
+                continue;
+            }
+            let payload = &pkt[payload_off..];
+            if pusi {
+                if let Some(prev_buf) = reassembled_pes.remove(&pid)
+                    && let Some((pes_off, pts)) = parse_pes_pts_seconds(&prev_buf)
+                    && let Some((_, entry)) =
+                        parse_id3v2_dictionary_block(&prev_buf[pes_off..], pts)
+                {
+                    out.push(entry);
+                }
+                reassembled_pes.insert(pid, payload.to_vec());
+            } else if let Some(buf) = reassembled_pes.get_mut(&pid)
+                && buf.len() < 262_144
+            {
+                buf.extend_from_slice(payload);
+            }
+        }
+        for (_pid, buf) in reassembled_pes {
+            if let Some((pes_off, pts)) = parse_pes_pts_seconds(&buf)
+                && let Some((_, entry)) = parse_id3v2_dictionary_block(&buf[pes_off..], pts)
+            {
+                out.push(entry);
+            }
+        }
+    }
+
+    // 3. HLS `#EXTM3U` manifest tags
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        let trimmed = text.trim_start_matches('\u{feff}').trim_start();
+        if trimmed.starts_with("#EXTM3U") {
+            let mut cursor_time = start_time;
+            for raw_line in trimmed.lines() {
+                let line = raw_line.trim();
+                if line.is_empty() || line == "#EXTM3U" {
+                    continue;
+                }
+                if let Some(rest) = line.strip_prefix("#EXTINF:") {
+                    let (dur_str, title) = match rest.split_once(',') {
+                        Some((d, t)) => (d.trim(), t.trim()),
+                        None => (rest.trim(), ""),
+                    };
+                    let seg_dur = dur_str
+                        .parse::<f64>()
+                        .ok()
+                        .filter(|d| d.is_finite() && *d >= 0.0)
+                        .unwrap_or(0.0);
+                    if !title.is_empty() {
+                        let mut dict = std::collections::BTreeMap::new();
+                        dict.insert("tag".to_owned(), "EXTINF".to_owned());
+                        dict.insert("duration".to_owned(), format!("{seg_dur}"));
+                        dict.insert("title".to_owned(), title.to_owned());
+                        out.push(AvStreamTagEntry {
+                            data: line.trim_start_matches('#').to_owned(),
+                            local_time: (cursor_time * 1000.0).round() / 1000.0,
+                            dictionary: dict,
+                        });
+                    }
+                    cursor_time += seg_dur;
+                } else if let Some(tag_body) = line.strip_prefix("#EXT-X-") {
+                    let (tag_suffix, attrs) = match tag_body.split_once(':') {
+                        Some((k, v)) => (k.trim(), v.trim()),
+                        None => (tag_body.trim(), ""),
+                    };
+                    if matches!(
+                        tag_suffix,
+                        "VERSION" | "INDEPENDENT-SEGMENTS" | "ENDLIST" | "PLAYLIST-TYPE"
+                    ) {
+                        continue;
+                    }
+                    let full_tag = format!("EXT-X-{tag_suffix}");
+                    let mut dict = std::collections::BTreeMap::new();
+                    dict.insert("tag".to_owned(), full_tag.clone());
+                    if !attrs.is_empty() {
+                        if attrs.contains('=')
+                            && !tag_suffix.eq_ignore_ascii_case("PROGRAM-DATE-TIME")
+                        {
+                            parse_hls_attribute_pairs(attrs, &mut dict);
+                        } else {
+                            dict.insert("value".to_owned(), attrs.to_owned());
+                        }
+                    }
+                    out.push(AvStreamTagEntry {
+                        data: line.trim_start_matches('#').to_owned(),
+                        local_time: (cursor_time * 1000.0).round() / 1000.0,
+                        dictionary: dict,
+                    });
+                }
+            }
+        }
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1686,5 +2123,83 @@ mod tests {
         assert_eq!(rt.camera_names(), vec!["FaceTime HD Camera"]);
         assert_eq!(rt.microphone_names(), vec!["Built-in Microphone"]);
         assert_eq!(rt.audio_device_names, vec!["External Headphones"]);
+    }
+
+    #[test]
+    fn hls_and_id3_mpegts_tag_extraction_produces_dictionary_entries() {
+        let hls = b"#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:6\n#EXT-X-PROGRAM-DATE-TIME:2026-11-21T20:00:00Z\n#EXTINF:4.5,Intro Segment\nseg0.ts\n#EXT-X-DATERANGE:ID=\"ad-1\",DURATION=15.0\n#EXTINF:6.0,Ad Segment\nseg1.ts\n#EXT-X-ENDLIST\n";
+        let hls_tags = inspect_av_stream_tags(hls, 0.0);
+        assert!(hls_tags.len() >= 4);
+        assert_eq!(
+            hls_tags[0].dictionary.get("tag").map(String::as_str),
+            Some("EXT-X-TARGETDURATION")
+        );
+        assert_eq!(
+            hls_tags[1].dictionary.get("value").map(String::as_str),
+            Some("2026-11-21T20:00:00Z")
+        );
+        let daterange = hls_tags
+            .iter()
+            .find(|t| t.dictionary.get("tag").map(String::as_str) == Some("EXT-X-DATERANGE"))
+            .unwrap();
+        assert_eq!(daterange.local_time, 4.5);
+        assert_eq!(
+            daterange.dictionary.get("ID").map(String::as_str),
+            Some("ad-1")
+        );
+
+        // Build an ID3v2.3 payload with TIT2 ("Live Track") and TXXX ("ad_id\0spot42")
+        let mut id3_body = Vec::new();
+        let tit2 = b"\x03Live Track\0";
+        id3_body.extend_from_slice(b"TIT2");
+        id3_body.extend_from_slice(&(tit2.len() as u32).to_be_bytes());
+        id3_body.extend_from_slice(&[0, 0]);
+        id3_body.extend_from_slice(tit2);
+
+        let txxx = b"\x03ad_id\0spot42\0";
+        id3_body.extend_from_slice(b"TXXX");
+        id3_body.extend_from_slice(&(txxx.len() as u32).to_be_bytes());
+        id3_body.extend_from_slice(&[0, 0]);
+        id3_body.extend_from_slice(txxx);
+
+        let mut id3_tag = Vec::from(&b"ID3\x03\x00\x00"[..]);
+        let sz = id3_body.len();
+        id3_tag.push(((sz >> 21) & 0x7F) as u8);
+        id3_tag.push(((sz >> 14) & 0x7F) as u8);
+        id3_tag.push(((sz >> 7) & 0x7F) as u8);
+        id3_tag.push((sz & 0x7F) as u8);
+        id3_tag.extend_from_slice(&id3_body);
+
+        // Wrap in a 188-byte MPEG-TS packet (PID 0x0102, PUSI=1) with PES PTS = 12.5s (1,125,000 ticks @ 90kHz)
+        let pts_ticks: u64 = 1_125_000;
+        let pts_bytes = [
+            0x21 | (((pts_ticks >> 30) as u8 & 0x07) << 1),
+            ((pts_ticks >> 22) & 0xFF) as u8,
+            0x01 | (((pts_ticks >> 15) as u8 & 0x7F) << 1),
+            ((pts_ticks >> 7) & 0xFF) as u8,
+            0x01 | (((pts_ticks & 0x7F) as u8) << 1),
+        ];
+        let pes_len = (3 + 5 + id3_tag.len()) as u16;
+        let mut pes = vec![0x00, 0x00, 0x01, 0xBD];
+        pes.extend_from_slice(&pes_len.to_be_bytes());
+        pes.extend_from_slice(&[0x80, 0x80, 0x05]);
+        pes.extend_from_slice(&pts_bytes);
+        pes.extend_from_slice(&id3_tag);
+
+        let mut ts_pkt = vec![0x47, 0x41, 0x02, 0x10];
+        ts_pkt.extend_from_slice(&pes);
+        ts_pkt.resize(188, 0xFF);
+
+        let ts_tags = inspect_av_stream_tags(&ts_pkt, 0.0);
+        assert_eq!(ts_tags.len(), 1);
+        assert_eq!(ts_tags[0].local_time, 12.5);
+        assert_eq!(
+            ts_tags[0].dictionary.get("TIT2").map(String::as_str),
+            Some("Live Track")
+        );
+        assert_eq!(
+            ts_tags[0].dictionary.get("ad_id").map(String::as_str),
+            Some("spot42")
+        );
     }
 }

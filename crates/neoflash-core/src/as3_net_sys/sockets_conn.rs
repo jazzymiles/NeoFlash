@@ -142,7 +142,10 @@ impl GroupSpecifierState {
         match password.filter(|p| !p.is_empty()) {
             Some(pw) => {
                 let material = format!("post:{}:{}:{pw}", self.name, salt.unwrap_or(""));
-                self.posting_password_hash = Some(sha256(material.as_bytes()));
+                let token = sha256(format!("post-auth:{material}").as_bytes());
+                let mut verify_in = Vec::from(&b"post-verify:"[..]);
+                verify_in.extend_from_slice(&token[..16]);
+                self.posting_password_hash = Some(sha256(&verify_in));
                 self.posting_auth_hex = Some(encode_posting_authorization(&material));
             }
             None => {
@@ -156,7 +159,10 @@ impl GroupSpecifierState {
         match password.filter(|p| !p.is_empty()) {
             Some(pw) => {
                 let material = format!("pub:{}:{}:{pw}", self.name, salt.unwrap_or(""));
-                self.publish_password_hash = Some(sha256(material.as_bytes()));
+                let token = sha256(format!("pub-auth:{material}").as_bytes());
+                let mut verify_in = Vec::from(&b"pub-verify:"[..]);
+                verify_in.extend_from_slice(&token[..16]);
+                self.publish_password_hash = Some(sha256(&verify_in));
                 self.publish_auth_hex = Some(encode_publish_authorization(&material));
             }
             None => {
@@ -261,6 +267,125 @@ pub fn peer_id_to_group_address(peer_id: &str) -> String {
     hex_encode(&sha256(format!("group-addr:{peer_id}").as_bytes()))
 }
 
+#[derive(Clone, Debug)]
+pub struct ParsedGroupspec {
+    pub canonical_base: String,
+    pub posting_authorized: bool,
+    pub publish_authorized: bool,
+    pub flags: u8,
+}
+
+pub fn parse_groupspec_hex(groupspec: &str) -> ParsedGroupspec {
+    let trimmed = groupspec.trim();
+    let Some(hex_body) = trimmed.strip_prefix("G:") else {
+        return ParsedGroupspec {
+            canonical_base: trimmed.to_owned(),
+            posting_authorized: true,
+            publish_authorized: true,
+            flags: 0xFF,
+        };
+    };
+    let Ok(bytes) = hex_decode(hex_body) else {
+        return ParsedGroupspec {
+            canonical_base: trimmed.to_owned(),
+            posting_authorized: true,
+            publish_authorized: true,
+            flags: 0xFF,
+        };
+    };
+    if bytes.is_empty() {
+        return ParsedGroupspec {
+            canonical_base: trimmed.to_owned(),
+            posting_authorized: true,
+            publish_authorized: true,
+            flags: 0,
+        };
+    }
+
+    let mut base_bytes = vec![bytes[0]];
+    let mut pos = 1usize;
+    let mut flags = 0u8;
+    let mut pub_hash: Option<Vec<u8>> = None;
+    let mut post_hash: Option<Vec<u8>> = None;
+    let mut pub_token: Option<Vec<u8>> = None;
+    let mut post_token: Option<Vec<u8>> = None;
+
+    while pos + 2 <= bytes.len() {
+        let tag_start = pos;
+        let tag = bytes[pos];
+        let len_b = bytes[pos + 1];
+        pos += 2;
+        let len = if (len_b & 0x80) == 0 {
+            len_b as usize
+        } else {
+            if pos >= bytes.len() {
+                break;
+            }
+            let lo = bytes[pos] as usize;
+            pos += 1;
+            (((len_b & 0x7f) as usize) << 8) | lo
+        };
+        if pos + len > bytes.len() {
+            break;
+        }
+        let payload = &bytes[pos..pos + len];
+        pos += len;
+        match tag {
+            0x03 if !payload.is_empty() => {
+                flags = payload[0];
+                base_bytes.extend_from_slice(&bytes[tag_start..pos]);
+            }
+            0x05 => {
+                pub_hash = Some(payload.to_vec());
+                base_bytes.extend_from_slice(&bytes[tag_start..pos]);
+            }
+            0x07 => {
+                post_hash = Some(payload.to_vec());
+                base_bytes.extend_from_slice(&bytes[tag_start..pos]);
+            }
+            0x13 => {
+                pub_token = Some(payload.to_vec());
+            }
+            0x15 => {
+                post_token = Some(payload.to_vec());
+            }
+            _ => {
+                base_bytes.extend_from_slice(&bytes[tag_start..pos]);
+            }
+        }
+    }
+
+    let publish_authorized = match pub_hash {
+        None => true,
+        Some(ref expected) => match pub_token {
+            None => false,
+            Some(ref tok) => {
+                let mut verify_in = Vec::from(&b"pub-verify:"[..]);
+                verify_in.extend_from_slice(tok);
+                &sha256(&verify_in)[..expected.len().min(32)] == expected.as_slice()
+            }
+        },
+    };
+    let posting_authorized = match post_hash {
+        None => true,
+        Some(ref expected) => match post_token {
+            None => false,
+            Some(ref tok) => {
+                let mut verify_in = Vec::from(&b"post-verify:"[..]);
+                verify_in.extend_from_slice(tok);
+                &sha256(&verify_in)[..expected.len().min(32)] == expected.as_slice()
+            }
+        },
+    };
+
+    ParsedGroupspec {
+        canonical_base: format!("G:{}", hex_encode(&base_bytes)),
+        posting_authorized,
+        publish_authorized,
+        flags,
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NetGroupInfoSnapshot {
@@ -280,12 +405,15 @@ pub(super) struct NetGroupMember {
     pub(super) groupspec_base: String,
     pub(super) peer_id: String,
     pub(super) address: String,
+    pub(super) posting_authorized: bool,
+    pub(super) publish_authorized: bool,
     pub(super) receive_mode: String,
     pub(super) replication_strategy: String,
     pub(super) neighbors: BTreeSet<String>,
     pub(super) member_hints: BTreeSet<String>,
     pub(super) have_objects: BTreeSet<u64>,
     pub(super) want_objects: BTreeSet<u64>,
+    pub(super) in_flight_wants: BTreeSet<u64>,
     pub(super) seen_posts: HashSet<String>,
     pub(super) info: NetGroupInfoSnapshot,
     pub(super) closed: bool,
@@ -717,6 +845,62 @@ impl FlvStreamState {
             "backBufferByteLength": self.back_buffer_byte_length,
         })
     }
+
+    pub fn multicast_op(&mut self, kind: &str, bytes: f64, fragments: f64) -> Value {
+        let b = bytes.max(0.0);
+        let f = fragments.max(1.0);
+        let ctrl = (b * 0.05).clamp(8.0, 256.0);
+        match kind {
+            "push_to_peers" => {
+                self.multicast.bytes_pushed_to_peers += b;
+                self.multicast.fragments_pushed_to_peers += f;
+                self.multicast.send_data_bytes_per_second += b;
+                self.multicast.send_control_bytes_per_second += ctrl;
+            }
+            "push_from_peers" => {
+                self.multicast.bytes_pushed_from_peers += b;
+                self.multicast.fragments_pushed_from_peers += f;
+                self.multicast.receive_data_bytes_per_second += b;
+                self.multicast.receive_control_bytes_per_second += ctrl;
+                self.info.byte_count += b;
+                self.info.current_bytes_per_second = b;
+                if b > self.info.max_bytes_per_second {
+                    self.info.max_bytes_per_second = b;
+                }
+            }
+            "request_by_peers" => {
+                self.multicast.bytes_requested_by_peers += b;
+                self.multicast.fragments_requested_by_peers += f;
+                self.multicast.receive_control_bytes_per_second += ctrl;
+            }
+            "request_from_peers" => {
+                self.multicast.bytes_requested_from_peers += b;
+                self.multicast.fragments_requested_from_peers += f;
+                self.multicast.send_control_bytes_per_second += ctrl;
+            }
+            "receive_from_server" => {
+                self.multicast.bytes_received_from_server += b;
+                self.multicast.fragments_received_from_server += f;
+                self.multicast.receive_data_bytes_per_second += b;
+                self.multicast.receive_data_bytes_per_second_from_server += b;
+                self.multicast.send_control_bytes_per_second_to_server += ctrl;
+                self.info.byte_count += b;
+            }
+            "receive_from_ip_multicast" => {
+                self.multicast.bytes_received_from_ip_multicast += b;
+                self.multicast.fragments_received_from_ip_multicast += f;
+                self.multicast.receive_data_bytes_per_second += b;
+                self.multicast
+                    .receive_data_bytes_per_second_from_ip_multicast += b;
+                self.info.byte_count += b;
+            }
+            _ => {}
+        }
+        json!({
+            "multicastInfo": self.multicast,
+            "info": self.info,
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1120,6 +1304,21 @@ pub(super) fn asn1_rdn(oid_bytes: &[u8], value: &str) -> Vec<u8> {
 
 /// Builds a structurally valid ASN.1 DER X.509 v3 certificate for `common_name`.
 pub fn build_loopback_x509_der(common_name: &str) -> Vec<u8> {
+    build_custom_x509_der(
+        common_name,
+        common_name,
+        "20250101000000Z",
+        "20350101000000Z",
+    )
+}
+
+/// Builds an ASN.1 DER X.509 v3 certificate with custom subject CN, issuer CN, and GeneralizedTime validity window.
+pub fn build_custom_x509_der(
+    subject_cn: &str,
+    issuer_cn: &str,
+    not_before_gen: &str,
+    not_after_gen: &str,
+) -> Vec<u8> {
     // sha256WithRSAEncryption: 1.2.840.113549.1.1.11
     let sig_oid = [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0b];
     // rsaEncryption: 1.2.840.113549.1.1.1
@@ -1129,30 +1328,34 @@ pub fn build_loopback_x509_der(common_name: &str) -> Vec<u8> {
     sig_alg.extend_from_slice(&[0x05, 0x00]);
     let sig_alg_seq = asn1_wrap(0x30, &sig_alg);
 
-    let mut name_body = Vec::new();
-    name_body.extend_from_slice(&asn1_rdn(&[0x55, 0x04, 0x06], "US"));
-    name_body.extend_from_slice(&asn1_rdn(&[0x55, 0x04, 0x08], "California"));
-    name_body.extend_from_slice(&asn1_rdn(&[0x55, 0x04, 0x07], "San Francisco"));
-    name_body.extend_from_slice(&asn1_rdn(&[0x55, 0x04, 0x0a], "NeoFlash Runtime"));
-    name_body.extend_from_slice(&asn1_rdn(&[0x55, 0x04, 0x0b], "Security"));
-    name_body.extend_from_slice(&asn1_rdn(&[0x55, 0x04, 0x03], common_name));
-    let name_seq = asn1_wrap(0x30, &name_body);
+    let build_dn = |cn: &str| -> Vec<u8> {
+        let mut name_body = Vec::new();
+        name_body.extend_from_slice(&asn1_rdn(&[0x55, 0x04, 0x06], "US"));
+        name_body.extend_from_slice(&asn1_rdn(&[0x55, 0x04, 0x08], "California"));
+        name_body.extend_from_slice(&asn1_rdn(&[0x55, 0x04, 0x07], "San Francisco"));
+        name_body.extend_from_slice(&asn1_rdn(&[0x55, 0x04, 0x0a], "NeoFlash Runtime"));
+        name_body.extend_from_slice(&asn1_rdn(&[0x55, 0x04, 0x0b], "Security"));
+        name_body.extend_from_slice(&asn1_rdn(&[0x55, 0x04, 0x03], cn));
+        asn1_wrap(0x30, &name_body)
+    };
+    let issuer_seq = build_dn(issuer_cn);
+    let subject_seq = build_dn(subject_cn);
 
-    let mut validity_body = asn1_wrap(0x18, b"20250101000000Z");
-    validity_body.extend_from_slice(&asn1_wrap(0x18, b"20350101000000Z"));
+    let mut validity_body = asn1_wrap(0x18, not_before_gen.as_bytes());
+    validity_body.extend_from_slice(&asn1_wrap(0x18, not_after_gen.as_bytes()));
     let validity_seq = asn1_wrap(0x30, &validity_body);
 
     let mut rsa_alg = asn1_wrap(0x06, &rsa_oid);
     rsa_alg.extend_from_slice(&[0x05, 0x00]);
     let rsa_alg_seq = asn1_wrap(0x30, &rsa_alg);
-    let pk_digest = sha256(format!("pk:{common_name}").as_bytes());
+    let pk_digest = sha256(format!("pk:{subject_cn}").as_bytes());
     let mut bit_str = vec![0x00];
     bit_str.extend_from_slice(&pk_digest);
     let mut spki_body = rsa_alg_seq;
     spki_body.extend_from_slice(&asn1_wrap(0x03, &bit_str));
     let spki_seq = asn1_wrap(0x30, &spki_body);
 
-    let serial_digest = sha256(format!("serial:{common_name}").as_bytes());
+    let serial_digest = sha256(format!("serial:{subject_cn}:{issuer_cn}").as_bytes());
     let mut serial_bytes = vec![0x01];
     serial_bytes.extend_from_slice(&serial_digest[..7]);
 
@@ -1160,9 +1363,9 @@ pub fn build_loopback_x509_der(common_name: &str) -> Vec<u8> {
     tbs_body.extend_from_slice(&asn1_wrap(0xa0, &asn1_wrap(0x02, &[0x02]))); // v3
     tbs_body.extend_from_slice(&asn1_wrap(0x02, &serial_bytes));
     tbs_body.extend_from_slice(&sig_alg_seq);
-    tbs_body.extend_from_slice(&name_seq);
+    tbs_body.extend_from_slice(&issuer_seq);
     tbs_body.extend_from_slice(&validity_seq);
-    tbs_body.extend_from_slice(&name_seq);
+    tbs_body.extend_from_slice(&subject_seq);
     tbs_body.extend_from_slice(&spki_seq);
     let tbs_seq = asn1_wrap(0x30, &tbs_body);
 
@@ -1173,4 +1376,270 @@ pub fn build_loopback_x509_der(common_name: &str) -> Vec<u8> {
     cert_body.extend_from_slice(&sig_alg_seq);
     cert_body.extend_from_slice(&asn1_wrap(0x03, &sig_bits));
     asn1_wrap(0x30, &cert_body)
+}
+
+fn hostname_matches_pattern(host: &str, pattern: &str) -> bool {
+    let h = host
+        .trim()
+        .trim_matches(|c| c == '[' || c == ']')
+        .to_ascii_lowercase();
+    let p = pattern.trim().to_ascii_lowercase();
+    if p.is_empty() || h.is_empty() {
+        return false;
+    }
+    if p == "*" || p == h {
+        return true;
+    }
+    if matches!(h.as_str(), "localhost" | "127.0.0.1" | "::1")
+        && matches!(p.as_str(), "localhost" | "127.0.0.1" | "::1")
+    {
+        return true;
+    }
+    if let Some(suffix) = p.strip_prefix("*.") {
+        return h.ends_with(&format!(".{suffix}")) && h.len() > suffix.len() + 1;
+    }
+    false
+}
+
+fn x509_hostname_matches_cn(host: &str, cn: &str) -> bool {
+    let h = host
+        .trim()
+        .trim_matches(|c| c == '[' || c == ']')
+        .to_ascii_lowercase();
+    let p = cn.trim().to_ascii_lowercase();
+    if p.is_empty() || h.is_empty() {
+        return false;
+    }
+    if p == "*" || p == h {
+        return true;
+    }
+    if let Some(suffix) = p.strip_prefix("*.") {
+        return h.ends_with(&format!(".{suffix}")) && h.len() > suffix.len() + 1;
+    }
+    false
+}
+
+/// Validates an X.509 certificate against `host`, `now_ms`, and `addBinaryChainBuildingCertificate` anchors,
+/// returning `(CertificateStatus, Option<X509CertificateData>)`.
+pub fn verify_x509_certificate_chain(
+    server_der: &[u8],
+    host: &str,
+    now_ms: f64,
+    chain_certs: &[(Vec<u8>, bool)],
+    os_verified_tls: bool,
+) -> (String, Option<X509CertificateData>) {
+    let Ok(cert) = parse_x509_certificate(server_der) else {
+        return ("invalid".to_owned(), None);
+    };
+    if now_ms.is_finite() && now_ms > 0.0 {
+        if now_ms < cert.valid_not_before_ms {
+            return ("notYetValid".to_owned(), Some(cert));
+        }
+        if now_ms > cert.valid_not_after_ms {
+            return ("expired".to_owned(), Some(cert));
+        }
+    }
+    if let Some(ref cn) = cert.subject.common_name
+        && !host.trim().is_empty()
+        && !x509_hostname_matches_cn(host, cn)
+    {
+        return ("principalMismatch".to_owned(), Some(cert));
+    }
+
+    let issuer_fmt = cert.issuer.formatted();
+    let mut matched_trusted = false;
+    let mut matched_untrusted = false;
+    for (ca_der, trusted) in chain_certs {
+        if let Ok(ca_cert) = parse_x509_certificate(ca_der)
+            && (ca_cert.encoded_base64 == cert.encoded_base64
+                || ca_cert.subject.formatted() == issuer_fmt)
+        {
+            if *trusted {
+                matched_trusted = true;
+            } else {
+                matched_untrusted = true;
+            }
+        }
+    }
+    if matched_trusted {
+        return ("trusted".to_owned(), Some(cert));
+    }
+    if matched_untrusted {
+        return ("untrustedSigners".to_owned(), Some(cert));
+    }
+    if os_verified_tls {
+        return ("trusted".to_owned(), Some(cert));
+    }
+    ("untrustedSigners".to_owned(), Some(cert))
+}
+
+// ---------------------------------------------------------------------------
+// Cross-Domain Policy XML Parser (`Security.loadPolicyFile`)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PolicyAllowAccessRule {
+    pub domain: String,
+    pub to_ports: String,
+    pub secure: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PolicyAllowHeadersRule {
+    pub domain: String,
+    pub headers: String,
+    pub secure: bool,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CrossDomainPolicyFile {
+    pub site_control: String,
+    pub allow_access: Vec<PolicyAllowAccessRule>,
+    pub allow_headers: Vec<PolicyAllowHeadersRule>,
+}
+
+fn extract_xml_attr(tag_text: &str, attr_name: &str) -> Option<String> {
+    let lower = tag_text.to_ascii_lowercase();
+    let needle = format!("{}=", attr_name.to_ascii_lowercase());
+    let mut search_from = 0usize;
+    while let Some(rel) = lower[search_from..].find(&needle) {
+        let idx = search_from + rel;
+        let prev_ok = idx == 0 || lower.as_bytes()[idx - 1].is_ascii_whitespace();
+        let val_start = idx + needle.len();
+        if !prev_ok || val_start >= tag_text.len() {
+            search_from = val_start;
+            continue;
+        }
+        let rest = tag_text[val_start..].trim_start();
+        let quote = rest.chars().next()?;
+        if quote == '"' || quote == '\'' {
+            let inner = &rest[1..];
+            let end = inner.find(quote)?;
+            return Some(inner[..end].trim().to_owned());
+        }
+        search_from = val_start;
+    }
+    None
+}
+
+pub fn parse_cross_domain_policy_xml(xml: &str) -> Result<CrossDomainPolicyFile, String> {
+    let trimmed = xml.trim_start_matches('\u{feff}').trim();
+    if !trimmed
+        .to_ascii_lowercase()
+        .contains("<cross-domain-policy")
+    {
+        return Err("SecurityError: Policy file lacks <cross-domain-policy> root element.".into());
+    }
+    let mut policy = CrossDomainPolicyFile {
+        site_control: "master-only".to_owned(),
+        allow_access: Vec::new(),
+        allow_headers: Vec::new(),
+    };
+    let mut cursor = 0usize;
+    while let Some(rel_lt) = trimmed[cursor..].find('<') {
+        let lt = cursor + rel_lt;
+        let Some(rel_gt) = trimmed[lt..].find('>') else {
+            break;
+        };
+        let gt = lt + rel_gt;
+        let tag = trimmed[lt + 1..gt].trim();
+        cursor = gt + 1;
+        if tag.starts_with('?') || tag.starts_with('!') || tag.starts_with('/') {
+            continue;
+        }
+        let tag_lower = tag.to_ascii_lowercase();
+        if tag_lower.starts_with("site-control") {
+            if let Some(sc) = extract_xml_attr(tag, "permitted-cross-domain-policies") {
+                policy.site_control = sc.to_ascii_lowercase();
+            }
+        } else if tag_lower.starts_with("allow-access-from") {
+            if let Some(domain) = extract_xml_attr(tag, "domain")
+                && !domain.is_empty()
+            {
+                let to_ports = extract_xml_attr(tag, "to-ports").unwrap_or_else(|| "*".to_owned());
+                let secure = extract_xml_attr(tag, "secure")
+                    .map(|s| !s.eq_ignore_ascii_case("false"))
+                    .unwrap_or(true);
+                policy.allow_access.push(PolicyAllowAccessRule {
+                    domain,
+                    to_ports,
+                    secure,
+                });
+            }
+        } else if tag_lower.starts_with("allow-http-request-headers-from")
+            && let Some(domain) = extract_xml_attr(tag, "domain")
+            && let Some(headers) = extract_xml_attr(tag, "headers")
+            && !domain.is_empty()
+            && !headers.is_empty()
+        {
+            let secure = extract_xml_attr(tag, "secure")
+                .map(|s| !s.eq_ignore_ascii_case("false"))
+                .unwrap_or(true);
+            policy.allow_headers.push(PolicyAllowHeadersRule {
+                domain,
+                headers,
+                secure,
+            });
+        }
+    }
+    if policy.site_control == "none" {
+        policy.allow_access.clear();
+        policy.allow_headers.clear();
+    }
+    Ok(policy)
+}
+
+pub fn port_matches_policy_spec(port: u16, spec: &str) -> bool {
+    let trimmed = spec.trim();
+    if trimmed == "*" || trimmed.is_empty() {
+        return true;
+    }
+    for part in trimmed.split(',') {
+        let p = part.trim();
+        if p == "*" {
+            return true;
+        }
+        if let Some((lo_s, hi_s)) = p.split_once('-') {
+            if let (Ok(lo), Ok(hi)) = (lo_s.trim().parse::<u16>(), hi_s.trim().parse::<u16>())
+                && port >= lo
+                && port <= hi
+            {
+                return true;
+            }
+        } else if let Ok(exact) = p.parse::<u16>()
+            && port == exact
+        {
+            return true;
+        }
+    }
+    false
+}
+
+pub fn policy_allows_access(
+    policy: &CrossDomainPolicyFile,
+    requester_domain: &str,
+    port: Option<u16>,
+    requester_is_secure: bool,
+) -> bool {
+    if policy.site_control == "none" {
+        return false;
+    }
+    for rule in &policy.allow_access {
+        if rule.secure && !requester_is_secure {
+            continue;
+        }
+        if !hostname_matches_pattern(requester_domain, &rule.domain) {
+            continue;
+        }
+        if let Some(p) = port
+            && !port_matches_policy_spec(p, &rule.to_ports)
+        {
+            continue;
+        }
+        return true;
+    }
+    false
 }

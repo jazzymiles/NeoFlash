@@ -868,6 +868,24 @@ export async function verifyMediaNetStream(root, cargo) {
       ns.play2(opts);
     }
 
+    public function play2Options(
+      streamName:String,
+      oldStreamName:String,
+      transition:String,
+      start:Number = -2,
+      len:Number = -1,
+      offset:Number = -1
+    ):void {
+      var opts:NetStreamPlayOptions = new NetStreamPlayOptions();
+      opts.streamName = streamName;
+      opts.oldStreamName = oldStreamName;
+      opts.transition = transition;
+      opts.start = start;
+      opts.len = len;
+      opts.offset = offset;
+      ns.play2(opts);
+    }
+
     public function setStreamMatrix(ll:Number, lr:Number, rl:Number, rr:Number):void {
       var st:SoundTransform = new SoundTransform(1, 0);
       st.leftToLeft = ll;
@@ -1266,6 +1284,51 @@ var as2MatrixRead:Array = [tfRead.ll, tfRead.lr, tfRead.rl, tfRead.rr];
         scene.ns.bytesLoaded > 0 && scene.ns.bytesLoaded < scene.ns.bytesTotal,
         `progressive bounded len>0 clip must preserve partial bytesLoaded (${scene.ns.bytesLoaded}) < bytesTotal (${scene.ns.bytesTotal})`
       );
+
+      // T-333: NetStream.receiveVideoFPS positive-rate frame throttling, sliding-window currentFPS, and play2 transitions
+      scene.clearLogs();
+      scene.playArgs('media/motion.mp4', 0, -1, 1);
+      await until(() => harness.videoElements.at(-1)?.paused === false, 'stream active for receiveVideoFPS throttling');
+      scene.setReceiveVideoFPS(5); // 5 fps => 200ms minimum interval between delivered frames
+      const throttledVid = harness.videoElements.at(-1);
+      const basePerf = performance.now();
+      // Emit 6 rapid 40ms frame callbacks (240ms total): only ~2 frames (at t=0ms and t=200ms) may pass the 5fps gate!
+      for (let i = 0; i < 6; i++) {
+        throttledVid.advance(0.04, basePerf + i * 40);
+      }
+      const throttledFps = scene.ns.currentFPS;
+      assert.ok(
+        throttledFps > 0 && throttledFps <= 6.5,
+        `receiveVideoFPS(5) must throttle delivered frame rate to ~5 fps (got ${throttledFps})`
+      );
+      scene.setReceiveVideoFPS(0);
+      assert.equal(scene.ns.currentFPS, 0, 'receiveVideoFPS(0) freezes video delivery and reports 0 currentFPS');
+      scene.setReceiveVideo(true);
+
+      // T-333: play2 transitions (SWITCH with seamless offset, SWAP, APPEND, APPEND_AND_WAIT, STOP)
+      scene.clearLogs();
+      scene.playArgs('media/motion.mp4', 0, -1, 1);
+      await until(() => harness.videoElements.at(-1)?.paused === false, 'initial stream before play2 SWITCH');
+      harness.videoElements.at(-1).currentTime = 1.2;
+      scene.play2Options('media/motion.mp4', 'media/motion.mp4', 'switch', 0, -1, 1.5);
+      await until(
+        () => Array.from(scene.statusLog).includes('NetStream.Play.Transition')
+          && Array.from(scene.playStatusLog).includes('NetStream.Play.TransitionComplete')
+          && harness.videoElements.at(-1)?.paused === false,
+        'play2(SWITCH) dispatches NetStream.Play.Transition and onPlayStatus(TransitionComplete)'
+      );
+      assert.ok(Math.abs(scene.ns.time - 1.5) < 0.05, `play2(SWITCH, offset=1.5) transitions seamlessly to 1.5s (got ${scene.ns.time})`);
+
+      scene.clearLogs();
+      scene.play2Options('audio/cued.wav', null, 'append', 0, -1, -1);
+      harness.videoElements.at(-1).advance(3.0);
+      await until(
+        () => Array.from(scene.playStatusLog).includes('NetStream.Play.Switch'),
+        'play2(APPEND) queues item and transitions via onPlayStatus(Switch)'
+      );
+      scene.clearLogs();
+      scene.play2Options('', null, 'stop', 0, -1, -1);
+      await until(() => Array.from(scene.statusLog).includes('NetStream.Play.Stop'), 'play2(STOP) stops active playback');
 
       // AS2 embedded data: URI + AS2 playlist / seek check
       scene.as2Statuses.length = 0;

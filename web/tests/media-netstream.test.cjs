@@ -855,6 +855,18 @@ test('T-327 Node WASM & host unit suite: NetStream reset modes (0/1/2/3), Seek.I
     await new Promise((r) => setTimeout(r, 10));
     assert.equal(streamAborted, true, 'NetStream.close() aborts progressive stream fetch');
 
+    // T-333: Bounded progressive clip (len > 0) also tracks exact ReadableStream HTTP chunk bytes (0 before chunk, 312 after chunk)
+    pushChunk = null;
+    pNs.play('https://cdn.example.test/bounded-prog.mp4', 0.2, 0.5, 1);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.ok(pushChunk, 'bounded progressive stream reader opened');
+    assert.equal(pNs.bytesLoaded, 0, 'bytesLoaded stays 0 before any HTTP chunk arrives even when readyState >= 2');
+    pushChunk.enqueue(new Uint8Array(312));
+    await new Promise((r) => setTimeout(r, 15));
+    assert.equal(pNs.bytesLoaded, 312, 'bounded progressive clip bytesLoaded reflects exact 312-byte HTTP chunk');
+    pNs.close();
+    await new Promise((r) => setTimeout(r, 10));
+
     // Live HTTP HLS stream (duration === Infinity) with start = -1 & bounded len
     const liveMetas = [];
     const liveCodes = [];

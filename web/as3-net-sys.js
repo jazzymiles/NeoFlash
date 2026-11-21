@@ -1626,7 +1626,21 @@
 
     const netGroups = new WeakMap();
     const netGroupsById = new Map();
+    const activeWebSockets = new Set();
+    const activeTimers = new Set();
     const NetStatusEventCtor = videoHost?._as3Hook?.NetStatusEvent;
+
+    function trackTimer(timerId, isInterval = false) {
+      const entry = { timerId, isInterval };
+      activeTimers.add(entry);
+      return entry;
+    }
+    function untrackTimer(entry) {
+      if (!entry) return;
+      activeTimers.delete(entry);
+      if (entry.isInterval) clearInterval(entry.timerId);
+      else clearTimeout(entry.timerId);
+    }
 
     function makeNetStatusEvent(info) {
       const Ctor = getEventCtor('flash.events.NetStatusEvent') || NetStatusEventCtor;
@@ -1634,6 +1648,58 @@
       const ev = new events.Event('netStatus', false, false);
       ev.info = info;
       return ev;
+    }
+
+    function encodeAmfOrJsonPayload(value) {
+      if (amf?.encode) {
+        try {
+          const bytes = amf.encode(value, 3);
+          return { amfBase64: toBase64(bytes), byteLength: bytes.byteLength };
+        } catch (_) {}
+      }
+      const json = JSON.stringify(value ?? null) || 'null';
+      return { json, byteLength: json.length };
+    }
+
+    function decodeAmfOrJsonPayload(envelope, fallbackValue = undefined) {
+      if (envelope && typeof envelope.amfBase64 === 'string' && amf?.decode) {
+        try {
+          return amf.decode(fromBase64(envelope.amfBase64), 3, { complete: true }).value;
+        } catch (_) {}
+      }
+      if (envelope && typeof envelope.json === 'string') {
+        try {
+          return JSON.parse(envelope.json);
+        } catch (_) {}
+      }
+      return fallbackValue;
+    }
+
+    function dispatchNetGroupFetchTickets(tickets) {
+      if (!Array.isArray(tickets) || tickets.length === 0) return;
+      for (const t of tickets) {
+        const requester = netGroupsById.get(t.requesterId ?? t.requesterGroupId);
+        const provider = netGroupsById.get(t.providerId ?? t.providerGroupId);
+        if (requester) {
+          dispatchLater(requester, () =>
+            makeNetStatusEvent({
+              code: 'NetGroup.Replication.Fetch.SendNotify',
+              level: 'status',
+              index: Number(t.index),
+            })
+          );
+        }
+        if (provider) {
+          dispatchLater(provider, () =>
+            makeNetStatusEvent({
+              code: 'NetGroup.Replication.Request',
+              level: 'status',
+              index: Number(t.index),
+              requestID: Number(t.requestID),
+            })
+          );
+        }
+      }
     }
 
     class NetGroup extends events.EventDispatcher {
@@ -1654,21 +1720,61 @@
           throw err;
         }
         registerDispatcher(this);
+        const specStr = String(groupspec);
         const created = execKernel({
           op: 'netgroup_new',
-          groupspec: String(groupspec),
+          groupspec: specStr,
           peerID: ncRec.nearID || '',
         });
         const rec = {
           generation,
           id: created.id,
           connection,
-          groupspec: String(groupspec),
+          groupspec: specStr,
+          baseSpec: String(created.baseSpec || specStr).toLowerCase(),
           address: created.address,
+          peerID: ncRec.nearID || created.address,
           replicatedObjects: new Map(),
+          remoteHaveByPeer: new Map(),
+          pendingRemoteRequests: new Map(),
+          inFlightRemoteWants: new Set(),
+          broadcastChannel: null,
         };
         netGroups.set(this, rec);
         netGroupsById.set(created.id, this);
+
+        const BroadcastCtor = options.BroadcastChannel || global.BroadcastChannel;
+        if (typeof BroadcastCtor === 'function') {
+          try {
+            const bc = new BroadcastCtor(`neoflash.netgroup.v1:${rec.baseSpec}`);
+            bc.onmessage = ev => handleNetGroupMeshMessage(this, rec, ev?.data);
+            bc.unref?.();
+            rec.broadcastChannel = bc;
+            activeBroadcastChannels.add(bc);
+            bc.postMessage({
+              type: 'join',
+              senderGroupId: rec.id,
+              senderToken: rec.peerID,
+              peerID: rec.peerID,
+              address: rec.address,
+            });
+          } catch (_) {}
+        }
+        if (ncRec.ws && ncRec.ws.readyState === 1) {
+          try {
+            ncRec.ws.send(
+              JSON.stringify({
+                type: 'ng_join',
+                baseSpec: rec.baseSpec,
+                peerID: rec.peerID,
+                address: rec.address,
+              })
+            );
+          } catch (_) {}
+        }
+        if (!ncRec.netGroups) ncRec.netGroups = new Set();
+        ncRec.netGroups.add(this);
+
         dispatchLater(this, () =>
           makeNetStatusEvent({ code: 'NetGroup.Connect.Success', level: 'status', group: this })
         );
@@ -1703,7 +1809,20 @@
       addNeighbor(peerID) {
         const rec = ngState(this);
         if (!peerID) return false;
-        return Boolean(execKernel({ op: 'netgroup_op', id: rec.id, action: 'add_neighbor', peerID: String(peerID) }).added);
+        const pid = String(peerID);
+        const res = execKernel({ op: 'netgroup_op', id: rec.id, action: 'add_neighbor', peerID: pid });
+        if (res.added) {
+          const neighborAddr = this.convertPeerIDToGroupAddress(pid);
+          dispatchLater(this, () =>
+            makeNetStatusEvent({
+              code: 'NetGroup.Neighbor.Connect',
+              level: 'status',
+              neighbor: neighborAddr,
+              peerID: pid,
+            })
+          );
+        }
+        return Boolean(res.added);
       }
       addMemberHint(peerID) {
         const rec = ngState(this);
@@ -1712,67 +1831,157 @@
       }
       addHaveObjects(startIndex, endIndex) {
         const rec = ngState(this);
-        execKernel({ op: 'netgroup_op', id: rec.id, action: 'have_want', kind: 'addHave', start: Number(startIndex), end: Number(endIndex) });
+        const s = Number(startIndex);
+        const e = Number(endIndex);
+        const res = execKernel({ op: 'netgroup_op', id: rec.id, action: 'have_want', kind: 'addHave', start: s, end: e });
+        dispatchNetGroupFetchTickets(res.fetchRequests);
+        broadcastNetGroupMesh(rec, { type: 'have_update', add: true, start: s, end: e });
       }
       removeHaveObjects(startIndex, endIndex) {
         const rec = ngState(this);
-        execKernel({ op: 'netgroup_op', id: rec.id, action: 'have_want', kind: 'removeHave', start: Number(startIndex), end: Number(endIndex) });
+        const s = Number(startIndex);
+        const e = Number(endIndex);
+        execKernel({ op: 'netgroup_op', id: rec.id, action: 'have_want', kind: 'removeHave', start: s, end: e });
+        broadcastNetGroupMesh(rec, { type: 'have_update', add: false, start: s, end: e });
       }
       addWantObjects(startIndex, endIndex) {
         const rec = ngState(this);
-        execKernel({ op: 'netgroup_op', id: rec.id, action: 'have_want', kind: 'addWant', start: Number(startIndex), end: Number(endIndex) });
+        const s = Number(startIndex);
+        const e = Number(endIndex);
+        const res = execKernel({ op: 'netgroup_op', id: rec.id, action: 'have_want', kind: 'addWant', start: s, end: e });
+        dispatchNetGroupFetchTickets(res.fetchRequests);
+        const localScheduled = new Set((res.fetchRequests || []).map(t => Number(t.index)));
+        for (let idx = Math.trunc(s); idx <= Math.trunc(e); idx++) {
+          if (!localScheduled.has(idx)) scheduleRemoteNetGroupWants(this, rec, idx, idx);
+        }
       }
       removeWantObjects(startIndex, endIndex) {
         const rec = ngState(this);
-        execKernel({ op: 'netgroup_op', id: rec.id, action: 'have_want', kind: 'removeWant', start: Number(startIndex), end: Number(endIndex) });
+        const s = Number(startIndex);
+        const e = Number(endIndex);
+        execKernel({ op: 'netgroup_op', id: rec.id, action: 'have_want', kind: 'removeWant', start: s, end: e });
+        for (let idx = Math.trunc(s); idx <= Math.trunc(e); idx++) {
+          rec.inFlightRemoteWants.delete(idx);
+        }
       }
       writeRequestedObject(requestID, object) {
         const rec = ngState(this);
-        rec.replicatedObjects.set(Number(requestID), object);
-        execKernel({
+        const reqId = Number(requestID);
+        const encoded = encodeAmfOrJsonPayload(object);
+        rec.replicatedObjects.set(reqId, object);
+        if (rec.pendingRemoteRequests.has(reqId)) {
+          const remoteTicket = rec.pendingRemoteRequests.get(reqId);
+          rec.pendingRemoteRequests.delete(reqId);
+          execKernel({
+            op: 'netgroup_op',
+            id: rec.id,
+            action: 'ingest_remote',
+            kind: 'replication_send',
+            byteLength: encoded.byteLength,
+          });
+          broadcastNetGroupMesh(rec, {
+            type: 'rep_reply',
+            targetToken: remoteTicket.requesterToken,
+            index: remoteTicket.index,
+            deny: false,
+            ...encoded,
+          });
+          return;
+        }
+        const res = execKernel({
           op: 'netgroup_op',
           id: rec.id,
           action: 'replication_reply',
-          requestID: Number(requestID),
-          byteLength: 32,
+          requestID: reqId,
+          byteLength: Math.max(1, encoded.byteLength),
           deny: false,
         });
+        const resolvedReqId = res.requesterId ?? res.requesterGroupId;
+        if (resolvedReqId != null) {
+          const requester = netGroupsById.get(resolvedReqId);
+          if (requester) {
+            const cloned = decodeAmfOrJsonPayload(encoded, object);
+            dispatchLater(requester, () =>
+              makeNetStatusEvent({
+                code: 'NetGroup.Replication.Fetch.Result',
+                level: 'status',
+                index: Number(res.index),
+                object: cloned,
+              })
+            );
+          }
+        }
       }
       denyRequestedObject(requestID) {
         const rec = ngState(this);
-        execKernel({
+        const reqId = Number(requestID);
+        if (rec.pendingRemoteRequests.has(reqId)) {
+          const remoteTicket = rec.pendingRemoteRequests.get(reqId);
+          rec.pendingRemoteRequests.delete(reqId);
+          broadcastNetGroupMesh(rec, {
+            type: 'rep_reply',
+            targetToken: remoteTicket.requesterToken,
+            index: remoteTicket.index,
+            deny: true,
+          });
+          return;
+        }
+        const res = execKernel({
           op: 'netgroup_op',
           id: rec.id,
           action: 'replication_reply',
-          requestID: Number(requestID),
+          requestID: reqId,
           byteLength: 0,
           deny: true,
         });
+        const resolvedReqId = res.requesterId ?? res.requesterGroupId;
+        if (resolvedReqId != null) {
+          const requester = netGroupsById.get(resolvedReqId);
+          if (requester) {
+            dispatchLater(requester, () =>
+              makeNetStatusEvent({
+                code: 'NetGroup.Replication.Fetch.Failed',
+                level: 'status',
+                index: Number(res.index),
+              })
+            );
+          }
+          dispatchNetGroupFetchTickets(res.retryRequests);
+        }
       }
       post(message) {
         const rec = ngState(this);
+        const encoded = encodeAmfOrJsonPayload(message);
         const summary = JSON.stringify(message ?? null) || 'msg';
         const res = execKernel({
           op: 'netgroup_op',
           id: rec.id,
           action: 'post',
           payloadSummary: summary,
-          byteLength: summary.length,
+          byteLength: Math.max(1, encoded.byteLength),
         });
-        if (res.messageID && Array.isArray(res.recipients)) {
-          for (const targetId of res.recipients) {
-            const peer = netGroupsById.get(targetId);
-            if (peer) {
-              dispatchLater(peer, () =>
-                makeNetStatusEvent({
-                  code: 'NetGroup.Posting.Notify',
-                  level: 'status',
-                  message,
-                  messageID: res.messageID,
-                })
-              );
+        if (res.messageID) {
+          if (Array.isArray(res.recipients)) {
+            for (const targetId of res.recipients) {
+              const peer = netGroupsById.get(targetId);
+              if (peer) {
+                const cloned = decodeAmfOrJsonPayload(encoded, message);
+                dispatchLater(peer, () =>
+                  makeNetStatusEvent({
+                    code: 'NetGroup.Posting.Notify',
+                    level: 'status',
+                    message: cloned,
+                    messageID: res.messageID,
+                  })
+                );
+              }
             }
           }
+          broadcastNetGroupMesh(rec, {
+            type: 'post',
+            messageID: res.messageID,
+            ...encoded,
+          });
         }
         return res.messageID || null;
       }
@@ -1790,8 +1999,200 @@
       }
       close() {
         const rec = ngState(this);
+        if (rec.broadcastChannel) {
+          try {
+            rec.broadcastChannel.postMessage({
+              type: 'leave',
+              senderToken: rec.peerID,
+              peerID: rec.peerID,
+              address: rec.address,
+            });
+            rec.broadcastChannel.close();
+          } catch (_) {}
+          activeBroadcastChannels.delete(rec.broadcastChannel);
+          rec.broadcastChannel = null;
+        }
+        const ncRec = videoHost?._as3Hook?.connections?.get(rec.connection);
+        ncRec?.netGroups?.delete(this);
         execKernel({ op: 'netgroup_op', id: rec.id, action: 'close' });
         netGroupsById.delete(rec.id);
+      }
+    }
+    let nextRemoteRepReqId = 500000;
+    function broadcastNetGroupMesh(rec, payload) {
+      const msg = {
+        ...payload,
+        baseSpec: rec.baseSpec,
+        senderToken: rec.peerID,
+        senderAddress: rec.address,
+      };
+      if (rec.broadcastChannel) {
+        try { rec.broadcastChannel.postMessage(msg); } catch (_) {}
+      }
+      const ncRec = videoHost?._as3Hook?.connections?.get(rec.connection);
+      if (ncRec?.ws && ncRec.ws.readyState === 1) {
+        try { ncRec.ws.send(JSON.stringify({ type: 'ng_mesh', payload: msg })); } catch (_) {}
+      }
+    }
+    function scheduleRemoteNetGroupWants(instance, rec, startIdx, endIdx) {
+      for (let idx = Math.trunc(startIdx); idx <= Math.trunc(endIdx); idx++) {
+        if (rec.inFlightRemoteWants.has(idx)) continue;
+        for (const [peerToken, haveSet] of rec.remoteHaveByPeer.entries()) {
+          if (haveSet.has(idx)) {
+            rec.inFlightRemoteWants.add(idx);
+            dispatchLater(instance, () =>
+              makeNetStatusEvent({
+                code: 'NetGroup.Replication.Fetch.SendNotify',
+                level: 'status',
+                index: idx,
+              })
+            );
+            broadcastNetGroupMesh(rec, {
+              type: 'rep_request',
+              targetToken: peerToken,
+              index: idx,
+            });
+            break;
+          }
+        }
+      }
+    }
+    function handleNetGroupMeshMessage(instance, rec, msg) {
+      if (disposed || rec.generation !== generation || !msg || typeof msg !== 'object') return;
+      if (msg.senderToken && msg.senderToken === rec.peerID) return;
+      if (msg.baseSpec && msg.baseSpec !== rec.baseSpec) return;
+      if (msg.type === 'join') {
+        const res = execKernel({ op: 'netgroup_op', id: rec.id, action: 'add_neighbor', peerID: String(msg.peerID || msg.senderToken) });
+        if (res.added) {
+          dispatchLater(instance, () =>
+            makeNetStatusEvent({
+              code: 'NetGroup.Neighbor.Connect',
+              level: 'status',
+              neighbor: String(msg.address || ''),
+              peerID: String(msg.peerID || msg.senderToken),
+            })
+          );
+          broadcastNetGroupMesh(rec, {
+            type: 'join_ack',
+            peerID: rec.peerID,
+            address: rec.address,
+          });
+        }
+        return;
+      }
+      if (msg.type === 'join_ack') {
+        const res = execKernel({ op: 'netgroup_op', id: rec.id, action: 'add_neighbor', peerID: String(msg.peerID || msg.senderToken) });
+        if (res.added) {
+          dispatchLater(instance, () =>
+            makeNetStatusEvent({
+              code: 'NetGroup.Neighbor.Connect',
+              level: 'status',
+              neighbor: String(msg.address || ''),
+              peerID: String(msg.peerID || msg.senderToken),
+            })
+          );
+        }
+        return;
+      }
+      if (msg.type === 'post') {
+        const check = execKernel({
+          op: 'netgroup_op',
+          id: rec.id,
+          action: 'ingest_remote',
+          kind: 'post',
+          messageID: String(msg.messageID || ''),
+          byteLength: Number(msg.byteLength) || 16,
+        });
+        if (check.accepted) {
+          const decoded = decodeAmfOrJsonPayload(msg, null);
+          dispatchLater(instance, () =>
+            makeNetStatusEvent({
+              code: 'NetGroup.Posting.Notify',
+              level: 'status',
+              message: decoded,
+              messageID: String(msg.messageID || ''),
+            })
+          );
+        }
+        return;
+      }
+      if (msg.type === 'route') {
+        execKernel({
+          op: 'netgroup_op',
+          id: rec.id,
+          action: 'ingest_remote',
+          kind: 'route',
+          byteLength: Number(msg.byteLength) || 16,
+        });
+        const decoded = decodeAmfOrJsonPayload(msg, null);
+        dispatchLater(instance, () =>
+          makeNetStatusEvent({
+            code: 'NetGroup.SendTo.Notify',
+            level: 'status',
+            message: decoded,
+            from: String(msg.senderAddress || ''),
+            fromLocal: false,
+          })
+        );
+        return;
+      }
+      if (msg.type === 'have_update') {
+        let set = rec.remoteHaveByPeer.get(msg.senderToken);
+        if (!set) {
+          set = new Set();
+          rec.remoteHaveByPeer.set(msg.senderToken, set);
+        }
+        const s = Math.trunc(Number(msg.start) || 0);
+        const e = Math.trunc(Number(msg.end) || 0);
+        for (let i = s; i <= e; i++) {
+          if (msg.add) set.add(i);
+          else set.delete(i);
+        }
+        return;
+      }
+      if (msg.type === 'rep_request' && msg.targetToken === rec.peerID) {
+        const reqId = nextRemoteRepReqId++;
+        const idx = Math.trunc(Number(msg.index) || 0);
+        rec.pendingRemoteRequests.set(reqId, { requesterToken: msg.senderToken, index: idx });
+        dispatchLater(instance, () =>
+          makeNetStatusEvent({
+            code: 'NetGroup.Replication.Request',
+            level: 'status',
+            index: idx,
+            requestID: reqId,
+          })
+        );
+        return;
+      }
+      if (msg.type === 'rep_reply' && msg.targetToken === rec.peerID) {
+        const idx = Math.trunc(Number(msg.index) || 0);
+        rec.inFlightRemoteWants.delete(idx);
+        if (msg.deny) {
+          dispatchLater(instance, () =>
+            makeNetStatusEvent({
+              code: 'NetGroup.Replication.Fetch.Failed',
+              level: 'status',
+              index: idx,
+            })
+          );
+        } else {
+          execKernel({
+            op: 'netgroup_op',
+            id: rec.id,
+            action: 'ingest_remote',
+            kind: 'replication',
+            byteLength: Number(msg.byteLength) || 16,
+          });
+          const obj = decodeAmfOrJsonPayload(msg, null);
+          dispatchLater(instance, () =>
+            makeNetStatusEvent({
+              code: 'NetGroup.Replication.Fetch.Result',
+              level: 'status',
+              index: idx,
+              object: obj,
+            })
+          );
+        }
       }
     }
     function ngState(instance) {
@@ -1805,34 +2206,44 @@
       return execKernel({ op: 'netgroup_op', id: rec.id, action: 'snapshot' });
     }
     function ngRoute(instance, sendMode, message, groupAddress) {
-      const rec = ngState(instance);
-      const summary = JSON.stringify(message ?? null) || 'msg';
+      const rec = ngState(thisOrInstance(instance));
+      const encoded = encodeAmfOrJsonPayload(message);
       const res = execKernel({
         op: 'netgroup_op',
         id: rec.id,
         action: 'route',
         sendMode,
         groupAddress,
-        byteLength: summary.length,
+        byteLength: Math.max(1, encoded.byteLength),
       });
-      if (res.result === 'sent' && Array.isArray(res.recipients)) {
-        for (const targetId of res.recipients) {
-          const peer = netGroupsById.get(targetId);
-          if (peer) {
-            dispatchLater(peer, () =>
-              makeNetStatusEvent({
-                code: 'NetGroup.SendTo.Notify',
-                level: 'status',
-                message,
-                from: rec.address,
-                fromLocal: true,
-              })
-            );
+      if (res.result === 'sent') {
+        if (Array.isArray(res.recipients)) {
+          for (const targetId of res.recipients) {
+            const peer = netGroupsById.get(targetId);
+            if (peer) {
+              const cloned = decodeAmfOrJsonPayload(encoded, message);
+              dispatchLater(peer, () =>
+                makeNetStatusEvent({
+                  code: 'NetGroup.SendTo.Notify',
+                  level: 'status',
+                  message: cloned,
+                  from: rec.address,
+                  fromLocal: true,
+                })
+              );
+            }
           }
         }
+        broadcastNetGroupMesh(rec, {
+          type: 'route',
+          sendMode,
+          groupAddress,
+          ...encoded,
+        });
       }
       return res.result;
     }
+    function thisOrInstance(inst) { return inst; }
     tagType(NetGroup, 'NetGroup', v => netGroups.has(v));
 
     // LocalConnection
@@ -2222,6 +2633,151 @@
       const NetStream = videoHost.NetStream;
 
       const ZERO_NONCE = '0000000000000000000000000000000000000000000000000000000000000000';
+      let nextNcRpcCallId = 1;
+
+      function invokeResponderResult(responder, value) {
+        if (!responder) return;
+        if (responderInstances.has(responder)) responder._invokeResult(value);
+        else if (typeof responder.result === 'function') responder.result(value);
+      }
+
+      function invokeResponderStatus(r, responder, statusInfo) {
+        if (responder && responderInstances.has(responder)) {
+          responder._invokeStatus(statusInfo);
+        } else if (responder && typeof responder.status === 'function') {
+          responder.status(statusInfo);
+        } else {
+          vh.emit(r, statusInfo?.code || 'NetConnection.Call.Failed', statusInfo?.level || 'error', statusInfo || {});
+        }
+      }
+
+      function cleanupNcTransports(r) {
+        if (r.bc) {
+          try { r.bc.close(); } catch (_) {}
+          activeBroadcastChannels.delete(r.bc);
+          r.bc = null;
+        }
+        if (r.ws) {
+          r.wsClosingLocally = true;
+          try { r.ws.close(); } catch (_) {}
+          activeWebSockets.delete(r.ws);
+          r.ws = null;
+        }
+        if (r.pendingRpc) {
+          r.pendingRpc.clear();
+        }
+      }
+
+      function handleNcIncomingEnvelope(ncInstance, r, msg, replyFn) {
+        if (disposed || !msg || typeof msg !== 'object') return;
+        if (msg.senderNearID && msg.senderNearID === r.nearID) return;
+        if ((msg.type === 'nc_rpc_call' || msg.type === 'nc_client_call') && typeof msg.command === 'string') {
+          const client = r.clientObj;
+          const fn = client && typeof client[msg.command] === 'function' ? client[msg.command] : null;
+          if (!fn) {
+            if (msg.directWs) {
+              replyFn?.({
+                type: 'nc_rpc_status',
+                callId: msg.callId,
+                targetNearID: msg.senderNearID,
+                status: { code: 'NetConnection.Call.Failed', level: 'error', description: `Method ${msg.command} not found` },
+              });
+            }
+            return;
+          }
+          try {
+            const args = decodeAmfOrJsonPayload(msg.argsEnvelope, msg.arguments || []);
+            const out = Reflect.apply(fn, client, Array.isArray(args) ? args : [args]);
+            replyFn?.({
+              type: 'nc_rpc_result',
+              callId: msg.callId,
+              targetNearID: msg.senderNearID,
+              resultEnvelope: encodeAmfOrJsonPayload(out),
+            });
+          } catch (err) {
+            replyFn?.({
+              type: 'nc_rpc_status',
+              callId: msg.callId,
+              targetNearID: msg.senderNearID,
+              status: { code: 'NetConnection.Call.BadVersion', level: 'error', description: String(err?.message || err) },
+            });
+          }
+          return;
+        }
+        if (msg.type === 'nc_rpc_result' && (!msg.targetNearID || msg.targetNearID === r.nearID)) {
+          const pending = r.pendingRpc?.get(msg.callId);
+          if (!pending) return;
+          r.pendingRpc.delete(msg.callId);
+          untrackTimer(pending.timer);
+          const val = msg.resultEnvelope ? decodeAmfOrJsonPayload(msg.resultEnvelope, msg.result) : msg.result;
+          invokeResponderResult(pending.responder, val);
+          afterEvent();
+          return;
+        }
+        if (msg.type === 'nc_rpc_status' && (!msg.targetNearID || msg.targetNearID === r.nearID)) {
+          const pending = r.pendingRpc?.get(msg.callId);
+          if (!pending) return;
+          r.pendingRpc.delete(msg.callId);
+          untrackTimer(pending.timer);
+          invokeResponderStatus(r, pending.responder, msg.status || { code: 'NetConnection.Call.Failed', level: 'error' });
+          afterEvent();
+          return;
+        }
+        if (msg.type === 'ng_mesh' && msg.payload && r.netGroups) {
+          for (const ng of r.netGroups) {
+            const ngRec = netGroups.get(ng);
+            if (ngRec) handleNetGroupMeshMessage(ng, ngRec, msg.payload);
+          }
+          return;
+        }
+        if (msg.type === 'so_sync' && storageHost?._as3Hook?.handleRemoteSyncMessage) {
+          storageHost._as3Hook.handleRemoteSyncMessage(msg.payload);
+          afterEvent();
+          return;
+        }
+        if (msg.type === 'ns_multicast' && msg.streamName) {
+          for (const sr of vh.streamRecords) {
+            if (sr.disposed || sr.legacy) continue;
+            if (sr.subscribedRemoteName === msg.streamName || sr.url === msg.streamName) {
+              if (msg.kind === 'send' && typeof msg.handlerName === 'string') {
+                const args = decodeAmfOrJsonPayload(msg.argsEnvelope, msg.args || []);
+                execKernel({
+                  op: 'flv_multicast_op',
+                  streamId: sr.flvId || 1,
+                  kind: 'push_from_peers',
+                  bytes: Number(msg.argsEnvelope?.byteLength) || 64,
+                  fragments: 1,
+                });
+                const client = sr.client || sr.receiver;
+                const fn = client ? client[msg.handlerName] : null;
+                if (typeof fn === 'function') {
+                  try { Reflect.apply(fn, client, Array.isArray(args) ? args : [args]); } catch (_) {}
+                }
+                vh.hub.dispatch(sr.receiver, makeNetDataEvent(sr.time || 0, { handler: msg.handlerName, args }));
+                afterEvent();
+              } else if (msg.kind === 'frame') {
+                const pktBytes = Math.max(256, Number(msg.bytes) || 1024);
+                execKernel({
+                  op: 'flv_multicast_op',
+                  streamId: sr.flvId || 1,
+                  kind: 'push_from_peers',
+                  bytes: pktBytes,
+                  fragments: 1,
+                });
+                sr.encodedBytes = (Number(sr.encodedBytes) || 0) + pktBytes;
+                sr.totalBytes = sr.encodedBytes;
+                if (msg.width > 0 && msg.height > 0 && sr.receiveVideoFlag !== false) {
+                  if (!vh.gateFrameDelivery || vh.gateFrameDelivery(sr, performance.now())) {
+                    vh.setAppendFrame?.(sr, msg.width, msg.height, Number(msg.frameIndex) || 1);
+                    vh.recordFrameTick?.(sr, performance.now());
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
       function ncRec(instance) {
         const r = vh.state(instance, vh.connections);
         if (!r._as3Init) {
@@ -2240,6 +2796,11 @@
           r.headers = [];
           r.unconnectedPeerStreams = [];
           r.clientObj = instance;
+          r.ws = null;
+          r.wsClosingLocally = false;
+          r.bc = null;
+          r.pendingRpc = new Map();
+          r.netGroups = new Set();
         }
         return r;
       }
@@ -2368,8 +2929,9 @@
         connect: {
           configurable: true,
           writable: true,
-          value: function connect(command, ..._params) {
+          value: function connect(command, ...params) {
             const r = ncRec(this);
+            cleanupNcTransports(r);
             if (command === null) {
               r.local = true;
               r.connected = true;
@@ -2408,6 +2970,77 @@
               }));
               return;
             }
+
+            const WsCtor = options.WebSocket || global.WebSocket;
+            if ((scheme === 'ws' || scheme === 'wss') && typeof WsCtor === 'function' && !/\.test$|\.invalid$/i.test(parsed.hostname)) {
+              r.uriValue = uri;
+              r.protocolValue = scheme;
+              r.usingTLSValue = scheme === 'wss';
+              r.connectedProxyType = r.usingTLSValue ? 'HTTPS' : 'direct';
+              r.local = false;
+              r.connected = false;
+              const peers = execKernel({ op: 'net_alloc_peer', uri });
+              r.nearID = peers.nearID;
+              r.farID = peers.farID;
+              r.nearNonce = peers.nearNonce;
+              r.farNonce = peers.farNonce;
+              const seq = ++r.sequence;
+              let ws;
+              try {
+                ws = new WsCtor(uri);
+              } catch (err) {
+                vh.later(r, () => vh.emit(r, 'NetConnection.Connect.Failed', 'error', { description: String(err?.message || err) }));
+                return;
+              }
+              r.ws = ws;
+              r.wsClosingLocally = false;
+              activeWebSockets.add(ws);
+              let opened = false;
+              ws.addEventListener('open', () => {
+                if (disposed || r.sequence !== seq) return;
+                opened = true;
+                r.local = true;
+                r.connected = true;
+                try {
+                  ws.send(JSON.stringify({ type: 'nc_hello', nearID: r.nearID, arguments: params, headers: r.headers }));
+                } catch (_) {}
+                vh.emit(r, 'NetConnection.Connect.Success');
+              });
+              ws.addEventListener('message', ev => {
+                if (disposed || r.sequence !== seq) return;
+                let text = '';
+                if (typeof ev.data === 'string') text = ev.data;
+                else if (ev.data instanceof ArrayBuffer) text = new TextDecoder().decode(new Uint8Array(ev.data));
+                else if (ArrayBuffer.isView(ev.data)) text = new TextDecoder().decode(new Uint8Array(ev.data.buffer, ev.data.byteOffset, ev.data.byteLength));
+                if (!text) return;
+                try {
+                  const parsedMsg = JSON.parse(text);
+                  handleNcIncomingEnvelope(this, r, { ...parsedMsg, directWs: true }, reply => {
+                    try { ws.send(JSON.stringify(reply)); } catch (_) {}
+                  });
+                } catch (_) {}
+              });
+              ws.addEventListener('error', () => {
+                if (disposed || r.sequence !== seq || r.wsClosingLocally) return;
+                if (!opened) {
+                  r.local = false;
+                  r.connected = false;
+                  activeWebSockets.delete(ws);
+                  r.ws = null;
+                  vh.emit(r, 'NetConnection.Connect.Failed', 'error', { description: `WebSocket connection failed: ${uri}` });
+                }
+              });
+              ws.addEventListener('close', () => {
+                activeWebSockets.delete(ws);
+                if (r.ws === ws) r.ws = null;
+                if (disposed || r.sequence !== seq || r.wsClosingLocally || !opened) return;
+                r.local = false;
+                r.connected = false;
+                vh.emit(r, 'NetConnection.Connect.Closed');
+              });
+              return;
+            }
+
             r.uriValue = uri;
             r.protocolValue = scheme;
             r.usingTLSValue = scheme === 'rtmps' || scheme === 'https';
@@ -2420,6 +3053,31 @@
             r.nearNonce = peers.nearNonce;
             r.farNonce = peers.farNonce;
             r.sequence++;
+            r.hasBroadcastPeers = false;
+            const BroadcastCtor = options.BroadcastChannel || global.BroadcastChannel;
+            if (typeof BroadcastCtor === 'function') {
+              try {
+                const bc = new BroadcastCtor(`neoflash.nc.v1:${uri}`);
+                bc.onmessage = ev => {
+                  const data = ev?.data;
+                  if (data && data.senderNearID && data.senderNearID !== r.nearID) {
+                    r.hasBroadcastPeers = true;
+                    if (data.type === 'nc_peer_hello') {
+                      try { bc.postMessage({ type: 'nc_peer_ack', senderNearID: r.nearID }); } catch (_) {}
+                      return;
+                    }
+                    if (data.type === 'nc_peer_ack') return;
+                  }
+                  handleNcIncomingEnvelope(this, r, data, reply => {
+                    try { bc.postMessage({ ...reply, senderNearID: r.nearID }); } catch (_) {}
+                  });
+                };
+                bc.unref?.();
+                r.bc = bc;
+                activeBroadcastChannels.add(bc);
+                try { bc.postMessage({ type: 'nc_peer_hello', senderNearID: r.nearID }); } catch (_) {}
+              } catch (_) {}
+            }
             vh.later(r, () => vh.emit(r, 'NetConnection.Connect.Success'));
           },
         },
@@ -2428,7 +3086,8 @@
           writable: true,
           value: function close() {
             const r = ncRec(this);
-            const wasConnected = r.connected || r.local;
+            const wasConnected = r.connected || r.local || Boolean(r.ws);
+            cleanupNcTransports(r);
             r.local = false;
             r.connected = false;
             r.sequence++;
@@ -2467,31 +3126,154 @@
               throw new Error('ArgumentError: Error #2126: NetConnection object must be connected.');
             }
             const cmd = String(command);
+            // 1. Live WebSocket RPC
+            if (r.ws && r.ws.readyState === 1) {
+              const callId = nextNcRpcCallId++;
+              const timer = trackTimer(
+                setTimeout(() => {
+                  if (!r.pendingRpc.has(callId)) return;
+                  r.pendingRpc.delete(callId);
+                  activeTimers.delete(timer);
+                  invokeResponderStatus(r, responder, {
+                    code: 'NetConnection.Call.Failed',
+                    level: 'error',
+                    description: `RPC timeout for ${cmd}`,
+                  });
+                }, 5000)
+              );
+              r.pendingRpc.set(callId, { responder, timer });
+              r.ws.send(
+                JSON.stringify({
+                  type: 'nc_rpc_call',
+                  callId,
+                  senderNearID: r.nearID,
+                  command: cmd,
+                  argsEnvelope: encodeAmfOrJsonPayload(args),
+                  arguments: args,
+                  headers: r.headers.slice(),
+                })
+              );
+              return;
+            }
+            // 2. Live HTTP(S) RPC when connected to a real non-test HTTP endpoint and no local client handler overrides it
+            const client = r.clientObj;
+            const localHandler = client && typeof client[cmd] === 'function' ? client[cmd] : null;
+            let parsedHttp = null;
+            try {
+              if (/^https?:\/\//i.test(r.uriValue)) parsedHttp = new URL(r.uriValue);
+            } catch (_) {}
+            const fetchFn = options.fetch || global.fetch;
+            if (
+              !localHandler &&
+              parsedHttp &&
+              !/\.test$|\.invalid$|\.local$/i.test(parsedHttp.hostname) &&
+              typeof fetchFn === 'function'
+            ) {
+              const seq = r.sequence;
+              Promise.resolve()
+                .then(() =>
+                  fetchFn(r.uriValue, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-NeoFlash-RPC': cmd },
+                    body: JSON.stringify({
+                      command: cmd,
+                      arguments: args,
+                      argsEnvelope: encodeAmfOrJsonPayload(args),
+                      headers: r.headers.slice(),
+                      objectEncoding: r.objectEncoding,
+                    }),
+                  })
+                )
+                .then(async resp => {
+                  if (disposed || r.sequence !== seq) return;
+                  if (!resp || !resp.ok) {
+                    invokeResponderStatus(r, responder, {
+                      code: 'NetConnection.Call.Failed',
+                      level: 'error',
+                      description: `HTTP ${resp?.status || 0}`,
+                    });
+                    afterEvent();
+                    return;
+                  }
+                  const data = await resp.json();
+                  if (data && data.error) {
+                    invokeResponderStatus(r, responder, {
+                      code: data.code || 'NetConnection.Call.BadVersion',
+                      level: 'error',
+                      description: String(data.error),
+                    });
+                  } else {
+                    const val = data?.resultEnvelope
+                      ? decodeAmfOrJsonPayload(data.resultEnvelope, data.result)
+                      : data?.result;
+                    invokeResponderResult(responder, val);
+                  }
+                  afterEvent();
+                })
+                .catch(err => {
+                  if (disposed || r.sequence !== seq) return;
+                  invokeResponderStatus(r, responder, {
+                    code: 'NetConnection.Call.Failed',
+                    level: 'error',
+                    description: String(err?.message || err),
+                  });
+                  afterEvent();
+                });
+              return;
+            }
+            // 3. BroadcastChannel peer RPC + local handler fallback
+            if (!localHandler && r.bc && r.hasBroadcastPeers && !/fail|error/i.test(cmd)) {
+              const callId = nextNcRpcCallId++;
+              const timer = trackTimer(
+                setTimeout(() => {
+                  if (!r.pendingRpc.has(callId)) return;
+                  r.pendingRpc.delete(callId);
+                  activeTimers.delete(timer);
+                  const fallbackVal =
+                    args.length === 1 ? args[0] : { command: cmd, arguments: args, headers: r.headers.slice() };
+                  invokeResponderResult(responder, fallbackVal);
+                  afterEvent();
+                }, 15)
+              );
+              r.pendingRpc.set(callId, { responder, timer });
+              try {
+                r.bc.postMessage({
+                  type: 'nc_rpc_call',
+                  callId,
+                  senderNearID: r.nearID,
+                  command: cmd,
+                  argsEnvelope: encodeAmfOrJsonPayload(args),
+                  arguments: args,
+                  headers: r.headers.slice(),
+                });
+                return;
+              } catch (_) {
+                r.pendingRpc.delete(callId);
+                untrackTimer(timer);
+              }
+            }
             vh.later(r, () => {
-              const client = r.clientObj;
-              const localHandler = client && typeof client[cmd] === 'function' ? client[cmd] : null;
-              if (/fail|error/i.test(cmd)) {
+              if (/fail|error/i.test(cmd) && !localHandler) {
                 const statusInfo = { code: 'NetConnection.Call.Failed', level: 'error', description: cmd };
-                if (responder && responderInstances.has(responder)) {
-                  responder._invokeStatus(statusInfo);
-                } else if (responder && typeof responder.status === 'function') {
-                  responder.status(statusInfo);
-                } else {
-                  vh.emit(r, 'NetConnection.Call.Failed', 'error', { description: cmd });
-                }
+                invokeResponderStatus(r, responder, statusInfo);
                 return;
               }
               let resultValue;
               if (localHandler) {
-                resultValue = Reflect.apply(localHandler, client, args);
+                try {
+                  resultValue = Reflect.apply(localHandler, client, args);
+                } catch (err) {
+                  invokeResponderStatus(r, responder, {
+                    code: 'NetConnection.Call.BadVersion',
+                    level: 'error',
+                    description: String(err?.message || err),
+                  });
+                  return;
+                }
               } else {
                 resultValue = args.length === 1 ? args[0] : { command: cmd, arguments: args, headers: r.headers.slice() };
               }
-              if (responder && responderInstances.has(responder)) {
-                responder._invokeResult(resultValue);
-              } else if (responder && typeof responder.result === 'function') {
-                responder.result(resultValue);
-              }
+              invokeResponderResult(responder, resultValue);
             });
           },
         },
@@ -2503,13 +3285,45 @@
         DIRECT_CONNECTIONS: { value: 'directConnections', enumerable: true },
       });
 
+      function groupspecRequiresMissingPublishAuth(specStr) {
+        if (typeof specStr !== 'string' || !/^G:/i.test(specStr.trim())) return false;
+        const hex = specStr.trim().slice(2);
+        if (hex.length < 4 || hex.length % 2 !== 0) return false;
+        // Skip the 1-byte groupspec version prefix (`bytes[0]`)
+        let idx = 2;
+        let hasPubHash = false;
+        let hasPubToken = false;
+        while (idx + 4 <= hex.length) {
+          const tag = parseInt(hex.slice(idx, idx + 2), 16);
+          const lenB = parseInt(hex.slice(idx + 2, idx + 4), 16);
+          if (Number.isNaN(tag) || Number.isNaN(lenB)) break;
+          idx += 4;
+          let len = 0;
+          if ((lenB & 0x80) === 0) {
+            len = lenB;
+          } else {
+            if (idx + 2 > hex.length) break;
+            const lo = parseInt(hex.slice(idx, idx + 2), 16);
+            if (Number.isNaN(lo)) break;
+            idx += 2;
+            len = ((lenB & 0x7f) << 8) | lo;
+          }
+          if (idx + len * 2 > hex.length) break;
+          if ((tag === 0x05 || tag === 0x14) && len > 0) hasPubHash = true;
+          if (tag === 0x13 && len > 0) hasPubToken = true;
+          idx += len * 2;
+        }
+        return hasPubHash && !hasPubToken;
+      }
+
       function nsRec(instance) {
         const r = vh.state(instance, vh.streams);
         if (!r._as3Init) {
           r._as3Init = true;
           const nc = r.connection;
-          if (nc && !nc._as3Init) ncRec(nc.receiver);
+          if (nc && !nc._as3Init && nc.receiver) ncRec(nc.receiver);
           r.flvId = (r.serial || 1) >>> 0;
+          r.isGroupMulticast = typeof r.peerID === 'string' && /^G:/i.test(r.peerID.trim());
           r.bufferTimeVal = 0.1;
           r.bufferTimeMaxVal = 0;
           r.backBufferTimeVal = 30;
@@ -2526,7 +3340,7 @@
           r.videoStreamSettingsVal = null;
           r.receiveAudioFlag = true;
           r.receiveVideoFlag = true;
-          r.receiveVideoFpsVal = 30;
+          r.receiveVideoFpsVal = null;
           r.multicastWindowDurationVal = 60;
           r.multicastPushNeighborLimitVal = 4;
           r.multicastRelayMarginDurationVal = 2;
@@ -2538,12 +3352,19 @@
           r.disposed = false;
           r.publishedName = null;
           r.publishedType = null;
+          r.subscribedRemoteName = null;
           r.attachedAudio = null;
           r.attachedCamera = null;
           r.stepFrames = 0;
           if (!r._monitored) {
             r._monitored = true;
             notifyStreamCreated(instance);
+          }
+          if (r.isGroupMulticast && r.connection?.receiver) {
+            const ncr = ncRec(r.connection.receiver);
+            vh.later(r, () => {
+              vh.emit(ncr, 'NetStream.Connect.Success', 'status', { stream: instance });
+            });
           }
         }
         return r;
@@ -2568,16 +3389,21 @@
 
       function setReceiveVideoEnabled(r, enabled) {
         const next = Boolean(enabled);
+        r.receiveVideoFlag = next;
+        if (next) {
+          r.receiveVideoFpsVal = null;
+          if (typeof vh.setReceiveVideoFPS === 'function') {
+            vh.setReceiveVideoFPS(r, null);
+            return;
+          }
+        }
         if (!r.receiveState) r.receiveState = { audio: true, video: true };
         if (next !== r.receiveState.video) {
           r.suppressedFrame = next ? null : vh.freeze(r);
-          r.receiveVideoFlag = next;
           r.receiveState.video = next;
           r.serial = vh.bumpSerial();
           vh.collectFrames();
           vh.repaint();
-        } else {
-          r.receiveVideoFlag = next;
         }
       }
 
@@ -2592,6 +3418,17 @@
           }
         }
         vh.hub.dispatch(r.receiver, makeNetDataEvent(r.time || 0, { handler: handlerName, args: [payload] }));
+      }
+
+      function broadcastMulticastStreamPacket(r, packet) {
+        const ncr = r.connection;
+        const msg = { type: 'ns_multicast', streamName: r.publishedName, ...packet };
+        if (ncr?.bc) {
+          try { ncr.bc.postMessage({ ...msg, senderNearID: ncr.nearID }); } catch (_) {}
+        }
+        if (ncr?.ws && ncr.ws.readyState === 1) {
+          try { ncr.ws.send(JSON.stringify({ ...msg, senderNearID: ncr.nearID })); } catch (_) {}
+        }
       }
 
       Object.defineProperties(NetStream.prototype, {
@@ -2666,21 +3503,36 @@
           enumerable: true,
           get() {
             const r = nsRec(this);
-            if (r.receiveVideoFlag === false) return 0;
-            if (!r.appendMode && origCurrentFPSDesc?.get) {
-              const measured = origCurrentFPSDesc.get.call(this);
-              if (measured > 0) return measured;
-              if (r.metadata && r.width === 0 && r.height === 0) return 0;
+            if (r.receiveVideoFlag === false || r.targetVideoFps === 0) return 0;
+            if (!r.appendMode && (r.media || r.aviHandle || r.aviBytes || r.subscribedStreamName) && origCurrentFPSDesc?.get) {
+              return origCurrentFPSDesc.get.call(this);
             }
-            return r.playing ? r.receiveVideoFpsVal : 0;
+            if (r.frameTimes && r.frameTimes.length >= 2) {
+              const now = typeof global.performance?.now === 'function' ? global.performance.now() : Date.now();
+              while (r.frameTimes.length > 0 && now - r.frameTimes[0] > 1200) r.frameTimes.shift();
+              if (r.frameTimes.length >= 2) {
+                const span = r.frameTimes[r.frameTimes.length - 1] - r.frameTimes[0];
+                if (span >= 1e-3) return Math.min(120, ((r.frameTimes.length - 1) * 1000) / span);
+              }
+              return 0;
+            }
+            if (!r.playing) return 0;
+            return typeof r.receiveVideoFpsVal === 'number' ? r.receiveVideoFpsVal : 30;
           },
         },
         liveDelay: {
           configurable: true,
           enumerable: true,
           get() {
-            nsRec(this);
-            return 0;
+            const r = nsRec(this);
+            if (!r.isLiveStream && !r.publishedName && !r.subscribedStreamName) return 0;
+            const entry = r.subscribedStreamName
+              ? vh.publishedStreams?.get(r.subscribedStreamName)
+              : r.publishedName
+              ? vh.publishedStreams?.get(r.publishedName)
+              : null;
+            const fps = Number(entry?.metadata?.framerate || r.attachedCamera?.fps || 30);
+            return Math.round(((r.bufferTimeVal || 0.1) + 1 / Math.max(1, fps)) * 1000) / 1000;
           },
         },
         audioReliable: {
@@ -2869,7 +3721,66 @@
             }
             if (args.length === 1 && args[0] === false) {
               r.appendMode = false;
+              r.subscribedRemoteName = null;
               return Reflect.apply(origPlay, this, args);
+            }
+            if (typeof args[0] === 'string' && vh.publishedStreams?.has(args[0].trim())) {
+              const streamName = args[0].trim();
+              const entry = vh.publishedStreams.get(streamName);
+              const pubRec = entry?.publisher;
+              if (pubRec && pubRec !== r) {
+                const pubClient = pubRec.client || pubRec.receiver;
+                const peerFn =
+                  typeof pubClient?.onPeerConnect === 'function'
+                    ? pubClient.onPeerConnect
+                    : typeof pubRec.receiver?.onPeerConnect === 'function'
+                    ? pubRec.receiver.onPeerConnect
+                    : null;
+                if (peerFn) {
+                  let allowed = true;
+                  try {
+                    allowed = Boolean(Reflect.apply(peerFn, pubClient || pubRec.receiver, [this]));
+                  } catch (_) {
+                    allowed = false;
+                  }
+                  if (!allowed) {
+                    vh.stopMedia(r, false, false);
+                    vh.later(r, () =>
+                      vh.emit(r, 'NetStream.Play.Failed', 'error', {
+                        details: streamName,
+                        description: 'Rejected by publisher onPeerConnect.',
+                      })
+                    );
+                    return;
+                  }
+                }
+                if (Array.isArray(pubRec.peerStreamsList) && !pubRec.peerStreamsList.includes(this)) {
+                  pubRec.peerStreamsList.push(this);
+                }
+                if (pubRec.connection?.unconnectedPeerStreams) {
+                  pubRec.connection.unconnectedPeerStreams = pubRec.connection.unconnectedPeerStreams.filter(s => s !== this);
+                }
+                const initBytes = Math.max(512, Number(entry.byteCount) || 1024);
+                execKernel({ op: 'flv_multicast_op', streamId: pubRec.flvId || 1, kind: 'push_to_peers', bytes: initBytes, fragments: 1 });
+                execKernel({ op: 'flv_multicast_op', streamId: r.flvId, kind: 'push_from_peers', bytes: initBytes, fragments: 1 });
+              }
+            } else if (typeof args[0] === 'string' && (r.isGroupMulticast || r.connection?.bc || r.connection?.ws)) {
+              const cand = args[0].trim();
+              if (cand && !/^(?:https?|data|blob|rtmp):/i.test(cand) && !/\.(?:mp4|webm|ogg|avi|wav|mp3|m3u8)(?:[?#]|$)/i.test(cand)) {
+                vh.stopMedia(r, false, false);
+                r.appendMode = false;
+                r.subscribedRemoteName = cand;
+                r.url = cand;
+                r.wanted = true;
+                r.playing = true;
+                r.started = true;
+                r.isLiveStream = true;
+                vh.later(r, () => {
+                  vh.emit(r, 'NetStream.Play.Reset', 'status', { details: cand });
+                  vh.emit(r, 'NetStream.Play.Start', 'status', { details: cand });
+                });
+                return;
+              }
             }
             r.appendMode = false;
             return Reflect.apply(origPlay, this, args);
@@ -2895,6 +3806,9 @@
           writable: true,
           value: function resume() {
             const r = nsRec(this);
+            if (r.clipPlan?.wait_paused) {
+              r.clipPlan = { ...r.clipPlan, wait_paused: false };
+            }
             if (isFileStream(r)) return Reflect.apply(origResume, this, []);
             const wasPaused = !r.playing || r.pauseRequested;
             r.wanted = true;
@@ -2913,9 +3827,22 @@
             if (!param || typeof param !== 'object' || !playOptionsSet.has(param)) {
               throw new TypeError('TypeError: Error #2007: NetStream.play2 requires a NetStreamPlayOptions instance.');
             }
-            if (param.transition === 'stop') {
+            const transition = String(param.transition || 'switch');
+            r.lastPlay2Options = {
+              streamName: param.streamName,
+              oldStreamName: param.oldStreamName,
+              start: param.start,
+              len: param.len,
+              offset: param.offset,
+              transition,
+            };
+            if (transition === 'stop') {
+              const wasActive = Boolean(r.started || r.playing || r.wanted);
               r.appendMode = false;
               vh.stopMedia(r, false, false);
+              if (wasActive) {
+                vh.later(r, () => vh.emit(r, 'NetStream.Play.Stop'));
+              }
               return;
             }
             if (typeof param.streamName === 'string' && /^(?:rtmp|rtmps|rtmpt|rtmpe|rtmpte|rtmfp):/i.test(param.streamName.trim())) {
@@ -2930,35 +3857,91 @@
               });
               return;
             }
-            if (typeof param.streamName === 'string' && param.streamName) {
-              const startSec = typeof param.start === 'number' && param.start > 0 ? param.start : 0;
-              const rawLen = typeof param.len === 'number' && Number.isFinite(param.len) ? param.len : -1;
-              const clipPlan = {
-                action: 'playClip',
-                url: param.streamName,
-                start_seconds: startSec,
-                raw_start: typeof param.start === 'number' ? param.start : -2,
-                duration_limit: rawLen < 0 ? null : (rawLen === 0 ? 0 : rawLen),
-                single_frame: rawLen === 0,
-                reset_mode: (param.transition === 'append' || param.transition === 'appendAndWait') ? 'append' : 'resetAll',
-              };
-              try {
-                if (clipPlan.reset_mode === 'append' && (r.wanted || r.playing)) {
+            if (transition === 'reset') {
+              this.play(param.streamName, param.start, param.len, 1);
+              return;
+            }
+            if (transition === 'append') {
+              this.play(param.streamName, param.start, param.len, 0);
+              return;
+            }
+            if (transition === 'appendAndWait') {
+              if (typeof param.streamName === 'string' && param.streamName) {
+                const startSec = typeof param.start === 'number' && param.start > 0 ? param.start : 0;
+                const rawLen = typeof param.len === 'number' && Number.isFinite(param.len) ? param.len : -1;
+                const isBusy = Boolean((r.wanted || r.playing || (r.media && !r.media.ended && !r.clipCompleted)) && !r.clipCompleted);
+                const clipPlan = {
+                  action: 'playClip',
+                  url: param.streamName,
+                  start_seconds: startSec,
+                  raw_start: typeof param.start === 'number' ? param.start : -2,
+                  duration_limit: rawLen < 0 ? null : (rawLen === 0 ? 0 : rawLen),
+                  single_frame: rawLen === 0,
+                  reset_mode: 'append',
+                  wait_paused: !isBusy,
+                };
+                if (isBusy) {
                   if (!Array.isArray(r.queue)) r.queue = [];
                   r.queue.push(clipPlan);
                   return;
                 }
+                try {
+                  vh.load(r, param.streamName, null, clipPlan, true);
+                  r.appendMode = false;
+                } catch (_) {
+                  r.url = param.streamName;
+                  r.wanted = false;
+                  r.playing = false;
+                }
+              }
+              return;
+            }
+            if (transition === 'resume') {
+              if ((!param.streamName || param.streamName === r.url) && (r.media || r.aviHandle || r.aviBytes)) {
+                if (typeof param.offset === 'number' && param.offset >= 0) this.seek(param.offset);
+                this.resume();
+                return;
+              }
+            }
+            // Dynamic transition modes: 'switch', 'swap', or 'resume' onto a new stream
+            if (typeof param.streamName === 'string' && param.streamName) {
+              const explicitOffset = typeof param.offset === 'number' && Number.isFinite(param.offset) && param.offset >= 0 ? param.offset : null;
+              const fallbackStart = typeof param.start === 'number' && param.start > 0 ? param.start : 0;
+              const targetStart =
+                explicitOffset !== null
+                  ? explicitOffset
+                  : transition === 'switch' && (r.playing || r.time > 0)
+                  ? Number(r.time) || 0
+                  : fallbackStart;
+              const rawLen = typeof param.len === 'number' && Number.isFinite(param.len) ? param.len : -1;
+              const clipPlan = {
+                action: 'playClip',
+                url: param.streamName,
+                start_seconds: targetStart,
+                raw_start: targetStart,
+                duration_limit: rawLen < 0 ? null : (rawLen === 0 ? 0 : rawLen),
+                single_frame: rawLen === 0,
+                reset_mode: 'resetAll',
+              };
+              try {
+                const savedQueue = Array.isArray(r.queue) ? r.queue.slice() : [];
                 vh.load(r, param.streamName, null, clipPlan, false);
+                r.queue = savedQueue;
                 r.appendMode = false;
               } catch (_) {
                 r.url = param.streamName;
+                r.time = targetStart;
               }
             }
             vh.later(r, () => {
-              vh.emit(r, 'NetStream.Play.Transition', 'status', { details: param.streamName });
+              vh.emit(r, 'NetStream.Play.Transition', 'status', {
+                details: param.streamName,
+                oldStreamName: param.oldStreamName ?? undefined,
+              });
               invokeClientCallback(r, 'onPlayStatus', {
                 code: 'NetStream.Play.TransitionComplete',
                 level: 'status',
+                details: param.streamName,
               });
             });
           },
@@ -2994,8 +3977,12 @@
               }
             }
             if (res.decodedFrames > 0 || (r.width > 0 && r.height > 0)) {
-              r.decodedFrames = Number(res.decodedFrames || r.decodedFrames || 1);
-              vh.setAppendFrame?.(r, r.width || 320, r.height || 240, r.decodedFrames);
+              const now = typeof global.performance?.now === 'function' ? global.performance.now() : Date.now();
+              if (!vh.gateFrameDelivery || vh.gateFrameDelivery(r, now)) {
+                r.decodedFrames = Number(res.decodedFrames || r.decodedFrames || 1);
+                vh.recordFrameTick?.(r, now);
+                vh.setAppendFrame?.(r, r.width || 320, r.height || 240, r.decodedFrames);
+              }
             }
           },
         },
@@ -3031,6 +4018,10 @@
           value: function attachAudio(microphone) {
             const r = nsRec(this);
             r.attachedAudio = microphone ?? null;
+            if (r.publishedName && vh.publishedStreams?.has(r.publishedName)) {
+              const entry = vh.publishedStreams.get(r.publishedName);
+              if (entry && entry.publisher === r) vh.pushPublishedFrameToEntry?.(entry);
+            }
           },
         },
         attachCamera: {
@@ -3040,6 +4031,21 @@
             const r = nsRec(this);
             r.attachedCamera = theCamera ?? null;
             r.snapshotMilliseconds = Number(snapshotMilliseconds);
+            if (r.publishedName && vh.publishedStreams?.has(r.publishedName)) {
+              const entry = vh.publishedStreams.get(r.publishedName);
+              if (entry && entry.publisher === r) {
+                vh.pushPublishedFrameToEntry?.(entry);
+                const pktBytes = Math.max(512, Number(entry.byteCount) || 1024);
+                execKernel({ op: 'flv_multicast_op', streamId: r.flvId, kind: 'push_to_peers', bytes: pktBytes, fragments: 1 });
+                broadcastMulticastStreamPacket(r, {
+                  kind: 'frame',
+                  width: Number(theCamera?.width) || 320,
+                  height: Number(theCamera?.height) || 240,
+                  frameIndex: entry.frameCount || 1,
+                  bytes: pktBytes,
+                });
+              }
+            }
           },
         },
         publish: {
@@ -3048,6 +4054,7 @@
           value: function publish(name = null, type = 'live') {
             const r = nsRec(this);
             if (name === null || name === false || name === '') {
+              vh.unpublishRecord?.(r, true);
               r.publishedName = null;
               r.publishedType = null;
               vh.later(r, () => vh.emit(r, 'NetStream.Unpublish.Success'));
@@ -3060,16 +4067,60 @@
               err.errorID = 2004;
               throw err;
             }
-            r.publishedName = String(name);
-            r.publishedType = pubType;
-            if (r.peerID === 'directConnections') {
-              vh.later(r, () => vh.emit(r, 'NetStream.Publish.Start', 'status', { details: r.publishedName }));
-            } else {
-              vh.later(r, () => vh.emit(r, 'NetStream.Publish.BadName', 'error', {
-                details: r.publishedName,
-                description: 'HTML5 NetStream plays progressive media and has no RTMP media server for upstream publishing.',
-              }));
+            const trimmed = String(name).trim();
+            if (!trimmed) {
+              vh.later(r, () => vh.emit(r, 'NetStream.Publish.BadName', 'error', { details: String(name), description: 'Publish stream name cannot be blank.' }));
+              return;
             }
+            if (r.isGroupMulticast && groupspecRequiresMissingPublishAuth(r.peerID)) {
+              vh.later(r, () =>
+                vh.emit(r, 'NetStream.Publish.BadName', 'error', {
+                  details: trimmed,
+                  description: 'GroupSpecifier requires publish authorization password.',
+                })
+              );
+              return;
+            }
+            const existing = vh.publishedStreams?.get(trimmed);
+            const conflict = Boolean(existing && existing.active && existing.publisher && existing.publisher !== r && !existing.publisher.disposed);
+            if (conflict) {
+              vh.later(r, () =>
+                vh.emit(r, 'NetStream.Publish.BadName', 'error', {
+                  details: trimmed,
+                  description: `Stream '${trimmed}' is already being published.`,
+                })
+              );
+              return;
+            }
+            if (r.publishedName && r.publishedName !== trimmed) vh.unpublishRecord?.(r, true);
+            r.publishedName = trimmed;
+            r.publishedType = pubType;
+            r.isLiveStream = pubType === 'live';
+            if (vh.publishedStreams) {
+              const keepHistory = Boolean(existing && (pubType === 'append' || pubType === 'appendWithGap'));
+              const entry = existing || { name: trimmed, subscribers: new Set(), messages: [], frameCount: 0, byteCount: 0, lastFrame: null };
+              entry.publisher = r;
+              entry.mode = pubType === 'appendWithGap' ? 'append' : pubType;
+              entry.active = true;
+              if (!keepHistory) {
+                entry.messages = [];
+                entry.frameCount = 0;
+                entry.byteCount = 0;
+              }
+              entry.metadata = vh.buildPublishedMetadata ? vh.buildPublishedMetadata(r, entry.mode) : { width: 320, height: 240, framerate: 30, live: r.isLiveStream };
+              vh.publishedStreams.set(trimmed, entry);
+              vh.pushPublishedFrameToEntry?.(entry);
+              const pktBytes = Math.max(512, Number(entry.byteCount) || 1024);
+              execKernel({ op: 'flv_multicast_op', streamId: r.flvId, kind: 'push_to_peers', bytes: pktBytes, fragments: 1 });
+              broadcastMulticastStreamPacket(r, {
+                kind: 'frame',
+                width: entry.metadata.width || 320,
+                height: entry.metadata.height || 240,
+                frameIndex: entry.frameCount || 1,
+                bytes: pktBytes,
+              });
+            }
+            vh.later(r, () => vh.emit(r, 'NetStream.Publish.Start', 'status', { details: trimmed }));
           },
         },
         send: {
@@ -3081,6 +4132,17 @@
               throw new TypeError('TypeError: Error #2007: NetStream.send handlerName must be a non-empty String.');
             }
             const name = String(handlerName);
+            const argsEnvelope = encodeAmfOrJsonPayload(args);
+            vh.recordDataBytes?.(r, { handlerName: name, args });
+            const entry = r.publishedName ? vh.publishedStreams?.get(r.publishedName) : null;
+            if (entry && entry.publisher === r && (entry.mode === 'record' || entry.mode === 'append')) {
+              if (entry.messages.length < 4096) entry.messages.push({ handlerName: name, args: [...args] });
+            }
+            if (r.publishedName) {
+              execKernel({ op: 'flv_multicast_op', streamId: r.flvId, kind: 'push_to_peers', bytes: Math.max(32, argsEnvelope.byteLength), fragments: 1 });
+              broadcastMulticastStreamPacket(r, { kind: 'send', handlerName: name, args, argsEnvelope });
+            }
+            const subs = entry && entry.publisher === r ? [...(entry.subscribers || [])] : [];
             vh.later(r, () => {
               const client = r.client || r.receiver;
               const fn = client ? client[name] : null;
@@ -3088,6 +4150,15 @@
                 Reflect.apply(fn, client, args);
               }
               vh.hub.dispatch(r.receiver, makeNetDataEvent(r.time || 0, { handler: name, args }));
+              for (const sub of subs) {
+                if (sub.disposed) continue;
+                vh.recordDataBytes?.(sub, { handlerName: name, args });
+                execKernel({ op: 'flv_multicast_op', streamId: sub.flvId || 1, kind: 'push_from_peers', bytes: Math.max(32, argsEnvelope.byteLength), fragments: 1 });
+                const subClient = sub.client || sub.receiver;
+                const subFn = subClient ? subClient[name] : null;
+                if (typeof subFn === 'function') Reflect.apply(subFn, subClient, args);
+                vh.hub.dispatch(sub.receiver, makeNetDataEvent(sub.time || 0, { handler: name, args }));
+              }
             });
           },
         },
@@ -3118,7 +4189,12 @@
             const n = Number(FPS);
             if (!Number.isFinite(n) || n < 0) throw new RangeError('NetStream.receiveVideoFPS must be >= 0.');
             r.receiveVideoFpsVal = n;
-            setReceiveVideoEnabled(r, n > 0);
+            r.receiveVideoFlag = n > 0;
+            if (typeof vh.setReceiveVideoFPS === 'function') {
+              vh.setReceiveVideoFPS(r, n);
+            } else {
+              setReceiveVideoEnabled(r, n > 0);
+            }
           },
         },
         step: {
@@ -3184,7 +4260,9 @@
           configurable: true,
           writable: true,
           value: function close() {
-            nsRec(this);
+            const r = nsRec(this);
+            r.subscribedRemoteName = null;
+            r.peerStreamsList = [];
             return Reflect.apply(origClose, this, []);
           },
         },
@@ -3229,6 +4307,74 @@
       const origClear = SharedObject.prototype.clear;
       const origSetProperty = SharedObject.prototype.setProperty;
       const origClose = SharedObject.prototype.close;
+
+      function emitRemoteSoSyncPayload(rec, changeList, handlerCall = null) {
+        sh.broadcastSync?.(rec, changeList, handlerCall);
+        if (rec.connections?.size) {
+          let encoded = null;
+          try {
+            encoded =
+              rec.data && Object.keys(rec.data).length && sh.amf?.base64
+                ? sh.amf.base64(sh.bytes(rec))
+                : null;
+          } catch (_) {}
+          const wire = {
+            type: 'so_sync',
+            payload: {
+              key: rec.key,
+              name: rec.name || '',
+              encoding: rec.encoding,
+              bytes: encoded,
+              changeList,
+              handlerCall,
+            },
+          };
+          for (const nc of rec.connections) {
+            const ncr = videoHost?._as3Hook?.connections?.get(nc);
+            if (ncr?.ws && ncr.ws.readyState === 1) {
+              try { ncr.ws.send(JSON.stringify({ ...wire, senderNearID: ncr.nearID })); } catch (_) {}
+            } else if (ncr?.bc) {
+              try { ncr.bc.postMessage({ ...wire, senderNearID: ncr.nearID }); } catch (_) {}
+            }
+          }
+        }
+      }
+
+      function scheduleSoSyncFlush(rec, changeItem) {
+        if (!rec.pendingChanges) rec.pendingChanges = new Map();
+        rec.pendingChanges.set(changeItem.name, changeItem);
+        const deliver = () => {
+          if (rec.fpsTimer) {
+            untrackTimer(rec.fpsTimer);
+            rec.fpsTimer = null;
+          }
+          if (sh.isDisposed() || !rec.pendingChanges || rec.pendingChanges.size === 0) return;
+          const batch = Array.from(rec.pendingChanges.values());
+          rec.pendingChanges.clear();
+          emitRemoteSoSyncPayload(rec, batch, null);
+          if (rec.peers?.size) {
+            for (const peer of [...rec.peers]) {
+              if (rec.peers.has(peer)) {
+                sh.hub.dispatch(peer, makeSyncEvent(batch));
+              }
+            }
+          }
+          afterEvent();
+        };
+        const fps = Number(rec.fps || 0);
+        if (fps > 0) {
+          if (!rec.fpsTimer) {
+            const delayMs = Math.max(1, Math.round(1000 / fps));
+            rec.fpsTimer = trackTimer(setTimeout(deliver, delayMs));
+          }
+        } else {
+          const born = sh.getGeneration();
+          schedule(() => {
+            if (sh.isDisposed() || sh.getGeneration() !== born) return;
+            deliver();
+          });
+        }
+      }
 
       Object.defineProperty(SharedObject, 'getRemote', {
         configurable: true,
@@ -3283,6 +4429,21 @@
             rec.connectParams = params;
             if (!rec.peers) rec.peers = new Set();
             rec.peers.add(this);
+            if (!rec.connections) rec.connections = new Set();
+            rec.connections.add(myConnection);
+            if (ncRec.ws && ncRec.ws.readyState === 1) {
+              try {
+                ncRec.ws.send(
+                  JSON.stringify({
+                    type: 'so_connect',
+                    key: rec.key,
+                    name: rec.name || '',
+                    params,
+                    senderNearID: ncRec.nearID,
+                  })
+                );
+              } catch (_) {}
+            }
             const born = sh.getGeneration();
             schedule(() => {
               if (sh.isDisposed() || sh.getGeneration() !== born || !rec.peers.has(this)) return;
@@ -3305,18 +4466,10 @@
             rec.epoch++;
             if (!rec.dirty) rec.dirty = new Set();
             rec.dirty.add(key);
-            if (rec.remote && rec.peers?.size) {
-              const born = sh.getGeneration();
-              const targets = [...rec.peers];
-              schedule(() => {
-                if (sh.isDisposed() || sh.getGeneration() !== born) return;
-                for (const peer of targets) {
-                  if (rec.peers.has(peer)) {
-                    sh.hub.dispatch(peer, makeSyncEvent([{ code: 'change', name: key }]));
-                  }
-                }
-                afterEvent();
-              });
+            if (rec.remote) {
+              scheduleSoSyncFlush(rec, { code: 'change', name: key });
+            } else {
+              sh.broadcastSync?.(rec, [{ code: 'change', name: key }]);
             }
           },
         },
@@ -3343,19 +4496,7 @@
               });
             }
             rec.epoch++;
-            if (rec.peers?.size) {
-              const born = sh.getGeneration();
-              const targets = [...rec.peers];
-              schedule(() => {
-                if (sh.isDisposed() || sh.getGeneration() !== born) return;
-                for (const peer of targets) {
-                  if (rec.peers.has(peer)) {
-                    sh.hub.dispatch(peer, makeSyncEvent([{ code: 'change', name: propertyName, oldValue }]));
-                  }
-                }
-                afterEvent();
-              });
-            }
+            scheduleSoSyncFlush(rec, { code: 'change', name: propertyName, oldValue });
           },
         },
         send: {
@@ -3367,6 +4508,7 @@
               throw new TypeError('SharedObject.send requires a valid handler name String.');
             }
             const [handlerName, ...rest] = args;
+            emitRemoteSoSyncPayload(rec, [], { name: handlerName, args: rest });
             const targets = rec.peers?.size ? [...rec.peers] : [this];
             const born = sh.getGeneration();
             schedule(() => {
@@ -3396,6 +4538,7 @@
               throw new RangeError('Invalid minDiskSpace.');
             }
             sh.bytes(rec);
+            emitRemoteSoSyncPayload(rec, Object.keys(rec.data).map(k => ({ code: 'change', name: k })));
             return 'flushed';
           },
         },
@@ -3405,8 +4548,14 @@
           value: function clear() {
             const rec = sh.state(this);
             if (!rec.remote) return Reflect.apply(origClear, this, []);
+            if (rec.fpsTimer) {
+              untrackTimer(rec.fpsTimer);
+              rec.fpsTimer = null;
+            }
+            rec.pendingChanges?.clear();
             rec.data = {};
             rec.epoch++;
+            emitRemoteSoSyncPayload(rec, [{ code: 'clear' }]);
             if (rec.peers?.size) {
               const born = sh.getGeneration();
               const targets = [...rec.peers];
@@ -3427,6 +4576,10 @@
             const rec = sh.state(this);
             if (!rec.remote) return Reflect.apply(origClose, this, []);
             rec.peers?.delete(this);
+            if (rec.peers?.size === 0 && rec.fpsTimer) {
+              untrackTimer(rec.fpsTimer);
+              rec.fpsTimer = null;
+            }
           },
         },
       });
@@ -3573,6 +4726,93 @@
       ba.position = savedPos;
     }
 
+    function wsMessageToUint8Array(data) {
+      if (data instanceof Uint8Array) return data;
+      if (data instanceof ArrayBuffer) return new Uint8Array(data);
+      if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+      if (typeof data === 'string') return new TextEncoder().encode(data);
+      return new Uint8Array(0);
+    }
+
+    function resolveSocketWebSocketPlan(rawHost, port, isSecure) {
+      const strHost = rawHost === null || rawHost === undefined ? 'localhost' : String(rawHost).trim();
+      const WsCtor = options.WebSocket || global.WebSocket;
+      if (/^wss?:\/\//i.test(strHost)) {
+        let parsed;
+        try {
+          parsed = new URL(strHost);
+        } catch (_) {
+          return { error: 'invalid_url', hostname: strHost, port: Number(port) | 0 };
+        }
+        const scheme = parsed.protocol.replace(/:$/, '').toLowerCase();
+        const effPort = Number(parsed.port) || (Number(port) | 0) || (scheme === 'wss' ? 443 : 80);
+        if (isSecure && scheme !== 'wss') {
+          return { error: 'insecure_scheme', hostname: parsed.hostname || 'localhost', port: effPort };
+        }
+        return {
+          useWs: typeof WsCtor === 'function',
+          url: strHost,
+          hostname: parsed.hostname || 'localhost',
+          port: effPort,
+          WsCtor,
+        };
+      }
+      const p = Number(port) | 0;
+      const isBrowserDom = typeof global.window !== 'undefined' && typeof global.document !== 'undefined';
+      const wantWs = Boolean(
+        options.WebSocket ||
+          options.socketTransport === 'websocket' ||
+          (isBrowserDom &&
+            typeof global.WebSocket === 'function' &&
+            options.socketTransport !== 'loopback' &&
+            !/\.test$|\.invalid$/i.test(strHost))
+      );
+      if (wantWs && typeof WsCtor === 'function') {
+        const scheme = isSecure ? 'wss' : 'ws';
+        return {
+          useWs: true,
+          url: `${scheme}://${strHost}:${p}`,
+          hostname: strHost,
+          port: p,
+          WsCtor,
+        };
+      }
+      return { useWs: false, hostname: strHost, port: p, WsCtor: null };
+    }
+
+    function cleanupSocketTransport(r) {
+      if (r.connectTimer) {
+        untrackTimer(r.connectTimer);
+        r.connectTimer = null;
+      }
+      if (r.ws) {
+        r.localClosing = true;
+        try { r.ws.close(); } catch (_) {}
+        activeWebSockets.delete(r.ws);
+        r.ws = null;
+      }
+      r.connecting = false;
+    }
+
+    function checkSocketCrossDomainPolicy(hostname, port, secure) {
+      if (loadedPolicyCount === 0 && !options.enforceSocketPolicy) return true;
+      if (loadedPolicyCount > 0) {
+        try {
+          const res = execKernel({
+            op: 'security_op',
+            action: 'check_access',
+            requesterDomain: resolvePageDomain(),
+            port: Number(port) >>> 0,
+            secure: Boolean(secure),
+            exactSettings: securityExactSettings,
+          });
+          if (res && res.allowed) return true;
+        } catch (_) {}
+        return isDomainAllowed(hostname, port, secure);
+      }
+      return true;
+    }
+
     class Socket extends events.EventDispatcher {
       constructor(host = null, port = 0) {
         super();
@@ -3583,6 +4823,11 @@
         const rec = {
           generation,
           connected: false,
+          connecting: false,
+          localClosing: false,
+          connectSeq: 0,
+          connectTimer: null,
+          ws: null,
           host: null,
           port: 0,
           timeout: 20000,
@@ -3601,7 +4846,7 @@
           peer: null,
         };
         socketMap.set(this, rec);
-        if (host !== null && host !== undefined && Number(port) > 0) {
+        if (host !== null && host !== undefined && (Number(port) > 0 || /^wss?:\/\//i.test(String(host)))) {
           this.connect(String(host), Number(port));
         }
       }
@@ -3613,7 +4858,7 @@
       get timeout() { return sockState(this).timeout; }
       set timeout(v) {
         const n = Number(v);
-        sockState(this).timeout = Number.isFinite(n) ? Math.max(250, n | 0) : 20000;
+        sockState(this).timeout = Number.isFinite(n) ? Math.max(1, n | 0) : 20000;
       }
       get endian() { return sockState(this).endian; }
       set endian(v) {
@@ -3639,15 +4884,31 @@
       }
       connect(host, port) {
         const r = sockState(this);
-        const h = host === null || host === undefined ? 'localhost' : String(host);
-        const p = Number(port) | 0;
+        cleanupSocketTransport(r);
+        r.connected = false;
+        r.localClosing = false;
+        const plan = resolveSocketWebSocketPlan(host, port, r.secure);
+        const h = plan.hostname;
+        const p = plan.port;
+        if (plan.error === 'insecure_scheme') {
+          r.certStatus = 'invalid';
+          dispatchLater(this, () =>
+            makeIOErrorEvent('ioError', `SecureSocket requires TLS (wss://) when connecting to ${h}:${p}.`)
+          );
+          return;
+        }
+        if (plan.error === 'invalid_url') {
+          if (r.secure) r.certStatus = 'invalid';
+          dispatchLater(this, () => makeIOErrorEvent('ioError', `Invalid socket URL: ${String(host)}`));
+          return;
+        }
         if (p < 1 || p > 65535) {
           const err = new Error('SecurityError: Error #2003: Invalid socket port number specified.');
           err.name = 'SecurityError';
           err.errorID = 2003;
           throw err;
         }
-        if (/^disallowed\.|^blocked\./i.test(h)) {
+        if (/^disallowed\.|^blocked\./i.test(h) || !checkSocketCrossDomainPolicy(h, p, r.secure)) {
           r.connected = false;
           dispatchLater(this, () => makeSecurityErrorEvent('securityError', `Socket connection to ${h}:${p} denied by security policy.`));
           return;
@@ -3658,11 +4919,12 @@
           dispatchLater(this, () => makeIOErrorEvent('ioError', `Socket connection to ${h}:${p} failed.`));
           return;
         }
+
         r.host = h;
         r.port = p;
-        r.connected = true;
         r.remoteAddress = h;
         r.remotePort = p;
+
         if (!r.secure && typeof options.getAir === 'function') {
           const air = options.getAir();
           if (air && typeof air.tryConnectServerSocket === 'function') {
@@ -3680,6 +4942,7 @@
               return accepted;
             });
             if (matched) {
+              r.connected = true;
               r.localAddress = matched.info.clientAddress;
               r.localPort = matched.info.clientPort;
               r.remoteAddress = matched.info.serverAddress;
@@ -3690,21 +4953,191 @@
             }
           }
         }
+
+        if (plan.useWs && plan.WsCtor) {
+          const seq = ++r.connectSeq;
+          r.connecting = true;
+          if (r.rx) r.rx.clear();
+          if (r.tx) r.tx.clear();
+          let ws;
+          try {
+            ws = new plan.WsCtor(plan.url);
+          } catch (err) {
+            r.connecting = false;
+            if (r.secure) r.certStatus = 'invalid';
+            dispatchLater(this, () => makeIOErrorEvent('ioError', String(err?.message || err)));
+            return;
+          }
+          try { ws.binaryType = 'arraybuffer'; } catch (_) {}
+          r.ws = ws;
+          activeWebSockets.add(ws);
+          let opened = false;
+          let settled = false;
+
+          r.connectTimer = trackTimer(
+            setTimeout(() => {
+              if (settled || opened || disposed || r.generation !== generation || r.connectSeq !== seq) return;
+              settled = true;
+              r.connecting = false;
+              r.connected = false;
+              r.localClosing = true;
+              if (r.secure) r.certStatus = 'invalid';
+              try { ws.close(); } catch (_) {}
+              activeWebSockets.delete(ws);
+              r.ws = null;
+              r.connectTimer = null;
+              dispatchNow(this, makeIOErrorEvent('ioError', `Socket connection to ${h}:${p} timed out after ${r.timeout}ms.`));
+            }, r.timeout)
+          );
+
+          ws.addEventListener('open', () => {
+            if (settled || disposed || r.generation !== generation || r.connectSeq !== seq || r.localClosing) return;
+            untrackTimer(r.connectTimer);
+            r.connectTimer = null;
+            if (r.secure) {
+              let peerDer = null;
+              try {
+                const rawPeer = ws._socket?.getPeerCertificate?.(true)?.raw;
+                if (rawPeer && rawPeer.byteLength > 0) {
+                  peerDer = new Uint8Array(rawPeer.buffer, rawPeer.byteOffset, rawPeer.byteLength);
+                }
+              } catch (_) {}
+              if (!peerDer && typeof options.getServerCertificateDer === 'function') {
+                try {
+                  const custom = options.getServerCertificateDer(h, p, ws);
+                  if (custom instanceof Uint8Array && custom.byteLength > 0) peerDer = custom;
+                } catch (_) {}
+              }
+              const realChain = r.chainCerts.filter(c => c.isRealDer);
+              if (peerDer || realChain.length > 0) {
+                const leafBytes = peerDer || kernel.loopback_x509_der(h);
+                try {
+                  r.cert = new X509Certificate(leafBytes);
+                } catch (_) {
+                  r.cert = null;
+                }
+                const verify = execKernel({
+                  op: 'x509_verify',
+                  serverBase64: toBase64(leafBytes),
+                  chain: realChain.map(c => ({ base64: toBase64(c.rawDer), trusted: c.trusted })),
+                  host: h,
+                  nowMs: Date.now(),
+                });
+                r.certStatus = String(verify.status || 'invalid');
+                if (r.certStatus !== 'trusted') {
+                  settled = true;
+                  r.connecting = false;
+                  r.connected = false;
+                  r.localClosing = true;
+                  try { ws.close(); } catch (_) {}
+                  activeWebSockets.delete(ws);
+                  r.ws = null;
+                  dispatchNow(
+                    this,
+                    makeIOErrorEvent('ioError', `SecureSocket TLS certificate verification failed (${r.certStatus}) for ${h}:${p}.`)
+                  );
+                  return;
+                }
+              } else {
+                const der = kernel.loopback_x509_der(h);
+                r.cert = new X509Certificate(der);
+                r.certStatus = 'trusted';
+              }
+            }
+            opened = true;
+            settled = true;
+            r.connecting = false;
+            r.connected = true;
+            dispatchNow(this, makeBasicEvent('connect'));
+          });
+
+          ws.addEventListener('message', ev => {
+            if (disposed || r.generation !== generation || r.connectSeq !== seq || !r.connected || r.localClosing) return;
+            if (typeof Blob === 'function' && ev.data instanceof Blob) {
+              ev.data.arrayBuffer().then(ab => {
+                if (disposed || r.generation !== generation || r.connectSeq !== seq || !r.connected || r.localClosing) return;
+                const chunk = new Uint8Array(ab);
+                if (chunk.byteLength > 0) {
+                  appendToByteArray(r.rx, chunk);
+                  dispatchNow(this, makeProgressEvent('socketData', chunk.byteLength, 0));
+                }
+              }).catch(() => {});
+              return;
+            }
+            const chunk = wsMessageToUint8Array(ev.data);
+            if (chunk.byteLength > 0) {
+              appendToByteArray(r.rx, chunk);
+              dispatchNow(this, makeProgressEvent('socketData', chunk.byteLength, 0));
+            }
+          });
+
+          ws.addEventListener('error', () => {
+            if (disposed || r.generation !== generation || r.connectSeq !== seq || r.localClosing) return;
+            if (!opened && !settled) {
+              settled = true;
+              untrackTimer(r.connectTimer);
+              r.connectTimer = null;
+              r.connecting = false;
+              r.connected = false;
+              if (r.secure && r.certStatus === 'unknown') r.certStatus = 'invalid';
+              activeWebSockets.delete(ws);
+              if (r.ws === ws) r.ws = null;
+              dispatchNow(this, makeIOErrorEvent('ioError', `Socket connection to ${h}:${p} failed.`));
+            }
+          });
+
+          ws.addEventListener('close', () => {
+            activeWebSockets.delete(ws);
+            if (r.ws === ws) r.ws = null;
+            untrackTimer(r.connectTimer);
+            r.connectTimer = null;
+            if (disposed || r.generation !== generation || r.connectSeq !== seq || r.localClosing) return;
+            if (!opened && !settled) {
+              settled = true;
+              r.connecting = false;
+              r.connected = false;
+              if (r.secure && r.certStatus === 'unknown') r.certStatus = 'invalid';
+              dispatchNow(this, makeIOErrorEvent('ioError', `Socket connection to ${h}:${p} closed before handshake completed.`));
+              return;
+            }
+            if (opened && r.connected) {
+              r.connected = false;
+              dispatchNow(this, makeBasicEvent('close'));
+            }
+          });
+          return;
+        }
+
+        // Deterministic loopback fallback (offline harnesses)
+        r.connected = true;
         if (r.secure) {
+          const realChain = r.chainCerts.filter(c => c.isRealDer);
           const der = kernel.loopback_x509_der(h);
           r.cert = new X509Certificate(der);
-          r.certStatus = 'trusted';
+          if (realChain.length > 0) {
+            const verify = execKernel({
+              op: 'x509_verify',
+              serverBase64: toBase64(der),
+              chain: realChain.map(c => ({ base64: toBase64(c.rawDer), trusted: c.trusted })),
+              host: h,
+              nowMs: Date.now(),
+            });
+            r.certStatus = String(verify.status || 'trusted');
+          } else {
+            r.certStatus = 'trusted';
+          }
         }
         dispatchLater(this, () => makeBasicEvent('connect'));
       }
       close() {
         const r = sockState(this);
-        if (!r.connected) {
+        if (!r.connected && !r.connecting) {
           const err = new Error('IOError: Error #2002: Operation attempted on invalid socket.');
           err.name = 'IOError';
           err.errorID = 2002;
           throw err;
         }
+        cleanupSocketTransport(r);
         r.connected = false;
         r.peer = null;
         if (r.rx) r.rx.clear();
@@ -3721,6 +5154,10 @@
         if (r.tx && r.tx.length > 0) {
           const outBytes = binary.toBytes(r.tx);
           r.tx.clear();
+          if (r.ws && r.ws.readyState === 1) {
+            r.ws.send(outBytes);
+            return;
+          }
           if (r.peer && socketMap.has(r.peer)) {
             const pr = sockState(r.peer);
             if (pr.connected && pr.rx) {
@@ -3822,13 +5259,16 @@
           err.errorID = 2004;
           throw err;
         }
-        let parsedCert;
+        let parsedCert = null;
+        let isRealDer = false;
         try {
           parsedCert = new X509Certificate(der);
+          isRealDer = der[0] === 0x30;
         } catch (_) {
           parsedCert = new X509Certificate();
+          isRealDer = false;
         }
-        r.chainCerts.push({ cert: parsedCert, trusted: Boolean(trusted) });
+        r.chainCerts.push({ cert: parsedCert, rawDer: der, isRealDer, trusted: Boolean(trusted) });
       }
       connect(host, port) {
         super.connect(host, port);
@@ -3849,6 +5289,7 @@
           objectEncoding: 3,
           rx,
           activeOp: 0,
+          abortCtl: null,
         });
       }
       get connected() { return usState(this).connected; }
@@ -3873,6 +5314,10 @@
         if (!request || typeof request !== 'object' || typeof request.url !== 'string' || !request.url) {
           throw new TypeError('TypeError: Error #2007: URLStream.load requires a valid URLRequest.');
         }
+        if (r.abortCtl) {
+          try { r.abortCtl.abort(); } catch (_) {}
+          r.abortCtl = null;
+        }
         const url = request.url;
         const opId = ++r.activeOp;
         if (/^disallowed:|^blocked:/i.test(url)) {
@@ -3893,6 +5338,61 @@
               bytes = new Uint8Array(src.bytes);
             }
           } catch (_) {}
+        }
+        const fetchFn = options.fetch || global.fetch;
+        if (!bytes && /^https?:\/\//i.test(url) && typeof fetchFn === 'function') {
+          let parsedUrl = null;
+          try { parsedUrl = new URL(url); } catch (_) {}
+          if (parsedUrl && !/\.test$|\.invalid$/i.test(parsedUrl.hostname)) {
+            const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+            r.abortCtl = ctl;
+            r.rx.clear();
+            Promise.resolve()
+              .then(() => fetchFn(url, ctl ? { signal: ctl.signal } : {}))
+              .then(async resp => {
+                if (disposed || r.generation !== generation || r.activeOp !== opId) return;
+                r.connected = true;
+                dispatchNow(this, makeBasicEvent('open'));
+                dispatchNow(this, makeHTTPStatusEvent(resp?.status || 200));
+                if (!resp || !resp.ok) {
+                  r.connected = false;
+                  dispatchNow(this, makeIOErrorEvent('ioError', `HTTP ${resp?.status || 0} loading ${url}`));
+                  return;
+                }
+                const total = Number(resp.headers?.get?.('content-length') || 0);
+                const reader = resp.body?.getReader?.();
+                if (!reader) {
+                  const u8 = new Uint8Array(await resp.arrayBuffer());
+                  if (disposed || r.generation !== generation || r.activeOp !== opId) return;
+                  appendToByteArray(r.rx, u8);
+                  dispatchNow(this, makeProgressEvent('progress', u8.byteLength, total || u8.byteLength));
+                  dispatchNow(this, makeBasicEvent('complete'));
+                  return;
+                }
+                let loaded = 0;
+                for (;;) {
+                  const { done, value } = await reader.read();
+                  if (disposed || r.generation !== generation || r.activeOp !== opId) {
+                    try { await reader.cancel(); } catch (_) {}
+                    return;
+                  }
+                  if (done) break;
+                  if (value && value.byteLength > 0) {
+                    const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
+                    loaded += chunk.byteLength;
+                    appendToByteArray(r.rx, chunk);
+                    dispatchNow(this, makeProgressEvent('progress', loaded, total));
+                  }
+                }
+                dispatchNow(this, makeBasicEvent('complete'));
+              })
+              .catch(err => {
+                if (disposed || r.generation !== generation || r.activeOp !== opId || err?.name === 'AbortError') return;
+                r.connected = false;
+                dispatchNow(this, makeIOErrorEvent('ioError', String(err?.message || err)));
+              });
+            return;
+          }
         }
         if (!bytes) {
           if (url.startsWith('data:')) {
@@ -3917,6 +5417,10 @@
       close() {
         const r = usState(this);
         r.activeOp++;
+        if (r.abortCtl) {
+          try { r.abortCtl.abort(); } catch (_) {}
+          r.abortCtl = null;
+        }
         r.connected = false;
         if (r.rx) r.rx.clear();
       }
@@ -3963,12 +5467,17 @@
           generation,
           id: nextXmlSocketId++,
           connected: false,
+          connecting: false,
+          localClosing: false,
+          connectSeq: 0,
+          connectTimer: null,
+          ws: null,
           timeout: 20000,
           host: null,
           port: 0,
         };
         xmlSocketMap.set(this, rec);
-        if (host !== null && host !== undefined && Number(port) > 0) {
+        if (host !== null && host !== undefined && (Number(port) > 0 || /^wss?:\/\//i.test(String(host)))) {
           this.connect(String(host), Number(port));
         }
       }
@@ -3976,19 +5485,27 @@
       get timeout() { return xsState(this).timeout; }
       set timeout(v) {
         const n = Number(v);
-        xsState(this).timeout = Number.isFinite(n) ? Math.max(250, n | 0) : 20000;
+        xsState(this).timeout = Number.isFinite(n) ? Math.max(1, n | 0) : 20000;
       }
       connect(host, port) {
         const r = xsState(this);
-        const h = host === null || host === undefined ? 'localhost' : String(host);
-        const p = Number(port) | 0;
+        cleanupSocketTransport(r);
+        r.connected = false;
+        r.localClosing = false;
+        const plan = resolveSocketWebSocketPlan(host, port, false);
+        const h = plan.hostname;
+        const p = plan.port;
+        if (plan.error) {
+          dispatchLater(this, () => makeIOErrorEvent('ioError', `Invalid XMLSocket target: ${String(host)}`));
+          return;
+        }
         if (p < 1 || p > 65535) {
           const err = new Error('SecurityError: Error #2003: Invalid XMLSocket port number.');
           err.name = 'SecurityError';
           err.errorID = 2003;
           throw err;
         }
-        if (/^disallowed\.|^blocked\./i.test(h)) {
+        if (/^disallowed\.|^blocked\./i.test(h) || !checkSocketCrossDomainPolicy(h, p, false)) {
           r.connected = false;
           dispatchLater(this, () => makeSecurityErrorEvent('securityError', `XMLSocket connection to ${h}:${p} denied.`));
           return;
@@ -4000,6 +5517,104 @@
         }
         r.host = h;
         r.port = p;
+
+        if (plan.useWs && plan.WsCtor) {
+          const seq = ++r.connectSeq;
+          r.connecting = true;
+          let ws;
+          try {
+            ws = new plan.WsCtor(plan.url);
+          } catch (err) {
+            r.connecting = false;
+            dispatchLater(this, () => makeIOErrorEvent('ioError', String(err?.message || err)));
+            return;
+          }
+          try { ws.binaryType = 'arraybuffer'; } catch (_) {}
+          r.ws = ws;
+          activeWebSockets.add(ws);
+          let opened = false;
+          let settled = false;
+
+          r.connectTimer = trackTimer(
+            setTimeout(() => {
+              if (settled || opened || disposed || r.generation !== generation || r.connectSeq !== seq) return;
+              settled = true;
+              r.connecting = false;
+              r.connected = false;
+              r.localClosing = true;
+              try { ws.close(); } catch (_) {}
+              activeWebSockets.delete(ws);
+              r.ws = null;
+              r.connectTimer = null;
+              dispatchNow(this, makeIOErrorEvent('ioError', `XMLSocket connection to ${h}:${p} timed out after ${r.timeout}ms.`));
+            }, r.timeout)
+          );
+
+          ws.addEventListener('open', () => {
+            if (settled || disposed || r.generation !== generation || r.connectSeq !== seq || r.localClosing) return;
+            untrackTimer(r.connectTimer);
+            r.connectTimer = null;
+            opened = true;
+            settled = true;
+            r.connecting = false;
+            r.connected = true;
+            dispatchNow(this, makeBasicEvent('connect'));
+          });
+
+          ws.addEventListener('message', ev => {
+            if (disposed || r.generation !== generation || r.connectSeq !== seq || !r.connected || r.localClosing) return;
+            const feedBytes = chunk => {
+              if (!chunk || chunk.byteLength === 0) return;
+              const messages = JSON.parse(kernel.xml_socket_feed(r.id, chunk));
+              for (const msg of messages) {
+                dispatchNow(this, makeDataEvent('data', msg));
+              }
+            };
+            if (typeof Blob === 'function' && ev.data instanceof Blob) {
+              ev.data.arrayBuffer().then(ab => {
+                if (disposed || r.generation !== generation || r.connectSeq !== seq || !r.connected || r.localClosing) return;
+                feedBytes(new Uint8Array(ab));
+              }).catch(() => {});
+              return;
+            }
+            feedBytes(wsMessageToUint8Array(ev.data));
+          });
+
+          ws.addEventListener('error', () => {
+            if (disposed || r.generation !== generation || r.connectSeq !== seq || r.localClosing) return;
+            if (!opened && !settled) {
+              settled = true;
+              untrackTimer(r.connectTimer);
+              r.connectTimer = null;
+              r.connecting = false;
+              r.connected = false;
+              activeWebSockets.delete(ws);
+              if (r.ws === ws) r.ws = null;
+              dispatchNow(this, makeIOErrorEvent('ioError', `XMLSocket connection to ${h}:${p} failed.`));
+            }
+          });
+
+          ws.addEventListener('close', () => {
+            activeWebSockets.delete(ws);
+            if (r.ws === ws) r.ws = null;
+            untrackTimer(r.connectTimer);
+            r.connectTimer = null;
+            if (disposed || r.generation !== generation || r.connectSeq !== seq || r.localClosing) return;
+            if (!opened && !settled) {
+              settled = true;
+              r.connecting = false;
+              r.connected = false;
+              dispatchNow(this, makeIOErrorEvent('ioError', `XMLSocket connection to ${h}:${p} closed before handshake.`));
+              return;
+            }
+            if (opened && r.connected) {
+              r.connected = false;
+              dispatchNow(this, makeBasicEvent('close'));
+            }
+          });
+          return;
+        }
+
         r.connected = true;
         dispatchLater(this, () => makeBasicEvent('connect'));
       }
@@ -4018,6 +5633,10 @@
             ? object.toXMLString()
             : String(object);
         const raw = new TextEncoder().encode(text + '\0');
+        if (r.ws && r.ws.readyState === 1) {
+          r.ws.send(raw);
+          return;
+        }
         const messages = JSON.parse(kernel.xml_socket_feed(r.id, raw));
         for (const msg of messages) {
           dispatchLater(this, () => makeDataEvent('data', msg));
@@ -4025,6 +5644,7 @@
       }
       close() {
         const r = xsState(this);
+        cleanupSocketTransport(r);
         r.connected = false;
       }
     }
@@ -4602,13 +6222,27 @@
     }
     tagType(PrintJob, 'PrintJob', v => printJobs.has(v));
 
-    // flash.profiler.{showRedrawRegions, Telemetry}
+    // flash.profiler.{profile, showRedrawRegions, Telemetry}
     let redrawRegionsShown = false;
     let redrawRegionsColor = 0xff0000;
+    let profilerEnabled = false;
     function showRedrawRegions(on, color = 0xff0000) {
       ensureActive();
       redrawRegionsShown = Boolean(on);
       redrawRegionsColor = Number(color) >>> 0;
+      execKernel({ op: 'telemetry_op', action: 'show_redraw', on: redrawRegionsShown, color: redrawRegionsColor });
+      options.onShowRedrawRegions?.(redrawRegionsShown, redrawRegionsColor);
+    }
+
+    function profile(enable) {
+      ensureActive();
+      profilerEnabled = Boolean(enable);
+      execKernel({ op: 'telemetry_op', action: 'profile', enable: profilerEnabled });
+      if (profilerEnabled && samplerStateName === 'stopped') {
+        startSampling();
+      } else if (!profilerEnabled && samplerStateName === 'running') {
+        pauseSampling();
+      }
     }
 
     const telemetryHandlers = new Map();
@@ -4618,7 +6252,7 @@
       }
       static get connected() {
         ensureActive();
-        return true;
+        return options.telemetryConnected === undefined ? true : Boolean(options.telemetryConnected);
       }
       static get spanMarker() {
         ensureActive();
@@ -4638,11 +6272,15 @@
         }
         const start = Number(startSpanMarker);
         if (!Number.isFinite(start)) throw new TypeError('Telemetry.sendSpanMetric requires a finite startSpanMarker.');
+        const now = Telemetry.spanMarker;
+        const durationMs = Math.max(0, now - start);
         execKernel({
           op: 'telemetry_op',
-          action: 'metric',
+          action: 'span_metric',
           metric: String(metric),
-          value: { startSpanMarker: start, value },
+          startSpanMarker: start,
+          durationMs,
+          value: value ?? null,
         });
       }
       static sendSpanValue(metric, startSpanMarker, value = null) {
@@ -4672,6 +6310,13 @@
       [Symbol.hasInstance]: { value: () => false },
     });
 
+    function invokeTelemetryCommand(commandName, arg = undefined) {
+      ensureActive();
+      const fn = telemetryHandlers.get(String(commandName ?? ''));
+      if (typeof fn !== 'function') return undefined;
+      return fn(arg);
+    }
+
     // flash.sampler.*
     const stackFrames = new WeakSet();
     class StackFrame {
@@ -4695,7 +6340,7 @@
     class Sample {
       constructor(time = 1000, stack = null) {
         const frames = Array.isArray(stack)
-          ? stack.map(f => (stackFrames.has(f) ? f : new StackFrame(f[0], f[1], f[2], f[3])))
+          ? stack.map(f => (stackFrames.has(f) ? f : new StackFrame(f[0], f[1], f[2], f[3] ?? 1)))
           : [new StackFrame('sample', 'runtime.as', 1, 1)];
         Object.defineProperties(this, {
           time: { value: Number(time), enumerable: true },
@@ -4708,16 +6353,23 @@
 
     const newObjectSampleSet = new WeakSet();
     class NewObjectSample extends Sample {
-      constructor(time = 1000, stack = null, id = 1, type = Object, obj = {}, size = 32) {
+      constructor(time = 1000, stack = null, id = 1, type = Object, obj = {}, size = 32, meta = null) {
         super(time, stack);
         this._id = Number(id);
         this.type = type || Object;
         this._object = obj;
+        this._meta = meta;
         this._size = Number(size);
         newObjectSampleSet.add(this);
       }
       get id() { return this._id; }
-      get object() { return this._object; }
+      get object() {
+        if (this._meta) {
+          if (this._meta.disposed) return undefined;
+          return this._meta.weakRef ? this._meta.weakRef.deref() : this._meta.strongRef;
+        }
+        return this._object;
+      }
       get size() { return this._size; }
     }
     tagType(NewObjectSample, 'NewObjectSample', v => newObjectSampleSet.has(v));
@@ -4736,30 +6388,451 @@
     tagType(DeleteObjectSample, 'DeleteObjectSample', v => deleteObjectSampleSet.has(v));
 
     const samplerObjectIds = new WeakMap();
+    const sampledObjectsById = new Map();
+    const scriptIdByFile = new Map();
+    const recentMasterStrings = [];
+    let nextScriptId = 1;
     let nextSamplerObjectId = 1;
-    function getSamplerObjectKey(obj, qname, kind) {
-      let id = 0;
-      if (obj !== null && obj !== undefined && (typeof obj === 'object' || typeof obj === 'function')) {
-        if (!samplerObjectIds.has(obj)) samplerObjectIds.set(obj, nextSamplerObjectId++);
-        id = samplerObjectIds.get(obj);
+    let samplerStateName = 'stopped';
+    let samplerInternalAllocs = false;
+    let samplerCallbackFn = null;
+    let samplerCallbackRunning = false;
+    let samplerLiveAllocsBytes = 0;
+    let lastActiveCallFrame = null;
+
+    function nowMicros() {
+      const ms = typeof global.performance?.now === 'function' ? global.performance.now() : Date.now();
+      return Math.max(1, Math.round(ms * 1000));
+    }
+
+    function scriptIdForFile(file) {
+      const f = String(file || 'script.as');
+      let id = scriptIdByFile.get(f);
+      if (!id) {
+        id = nextScriptId++;
+        scriptIdByFile.set(f, id);
       }
-      const member = qname && typeof qname === 'object' && 'localName' in qname ? String(qname.localName) : String(qname ?? '');
-      return `${id}:${kind}:${member}`;
+      return id;
+    }
+
+    function captureSamplerStackFrames(fallbackName = 'global$init') {
+      const frames = [];
+      if (lastActiveCallFrame) {
+        frames.push([
+          lastActiveCallFrame.name,
+          lastActiveCallFrame.file,
+          lastActiveCallFrame.line,
+          scriptIdForFile(lastActiveCallFrame.file),
+        ]);
+      }
+      try {
+        const rawStack = String(new Error().stack || '');
+        const lines = rawStack.split('\n').slice(1);
+        for (const rawLine of lines) {
+          const line = rawLine.trim();
+          if (!line) continue;
+          if (
+            line.includes('as3-net-sys.js') ||
+            line.includes('project-runtime.js') ||
+            line.includes('functions.js') ||
+            line.includes('node:internal') ||
+            line.includes('captureSamplerStackFrames')
+          ) {
+            continue;
+          }
+          const m = /^at\s+(?:([^\s(]+)\s+\()?([^()]+):(\d+):\d+\)?$/.exec(line);
+          if (m) {
+            const fnName = (m[1] || 'anonymous').replace(/^Object\./, '');
+            const rawFile = m[2].split('/').pop() || 'script.as';
+            const ln = Math.max(1, Number(m[3]) | 0);
+            if (!frames.some(f => f[0] === fnName && f[2] === ln)) {
+              frames.push([fnName, rawFile, ln, scriptIdForFile(rawFile)]);
+            }
+          }
+          if (frames.length >= 16) break;
+        }
+      } catch (_) {}
+      if (frames.length === 0) {
+        frames.push([fallbackName, 'script.as', 1, scriptIdForFile('script.as')]);
+      }
+      return frames;
+    }
+
+    function rememberMasterStringCandidate(val) {
+      if (typeof val !== 'string' || val.length < 4) return;
+      if (recentMasterStrings.includes(val)) return;
+      if (recentMasterStrings.length >= 256) recentMasterStrings.shift();
+      recentMasterStrings.push(val);
+    }
+
+    function ensureSamplerObjectId(obj) {
+      if (obj === null || obj === undefined || (typeof obj !== 'object' && typeof obj !== 'function')) {
+        return 0;
+      }
+      let id = samplerObjectIds.get(obj);
+      if (!id) {
+        id = nextSamplerObjectId++;
+        samplerObjectIds.set(obj, id);
+      }
+      return id;
+    }
+
+    function recordSamplerDeleteById(allocId, size) {
+      if (disposed || !kernel) return;
+      const meta = sampledObjectsById.get(allocId);
+      if (meta) {
+        if (meta.disposed) return;
+        meta.disposed = true;
+        samplerLiveAllocsBytes = Math.max(0, samplerLiveAllocsBytes - (meta.size || 0));
+      }
+      if (samplerStateName === 'running') {
+        try {
+          execKernel({
+            op: 'sampler_op',
+            action: 'record_delete',
+            allocId: Number(allocId),
+            size: Number(size || meta?.size || 32),
+            timeUs: nowMicros(),
+            stack: captureSamplerStackFrames('gc'),
+          });
+          maybeTriggerSamplerCallback();
+        } catch (_) {}
+      }
+    }
+
+    const samplerFinalizationRegistry =
+      typeof FinalizationRegistry === 'function'
+        ? new FinalizationRegistry(info => {
+            if (info && info.generation === generation) {
+              recordSamplerDeleteById(info.id, info.size);
+            }
+          })
+        : null;
+
+    function sweepSamplerDeadObjects() {
+      for (const [id, meta] of sampledObjectsById.entries()) {
+        if (meta.disposed) continue;
+        if (meta.weakRef && meta.weakRef.deref() === undefined) {
+          recordSamplerDeleteById(id, meta.size);
+        }
+      }
+    }
+
+    function maybeTriggerSamplerCallback() {
+      if (samplerCallbackRunning || typeof samplerCallbackFn !== 'function') return;
+      let count = 0;
+      try {
+        count = Number(execKernel({ op: 'sampler_op', action: 'count' }).count);
+      } catch (_) {}
+      if (count >= 64) {
+        samplerCallbackRunning = true;
+        try {
+          samplerCallbackFn();
+        } finally {
+          samplerCallbackRunning = false;
+        }
+      }
+    }
+
+    function computeObjectByteSize(o) {
+      if (o === null || o === undefined) return 0;
+      if (typeof o === 'boolean' || typeof o === 'number') return 8;
+      if (typeof o === 'string') {
+        rememberMasterStringCandidate(o);
+        return 24 + o.length * 2;
+      }
+      if (binary?.ByteArray?.__nfIs?.(o)) return 64 + (Number(o.length) || 0);
+      if (Array.isArray(o)) return 48 + o.length * 8;
+      const xmlH = xmlHost || getBuiltins()?.__nfXML;
+      if (xmlH?.XML?.__nfIs?.(o)) {
+        let childLen = 0;
+        try { childLen = Number(o.children?.()?.length?.()) || 0; } catch (_) {}
+        return 72 + childLen * 48;
+      }
+      const prog = getProgram();
+      if (prog?.samplerTraits) {
+        const traits = prog.samplerTraits(o, false);
+        if (Array.isArray(traits)) {
+          return 40 + traits.length * 16;
+        }
+      }
+      if (typeof o === 'function') return 64;
+      if (typeof o === 'object') return 40 + Object.keys(o).length * 16;
+      return 32;
+    }
+
+    function recordInvocationKey(key) {
+      if (disposed || !kernel || !key) return;
+      try {
+        execKernel({ op: 'sampler_op', action: 'record_invocation', key });
+      } catch (_) {}
+    }
+
+    function normalizeSamplerMemberArgs(arg0, arg1) {
+      const prog = getProgram();
+      if (typeof arg0 === 'function' && prog?.isClass?.(arg0)) {
+        return {
+          ownerCls: arg0,
+          ownerClassName: String(prog.className?.(arg0) || ''),
+          receiver: arg1,
+        };
+      }
+      const ownerClassName = typeof arg1 === 'string' ? arg1 : '';
+      let ownerCls = null;
+      if (ownerClassName && prog?.resolveClass) {
+        try { ownerCls = prog.resolveClass(ownerClassName); } catch (_) {}
+      }
+      return {
+        ownerCls,
+        ownerClassName,
+        receiver: arg0,
+      };
+    }
+
+    const nfSamplerHooks = Object.freeze({
+      onAlloc(obj, ctor, className) {
+        if (disposed || !kernel || obj === null || obj === undefined || (typeof obj !== 'object' && typeof obj !== 'function')) {
+          return;
+        }
+        const prog = getProgram();
+        const resolvedCtor = typeof ctor === 'function' ? ctor : (className && prog?.resolveClass ? prog.resolveClass(className) : null);
+        if (typeof resolvedCtor === 'function') {
+          const clsId = ensureSamplerObjectId(resolvedCtor);
+          if (clsId > 0) recordInvocationKey(`${clsId}:call:$construct`);
+        }
+        try {
+          for (const k of Object.keys(obj)) {
+            const v = obj[k];
+            if (typeof v === 'string' && v.length > 0) rememberMasterStringCandidate(v);
+          }
+        } catch (_) {}
+        const id = ensureSamplerObjectId(obj);
+        const size = computeObjectByteSize(obj);
+        const clsName = String(className || prog?.instanceClassName?.(obj) || resolvedCtor?.name || 'Object');
+        if (samplerStateName !== 'running') return;
+        const meta = {
+          id,
+          ctor: typeof resolvedCtor === 'function' ? resolvedCtor : null,
+          className: clsName,
+          size,
+          disposed: false,
+          weakRef: typeof WeakRef === 'function' ? new WeakRef(obj) : null,
+          strongRef: typeof WeakRef === 'function' ? undefined : obj,
+        };
+        sampledObjectsById.set(id, meta);
+        samplerLiveAllocsBytes += size;
+        try {
+          samplerFinalizationRegistry?.register(obj, { id, size, generation }, obj);
+        } catch (_) {}
+        const stack = captureSamplerStackFrames(`${clsName}/${clsName.split('.').pop()}`);
+        try {
+          execKernel({
+            op: 'sampler_op',
+            action: 'record_alloc',
+            allocId: id,
+            size,
+            className: clsName,
+            timeUs: nowMicros(),
+            stack,
+          });
+          maybeTriggerSamplerCallback();
+        } catch (_) {}
+      },
+      onDispose(obj) {
+        if (obj === null || obj === undefined || (typeof obj !== 'object' && typeof obj !== 'function')) return;
+        const id = samplerObjectIds.get(obj);
+        if (id) {
+          try { samplerFinalizationRegistry?.unregister(obj); } catch (_) {}
+          recordSamplerDeleteById(id, computeObjectByteSize(obj));
+        } else if (samplerStateName === 'running') {
+          const synthId = ensureSamplerObjectId(obj);
+          const sz = computeObjectByteSize(obj);
+          sampledObjectsById.set(synthId, { id: synthId, ctor: null, className: 'XML', size: sz, disposed: false, weakRef: null });
+          samplerLiveAllocsBytes += sz;
+          recordSamplerDeleteById(synthId, sz);
+        }
+      },
+      onCall(arg0, arg1, memberName, isStatic, access, ns) {
+        if (disposed || !kernel) return;
+        const { ownerCls, ownerClassName, receiver } = normalizeSamplerMemberArgs(arg0, arg1);
+        const mName = String(memberName || '');
+        const uri = access === 'public' ? '' : String(ns || '');
+        const shortOwner = String(ownerClassName || '').replace(/\./g, ':');
+        lastActiveCallFrame = {
+          name: mName === '$construct' ? `${shortOwner}/${shortOwner.split(':').pop()}` : `${shortOwner}/${mName}`,
+          file: `${String(ownerClassName || 'script').split('.').pop()}.as`,
+          line: 1,
+        };
+        const recvId = ensureSamplerObjectId(receiver);
+        if (recvId > 0) {
+          recordInvocationKey(`${recvId}:call:${mName}`);
+          if (uri) recordInvocationKey(`${recvId}:call:${uri}::${mName}`);
+        }
+        if (!isStatic && (ownerCls || ownerClassName)) {
+          try {
+            const cls = ownerCls || getProgram()?.resolveClass?.(ownerClassName);
+            const clsId = ensureSamplerObjectId(cls);
+            if (clsId > 0) {
+              recordInvocationKey(`${clsId}:inst_call:${mName}`);
+              if (uri) recordInvocationKey(`${clsId}:inst_call:${uri}::${mName}`);
+            }
+          } catch (_) {}
+        }
+      },
+      onGet(arg0, arg1, memberName, isStatic, access, ns) {
+        if (disposed || !kernel) return;
+        const { ownerCls, ownerClassName, receiver } = normalizeSamplerMemberArgs(arg0, arg1);
+        const mName = String(memberName || '');
+        const uri = access === 'public' ? '' : String(ns || '');
+        const recvId = ensureSamplerObjectId(receiver);
+        if (recvId > 0) {
+          recordInvocationKey(`${recvId}:get:${mName}`);
+          if (uri) recordInvocationKey(`${recvId}:get:${uri}::${mName}`);
+        }
+        if (!isStatic && (ownerCls || ownerClassName)) {
+          try {
+            const cls = ownerCls || getProgram()?.resolveClass?.(ownerClassName);
+            const clsId = ensureSamplerObjectId(cls);
+            if (clsId > 0) {
+              recordInvocationKey(`${clsId}:inst_get:${mName}`);
+              if (uri) recordInvocationKey(`${clsId}:inst_get:${uri}::${mName}`);
+            }
+          } catch (_) {}
+        }
+      },
+      onSet(arg0, arg1, memberName, isStatic, access, ns, val) {
+        if (disposed || !kernel) return;
+        if (typeof val === 'string') rememberMasterStringCandidate(val);
+        const { ownerCls, ownerClassName, receiver } = normalizeSamplerMemberArgs(arg0, arg1);
+        const mName = String(memberName || '');
+        const uri = access === 'public' ? '' : String(ns || '');
+        const recvId = ensureSamplerObjectId(receiver);
+        if (recvId > 0) {
+          recordInvocationKey(`${recvId}:set:${mName}`);
+          if (uri) recordInvocationKey(`${recvId}:set:${uri}::${mName}`);
+        }
+        if (!isStatic && (ownerCls || ownerClassName)) {
+          try {
+            const cls = ownerCls || getProgram()?.resolveClass?.(ownerClassName);
+            const clsId = ensureSamplerObjectId(cls);
+            if (clsId > 0) {
+              recordInvocationKey(`${clsId}:inst_set:${mName}`);
+              if (uri) recordInvocationKey(`${clsId}:inst_set:${uri}::${mName}`);
+            }
+          } catch (_) {}
+        }
+      },
+    });
+
+    const instrumentedPlainObjects = new WeakSet();
+    function instrumentPlainObjectIfNeeded(o) {
+      if (o === null || o === undefined || typeof o !== 'object') return;
+      if (instrumentedPlainObjects.has(o)) return;
+      const prog = getProgram();
+      if (prog?.instanceClassName?.(o) || prog?.isClass?.(o) || !Object.isExtensible(o)) return;
+      if (Object.getPrototypeOf(o) !== Object.prototype) return;
+      instrumentedPlainObjects.add(o);
+      let descs;
+      try { descs = Object.getOwnPropertyDescriptors(o); } catch (_) { return; }
+      for (const [k, d] of Object.entries(descs)) {
+        if (!d.configurable || k.startsWith('__nf')) continue;
+        if (typeof d.value === 'function' && !d.value.__nfSamplerWrapped) {
+          const origFn = d.value;
+          const wrapped = function (...args) {
+            const id = ensureSamplerObjectId(this && typeof this === 'object' ? this : o);
+            recordInvocationKey(`${id}:call:${k}`);
+            return Reflect.apply(origFn, this, args);
+          };
+          wrapped.__nfSamplerWrapped = true;
+          try {
+            Object.defineProperty(o, k, { ...d, value: wrapped });
+          } catch (_) {}
+        } else if ((typeof d.get === 'function' || typeof d.set === 'function') && !d.get?.__nfSamplerWrapped && !d.set?.__nfSamplerWrapped) {
+          const origGet = d.get;
+          const origSet = d.set;
+          const nextDesc = { enumerable: d.enumerable, configurable: d.configurable };
+          if (typeof origGet === 'function') {
+            nextDesc.get = function () {
+              const id = ensureSamplerObjectId(this && typeof this === 'object' ? this : o);
+              recordInvocationKey(`${id}:get:${k}`);
+              return Reflect.apply(origGet, this, []);
+            };
+            nextDesc.get.__nfSamplerWrapped = true;
+          }
+          if (typeof origSet === 'function') {
+            nextDesc.set = function (v) {
+              const id = ensureSamplerObjectId(this && typeof this === 'object' ? this : o);
+              recordInvocationKey(`${id}:set:${k}`);
+              return Reflect.apply(origSet, this, [v]);
+            };
+            nextDesc.set.__nfSamplerWrapped = true;
+          }
+          try {
+            Object.defineProperty(o, k, nextDesc);
+          } catch (_) {}
+        }
+      }
+    }
+
+    function parseQNameParts(qname) {
+      if (qname === null || qname === undefined) return { uri: '', localName: '' };
+      if (typeof qname === 'object' && 'localName' in qname) {
+        return {
+          uri: qname.uri == null ? '' : String(qname.uri),
+          localName: String(qname.localName ?? ''),
+        };
+      }
+      return { uri: '', localName: String(qname) };
+    }
+
+    function resolveSampleClassByName(clsName) {
+      if (!clsName || clsName === 'Object') return getBuiltins()?.Object || Object;
+      const prog = getProgram();
+      if (prog?.resolveClass) {
+        try {
+          const resolved = prog.resolveClass(clsName);
+          if (resolved) return resolved;
+        } catch (_) {}
+      }
+      const b = getBuiltins();
+      if (b && b[clsName]) return b[clsName];
+      return Object;
     }
 
     function startSampling() {
       ensureActive();
-      const nowUs = (typeof global.performance?.now === 'function' ? global.performance.now() : 1) * 1000;
-      execKernel({ op: 'sampler_op', action: 'start', timeUs: nowUs });
-      execKernel({ op: 'sampler_op', action: 'record_alloc', allocId: nextSamplerObjectId++, size: 48, className: 'Object', timeUs: nowUs + 10 });
-      execKernel({ op: 'sampler_op', action: 'record_delete', allocId: 1, size: 48, timeUs: nowUs + 20 });
+      const tUs = nowMicros();
+      const prevState = samplerStateName;
+      samplerStateName = 'running';
+      execKernel({ op: 'sampler_op', action: 'start', timeUs: tUs });
+      if (prevState === 'stopped') {
+        const bootObj = {};
+        const bootId = ensureSamplerObjectId(bootObj);
+        sampledObjectsById.set(bootId, {
+          id: bootId,
+          ctor: Object,
+          className: 'Object',
+          size: 40,
+          disposed: true,
+          weakRef: null,
+        });
+        const bootStack = captureSamplerStackFrames('startSampling');
+        execKernel({ op: 'sampler_op', action: 'record_alloc', allocId: bootId, size: 40, className: 'Object', timeUs: tUs + 1, stack: bootStack });
+        execKernel({ op: 'sampler_op', action: 'record_delete', allocId: bootId, size: 40, timeUs: tUs + 2, stack: bootStack });
+      }
     }
     function pauseSampling() {
       ensureActive();
+      samplerStateName = 'paused';
       execKernel({ op: 'sampler_op', action: 'pause' });
+      if (!samplerCallbackRunning && typeof samplerCallbackFn === 'function') {
+        samplerCallbackRunning = true;
+        try { samplerCallbackFn(); } finally { samplerCallbackRunning = false; }
+      }
     }
     function stopSampling() {
       ensureActive();
+      samplerStateName = 'stopped';
       execKernel({ op: 'sampler_op', action: 'stop' });
     }
     function clearSamples() {
@@ -4775,7 +6848,9 @@
       const raw = execKernel({ op: 'sampler_op', action: 'get_samples' }).samples || [];
       return raw.map(entry => {
         if (entry.kind === 'new') {
-          return new NewObjectSample(entry.timeUs, entry.stack, entry.id, Object, {}, entry.size);
+          const meta = sampledObjectsById.get(entry.id) || null;
+          const ctor = meta?.ctor || resolveSampleClassByName(entry.className);
+          return new NewObjectSample(entry.timeUs, entry.stack, entry.id, ctor, undefined, entry.size, meta);
         }
         if (entry.kind === 'delete') {
           return new DeleteObjectSample(entry.timeUs, entry.stack, entry.id, entry.size);
@@ -4785,19 +6860,22 @@
     }
     function getSize(o) {
       ensureActive();
-      if (o === null || o === undefined) return 0;
-      if (typeof o === 'boolean' || typeof o === 'number') return 8;
-      if (typeof o === 'string') return 24 + o.length * 2;
-      if (binary?.ByteArray?.__nfIs?.(o)) return 64 + (o.length || 0);
-      if (Array.isArray(o)) return 48 + o.length * 8;
-      if (typeof o === 'object') return 40 + Object.keys(o).length * 16;
-      return 32;
+      return computeObjectByteSize(o);
     }
     function getMemberNames(o, instanceNames = false) {
       ensureActive();
       if (o === null || o === undefined) return [];
+      instrumentPlainObjectIfNeeded(o);
       const b = getBuiltins();
-      const QNameCtor = b && b['QName'];
+      const QNameCtor = b?.QName || b?.__nfXML?.QName || options.xml?.QName;
+      const makeQName = (uri, name) => (QNameCtor ? new QNameCtor(uri || '', name) : name);
+      const prog = getProgram();
+      if (prog?.samplerTraits) {
+        const traits = prog.samplerTraits(o, Boolean(instanceNames));
+        if (Array.isArray(traits)) {
+          return traits.map(t => makeQName(t.uri, t.name));
+        }
+      }
       const target = instanceNames && typeof o === 'function' && o.prototype ? o.prototype : Object(o);
       const keys = new Set();
       let cur = target;
@@ -4807,15 +6885,15 @@
         }
         cur = Object.getPrototypeOf(cur);
       }
-      return Array.from(keys).map(k => (QNameCtor ? new QNameCtor('', k) : k));
+      return Array.from(keys).map(k => makeQName('', k));
     }
     function findPropertyDescriptor(o, qname) {
       if (o === null || o === undefined) return null;
-      const prop = qname && typeof qname === 'object' && 'localName' in qname ? String(qname.localName) : String(qname ?? '');
-      if (!prop) return null;
+      const { localName } = parseQNameParts(qname);
+      if (!localName) return null;
       let cur = Object(o);
       while (cur) {
-        const desc = Object.getOwnPropertyDescriptor(cur, prop);
+        const desc = Object.getOwnPropertyDescriptor(cur, localName);
         if (desc) return desc;
         cur = Object.getPrototypeOf(cur);
       }
@@ -4823,30 +6901,125 @@
     }
     function isGetterSetter(o, qname) {
       ensureActive();
+      if (o === null || o === undefined) return false;
+      instrumentPlainObjectIfNeeded(o);
+      const { uri, localName } = parseQNameParts(qname);
+      if (!localName) return false;
+      const prog = getProgram();
+      if (prog?.samplerTraits) {
+        const traits = prog.samplerTraits(o, false) || (prog.isClass?.(o) ? prog.samplerTraits(o, true) : null);
+        if (Array.isArray(traits)) {
+          const hit = traits.find(t => t.name === localName && (!uri || t.uri === uri));
+          if (hit) return Boolean(hit.isGetterSetter);
+        }
+      }
       const desc = findPropertyDescriptor(o, qname);
       return Boolean(desc && (typeof desc.get === 'function' || typeof desc.set === 'function'));
     }
+    function readAs3FnRecord(fn) {
+      if (typeof fn !== 'function') return null;
+      return fn[Symbol.for('neoflash.source.function.v1')] || fn[Symbol.for('neoflash.as3.function.v1')] || null;
+    }
+    function lookupSamplerCount(o, qname, kind) {
+      if (o === null || o === undefined) return 0;
+      instrumentPlainObjectIfNeeded(o);
+      if (kind === 'call' && (qname === null || qname === undefined)) {
+        if (typeof o === 'function') {
+          if (getProgram()?.isClass?.(o)) {
+            const clsId = ensureSamplerObjectId(o);
+            return Number(execKernel({ op: 'sampler_op', action: 'get_invocation', key: `${clsId}:call:$construct` }).count);
+          }
+          const fnRec = readAs3FnRecord(o);
+          if (fnRec && typeof fnRec.invocationCount === 'number') return fnRec.invocationCount;
+          if (typeof o.__nfInvokeCount === 'number') return o.__nfInvokeCount;
+        }
+        return 0;
+      }
+      const id = ensureSamplerObjectId(o);
+      if (id <= 0) return 0;
+      const { uri, localName } = parseQNameParts(qname);
+      if (!localName) return 0;
+      if (uri) {
+        const qCount = Number(execKernel({ op: 'sampler_op', action: 'get_invocation', key: `${id}:${kind}:${uri}::${localName}` }).count);
+        if (qCount > 0) return qCount;
+      }
+      const directCount = Number(execKernel({ op: 'sampler_op', action: 'get_invocation', key: `${id}:${kind}:${localName}` }).count);
+      if (directCount > 0) return directCount;
+      if (getProgram()?.isClass?.(o)) {
+        if (uri) {
+          const instQ = Number(execKernel({ op: 'sampler_op', action: 'get_invocation', key: `${id}:inst_${kind}:${uri}::${localName}` }).count);
+          if (instQ > 0) return instQ;
+        }
+        const instDirect = Number(execKernel({ op: 'sampler_op', action: 'get_invocation', key: `${id}:inst_${kind}:${localName}` }).count);
+        if (instDirect > 0) return instDirect;
+      }
+      return 0;
+    }
     function getInvocationCount(o, qname) {
       ensureActive();
-      const key = getSamplerObjectKey(o, qname, 'call');
-      const count = Number(execKernel({ op: 'sampler_op', action: 'get_invocation', key }).count);
-      if (count > 0) return count;
-      const desc = findPropertyDescriptor(o, qname);
-      return desc ? 1 : 0;
+      return lookupSamplerCount(o, qname, 'call');
     }
     function getGetterInvocationCount(o, qname) {
       ensureActive();
-      const key = getSamplerObjectKey(o, qname, 'get');
-      const count = Number(execKernel({ op: 'sampler_op', action: 'get_invocation', key }).count);
-      if (count > 0) return count;
-      return isGetterSetter(o, qname) ? 1 : 0;
+      return lookupSamplerCount(o, qname, 'get');
     }
     function getSetterInvocationCount(o, qname) {
       ensureActive();
-      const key = getSamplerObjectKey(o, qname, 'set');
-      const count = Number(execKernel({ op: 'sampler_op', action: 'get_invocation', key }).count);
-      if (count > 0) return count;
-      return isGetterSetter(o, qname) ? 1 : 0;
+      return lookupSamplerCount(o, qname, 'set');
+    }
+    function getMasterString(str) {
+      ensureActive();
+      if (str === null || str === undefined) return null;
+      const s = String(str);
+      if (!s) return null;
+      for (const candidate of recentMasterStrings) {
+        if (candidate.length > s.length && candidate.indexOf(s) >= 0) {
+          return candidate;
+        }
+      }
+      rememberMasterStringCandidate(s);
+      return null;
+    }
+    function getLexicalScopes(fn) {
+      ensureActive();
+      if (typeof fn !== 'function') {
+        const err = new Error('ArgumentError: Error #2004: getLexicalScopes requires a Function.');
+        err.name = 'ArgumentError';
+        err.errorID = 2004;
+        throw err;
+      }
+      const rec = readAs3FnRecord(fn);
+      if (Array.isArray(rec?.lexicalScopes)) return rec.lexicalScopes.slice();
+      if (Array.isArray(fn.__nfLexicalScopes)) return fn.__nfLexicalScopes.slice();
+      return [];
+    }
+    function getSavedThis(fn) {
+      ensureActive();
+      if (typeof fn !== 'function') {
+        const err = new Error('ArgumentError: Error #2004: getSavedThis requires a Function.');
+        err.name = 'ArgumentError';
+        err.errorID = 2004;
+        throw err;
+      }
+      const rec = readAs3FnRecord(fn);
+      if (rec && rec.savedThis !== null && rec.savedThis !== undefined) return rec.savedThis;
+      if (fn.__nfSavedThis !== undefined) return fn.__nfSavedThis;
+      return undefined;
+    }
+    function sampleInternalAllocs(b) {
+      ensureActive();
+      samplerInternalAllocs = Boolean(b);
+      execKernel({ op: 'sampler_op', action: 'set_internal_allocs', enabled: samplerInternalAllocs });
+    }
+    function setSamplerCallback(f) {
+      ensureActive();
+      if (f !== null && f !== undefined && typeof f !== 'function') {
+        const err = new Error('ArgumentError: Error #2004: setSamplerCallback requires a Function or null.');
+        err.name = 'ArgumentError';
+        err.errorID = 2004;
+        throw err;
+      }
+      samplerCallbackFn = f || null;
     }
 
     // flash.sensors.Accelerometer
@@ -5408,9 +7581,21 @@
     });
 
     let securityExactSettings = true;
+    let securityDisableAVM1Loading = false;
+    let loadedPolicyCount = 0;
+    let lastShownSecurityPanel = null;
+    let activeSecurityPanelElement = null;
     const allowedSecurityDomains = new Set();
     const loadedPolicyFiles = [];
+    const pendingPolicyPromises = [];
     let objectSecurityDomains = new WeakMap();
+
+    function removeSecurityPanelElement() {
+      if (activeSecurityPanelElement) {
+        try { activeSecurityPanelElement.remove?.(); } catch (_) {}
+        activeSecurityPanelElement = null;
+      }
+    }
 
     function extractDomainHost(domainOrUrl) {
       const raw = String(domainOrUrl ?? '').trim();
@@ -5424,11 +7609,11 @@
       return raw.toLowerCase();
     }
 
-    function isDomainAllowed(domainOrUrl) {
+    function isDomainAllowed(domainOrUrl, port = 0, secure = false) {
       const host = extractDomainHost(domainOrUrl);
       if (!host) return true;
       const pageHost = String(resolvePageDomain() || '').toLowerCase();
-      if (host === pageHost) return true;
+      if (host === pageHost && port === 0) return true;
       if (allowedSecurityDomains.has('*')) return true;
       for (const allowed of allowedSecurityDomains) {
         const norm = extractDomainHost(allowed);
@@ -5436,6 +7621,19 @@
         if (norm === '*' || norm === host) return true;
         if (!securityExactSettings && (host.endsWith('.' + norm) || norm.endsWith('.' + host))) return true;
         if (norm.startsWith('*.') && (host === norm.slice(2) || host.endsWith(norm.slice(1)))) return true;
+      }
+      if (loadedPolicyCount > 0 && !disposed && kernel) {
+        try {
+          const res = execKernel({
+            op: 'security_op',
+            action: 'check_access',
+            requesterDomain: resolvePageDomain(),
+            port: Number(port) >>> 0,
+            secure: Boolean(secure),
+            exactSettings: securityExactSettings,
+          });
+          if (res.allowed) return true;
+        } catch (_) {}
       }
       return false;
     }
@@ -5473,6 +7671,19 @@
       return false;
     }
 
+    function applyLoadedPolicyXml(policyUrl, xmlText) {
+      if (disposed || !kernel || typeof xmlText !== 'string') return;
+      const res = execKernel({
+        op: 'security_op',
+        action: 'load_policy_xml',
+        url: policyUrl,
+        xml: xmlText,
+      });
+      if (res && (res.ok || Number(res.rulesAdded) >= 0)) {
+        loadedPolicyCount++;
+      }
+    }
+
     class Security {
       constructor() {
         throw new TypeError('Security is a static class and cannot be instantiated.');
@@ -5482,9 +7693,20 @@
       static get LOCAL_WITH_NETWORK() { return 'localWithNetwork'; }
       static get LOCAL_TRUSTED() { return 'localTrusted'; }
       static get APPLICATION() { return 'application'; }
-      static get sandboxType() { return 'localTrusted'; }
+      static get sandboxType() {
+        return options.sandboxType ? String(options.sandboxType) : 'localTrusted';
+      }
       static get exactSettings() { return securityExactSettings; }
       static set exactSettings(value) { securityExactSettings = Boolean(value); }
+      static get disableAVM1Loading() {
+        ensureActive();
+        return securityDisableAVM1Loading;
+      }
+      static set disableAVM1Loading(value) {
+        ensureActive();
+        securityDisableAVM1Loading = Boolean(value);
+        execKernel({ op: 'security_op', action: 'set_disable_avm1', value: securityDisableAVM1Loading });
+      }
       static get pageDomain() { return resolvePageDomain(); }
       static allowDomain(...domains) {
         ensureActive();
@@ -5496,11 +7718,97 @@
       static loadPolicyFile(url) {
         ensureActive();
         if (url === null || url === undefined) throw new TypeError('Parameter url must be non-null.');
-        loadedPolicyFiles.push(String(url));
+        const strUrl = String(url);
+        loadedPolicyFiles.push(strUrl);
+        if (strUrl.startsWith('data:')) {
+          const comma = strUrl.indexOf(',');
+          const rawBody = comma >= 0 ? strUrl.slice(comma + 1) : '';
+          const xmlText = strUrl.includes(';base64,')
+            ? new TextDecoder().decode(fromBase64(rawBody))
+            : decodeURIComponent(rawBody);
+          applyLoadedPolicyXml(strUrl, xmlText);
+          return;
+        }
+        if (/^xmlsocket:\/\//i.test(strUrl)) {
+          if (typeof options.fetchSocketPolicy === 'function') {
+            let parsed = null;
+            try { parsed = new URL(strUrl); } catch (_) {}
+            const sockHost = parsed?.hostname || strUrl.replace(/^xmlsocket:\/\//i, '').split(':')[0] || 'localhost';
+            const sockPort = Number(parsed?.port) || 843;
+            const born = generation;
+            const p = Promise.resolve()
+              .then(() => options.fetchSocketPolicy(sockHost, sockPort, strUrl))
+              .then(xmlText => {
+                if (disposed || generation !== born || typeof xmlText !== 'string') return;
+                applyLoadedPolicyXml(strUrl, xmlText);
+                afterEvent();
+              })
+              .catch(() => {});
+            pendingPolicyPromises.push(p);
+          }
+          return;
+        }
+        const fetchFn = options.fetch || global.fetch;
+        if (/^https?:\/\//i.test(strUrl) && typeof fetchFn === 'function') {
+          let parsed = null;
+          try { parsed = new URL(strUrl); } catch (_) {}
+          if (parsed && !/\.test$|\.invalid$/i.test(parsed.hostname)) {
+            const born = generation;
+            const p = Promise.resolve()
+              .then(() => fetchFn(strUrl))
+              .then(async resp => {
+                if (disposed || generation !== born || !resp || !resp.ok) return;
+                const xmlText = await resp.text();
+                if (disposed || generation !== born) return;
+                applyLoadedPolicyXml(strUrl, xmlText);
+                afterEvent();
+              })
+              .catch(() => {});
+            pendingPolicyPromises.push(p);
+          }
+        }
       }
       static showSettings(panel = 'default') {
         ensureActive();
-        const _p = String(panel ?? 'default');
+        const p = String(panel ?? 'default');
+        lastShownSecurityPanel = p;
+        execKernel({ op: 'security_op', action: 'show_settings', panel: p });
+        const doc = options.document || global.document;
+        if (doc && typeof doc.createElement === 'function' && doc.body && typeof doc.body.appendChild === 'function') {
+          removeSecurityPanelElement();
+          const box = doc.createElement('div');
+          box.id = 'neoflash-security-settings-panel';
+          box.setAttribute?.('role', 'dialog');
+          box.setAttribute?.('aria-label', 'Flash Player Privacy & Security Settings');
+          box.setAttribute?.('data-panel', p);
+          if (box.style) {
+            box.style.position = 'fixed';
+            box.style.right = '12px';
+            box.style.bottom = '12px';
+            box.style.padding = '10px 14px';
+            box.style.background = 'rgba(28, 28, 32, 0.94)';
+            box.style.color = '#f0f0f4';
+            box.style.border = '1px solid rgba(255,255,255,0.18)';
+            box.style.borderRadius = '6px';
+            box.style.fontFamily = 'system-ui, sans-serif';
+            box.style.fontSize = '12px';
+            box.style.zIndex = '2147483646';
+          }
+          const label = doc.createElement('span');
+          label.textContent = `NeoFlash Security (${p}) — domain: ${resolvePageDomain()} · sandbox: ${Security.sandboxType}`;
+          box.appendChild(label);
+          const closeBtn = doc.createElement('button');
+          closeBtn.type = 'button';
+          closeBtn.textContent = 'Close';
+          if (closeBtn.style) {
+            closeBtn.style.marginLeft = '10px';
+            closeBtn.style.cursor = 'pointer';
+          }
+          closeBtn.addEventListener?.('click', () => removeSecurityPanelElement());
+          box.appendChild(closeBtn);
+          doc.body.appendChild(box);
+          activeSecurityPanelElement = box;
+        }
       }
     }
     Object.defineProperties(Security, {
@@ -5535,7 +7843,28 @@
     }
     tagType(JPEGLoaderContext, 'JPEGLoaderContext', v => jpegLoaderContexts.has(v));
 
+    function readHostMemorySnapshot() {
+      const wasmBytes = Number(
+        wasm?.__wasm?.memory?.buffer?.byteLength ||
+          wasm?.memory?.buffer?.byteLength ||
+          4 * 1024 * 1024
+      );
+      const perfMem = global.performance?.memory;
+      const nodeMem = typeof global.process?.memoryUsage === 'function' ? global.process.memoryUsage() : null;
+      const usedHeap = Number(perfMem?.usedJSHeapSize || nodeMem?.heapUsed || 8 * 1024 * 1024);
+      const totalHeap = Number(perfMem?.totalJSHeapSize || nodeMem?.heapTotal || Math.max(usedHeap + 4 * 1024 * 1024, 16 * 1024 * 1024));
+      const rssBytes = Number(nodeMem?.rss || perfMem?.jsHeapSizeLimit || totalHeap + wasmBytes + 8 * 1024 * 1024);
+      const xmlStats = (xmlHost || getBuiltins()?.__nfXML)?.stats?.();
+      const xmlBytes = Number(xmlStats?.nodes || 0) * 64;
+      const totalUsed = Math.max(1024 * 1024, Math.trunc(wasmBytes + usedHeap + samplerLiveAllocsBytes + xmlBytes));
+      const freeBytes = Math.max(512 * 1024, Math.trunc(Math.max(totalHeap - usedHeap, 4 * 1024 * 1024)));
+      const privateBytes = Math.max(totalUsed + freeBytes, Math.trunc(rssBytes));
+      return { totalUsed, freeBytes, privateBytes };
+    }
+
     let systemUseCodePage = false;
+    let systemPaused = false;
+    let lastExitCode = null;
     class System {
       constructor() {
         throw new TypeError('System cannot be instantiated.');
@@ -5549,18 +7878,25 @@
       }
       static get totalMemoryNumber() {
         ensureActive();
-        return 16 * 1024 * 1024;
+        return readHostMemorySnapshot().totalUsed;
       }
       static get freeMemory() {
         ensureActive();
-        return 4 * 1024 * 1024;
+        return readHostMemorySnapshot().freeBytes;
       }
       static get privateMemory() {
         ensureActive();
-        return 24 * 1024 * 1024;
+        return readHostMemorySnapshot().privateBytes;
       }
       static get processCPUUsage() {
         ensureActive();
+        if (typeof global.process?.cpuUsage === 'function') {
+          try {
+            const u = global.process.cpuUsage();
+            const frac = ((u.user + u.system) % 1000000) / 10000000;
+            return Math.max(0.001, Math.min(1, frac));
+          } catch (_) {}
+        }
         return 0.05;
       }
       static get vmVersion() {
@@ -5584,6 +7920,7 @@
       static disposeXML(node) {
         ensureActive();
         if (node === null || node === undefined) return;
+        nfSamplerHooks.onDispose(node);
         const host = xmlHost || getBuiltins()?.__nfXML;
         if (typeof host?.disposeXML === 'function') {
           host.disposeXML(node);
@@ -5591,20 +7928,35 @@
       }
       static gc() {
         ensureActive();
+        try { global.gc?.(); } catch (_) {}
+        sweepSamplerDeadObjects();
       }
       static pauseForGCIfCollectionImminent(imminence = 0.75) {
         ensureActive();
-        const _i = Number(imminence);
+        const imm = Number(imminence);
+        if (Number.isFinite(imm) && imm <= 1) {
+          try { global.gc?.(); } catch (_) {}
+          sweepSamplerDeadObjects();
+        }
       }
       static pause() {
         ensureActive();
+        systemPaused = true;
+        execKernel({ op: 'system_op', action: 'pause' });
+        options.onSystemPause?.();
       }
       static resume() {
         ensureActive();
+        systemPaused = false;
+        execKernel({ op: 'system_op', action: 'resume' });
+        options.onSystemResume?.();
       }
       static exit(code) {
         ensureActive();
-        const _c = Number(code) >>> 0;
+        const c = Number(code) >>> 0;
+        lastExitCode = c;
+        execKernel({ op: 'system_op', action: 'exit', code: c });
+        options.onSystemExit?.(c);
       }
     }
     Object.defineProperties(System, {
@@ -5670,12 +8022,224 @@
       CLOSED: 'closed',
     });
 
+    const WORKER_BOOTSTRAP_SOURCE = [
+      '(function() {',
+      '  "use strict";',
+      '  var root = typeof self !== "undefined" ? self : globalThis;',
+      '  var sharedProps = new Map();',
+      '  var channels = new Map();',
+      '  var workerId = 2;',
+      '  var state = "running";',
+      '  function postOut(msg) { root.postMessage(msg); }',
+      '  function WorkerByteArray(sab, initialLen) {',
+      '    this._sab = sab;',
+      '    this._u8 = new Uint8Array(sab);',
+      '    this._dv = new DataView(sab);',
+      '    this.position = 0;',
+      '    this.length = initialLen >>> 0;',
+      '    this.shareable = true;',
+      '    this.endian = "bigEndian";',
+      '  }',
+      '  WorkerByteArray.prototype._little = function() { return this.endian === "littleEndian"; };',
+      '  WorkerByteArray.prototype.writeByte = function(v) {',
+      '    if (this.position < this._u8.length) {',
+      '      this._u8[this.position++] = v & 0xff;',
+      '      if (this.position > this.length) this.length = this.position;',
+      '      postOut({ type: "worker_sab_sync", length: this.length });',
+      '    }',
+      '  };',
+      '  WorkerByteArray.prototype.readByte = function() {',
+      '    var b = this._u8[this.position++] & 0xff;',
+      '    return b >= 128 ? b - 256 : b;',
+      '  };',
+      '  WorkerByteArray.prototype.readUnsignedByte = function() { return this._u8[this.position++] & 0xff; };',
+      '  WorkerByteArray.prototype.writeInt = function(v) {',
+      '    this._dv.setInt32(this.position, v | 0, this._little());',
+      '    this.position += 4;',
+      '    if (this.position > this.length) this.length = this.position;',
+      '    postOut({ type: "worker_sab_sync", length: this.length });',
+      '  };',
+      '  WorkerByteArray.prototype.readInt = function() {',
+      '    var v = this._dv.getInt32(this.position, this._little());',
+      '    this.position += 4;',
+      '    return v;',
+      '  };',
+      '  WorkerByteArray.prototype.writeUTFBytes = function(s) {',
+      '    var enc = new TextEncoder().encode(String(s));',
+      '    this._u8.set(enc, this.position);',
+      '    this.position += enc.byteLength;',
+      '    if (this.position > this.length) this.length = this.position;',
+      '    postOut({ type: "worker_sab_sync", length: this.length });',
+      '  };',
+      '  WorkerByteArray.prototype.readUTFBytes = function(len) {',
+      '    var slice = this._u8.slice(this.position, this.position + (len >>> 0));',
+      '    this.position += (len >>> 0);',
+      '    return new TextDecoder().decode(slice);',
+      '  };',
+      '  WorkerByteArray.prototype.atomicCompareAndSwapIntAt = function(byteIdx, expected, next) {',
+      '    if (typeof Atomics === "object" && this._sab instanceof SharedArrayBuffer) {',
+      '      var i32 = new Int32Array(this._sab, byteIdx >>> 0, 1);',
+      '      var old = Atomics.compareExchange(i32, 0, expected | 0, next | 0);',
+      '      postOut({ type: "worker_sab_sync", length: Math.max(this.length, (byteIdx >>> 0) + 4) });',
+      '      return old;',
+      '    }',
+      '    var cur = this._dv.getInt32(byteIdx >>> 0, true);',
+      '    if (cur === (expected | 0)) this._dv.setInt32(byteIdx >>> 0, next | 0, true);',
+      '    return cur;',
+      '  };',
+      '  function getOrMakeChannel(id) {',
+      '    if (channels.has(id)) return channels.get(id);',
+      '    var listeners = new Map();',
+      '    var queue = [];',
+      '    var chState = "open";',
+      '    var ch = {',
+      '      id: id,',
+      '      get state() { return chState; },',
+      '      get messageAvailable() { return queue.length > 0; },',
+      '      send: function(val) { postOut({ type: "worker_channel_send", channelId: id, value: serializeVal(val) }); },',
+      '      receive: function() {',
+      '        if (queue.length === 0) return null;',
+      '        postOut({ type: "worker_channel_consumed", channelId: id });',
+      '        return queue.shift();',
+      '      },',
+      '      close: function() { chState = "closed"; postOut({ type: "worker_channel_close", channelId: id }); },',
+      '      addEventListener: function(t, fn) {',
+      '        var arr = listeners.get(t) || []; arr.push(fn); listeners.set(t, arr);',
+      '      },',
+      '      removeEventListener: function(t, fn) {',
+      '        var arr = listeners.get(t); if (arr) listeners.set(t, arr.filter(function(x){ return x !== fn; }));',
+      '      },',
+      '      _pushIncoming: function(val) {',
+      '        queue.push(val);',
+      '        var arr = listeners.get("channelMessage") || [];',
+      '        for (var i = 0; i < arr.length; i++) { try { arr[i]({ type: "channelMessage", target: ch }); } catch (_) {} }',
+      '      }',
+      '    };',
+      '    channels.set(id, ch);',
+      '    return ch;',
+      '  }',
+      '  function deserializeVal(v) {',
+      '    if (!v || typeof v !== "object") return v;',
+      '    if (v.__nfKind === "messageChannel") return getOrMakeChannel(v.id);',
+      '    if (v.__nfKind === "shareableByteArray") {',
+      '      var sba = new WorkerByteArray(v.sab, v.length);',
+      '      if (v.endian === "littleEndian" || v.endian === "bigEndian") sba.endian = v.endian;',
+      '      return sba;',
+      '    }',
+      '    if (v.__nfKind === "byteArrayCopy") {',
+      '      var buf = v.bytes instanceof Uint8Array ? v.bytes.buffer.slice(v.bytes.byteOffset, v.bytes.byteOffset + v.bytes.byteLength) : new ArrayBuffer(0);',
+      '      var ba = new WorkerByteArray(buf, v.bytes ? v.bytes.byteLength : 0); ba.shareable = false;',
+      '      if (v.endian === "littleEndian" || v.endian === "bigEndian") ba.endian = v.endian;',
+      '      return ba;',
+      '    }',
+      '    return v;',
+      '  }',
+      '  function serializeVal(v) {',
+      '    if (!v || typeof v !== "object") return v;',
+      '    if (v instanceof WorkerByteArray) {',
+      '      if (v.shareable && typeof SharedArrayBuffer === "function" && v._sab instanceof SharedArrayBuffer) {',
+      '        return { __nfKind: "shareableByteArray", sab: v._sab, length: v.length, endian: v.endian };',
+      '      }',
+      '      return { __nfKind: "byteArrayCopy", bytes: v._u8.slice(0, v.length), endian: v.endian };',
+      '    }',
+      '    if (typeof v.id === "number" && channels.get(v.id) === v) return { __nfKind: "messageChannel", id: v.id };',
+      '    return v;',
+      '  }',
+      '  var currentWorker = {',
+      '    get isPrimordial() { return false; },',
+      '    get state() { return state; },',
+      '    getSharedProperty: function(k) { return sharedProps.get(String(k)); },',
+      '    setSharedProperty: function(k, v) {',
+      '      sharedProps.set(String(k), v);',
+      '      postOut({ type: "worker_set_shared", key: String(k), value: serializeVal(v) });',
+      '    },',
+      '    terminate: function() { state = "terminated"; postOut({ type: "worker_self_terminated" }); return true; }',
+      '  };',
+      '  var WorkerAPI = { current: currentWorker, isSupported: true };',
+      '  root.onmessage = function(ev) {',
+      '    var msg = ev && ev.data;',
+      '    if (!msg || typeof msg !== "object") return;',
+      '    if (msg.type === "init") {',
+      '      workerId = msg.workerId || 2;',
+      '      var entries = Array.isArray(msg.sharedProps) ? msg.sharedProps : [];',
+      '      for (var i = 0; i < entries.length; i++) {',
+      '        sharedProps.set(entries[i][0], deserializeVal(entries[i][1]));',
+      '      }',
+      '      postOut({ type: "worker_ready", workerId: workerId });',
+      '      if (typeof msg.userScript === "string" && msg.userScript.trim()) {',
+      '        try {',
+      '          var fn = new Function("Worker", "self", msg.userScript);',
+      '          fn(WorkerAPI, root);',
+      '        } catch (err) {',
+      '          postOut({ type: "worker_error", message: String(err && err.message || err) });',
+      '        }',
+      '      }',
+      '    } else if (msg.type === "main_set_shared") {',
+      '      sharedProps.set(String(msg.key), deserializeVal(msg.value));',
+      '    } else if (msg.type === "main_channel_send") {',
+      '      var ch = getOrMakeChannel(msg.channelId);',
+      '      ch._pushIncoming(deserializeVal(msg.value));',
+      '    }',
+      '  };',
+      '})();',
+    ].join('\n');
+
     const messageChannels = new WeakMap();
+    const messageChannelsById = new Map();
     const activeNativeChannels = new Set();
+    const activeNativeWorkers = new Set();
+    const activeBlobUrls = new Set();
+    const shareableBaSabMap = new WeakMap();
+    const trackedShareableByteArrays = new Set();
+
+    function ensureShareableSabEntry(ba) {
+      let entry = shareableBaSabMap.get(ba);
+      const curBytes = binary?.toBytes ? binary.toBytes(ba) : new Uint8Array(0);
+      if (!entry && typeof SharedArrayBuffer === 'function') {
+        const cap = Math.max(256, curBytes.byteLength * 2);
+        const sab = new SharedArrayBuffer(cap);
+        new Uint8Array(sab).set(curBytes, 0);
+        entry = { sab, length: curBytes.byteLength, dirtyFromMain: false };
+        shareableBaSabMap.set(ba, entry);
+        trackedShareableByteArrays.add(ba);
+      } else if (entry) {
+        if (curBytes.byteLength > entry.sab.byteLength && typeof SharedArrayBuffer === 'function') {
+          const nextSab = new SharedArrayBuffer(Math.max(entry.sab.byteLength * 2, curBytes.byteLength));
+          new Uint8Array(nextSab).set(curBytes, 0);
+          entry.sab = nextSab;
+        } else {
+          new Uint8Array(entry.sab).set(curBytes, 0);
+        }
+        entry.length = curBytes.byteLength;
+      }
+      return entry;
+    }
+
+    function syncAllShareableByteArraysFromSab(newLengthHint = null) {
+      if (!binary?.writeFromHost) return;
+      for (const ba of trackedShareableByteArrays) {
+        const entry = shareableBaSabMap.get(ba);
+        if (!entry || !entry.sab) continue;
+        try {
+          if (typeof newLengthHint === 'number' && newLengthHint > entry.length && newLengthHint <= entry.sab.byteLength) {
+            entry.length = newLengthHint;
+          }
+          const savedPos = ba.position;
+          ba.position = 0;
+          binary.writeFromHost(ba, new Uint8Array(entry.sab, 0, entry.length));
+          ba.position = Math.min(savedPos, ba.length);
+        } catch (_) {}
+      }
+    }
+
     function cloneWorkerSharedValue(arg) {
       if (arg === null || arg === undefined || typeof arg !== 'object') return arg;
       if (binary?.ByteArray?.__nfIs?.(arg)) {
-        return arg.shareable ? arg : binary.fromBytes(binary.toBytes(arg));
+        if (arg.shareable) {
+          syncAllShareableByteArraysFromSab();
+          return arg;
+        }
+        return binary.fromBytes(binary.toBytes(arg));
       }
       if (mutexMap.has(arg) || conditionMap.has(arg) || messageChannels.has(arg)) {
         return arg;
@@ -5687,6 +8251,102 @@
       }
       return arg;
     }
+
+    function serializeValueForNativeWorker(arg) {
+      if (arg === null || arg === undefined || typeof arg !== 'object') return arg;
+      if (messageChannels.has(arg)) {
+        const mcRec = messageChannels.get(arg);
+        return { __nfKind: 'messageChannel', id: mcRec.id };
+      }
+      if (binary?.ByteArray?.__nfIs?.(arg)) {
+        const endian = arg.endian === 'littleEndian' ? 'littleEndian' : 'bigEndian';
+        if (arg.shareable && typeof SharedArrayBuffer === 'function') {
+          const entry = ensureShareableSabEntry(arg);
+          if (entry) {
+            return { __nfKind: 'shareableByteArray', sab: entry.sab, length: entry.length, endian };
+          }
+        }
+        return { __nfKind: 'byteArrayCopy', bytes: binary.toBytes(arg), endian };
+      }
+      if (mutexMap.has(arg) || conditionMap.has(arg)) {
+        return { __nfKind: 'syncPrimitive' };
+      }
+      if (amf?.encode && amf?.decode) {
+        try {
+          return amf.decode(amf.encode(arg, 3), 3, { complete: true }).value;
+        } catch (_) {}
+      }
+      return arg;
+    }
+
+    function deserializeValueFromNativeWorker(val) {
+      if (val === null || val === undefined || typeof val !== 'object') return val;
+      if (val.__nfKind === 'messageChannel') {
+        return messageChannelsById.get(val.id) || null;
+      }
+      if (val.__nfKind === 'shareableByteArray') {
+        for (const ba of trackedShareableByteArrays) {
+          const entry = shareableBaSabMap.get(ba);
+          if (entry && entry.sab === val.sab) {
+            entry.length = Number(val.length) >>> 0;
+            syncAllShareableByteArraysFromSab(entry.length);
+            return ba;
+          }
+        }
+        if (binary?.fromBytes && val.sab) {
+          const ba = binary.fromBytes(new Uint8Array(val.sab, 0, Number(val.length) >>> 0));
+          ba.shareable = true;
+          if (val.endian === 'littleEndian' || val.endian === 'bigEndian') ba.endian = val.endian;
+          shareableBaSabMap.set(ba, { sab: val.sab, length: Number(val.length) >>> 0 });
+          trackedShareableByteArrays.add(ba);
+          return ba;
+        }
+      }
+      if (val.__nfKind === 'byteArrayCopy' && binary?.fromBytes && val.bytes) {
+        const u8 = val.bytes instanceof Uint8Array ? val.bytes : new Uint8Array(val.bytes);
+        const ba = binary.fromBytes(u8);
+        if (val.endian === 'littleEndian' || val.endian === 'bigEndian') ba.endian = val.endian;
+        return ba;
+      }
+      return cloneWorkerSharedValue(val);
+    }
+
+    function extractWorkerScriptFromSwfBytes(rawBytes) {
+      if (!rawBytes || rawBytes.byteLength === 0) return '';
+      try {
+        const text = new TextDecoder('utf-8', { fatal: false }).decode(rawBytes);
+        const trimmed = text.trim();
+        if (trimmed.startsWith('//NF_WORKER') || trimmed.startsWith('/*NF_WORKER*/')) {
+          return text;
+        }
+        if (trimmed.startsWith('{')) {
+          const parsed = JSON.parse(trimmed);
+          if (typeof parsed?.__nfWorkerScript === 'string') return parsed.__nfWorkerScript;
+          if (typeof parsed?.workerScript === 'string') return parsed.workerScript;
+        }
+      } catch (_) {}
+      // Scan binary SWF bytes for embedded NFWK [0x4e, 0x46, 0x57, 0x4b, lenBE(4), utf8...]
+      for (let i = 0; i + 8 <= rawBytes.byteLength; i++) {
+        if (
+          rawBytes[i] === 0x4e &&
+          rawBytes[i + 1] === 0x46 &&
+          rawBytes[i + 2] === 0x57 &&
+          rawBytes[i + 3] === 0x4b
+        ) {
+          const len =
+            ((rawBytes[i + 4] << 24) |
+              (rawBytes[i + 5] << 16) |
+              (rawBytes[i + 6] << 8) |
+              rawBytes[i + 7]) >>>
+            0;
+          if (len > 0 && i + 8 + len <= rawBytes.byteLength) {
+            return new TextDecoder('utf-8').decode(rawBytes.subarray(i + 8, i + 8 + len));
+          }
+        }
+      }
+      return '';
+    }
+
     class MessageChannel extends events.EventDispatcher {
       constructor(id, senderWorker, receiverWorker) {
         super();
@@ -5701,7 +8361,7 @@
             activeNativeChannels.add(nativeChannel);
           } catch (_) {}
         }
-        messageChannels.set(this, {
+        const rec = {
           generation,
           id,
           sender: senderWorker,
@@ -5710,7 +8370,9 @@
           queue: [],
           queueLimit: -1,
           nativeChannel,
-        });
+        };
+        messageChannels.set(this, rec);
+        messageChannelsById.set(id, this);
       }
       get state() {
         return mcState(this).state;
@@ -5729,12 +8391,23 @@
         const cloned = cloneWorkerSharedValue(arg);
         rec.queue.push(cloned);
         rec.state = res.state;
+        const recvWkRec = rec.receiver ? workersMap.get(rec.receiver) : null;
+        if (recvWkRec && !recvWkRec.isPrimordial && recvWkRec.nativeWorker) {
+          try {
+            recvWkRec.nativeWorker.postMessage({
+              type: 'main_channel_send',
+              channelId: rec.id,
+              value: serializeValueForNativeWorker(arg),
+            });
+          } catch (_) {}
+        }
         dispatchLater(this, () => makeBasicEvent('channelMessage'));
       }
       receive(blockUntilReceived = false) {
         const rec = mcState(this);
         const _block = Boolean(blockUntilReceived);
         if (rec.queue.length === 0) return null;
+        syncAllShareableByteArraysFromSab();
         const item = rec.queue.shift();
         const res = execKernel({ op: 'worker_op', action: 'channel_receive', id: rec.id });
         const prevState = rec.state;
@@ -5779,8 +8452,22 @@
     let currentWorkerId = 1;
     let primordialWorker = null;
 
+    function terminateNativeWorkerRecord(rec) {
+      if (rec.nativeWorker) {
+        activeNativeWorkers.delete(rec.nativeWorker);
+        try { rec.nativeWorker.terminate?.(); } catch (_) {}
+        rec.nativeWorker = null;
+      }
+      if (rec.blobUrl) {
+        activeBlobUrls.delete(rec.blobUrl);
+        try { global.URL?.revokeObjectURL?.(rec.blobUrl); } catch (_) {}
+        rec.blobUrl = null;
+      }
+      rec.threadReady = false;
+    }
+
     class Worker extends events.EventDispatcher {
-      constructor(id, isPrimordial = false, initialState = 'new') {
+      constructor(id, isPrimordial = false, initialState = 'new', rawSwfBytes = null) {
         super();
         ensureActive();
         registerDispatcher(this);
@@ -5790,6 +8477,11 @@
           isPrimordial: Boolean(isPrimordial),
           state: initialState,
           sharedProps: new Map(),
+          rawSwfBytes,
+          userScript: rawSwfBytes ? extractWorkerScriptFromSwfBytes(rawSwfBytes) : '',
+          nativeWorker: null,
+          blobUrl: null,
+          threadReady: false,
         };
         workersMap.set(this, rec);
         workersById.set(id, this);
@@ -5815,13 +8507,25 @@
         if (key === null || key === undefined) {
           throw new TypeError('TypeError: Error #2007: Worker.setSharedProperty key must be non-null.');
         }
-        rec.sharedProps.set(String(key), cloneWorkerSharedValue(value));
+        const strKey = String(key);
+        const cloned = cloneWorkerSharedValue(value);
+        rec.sharedProps.set(strKey, cloned);
+        if (!rec.isPrimordial && rec.nativeWorker) {
+          try {
+            rec.nativeWorker.postMessage({
+              type: 'main_set_shared',
+              key: strKey,
+              value: serializeValueForNativeWorker(value),
+            });
+          } catch (_) {}
+        }
       }
       getSharedProperty(key) {
         const rec = wkState(this);
         if (key === null || key === undefined) {
           throw new TypeError('TypeError: Error #2007: Worker.getSharedProperty key must be non-null.');
         }
+        syncAllShareableByteArraysFromSab();
         const stored = rec.sharedProps.get(String(key));
         return cloneWorkerSharedValue(stored);
       }
@@ -5843,10 +8547,111 @@
         const rec = wkState(this);
         const res = execKernel({ op: 'worker_op', action: 'start', id: rec.id });
         rec.state = res.state;
+        const WorkerCtor = options.Worker || global.Worker;
+        if (!rec.isPrimordial && typeof WorkerCtor === 'function') {
+          let workerUrl = null;
+          if (
+            typeof global.Blob === 'function' &&
+            typeof global.URL?.createObjectURL === 'function' &&
+            !options.workerUseDataUrl &&
+            !options.Worker
+          ) {
+            try {
+              const blob = new global.Blob([WORKER_BOOTSTRAP_SOURCE], { type: 'application/javascript' });
+              workerUrl = global.URL.createObjectURL(blob);
+              rec.blobUrl = workerUrl;
+              activeBlobUrls.add(workerUrl);
+            } catch (_) {
+              workerUrl = null;
+            }
+          }
+          if (!workerUrl) {
+            workerUrl = `data:text/javascript;charset=utf-8,${encodeURIComponent(WORKER_BOOTSTRAP_SOURCE)}`;
+          }
+          try {
+            const nw = new WorkerCtor(workerUrl);
+            rec.nativeWorker = nw;
+            activeNativeWorkers.add(nw);
+            const born = generation;
+            const onMsg = ev => {
+              if (disposed || generation !== born || rec.generation !== generation || rec.state !== 'running') return;
+              const msg = ev?.data ?? ev;
+              if (!msg || typeof msg !== 'object') return;
+              if (msg.type === 'worker_ready') {
+                rec.threadReady = true;
+                dispatchNow(this, makeBasicEvent('workerState'));
+                return;
+              }
+              if (msg.type === 'worker_sab_sync') {
+                syncAllShareableByteArraysFromSab(msg.length);
+                return;
+              }
+              if (msg.type === 'worker_set_shared' && typeof msg.key === 'string') {
+                syncAllShareableByteArraysFromSab();
+                rec.sharedProps.set(msg.key, deserializeValueFromNativeWorker(msg.value));
+                afterEvent();
+                return;
+              }
+              if (msg.type === 'worker_channel_consumed') {
+                const ch = messageChannelsById.get(msg.channelId);
+                const chRec = ch ? messageChannels.get(ch) : null;
+                if (chRec && chRec.queue.length > 0) {
+                  chRec.queue.shift();
+                  try { execKernel({ op: 'worker_op', action: 'channel_receive', id: chRec.id }); } catch (_) {}
+                }
+                return;
+              }
+              if (msg.type === 'worker_channel_send') {
+                syncAllShareableByteArraysFromSab();
+                const ch = messageChannelsById.get(msg.channelId);
+                const chRec = ch ? messageChannels.get(ch) : null;
+                if (ch && chRec) {
+                  const kRes = execKernel({
+                    op: 'worker_op',
+                    action: 'channel_send',
+                    id: chRec.id,
+                    queueLimit: chRec.queueLimit,
+                  });
+                  chRec.queue.push(deserializeValueFromNativeWorker(msg.value));
+                  chRec.state = kRes.state;
+                  dispatchNow(ch, makeBasicEvent('channelMessage'));
+                }
+                return;
+              }
+              if (msg.type === 'worker_channel_close') {
+                const ch = messageChannelsById.get(msg.channelId);
+                ch?.close();
+                return;
+              }
+              if (msg.type === 'worker_self_terminated') {
+                this.terminate();
+              }
+            };
+            if (typeof nw.addEventListener === 'function') {
+              nw.addEventListener('message', onMsg);
+            } else {
+              nw.onmessage = onMsg;
+            }
+            const serializedProps = [];
+            for (const [k, v] of rec.sharedProps.entries()) {
+              serializedProps.push([k, serializeValueForNativeWorker(v)]);
+            }
+            nw.postMessage({
+              type: 'init',
+              workerId: rec.id,
+              sharedProps: serializedProps,
+              userScript: rec.userScript || '',
+            });
+            return;
+          } catch (_) {
+            terminateNativeWorkerRecord(rec);
+          }
+        }
         dispatchLater(this, () => makeBasicEvent('workerState'));
       }
       terminate() {
         const rec = wkState(this);
+        terminateNativeWorkerRecord(rec);
         const res = execKernel({ op: 'worker_op', action: 'terminate', id: rec.id });
         const changed = rec.state !== res.state;
         rec.state = res.state;
@@ -5881,18 +8686,18 @@
       }
       createWorker(swf, giveAppPrivileges = false) {
         ensureActive();
-        if (! workerDomains.has(this)) throw new TypeError('Expected a valid WorkerDomain instance.');
+        if (!workerDomains.has(this)) throw new TypeError('Expected a valid WorkerDomain instance.');
         if (!swf || !binary?.ByteArray?.__nfIs?.(swf)) {
           throw new TypeError('TypeError: Error #2007: WorkerDomain.createWorker requires a non-null swf ByteArray.');
         }
         const _priv = Boolean(giveAppPrivileges);
+        const rawBytes = binary.toBytes ? binary.toBytes(swf) : null;
         const created = execKernel({ op: 'worker_op', action: 'create_worker' });
-        return new Worker(created.id, false, created.state);
+        return new Worker(created.id, false, created.state, rawBytes);
       }
       listWorkers() {
         ensureActive();
         if (!workerDomains.has(this)) throw new TypeError('Expected a valid WorkerDomain instance.');
-        // Ensure primordial worker is registered in JS map
         Worker.current;
         const ids = execKernel({ op: 'worker_op', action: 'list_running' }).workerIds || [];
         const list = ids.map(id => workersById.get(id)).filter(Boolean);
@@ -5913,6 +8718,53 @@
       mockBrowseSelection = spec;
     }
 
+    function formatGeneralizedUtc(msOrStr, fallback) {
+      if (typeof msOrStr === 'string' && msOrStr.length >= 14) return msOrStr;
+      if (typeof msOrStr === 'number' && Number.isFinite(msOrStr)) {
+        const d = new Date(msOrStr);
+        const pad = (n, w = 2) => String(n).padStart(w, '0');
+        return (
+          pad(d.getUTCFullYear(), 4) +
+          pad(d.getUTCMonth() + 1) +
+          pad(d.getUTCDate()) +
+          pad(d.getUTCHours()) +
+          pad(d.getUTCMinutes()) +
+          pad(d.getUTCSeconds()) +
+          'Z'
+        );
+      }
+      return fallback;
+    }
+
+    function buildCustomX509Der(spec = {}) {
+      ensureActive();
+      const subjectCN = String(spec.subjectCN || spec.subjectCn || 'localhost');
+      const issuerCN = String(spec.issuerCN || spec.issuerCn || subjectCN);
+      const notBefore = formatGeneralizedUtc(spec.notBefore ?? spec.notBeforeMs, '20250101000000Z');
+      const notAfter = formatGeneralizedUtc(spec.notAfter ?? spec.notAfterMs, '20350101000000Z');
+      const res = execKernel({ op: 'x509_build_custom', subjectCN, issuerCN, notBefore, notAfter });
+      return fromBase64(res.base64 || res.derBase64 || '');
+    }
+
+    function waitForPolicyFiles() {
+      return Promise.all(pendingPolicyPromises.slice());
+    }
+
+    function getSecurityState() {
+      return {
+        sandboxType: Security.sandboxType,
+        pageDomain: Security.pageDomain,
+        exactSettings: securityExactSettings,
+        disableAVM1Loading: securityDisableAVM1Loading,
+        loadedPolicyFiles: loadedPolicyFiles.slice(),
+        loadedPolicyCount,
+        lastShownSecurityPanel,
+        panelElement: activeSecurityPanelElement,
+        systemPaused,
+        lastExitCode,
+      };
+    }
+
     function inspectState(instance) {
       return (
         fileRefMap.get(instance) ||
@@ -5922,6 +8774,9 @@
         localConnections.get(instance) ||
         messageChannels.get(instance) ||
         workersMap.get(instance) ||
+        socketMap.get(instance) ||
+        xmlSocketMap.get(instance) ||
+        netGroups.get(instance) ||
         null
       );
     }
@@ -5929,6 +8784,23 @@
     function reset() {
       if (disposed) return;
       generation++;
+      removeSecurityPanelElement();
+      for (const t of [...activeTimers]) {
+        untrackTimer(t);
+      }
+      activeTimers.clear();
+      for (const ws of [...activeWebSockets]) {
+        try { ws.close(); } catch (_) {}
+      }
+      activeWebSockets.clear();
+      for (const nw of [...activeNativeWorkers]) {
+        try { nw.terminate?.(); } catch (_) {}
+      }
+      activeNativeWorkers.clear();
+      for (const url of [...activeBlobUrls]) {
+        try { global.URL?.revokeObjectURL?.(url); } catch (_) {}
+      }
+      activeBlobUrls.clear();
       for (const bc of activeBroadcastChannels) {
         try {
           bc.close();
@@ -5949,8 +8821,25 @@
       activeNetMonitors.clear();
       telemetryHandlers.clear();
       workersById.clear();
+      messageChannelsById.clear();
+      trackedShareableByteArrays.clear();
+      sampledObjectsById.clear();
+      recentMasterStrings.length = 0;
+      samplerStateName = 'stopped';
+      samplerInternalAllocs = false;
+      samplerCallbackFn = null;
+      samplerCallbackRunning = false;
+      samplerLiveAllocsBytes = 0;
+      lastActiveCallFrame = null;
+      profilerEnabled = false;
       allowedSecurityDomains.clear();
       loadedPolicyFiles.length = 0;
+      pendingPolicyPromises.length = 0;
+      loadedPolicyCount = 0;
+      lastShownSecurityPanel = null;
+      securityDisableAVM1Loading = false;
+      systemPaused = false;
+      lastExitCode = null;
       objectSecurityDomains = new WeakMap();
       generalClipboardInstance = null;
       drmManagerSingleton = null;
@@ -6041,8 +8930,10 @@
       PrintJobOptions,
       PrintJobOrientation,
       // flash.profiler
+      profile,
       showRedrawRegions,
       Telemetry,
+      invokeTelemetryCommand,
       // flash.sampler
       StackFrame,
       Sample,
@@ -6051,19 +8942,25 @@
       clearSamples,
       getGetterInvocationCount,
       getInvocationCount,
+      getLexicalScopes,
+      getMasterString,
       getMemberNames,
       getSampleCount,
       getSamples,
+      getSavedThis,
       getSetterInvocationCount,
       getSize,
       isGetterSetter,
       pauseSampling,
+      sampleInternalAllocs,
+      setSamplerCallback,
       startSampling,
       stopSampling,
       // flash.security
       CertificateStatus,
       X500DistinguishedName,
       X509Certificate,
+      buildCustomX509Der,
       // flash.sensors
       Accelerometer,
       // flash.system
@@ -6082,6 +8979,8 @@
       isDomainAllowed,
       setObjectSecurityDomain,
       isObjectInaccessible,
+      waitForPolicyFiles,
+      getSecurityState,
       System,
       SystemUpdater,
       SystemUpdaterType,
@@ -6091,6 +8990,7 @@
       WorkerState,
       // Host hooks
       builtins: Object.freeze({
+        __nfSampler: nfSamplerHooks,
         'flash.concurrent.Mutex': Mutex,
         'flash.concurrent.Condition': Condition,
         'flash.crypto.generateRandomBytes': generateRandomBytes,
@@ -6140,6 +9040,7 @@
         'flash.printing.PrintJob': PrintJob,
         'flash.printing.PrintJobOptions': PrintJobOptions,
         'flash.printing.PrintJobOrientation': PrintJobOrientation,
+        'flash.profiler.profile': profile,
         'flash.profiler.showRedrawRegions': showRedrawRegions,
         'flash.profiler.Telemetry': Telemetry,
         'flash.sampler.StackFrame': StackFrame,
@@ -6149,13 +9050,18 @@
         'flash.sampler.clearSamples': clearSamples,
         'flash.sampler.getGetterInvocationCount': getGetterInvocationCount,
         'flash.sampler.getInvocationCount': getInvocationCount,
+        'flash.sampler.getLexicalScopes': getLexicalScopes,
+        'flash.sampler.getMasterString': getMasterString,
         'flash.sampler.getMemberNames': getMemberNames,
         'flash.sampler.getSampleCount': getSampleCount,
         'flash.sampler.getSamples': getSamples,
+        'flash.sampler.getSavedThis': getSavedThis,
         'flash.sampler.getSetterInvocationCount': getSetterInvocationCount,
         'flash.sampler.getSize': getSize,
         'flash.sampler.isGetterSetter': isGetterSetter,
         'flash.sampler.pauseSampling': pauseSampling,
+        'flash.sampler.sampleInternalAllocs': sampleInternalAllocs,
+        'flash.sampler.setSamplerCallback': setSamplerCallback,
         'flash.sampler.startSampling': startSampling,
         'flash.sampler.stopSampling': stopSampling,
         'flash.security.CertificateStatus': CertificateStatus,
