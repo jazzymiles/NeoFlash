@@ -2728,16 +2728,36 @@
           if(key==='prototype')return typeof obj==='function'&&swfHardenedFns.has(obj);
           return true;
         };
-        const isProtectedHostProto=obj=>obj===Object.prototype||obj===Function.prototype||obj===Array.prototype||obj===String.prototype||obj===Number.prototype||obj===Boolean.prototype||obj===swfFnProto;
+        const isProtectedHostProto=obj=>obj===Object.prototype||obj===Function.prototype||obj===Array.prototype||obj===String.prototype||obj===Number.prototype||obj===Boolean.prototype||obj===Date.prototype||obj===Error.prototype||obj===RegExp.prototype||obj===swfFnProto;
         const sanitizeSwfValue=val=>(typeof val==='function'&&blockedSwfCallables.has(val))?undefined:val;
+        const isGlobalLikeReceiver=recv=>{
+          if(recv==null)return false;
+          if(recv===global||recv===globalThis||(typeof window!=='undefined'&&recv===window))return true;
+          if(typeof recv==='object'){
+            const tag=Object.prototype.toString.call(recv);
+            if(tag==='[object global]'||tag==='[object Window]'||tag==='[object DOMWindow]')return true;
+            try{if(recv.globalThis===recv||recv.window===recv||recv.self===recv)return true;}catch(_){}
+          }
+          return false;
+        };
+        const sanitizeSwfReceiver=recv=>isGlobalLikeReceiver(recv)?null:recv;
+        const toBoundedSwfArgs=argArr=>{
+          if(argArr==null)return [];
+          if(Array.isArray(argArr))return argArr.length>4096?argArr.slice(0,4096):argArr;
+          const rawLen=Number(argArr.length);
+          const len=Number.isFinite(rawLen)?Math.min(4096,Math.max(0,Math.trunc(rawLen))):0;
+          const out=new Array(len);
+          for(let i=0;i<len;i++)out[i]=argArr[i];
+          return out;
+        };
         const swfFnProto=Object.create(null);
         Object.defineProperty(swfFnProto,'constructor',{value:undefined,writable:false,configurable:false,enumerable:false});
         let __nfSwfApply=null,__nfSwfFn=null;
         swfFnProto.call=hardenSwfCallable(function(thisArg,...callArgs){return __nfSwfApply(this,thisArg,callArgs);},null);
-        swfFnProto.apply=hardenSwfCallable(function(thisArg,argArr){return __nfSwfApply(this,thisArg,Array.isArray(argArr)?argArr:(argArr!=null?Array.from(argArr):[]));},null);
+        swfFnProto.apply=hardenSwfCallable(function(thisArg,argArr){return __nfSwfApply(this,thisArg,toBoundedSwfArgs(argArr));},null);
         swfFnProto.bind=hardenSwfCallable(function(thisArg,...boundArgs){
-          const targetFn=this;
-          return __nfSwfFn(function(...restArgs){return __nfSwfApply(targetFn,thisArg,[...boundArgs,...restArgs]);});
+          const targetFn=this,safeBoundThis=sanitizeSwfReceiver(thisArg),clampedBound=toBoundedSwfArgs(boundArgs);
+          return __nfSwfFn(function(...restArgs){return __nfSwfApply(targetFn,safeBoundThis,[...clampedBound,...restArgs]);});
         },null);
         swfFnProto.toString=hardenSwfCallable(function(){return 'function Function() {}';},null);
         Object.freeze(swfFnProto);
@@ -2752,7 +2772,9 @@
           if(typeof rawFn!=='function'||blockedSwfCallables.has(rawFn))return __nfSwfStubFn();
           if(swfHardenedFns.has(rawFn))return rawFn;
           const wrapped=function(...args){
-            return sanitizeSwfValue(Reflect.apply(rawFn,this,args));
+            const safeThis=sanitizeSwfReceiver(this);
+            const boundedArgs=args.length>4096?args.slice(0,4096):args;
+            return sanitizeSwfValue(Reflect.apply(rawFn,safeThis,boundedArgs));
           };
           const fnProtoObj=Object.create(null);
           wrapped.prototype=fnProtoObj;
@@ -2821,8 +2843,8 @@
         },null);
         __nfSwfApply=hardenSwfCallable((fn,receiver,args)=>{
           if(typeof fn!=='function'||blockedSwfCallables.has(fn))return undefined;
-          const safeThis=(receiver===global||receiver===globalThis||(typeof window!=='undefined'&&receiver===window))?null:receiver;
-          return sanitizeSwfValue(Reflect.apply(fn,safeThis,Array.isArray(args)?args:[]));
+          const safeThis=sanitizeSwfReceiver(receiver);
+          return sanitizeSwfValue(Reflect.apply(fn,safeThis,toBoundedSwfArgs(args)));
         },null);
         const __nfSwfCall=hardenSwfCallable((obj,prop,args)=>{
           if(obj==null)return undefined;
@@ -2983,12 +3005,14 @@
         },null);
         const runSwfGetURL=(owner,url,target,flags,swfEnv)=>{
           if(url===undefined||url===null)return undefined;
-          const stripped=String(url).replace(/^[\x00-\x20]+/g,'').trim();
+          const stripped=String(url).replace(/^[\x00-\x20]+|[\x00-\x20]+$/g,'');
           if(!stripped||stripped.length>8192)return undefined;
-          if(/^(?:javascript|vbscript|data|blob|file|about):/i.test(stripped))return undefined;
+          const schemeProbe=stripped.replace(/[\x00-\x20]+/g,'');
+          if(/^(?:javascript|vbscript|data|blob|file|about|asfunction):/i.test(schemeProbe))return undefined;
           const rawTarget=target===undefined||target===null?'':String(target);
-          if(/^fscommand:/i.test(stripped)){
-            const cmd=stripped.slice(10),param=rawTarget;
+          if(/^fscommand:/i.test(schemeProbe)){
+            const colonIdx=stripped.indexOf(':');
+            const cmd=(colonIdx>=0?stripped.slice(colonIdx+1):stripped.slice(10)).trim(),param=rawTarget;
             try{externalHost?.fscommand?.(cmd,param);}catch(_){}
             const rec=swfEnv?.loaderRecord;
             if(rec&&global.NeoFlashEvents?.Event){

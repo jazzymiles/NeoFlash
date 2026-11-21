@@ -594,3 +594,100 @@ fn swf_loader_binds_non_root_symbol_class_sprites_and_avm2_closures() {
         u.location == "avm2-sprite-frame:frame-2" && u.code.contains("\"ChildSprite\"")
     }));
 }
+
+#[test]
+fn swf_loader_non_root_only_symbol_class_does_not_attach_child_class_to_root() {
+    let mut sprite_payload = Vec::new();
+    sprite_payload.extend_from_slice(&2u16.to_le_bytes());
+    sprite_payload.extend_from_slice(&2u16.to_le_bytes());
+    sprite_payload.extend_from_slice(&make_tag(1, &[]));
+    sprite_payload.extend_from_slice(&make_tag(1, &[]));
+    sprite_payload.extend_from_slice(&[0, 0]);
+    let define_sprite = make_tag(39, &sprite_payload);
+
+    let mut abc = vec![16, 0, 46, 0];
+    push_u30(&mut abc, 1);
+    push_u30(&mut abc, 1);
+    push_u30(&mut abc, 1);
+    let strs = ["", "ChildOnly", "MovieClip", "addFrameScript", "hit"];
+    push_u30(&mut abc, (strs.len() + 1) as u32);
+    for s in strs {
+        push_u30(&mut abc, s.len() as u32);
+        abc.extend_from_slice(s.as_bytes());
+    }
+    push_u30(&mut abc, 2);
+    abc.extend_from_slice(&[0x16, 1]);
+    push_u30(&mut abc, 1);
+    push_u30(&mut abc, 5);
+    for sid in 2..=5u8 {
+        abc.extend_from_slice(&[0x07, 1, sid]);
+    }
+    push_u30(&mut abc, 4);
+    for _ in 0..4 {
+        abc.extend_from_slice(&[0, 0, 0, 0]);
+    }
+    push_u30(&mut abc, 0);
+    push_u30(&mut abc, 1); // 1 class: ChildOnly (idx 0)
+    abc.extend_from_slice(&[1, 2, 0, 0, 1, 0]);
+    abc.extend_from_slice(&[0, 0]);
+    push_u30(&mut abc, 1);
+    abc.extend_from_slice(&[3, 0]);
+
+    let child_iinit = vec![
+        0xD0, 0x30, 0xD0, 0x49, 0, 0x5D, 3, 0x24, 1, 0x40, 2, 0x4F, 3, 2, 0x47,
+    ];
+    let frame2_fn = vec![0xD0, 0x24, 55, 0x61, 4, 0x47];
+    let script_init = vec![0xD0, 0x30, 0x47];
+    push_u30(&mut abc, 3);
+    for (mid, code) in [(1u32, child_iinit), (2, frame2_fn), (3, script_init)] {
+        push_u30(&mut abc, mid);
+        abc.extend_from_slice(&[6, 4, 4, 6]);
+        push_u30(&mut abc, code.len() as u32);
+        abc.extend_from_slice(&code);
+        abc.extend_from_slice(&[0, 0]);
+    }
+    let mut do_abc2 = vec![1, 0, 0, 0, b'c', 0];
+    do_abc2.extend_from_slice(&abc);
+
+    // SymbolClass maps ONLY cid 2 -> ChildOnly (no cid == 0 Document Class!)
+    let mut sym_cls = Vec::new();
+    sym_cls.extend_from_slice(&1u16.to_le_bytes());
+    sym_cls.extend_from_slice(&2u16.to_le_bytes());
+    sym_cls.extend_from_slice(b"ChildOnly\0");
+
+    let swf = wrap_fws(
+        13,
+        2,
+        &[
+            make_tag(69, &[0x08, 0, 0, 0]),
+            define_sprite,
+            minimal_place_object2_tag(1, 2),
+            make_tag(82, &do_abc2),
+            make_tag(76, &sym_cls),
+            make_tag(1, &[]),
+            make_tag(1, &[]),
+        ],
+    );
+    let bundle = decode_swf_bundle(&swf).expect("decode non-root-only SymbolClass SWF");
+    assert!(bundle.warnings.is_empty(), "{:?}", bundle.warnings);
+    let root_sym = bundle
+        .project
+        .symbols
+        .iter()
+        .find(|s| s.id == bundle.project.root)
+        .unwrap();
+    assert!(
+        root_sym.timeline.scripts.is_empty(),
+        "root timeline must NOT receive ChildOnly doc-ctor or frame scripts when cid 0 is absent: {:?}",
+        root_sym.timeline.scripts
+    );
+    assert!(
+        !bundle
+            .scripts
+            .iter()
+            .any(|u| u.location.starts_with("avm2-doc-ctor")
+                || u.location.starts_with("avm2-script")),
+        "unexpected root AVM2 script unit: {:?}",
+        bundle.scripts
+    );
+}

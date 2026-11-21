@@ -1101,10 +1101,72 @@ test('T-416: Loader.loadBytes executes neoflash-export AVM1/AVM2 closures, Defin
     catchB.copy(tryOp, 3 + tryHdr.length + tryB.length);
     finB.copy(tryOp, 3 + tryHdr.length + tryB.length + catchB.length);
 
+    // 4. `probeThis()`: returns [this["Reflect"], this["Object"], this["Function"]]
+    const probeBody = Buffer.concat([
+      avm1PushStr('this'), Buffer.from([0x1c]), avm1PushStr('Function'), Buffer.from([0x4e]),
+      avm1PushStr('this'), Buffer.from([0x1c]), avm1PushStr('Object'), Buffer.from([0x4e]),
+      avm1PushStr('this'), Buffer.from([0x1c]), avm1PushStr('Reflect'), Buffer.from([0x4e]),
+      avm1PushInt(3), Buffer.from([0x42, 0x3e]),
+    ]);
+    const probeHdr = new BitWriter();
+    probeHdr.writeCString('probeThis');
+    probeHdr.writeU16(0);
+    probeHdr.writeU16(probeBody.length);
+    const probeHdrBuf = probeHdr.toBuffer();
+    const defProbe = Buffer.alloc(3 + probeHdrBuf.length + probeBody.length);
+    defProbe[0] = 0x9b;
+    defProbe.writeUInt16LE(probeHdrBuf.length, 1);
+    probeHdrBuf.copy(defProbe, 3);
+    probeBody.copy(defProbe, 3 + probeHdrBuf.length);
+
+    // 5. `retFinally()`: raw ActionTry { this.retFinLog = "T"; return 42; } finally { this.retFinLog = this.retFinLog + ":F"; }
+    const rfTry = Buffer.concat([
+      avm1PushStr('this'), Buffer.from([0x1c]), avm1PushStr('retFinLog'), avm1PushStr('T'), Buffer.from([0x4f]),
+      avm1PushInt(42), Buffer.from([0x3e]), // ActionReturn directly inside try!
+    ]);
+    const rfFin = Buffer.concat([
+      avm1PushStr('this'), Buffer.from([0x1c]), avm1PushStr('retFinLog'),
+      avm1PushStr('this'), Buffer.from([0x1c]), avm1PushStr('retFinLog'), Buffer.from([0x4e]),
+      avm1PushStr(':F'), Buffer.from([0x47, 0x4f]),
+    ]);
+    const rfTryHdr = Buffer.from([0x02, rfTry.length & 0xff, rfTry.length >>> 8, 0, 0, rfFin.length & 0xff, rfFin.length >>> 8, 0]);
+    const rfTryOp = Buffer.alloc(3 + rfTryHdr.length + rfTry.length + rfFin.length);
+    rfTryOp[0] = 0x8f;
+    rfTryOp.writeUInt16LE(rfTryHdr.length, 1);
+    rfTryHdr.copy(rfTryOp, 3);
+    rfTry.copy(rfTryOp, 3 + rfTryHdr.length);
+    rfFin.copy(rfTryOp, 3 + rfTryHdr.length + rfTry.length);
+    const rfHdr = new BitWriter();
+    rfHdr.writeCString('retFinally');
+    rfHdr.writeU16(0);
+    rfHdr.writeU16(rfTryOp.length);
+    const rfHdrBuf = rfHdr.toBuffer();
+    const defRetFinally = Buffer.alloc(3 + rfHdrBuf.length + rfTryOp.length);
+    defRetFinally[0] = 0x9b;
+    defRetFinally.writeUInt16LE(rfHdrBuf.length, 1);
+    rfHdrBuf.copy(defRetFinally, 3);
+    rfTryOp.copy(defRetFinally, 3 + rfHdrBuf.length);
+
+    // Embedded tab in `java\tscript:` + `asfunction:` in ActionGetURL must both be blocked
+    const tabXssBody = Buffer.from('java\tscript:globalThis.__nfXssTab=1\0_self\0', 'utf8');
+    const tabXssOp = Buffer.alloc(3 + tabXssBody.length);
+    tabXssOp[0] = 0x83;
+    tabXssOp.writeUInt16LE(tabXssBody.length, 1);
+    tabXssBody.copy(tabXssOp, 3);
+    const asfnBody = Buffer.from('asfunction:v1Add,1\0\0', 'utf8');
+    const asfnOp = Buffer.alloc(3 + asfnBody.length);
+    asfnOp[0] = 0x83;
+    asfnOp.writeUInt16LE(asfnBody.length, 1);
+    asfnBody.copy(asfnOp, 3);
+
     const actions = Buffer.concat([
       defFn1,
       defBase,
       defSub,
+      defProbe,
+      defRetFinally,
+      tabXssOp,
+      asfnOp,
       doExtends,
       // this.v1Res = v1Add(11, 22)
       avm1PushStr('v1Res'), avm1PushInt(22), avm1PushInt(11), avm1PushInt(2), avm1PushStr('v1Add'), Buffer.from([0x3d, 0x1d]),
@@ -1233,6 +1295,13 @@ test('T-416: Loader.loadBytes executes neoflash-export AVM1/AVM2 closures, Defin
     assert.equal(lLow.content.deepHit, undefined, '20-deep nested ActionWith capped scope stack at <= 16');
     assert.equal(lLow.content.caughtReg, 'regBoom', 'ActionTry (0x8F) catch-in-register captured thrown value');
     assert.equal(lLow.content.finRan, 1, 'ActionTry (0x8F) finally block executed');
+    assert.equal(lLow.content.retFinally(), 42, 'ActionReturn inside ActionTry returns expected value');
+    assert.equal(lLow.content.retFinLog, 'T:F', 'ActionReturn inside ActionTry unwinds enclosing finally block before returning');
+    assert.equal(globalThis.__nfXssTab, undefined, 'Embedded control char java\\tscript: URL in ActionGetURL must be blocked');
+    // P0 regression: invoking child AVM1 closure with `this === globalThis` or `{ length: 1e9 }`
+    assert.deepEqual(Reflect.apply(lLow.content.probeThis, globalThis, []), [undefined, undefined, undefined], 'AVM1 closure sanitizes this === globalThis');
+    assert.deepEqual(lLow.content.probeThis.call(globalThis), [undefined, undefined, undefined], 'AVM1 fn.call(globalThis) sanitizes receiver');
+    assert.deepEqual(lLow.content.probeThis.apply(globalThis, { length: 1e9 }), [undefined, undefined, undefined], 'AVM1 fn.apply clamps huge array-like length without OOM');
     lLow.unload();
 
     // 3. Load & execute exact `neoflash-export` AVM2 SWF (`NEOFLASH_EXPORT_T416_AVM2_B64`)
@@ -1245,6 +1314,8 @@ test('T-416: Loader.loadBytes executes neoflash-export AVM1/AVM2 closures, Defin
     assert.equal(lAvm2.content.closureSummary, '18,19,27,120', 'AVM2 outer/inner activation closure + callback + self-named recursive closure');
     assertHardenedSwfCallable(lAvm2.content.exportedAdder, 'AVM2 exportedAdder');
     assert.equal(lAvm2.content.exportedAdder(5), 20, 'AVM2 closure mutates outer activation slot across invocations');
+    assert.equal(Reflect.apply(lAvm2.content.exportedAdder, globalThis, [5]), 21, 'AVM2 closure invoked via Reflect.apply(..., globalThis, ...) executes safely');
+    assert.equal(lAvm2.content.exportedAdder.apply(globalThis, { length: 1e9, 0: 5 }), 22, 'AVM2 fn.apply clamps { length: 1e9 } without OOM');
 
     // Non-root SymbolClass child sprite (`ChildCard extends BaseCard`) + PlaceObject3 DropShadow & Multiply blend
     assert.equal(lAvm2.content.spriteSummary, 'B(sprite>C)+Child', 'ChildCard SymbolClass attached before MainDoc ctor with constructsuper + callsuper');
@@ -1270,8 +1341,111 @@ test('T-416: Loader.loadBytes executes neoflash-export AVM1/AVM2 closures, Defin
 
     lAvm2.unload();
     assert.equal(functionsMap.size, 0, 'Loader.unload() cleaned up all child SWF scripts');
+
+    // 4. Non-root-only SymbolClass (`cid = 2 -> ChildOnly`, NO `cid = 0`) + AVM2 `Reflect.apply(fn, globalThis, [])` probe
+    const buildChildOnlyAvm2Swf = () => {
+      const spriteHdr = Buffer.alloc(4);
+      spriteHdr.writeUInt16LE(2, 0); // charId = 2
+      spriteHdr.writeUInt16LE(2, 2); // 2 frames
+      const spriteTag = makeSwfTag(39, Buffer.concat([
+        spriteHdr,
+        makeSwfTag(1, Buffer.alloc(0)),
+        makeSwfTag(1, Buffer.alloc(0)),
+        makeSwfTag(0, Buffer.alloc(0)),
+      ]));
+
+      const abc = [16, 0, 46, 0];
+      writeU30(abc, 1); writeU30(abc, 1); writeU30(abc, 1);
+      const strs = ['', '', 'ChildOnly', 'MovieClip', 'addFrameScript', 'childConstructed', 'childFrame2', 'probeThis', 'Reflect', 'Object', 'Function'];
+      writeU30(abc, strs.length);
+      for (let i = 1; i < strs.length; i++) {
+        const b = Buffer.from(strs[i], 'utf8');
+        writeU30(abc, b.length);
+        for (const c of b) abc.push(c);
+      }
+      writeU30(abc, 2); abc.push(0x16); writeU30(abc, 1);
+      writeU30(abc, 1);
+      // mn: 1=ChildOnly(2), 2=MovieClip(3), 3=addFrameScript(4), 4=childConstructed(5), 5=childFrame2(6), 6=probeThis(7), 7=Reflect(8), 8=Object(9), 9=Function(10)
+      writeU30(abc, 10);
+      for (let sid = 2; sid <= 10; sid++) {
+        abc.push(0x07); writeU30(abc, 1); writeU30(abc, sid);
+      }
+      // methods: 0=cinit, 1=iinit, 2=frame2Fn, 3=probeFn, 4=script_init
+      writeU30(abc, 5);
+      for (let m = 0; m < 5; m++) {
+        writeU30(abc, 0); writeU30(abc, 0); writeU30(abc, 0); abc.push(0);
+      }
+      writeU30(abc, 0);
+      writeU30(abc, 1); // 1 class: ChildOnly
+      writeU30(abc, 1); writeU30(abc, 2); abc.push(0); writeU30(abc, 0); writeU30(abc, 1); writeU30(abc, 0);
+      writeU30(abc, 0); writeU30(abc, 0);
+      writeU30(abc, 1); writeU30(abc, 4); writeU30(abc, 0);
+
+      const iinitCode = [
+        0xd0, 0x30,
+        0xd0, 0x49, 0, // constructsuper 0
+        0xd0, 0x24, 1, 0x61, 4, // this.childConstructed = 1
+        0xd0, 0x40, 3, 0x61, 6, // this.probeThis = newfunction(3)
+        0x5d, 3, 0x24, 1, 0x40, 2, 0x4f, 3, 2, // addFrameScript(1, newfunction(2))
+        0x47,
+      ];
+      const frame2Code = [0xd0, 0x24, 88, 0x61, 5, 0x47]; // this.childFrame2 = 88
+      // probeFn: return [this["Reflect"], this["Object"], this["Function"]]
+      const probeCode = [
+        0xd0, 0x66, 7,
+        0xd0, 0x66, 8,
+        0xd0, 0x66, 9,
+        0x56, 3,
+        0x48,
+      ];
+      writeU30(abc, 3);
+      for (const [mid, code] of [[1, iinitCode], [2, frame2Code], [3, probeCode]]) {
+        writeU30(abc, mid); writeU30(abc, 6); writeU30(abc, 4); writeU30(abc, 4); writeU30(abc, 6);
+        writeU30(abc, code.length);
+        for (const b of code) abc.push(b);
+        writeU30(abc, 0); writeU30(abc, 0);
+      }
+      const doAbc2 = makeSwfTag(82, Buffer.concat([Buffer.from([1, 0, 0, 0, ...Buffer.from('co\0', 'utf8')]), Buffer.from(abc)]));
+      const sym = new BitWriter();
+      sym.writeU16(1);
+      sym.writeU16(2); sym.writeCString('ChildOnly'); // NO cid 0!
+
+      return wrapSwf('FWS', 13, 80, 60, 24, 2, [
+        makeSwfTag(69, Buffer.from([0x08, 0, 0, 0])),
+        spriteTag,
+        makePlaceObject2({ depth: 1, charId: 2, txPx: 4, tyPx: 4, name: 'onlyChild' }),
+        doAbc2,
+        makeSwfTag(76, sym.toBuffer()),
+        makeSwfTag(1, Buffer.alloc(0)),
+        makeSwfTag(1, Buffer.alloc(0)),
+      ]);
+    };
+
+    const lChildOnly = new Loader();
+    lChildOnly.contentLoaderInfo.addEventListener('ioError', e => { throw new Error('lChildOnly ioError: ' + e.text); });
+    rootClip.addChild(lChildOnly);
+    lChildOnly.loadBytes(toBa(buildChildOnlyAvm2Swf()));
+    await new Promise(r => setTimeout(r, 20));
+
+    assert.equal(lChildOnly.content.childConstructed, undefined, 'Root timeline without cid=0 SymbolClass must NOT construct ChildOnly');
+    const onlyChild = lChildOnly.content.getChildByName('onlyChild');
+    assert.ok(onlyChild, 'onlyChild sprite placed on root');
+    assert.equal(onlyChild.childConstructed, 1, 'ChildOnly constructed exclusively on cid=2 child sprite');
+    assert.deepEqual(Reflect.apply(onlyChild.probeThis, globalThis, []), [undefined, undefined, undefined], 'AVM2 closure sanitizes this === globalThis');
+    assert.deepEqual(onlyChild.probeThis.call(globalThis), [undefined, undefined, undefined], 'AVM2 fn.call(globalThis) sanitizes receiver');
+    assert.deepEqual(onlyChild.probeThis.apply(globalThis, { length: 1e9 }), [undefined, undefined, undefined], 'AVM2 probeThis.apply clamps { length: 1e9 }');
+
+    lChildOnly.content.gotoAndStop(2);
+    onlyChild.gotoAndStop(2);
+    host.dispatchScripts();
+    assert.equal(lChildOnly.content.childFrame2, undefined, 'Root frame 2 must NOT run ChildOnly addFrameScript');
+    assert.equal(onlyChild.childFrame2, 88, 'cid=2 ChildOnly sprite ran its frame 2 addFrameScript');
+
+    lChildOnly.unload();
+    assert.equal(functionsMap.size, 0, 'Loader.unload() cleaned up ChildOnly scripts');
   } finally {
     delete globalThis.__nfXssAvm1;
+    delete globalThis.__nfXssTab;
     host.disposeFamily();
     player.free();
   }

@@ -234,11 +234,31 @@ const __routeThrow = __raw => {\n\
   }\n\
   throw { __nfSwfThrown: __val };\n\
 };\n\
+let __pendingRetVal = undefined;\n\
+const __routeReturn = __rv => {\n\
+  while (__tryStack.length > 0) {\n\
+    const __top = __tryStack[__tryStack.length - 1];\n\
+    __st.length = __top.stLen;\n\
+    if (__withStack.length > __top.withLen) __withStack.length = __top.withLen;\n\
+    if ((__top.phase === 'try' || __top.phase === 'catch') && __top.hasFinally) {\n\
+      __top.phase = 'finally';\n\
+      __top.hasErr = false;\n\
+      __top.err = undefined;\n\
+      __top.hasRet = true;\n\
+      __top.ret = __rv;\n\
+      __pc = __top.finStart;\n\
+      return false;\n\
+    }\n\
+    __tryStack.pop();\n\
+  }\n\
+  __pendingRetVal = __rv;\n\
+  return true;\n\
+};\n\
 while (__pc < ",
     );
     js.push_str(&insts.len().to_string());
     js.push_str(
-        ") {\n\
+        " || __tryStack.length > 0) {\n\
   if (++__steps > 20000) break;\n\
   while (__withStack.length > 0) {\n\
     const __wt = __withStack[__withStack.length - 1];\n\
@@ -265,6 +285,7 @@ while (__pc < ",
       if (__pc === __tt.finEnd) {\n\
         __tryStack.pop();\n\
         if (__tt.hasErr) { __routeThrow({ __nfSwfThrown: __tt.err }); __tryAdvanced = true; break; }\n\
+        if (__tt.hasRet) { if (__routeReturn(__tt.ret)) return __pendingRetVal; __tryAdvanced = true; break; }\n\
         __pc = __tt.afterPc; __tryAdvanced = true; continue;\n\
       }\n\
       if (__pc < __tt.finStart || __pc > __tt.finEnd) { __tryStack.pop(); continue; }\n\
@@ -272,6 +293,11 @@ while (__pc < ",
     }\n\
   }\n\
   if (__tryAdvanced) continue;\n\
+  if (__pc >= ",
+    );
+    js.push_str(&insts.len().to_string());
+    js.push_str(
+        ") break;\n\
   try {\n\
   switch (__pc) {\n",
     );
@@ -513,7 +539,7 @@ while (__pc < ",
                 let after_pc = resolve_pc_at_or_after(after_off);
                 let catch_var_lit = js_string_literal(&catch_var);
                 js.push_str(&format!(
-                    "      if (__tryStack.length < 32) __tryStack.push({{ phase: 'try', tryStart: {try_start_pc}, tryEnd: {catch_start_pc}, hasCatch: {has_catch}, catchStart: {catch_start_pc}, catchEnd: {fin_start_pc}, catchReg: {catch_reg}, catchVar: {catch_var_lit}, hasFinally: {has_finally}, finStart: {fin_start_pc}, finEnd: {after_pc}, afterPc: {after_pc}, stLen: __st.length, withLen: __withStack.length, hasErr: false, err: undefined }});\n"
+                    "      if (__tryStack.length < 32) __tryStack.push({{ phase: 'try', tryStart: {try_start_pc}, tryEnd: {catch_start_pc}, hasCatch: {has_catch}, catchStart: {catch_start_pc}, catchEnd: {fin_start_pc}, catchReg: {catch_reg}, catchVar: {catch_var_lit}, hasFinally: {has_finally}, finStart: {fin_start_pc}, finEnd: {after_pc}, afterPc: {after_pc}, stLen: __st.length, withLen: __withStack.length, hasErr: false, err: undefined, hasRet: false, ret: undefined }});\n"
                 ));
             }
             0x2A => {
@@ -542,7 +568,9 @@ while (__pc < ",
                     "      if (__st.pop()) {{ __pc = {target_pc}; continue; }}\n"
                 ));
             }
-            0x3E => js.push_str("      return __st.pop();\n"),
+            0x3E => js.push_str(
+                "      if (__routeReturn(__st.pop())) return __pendingRetVal; continue;\n",
+            ),
             other => {
                 ctx.warn(avm1_unsupported_warning(other));
             }
@@ -1396,12 +1424,16 @@ pub(super) fn apply_abc_scripts(ctx: &mut SwfDecodeCtx, root_timeline: &mut Time
         }
     }
 
-    // 2. Identify root Document Class (cid == 0 or primary ABC instance)
+    // 2. Identify root Document Class (cid == 0, or primary ABC instance ONLY when SymbolClass is empty)
     let mut root_doc_target: Option<RootDocTarget> = None;
     for (abc_idx, abc) in abc_list.iter().enumerate() {
         let chosen = if let Some(dc) = &doc_class {
             find_abc_class(abc, dc).map(|(ci, _)| ci)
-        } else if root_doc_target.is_none() && !abc.instances.is_empty() {
+        } else if ctx.symbol_classes.is_empty()
+            && root_doc_target.is_none()
+            && !abc.instances.is_empty()
+            && !bound_classes_by_abc[abc_idx].contains(&0)
+        {
             Some(0)
         } else {
             None
@@ -1490,7 +1522,8 @@ pub(super) fn apply_abc_scripts(ctx: &mut SwfDecodeCtx, root_timeline: &mut Time
         }
     } else {
         for (abc_idx, abc) in abc_list.iter().enumerate() {
-            if let Some(&script_init) = abc.script_inits.last()
+            if abc.instances.is_empty()
+                && let Some(&script_init) = abc.script_inits.last()
                 && abc.bodies.contains_key(&script_init)
             {
                 let s_js = format!(
