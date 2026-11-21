@@ -31,9 +31,16 @@ pub(super) fn compile_avm2_closure_value(
         let mut c_free = HashSet::new();
         collect_refs_and_child_free_in_stmts(body, &mut d_refs, &mut c_free);
         if d_refs.contains(sn) || c_free.contains(sn) {
-            let slot_id = (env.activation_traits.len() + 1) as u32;
             let qn = pool.add_qname("", sn);
-            env.activation_traits.push((qn, slot_id));
+            let slot_id = if let Some(&(_, existing_slot)) =
+                env.activation_traits.iter().find(|&&(q, _)| q == qn)
+            {
+                existing_slot
+            } else {
+                let sid = (env.activation_traits.len() + 1) as u32;
+                env.activation_traits.push((qn, sid));
+                sid
+            };
             child_outer.insert(sn.to_owned(), (env.init_scope_depth + 1, slot_id));
             self_slot_to_bind = Some(slot_id);
         }
@@ -49,6 +56,8 @@ pub(super) fn compile_avm2_closure_value(
         &child_outer,
         child_init_scope,
         true,
+        &env.imports,
+        None,
         |_, _| Ok(()),
     )?;
 
@@ -86,7 +95,7 @@ pub(super) fn emit_avm2_load_ident(
         code.u8(0x6C); // getslot
         code.u32_v(slot_id);
     } else {
-        let mn = pool.add_qname("", name);
+        let mn = env.resolve_ident_multiname(pool, name);
         code.u8(0x60); // getlex
         code.u32_v(mn);
     }
@@ -111,18 +120,20 @@ fn compile_avm2_type_rhs(
     state: &mut Avm2CompilerState,
     env: &mut Avm2LexicalEnv,
 ) -> Result<(), String> {
-    if let Some(parts) = dotted_member_chain(rhs)
-        && parts.len() >= 2
-    {
+    if let Some(parts) = dotted_member_chain(rhs) {
         let root = &parts[0];
         if !matches!(root.as_str(), "this" | "_root" | "super")
             && !env.local_regs.contains_key(root)
             && !env.own_slots.contains_key(root)
             && !env.outer_slots.contains_key(root)
         {
-            let cls_name = parts.last().cloned().unwrap_or_default();
-            let pkg = parts[..parts.len() - 1].join(".");
-            let mn = pool.add_qname(&pkg, &cls_name);
+            let mn = if parts.len() >= 2 {
+                let cls_name = parts.last().cloned().unwrap_or_default();
+                let pkg = parts[..parts.len() - 1].join(".");
+                pool.add_qname(&pkg, &cls_name)
+            } else {
+                env.resolve_type_multiname(pool, root)
+            };
             code.u8(0x60); // getlex
             code.u32_v(mn);
             return Ok(());
@@ -280,6 +291,7 @@ pub(super) fn compile_avm2_expr(
         SwfExpr::Binary { op, lhs, rhs } => {
             if matches!(op, SwfBinaryOp::And | SwfBinaryOp::Or) {
                 compile_avm2_expr(pool, lhs, code, state, env)?;
+                code.u8(0x82); // coerce_a
                 code.u8(0x2A); // dup
                 let skip_patch = emit_avm2_s24_placeholder(
                     code,
@@ -291,6 +303,7 @@ pub(super) fn compile_avm2_expr(
                 );
                 code.u8(0x29); // pop
                 compile_avm2_expr(pool, rhs, code, state, env)?;
+                code.u8(0x82); // coerce_a
                 let end_pos = code.buf.len();
                 patch_avm2_s24(code, skip_patch, end_pos)?;
                 return Ok(());
@@ -347,26 +360,37 @@ pub(super) fn compile_avm2_expr(
             compile_avm2_call(pool, callee, args, false, code, state, env)?;
         }
         SwfExpr::New { callee, args } => {
-            let (pkg, cls_name) = if let Some(parts) = dotted_member_chain(callee) {
-                if parts.len() >= 2 {
-                    let cname = parts.last().cloned().unwrap_or_default();
-                    let p = parts[..parts.len() - 1].join(".");
-                    (p, cname)
-                } else {
-                    (String::new(), parts[0].clone())
-                }
-            } else {
+            let Some(parts) = dotted_member_chain(callee) else {
                 return Err("unsupported 'new' constructor target in AVM2".to_owned());
             };
-            let mn = pool.add_qname(&pkg, &cls_name);
-            code.u8(0x5D); // findpropstrict
-            code.u32_v(mn);
-            for a in args {
-                compile_avm2_expr(pool, a, code, state, env)?;
+            if parts.len() == 1
+                && (env.local_regs.contains_key(&parts[0])
+                    || env.own_slots.contains_key(&parts[0])
+                    || env.outer_slots.contains_key(&parts[0]))
+            {
+                emit_avm2_load_ident(pool, &parts[0], code, env);
+                for a in args {
+                    compile_avm2_expr(pool, a, code, state, env)?;
+                }
+                code.u8(0x42); // construct
+                code.u32_v(args.len() as u32);
+            } else {
+                let mn = if parts.len() >= 2 {
+                    let cname = parts.last().cloned().unwrap_or_default();
+                    let p = parts[..parts.len() - 1].join(".");
+                    pool.add_qname(&p, &cname)
+                } else {
+                    env.resolve_type_multiname(pool, &parts[0])
+                };
+                code.u8(0x5D); // findpropstrict
+                code.u32_v(mn);
+                for a in args {
+                    compile_avm2_expr(pool, a, code, state, env)?;
+                }
+                code.u8(0x4A); // constructprop
+                code.u32_v(mn);
+                code.u32_v(args.len() as u32);
             }
-            code.u8(0x4A); // constructprop
-            code.u32_v(mn);
-            code.u32_v(args.len() as u32);
         }
     }
     Ok(())
@@ -388,6 +412,27 @@ pub(super) fn compile_avm2_call(
         }
         code.u8(0x49); // constructsuper
         code.u32_v(args.len() as u32);
+        if let Some(post) = env.post_super.take() {
+            if !post.frame_bindings.is_empty() {
+                code.u8(0x5D); // findpropstrict
+                code.u32_v(post.add_frame_script_mn);
+                for (frame_idx, fn_mn) in &post.frame_bindings {
+                    emit_avm2_int(
+                        pool,
+                        code,
+                        i32::try_from(*frame_idx).expect("SWF preflight bounds AVM2 frame indexes"),
+                    );
+                    code.u8(0x60); // getlex
+                    code.u32_v(*fn_mn);
+                }
+                code.u8(0x4F); // callpropvoid
+                code.u32_v(post.add_frame_script_mn);
+                code.u32_v((post.frame_bindings.len() * 2) as u32);
+            }
+            let init_res = compile_avm2_stmt_list(pool, &post.field_stmts, code, state, env);
+            env.post_super = Some(post);
+            init_res?;
+        }
         if !discard_result {
             code.u8(0x21); // pushundefined
         }
@@ -570,6 +615,7 @@ where
         SwfLValue::Ident(name) => {
             if let Some(&reg) = env.local_regs.get(name) {
                 emit_rhs(pool, code, state, env)?;
+                code.u8(0x82); // coerce_a
                 emit_avm2_setlocal(code, reg);
             } else if let Some(&slot_id) = env.own_slots.get(name) {
                 code.u8(0x65); // getscopeobject 1
@@ -585,7 +631,8 @@ where
                 code.u32_v(slot_id);
             } else {
                 let prop_mn = pool.add_qname("", name);
-                code.u8(0xD0); // getlocal_0
+                code.u8(0x5E); // findproperty
+                code.u32_v(prop_mn);
                 emit_rhs(pool, code, state, env)?;
                 code.u8(0x61); // setproperty
                 code.u32_v(prop_mn);
@@ -642,6 +689,7 @@ pub(super) fn compile_avm2_function_decl_binding(
 ) -> Result<(), String> {
     if let Some(&reg) = env.local_regs.get(name) {
         compile_avm2_closure_value(pool, None, params, body, code, state, env)?;
+        code.u8(0x82); // coerce_a
         emit_avm2_setlocal(code, reg);
     } else if let Some(&slot_id) = env.own_slots.get(name) {
         code.u8(0x65); // getscopeobject 1
@@ -651,7 +699,8 @@ pub(super) fn compile_avm2_function_decl_binding(
         code.u32_v(slot_id);
     } else {
         let fn_mn = pool.add_qname("", name);
-        code.u8(0xD0); // getlocal_0
+        code.u8(0x5E); // findproperty
+        code.u32_v(fn_mn);
         compile_avm2_closure_value(pool, None, params, body, code, state, env)?;
         code.u8(0x61); // setproperty
         code.u32_v(fn_mn);
@@ -680,25 +729,6 @@ pub(super) fn compile_avm2_stmt_list(
     Ok(())
 }
 
-fn emit_avm2_unwind_finally_range(
-    pool: &mut AbcPoolBuilder,
-    code: &mut SwfBitWriter,
-    state: &mut Avm2CompilerState,
-    env: &mut Avm2LexicalEnv,
-    target_depth: usize,
-) -> Result<(), String> {
-    if env.finally_stack.len() <= target_depth {
-        return Ok(());
-    }
-    let saved = env.finally_stack.clone();
-    for depth in (target_depth..saved.len()).rev() {
-        env.finally_stack.truncate(depth);
-        compile_avm2_stmt_list(pool, &saved[depth], code, state, env)?;
-    }
-    env.finally_stack = saved;
-    Ok(())
-}
-
 fn emit_avm2_catch_prologue(
     pool: &mut AbcPoolBuilder,
     cname: &str,
@@ -715,6 +745,7 @@ fn emit_avm2_catch_prologue(
     if cname.is_empty() {
         code.u8(0x29); // pop
     } else if let Some(&reg) = env.local_regs.get(cname) {
+        code.u8(0x82); // coerce_a
         emit_avm2_setlocal(code, reg);
     } else if let Some(&slot_id) = env.own_slots.get(cname) {
         code.u8(0x65); // getscopeobject 1
@@ -730,8 +761,9 @@ fn emit_avm2_catch_prologue(
         code.u32_v(slot_id);
     } else {
         let prop_mn = pool.add_qname("", cname);
-        code.u8(0xD0); // getlocal_0
-        code.u8(0x2B); // swap -> [this, thrown]
+        code.u8(0x5E); // findproperty
+        code.u32_v(prop_mn);
+        code.u8(0x2B); // swap -> [target, thrown]
         code.u8(0x61); // setproperty
         code.u32_v(prop_mn);
     }
@@ -752,6 +784,7 @@ pub(super) fn compile_avm2_stmt(
                 } else {
                     code.u8(0x21); // pushundefined
                 }
+                code.u8(0x82); // coerce_a
                 emit_avm2_setlocal(code, reg);
             } else if let Some(&slot_id) = env.own_slots.get(name) {
                 code.u8(0x65); // getscopeobject 1
@@ -765,7 +798,8 @@ pub(super) fn compile_avm2_stmt(
                 code.u32_v(slot_id);
             } else {
                 let prop_mn = pool.add_qname("", name);
-                code.u8(0xD0); // getlocal_0
+                code.u8(0x5E); // findproperty
+                code.u32_v(prop_mn);
                 if let Some(rhs) = init {
                     compile_avm2_expr(pool, rhs, code, state, env)?;
                 } else {
@@ -1014,16 +1048,28 @@ pub(super) fn compile_avm2_stmt(
             code.u32_v(disc_reg);
         }
         SwfStmt::Break => {
-            let Some(finally_depth) = env.flow_stack.last().map(|f| f.finally_depth) else {
+            let Some((target_flow_idx, finally_depth)) = env
+                .flow_stack
+                .iter()
+                .enumerate()
+                .next_back()
+                .map(|(i, f)| (i, f.finally_depth))
+            else {
                 return Err("'break' used outside of a loop or switch statement".to_owned());
             };
-            emit_avm2_unwind_finally_range(pool, code, state, env, finally_depth)?;
             let patch = emit_avm2_s24_placeholder(code, 0x10); // jump
-            env.flow_stack
-                .last_mut()
-                .expect("checked flow frame")
-                .break_patches
-                .push(patch);
+            if env.finally_stack.len() > finally_depth {
+                env.finally_stack
+                    .last_mut()
+                    .expect("checked finally_stack")
+                    .pending_unwinds
+                    .push(Avm2PendingUnwind::Break {
+                        jump_patch: patch,
+                        target_flow_idx,
+                    });
+            } else {
+                env.flow_stack[target_flow_idx].break_patches.push(patch);
+            }
         }
         SwfStmt::Continue => {
             let Some((loop_idx, finally_depth)) = env
@@ -1036,9 +1082,19 @@ pub(super) fn compile_avm2_stmt(
             else {
                 return Err("'continue' used outside of a loop statement".to_owned());
             };
-            emit_avm2_unwind_finally_range(pool, code, state, env, finally_depth)?;
             let patch = emit_avm2_s24_placeholder(code, 0x10); // jump
-            env.flow_stack[loop_idx].continue_patches.push(patch);
+            if env.finally_stack.len() > finally_depth {
+                env.finally_stack
+                    .last_mut()
+                    .expect("checked finally_stack")
+                    .pending_unwinds
+                    .push(Avm2PendingUnwind::Continue {
+                        jump_patch: patch,
+                        target_flow_idx: loop_idx,
+                    });
+            } else {
+                env.flow_stack[loop_idx].continue_patches.push(patch);
+            }
         }
         SwfStmt::Try {
             try_body,
@@ -1048,17 +1104,19 @@ pub(super) fn compile_avm2_stmt(
             let mut normal_exit_patches = Vec::new();
             let outer_from = code.buf.len();
 
-            if let Some(fbody) = finally_body {
-                env.finally_stack.push(fbody.clone());
+            if finally_body.is_some() {
+                env.finally_stack.push(Avm2FinallyFrame::default());
             }
             let inner_from = code.buf.len();
             compile_avm2_stmt_list(pool, try_body, code, state, env)?;
             if code.buf.len() == inner_from {
                 code.u8(0x02); // nop so [from, to) is non-empty
             }
-            if finally_body.is_some() {
-                let _ = env.finally_stack.pop();
-            }
+            let mut saved_fin_frame = if finally_body.is_some() {
+                env.finally_stack.pop()
+            } else {
+                None
+            };
             normal_exit_patches.push(emit_avm2_s24_placeholder(code, 0x10)); // jump past handlers
             let inner_to = code.buf.len();
 
@@ -1067,10 +1125,7 @@ pub(super) fn compile_avm2_stmt(
                 for (cname, ctype_opt, _) in catches {
                     let exc_type = match ctype_opt.as_deref() {
                         None | Some("*") => 0,
-                        Some(t) => {
-                            let (tp, ts) = split_qualified_class(t);
-                            pool.add_qname(&tp, &ts)
-                        }
+                        Some(t) => env.resolve_type_multiname(pool, t),
                     };
                     let var_name = if cname.is_empty() {
                         0
@@ -1090,12 +1145,12 @@ pub(super) fn compile_avm2_stmt(
                     let catch_target = code.buf.len();
                     env.exceptions[base_exc_idx + i].target = catch_target as u32;
                     emit_avm2_catch_prologue(pool, cname, code, env);
-                    if let Some(fbody) = finally_body {
-                        env.finally_stack.push(fbody.clone());
+                    if let Some(fin_frame) = saved_fin_frame.take() {
+                        env.finally_stack.push(fin_frame);
                     }
                     compile_avm2_stmt_list(pool, cbody, code, state, env)?;
                     if finally_body.is_some() {
-                        let _ = env.finally_stack.pop();
+                        saved_fin_frame = env.finally_stack.pop();
                     }
                     if i + 1 < catches.len() || finally_body.is_some() {
                         normal_exit_patches.push(emit_avm2_s24_placeholder(code, 0x10));
@@ -1120,6 +1175,7 @@ pub(super) fn compile_avm2_stmt(
                     emit_avm2_getlocal(code, act_reg);
                     code.u8(0x30); // pushscope
                 }
+                code.u8(0x82); // coerce_a
                 emit_avm2_setlocal(code, unw_reg);
                 compile_avm2_stmt_list(pool, fbody, code, state, env)?;
                 emit_avm2_getlocal(code, unw_reg);
@@ -1130,6 +1186,97 @@ pub(super) fn compile_avm2_stmt(
                     patch_avm2_s24(code, p, normal_finally_pos)?;
                 }
                 compile_avm2_stmt_list(pool, fbody, code, state, env)?;
+
+                let pending = saved_fin_frame
+                    .map(|f| f.pending_unwinds)
+                    .unwrap_or_default();
+                if !pending.is_empty() {
+                    let skip_trampolines = emit_avm2_s24_placeholder(code, 0x10); // jump past unwind trampolines
+                    for unw in pending {
+                        let tramp_pos = code.buf.len();
+                        match unw {
+                            Avm2PendingUnwind::ReturnVal {
+                                jump_patch,
+                                ret_reg,
+                            } => {
+                                patch_avm2_s24(code, jump_patch, tramp_pos)?;
+                                compile_avm2_stmt_list(pool, fbody, code, state, env)?;
+                                if let Some(parent_fin) = env.finally_stack.last_mut() {
+                                    let next_jmp = emit_avm2_s24_placeholder(code, 0x10);
+                                    parent_fin
+                                        .pending_unwinds
+                                        .push(Avm2PendingUnwind::ReturnVal {
+                                            jump_patch: next_jmp,
+                                            ret_reg,
+                                        });
+                                } else {
+                                    emit_avm2_getlocal(code, ret_reg);
+                                    code.u8(0x48); // returnvalue
+                                }
+                            }
+                            Avm2PendingUnwind::ReturnVoid { jump_patch } => {
+                                patch_avm2_s24(code, jump_patch, tramp_pos)?;
+                                compile_avm2_stmt_list(pool, fbody, code, state, env)?;
+                                if let Some(parent_fin) = env.finally_stack.last_mut() {
+                                    let next_jmp = emit_avm2_s24_placeholder(code, 0x10);
+                                    parent_fin.pending_unwinds.push(
+                                        Avm2PendingUnwind::ReturnVoid {
+                                            jump_patch: next_jmp,
+                                        },
+                                    );
+                                } else {
+                                    code.u8(0x47); // returnvoid
+                                }
+                            }
+                            Avm2PendingUnwind::Break {
+                                jump_patch,
+                                target_flow_idx,
+                            } => {
+                                patch_avm2_s24(code, jump_patch, tramp_pos)?;
+                                compile_avm2_stmt_list(pool, fbody, code, state, env)?;
+                                let next_jmp = emit_avm2_s24_placeholder(code, 0x10);
+                                let target_depth = env.flow_stack[target_flow_idx].finally_depth;
+                                if env.finally_stack.len() > target_depth {
+                                    env.finally_stack
+                                        .last_mut()
+                                        .expect("checked finally_stack")
+                                        .pending_unwinds
+                                        .push(Avm2PendingUnwind::Break {
+                                            jump_patch: next_jmp,
+                                            target_flow_idx,
+                                        });
+                                } else {
+                                    env.flow_stack[target_flow_idx].break_patches.push(next_jmp);
+                                }
+                            }
+                            Avm2PendingUnwind::Continue {
+                                jump_patch,
+                                target_flow_idx,
+                            } => {
+                                patch_avm2_s24(code, jump_patch, tramp_pos)?;
+                                compile_avm2_stmt_list(pool, fbody, code, state, env)?;
+                                let next_jmp = emit_avm2_s24_placeholder(code, 0x10);
+                                let target_depth = env.flow_stack[target_flow_idx].finally_depth;
+                                if env.finally_stack.len() > target_depth {
+                                    env.finally_stack
+                                        .last_mut()
+                                        .expect("checked finally_stack")
+                                        .pending_unwinds
+                                        .push(Avm2PendingUnwind::Continue {
+                                            jump_patch: next_jmp,
+                                            target_flow_idx,
+                                        });
+                                } else {
+                                    env.flow_stack[target_flow_idx]
+                                        .continue_patches
+                                        .push(next_jmp);
+                                }
+                            }
+                        }
+                    }
+                    let after_trampolines = code.buf.len();
+                    patch_avm2_s24(code, skip_trampolines, after_trampolines)?;
+                }
             } else {
                 let after_catches = code.buf.len();
                 for p in normal_exit_patches {
@@ -1155,15 +1302,26 @@ pub(super) fn compile_avm2_stmt(
                 compile_avm2_expr(pool, expr, code, state, env)?;
                 if !env.finally_stack.is_empty() {
                     let ret_reg = env.alloc_temp_reg();
+                    code.u8(0x82); // coerce_a
                     emit_avm2_setlocal(code, ret_reg);
-                    emit_avm2_unwind_finally_range(pool, code, state, env, 0)?;
-                    emit_avm2_getlocal(code, ret_reg);
+                    let patch = emit_avm2_s24_placeholder(code, 0x10); // jump to post-outer_to unwind trampoline
+                    env.finally_stack
+                        .last_mut()
+                        .expect("checked finally_stack")
+                        .pending_unwinds
+                        .push(Avm2PendingUnwind::ReturnVal {
+                            jump_patch: patch,
+                            ret_reg,
+                        });
+                } else {
+                    code.u8(0x48); // returnvalue
                 }
-                code.u8(0x48); // returnvalue
+            } else if let Some(top_fin) = env.finally_stack.last_mut() {
+                let patch = emit_avm2_s24_placeholder(code, 0x10); // jump to post-outer_to unwind trampoline
+                top_fin
+                    .pending_unwinds
+                    .push(Avm2PendingUnwind::ReturnVoid { jump_patch: patch });
             } else {
-                if !env.finally_stack.is_empty() {
-                    emit_avm2_unwind_finally_range(pool, code, state, env, 0)?;
-                }
                 code.u8(0x47); // returnvoid
             }
         }

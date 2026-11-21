@@ -241,6 +241,9 @@ pub fn validate_dotlottie_bytes(bytes: &[u8]) -> Result<Value, ExportError> {
         ));
     }
 
+    const MAX_DOTLOTTIE_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
+    const MAX_DOTLOTTIE_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
+    let mut total_uncompressed: u64 = 0;
     let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     for idx in 0..archive.len() {
         let mut entry = archive.by_index(idx).map_err(|e| {
@@ -258,8 +261,18 @@ pub fn validate_dotlottie_bytes(bytes: &[u8]) -> Result<Value, ExportError> {
                 "Duplicate entry '{name}' in dotLottie archive."
             )));
         }
+        let remaining = MAX_DOTLOTTIE_TOTAL_BYTES.saturating_sub(total_uncompressed);
+        let cap = remaining.min(MAX_DOTLOTTIE_ENTRY_BYTES);
         let mut data = Vec::new();
-        entry.read_to_end(&mut data)?;
+        (&mut entry)
+            .take(cap.saturating_add(1))
+            .read_to_end(&mut data)?;
+        if (data.len() as u64) > cap {
+            return Err(ExportError::Options(format!(
+                "dotLottie archive entry '{name}' exceeds uncompressed size budget ({MAX_DOTLOTTIE_ENTRY_BYTES} bytes per entry, {MAX_DOTLOTTIE_TOTAL_BYTES} bytes total)."
+            )));
+        }
+        total_uncompressed = total_uncompressed.saturating_add(data.len() as u64);
         entries.insert(name, data);
     }
 

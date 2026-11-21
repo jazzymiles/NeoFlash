@@ -4,20 +4,42 @@ use super::*;
 
 fn order_and_resolve_abc_classes(classes: &[AbcClassSpec]) -> Vec<AbcClassSpec> {
     let mut resolved = classes.to_vec();
-    for i in 0..resolved.len() {
-        let spkg = resolved[i].super_pkg.clone();
-        let sname = resolved[i].super_name.clone();
-        let exact_exists = resolved
-            .iter()
-            .any(|c| c.pkg == spkg && c.class_name == sname);
+    let known_classes: Vec<(String, String)> = resolved
+        .iter()
+        .map(|c| (c.pkg.clone(), c.class_name.clone()))
+        .collect();
+    for cls in &mut resolved {
+        for (kpkg, kname) in &known_classes {
+            if kname == &cls.class_name && kpkg == &cls.pkg {
+                continue;
+            }
+            if (!cls.pkg.is_empty() && kpkg == &cls.pkg)
+                || cls.wildcard_packages.iter().any(|wp| wp == kpkg)
+            {
+                cls.imported_classes
+                    .entry(kname.clone())
+                    .or_insert_with(|| kpkg.clone());
+            }
+        }
+        let spkg = cls.super_pkg.clone();
+        let sname = cls.super_name.clone();
+        let exact_exists = known_classes.iter().any(|(p, n)| p == &spkg && n == &sname);
         if !exact_exists {
-            let matches: Vec<String> = resolved
-                .iter()
-                .filter(|c| c.class_name == sname)
-                .map(|c| c.pkg.clone())
-                .collect();
-            if matches.len() == 1 {
-                resolved[i].super_pkg = matches[0].clone();
+            if let Some(imp_pkg) = cls.imported_classes.get(&sname)
+                && known_classes
+                    .iter()
+                    .any(|(p, n)| p == imp_pkg && n == &sname)
+            {
+                cls.super_pkg = imp_pkg.clone();
+            } else {
+                let matches: Vec<String> = known_classes
+                    .iter()
+                    .filter(|(_, n)| n == &sname)
+                    .map(|(p, _)| p.clone())
+                    .collect();
+                if matches.len() == 1 {
+                    cls.super_pkg = matches[0].clone();
+                }
             }
         }
     }
@@ -64,6 +86,110 @@ fn order_and_resolve_abc_classes(classes: &[AbcClassSpec]) -> Vec<AbcClassSpec> 
     ordered
 }
 
+fn is_avm2_inherited_builtin_member(name: &str) -> bool {
+    matches!(
+        name,
+        "x" | "y"
+            | "z"
+            | "scaleX"
+            | "scaleY"
+            | "scaleZ"
+            | "alpha"
+            | "visible"
+            | "rotation"
+            | "rotationX"
+            | "rotationY"
+            | "rotationZ"
+            | "name"
+            | "width"
+            | "height"
+            | "mask"
+            | "parent"
+            | "root"
+            | "stage"
+            | "loaderInfo"
+            | "graphics"
+            | "currentFrame"
+            | "currentFrameLabel"
+            | "totalFrames"
+            | "currentLabel"
+            | "currentLabels"
+            | "currentScene"
+            | "scenes"
+            | "framesLoaded"
+            | "isPlaying"
+            | "enabled"
+            | "trackAsMenu"
+            | "useHandCursor"
+            | "buttonMode"
+            | "mouseEnabled"
+            | "mouseChildren"
+            | "doubleClickEnabled"
+            | "tabEnabled"
+            | "tabChildren"
+            | "tabIndex"
+            | "focusRect"
+            | "transform"
+            | "filters"
+            | "blendMode"
+            | "cacheAsBitmap"
+            | "opaqueBackground"
+            | "scrollRect"
+            | "scale9Grid"
+            | "soundTransform"
+            | "dropTarget"
+            | "hitArea"
+            | "numChildren"
+            | "textSnapshot"
+            | "accessibilityProperties"
+            | "contextMenu"
+            | "stop"
+            | "play"
+            | "nextFrame"
+            | "prevFrame"
+            | "gotoAndStop"
+            | "gotoAndPlay"
+            | "nextScene"
+            | "prevScene"
+            | "addFrameScript"
+            | "addChild"
+            | "addChildAt"
+            | "removeChild"
+            | "removeChildAt"
+            | "removeChildren"
+            | "getChildAt"
+            | "getChildByName"
+            | "getChildIndex"
+            | "setChildIndex"
+            | "swapChildren"
+            | "swapChildrenAt"
+            | "contains"
+            | "areInaccessibleObjectsUnderPoint"
+            | "getObjectsUnderPoint"
+            | "getBounds"
+            | "getRect"
+            | "globalToLocal"
+            | "localToGlobal"
+            | "hitTestObject"
+            | "hitTestPoint"
+            | "startDrag"
+            | "stopDrag"
+            | "addEventListener"
+            | "removeEventListener"
+            | "dispatchEvent"
+            | "hasEventListener"
+            | "willTrigger"
+            | "toString"
+            | "valueOf"
+            | "hasOwnProperty"
+            | "isPrototypeOf"
+            | "propertyIsEnumerable"
+            | "setPropertyIsEnumerable"
+            | "constructor"
+            | "prototype"
+    )
+}
+
 pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, ExportError> {
     let ordered_classes = order_and_resolve_abc_classes(classes);
     let mut pool = AbcPoolBuilder::default();
@@ -73,6 +199,7 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
     struct CompiledClass {
         class_mn: u32,
         super_mn: u32,
+        ancestor_mns: Vec<u32>,
         cinit_method: u32,
         iinit_method: u32,
         instance_slots: Vec<u32>,
@@ -88,6 +215,19 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
     for cls in &ordered_classes {
         let class_mn = pool.add_qname(&cls.pkg, &cls.class_name);
         let super_mn = pool.add_qname(&cls.super_pkg, &cls.super_name);
+        let ancestor_chain = resolve_abc_ancestor_chain(cls, &ordered_classes);
+        let ancestor_mns: Vec<u32> = ancestor_chain
+            .iter()
+            .map(|(apkg, aname)| pool.add_qname(apkg, aname))
+            .collect();
+        let chain_len = ancestor_mns.len() as u32;
+        let cinit_scope_depth = 2 + chain_len;
+        let method_scope_depth = 3 + chain_len;
+        let class_imports = Avm2ImportCtx {
+            current_pkg: cls.pkg.clone(),
+            imported_classes: cls.imported_classes.clone(),
+            wildcard_packages: cls.wildcard_packages.clone(),
+        };
 
         // 1. cinit + static slots & static methods
         let mut static_slots = Vec::with_capacity(cls.static_fields.len());
@@ -113,8 +253,10 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
             &[],
             &cinit_stmts,
             &empty_outer,
-            1,
+            cinit_scope_depth,
             false,
+            &class_imports,
+            None,
             |_, _| Ok(()),
         )
         .map_err(|err| {
@@ -137,8 +279,10 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
                 sm_params,
                 sm_stmts,
                 &empty_outer,
-                1,
+                method_scope_depth,
                 true,
+                &class_imports,
+                None,
                 |_, _| Ok(()),
             )
             .map_err(|err| {
@@ -151,19 +295,39 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
         }
 
         // 2. Instance slots & methods (frame scripts + extra methods)
-        let instance_slots: Vec<u32> = cls
+        // Parse frame scripts upfront so top-level `var` / `function` declarations on timeline frames
+        // are hoisted as `Trait_Slot`s on the timeline class (matching Adobe Flash Pro's AS3 compiler
+        // so closures resolve them via `findproperty`/`getlex` on `this` while keeping `MethodBodyInfo`
+        // `trait_cnt == 0` on the frame method itself).
+        let mut parsed_frame_scripts = Vec::with_capacity(cls.frame_scripts.len());
+        let mut reserved_instance_names: HashSet<String> = cls
             .instance_fields
             .iter()
-            .map(|(fname, _)| pool.add_qname("", fname))
+            .map(|(n, _)| n.clone())
+            .chain(cls.extra_methods.iter().map(|(n, _, _)| n.clone()))
+            .chain(cls.static_fields.iter().map(|(n, _)| n.clone()))
+            .chain(cls.static_methods.iter().map(|(n, _, _)| n.clone()))
+            .chain(
+                cls.frame_scripts
+                    .iter()
+                    .map(|(f_idx, _)| format!("frame{}", f_idx + 1)),
+            )
             .collect();
-        let mut trait_methods = Vec::new();
-        let mut frame_bindings: Vec<(u32, u32)> = Vec::new();
-
+        for (apkg, aname) in &ancestor_chain {
+            if let Some(anc) = ordered_classes
+                .iter()
+                .find(|c| &c.pkg == apkg && &c.class_name == aname)
+            {
+                for (n, _) in &anc.instance_fields {
+                    reserved_instance_names.insert(n.clone());
+                }
+                for (n, _, _) in &anc.extra_methods {
+                    reserved_instance_names.insert(n.clone());
+                }
+            }
+        }
+        let mut hoisted_frame_slots = Vec::new();
         for (frame_idx, script_src) in &cls.frame_scripts {
-            let fn_name = format!("frame{}", frame_idx + 1);
-            let fn_mn = pool.add_qname("", &fn_name);
-            let m_idx = state.alloc_method(Vec::new());
-
             let stmts = parse_swf_statements_strict(script_src, true).map_err(|err| {
                 ExportError::Options(format!(
                     "AVM2 frame script on class '{}' frame {} failed to parse: {err}",
@@ -171,6 +335,48 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
                     frame_idx + 1
                 ))
             })?;
+            let mut fs_vars = Vec::new();
+            let mut fs_funcs = Vec::new();
+            collect_direct_decls_in_stmts(&stmts, &mut fs_vars, &mut fs_funcs);
+            for decl_name in fs_funcs.into_iter().chain(fs_vars) {
+                if !is_avm2_inherited_builtin_member(&decl_name)
+                    && reserved_instance_names.insert(decl_name.clone())
+                {
+                    hoisted_frame_slots.push(decl_name);
+                }
+            }
+            parsed_frame_scripts.push((*frame_idx, script_src.as_str(), stmts));
+        }
+
+        let mut instance_slots: Vec<u32> = cls
+            .instance_fields
+            .iter()
+            .map(|(fname, _)| pool.add_qname("", fname))
+            .collect();
+        for slot_name in &hoisted_frame_slots {
+            instance_slots.push(pool.add_qname("", slot_name));
+        }
+        let mut trait_methods = Vec::new();
+        let mut frame_bindings: Vec<(u32, u32)> = Vec::new();
+
+        for (frame_idx, script_src, stmts) in parsed_frame_scripts {
+            let fn_name = format!("frame{}", frame_idx + 1);
+            let fn_mn = pool.add_qname("", &fn_name);
+            let m_idx = state.alloc_method(Vec::new());
+            let mut frame_imports = class_imports.clone();
+            extract_script_imports(
+                script_src,
+                &mut frame_imports.imported_classes,
+                &mut frame_imports.wildcard_packages,
+            );
+            for (kpkg, kname) in ordered_classes.iter().map(|c| (&c.pkg, &c.class_name)) {
+                if frame_imports.wildcard_packages.iter().any(|wp| wp == kpkg) {
+                    frame_imports
+                        .imported_classes
+                        .entry(kname.clone())
+                        .or_insert_with(|| kpkg.clone());
+                }
+            }
             compile_avm2_scoped_unit(
                 &mut pool,
                 &mut state,
@@ -178,8 +384,10 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
                 &[],
                 &stmts,
                 &empty_outer,
-                1,
+                method_scope_depth,
                 false,
+                &frame_imports,
+                None,
                 |_, _| Ok(()),
             )
             .map_err(|err| {
@@ -191,7 +399,7 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
             })?;
 
             trait_methods.push((fn_mn, m_idx));
-            frame_bindings.push((*frame_idx, fn_mn));
+            frame_bindings.push((frame_idx, fn_mn));
         }
 
         for (m_name, m_params, m_stmts) in &cls.extra_methods {
@@ -207,8 +415,10 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
                 m_params,
                 m_stmts,
                 &empty_outer,
-                1,
+                method_scope_depth,
                 true,
+                &class_imports,
+                None,
                 |_, _| Ok(()),
             )
             .map_err(|err| {
@@ -226,6 +436,11 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
         let iinit_method = state.alloc_method(ctor_param_indices);
         let effective_ctor_stmts = build_effective_ctor_stmts(cls);
         let has_explicit_super = cls.has_explicit_super;
+        let post_super = has_explicit_super.then(|| Avm2PostSuperInit {
+            frame_bindings: frame_bindings.clone(),
+            add_frame_script_mn,
+            field_stmts: build_instance_field_assigns(cls),
+        });
         compile_avm2_scoped_unit(
             &mut pool,
             &mut state,
@@ -233,30 +448,32 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
             &cls.ctor_params,
             &effective_ctor_stmts,
             &empty_outer,
-            1,
+            method_scope_depth,
             cls.has_explicit_ctor,
+            &class_imports,
+            post_super,
             |p, iinit_code| {
                 if !has_explicit_super {
                     iinit_code.u8(0xD0); // getlocal_0
                     iinit_code.u8(0x49); // constructsuper
                     iinit_code.u32_v(0);
-                }
-                if !frame_bindings.is_empty() {
-                    iinit_code.u8(0x5D); // findpropstrict
-                    iinit_code.u32_v(add_frame_script_mn);
-                    for (frame_idx, fn_mn) in &frame_bindings {
-                        emit_avm2_int(
-                            p,
-                            iinit_code,
-                            i32::try_from(*frame_idx)
-                                .expect("SWF preflight bounds AVM2 frame indexes"),
-                        );
-                        iinit_code.u8(0x60); // getlex
-                        iinit_code.u32_v(*fn_mn);
+                    if !frame_bindings.is_empty() {
+                        iinit_code.u8(0x5D); // findpropstrict
+                        iinit_code.u32_v(add_frame_script_mn);
+                        for (frame_idx, fn_mn) in &frame_bindings {
+                            emit_avm2_int(
+                                p,
+                                iinit_code,
+                                i32::try_from(*frame_idx)
+                                    .expect("SWF preflight bounds AVM2 frame indexes"),
+                            );
+                            iinit_code.u8(0x60); // getlex
+                            iinit_code.u32_v(*fn_mn);
+                        }
+                        iinit_code.u8(0x4F); // callpropvoid
+                        iinit_code.u32_v(add_frame_script_mn);
+                        iinit_code.u32_v((frame_bindings.len() * 2) as u32);
                     }
-                    iinit_code.u8(0x4F); // callpropvoid
-                    iinit_code.u32_v(add_frame_script_mn);
-                    iinit_code.u32_v((frame_bindings.len() * 2) as u32);
                 }
                 Ok(())
             },
@@ -271,6 +488,7 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
         compiled_classes.push(CompiledClass {
             class_mn,
             super_mn,
+            ancestor_mns,
             cinit_method,
             iinit_method,
             instance_slots,
@@ -285,21 +503,27 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
     let mut sinit_code = SwfBitWriter::new();
     sinit_code.u8(0xD0); // getlocal_0
     sinit_code.u8(0x30); // pushscope
+    let mut max_chain_len = 0u32;
     for (c_idx, cls) in compiled_classes.iter().enumerate() {
+        max_chain_len = max_chain_len.max(cls.ancestor_mns.len() as u32);
         sinit_code.u8(0x65); // getscopeobject 0
         sinit_code.u8(0x00);
         sinit_code.u8(0x60); // getlex Object
         sinit_code.u32_v(object_mn);
         sinit_code.u8(0x30); // pushscope
+        for &anc_mn in &cls.ancestor_mns {
+            sinit_code.u8(0x60); // getlex Ancestor
+            sinit_code.u32_v(anc_mn);
+            sinit_code.u8(0x30); // pushscope
+        }
+        let base_mn = cls.ancestor_mns.last().copied().unwrap_or(object_mn);
         sinit_code.u8(0x60); // getlex super
-        sinit_code.u32_v(cls.super_mn);
-        sinit_code.u8(0x30); // pushscope
-        sinit_code.u8(0x60); // getlex super
-        sinit_code.u32_v(cls.super_mn);
+        sinit_code.u32_v(base_mn);
         sinit_code.u8(0x58); // newclass
         sinit_code.u32_v(c_idx as u32);
-        sinit_code.u8(0x1D); // popscope
-        sinit_code.u8(0x1D); // popscope
+        for _ in 0..(1 + cls.ancestor_mns.len()) {
+            sinit_code.u8(0x1D); // popscope
+        }
         sinit_code.u8(0x68); // initproperty
         sinit_code.u32_v(cls.class_mn);
     }
@@ -309,7 +533,7 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
         max_stack: 4,
         local_count: 1,
         init_scope_depth: 1,
-        max_scope_depth: 4,
+        max_scope_depth: 3 + max_chain_len,
         code: sinit_code.buf,
         exceptions: Vec::new(),
         activation_traits: Vec::new(),

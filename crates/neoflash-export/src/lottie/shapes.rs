@@ -732,6 +732,41 @@ impl<'a> LottieBuilder<'a> {
             format.bold,
             format.italic,
         );
+        for (_, sample_el) in samples {
+            if let Some(tf_state) = neoflash_core::TextFieldState::from_kind(&sample_el.kind) {
+                let total_units = tf_state.text.encode_utf16().count() as u32;
+                let runs = tf_state.materialized_runs(total_units);
+                let mut cursor_u16 = 0u32;
+                let mut run_idx = 0usize;
+                let mut run_texts: Vec<(neoflash_core::TextFormat, String)> = Vec::new();
+                for ch in tf_state.text.chars() {
+                    while run_idx + 1 < runs.len() && cursor_u16 >= runs[run_idx].end {
+                        run_idx += 1;
+                    }
+                    let rf = runs
+                        .get(run_idx)
+                        .filter(|r| r.start <= cursor_u16 && cursor_u16 < r.end)
+                        .map_or(&tf_state.format, |r| &r.format);
+                    if let Some((last_fmt, last_str)) = run_texts.last_mut()
+                        && last_fmt.font == rf.font
+                        && last_fmt.bold == rf.bold
+                        && last_fmt.italic == rf.italic
+                        && (last_fmt.size - rf.size).abs() <= 1e-6
+                    {
+                        last_str.push(ch);
+                    } else {
+                        run_texts.push((rf.clone(), ch.to_string()));
+                    }
+                    cursor_u16 = cursor_u16.saturating_add(ch.len_utf16() as u32);
+                }
+                for (rf, sub_text) in run_texts {
+                    self.register_font(&rf.font, rf.bold, rf.italic);
+                    self.record_glyph_chars_for_text(
+                        &sub_text, &rf.font, rf.size, rf.bold, rf.italic,
+                    );
+                }
+            }
+        }
         let ks = self.build_animated_ks(
             timeline,
             layer,

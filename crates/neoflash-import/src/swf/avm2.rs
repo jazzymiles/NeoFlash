@@ -220,6 +220,9 @@ pub(crate) struct AbcMethodBody {
     #[allow(dead_code)]
     pub(crate) max_stack: usize,
     pub(crate) local_count: usize,
+    pub(crate) init_scope_depth: usize,
+    #[allow(dead_code)]
+    pub(crate) max_scope_depth: usize,
     pub(crate) code: Vec<u8>,
     pub(crate) exceptions: Vec<AbcException>,
     pub(crate) traits: Vec<AbcTrait>,
@@ -271,17 +274,48 @@ impl AbcFile {
             }
             Some(AbcMultiname::RTQName { name }) => (String::new(), self.string(*name).to_owned()),
             Some(AbcMultiname::Multiname { name, ns_set }) => {
+                let sname = self.string(*name).to_owned();
                 let mut pkg = String::new();
                 if let Some(set) = self.ns_sets.get(*ns_set) {
+                    let mut matched_defined = None;
                     for &ns_idx in set {
                         let ns = self.namespace(ns_idx);
-                        if ns.kind == NsKind::Package && !ns.name.is_empty() {
-                            pkg.clone_from(&ns.name);
-                            break;
+                        if matches!(ns.kind, NsKind::Package | NsKind::PackageInternal) {
+                            let exists = self.instances.iter().any(|inst| {
+                                if let Some(AbcMultiname::QName {
+                                    ns: ins,
+                                    name: iname,
+                                }) = self.multinames.get(inst.name)
+                                {
+                                    self.string(*iname) == sname
+                                        && self.namespace(*ins).name == ns.name
+                                } else {
+                                    false
+                                }
+                            });
+                            if exists {
+                                matched_defined = Some(ns.name.clone());
+                                break;
+                            }
+                        }
+                    }
+                    if let Some(found) = matched_defined {
+                        pkg = found;
+                    } else {
+                        let non_empty: Vec<&str> = set
+                            .iter()
+                            .filter_map(|&ns_idx| {
+                                let ns = self.namespace(ns_idx);
+                                (ns.kind == NsKind::Package && !ns.name.is_empty())
+                                    .then_some(ns.name.as_str())
+                            })
+                            .collect();
+                        if non_empty.len() == 1 {
+                            pkg.push_str(non_empty[0]);
                         }
                     }
                 }
-                (pkg, self.string(*name).to_owned())
+                (pkg, sname)
             }
             Some(AbcMultiname::TypeName { base, params }) => {
                 let (bpkg, bname) = self.split_qname(*base);
@@ -546,8 +580,8 @@ pub(crate) fn parse_abc_file(bytes: &[u8]) -> Option<AbcFile> {
         let method = r.u30()?;
         let max_stack = r.u30()?;
         let local_count = r.u30()?;
-        let _init_scope = r.u30()?;
-        let _max_scope = r.u30()?;
+        let init_scope_depth = r.u30()?;
+        let max_scope_depth = r.u30()?;
         let code_len = r.u30()?;
         let code = r.take(code_len)?.to_vec();
         let exc_count = r.u30()?;
@@ -567,6 +601,8 @@ pub(crate) fn parse_abc_file(bytes: &[u8]) -> Option<AbcFile> {
             AbcMethodBody {
                 max_stack,
                 local_count,
+                init_scope_depth,
+                max_scope_depth,
                 code,
                 exceptions,
                 traits,
@@ -1292,6 +1328,7 @@ struct BodyContext<'a> {
     local_names: HashMap<usize, String>,
     declared_locals: BTreeSet<usize>,
     param_count: usize,
+    init_scope_depth: usize,
     activation_slots: HashMap<usize, String>,
     outer_scope_slots: Vec<HashMap<usize, String>>,
     imports: &'a mut BTreeSet<String>,
@@ -1425,6 +1462,7 @@ fn decompile_method_body_with_outer_slots(
         local_names,
         declared_locals: BTreeSet::new(),
         param_count,
+        init_scope_depth: body.init_scope_depth,
         activation_slots,
         outer_scope_slots: outer_scope_slots.to_vec(),
         imports,
@@ -1484,82 +1522,40 @@ fn decompile_abc_range(
     while pc < end {
         let insn = &insns[pc];
 
-        // Check if an exception `try` block starts right at `insn.offset` (only at outer level or non-nested boundary).
+        // Check if an exception `try` block starts right at `insn.offset` (grouping chained catches + finally).
         if depth < 8
-            && let Some(exc) = exceptions.iter().find(|e| e.from == insn.offset)
-            && let Some(try_end_idx) = find_abc_insn(insns, pc + 1, end, exc.to as isize)
-            && let Some(catch_start_idx) =
-                find_abc_insn(insns, try_end_idx, end, exc.target as isize)
-            && try_end_idx > pc
+            && exceptions.iter().any(|e| e.from == insn.offset)
+            && let Some(next_pc) = try_decompile_abc_try_block(
+                insns,
+                pc,
+                end,
+                exceptions,
+                ctx,
+                scope_stack,
+                &mut lines,
+                depth,
+            )
         {
-            // Determine catch end: if `try_end_idx - 1` is a forward `jump` past the catch block, use its target!
-            let catch_end_idx = if try_end_idx > pc
-                && insns[try_end_idx - 1].op == 0x10
-                && insns[try_end_idx - 1].iarg > 0
-                && let Some(after_catch) = find_abc_insn(
-                    insns,
-                    catch_start_idx + 1,
-                    end,
-                    insns[try_end_idx - 1].next_offset as isize
-                        + insns[try_end_idx - 1].iarg as isize,
-                ) {
-                after_catch
-            } else {
-                end
-            };
-            if catch_end_idx > catch_start_idx {
-                let try_inner_end = if insns[try_end_idx - 1].op == 0x10 {
-                    try_end_idx - 1
-                } else {
-                    try_end_idx
-                };
-                let mut t_stack = Vec::new();
-                let mut t_scope = scope_stack.clone();
-                let t_lines = decompile_abc_range(
-                    insns,
-                    pc,
-                    try_inner_end,
-                    &[],
-                    ctx,
-                    &mut t_stack,
-                    &mut t_scope,
-                    depth + 1,
-                );
-                let err_var = if exc.var_name != 0 {
-                    let (_, vn) = ctx.abc.split_qname(exc.var_name);
-                    if vn.is_empty() || vn == "*" {
-                        "err".to_owned()
-                    } else {
-                        vn
-                    }
-                } else {
-                    "err".to_owned()
-                };
-                let err_ty = ctx.abc.short_type_name(exc.exc_type, ctx.imports);
-                let mut c_stack = vec![AbcVal::expr(err_var.clone())];
-                let mut c_scope = scope_stack.clone();
-                let c_lines = decompile_abc_range(
-                    insns,
-                    catch_start_idx,
-                    catch_end_idx,
-                    &[],
-                    ctx,
-                    &mut c_stack,
-                    &mut c_scope,
-                    depth + 1,
-                );
-                lines.push("try {".into());
-                for tl in t_lines {
-                    lines.push(format!("    {tl}"));
-                }
-                lines.push(format!("}} catch ({err_var}:{err_ty}) {{"));
-                for cl in c_lines {
-                    lines.push(format!("    {cl}"));
-                }
-                lines.push("}".into());
-                pc = catch_end_idx;
-                continue;
-            }
+            pc = next_pc;
+            continue;
+        }
+
+        // Reconstruct `for (var k in obj)` / `for each (var v in obj)` from `hasnext2` (`0x32`) + `nextname`/`nextvalue`!
+        if insn.op == 0x10
+            && insn.iarg > 0
+            && let Some(next_pc) = try_decompile_hasnext2_loop(
+                insns,
+                pc,
+                end,
+                exceptions,
+                ctx,
+                scope_stack,
+                &mut lines,
+                depth,
+            )
+        {
+            pc = next_pc;
+            continue;
         }
 
         // Standard ASC `while (cond) { body }`: `jump +cond_off`, `L_body: ...`, `L_cond: ... if_op L_body`
@@ -1948,10 +1944,9 @@ fn step_abc_insn(
             stack.push(AbcVal::expr(format_number(v)));
         }
         0x32 => {
-            // hasnext2(obj_reg, idx_reg)
+            // hasnext2(obj_reg, idx_reg) fallback when outside canonical jump-to-cond loop
             let obj_r = ctx.local_name(insn.arg1);
-            let idx_r = ctx.local_name(insn.arg2);
-            stack.push(AbcVal::expr(format!("({idx_r} < {obj_r}.length)")));
+            stack.push(AbcVal::expr(format!("({obj_r} != null)")));
         }
         0x40 => {
             // newfunction(method_idx): inline anonymous closure expression!
@@ -1962,7 +1957,7 @@ fn step_abc_insn(
             let closure_lines = if let Some(cbody) = ctx.abc.bodies_by_method.get(&midx) {
                 ctx.visited_methods.insert(midx);
                 let mut child_outer = if ctx.outer_scope_slots.is_empty() {
-                    vec![HashMap::new()]
+                    vec![HashMap::new(); ctx.init_scope_depth.max(1)]
                 } else {
                     ctx.outer_scope_slots.clone()
                 };
@@ -2466,5 +2461,647 @@ fn record_add_frame_script_args(args: &[AbcVal], out: &mut Vec<(u32, String)>) {
     }
     for (f, name) in pairs {
         out.push((f, name));
+    }
+}
+
+fn local_reg_of_getlocal(insn: &AbcInsn) -> Option<usize> {
+    match insn.op {
+        0x62 => Some(insn.arg1),
+        0xD0..=0xD3 => Some(usize::from(insn.op - 0xD0)),
+        _ => None,
+    }
+}
+
+fn local_reg_of_setlocal(insn: &AbcInsn) -> Option<usize> {
+    match insn.op {
+        0x63 => Some(insn.arg1),
+        0xD4..=0xD7 => Some(usize::from(insn.op - 0xD4)),
+        _ => None,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn try_decompile_abc_try_block(
+    insns: &[AbcInsn],
+    pc: usize,
+    end: usize,
+    exceptions: &[AbcException],
+    ctx: &mut BodyContext<'_>,
+    scope_stack: &[String],
+    lines: &mut Vec<String>,
+    depth: usize,
+) -> Option<usize> {
+    let start_off = insns[pc].offset;
+    let matching: Vec<&AbcException> = exceptions.iter().filter(|e| e.from == start_off).collect();
+    if matching.is_empty() {
+        return None;
+    }
+    let min_to = matching.iter().map(|e| e.to).min()?;
+    let try_end_idx = find_abc_insn(insns, pc + 1, end, min_to as isize)?;
+    if try_end_idx <= pc {
+        return None;
+    }
+    let try_jump_target_idx =
+        if insns[try_end_idx - 1].op == 0x10 && insns[try_end_idx - 1].iarg > 0 {
+            find_abc_insn(
+                insns,
+                try_end_idx,
+                end,
+                insns[try_end_idx - 1].next_offset as isize + insns[try_end_idx - 1].iarg as isize,
+            )
+        } else {
+            None
+        };
+
+    // Detect optional `finally` unwind exception handler (`exc_type == 0 && var_name == 0` ending in `throw`).
+    let mut fin_exc_opt: Option<&AbcException> = None;
+    for &cand in matching.iter().rev() {
+        if cand.exc_type == 0
+            && cand.var_name == 0
+            && (cand.to > min_to || matching.len() == 1)
+            && let Some(fin_unw_idx) = find_abc_insn(insns, try_end_idx, end, cand.target as isize)
+            && let Some(norm_fin_idx) = try_jump_target_idx
+            && norm_fin_idx >= fin_unw_idx + 2
+            && insns[norm_fin_idx - 1].op == 0x03
+        {
+            fin_exc_opt = Some(cand);
+            break;
+        }
+    }
+
+    let catch_excs: Vec<&AbcException> = matching
+        .iter()
+        .copied()
+        .filter(|e| e.to == min_to && !fin_exc_opt.is_some_and(|f| std::ptr::eq(*e, f)))
+        .collect();
+    if catch_excs.is_empty() && fin_exc_opt.is_none() {
+        return None;
+    }
+
+    let try_inner_end = if insns[try_end_idx - 1].op == 0x10 {
+        try_end_idx - 1
+    } else {
+        try_end_idx
+    };
+    let try_sub_excs: Vec<AbcException> = exceptions
+        .iter()
+        .filter(|e| {
+            e.from >= start_off && e.to <= min_to && !(e.from == start_off && e.to >= min_to)
+        })
+        .cloned()
+        .collect();
+    let mut t_stack = Vec::new();
+    let mut t_scope = scope_stack.to_vec();
+    let t_lines = decompile_abc_range(
+        insns,
+        pc,
+        try_inner_end,
+        &try_sub_excs,
+        ctx,
+        &mut t_stack,
+        &mut t_scope,
+        depth + 1,
+    );
+
+    let mut compiled_catches: Vec<(String, String, Vec<String>)> =
+        Vec::with_capacity(catch_excs.len());
+    let mut after_catches_idx = try_end_idx;
+    for (i, exc) in catch_excs.iter().enumerate() {
+        let c_start_idx = find_abc_insn(insns, try_end_idx, end, exc.target as isize)?;
+        let c_raw_end_idx = if i + 1 < catch_excs.len() {
+            find_abc_insn(
+                insns,
+                c_start_idx + 1,
+                end,
+                catch_excs[i + 1].target as isize,
+            )?
+        } else if let Some(fin) = fin_exc_opt {
+            find_abc_insn(insns, c_start_idx + 1, end, fin.target as isize)?
+        } else {
+            try_jump_target_idx.unwrap_or(end)
+        };
+        if c_raw_end_idx <= c_start_idx {
+            return None;
+        }
+        after_catches_idx = c_raw_end_idx;
+        let c_inner_end = if c_raw_end_idx > c_start_idx
+            && insns[c_raw_end_idx - 1].op == 0x10
+            && insns[c_raw_end_idx - 1].iarg > 0
+        {
+            if fin_exc_opt.is_none()
+                && i + 1 == catch_excs.len()
+                && let Some(jmp_after) = find_abc_insn(
+                    insns,
+                    c_raw_end_idx,
+                    end,
+                    insns[c_raw_end_idx - 1].next_offset as isize
+                        + insns[c_raw_end_idx - 1].iarg as isize,
+                )
+            {
+                after_catches_idx = jmp_after;
+            }
+            c_raw_end_idx - 1
+        } else {
+            c_raw_end_idx
+        };
+
+        let err_var = if exc.var_name != 0 {
+            let (_, vn) = ctx.abc.split_qname(exc.var_name);
+            if vn.is_empty() || vn == "*" {
+                format!("err{}", if i == 0 { String::new() } else { i.to_string() })
+            } else {
+                vn
+            }
+        } else {
+            format!("err{}", if i == 0 { String::new() } else { i.to_string() })
+        };
+        let err_ty = ctx.abc.short_type_name(exc.exc_type, ctx.imports);
+
+        // Bind catch register name if the catch prologue stores the caught value into a local register.
+        for scan_insn in &insns[c_start_idx..(c_start_idx + 7).min(c_inner_end)] {
+            if let Some(reg) = local_reg_of_setlocal(scan_insn)
+                && reg > ctx.param_count
+            {
+                ctx.local_names
+                    .entry(reg)
+                    .or_insert_with(|| err_var.clone());
+                ctx.declared_locals.insert(reg);
+                break;
+            }
+            if matches!(scan_insn.op, 0x6D | 0x61 | 0x68 | 0x29) {
+                break;
+            }
+        }
+
+        let c_start_off = insns[c_start_idx].offset;
+        let c_end_off = insns[c_inner_end.saturating_sub(1)].next_offset;
+        let c_sub_excs: Vec<AbcException> = exceptions
+            .iter()
+            .filter(|e| e.from >= c_start_off && e.to <= c_end_off)
+            .cloned()
+            .collect();
+        let mut c_stack = vec![AbcVal::expr(err_var.clone())];
+        let mut c_scope = scope_stack.to_vec();
+        let c_lines = decompile_abc_range(
+            insns,
+            c_start_idx,
+            c_inner_end,
+            &c_sub_excs,
+            ctx,
+            &mut c_stack,
+            &mut c_scope,
+            depth + 1,
+        );
+        compiled_catches.push((err_var, err_ty, c_lines));
+    }
+
+    let mut finally_lines_opt: Option<Vec<String>> = None;
+    let mut final_next_pc = after_catches_idx;
+    if let Some(fin) = fin_exc_opt {
+        let fin_unw_idx = find_abc_insn(insns, try_end_idx, end, fin.target as isize)?;
+        let norm_fin_idx = try_jump_target_idx?;
+        let unw_reg_opt = local_reg_of_getlocal(&insns[norm_fin_idx - 2]);
+        let mut unw_body_start = fin_unw_idx;
+        if let Some(unw_reg) = unw_reg_opt {
+            for (scan_idx, scan_insn) in insns
+                .iter()
+                .enumerate()
+                .take((fin_unw_idx + 8).min(norm_fin_idx - 2))
+                .skip(fin_unw_idx)
+            {
+                if local_reg_of_setlocal(scan_insn) == Some(unw_reg) {
+                    unw_body_start = scan_idx + 1;
+                    break;
+                }
+            }
+        }
+        let fbody_insn_count = (norm_fin_idx - 2).saturating_sub(unw_body_start);
+        let norm_fin_end_idx = (norm_fin_idx + fbody_insn_count).min(end);
+        let f_sub_excs: Vec<AbcException> = if norm_fin_end_idx > norm_fin_idx {
+            let f_start_off = insns[norm_fin_idx].offset;
+            let f_end_off = insns[norm_fin_end_idx - 1].next_offset;
+            exceptions
+                .iter()
+                .filter(|e| e.from >= f_start_off && e.to <= f_end_off)
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let mut f_stack = Vec::new();
+        let mut f_scope = scope_stack.to_vec();
+        let f_lines = decompile_abc_range(
+            insns,
+            norm_fin_idx,
+            norm_fin_end_idx,
+            &f_sub_excs,
+            ctx,
+            &mut f_stack,
+            &mut f_scope,
+            depth + 1,
+        );
+        finally_lines_opt = Some(f_lines);
+        final_next_pc = norm_fin_end_idx;
+        if let Some(post_jmp) = insns.get(norm_fin_end_idx)
+            && post_jmp.op == 0x10
+            && post_jmp.iarg > 0
+            && let Some(after_tramp) = find_abc_insn(
+                insns,
+                norm_fin_end_idx + 1,
+                end,
+                post_jmp.next_offset as isize + post_jmp.iarg as isize,
+            )
+        {
+            final_next_pc = after_tramp;
+        }
+    }
+
+    lines.push("try {".into());
+    for tl in t_lines {
+        lines.push(format!("    {tl}"));
+    }
+    for (err_var, err_ty, c_lines) in compiled_catches {
+        lines.push(format!("}} catch ({err_var}:{err_ty}) {{"));
+        for cl in c_lines {
+            lines.push(format!("    {cl}"));
+        }
+    }
+    if let Some(f_lines) = finally_lines_opt {
+        lines.push("} finally {".into());
+        for fl in f_lines {
+            lines.push(format!("    {fl}"));
+        }
+    }
+    lines.push("}".into());
+    Some(final_next_pc)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn try_decompile_hasnext2_loop(
+    insns: &[AbcInsn],
+    pc: usize,
+    end: usize,
+    exceptions: &[AbcException],
+    ctx: &mut BodyContext<'_>,
+    scope_stack: &[String],
+    lines: &mut Vec<String>,
+    depth: usize,
+) -> Option<usize> {
+    let cond_byte = insns[pc].next_offset as isize + insns[pc].iarg as isize;
+    let cond_idx = find_abc_insn(insns, pc + 1, end, cond_byte)?;
+    let hn_insn = insns.get(cond_idx)?;
+    if hn_insn.op != 0x32 {
+        return None;
+    }
+    let obj_reg = hn_insn.arg1;
+    let idx_reg = hn_insn.arg2;
+    let back_br = insns.get(cond_idx + 1)?;
+    let body_start_idx = pc + 1;
+    if back_br.op != 0x11
+        || back_br.iarg >= 0
+        || back_br.next_offset as isize + back_br.iarg as isize
+            != insns.get(body_start_idx)?.offset as isize
+    {
+        return None;
+    }
+
+    // Locate `nextname` (`0x1E`) or `nextvalue` (`0x23`) near the start of `L_body`
+    let scan_end = (body_start_idx + 10).min(cond_idx);
+    let next_idx = (body_start_idx..scan_end).find(|&i| matches!(insns[i].op, 0x1E | 0x23))?;
+    let is_each = insns[next_idx].op == 0x23;
+
+    let mut store_idx = next_idx + 1;
+    while store_idx < cond_idx && matches!(insns[store_idx].op, 0x70..=0x89) {
+        store_idx += 1;
+    }
+    if store_idx >= cond_idx {
+        return None;
+    }
+    let store_insn = &insns[store_idx];
+    let (use_var_decl, var_name) = if let Some(vreg) = local_reg_of_setlocal(store_insn) {
+        let is_new = vreg > ctx.param_count && ctx.declared_locals.insert(vreg);
+        (is_new, ctx.local_name(vreg))
+    } else if store_insn.op == 0x6D {
+        let sname = ctx
+            .activation_slots
+            .get(&store_insn.arg1)
+            .cloned()
+            .or_else(|| {
+                ctx.outer_scope_slots
+                    .iter()
+                    .rev()
+                    .find_map(|m| m.get(&store_insn.arg1).cloned())
+            })
+            .unwrap_or_else(|| format!("_slot{}", store_insn.arg1));
+        let is_new = ctx.declared_locals.insert(10_000 + store_insn.arg1);
+        (is_new, sname)
+    } else if matches!(store_insn.op, 0x61 | 0x68) {
+        let (_, pname) = ctx.abc.split_qname(store_insn.arg1);
+        if pname.is_empty() {
+            return None;
+        }
+        (false, pname)
+    } else {
+        return None;
+    };
+
+    // Fold synthetic `idx_r = 0;` and `obj_r = <expr>;` lines emitted right before `jump L_cond`
+    let idx_r = ctx.local_name(idx_reg);
+    let obj_r = ctx.local_name(obj_reg);
+    let idx_decl = format!("var {idx_r}:* = 0;");
+    let idx_assign = format!("{idx_r} = 0;");
+    if lines
+        .last()
+        .is_some_and(|l| l == &idx_decl || l == &idx_assign)
+    {
+        lines.pop();
+    }
+
+    let body_uses_obj_reg = ((store_idx + 1)..cond_idx).any(|i| {
+        local_reg_of_getlocal(&insns[i]) == Some(obj_reg)
+            || local_reg_of_setlocal(&insns[i]) == Some(obj_reg)
+    });
+    let mut iter_expr = obj_r.clone();
+    if !body_uses_obj_reg && obj_reg > ctx.param_count {
+        let obj_decl_prefix = format!("var {obj_r}:* = ");
+        let obj_assign_prefix = format!("{obj_r} = ");
+        if let Some(last_line) = lines.last() {
+            let rhs_opt = last_line
+                .strip_prefix(&obj_decl_prefix)
+                .or_else(|| last_line.strip_prefix(&obj_assign_prefix))
+                .and_then(|s| s.strip_suffix(';'))
+                .map(str::to_owned);
+            if let Some(rhs) = rhs_opt {
+                iter_expr = rhs;
+                lines.pop();
+            }
+        }
+    }
+
+    let mut body_stack = Vec::new();
+    let mut body_scope = scope_stack.to_vec();
+    let body_lines = decompile_abc_range(
+        insns,
+        store_idx + 1,
+        cond_idx,
+        exceptions,
+        ctx,
+        &mut body_stack,
+        &mut body_scope,
+        depth + 1,
+    );
+
+    let each_kw = if is_each { " each" } else { "" };
+    let lhs_decl = if use_var_decl {
+        format!("var {var_name}:*")
+    } else {
+        var_name
+    };
+    lines.push(format!("for{each_kw} ({lhs_decl} in {iter_expr}) {{"));
+    for bl in body_lines {
+        lines.push(format!("    {bl}"));
+    }
+    lines.push("}".into());
+
+    let mut next_pc = cond_idx + 2;
+    while next_pc < end
+        && insns[next_pc].op == 0x08
+        && (insns[next_pc].arg1 == obj_reg || insns[next_pc].arg1 == idx_reg)
+    {
+        next_pc += 1;
+    }
+    Some(next_pc)
+}
+
+#[cfg(test)]
+mod t414_decompiler_tests {
+    use super::*;
+
+    fn push_u30(out: &mut Vec<u8>, mut val: u32) {
+        loop {
+            let mut b = (val & 0x7f) as u8;
+            val >>= 7;
+            if val != 0 {
+                b |= 0x80;
+            }
+            out.push(b);
+            if val == 0 {
+                break;
+            }
+        }
+    }
+
+    fn push_s24(out: &mut Vec<u8>, val: i32) {
+        out.push((val & 0xff) as u8);
+        out.push(((val >> 8) & 0xff) as u8);
+        out.push(((val >> 16) & 0xff) as u8);
+    }
+
+    #[test]
+    fn t414_decompiler_preserves_chained_catches_finally_and_hasnext2_loops() {
+        // Build minimal ABC file with:
+        // strings: [1]="", [2]="trace", [3]="ArgumentError", [4]="TypeError", [5]="a", [6]="b",
+        //          [7]="TRY", [8]="C1", [9]="C2", [10]="FIN", [11]="items"
+        let strs = [
+            "",
+            "trace",
+            "ArgumentError",
+            "TypeError",
+            "a",
+            "b",
+            "TRY",
+            "C1",
+            "C2",
+            "FIN",
+            "items",
+        ];
+        let mut abc_buf = Vec::new();
+        abc_buf.extend_from_slice(&16u16.to_le_bytes());
+        abc_buf.extend_from_slice(&46u16.to_le_bytes());
+        push_u30(&mut abc_buf, 0); // int
+        push_u30(&mut abc_buf, 0); // uint
+        push_u30(&mut abc_buf, 0); // double
+        push_u30(&mut abc_buf, (strs.len() + 1) as u32);
+        for s in strs {
+            push_u30(&mut abc_buf, s.len() as u32);
+            abc_buf.extend_from_slice(s.as_bytes());
+        }
+        // 1 namespace: [1] PackageNamespace("") -> string 1
+        push_u30(&mut abc_buf, 2);
+        abc_buf.push(0x16);
+        push_u30(&mut abc_buf, 1);
+        push_u30(&mut abc_buf, 0); // ns_sets
+        // multinames:
+        // [1] QName(1, "trace"=2)
+        // [2] QName(1, "ArgumentError"=3)
+        // [3] QName(1, "TypeError"=4)
+        // [4] QName(1, "a"=5)
+        // [5] QName(1, "b"=6)
+        // [6] QName(1, "items"=11)
+        let qnames = [(1u32, 2u32), (1, 3), (1, 4), (1, 5), (1, 6), (1, 11)];
+        push_u30(&mut abc_buf, (qnames.len() + 1) as u32);
+        for (ns, name) in qnames {
+            abc_buf.push(0x07);
+            push_u30(&mut abc_buf, ns);
+            push_u30(&mut abc_buf, name);
+        }
+        // 1 method: script init (0 params, return 0)
+        push_u30(&mut abc_buf, 1);
+        push_u30(&mut abc_buf, 0);
+        push_u30(&mut abc_buf, 0);
+        push_u30(&mut abc_buf, 0);
+        abc_buf.push(0);
+        // metadata = 0, classes = 0, scripts = 1
+        push_u30(&mut abc_buf, 0);
+        push_u30(&mut abc_buf, 0);
+        push_u30(&mut abc_buf, 1);
+        push_u30(&mut abc_buf, 0); // init = method 0
+        push_u30(&mut abc_buf, 0); // 0 script traits
+
+        // Build method 0 body:
+        // Part 1: try { trace("TRY"); } catch (a:ArgumentError) { trace("C1"); } catch (b:TypeError) { trace("C2"); } finally { trace("FIN"); }
+        // Part 2: for (var k in items) { trace(k); } and for each (var v in items) { trace(v); }
+        let mut code = Vec::new();
+        code.extend_from_slice(&[0xD0, 0x30]); // getlocal_0, pushscope
+        let inner_from = code.len();
+        code.extend_from_slice(&[0x5D, 1, 0x2C, 7, 0x4F, 1, 1]); // findpropstrict trace, pushstring "TRY", callpropvoid trace(1)
+        let try_jmp_pos = code.len();
+        code.push(0x10);
+        push_s24(&mut code, 0); // jump -> norm_fin
+        let inner_to = code.len();
+
+        let catch1_target = code.len();
+        code.extend_from_slice(&[0xD0, 0x30, 0x82, 0xD5]); // getlocal_0, pushscope, coerce_a, setlocal_1
+        code.extend_from_slice(&[0x5D, 1, 0x2C, 8, 0x4F, 1, 1]); // trace("C1")
+        let c1_jmp_pos = code.len();
+        code.push(0x10);
+        push_s24(&mut code, 0); // jump -> norm_fin
+
+        let catch2_target = code.len();
+        code.extend_from_slice(&[0xD0, 0x30, 0x82, 0xD6]); // getlocal_0, pushscope, coerce_a, setlocal_2
+        code.extend_from_slice(&[0x5D, 1, 0x2C, 9, 0x4F, 1, 1]); // trace("C2")
+        let c2_jmp_pos = code.len();
+        code.push(0x10);
+        push_s24(&mut code, 0); // jump -> norm_fin
+        let outer_to = code.len();
+
+        let fin_unw_target = code.len();
+        code.extend_from_slice(&[0xD0, 0x30, 0x82, 0xD7]); // setlocal_3 (unw_reg = 3)
+        code.extend_from_slice(&[0x5D, 1, 0x2C, 10, 0x4F, 1, 1]); // trace("FIN")
+        code.extend_from_slice(&[0xD3, 0x03]); // getlocal_3, throw
+
+        let norm_fin = code.len();
+        code.extend_from_slice(&[0x5D, 1, 0x2C, 10, 0x4F, 1, 1]); // trace("FIN")
+
+        for pos in [try_jmp_pos, c1_jmp_pos, c2_jmp_pos] {
+            let rel = (norm_fin as i32) - ((pos + 4) as i32);
+            code[pos + 1..pos + 4].copy_from_slice(&rel.to_le_bytes()[..3]);
+        }
+
+        // Part 2a: `for (var k in items)` using obj_reg=4, idx_reg=5, val_reg=6
+        code.extend_from_slice(&[0x60, 6, 0x82, 0x63, 4]); // getlex items, coerce_a, setlocal 4
+        code.extend_from_slice(&[0x24, 0, 0x63, 5]); // pushbyte 0, setlocal 5
+        let fi_jmp = code.len();
+        code.push(0x10);
+        push_s24(&mut code, 0);
+        let fi_body = code.len();
+        code.extend_from_slice(&[0x62, 4, 0x62, 5, 0x1E, 0x82, 0x63, 6]); // getlocal 4, getlocal 5, nextname, coerce_a, setlocal 6
+        code.extend_from_slice(&[0x5D, 1, 0x62, 6, 0x4F, 1, 1]); // trace(reg6)
+        let fi_cond = code.len();
+        code.extend_from_slice(&[0x32, 4, 5]); // hasnext2 4, 5
+        let fi_back = code.len();
+        code.push(0x11);
+        push_s24(&mut code, (fi_body as i32) - ((fi_back + 4) as i32));
+        let fi_rel = (fi_cond as i32) - ((fi_jmp + 4) as i32);
+        code[fi_jmp + 1..fi_jmp + 4].copy_from_slice(&fi_rel.to_le_bytes()[..3]);
+
+        // Part 2b: `for each (var v in items)` using obj_reg=7, idx_reg=8, val_reg=9
+        code.extend_from_slice(&[0x60, 6, 0x82, 0x63, 7]);
+        code.extend_from_slice(&[0x24, 0, 0x63, 8]);
+        let fe_jmp = code.len();
+        code.push(0x10);
+        push_s24(&mut code, 0);
+        let fe_body = code.len();
+        code.extend_from_slice(&[0x62, 7, 0x62, 8, 0x23, 0x82, 0x63, 9]); // nextvalue (0x23)
+        code.extend_from_slice(&[0x5D, 1, 0x62, 9, 0x4F, 1, 1]);
+        let fe_cond = code.len();
+        code.extend_from_slice(&[0x32, 7, 8]);
+        let fe_back = code.len();
+        code.push(0x11);
+        push_s24(&mut code, (fe_body as i32) - ((fe_back + 4) as i32));
+        let fe_rel = (fe_cond as i32) - ((fe_jmp + 4) as i32);
+        code[fe_jmp + 1..fe_jmp + 4].copy_from_slice(&fe_rel.to_le_bytes()[..3]);
+
+        code.push(0x47); // returnvoid
+
+        push_u30(&mut abc_buf, 1); // 1 method body
+        push_u30(&mut abc_buf, 0); // method 0
+        push_u30(&mut abc_buf, 8); // max_stack
+        push_u30(&mut abc_buf, 10); // local_count
+        push_u30(&mut abc_buf, 1); // init_scope_depth
+        push_u30(&mut abc_buf, 4); // max_scope_depth
+        push_u30(&mut abc_buf, code.len() as u32);
+        abc_buf.extend_from_slice(&code);
+        // 3 exception entries: catch1, catch2, finally
+        push_u30(&mut abc_buf, 3);
+        for (from, to, target, exc_ty, var_nm) in [
+            (inner_from, inner_to, catch1_target, 2u32, 4u32),
+            (inner_from, inner_to, catch2_target, 3u32, 5u32),
+            (inner_from, outer_to, fin_unw_target, 0u32, 0u32),
+        ] {
+            push_u30(&mut abc_buf, from as u32);
+            push_u30(&mut abc_buf, to as u32);
+            push_u30(&mut abc_buf, target as u32);
+            push_u30(&mut abc_buf, exc_ty);
+            push_u30(&mut abc_buf, var_nm);
+        }
+        push_u30(&mut abc_buf, 0); // 0 body traits
+
+        let abc = parse_abc_file(&abc_buf).expect("parse synthetic ABC");
+        let body = abc.bodies_by_method.get(&0).expect("method 0 body");
+        let mut imports = BTreeSet::new();
+        let mut frame_scripts = Vec::new();
+        let mut unrecognized = 0usize;
+        let mut unrecognized_sites = Vec::new();
+        let mut visited_methods = BTreeSet::new();
+        let lines = decompile_method_body_with_outer_slots(
+            &abc,
+            0,
+            body,
+            "Test",
+            false,
+            &[],
+            &mut imports,
+            &mut frame_scripts,
+            &mut unrecognized,
+            &mut unrecognized_sites,
+            &mut visited_methods,
+            0,
+        );
+        let src = lines.join("\n");
+        assert!(
+            src.contains("} catch (a:ArgumentError) {"),
+            "missing 1st catch in:\n{src}"
+        );
+        assert!(
+            src.contains("} catch (b:TypeError) {"),
+            "missing 2nd catch in:\n{src}"
+        );
+        assert!(
+            src.contains("} finally {"),
+            "missing finally block in:\n{src}"
+        );
+        assert!(
+            src.contains("for (var loc6:* in items) {"),
+            "missing for..in reconstruction in:\n{src}"
+        );
+        assert!(
+            src.contains("for each (var loc9:* in items) {"),
+            "missing for each..in reconstruction in:\n{src}"
+        );
+        assert!(
+            !src.contains(".length"),
+            "must not emit broken idx < obj.length loop:\n{src}"
+        );
     }
 }

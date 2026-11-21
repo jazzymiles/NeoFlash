@@ -9,6 +9,7 @@ pub(super) struct Page {
     pub rotation: i64,
     pub shadings: BTreeMap<String, GradientPaint>,
     pub patterns: BTreeMap<String, GradientPaint>,
+    pub warnings: Vec<(String, String)>,
 }
 
 impl Page {
@@ -491,7 +492,10 @@ fn remap_inner_radius_stops(stops: Vec<GradientStop>, inner_ratio: f64) -> Vec<G
     out
 }
 
-pub(super) fn parse_shading(doc: &Document, object: &Object) -> Option<GradientPaint> {
+pub(super) fn parse_shading(
+    doc: &Document,
+    object: &Object,
+) -> Option<(GradientPaint, Option<String>)> {
     let shading = function_dict(doc, object)?;
     let shading_type = shading.get(b"ShadingType").ok()?.as_i64().ok()?;
     if !matches!(shading_type, 2 | 3) {
@@ -506,6 +510,7 @@ pub(super) fn parse_shading(doc: &Document, object: &Object) -> Option<GradientP
         .and_then(|v| <[f64; 2]>::try_from(v).ok())
         .filter(|d| d[0].is_finite() && d[1].is_finite());
     let mut stops = extract_shading_stops(doc, fn_obj, cs, domain_override)?;
+    let mut approx_warning = None;
 
     let paint = match shading_type {
         2 => {
@@ -543,41 +548,79 @@ pub(super) fn parse_shading(doc: &Document, object: &Object) -> Option<GradientP
             if r1 <= 1e-9 {
                 return None;
             }
-            stops = remap_inner_radius_stops(stops, r0 / r1);
             let dx = x0 - x1;
             let dy = y0 - y1;
             let dist = dx.hypot(dy);
-            let s = r1 / 819.2;
-            let (matrix, focal_point_ratio) = if dist > 1e-9 {
-                let cos_t = dx / dist;
-                let sin_t = dy / dist;
-                (
-                    [s * cos_t, s * sin_t, -s * sin_t, s * cos_t, x1, y1],
-                    (dist / r1).clamp(-0.999, 0.999),
-                )
+            let dr = r1 - r0;
+            if dr <= 1e-9 {
+                approx_warning = Some(
+                    "PDF ShadingType 3 equal-radius (r0 == r1) shading cannot be represented as a conical radial focal gradient and was approximated."
+                        .to_owned(),
+                );
+                if dist > 1e-9 {
+                    GradientPaint {
+                        kind: GradientKind::Linear,
+                        matrix: axial_gradient_matrix(x0, y0, x1, y1),
+                        stops,
+                        ..Default::default()
+                    }
+                } else {
+                    let s = r1 / 819.2;
+                    let col = stops.last().map(|st| st.color).unwrap_or([0, 0, 0, 255]);
+                    GradientPaint {
+                        kind: GradientKind::Radial,
+                        matrix: [s, 0.0, 0.0, s, x1, y1],
+                        stops: vec![
+                            GradientStop {
+                                ratio: 0,
+                                color: col,
+                            },
+                            GradientStop {
+                                ratio: 255,
+                                color: col,
+                            },
+                        ],
+                        focal_point_ratio: 0.0,
+                        ..Default::default()
+                    }
+                }
             } else {
-                ([s, 0.0, 0.0, s, x1, y1], 0.0)
-            };
-            GradientPaint {
-                kind: GradientKind::Radial,
-                matrix,
-                stops,
-                focal_point_ratio,
-                ..Default::default()
+                stops = remap_inner_radius_stops(stops, r0 / r1);
+                let s = r1 / 819.2;
+                let (matrix, focal_point_ratio) = if dist > 1e-9 {
+                    let cos_t = dx / dist;
+                    let sin_t = dy / dist;
+                    (
+                        [s * cos_t, s * sin_t, -s * sin_t, s * cos_t, x1, y1],
+                        (dist / dr).clamp(-0.999, 0.999),
+                    )
+                } else {
+                    ([s, 0.0, 0.0, s, x1, y1], 0.0)
+                };
+                GradientPaint {
+                    kind: GradientKind::Radial,
+                    matrix,
+                    stops,
+                    focal_point_ratio,
+                    ..Default::default()
+                }
             }
         }
         _ => return None,
     };
     paint.validate().ok()?;
-    Some(paint)
+    Some((paint, approx_warning))
 }
 
-fn parse_shading_pattern(doc: &Document, object: &Object) -> Option<GradientPaint> {
+fn parse_shading_pattern(
+    doc: &Document,
+    object: &Object,
+) -> Option<(GradientPaint, Option<String>)> {
     let pat = function_dict(doc, object)?;
     if pat.get(b"PatternType").ok()?.as_i64().ok()? != 2 {
         return None;
     }
-    let mut paint = parse_shading(doc, pat.get(b"Shading").ok()?)?;
+    let (mut paint, warn) = parse_shading(doc, pat.get(b"Shading").ok()?)?;
     if let Some(mat) = pat
         .get(b"Matrix")
         .ok()
@@ -587,7 +630,7 @@ fn parse_shading_pattern(doc: &Document, object: &Object) -> Option<GradientPain
         paint.matrix = affine_multiply(mat, paint.matrix);
         paint.validate().ok()?;
     }
-    Some(paint)
+    Some((paint, warn))
 }
 
 pub(super) fn pages(bytes: &[u8]) -> Result<Vec<Page>, ImportError> {
@@ -646,6 +689,7 @@ pub(super) fn pages(bytes: &[u8]) -> Result<Vec<Page>, ImportError> {
         total += content.len();
         let mut shadings = BTreeMap::new();
         let mut patterns = BTreeMap::new();
+        let mut warnings = Vec::new();
         if let Some(resources) = inherited(&doc, id, b"Resources").and_then(|v| v.as_dict().ok()) {
             if let Some(dict) = resources
                 .get(b"Shading")
@@ -654,8 +698,12 @@ pub(super) fn pages(bytes: &[u8]) -> Result<Vec<Page>, ImportError> {
                 .and_then(|v| v.1.as_dict().ok())
             {
                 for (name, value) in dict.iter() {
-                    if let Some(paint) = parse_shading(&doc, value) {
-                        shadings.insert(String::from_utf8_lossy(name).into_owned(), paint);
+                    if let Some((paint, warn)) = parse_shading(&doc, value) {
+                        let key = String::from_utf8_lossy(name).into_owned();
+                        if let Some(msg) = warn {
+                            warnings.push((key.clone(), msg));
+                        }
+                        shadings.insert(key, paint);
                     }
                 }
             }
@@ -666,8 +714,12 @@ pub(super) fn pages(bytes: &[u8]) -> Result<Vec<Page>, ImportError> {
                 .and_then(|v| v.1.as_dict().ok())
             {
                 for (name, value) in dict.iter() {
-                    if let Some(paint) = parse_shading_pattern(&doc, value) {
-                        patterns.insert(String::from_utf8_lossy(name).into_owned(), paint);
+                    if let Some((paint, warn)) = parse_shading_pattern(&doc, value) {
+                        let key = String::from_utf8_lossy(name).into_owned();
+                        if let Some(msg) = warn {
+                            warnings.push((key.clone(), msg));
+                        }
+                        patterns.insert(key, paint);
                     }
                 }
             }
@@ -678,10 +730,274 @@ pub(super) fn pages(bytes: &[u8]) -> Result<Vec<Page>, ImportError> {
             rotation,
             shadings,
             patterns,
+            warnings,
         });
     }
     if result.is_empty() {
         return Err(error("document has no readable pages"));
     }
     Ok(result)
+}
+
+pub(super) fn tokenize_pdf_content(stream: &str) -> Result<Vec<String>, ImportError> {
+    let mut tokens = Vec::new();
+    let mut chars = stream.chars().peekable();
+    while let Some(&ch) = chars.peek() {
+        if tokens.len() >= 1_000_000 {
+            return Err(ImportError::Container(
+                "PDF page exceeds one million operands and operators.".into(),
+            ));
+        }
+        if ch.is_ascii_whitespace() {
+            chars.next();
+            continue;
+        }
+        if ch == '%' {
+            for c in chars.by_ref() {
+                if c == '\n' || c == '\r' {
+                    break;
+                }
+            }
+            continue;
+        }
+        if ch == '(' {
+            chars.next();
+            let mut s = String::from("(");
+            let mut depth = 1usize;
+            while let Some(c) = chars.next() {
+                if c == '\\' {
+                    s.push('\\');
+                    if let Some(esc) = chars.next() {
+                        s.push(esc);
+                        if esc == '\r' && chars.peek() == Some(&'\n') {
+                            s.push(chars.next().unwrap());
+                        }
+                    }
+                    continue;
+                }
+                if c == '(' {
+                    depth += 1;
+                } else if c == ')' {
+                    depth -= 1;
+                    if depth == 0 {
+                        s.push(')');
+                        break;
+                    }
+                }
+                s.push(c);
+            }
+            if !s.ends_with(')') {
+                s.push(')');
+            }
+            tokens.push(s);
+            continue;
+        }
+        if ch == '<' {
+            chars.next();
+            if chars.peek() == Some(&'<') {
+                chars.next();
+                tokens.push("<<".to_owned());
+                continue;
+            }
+            let mut hex_tok = String::from("<");
+            for c in chars.by_ref() {
+                if c == '>' {
+                    hex_tok.push('>');
+                    break;
+                }
+                if !c.is_ascii_whitespace() {
+                    hex_tok.push(c);
+                }
+            }
+            if !hex_tok.ends_with('>') {
+                hex_tok.push('>');
+            }
+            tokens.push(hex_tok);
+            continue;
+        }
+        if ch == '>' {
+            chars.next();
+            if chars.peek() == Some(&'>') {
+                chars.next();
+                tokens.push(">>".to_owned());
+            } else {
+                tokens.push(">".to_owned());
+            }
+            continue;
+        }
+        if matches!(ch, '[' | ']' | ')') {
+            tokens.push(chars.next().unwrap().to_string());
+            continue;
+        }
+        let mut word = String::new();
+        if ch == '/' {
+            word.push(chars.next().unwrap());
+        }
+        while let Some(&c) = chars.peek() {
+            if c.is_ascii_whitespace() || matches!(c, '(' | ')' | '[' | ']' | '<' | '>' | '%' | '/')
+            {
+                break;
+            }
+            word.push(chars.next().unwrap());
+        }
+        if !word.is_empty() {
+            tokens.push(word);
+        }
+    }
+    Ok(tokens)
+}
+
+fn pdf_doc_byte_to_char(b: u8) -> char {
+    match b {
+        0x80 => '\u{2022}',
+        0x81 => '\u{2020}',
+        0x82 => '\u{2021}',
+        0x83 => '\u{2026}',
+        0x84 => '\u{2014}',
+        0x85 => '\u{2013}',
+        0x86 => '\u{0192}',
+        0x87 => '\u{2044}',
+        0x88 => '\u{2039}',
+        0x89 => '\u{203A}',
+        0x8A => '\u{2212}',
+        0x8B => '\u{2030}',
+        0x8C => '\u{201E}',
+        0x8D => '\u{201C}',
+        0x8E => '\u{201D}',
+        0x8F => '\u{2018}',
+        0x90 => '\u{2019}',
+        0x91 => '\u{201A}',
+        0x92 => '\u{2122}',
+        0x93 => '\u{FB01}',
+        0x94 => '\u{FB02}',
+        0x95 => '\u{0141}',
+        0x96 => '\u{0152}',
+        0x97 => '\u{0160}',
+        0x98 => '\u{0178}',
+        0x99 => '\u{017D}',
+        0x9A => '\u{0131}',
+        0x9B => '\u{0142}',
+        0x9C => '\u{0153}',
+        0x9D => '\u{0161}',
+        0x9E => '\u{017E}',
+        0xA0 => '\u{20AC}',
+        other => char::from(other),
+    }
+}
+
+fn decode_pdf_bytes_to_string(bytes: &[u8], prefer_be16_on_nul: bool) -> String {
+    if bytes.starts_with(&[0xFE, 0xFF]) {
+        let units: Vec<u16> = bytes[2..]
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .copied()
+            .map(u16::from_be_bytes)
+            .collect();
+        return char::decode_utf16(units)
+            .map(|r| r.unwrap_or('\u{FFFD}'))
+            .filter(|&c| c != '\0')
+            .collect();
+    }
+    if prefer_be16_on_nul && bytes.len() >= 2 && bytes.len().is_multiple_of(2) && bytes.contains(&0)
+    {
+        let units: Vec<u16> = bytes
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .copied()
+            .map(u16::from_be_bytes)
+            .collect();
+        return char::decode_utf16(units)
+            .map(|r| r.unwrap_or('\u{FFFD}'))
+            .filter(|&c| c != '\0')
+            .collect();
+    }
+    if let Ok(utf8) = std::str::from_utf8(bytes)
+        && !utf8.contains('\0')
+    {
+        return utf8.to_owned();
+    }
+    bytes
+        .iter()
+        .copied()
+        .filter(|&b| b != 0)
+        .map(pdf_doc_byte_to_char)
+        .collect()
+}
+
+pub(super) fn decode_pdf_string_token(tok: &str) -> Option<String> {
+    if tok.starts_with('(') && tok.ends_with(')') && tok.len() >= 2 {
+        let inner = &tok[1..tok.len() - 1];
+        let mut bytes = Vec::with_capacity(inner.len());
+        let mut chars = inner.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                let Some(esc) = chars.next() else {
+                    break;
+                };
+                match esc {
+                    'n' => bytes.push(b'\n'),
+                    'r' => bytes.push(b'\r'),
+                    't' => bytes.push(b'\t'),
+                    'b' => bytes.push(0x08),
+                    'f' => bytes.push(0x0C),
+                    '(' => bytes.push(b'('),
+                    ')' => bytes.push(b')'),
+                    '\\' => bytes.push(b'\\'),
+                    '\r' => {
+                        if chars.peek() == Some(&'\n') {
+                            chars.next();
+                        }
+                    }
+                    '\n' => {}
+                    '0'..='7' => {
+                        let mut val = (esc as u32) - ('0' as u32);
+                        for _ in 0..2 {
+                            if let Some(&d @ '0'..='7') = chars.peek() {
+                                chars.next();
+                                val = val * 8 + ((d as u32) - ('0' as u32));
+                            } else {
+                                break;
+                            }
+                        }
+                        bytes.push((val & 0xFF) as u8);
+                    }
+                    other => {
+                        if other.is_ascii() {
+                            bytes.push(other as u8);
+                        } else {
+                            let mut buf = [0u8; 4];
+                            bytes.extend_from_slice(other.encode_utf8(&mut buf).as_bytes());
+                        }
+                    }
+                }
+            } else if c.is_ascii() {
+                bytes.push(c as u8);
+            } else {
+                let mut buf = [0u8; 4];
+                bytes.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+            }
+        }
+        return Some(decode_pdf_bytes_to_string(&bytes, false));
+    }
+
+    if tok.starts_with('<') && tok.ends_with('>') && tok != "<<" && tok.len() >= 2 {
+        let mut nibbles: Vec<u8> = tok[1..tok.len() - 1]
+            .chars()
+            .filter_map(|c| c.to_digit(16).map(|d| d as u8))
+            .collect();
+        if !nibbles.len().is_multiple_of(2) {
+            nibbles.push(0);
+        }
+        let bytes: Vec<u8> = nibbles
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| (pair[0] << 4) | pair[1])
+            .collect();
+        return Some(decode_pdf_bytes_to_string(&bytes, true));
+    }
+
+    None
 }

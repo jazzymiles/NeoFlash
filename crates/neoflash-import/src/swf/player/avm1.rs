@@ -1,5 +1,12 @@
 use super::*;
 
+enum Avm1RangeOutcome {
+    NormalEnd,
+    JumpedOut(usize),
+    Returned(Avm1Value),
+    Thrown,
+}
+
 impl SwfBytecodePlayer {
     // =========================================================================
     // AVM1 Bytecode Interpreter
@@ -90,8 +97,38 @@ impl SwfBytecodePlayer {
             ));
             return None;
         }
-        let mut pc = 0usize;
-        while pc < code.len() && *steps < MAX_VM_STEPS_PER_FRAME && self.avm1_thrown.is_none() {
+        let outcome = self.run_avm1_range(code, 0, code.len(), stack, locals, steps, depth);
+        if *steps >= MAX_VM_STEPS_PER_FRAME {
+            self.record_unsupported_diagnostic(format!(
+                "AVM1 execution reached bounded per-frame step limit ({MAX_VM_STEPS_PER_FRAME})"
+            ));
+        }
+        match outcome {
+            Avm1RangeOutcome::Returned(v) => Some(v),
+            Avm1RangeOutcome::NormalEnd
+            | Avm1RangeOutcome::JumpedOut(_)
+            | Avm1RangeOutcome::Thrown => None,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn run_avm1_range(
+        &mut self,
+        code: &[u8],
+        start_pc: usize,
+        end_pc: usize,
+        stack: &mut Vec<Avm1Value>,
+        locals: &mut HashMap<String, Avm1Value>,
+        steps: &mut usize,
+        depth: usize,
+    ) -> Avm1RangeOutcome {
+        let limit = end_pc.min(code.len());
+        let mut pc = start_pc.min(limit);
+        while pc >= start_pc
+            && pc < limit
+            && *steps < MAX_VM_STEPS_PER_FRAME
+            && self.avm1_thrown.is_none()
+        {
             *steps += 1;
             let insn_pc = pc;
             let op = code[pc];
@@ -100,12 +137,12 @@ impl SwfBytecodePlayer {
                 break;
             }
             let payload: &[u8] = if (op & 0x80) != 0 {
-                if pc + 2 > code.len() {
+                if pc + 2 > limit {
                     break;
                 }
                 let len = usize::from(u16::from_le_bytes([code[pc], code[pc + 1]]));
                 pc += 2;
-                let end = (pc + len).min(code.len());
+                let end = (pc + len).min(limit);
                 let slice = &code[pc..end];
                 pc = end;
                 slice
@@ -385,7 +422,7 @@ impl SwfBytecodePlayer {
                     // ActionThrow
                     let err = stack.pop().unwrap_or(Avm1Value::Undefined);
                     self.avm1_thrown = Some(err);
-                    return None;
+                    return Avm1RangeOutcome::Thrown;
                 }
                 0x2B => {
                     // ActionCastOp: [constr, obj] (obj on top)
@@ -602,13 +639,13 @@ impl SwfBytecodePlayer {
                     }
                     let ret = self.call_avm1_function(&fn_name, args, locals, steps, depth);
                     if self.avm1_thrown.is_some() {
-                        return None;
+                        return Avm1RangeOutcome::Thrown;
                     }
                     self.push_avm_stack(stack, ret);
                 }
                 0x3E => {
                     // ActionReturn
-                    return Some(stack.pop().unwrap_or(Avm1Value::Undefined));
+                    return Avm1RangeOutcome::Returned(stack.pop().unwrap_or(Avm1Value::Undefined));
                 }
                 0x3F => {
                     // ActionModulo
@@ -637,7 +674,7 @@ impl SwfBytecodePlayer {
                     let constructed =
                         self.construct_avm1_object(&ctor_name, &resolved_ctor, args, steps, depth);
                     if self.avm1_thrown.is_some() {
-                        return None;
+                        return Avm1RangeOutcome::Thrown;
                     }
                     self.push_avm_stack(stack, constructed);
                 }
@@ -876,7 +913,7 @@ impl SwfBytecodePlayer {
                     let ret =
                         self.call_avm1_method(&receiver, &method_name, args, locals, steps, depth);
                     if self.avm1_thrown.is_some() {
-                        return None;
+                        return Avm1RangeOutcome::Thrown;
                     }
                     self.push_avm_stack(stack, ret);
                 }
@@ -906,7 +943,7 @@ impl SwfBytecodePlayer {
                     let constructed =
                         self.construct_avm1_object(&method_name, &ctor_val, args, steps, depth);
                     if self.avm1_thrown.is_some() {
-                        return None;
+                        return Avm1RangeOutcome::Thrown;
                     }
                     self.push_avm_stack(stack, constructed);
                 }
@@ -1147,7 +1184,9 @@ impl SwfBytecodePlayer {
                     }
                 }
                 0x8F => {
-                    // ActionTry
+                    // ActionTry — run directly against `code` with PC range bounds so
+                    // `break`/`continue` jump offsets inside `try`/`catch`/`finally` address
+                    // enclosing loops/switches accurately.
                     let mut pr = SwfSlice::new(payload);
                     let Some(flags) = pr.u8() else { continue };
                     let Some(try_size) = pr.u16().map(usize::from) else {
@@ -1167,19 +1206,28 @@ impl SwfBytecodePlayer {
                     } else {
                         (pr.c_string(self.swf_version).map(|(s, _)| s), None)
                     };
-                    let try_end = (pc + try_size).min(code.len());
-                    let try_bytes = code[pc..try_end].to_vec();
-                    pc = try_end;
-                    let catch_end = (pc + catch_size).min(code.len());
-                    let catch_bytes = code[pc..catch_end].to_vec();
-                    pc = catch_end;
-                    let finally_end = (pc + finally_size).min(code.len());
-                    let finally_bytes = code[pc..finally_end].to_vec();
+                    let try_start = pc;
+                    let try_end = (try_start + try_size).min(limit);
+                    let catch_start = try_end;
+                    let catch_end = (catch_start + catch_size).min(limit);
+                    let finally_start = catch_end;
+                    let finally_end = (finally_start + finally_size).min(limit);
                     pc = finally_end;
 
                     let saved_stack_len = stack.len();
-                    let mut ret = self.run_avm1_code(&try_bytes, stack, locals, steps, depth);
-                    if let Some(thrown_val) = self.avm1_thrown.take() {
+                    let mut body_outcome =
+                        self.run_avm1_range(code, try_start, try_end, stack, locals, steps, depth);
+                    if let Avm1RangeOutcome::JumpedOut(target) = body_outcome
+                        && has_finally
+                        && finally_size > 0
+                        && target == finally_start
+                    {
+                        body_outcome = Avm1RangeOutcome::NormalEnd;
+                    }
+                    if (matches!(body_outcome, Avm1RangeOutcome::Thrown)
+                        || self.avm1_thrown.is_some())
+                        && let Some(thrown_val) = self.avm1_thrown.take()
+                    {
                         stack.truncate(saved_stack_len);
                         if has_catch {
                             if let Some(reg) = catch_reg {
@@ -1198,28 +1246,79 @@ impl SwfBytecodePlayer {
                                     }
                                 }
                             }
-                            ret = self.run_avm1_code(&catch_bytes, stack, locals, steps, depth);
+                            body_outcome = self.run_avm1_range(
+                                code,
+                                catch_start,
+                                catch_end,
+                                stack,
+                                locals,
+                                steps,
+                                depth,
+                            );
                             if self.avm1_thrown.is_some() {
                                 stack.truncate(saved_stack_len);
+                                body_outcome = Avm1RangeOutcome::Thrown;
                             }
                         } else {
                             self.avm1_thrown = Some(thrown_val);
+                            body_outcome = Avm1RangeOutcome::Thrown;
                         }
                     }
-                    if has_finally {
+
+                    let should_run_finally = has_finally
+                        && matches!(
+                            body_outcome,
+                            Avm1RangeOutcome::NormalEnd | Avm1RangeOutcome::Thrown
+                        );
+                    if should_run_finally {
                         let pending_throw = self.avm1_thrown.take();
-                        let finally_ret =
-                            self.run_avm1_code(&finally_bytes, stack, locals, steps, depth);
-                        if self.avm1_thrown.is_none() {
-                            if finally_ret.is_some() {
-                                ret = finally_ret;
-                            } else {
-                                self.avm1_thrown = pending_throw;
+                        let fin_outcome = self.run_avm1_range(
+                            code,
+                            finally_start,
+                            finally_end,
+                            stack,
+                            locals,
+                            steps,
+                            depth,
+                        );
+                        if self.avm1_thrown.is_some() {
+                            return Avm1RangeOutcome::Thrown;
+                        }
+                        match fin_outcome {
+                            Avm1RangeOutcome::Returned(v) => return Avm1RangeOutcome::Returned(v),
+                            Avm1RangeOutcome::JumpedOut(target) => {
+                                if target == limit {
+                                    return Avm1RangeOutcome::NormalEnd;
+                                }
+                                if target < start_pc || target > limit {
+                                    return Avm1RangeOutcome::JumpedOut(target);
+                                }
+                                pc = target;
+                                continue;
+                            }
+                            Avm1RangeOutcome::Thrown => return Avm1RangeOutcome::Thrown,
+                            Avm1RangeOutcome::NormalEnd => {
+                                if let Some(err) = pending_throw {
+                                    self.avm1_thrown = Some(err);
+                                    return Avm1RangeOutcome::Thrown;
+                                }
                             }
                         }
                     }
-                    if self.avm1_thrown.is_some() || ret.is_some() {
-                        return ret;
+
+                    match body_outcome {
+                        Avm1RangeOutcome::NormalEnd => {}
+                        Avm1RangeOutcome::Returned(v) => return Avm1RangeOutcome::Returned(v),
+                        Avm1RangeOutcome::Thrown => return Avm1RangeOutcome::Thrown,
+                        Avm1RangeOutcome::JumpedOut(target) => {
+                            if target == limit {
+                                return Avm1RangeOutcome::NormalEnd;
+                            }
+                            if target < start_pc || target > limit {
+                                return Avm1RangeOutcome::JumpedOut(target);
+                            }
+                            pc = target;
+                        }
                     }
                 }
                 0x94 => {
@@ -1227,19 +1326,31 @@ impl SwfBytecodePlayer {
                     let scope_obj = stack.pop().unwrap_or(Avm1Value::Undefined);
                     if payload.len() >= 2 {
                         let with_size = usize::from(u16::from_le_bytes([payload[0], payload[1]]));
-                        let end = (pc + with_size).min(code.len());
-                        let body = code[pc..end].to_vec();
+                        let with_start = pc;
+                        let end = (with_start + with_size).min(limit);
                         pc = end;
                         let pushed = !matches!(scope_obj, Avm1Value::Undefined | Avm1Value::Null);
                         if pushed {
                             self.avm1_with_scopes.push(scope_obj);
                         }
-                        let ret = self.run_avm1_code(&body, stack, locals, steps, depth);
+                        let with_outcome =
+                            self.run_avm1_range(code, with_start, end, stack, locals, steps, depth);
                         if pushed {
                             let _ = self.avm1_with_scopes.pop();
                         }
-                        if self.avm1_thrown.is_some() || ret.is_some() {
-                            return ret;
+                        match with_outcome {
+                            Avm1RangeOutcome::NormalEnd => {}
+                            Avm1RangeOutcome::Returned(v) => return Avm1RangeOutcome::Returned(v),
+                            Avm1RangeOutcome::Thrown => return Avm1RangeOutcome::Thrown,
+                            Avm1RangeOutcome::JumpedOut(target) => {
+                                if target == limit {
+                                    return Avm1RangeOutcome::NormalEnd;
+                                }
+                                if target < start_pc || target > limit {
+                                    return Avm1RangeOutcome::JumpedOut(target);
+                                }
+                                pc = target;
+                            }
                         }
                     }
                 }
@@ -1332,7 +1443,14 @@ impl SwfBytecodePlayer {
                         let offset = i16::from_le_bytes([payload[0], payload[1]]) as isize;
                         let next_pc = (pc as isize) + offset;
                         if next_pc >= 0 && (next_pc as usize) <= code.len() {
-                            pc = next_pc as usize;
+                            let target = next_pc as usize;
+                            if target == limit {
+                                return Avm1RangeOutcome::NormalEnd;
+                            }
+                            if target < start_pc || target > limit {
+                                return Avm1RangeOutcome::JumpedOut(target);
+                            }
+                            pc = target;
                         } else {
                             break;
                         }
@@ -1382,7 +1500,14 @@ impl SwfBytecodePlayer {
                         let offset = i16::from_le_bytes([payload[0], payload[1]]) as isize;
                         let next_pc = (pc as isize) + offset;
                         if next_pc >= 0 && (next_pc as usize) <= code.len() {
-                            pc = next_pc as usize;
+                            let target = next_pc as usize;
+                            if target == limit {
+                                return Avm1RangeOutcome::NormalEnd;
+                            }
+                            if target < start_pc || target > limit {
+                                return Avm1RangeOutcome::JumpedOut(target);
+                            }
+                            pc = target;
                         } else {
                             break;
                         }
@@ -1488,12 +1613,11 @@ impl SwfBytecodePlayer {
                 }
             }
         }
-        if *steps >= MAX_VM_STEPS_PER_FRAME {
-            self.record_unsupported_diagnostic(format!(
-                "AVM1 execution reached bounded per-frame step limit ({MAX_VM_STEPS_PER_FRAME})"
-            ));
+        if self.avm1_thrown.is_some() {
+            Avm1RangeOutcome::Thrown
+        } else {
+            Avm1RangeOutcome::NormalEnd
         }
-        None
     }
 
     #[allow(clippy::too_many_arguments)]

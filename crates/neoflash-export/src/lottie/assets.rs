@@ -83,7 +83,7 @@ fn build_lottie_audio_level(
 ) -> serde_json::Value {
     let mut pts = sound.envelope_points();
     if pts.is_empty() {
-        return json!({"a": 0, "k": [100]});
+        return json!({"a": 0, "k": [100.0, 100.0]});
     }
     pts.sort_by(|a, b| a[0].total_cmp(&b[0]));
     let to_lr = |p: &[f64; 3]| -> [f64; 2] {
@@ -97,31 +97,29 @@ fn build_lottie_audio_level(
         keyframes.push((round4(ip), to_lr(&pts[0])));
     }
     for p in &pts {
-        let t = round4(ip + p[0].clamp(0.0, 1.0) * span);
+        let mut t = round4(ip + p[0].clamp(0.0, 1.0) * span);
         let lr = to_lr(p);
         if let Some(last) = keyframes.last_mut()
-            && (t - last.0).abs() < 1e-4
+            && t <= last.0 + 1e-4
         {
             if last.1 == lr {
                 continue;
             }
-            if t + 0.001 < op {
-                keyframes.push((round4(t + 0.001), lr));
+            let nudged = round4(last.0 + 0.001);
+            if nudged < op {
+                t = nudged;
             } else {
                 last.1 = lr;
+                continue;
             }
-        } else {
-            keyframes.push((t, lr));
         }
+        keyframes.push((t, lr));
     }
     if let Some(last_pt) = pts.last()
         && last_pt[0].clamp(0.0, 1.0) < 1.0 - 1e-6
     {
         let t_end = round4(op);
-        if keyframes
-            .last()
-            .is_none_or(|last| (t_end - last.0).abs() >= 1e-4)
-        {
+        if keyframes.last().is_none_or(|last| t_end > last.0 + 1e-4) {
             keyframes.push((t_end, to_lr(last_pt)));
         }
     }
@@ -236,13 +234,14 @@ impl<'a> LottieBuilder<'a> {
             self.audio_ids.insert(unit.id.clone(), id.clone());
             id
         };
+        let source_fps = self.source_fps.max(1.0);
         let from = sound.in_point.unwrap_or(0.);
         let end = f64::from(neoflash_core::sound_span_end(layer, key, frame_count));
         let op = sound.out_point.map_or(end, |to| {
-            end.min(f64::from(key.frame) + (to - from) * self.fps)
+            end.min(f64::from(key.frame) + (to - from).max(0.0) * source_fps)
         });
         // An explicit media clock also keeps lottie-web rendering audio-only compositions.
-        let to = from + (op - f64::from(key.frame)) / self.fps;
+        let to = from + (op - f64::from(key.frame)).max(0.0) / source_fps;
         let lv = build_lottie_audio_level(sound, f64::from(key.frame), op);
         Some(json!({
             "ty":6, "ind":index, "refId":id, "nm":layer.name, "ip":key.frame, "op":op, "st":key.frame,

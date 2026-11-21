@@ -73,6 +73,27 @@ impl AbcPoolBuilder {
         idx
     }
 
+    pub(super) fn add_ns_set(&mut self, ns_indices: Vec<u32>) -> u32 {
+        if let Some(pos) = self.ns_sets.iter().position(|s| *s == ns_indices) {
+            return (pos + 1) as u32;
+        }
+        let idx = (self.ns_sets.len() + 1) as u32;
+        self.ns_sets.push(ns_indices);
+        idx
+    }
+
+    pub(super) fn add_multiname(&mut self, name: &str, ns_set_idx: u32) -> u32 {
+        let name_idx = self.add_string(name);
+        let key = (0x09, name_idx, ns_set_idx); // 0x09 = CONSTANT_Multiname (name, ns_set)
+        if let Some(&idx) = self.mn_map.get(&key) {
+            return idx;
+        }
+        let idx = (self.multinames.len() + 1) as u32;
+        self.multinames.push(key);
+        self.mn_map.insert(key, idx);
+        idx
+    }
+
     pub(super) fn intern_multiname_l(&mut self) -> u32 {
         if let Some(idx) = self.multiname_l {
             return idx;
@@ -130,6 +151,8 @@ pub(super) struct AbcClassSpec {
     pub(super) class_name: String,
     pub(super) super_pkg: String,
     pub(super) super_name: String,
+    pub(super) imported_classes: HashMap<String, String>,
+    pub(super) wildcard_packages: Vec<String>,
     pub(super) ctor_params: Vec<String>,
     pub(super) has_explicit_ctor: bool,
     pub(super) has_explicit_super: bool,
@@ -197,9 +220,8 @@ pub(super) fn stmts_contain_super_ctor(stmts: &[SwfStmt]) -> bool {
     })
 }
 
-pub(super) fn build_effective_ctor_stmts(cls: &AbcClassSpec) -> Vec<SwfStmt> {
-    let field_assigns: Vec<SwfStmt> = cls
-        .instance_fields
+pub(super) fn build_instance_field_assigns(cls: &AbcClassSpec) -> Vec<SwfStmt> {
+    cls.instance_fields
         .iter()
         .filter_map(|(fname, init_opt)| {
             init_opt.as_ref().map(|init_expr| SwfStmt::Assign {
@@ -211,18 +233,16 @@ pub(super) fn build_effective_ctor_stmts(cls: &AbcClassSpec) -> Vec<SwfStmt> {
                 value: init_expr.clone(),
             })
         })
-        .collect();
-    if field_assigns.is_empty() {
+        .collect()
+}
+
+pub(super) fn build_effective_ctor_stmts(cls: &AbcClassSpec) -> Vec<SwfStmt> {
+    if cls.has_explicit_super {
         return cls.ctor_statements.clone();
     }
-    if cls.has_explicit_super
-        && let Some(sup_pos) = cls.ctor_statements.iter().position(is_super_ctor_stmt)
-    {
-        let mut out = Vec::with_capacity(cls.ctor_statements.len() + field_assigns.len());
-        out.extend_from_slice(&cls.ctor_statements[..=sup_pos]);
-        out.extend(field_assigns);
-        out.extend_from_slice(&cls.ctor_statements[sup_pos + 1..]);
-        return out;
+    let field_assigns = build_instance_field_assigns(cls);
+    if field_assigns.is_empty() {
+        return cls.ctor_statements.clone();
     }
     let mut out = Vec::with_capacity(field_assigns.len() + cls.ctor_statements.len());
     out.extend(field_assigns);
@@ -230,9 +250,30 @@ pub(super) fn build_effective_ctor_stmts(cls: &AbcClassSpec) -> Vec<SwfStmt> {
     out
 }
 
+pub(super) fn extract_script_imports(
+    source: &str,
+    imported_classes: &mut HashMap<String, String>,
+    wildcard_packages: &mut Vec<String>,
+) {
+    let Ok(tokens) = tokenize_swf_script(source) else {
+        return;
+    };
+    let mut parser = SwfParser::new(tokens, true);
+    while parser.pos < parser.tokens.len() {
+        if parser.peek() == Some(&SwfToken::Ident("import".to_owned())) {
+            if consume_import_directive(&mut parser, imported_classes, wildcard_packages).is_err() {
+                break;
+            }
+        } else {
+            parser.pos += 1;
+        }
+    }
+}
+
 fn consume_import_directive(
     parser: &mut SwfParser,
     imported_classes: &mut HashMap<String, String>,
+    wildcard_packages: &mut Vec<String>,
 ) -> Result<(), String> {
     parser.pos += 1; // 'import'
     let mut parts = vec![parser.expect_ident()?];
@@ -245,7 +286,12 @@ fn consume_import_directive(
         parts.push(parser.expect_ident()?);
     }
     parser.consume_optional_semi();
-    if !is_wildcard && parts.len() >= 2 {
+    if is_wildcard {
+        let pkg = parts.join(".");
+        if !pkg.is_empty() && !wildcard_packages.contains(&pkg) {
+            wildcard_packages.push(pkg);
+        }
+    } else if parts.len() >= 2 {
         let cls = parts.pop().unwrap_or_default();
         let pkg = parts.join(".");
         imported_classes.insert(cls, pkg);
@@ -293,12 +339,17 @@ pub(super) fn parse_as3_source_to_spec_strict(
                 parser.peek()
             ));
         }
+        let mut imported_classes = HashMap::new();
+        let mut wildcard_packages = Vec::new();
+        extract_script_imports(source, &mut imported_classes, &mut wildcard_packages);
         let (pkg, fc) = split_qualified_class(fallback_qname);
         return Ok(AbcClassSpec {
             pkg,
             class_name: if fc.is_empty() { "Main".to_owned() } else { fc },
             super_pkg: "flash.display".to_owned(),
             super_name: "MovieClip".to_owned(),
+            imported_classes,
+            wildcard_packages,
             has_explicit_super: stmts_contain_super_ctor(&stmts),
             ctor_statements: stmts,
             ..Default::default()
@@ -324,6 +375,7 @@ pub(super) fn parse_as3_source_to_spec_strict(
     }
 
     let mut imported_classes: HashMap<String, String> = HashMap::new();
+    let mut wildcard_packages: Vec<String> = Vec::new();
     loop {
         if parser.eat(&SwfToken::Semi) {
             continue;
@@ -333,7 +385,7 @@ pub(super) fn parse_as3_source_to_spec_strict(
             continue;
         }
         if parser.peek() == Some(&SwfToken::Ident("import".to_owned())) {
-            consume_import_directive(&mut parser, &mut imported_classes)?;
+            consume_import_directive(&mut parser, &mut imported_classes, &mut wildcard_packages)?;
             continue;
         }
         break;
@@ -432,7 +484,7 @@ pub(super) fn parse_as3_source_to_spec_strict(
             continue;
         }
         if parser.peek() == Some(&SwfToken::Ident("import".to_owned())) {
-            consume_import_directive(&mut parser, &mut imported_classes)?;
+            consume_import_directive(&mut parser, &mut imported_classes, &mut wildcard_packages)?;
             continue;
         }
         let mut is_static = false;
@@ -527,11 +579,15 @@ pub(super) fn parse_as3_source_to_spec_strict(
     }
     let has_explicit_super = stmts_contain_super_ctor(&ctor_statements);
 
+    extract_script_imports(source, &mut imported_classes, &mut wildcard_packages);
+
     Ok(AbcClassSpec {
         pkg,
         class_name,
         super_pkg,
         super_name,
+        imported_classes,
+        wildcard_packages,
         ctor_params,
         has_explicit_ctor,
         has_explicit_super,
@@ -593,6 +649,44 @@ pub(super) struct Avm2ControlFrame {
     pub(super) finally_depth: usize,
 }
 
+#[derive(Clone)]
+pub(super) enum Avm2PendingUnwind {
+    ReturnVal {
+        jump_patch: usize,
+        ret_reg: u32,
+    },
+    ReturnVoid {
+        jump_patch: usize,
+    },
+    Break {
+        jump_patch: usize,
+        target_flow_idx: usize,
+    },
+    Continue {
+        jump_patch: usize,
+        target_flow_idx: usize,
+    },
+}
+
+#[derive(Clone, Default)]
+pub(super) struct Avm2FinallyFrame {
+    pub(super) pending_unwinds: Vec<Avm2PendingUnwind>,
+}
+
+#[derive(Clone)]
+pub(super) struct Avm2PostSuperInit {
+    pub(super) frame_bindings: Vec<(u32, u32)>,
+    pub(super) add_frame_script_mn: u32,
+    pub(super) field_stmts: Vec<SwfStmt>,
+}
+
+#[derive(Clone, Default)]
+pub(super) struct Avm2ImportCtx {
+    pub(super) current_pkg: String,
+    pub(super) imported_classes: HashMap<String, String>,
+    pub(super) wildcard_packages: Vec<String>,
+}
+
 pub(super) struct Avm2LexicalEnv {
     pub(super) init_scope_depth: u32,
     pub(super) needs_activation: bool,
@@ -604,7 +698,9 @@ pub(super) struct Avm2LexicalEnv {
     pub(super) activation_traits: Vec<(u32, u32)>,
     pub(super) exceptions: Vec<AbcExceptionSpec>,
     pub(super) flow_stack: Vec<Avm2ControlFrame>,
-    pub(super) finally_stack: Vec<Vec<SwfStmt>>,
+    pub(super) finally_stack: Vec<Avm2FinallyFrame>,
+    pub(super) imports: Avm2ImportCtx,
+    pub(super) post_super: Option<Avm2PostSuperInit>,
 }
 
 impl Avm2LexicalEnv {
@@ -613,6 +709,135 @@ impl Avm2LexicalEnv {
         self.next_temp_reg += 1;
         reg
     }
+
+    pub(super) fn open_package_ns_set(&self, pool: &mut AbcPoolBuilder) -> u32 {
+        let mut ns_indices = Vec::with_capacity(2 + self.imports.wildcard_packages.len());
+        ns_indices.push(pool.add_namespace(0x16, ""));
+        if !self.imports.current_pkg.is_empty() {
+            let cur_ns = pool.add_namespace(0x16, &self.imports.current_pkg);
+            if !ns_indices.contains(&cur_ns) {
+                ns_indices.push(cur_ns);
+            }
+        }
+        for wpkg in &self.imports.wildcard_packages {
+            if !wpkg.is_empty() {
+                let wns = pool.add_namespace(0x16, wpkg);
+                if !ns_indices.contains(&wns) {
+                    ns_indices.push(wns);
+                }
+            }
+        }
+        pool.add_ns_set(ns_indices)
+    }
+
+    pub(super) fn resolve_ident_multiname(&self, pool: &mut AbcPoolBuilder, name: &str) -> u32 {
+        if let Some(imp_pkg) = self.imports.imported_classes.get(name) {
+            return pool.add_qname(imp_pkg, name);
+        }
+        if !self.imports.wildcard_packages.is_empty() {
+            let ns_set = self.open_package_ns_set(pool);
+            return pool.add_multiname(name, ns_set);
+        }
+        pool.add_qname("", name)
+    }
+
+    pub(super) fn resolve_type_multiname(&self, pool: &mut AbcPoolBuilder, type_name: &str) -> u32 {
+        if type_name.contains('.') {
+            let (tp, ts) = split_qualified_class(type_name);
+            return pool.add_qname(&tp, &ts);
+        }
+        if let Some(imp_pkg) = self.imports.imported_classes.get(type_name) {
+            return pool.add_qname(imp_pkg, type_name);
+        }
+        if matches!(
+            type_name,
+            "Object"
+                | "Array"
+                | "String"
+                | "Number"
+                | "int"
+                | "uint"
+                | "Boolean"
+                | "Function"
+                | "Error"
+                | "TypeError"
+                | "RangeError"
+                | "ReferenceError"
+                | "ArgumentError"
+                | "VerifyError"
+                | "SyntaxError"
+                | "URIError"
+                | "EvalError"
+                | "SecurityError"
+        ) {
+            return pool.add_qname("", type_name);
+        }
+        if !self.imports.wildcard_packages.is_empty() || !self.imports.current_pkg.is_empty() {
+            let ns_set = self.open_package_ns_set(pool);
+            return pool.add_multiname(type_name, ns_set);
+        }
+        pool.add_qname("", type_name)
+    }
+}
+
+pub(super) fn builtin_flash_superclass(
+    pkg: &str,
+    name: &str,
+) -> Option<(&'static str, &'static str)> {
+    match (pkg, name) {
+        ("", "Object") => None,
+        ("flash.display", "MovieClip") => Some(("flash.display", "Sprite")),
+        ("flash.display", "Sprite") => Some(("flash.display", "DisplayObjectContainer")),
+        ("flash.display", "DisplayObjectContainer") => Some(("flash.display", "InteractiveObject")),
+        ("flash.display", "InteractiveObject") | ("flash.display", "SimpleButton") => {
+            Some(("flash.display", "DisplayObject"))
+        }
+        ("flash.text", "TextField") => Some(("flash.display", "InteractiveObject")),
+        ("flash.display", "Shape" | "Bitmap") | ("flash.media", "Video") => {
+            Some(("flash.display", "DisplayObject"))
+        }
+        ("flash.display", "DisplayObject")
+        | ("flash.utils", "Timer")
+        | ("flash.net", "URLLoader")
+        | ("flash.media", "Sound" | "SoundChannel") => Some(("flash.events", "EventDispatcher")),
+        ("flash.events", "EventDispatcher") => Some(("", "Object")),
+        (
+            "",
+            "TypeError" | "RangeError" | "ReferenceError" | "ArgumentError" | "VerifyError"
+            | "SyntaxError" | "URIError" | "EvalError" | "SecurityError",
+        )
+        | ("flash.errors", _) => Some(("", "Error")),
+        _ => Some(("", "Object")),
+    }
+}
+
+/// Returns the ordered list of superclasses strictly below `Object` (`[HighestAncestor, ..., DirectSuper]`).
+pub(super) fn resolve_abc_ancestor_chain(
+    cls: &AbcClassSpec,
+    all_classes: &[AbcClassSpec],
+) -> Vec<(String, String)> {
+    let mut rev_chain = Vec::new();
+    let mut seen = HashSet::new();
+    seen.insert((cls.pkg.clone(), cls.class_name.clone()));
+    let mut cur = (cls.super_pkg.clone(), cls.super_name.clone());
+    while !(cur.0.is_empty() && cur.1 == "Object") && !cur.1.is_empty() {
+        if !seen.insert(cur.clone()) {
+            break;
+        }
+        let next = if let Some(parent) = all_classes
+            .iter()
+            .find(|c| c.pkg == cur.0 && c.class_name == cur.1)
+        {
+            Some((parent.super_pkg.clone(), parent.super_name.clone()))
+        } else {
+            builtin_flash_superclass(&cur.0, &cur.1).map(|(sp, sn)| (sp.to_owned(), sn.to_owned()))
+        };
+        rev_chain.push(cur);
+        let Some(n) = next else { break };
+        cur = n;
+    }
+    rev_chain.reverse();
+    rev_chain
 }
 
 pub(super) fn expr_has_direct_self_named_fn(expr: &SwfExpr) -> bool {
@@ -748,6 +973,8 @@ pub(super) fn compile_avm2_scoped_unit<F>(
     outer_slots: &HashMap<String, (u32, u32)>,
     init_scope_depth: u32,
     is_function_scope: bool,
+    imports: &Avm2ImportCtx,
+    post_super: Option<Avm2PostSuperInit>,
     emit_after_this_scope: F,
 ) -> Result<(), String>
 where
@@ -759,6 +986,9 @@ where
     let mut direct_refs = HashSet::new();
     let mut child_free = HashSet::new();
     collect_refs_and_child_free_in_stmts(stmts, &mut direct_refs, &mut child_free);
+    if let Some(ps) = &post_super {
+        collect_refs_and_child_free_in_stmts(&ps.field_stmts, &mut direct_refs, &mut child_free);
+    }
 
     let mut local_regs = HashMap::new();
     let mut own_slots = HashMap::new();
@@ -783,23 +1013,30 @@ where
         }
     }
 
-    for decl_name in own_funcs.into_iter().chain(own_vars) {
-        if !seen_decls.insert(decl_name.clone()) {
-            continue;
-        }
-        if is_function_scope && child_free.contains(&decl_name) {
-            let slot_id = (activation_traits.len() + 1) as u32;
-            let qn = pool.add_qname("", &decl_name);
-            activation_traits.push((qn, slot_id));
-            own_slots.insert(decl_name, slot_id);
-        } else if is_function_scope {
-            let reg = next_reg;
-            next_reg += 1;
-            local_regs.insert(decl_name, reg);
+    if is_function_scope {
+        for decl_name in own_funcs.into_iter().chain(own_vars) {
+            if !seen_decls.insert(decl_name.clone()) {
+                continue;
+            }
+            if child_free.contains(&decl_name) {
+                let slot_id = (activation_traits.len() + 1) as u32;
+                let qn = pool.add_qname("", &decl_name);
+                activation_traits.push((qn, slot_id));
+                own_slots.insert(decl_name, slot_id);
+            } else {
+                let reg = next_reg;
+                next_reg += 1;
+                local_regs.insert(decl_name, reg);
+            }
         }
     }
 
-    let needs_activation = !activation_traits.is_empty() || stmts_have_direct_self_named_fn(stmts);
+    let post_super_has_self_fn = post_super
+        .as_ref()
+        .is_some_and(|ps| stmts_have_direct_self_named_fn(&ps.field_stmts));
+    let needs_activation = !activation_traits.is_empty()
+        || stmts_have_direct_self_named_fn(stmts)
+        || post_super_has_self_fn;
     let mut code = SwfBitWriter::new();
     code.u8(0xD0); // getlocal_0
     code.u8(0x30); // pushscope (local scope 0 = this)
@@ -836,6 +1073,8 @@ where
         exceptions: Vec::new(),
         flow_stack: Vec::new(),
         finally_stack: Vec::new(),
+        imports: imports.clone(),
+        post_super,
     };
 
     compile_avm2_stmt_list(pool, stmts, &mut code, state, &mut env)?;
@@ -869,6 +1108,15 @@ pub(super) fn try_compile_avm2_source(
     let mut pool = AbcPoolBuilder::default();
     let mut state = Avm2CompilerState::default();
     let empty_outer = HashMap::new();
+    let chain = resolve_abc_ancestor_chain(&spec, std::slice::from_ref(&spec));
+    let chain_len = chain.len() as u32;
+    let cinit_scope_depth = 2 + chain_len;
+    let method_scope_depth = 3 + chain_len;
+    let imports = Avm2ImportCtx {
+        current_pkg: spec.pkg.clone(),
+        imported_classes: spec.imported_classes.clone(),
+        wildcard_packages: spec.wildcard_packages.clone(),
+    };
 
     let mut cinit_stmts = Vec::new();
     for (sf_name, sf_init) in &spec.static_fields {
@@ -892,8 +1140,10 @@ pub(super) fn try_compile_avm2_source(
             &[],
             &cinit_stmts,
             &empty_outer,
-            1,
+            cinit_scope_depth,
             false,
+            &imports,
+            None,
             |_, _| Ok(()),
         )?;
     }
@@ -905,6 +1155,11 @@ pub(super) fn try_compile_avm2_source(
         .collect();
     let ctor_m = state.alloc_method(ctor_p_indices);
     let effective_ctor = build_effective_ctor_stmts(&spec);
+    let post_super = spec.has_explicit_super.then(|| Avm2PostSuperInit {
+        frame_bindings: Vec::new(),
+        add_frame_script_mn: pool.add_qname("", "addFrameScript"),
+        field_stmts: build_instance_field_assigns(&spec),
+    });
     compile_avm2_scoped_unit(
         &mut pool,
         &mut state,
@@ -912,8 +1167,10 @@ pub(super) fn try_compile_avm2_source(
         &spec.ctor_params,
         &effective_ctor,
         &empty_outer,
-        1,
+        method_scope_depth,
         spec.has_explicit_ctor,
+        &imports,
+        post_super,
         |_, _| Ok(()),
     )?;
 
@@ -927,8 +1184,10 @@ pub(super) fn try_compile_avm2_source(
             sm_params,
             sm_stmts,
             &empty_outer,
-            1,
+            method_scope_depth,
             true,
+            &imports,
+            None,
             |_, _| Ok(()),
         )?;
     }
@@ -942,8 +1201,10 @@ pub(super) fn try_compile_avm2_source(
             m_params,
             m_stmts,
             &empty_outer,
-            1,
+            method_scope_depth,
             true,
+            &imports,
+            None,
             |_, _| Ok(()),
         )?;
     }

@@ -297,10 +297,18 @@ fn extract_url_id(val: &str) -> Option<String> {
     unquoted.strip_prefix('#').map(str::to_owned)
 }
 
-fn tokenize_svg_path(d: &str) -> Vec<String> {
+const MAX_SVG_PATH_COMMANDS: usize = 32_768;
+const MAX_SHARED_SVG_PATH_COMMANDS: usize = neoflash_core::MAX_PATH_COMMANDS + 1;
+const MAX_SVG_SUBTREE_DEPTH: usize = 128;
+
+fn tokenize_svg_path_bounded(d: &str, max_commands: usize) -> Vec<String> {
+    let max_tokens = max_commands.saturating_mul(8);
     let mut tokens = Vec::new();
     let mut chars = d.chars().peekable();
     while let Some(&ch) = chars.peek() {
+        if tokens.len() >= max_tokens {
+            break;
+        }
         if ch.is_ascii_whitespace() || ch == ',' {
             chars.next();
             continue;
@@ -315,6 +323,9 @@ fn tokenize_svg_path(d: &str) -> Vec<String> {
         }
         let mut seen_dot = false;
         while let Some(&c) = chars.peek() {
+            if num.len() >= 128 {
+                break;
+            }
             if c.is_ascii_digit() {
                 num.push(chars.next().unwrap());
             } else if c == '.' && !seen_dot {
@@ -340,9 +351,15 @@ fn tokenize_svg_path(d: &str) -> Vec<String> {
     tokens
 }
 
-/// Parse an SVG `d="..."` path string into `Vec<PathCommand>`.
+/// Parse an SVG `d="..."` path string into `Vec<PathCommand>` (bounded at `MAX_PATH_COMMANDS + 1`
+/// so callers such as FXG `<Path>` can detect `> MAX_PATH_COMMANDS` and emit located placeholders
+/// without unbounded allocation).
 pub fn parse_svg_path_data(d: &str) -> Vec<PathCommand> {
-    let tokens = tokenize_svg_path(d);
+    parse_svg_path_data_bounded(d, MAX_SHARED_SVG_PATH_COMMANDS)
+}
+
+fn parse_svg_path_data_bounded(d: &str, max_commands: usize) -> Vec<PathCommand> {
+    let tokens = tokenize_svg_path_bounded(d, max_commands);
     let mut commands = Vec::new();
     let mut idx = 0usize;
     let mut cur_cmd = 'M';
@@ -361,6 +378,9 @@ pub fn parse_svg_path_data(d: &str) -> Vec<PathCommand> {
     };
 
     while idx < tokens.len() {
+        if commands.len() >= max_commands {
+            break;
+        }
         if let Some(ch) = tokens[idx].chars().next()
             && ch.is_ascii_alphabetic()
         {
@@ -576,7 +596,7 @@ fn shape_node_to_commands(node: Node<'_, '_>) -> Option<Vec<PathCommand>> {
     match node.tag_name().name() {
         "path" => {
             let d = node.attribute("d")?;
-            let cmds = parse_svg_path_data(d);
+            let cmds = parse_svg_path_data_bounded(d, MAX_SVG_PATH_COMMANDS);
             (!cmds.is_empty()).then_some(cmds)
         }
         "rect" => {
@@ -686,10 +706,16 @@ fn shape_node_to_commands(node: Node<'_, '_>) -> Option<Vec<PathCommand>> {
         }
         "polyline" | "polygon" => {
             let pts_str = node.attribute("points")?;
+            let max_pairs = if node.tag_name().name() == "polygon" {
+                MAX_SVG_PATH_COMMANDS.saturating_sub(1)
+            } else {
+                MAX_SVG_PATH_COMMANDS
+            };
             let nums: Vec<f64> = pts_str
                 .split(|c: char| c == ',' || c.is_ascii_whitespace())
                 .filter(|s| !s.is_empty())
                 .filter_map(|s| s.parse::<f64>().ok())
+                .take(max_pairs * 2)
                 .collect();
             if nums.len() < 4 {
                 return None;
@@ -787,7 +813,19 @@ impl SvgGradient {
         for stop in &mut paint.stops {
             stop.color[3] = (f64::from(stop.color[3]) * opacity.clamp(0., 1.)).round() as u8;
         }
+        paint.validate().ok()?;
         Some(paint)
+    }
+
+    fn fallback_solid_color(&self, opacity: f64) -> Color {
+        let mut col = self
+            .paint
+            .stops
+            .last()
+            .map(|s| s.color)
+            .unwrap_or([0, 0, 0, 255]);
+        col[3] = (f64::from(col[3]) * opacity.clamp(0., 1.)).round() as u8;
+        col
     }
 }
 
@@ -1208,9 +1246,10 @@ pub fn import_svg_into_project(
 
     #[allow(clippy::too_many_arguments)]
     fn collect_svg_subtree<'a>(
-        node: Node<'a, 'a>,
+        start_node: Node<'a, 'a>,
+        start_depth: usize,
         styles: &SvgStyles<'a>,
-        parent_matrix: [f64; 6],
+        start_parent_matrix: [f64; 6],
         bucket: &mut VectorGroupBucket,
         options: &VectorImportOptions,
         gradients: &BTreeMap<String, SvgGradient>,
@@ -1220,329 +1259,376 @@ pub fn import_svg_into_project(
         source_name: &str,
         report: &mut ImportReport,
     ) {
-        let tag = node.tag_name().name();
-        if matches!(
-            tag,
-            "defs"
-                | "title"
-                | "desc"
-                | "metadata"
-                | "style"
-                | "clipPath"
-                | "mask"
-                | "filter"
-                | "linearGradient"
-                | "radialGradient"
-        ) {
-            return;
-        }
-        let node_id = node
-            .attribute("id")
-            .or_else(|| node.attribute(("http://www.inkscape.org/namespaces/inkscape", "label")))
-            .unwrap_or(tag);
-        let loc = format!("{source_name}::{node_id}");
+        let mut worklist = vec![(start_node, start_depth, start_parent_matrix)];
+        while let Some((node, depth, parent_matrix)) = worklist.pop() {
+            let tag = node.tag_name().name();
+            if depth > MAX_SVG_SUBTREE_DEPTH {
+                report.warning(
+                    "svg-nesting-limit-exceeded",
+                    format!("{source_name}::{tag}"),
+                    format!(
+                        "SVG group nesting depth exceeded {MAX_SVG_SUBTREE_DEPTH}; deeper elements were skipped."
+                    ),
+                );
+                continue;
+            }
+            if matches!(
+                tag,
+                "defs"
+                    | "title"
+                    | "desc"
+                    | "metadata"
+                    | "style"
+                    | "clipPath"
+                    | "mask"
+                    | "filter"
+                    | "linearGradient"
+                    | "radialGradient"
+            ) {
+                continue;
+            }
+            let node_id = node
+                .attribute("id")
+                .or_else(|| {
+                    node.attribute(("http://www.inkscape.org/namespaces/inkscape", "label"))
+                })
+                .unwrap_or(tag);
+            let loc = format!("{source_name}::{node_id}");
 
-        let local_matrix = node
-            .attribute("transform")
-            .map(parse_svg_transform)
-            .unwrap_or_else(identity_matrix);
-        let cumulative_matrix = affine_multiply(parent_matrix, local_matrix);
+            let local_matrix = node
+                .attribute("transform")
+                .map(parse_svg_transform)
+                .unwrap_or_else(identity_matrix);
+            let cumulative_matrix = affine_multiply(parent_matrix, local_matrix);
 
-        // Check filter reference
-        if let Some(filter_attr) = styles.value(node, "filter")
-            && let Some(fid) = extract_url_id(&filter_attr)
-        {
-            let desc = filters.get(&fid).map_or("SVG filter", String::as_str);
-            report.warning(
-                "svg-filter-approximated",
-                loc.clone(),
-                format!("SVG filter '#{fid}' ({desc}) was approximated onto display filter specs."),
-            );
-        }
-
-        // Check clip-path or mask reference
-        for (attr_name, def_map, mode) in [
-            ("clip-path", clip_paths, MaskMode::Geometry),
-            ("mask", masks, MaskMode::Luminance),
-        ] {
-            if let Some(attr_val) = styles.value(node, attr_name)
-                && let Some(cid) = extract_url_id(&attr_val)
-                && let Some(clip_cmds) = def_map.get(&cid)
+            // Check filter reference
+            if let Some(filter_attr) = styles.value(node, "filter")
+                && let Some(fid) = extract_url_id(&filter_attr)
             {
-                let baked_clip = bake_matrix_into_commands(clip_cmds, cumulative_matrix);
-                match options.mask_handling {
-                    VectorMaskHandling::MaskLayers => {
-                        bucket.mask_mode = mode;
-                        bucket.mask_elements.push(Element {
+                let desc = filters.get(&fid).map_or("SVG filter", String::as_str);
+                report.warning(
+                    "svg-filter-approximated",
+                    loc.clone(),
+                    format!(
+                        "SVG filter '#{fid}' ({desc}) was approximated onto display filter specs."
+                    ),
+                );
+            }
+
+            // Check clip-path or mask reference
+            for (attr_name, def_map, mode) in [
+                ("clip-path", clip_paths, MaskMode::Geometry),
+                ("mask", masks, MaskMode::Luminance),
+            ] {
+                if let Some(attr_val) = styles.value(node, attr_name)
+                    && let Some(cid) = extract_url_id(&attr_val)
+                    && let Some(clip_cmds) = def_map.get(&cid)
+                {
+                    let baked_clip = bake_matrix_into_commands(clip_cmds, cumulative_matrix);
+                    match options.mask_handling {
+                        VectorMaskHandling::MaskLayers => {
+                            bucket.mask_mode = mode;
+                            bucket.mask_elements.push(Element {
+                                id: new_id("element"),
+                                name: format!("Mask #{cid}"),
+                                transform: Transform::default(),
+                                kind: ElementKind::Path {
+                                    commands: baked_clip,
+                                    fill_rule: FillRule::NonZero,
+                                    fill: [255, 255, 255, 255],
+                                    stroke: [0, 0, 0, 0],
+                                    stroke_width: 0.0,
+                                },
+                                ..Element::default()
+                            });
+                            report.diagnostics.push(Diagnostic {
+                                severity: Severity::Info,
+                                code: "svg-mask-layer-created".to_owned(),
+                                location: loc.clone(),
+                                message: format!(
+                                    "Created Timeline Mask layer from SVG {attr_name} '#{cid}'."
+                                ),
+                            });
+                        }
+                        VectorMaskHandling::FlattenClip => {
+                            report.warning(
+                                "svg-clip-flattened",
+                                loc.clone(),
+                                format!(
+                                    "SVG {attr_name} '#{cid}' was flattened into the target layer."
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+
+            if tag == "g" || tag == "svg" || tag == "a" {
+                let children: Vec<_> = node.children().filter(|c| c.is_element()).collect();
+                for child in children.into_iter().rev() {
+                    worklist.push((child, depth + 1, cumulative_matrix));
+                }
+                continue;
+            }
+
+            if tag == "text" {
+                let text_content: String = node
+                    .descendants()
+                    .filter(|n| n.is_text())
+                    .filter_map(|n| n.text())
+                    .collect::<Vec<_>>()
+                    .join("");
+                let trimmed_text = text_content.trim();
+                if trimmed_text.is_empty() {
+                    continue;
+                }
+                let x = node
+                    .attribute("x")
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(0.0);
+                let y = node
+                    .attribute("y")
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(20.0);
+                let font_size = styles
+                    .value(node, "font-size")
+                    .and_then(|v| v.trim_end_matches("px").parse::<f64>().ok())
+                    .unwrap_or(20.0)
+                    .max(1.0);
+                let font_family = styles
+                    .value(node, "font-family")
+                    .unwrap_or_else(|| "sans-serif".to_owned());
+                let opacity = styles
+                    .value(node, "opacity")
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(1.0);
+                let fill_color = styles
+                    .value(node, "fill")
+                    .and_then(|c| parse_svg_color(&c, opacity))
+                    .unwrap_or([0, 0, 0, 255]);
+
+                match options.text_handling {
+                    VectorTextHandling::EditableText => {
+                        let (tx, ty) = transform_point(cumulative_matrix, x, y);
+                        bucket.elements.push(Element {
                             id: new_id("element"),
-                            name: format!("Mask #{cid}"),
-                            transform: Transform::default(),
+                            name: node_id.to_owned(),
+                            transform: Transform {
+                                x: tx,
+                                y: ty,
+                                ..Transform::default()
+                            },
+                            kind: ElementKind::Text {
+                                text: trimmed_text.to_owned(),
+                                font_family,
+                                font_size,
+                                color: fill_color,
+                            },
+                            ..Element::default()
+                        });
+                        report.statistics.elements += 1;
+                    }
+                    VectorTextHandling::ConvertToPaths => {
+                        report.warning(
+                            "svg-text-converted-to-paths",
+                            loc,
+                            format!(
+                                "Converted SVG <text> '{trimmed_text}' into editable vector paths."
+                            ),
+                        );
+                        let raw_cmds = text_to_outline_commands(trimmed_text, x, y, font_size);
+                        let (final_cmds, elem_transform) = match options.transform_handling {
+                            VectorTransformHandling::BakeTransformsIntoPaths => (
+                                bake_matrix_into_commands(&raw_cmds, cumulative_matrix),
+                                Transform::default(),
+                            ),
+                            VectorTransformHandling::KeepElementTransforms => (
+                                raw_cmds,
+                                Transform::from_matrix(cumulative_matrix).unwrap_or_default(),
+                            ),
+                        };
+                        bucket.elements.push(Element {
+                            id: new_id("element"),
+                            name: node_id.to_owned(),
+                            transform: elem_transform,
                             kind: ElementKind::Path {
-                                commands: baked_clip,
+                                commands: final_cmds,
                                 fill_rule: FillRule::NonZero,
-                                fill: [255, 255, 255, 255],
+                                fill: fill_color,
                                 stroke: [0, 0, 0, 0],
                                 stroke_width: 0.0,
                             },
                             ..Element::default()
                         });
-                        report.diagnostics.push(Diagnostic {
-                            severity: Severity::Info,
-                            code: "svg-mask-layer-created".to_owned(),
-                            location: loc.clone(),
-                            message: format!(
-                                "Created Timeline Mask layer from SVG {attr_name} '#{cid}'."
-                            ),
-                        });
+                        report.statistics.elements += 1;
                     }
-                    VectorMaskHandling::FlattenClip => {
+                }
+                continue;
+            }
+
+            if let Some(raw_cmds) = shape_node_to_commands(node) {
+                let opacity = styles
+                    .value(node, "opacity")
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(1.0);
+                let fill_opacity = styles
+                    .value(node, "fill-opacity")
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(1.0)
+                    * opacity;
+                let stroke_opacity = styles
+                    .value(node, "stroke-opacity")
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(1.0)
+                    * opacity;
+
+                let grad_outer = if options.transform_handling
+                    == VectorTransformHandling::BakeTransformsIntoPaths
+                {
+                    cumulative_matrix
+                } else {
+                    identity_matrix()
+                };
+                let fill_raw = styles.value(node, "fill");
+                let fill_grad_def = fill_raw
+                    .as_deref()
+                    .and_then(extract_url_id)
+                    .and_then(|id| gradients.get(&id).map(|g| (id, g)));
+                let fill_grad = fill_grad_def.as_ref().and_then(|(_, gradient)| {
+                    gradient.resolve(&raw_cmds, grad_outer, fill_opacity)
+                });
+                let fill_color = match (&fill_raw, &fill_grad_def, &fill_grad) {
+                    (_, Some((gid, gradient)), None) => {
                         report.warning(
-                            "svg-clip-flattened",
+                            "svg-gradient-approximated",
                             loc.clone(),
                             format!(
-                                "SVG {attr_name} '#{cid}' was flattened into the target layer."
+                                "SVG fill gradient '#{gid}' has a degenerate vector, transform, or 1D bounding box and was approximated with its final stop color."
                             ),
                         );
+                        gradient.fallback_solid_color(fill_opacity)
                     }
-                }
-            }
-        }
+                    (Some(f), None, None) => {
+                        parse_svg_color(f, fill_opacity).unwrap_or([0, 0, 0, 255])
+                    }
+                    (None, _, _) => [
+                        0,
+                        0,
+                        0,
+                        (fill_opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
+                    ],
+                    _ => [0, 0, 0, 255],
+                };
 
-        if tag == "g" || tag == "svg" || tag == "a" {
-            for child in node.children().filter(|c| c.is_element()) {
-                collect_svg_subtree(
-                    child,
-                    styles,
-                    cumulative_matrix,
-                    bucket,
-                    options,
-                    gradients,
-                    clip_paths,
-                    masks,
-                    filters,
-                    source_name,
-                    report,
-                );
-            }
-            return;
-        }
-
-        if tag == "text" {
-            let text_content: String = node
-                .descendants()
-                .filter(|n| n.is_text())
-                .filter_map(|n| n.text())
-                .collect::<Vec<_>>()
-                .join("");
-            let trimmed_text = text_content.trim();
-            if trimmed_text.is_empty() {
-                return;
-            }
-            let x = node
-                .attribute("x")
-                .and_then(|v| v.parse::<f64>().ok())
-                .unwrap_or(0.0);
-            let y = node
-                .attribute("y")
-                .and_then(|v| v.parse::<f64>().ok())
-                .unwrap_or(20.0);
-            let font_size = styles
-                .value(node, "font-size")
-                .and_then(|v| v.trim_end_matches("px").parse::<f64>().ok())
-                .unwrap_or(20.0)
-                .max(1.0);
-            let font_family = styles
-                .value(node, "font-family")
-                .unwrap_or_else(|| "sans-serif".to_owned());
-            let opacity = styles
-                .value(node, "opacity")
-                .and_then(|v| v.parse::<f64>().ok())
-                .unwrap_or(1.0);
-            let fill_color = styles
-                .value(node, "fill")
-                .and_then(|c| parse_svg_color(&c, opacity))
-                .unwrap_or([0, 0, 0, 255]);
-
-            match options.text_handling {
-                VectorTextHandling::EditableText => {
-                    let (tx, ty) = transform_point(cumulative_matrix, x, y);
-                    bucket.elements.push(Element {
-                        id: new_id("element"),
-                        name: node_id.to_owned(),
-                        transform: Transform {
-                            x: tx,
-                            y: ty,
-                            ..Transform::default()
-                        },
-                        kind: ElementKind::Text {
-                            text: trimmed_text.to_owned(),
-                            font_family,
-                            font_size,
-                            color: fill_color,
-                        },
-                        ..Element::default()
+                let stroke_raw = styles.value(node, "stroke");
+                let stroke_grad_def = stroke_raw
+                    .as_deref()
+                    .and_then(extract_url_id)
+                    .and_then(|id| gradients.get(&id).map(|g| (id, g)));
+                let stroke_grad = stroke_grad_def.as_ref().and_then(|(_, gradient)| {
+                    gradient.resolve(&raw_cmds, grad_outer, stroke_opacity)
+                });
+                let stroke_color = match (&stroke_raw, &stroke_grad_def, &stroke_grad) {
+                    (_, Some((gid, gradient)), None) => {
+                        report.warning(
+                            "svg-gradient-approximated",
+                            loc.clone(),
+                            format!(
+                                "SVG stroke gradient '#{gid}' has a degenerate vector, transform, or 1D bounding box and was approximated with its final stop color."
+                            ),
+                        );
+                        gradient.fallback_solid_color(stroke_opacity)
+                    }
+                    (_, Some((_, gradient)), Some(_)) => {
+                        gradient.fallback_solid_color(stroke_opacity)
+                    }
+                    (Some(s), None, None) => {
+                        parse_svg_color(s, stroke_opacity).unwrap_or([0, 0, 0, 0])
+                    }
+                    _ => [0, 0, 0, 0],
+                };
+                let stroke_width = styles
+                    .value(node, "stroke-width")
+                    .and_then(|v| v.trim_end_matches("px").parse::<f64>().ok())
+                    .unwrap_or(if stroke_color[3] > 0 || stroke_grad.is_some() {
+                        1.0
+                    } else {
+                        0.0
                     });
-                    report.statistics.elements += 1;
-                }
-                VectorTextHandling::ConvertToPaths => {
-                    report.warning(
-                        "svg-text-converted-to-paths",
-                        loc,
-                        format!(
-                            "Converted SVG <text> '{trimmed_text}' into editable vector paths."
-                        ),
-                    );
-                    let raw_cmds = text_to_outline_commands(trimmed_text, x, y, font_size);
-                    let (final_cmds, elem_transform) = match options.transform_handling {
-                        VectorTransformHandling::BakeTransformsIntoPaths => (
-                            bake_matrix_into_commands(&raw_cmds, cumulative_matrix),
-                            Transform::default(),
-                        ),
-                        VectorTransformHandling::KeepElementTransforms => (
-                            raw_cmds,
-                            Transform::from_matrix(cumulative_matrix).unwrap_or_default(),
-                        ),
+                let fill_rule = match styles.value(node, "fill-rule").as_deref() {
+                    Some("evenodd") => FillRule::EvenOdd,
+                    _ => FillRule::NonZero,
+                };
+
+                let (final_cmds, elem_transform) = match options.transform_handling {
+                    VectorTransformHandling::BakeTransformsIntoPaths => (
+                        bake_matrix_into_commands(&raw_cmds, cumulative_matrix),
+                        Transform::default(),
+                    ),
+                    VectorTransformHandling::KeepElementTransforms => (
+                        raw_cmds,
+                        Transform::from_matrix(cumulative_matrix).unwrap_or_default(),
+                    ),
+                };
+
+                if validate_path_commands(&final_cmds).is_ok() {
+                    let kind = if fill_grad.is_some() || stroke_grad.is_some() {
+                        ElementKind::PaintedPath {
+                            commands: final_cmds,
+                            fill_rule,
+                            fill: if fill_grad.is_some() {
+                                [0, 0, 0, 0]
+                            } else {
+                                fill_color
+                            },
+                            stroke: if stroke_grad.is_some() {
+                                [0, 0, 0, 0]
+                            } else {
+                                stroke_color
+                            },
+                            fill_gradient: fill_grad,
+                            stroke_gradient: stroke_grad,
+                            stroke_width,
+                        }
+                    } else {
+                        ElementKind::Path {
+                            commands: final_cmds,
+                            fill_rule,
+                            fill: fill_color,
+                            stroke: stroke_color,
+                            stroke_width,
+                        }
                     };
+                    let mut filters_vec = Vec::new();
+                    if let Some(filter_attr) = styles.value(node, "filter")
+                        && extract_url_id(&filter_attr).is_some()
+                    {
+                        filters_vec.push(FilterSpec::Blur {
+                            blur_x: 4.0,
+                            blur_y: 4.0,
+                            quality: 1,
+                        });
+                    }
                     bucket.elements.push(Element {
                         id: new_id("element"),
                         name: node_id.to_owned(),
                         transform: elem_transform,
-                        kind: ElementKind::Path {
-                            commands: final_cmds,
-                            fill_rule: FillRule::NonZero,
-                            fill: fill_color,
-                            stroke: [0, 0, 0, 0],
-                            stroke_width: 0.0,
-                        },
+                        kind,
+                        filters: filters_vec,
                         ..Element::default()
                     });
                     report.statistics.elements += 1;
                 }
+                continue;
             }
-            return;
+
+            // Unsupported SVG element: emit location-aware fidelity warning, never silently ignore!
+            report.warning(
+                "svg-unsupported-element",
+                loc,
+                format!("SVG element <{tag}> is not directly representable as vector artwork and was recorded in the fidelity report."),
+            );
         }
-
-        if let Some(raw_cmds) = shape_node_to_commands(node) {
-            let opacity = styles
-                .value(node, "opacity")
-                .and_then(|v| v.parse::<f64>().ok())
-                .unwrap_or(1.0);
-            let fill_opacity = styles
-                .value(node, "fill-opacity")
-                .and_then(|v| v.parse::<f64>().ok())
-                .unwrap_or(1.0)
-                * opacity;
-            let stroke_opacity = styles
-                .value(node, "stroke-opacity")
-                .and_then(|v| v.parse::<f64>().ok())
-                .unwrap_or(1.0)
-                * opacity;
-
-            let fill_raw = styles.value(node, "fill");
-            let fill_grad = fill_raw
-                .as_deref()
-                .and_then(extract_url_id)
-                .and_then(|id| gradients.get(&id))
-                .and_then(|gradient| {
-                    gradient.resolve(
-                        &raw_cmds,
-                        if options.transform_handling
-                            == VectorTransformHandling::BakeTransformsIntoPaths
-                        {
-                            cumulative_matrix
-                        } else {
-                            identity_matrix()
-                        },
-                        fill_opacity,
-                    )
-                });
-            let fill_color = match &fill_raw {
-                Some(f) if fill_grad.is_none() => {
-                    parse_svg_color(f, fill_opacity).unwrap_or([0, 0, 0, 255])
-                }
-                None => [
-                    0,
-                    0,
-                    0,
-                    (fill_opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
-                ],
-                _ => [0, 0, 0, 255],
-            };
-
-            let stroke_raw = styles.value(node, "stroke");
-            let stroke_color = stroke_raw
-                .as_deref()
-                .and_then(|s| parse_svg_color(s, stroke_opacity))
-                .unwrap_or([0, 0, 0, 0]);
-            let stroke_width = styles
-                .value(node, "stroke-width")
-                .and_then(|v| v.trim_end_matches("px").parse::<f64>().ok())
-                .unwrap_or(if stroke_color[3] > 0 { 1.0 } else { 0.0 });
-            let fill_rule = match styles.value(node, "fill-rule").as_deref() {
-                Some("evenodd") => FillRule::EvenOdd,
-                _ => FillRule::NonZero,
-            };
-
-            let (final_cmds, elem_transform) = match options.transform_handling {
-                VectorTransformHandling::BakeTransformsIntoPaths => (
-                    bake_matrix_into_commands(&raw_cmds, cumulative_matrix),
-                    Transform::default(),
-                ),
-                VectorTransformHandling::KeepElementTransforms => (
-                    raw_cmds,
-                    Transform::from_matrix(cumulative_matrix).unwrap_or_default(),
-                ),
-            };
-
-            if validate_path_commands(&final_cmds).is_ok() {
-                let kind = if fill_grad.is_some() {
-                    ElementKind::PaintedPath {
-                        commands: final_cmds,
-                        fill_rule,
-                        fill: fill_color,
-                        stroke: stroke_color,
-                        fill_gradient: fill_grad,
-                        stroke_gradient: None,
-                        stroke_width,
-                    }
-                } else {
-                    ElementKind::Path {
-                        commands: final_cmds,
-                        fill_rule,
-                        fill: fill_color,
-                        stroke: stroke_color,
-                        stroke_width,
-                    }
-                };
-                let mut filters_vec = Vec::new();
-                if let Some(filter_attr) = styles.value(node, "filter")
-                    && extract_url_id(&filter_attr).is_some()
-                {
-                    filters_vec.push(FilterSpec::Blur {
-                        blur_x: 4.0,
-                        blur_y: 4.0,
-                        quality: 1,
-                    });
-                }
-                bucket.elements.push(Element {
-                    id: new_id("element"),
-                    name: node_id.to_owned(),
-                    transform: elem_transform,
-                    kind,
-                    filters: filters_vec,
-                    ..Element::default()
-                });
-                report.statistics.elements += 1;
-            }
-            return;
-        }
-
-        // Unsupported SVG element: emit location-aware fidelity warning, never silently ignore!
-        report.warning(
-            "svg-unsupported-element",
-            loc,
-            format!("SVG element <{tag}> is not directly representable as vector artwork and was recorded in the fidelity report."),
-        );
     }
 
     let root_matrix = root
@@ -1586,6 +1672,7 @@ pub fn import_svg_into_project(
             };
             collect_svg_subtree(
                 child,
+                0,
                 &styles,
                 root_matrix,
                 &mut group_bucket,
@@ -1603,6 +1690,7 @@ pub fn import_svg_into_project(
         } else {
             collect_svg_subtree(
                 child,
+                0,
                 &styles,
                 root_matrix,
                 &mut loose_bucket,
@@ -1695,70 +1783,6 @@ fn parse_pdf_media_box(text: &str) -> Option<(u32, u32)> {
     None
 }
 
-fn tokenize_pdf_content(stream: &str) -> Result<Vec<String>, ImportError> {
-    let mut tokens = Vec::new();
-    let mut chars = stream.chars().peekable();
-    while let Some(&ch) = chars.peek() {
-        if tokens.len() >= 1_000_000 {
-            return Err(ImportError::Container(
-                "PDF page exceeds one million operands and operators.".into(),
-            ));
-        }
-        if ch.is_ascii_whitespace() {
-            chars.next();
-            continue;
-        }
-        if ch == '%' {
-            for c in chars.by_ref() {
-                if c == '\n' || c == '\r' {
-                    break;
-                }
-            }
-            continue;
-        }
-        if ch == '(' {
-            chars.next();
-            let mut s = String::from("(");
-            let mut depth = 1usize;
-            while let Some(c) = chars.next() {
-                if c == '\\' {
-                    if let Some(esc) = chars.next() {
-                        s.push(esc);
-                    }
-                    continue;
-                }
-                if c == '(' {
-                    depth += 1;
-                } else if c == ')' {
-                    depth -= 1;
-                    if depth == 0 {
-                        s.push(')');
-                        break;
-                    }
-                }
-                s.push(c);
-            }
-            tokens.push(s);
-            continue;
-        }
-        if matches!(ch, '[' | ']' | ')') {
-            tokens.push(chars.next().unwrap().to_string());
-            continue;
-        }
-        let mut word = String::new();
-        while let Some(&c) = chars.peek() {
-            if c.is_ascii_whitespace() || matches!(c, '(' | ')' | '[' | ']' | '%') {
-                break;
-            }
-            word.push(chars.next().unwrap());
-        }
-        if !word.is_empty() {
-            tokens.push(word);
-        }
-    }
-    Ok(tokens)
-}
-
 /// Import a PDF or Adobe Illustrator (`.ai` / `.pdf`) vector document into an existing [`Project`].
 ///
 /// Parses PDF/AI vector content stream operators (`m`, `l`, `c`, `v`, `y`, `re`, `h`, `S`, `s`,
@@ -1811,6 +1835,7 @@ pub fn import_pdf_ai_into_project(
                 rotation: 0,
                 shadings: BTreeMap::new(),
                 patterns: BTreeMap::new(),
+                warnings: Vec::new(),
             }]
         }
         Err(e) => return Err(e),
@@ -1898,8 +1923,15 @@ pub fn import_pdf_ai_into_project(
     let mut total_ops = 0usize;
 
     for (stream_idx, page) in pages.iter().enumerate() {
+        for (res_name, msg) in &page.warnings {
+            report.warning(
+                "pdf-shading-approximated",
+                format!("{source_name}::stream[{stream_idx}]::{res_name}"),
+                msg.clone(),
+            );
+        }
         let page_matrix = page.size_and_transform().1;
-        let tokens = tokenize_pdf_content(&page.content)?;
+        let tokens = pdf::tokenize_pdf_content(&page.content)?;
         let mut operand_stack: Vec<String> = Vec::new();
         let mut gstate = PdfGState {
             ctm: page_matrix,
@@ -1914,7 +1946,14 @@ pub fn import_pdf_ai_into_project(
 
         for tok in tokens {
             let is_num = tok.parse::<f64>().is_ok();
-            if is_num || tok.starts_with('(') || tok.starts_with('/') || tok == "[" || tok == "]" {
+            if is_num
+                || tok.starts_with('(')
+                || tok.starts_with('<')
+                || tok == ">>"
+                || tok.starts_with('/')
+                || tok == "["
+                || tok == "]"
+            {
                 operand_stack.push(tok);
                 continue;
             }
@@ -1922,11 +1961,24 @@ pub fn import_pdf_ai_into_project(
             total_ops += 1;
             let loc = format!("{source_name}::stream[{stream_idx}]::{tok}");
 
-            let clip = gstate.clip.as_deref();
+            let is_known_shading = tok == "sh"
+                && operand_stack
+                    .last()
+                    .and_then(|name| page.shadings.get(name.trim_start_matches('/')))
+                    .is_some();
+            // `sh` already consumes `gstate.clip` / `gstate.clip_geom` directly as its
+            // `PaintedPath` geometry, so attaching a Timeline Mask layer as well would
+            // duplicate the clip layer on round-trip.
+            let effective_clip = if is_known_shading {
+                None
+            } else {
+                gstate.clip.as_deref()
+            };
             if matches!(
                 tok.as_str(),
                 "S" | "s" | "f" | "F" | "f*" | "B" | "B*" | "b" | "b*" | "Tj" | "TJ" | "sh"
-            ) && current_bucket.mask_elements.first().map(|e| &e.id) != clip.map(|e| &e.id)
+            ) && current_bucket.mask_elements.first().map(|e| &e.id)
+                != effective_clip.map(|e| &e.id)
             {
                 if !current_bucket.elements.is_empty() {
                     let next = VectorGroupBucket {
@@ -1937,7 +1989,7 @@ pub fn import_pdf_ai_into_project(
                     };
                     buckets.push(std::mem::replace(&mut current_bucket, next));
                 }
-                current_bucket.mask_elements = clip.cloned().into_iter().collect();
+                current_bucket.mask_elements = effective_clip.cloned().into_iter().collect();
             }
             match tok.as_str() {
                 "q" => {
@@ -2386,8 +2438,7 @@ pub fn import_pdf_ai_into_project(
                 "Tj" | "TJ" => {
                     let text_str: String = operand_stack
                         .iter()
-                        .filter(|s| s.starts_with('(') && s.ends_with(')'))
-                        .map(|s| &s[1..s.len() - 1])
+                        .filter_map(|s| pdf::decode_pdf_string_token(s))
                         .collect::<Vec<_>>()
                         .join("");
                     if !text_str.is_empty() {

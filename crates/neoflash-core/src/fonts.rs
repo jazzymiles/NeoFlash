@@ -154,19 +154,27 @@ impl TextFormat {
         self.set_field_options(Some(opts));
     }
 
-    /// Inspects SFNT (`.ttf`/`.otf`) or WOFF1 (`wOFF`) table tags.
+    /// Inspects SFNT (`.ttf`/`.otf`) or WOFF1 (`wOFF`) table tags for the first face (`face_index = 0`).
     pub fn sfnt_table_tags(font_bytes: &[u8]) -> Vec<String> {
+        Self::sfnt_table_tags_for_face(font_bytes, 0)
+    }
+
+    /// Inspects SFNT (`.ttf`/`.otf`), TTC (`ttcf`), or WOFF1 (`wOFF`) table tags for `face_index`.
+    pub fn sfnt_table_tags_for_face(font_bytes: &[u8], face_index: u32) -> Vec<String> {
         if font_bytes.len() < 12 {
             return Vec::new();
         }
         let is_woff = &font_bytes[0..4] == b"wOFF";
         let (dir_off, num_tables) = if is_woff {
-            if font_bytes.len() < 44 {
+            if face_index != 0 || font_bytes.len() < 44 {
                 return Vec::new();
             }
-            (0usize, u16::from_be_bytes([font_bytes[12], font_bytes[13]]) as usize)
+            (
+                0usize,
+                u16::from_be_bytes([font_bytes[12], font_bytes[13]]) as usize,
+            )
         } else {
-            let Some(off) = sfnt_first_dir_offset(font_bytes) else {
+            let Some(off) = sfnt_dir_offset(font_bytes, face_index) else {
                 return Vec::new();
             };
             (
@@ -196,10 +204,18 @@ impl TextFormat {
     /// Returns any bitmap or color font tables (`CBDT`, `CBLC`, `sbix`, `COLR`, `CPAL`, `EBDT`, `SVG `)
     /// present in `font_bytes` that cannot be represented purely as monochrome vector outlines.
     pub fn unsupported_outline_font_tables(font_bytes: &[u8]) -> Vec<String> {
+        Self::unsupported_outline_font_tables_for_face(font_bytes, 0)
+    }
+
+    /// Face-indexed variant of [`Self::unsupported_outline_font_tables`] for `.ttc` collections.
+    pub fn unsupported_outline_font_tables_for_face(
+        font_bytes: &[u8],
+        face_index: u32,
+    ) -> Vec<String> {
         const UNSUPPORTED_TABLES: &[&str] = &[
             "CBDT", "CBLC", "sbix", "COLR", "CPAL", "EBDT", "EBLC", "SVG ",
         ];
-        let tags = Self::sfnt_table_tags(font_bytes);
+        let tags = Self::sfnt_table_tags_for_face(font_bytes, face_index);
         let mut found = Vec::new();
         for tag in tags {
             if UNSUPPORTED_TABLES.contains(&tag.as_str()) && !found.contains(&tag) {
@@ -211,7 +227,12 @@ impl TextFormat {
 
     /// Returns `(has_glyf, has_cff)` for `font_bytes`.
     pub fn has_cff_or_glyf_outlines(font_bytes: &[u8]) -> (bool, bool) {
-        let tags = Self::sfnt_table_tags(font_bytes);
+        Self::has_cff_or_glyf_outlines_for_face(font_bytes, 0)
+    }
+
+    /// Face-indexed variant of [`Self::has_cff_or_glyf_outlines`] for `.ttc` collections.
+    pub fn has_cff_or_glyf_outlines_for_face(font_bytes: &[u8], face_index: u32) -> (bool, bool) {
+        let tags = Self::sfnt_table_tags_for_face(font_bytes, face_index);
         let has_glyf = tags.iter().any(|t| t == "glyf");
         let has_cff = tags.iter().any(|t| t == "CFF " || t == "CFF2");
         (has_glyf, has_cff)
@@ -220,16 +241,32 @@ impl TextFormat {
     /// Returns non-whitespace Unicode scalar values in `text` that are not mapped in `cmap`
     /// of `font_bytes`.
     pub fn missing_outline_codepoints(font_bytes: &[u8], text: &str) -> Vec<u32> {
-        let Some(cmap_map) = parse_sfnt_cmap_table(font_bytes) else {
+        Self::missing_outline_codepoints_for_face(font_bytes, 0, text)
+    }
+
+    /// Face-indexed variant of [`Self::missing_outline_codepoints`] for `.ttc` collections,
+    /// using untruncated binary-search `cmap` lookup across BMP and supplementary planes.
+    pub fn missing_outline_codepoints_for_face(
+        font_bytes: &[u8],
+        face_index: u32,
+        text: &str,
+    ) -> Vec<u32> {
+        let Some(sfnt) = sfnt_view_bytes(font_bytes) else {
             return Vec::new();
         };
+        let Some(dir_off) = sfnt_dir_offset(&sfnt, face_index) else {
+            return Vec::new();
+        };
+        if sfnt_table_slice_at(&sfnt, dir_off, b"cmap").is_none() {
+            return Vec::new();
+        }
         let mut missing = Vec::new();
         for ch in text.chars() {
             if ch.is_whitespace() {
                 continue;
             }
             let cp = ch as u32;
-            let gid = cmap_map.get(&cp).copied().unwrap_or(0);
+            let gid = sfnt_cmap_glyph_id_at(&sfnt, dir_off, cp).unwrap_or(0);
             if gid == 0 && !missing.contains(&cp) {
                 missing.push(cp);
             }
@@ -237,7 +274,7 @@ impl TextFormat {
         missing
     }
 
-    /// Validates whether `font_bytes` can faithfully convert `text` to vector outlines at `location`.
+    /// Validates whether `font_bytes` (face 0) can faithfully convert `text` to vector outlines at `location`.
     /// Emits actionable located diagnostics when bitmap/color tables (`CBDT`, `sbix`, `COLR`) are used
     /// or when `text` references glyphs missing from the font's coverage.
     pub fn validate_text_outlines_for_font(
@@ -246,9 +283,21 @@ impl TextFormat {
         text: &str,
         font_bytes: &[u8],
     ) -> Vec<String> {
+        Self::validate_text_outlines_for_font_face(location, family, text, font_bytes, 0)
+    }
+
+    /// Validates whether `face_index` of `font_bytes` (standalone SFNT, `.ttc` collection, or WOFF1)
+    /// can faithfully convert `text` to vector outlines at `location`.
+    pub fn validate_text_outlines_for_font_face(
+        location: &str,
+        family: &str,
+        text: &str,
+        font_bytes: &[u8],
+        face_index: u32,
+    ) -> Vec<String> {
         let mut diagnostics = Vec::new();
-        let unsupported = Self::unsupported_outline_font_tables(font_bytes);
-        let (has_glyf, has_cff) = Self::has_cff_or_glyf_outlines(font_bytes);
+        let unsupported = Self::unsupported_outline_font_tables_for_face(font_bytes, face_index);
+        let (has_glyf, has_cff) = Self::has_cff_or_glyf_outlines_for_face(font_bytes, face_index);
         if !unsupported.is_empty() {
             diagnostics.push(format!(
                 "{location}: font '{family}' contains unsupported bitmap/color table(s) [{}]; retaining visible text fallback instead of dropping glyphs",
@@ -264,7 +313,7 @@ impl TextFormat {
             ));
         }
 
-        let missing = Self::missing_outline_codepoints(font_bytes, text);
+        let missing = Self::missing_outline_codepoints_for_face(font_bytes, face_index, text);
         if !missing.is_empty() {
             let formatted = missing
                 .iter()
@@ -727,8 +776,145 @@ pub(crate) fn sfnt_face_dir_offsets(sfnt: &[u8]) -> Option<Vec<usize>> {
     None
 }
 
+pub(crate) fn sfnt_dir_offset(sfnt: &[u8], face_index: u32) -> Option<usize> {
+    if sfnt.len() < 12 {
+        return None;
+    }
+    let sig = &sfnt[0..4];
+    if is_sfnt_flavor(sig) {
+        return (face_index == 0).then_some(0);
+    }
+    if sig == b"ttcf" {
+        if sfnt.len() < 16 {
+            return None;
+        }
+        let num_fonts = u32::from_be_bytes([sfnt[8], sfnt[9], sfnt[10], sfnt[11]]);
+        if face_index >= num_fonts {
+            return None;
+        }
+        let pos = 12usize.checked_add((face_index as usize).checked_mul(4)?)?;
+        if pos.checked_add(4)? > sfnt.len() {
+            return None;
+        }
+        let dir_off =
+            u32::from_be_bytes([sfnt[pos], sfnt[pos + 1], sfnt[pos + 2], sfnt[pos + 3]]) as usize;
+        if dir_off.checked_add(12).is_some_and(|end| end <= sfnt.len())
+            && is_sfnt_flavor(&sfnt[dir_off..dir_off + 4])
+        {
+            return Some(dir_off);
+        }
+    }
+    None
+}
+
 pub(crate) fn sfnt_first_dir_offset(sfnt: &[u8]) -> Option<usize> {
     sfnt_face_dir_offsets(sfnt)?.into_iter().next()
+}
+
+/// Extracts `face_index` from an OpenType/TrueType Collection (`ttcf`) or standalone SFNT/WOFF1
+/// into a standalone 0-indexed SFNT byte buffer so single-face consumers can parse any `.ttc` face.
+pub fn extract_ttc_face_to_sfnt(font_bytes: &[u8], face_index: u32) -> Option<Vec<u8>> {
+    let sfnt = sfnt_view_bytes(font_bytes)?;
+    if sfnt.len() < 12 {
+        return None;
+    }
+    if is_sfnt_flavor(&sfnt[0..4]) {
+        return (face_index == 0).then(|| sfnt.into_owned());
+    }
+    let dir_off = sfnt_dir_offset(&sfnt, face_index)?;
+    let num_tables = u16::from_be_bytes([sfnt[dir_off + 4], sfnt[dir_off + 5]]) as usize;
+    if num_tables == 0 || num_tables > 256 {
+        return None;
+    }
+    let dir_len = 12usize.checked_add(num_tables * 16)?;
+    if dir_off.checked_add(dir_len)? > sfnt.len() {
+        return None;
+    }
+
+    let mut out = Vec::new();
+    out.extend_from_slice(&sfnt[dir_off..dir_off + dir_len]);
+    for i in 0..num_tables {
+        let src_rec = dir_off + 12 + i * 16;
+        let tbl_off = u32::from_be_bytes([
+            sfnt[src_rec + 8],
+            sfnt[src_rec + 9],
+            sfnt[src_rec + 10],
+            sfnt[src_rec + 11],
+        ]) as usize;
+        let tbl_len = u32::from_be_bytes([
+            sfnt[src_rec + 12],
+            sfnt[src_rec + 13],
+            sfnt[src_rec + 14],
+            sfnt[src_rec + 15],
+        ]) as usize;
+        let tbl_end = tbl_off.checked_add(tbl_len)?;
+        if tbl_end > sfnt.len() {
+            return None;
+        }
+        let new_off = u32::try_from(out.len()).ok()?;
+        let dst_rec = 12 + i * 16;
+        out[dst_rec + 8..dst_rec + 12].copy_from_slice(&new_off.to_be_bytes());
+        out.extend_from_slice(&sfnt[tbl_off..tbl_end]);
+        while !out.len().is_multiple_of(4) {
+            out.push(0);
+        }
+    }
+    Some(out)
+}
+
+/// Returns the number of faces in a `ttcf` collection (or `1` for a standalone SFNT/WOFF1).
+pub fn sfnt_face_count(font_bytes: &[u8]) -> u32 {
+    let Some(sfnt) = sfnt_view_bytes(font_bytes) else {
+        return 0;
+    };
+    if sfnt.len() >= 16 && &sfnt[0..4] == b"ttcf" {
+        u32::from_be_bytes([sfnt[8], sfnt[9], sfnt[10], sfnt[11]]).min(256)
+    } else if sfnt.len() >= 12 && is_sfnt_flavor(&sfnt[0..4]) {
+        1
+    } else {
+        0
+    }
+}
+
+/// Selects the best face index inside `font_bytes` (especially `.ttc` collections) matching
+/// `(family, bold, italic)`.
+pub fn select_best_sfnt_face_index(
+    font_bytes: &[u8],
+    family: &str,
+    bold: bool,
+    italic: bool,
+) -> u32 {
+    let Some(sfnt) = sfnt_view_bytes(font_bytes) else {
+        return 0;
+    };
+    let count = sfnt_face_count(&sfnt);
+    if count <= 1 {
+        return 0;
+    }
+    let wanted_style = match (bold, italic) {
+        (true, true) => "boldItalic",
+        (true, false) => "bold",
+        (false, true) => "italic",
+        (false, false) => "regular",
+    };
+    let clean_family = family.trim();
+    let mut best: Option<((bool, bool, u32), u32)> = None;
+    for idx in 0..count {
+        let Some(dir_off) = sfnt_dir_offset(&sfnt, idx) else {
+            continue;
+        };
+        let Some(desc) = inspect_sfnt_font_descriptor_at(&sfnt, dir_off, clean_family) else {
+            continue;
+        };
+        let fam_mismatch =
+            !clean_family.is_empty() && !desc.font_name.eq_ignore_ascii_case(clean_family);
+        let style_mismatch = desc.font_style != wanted_style;
+        let score = (fam_mismatch, style_mismatch, idx);
+        if best.is_none_or(|(b_score, _)| score < b_score) {
+            best = Some((score, idx));
+        }
+    }
+    best.map_or(0, |(_, idx)| idx)
 }
 
 /// Returns an SFNT/TTC view over raw SFNT, OpenType/TrueType Collection (`ttcf`), or WOFF1 bytes.
@@ -775,125 +961,11 @@ impl PortableFontMetrics {
     }
 }
 
-pub(crate) fn parse_cmap_subtables(cmap: &[u8]) -> BTreeMap<u32, u16> {
-    let mut cmap_map = BTreeMap::<u32, u16>::new();
-    if cmap.len() < 4 {
-        return cmap_map;
-    }
-    let subtables = u16::from_be_bytes([cmap[2], cmap[3]]) as usize;
-    for i in 0..subtables.min(32) {
-        let rec = 4 + i * 8;
-        if rec + 8 > cmap.len() {
-            break;
-        }
-        let sub_off =
-            u32::from_be_bytes([cmap[rec + 4], cmap[rec + 5], cmap[rec + 6], cmap[rec + 7]])
-                as usize;
-        if sub_off + 4 > cmap.len() {
-            continue;
-        }
-        let fmt = u16::from_be_bytes([cmap[sub_off], cmap[sub_off + 1]]);
-        if fmt == 4 && sub_off + 14 <= cmap.len() {
-            let seg_count_x2 = u16::from_be_bytes([cmap[sub_off + 6], cmap[sub_off + 7]]) as usize;
-            let seg_count = seg_count_x2 / 2;
-            let end_codes = sub_off + 14;
-            let start_codes = end_codes + seg_count_x2 + 2;
-            let id_deltas = start_codes + seg_count_x2;
-            let id_range_offsets = id_deltas + seg_count_x2;
-            if id_range_offsets + seg_count_x2 <= cmap.len() {
-                for s in 0..seg_count {
-                    let end_c =
-                        u16::from_be_bytes([cmap[end_codes + s * 2], cmap[end_codes + s * 2 + 1]]);
-                    let start_c = u16::from_be_bytes([
-                        cmap[start_codes + s * 2],
-                        cmap[start_codes + s * 2 + 1],
-                    ]);
-                    if start_c == 0xFFFF {
-                        break;
-                    }
-                    let delta =
-                        i16::from_be_bytes([cmap[id_deltas + s * 2], cmap[id_deltas + s * 2 + 1]])
-                            as i32;
-                    let ro_pos = id_range_offsets + s * 2;
-                    let ro = u16::from_be_bytes([cmap[ro_pos], cmap[ro_pos + 1]]) as usize;
-                    for c in start_c..=end_c {
-                        if cmap_map.len() >= MAX_GLYPHS {
-                            return cmap_map;
-                        }
-                        let gid = if ro == 0 {
-                            ((c as i32 + delta) & 0xFFFF) as u16
-                        } else {
-                            let glyph_idx_off = ro_pos + ro + ((c - start_c) as usize) * 2;
-                            if glyph_idx_off + 2 <= cmap.len() {
-                                let raw = u16::from_be_bytes([
-                                    cmap[glyph_idx_off],
-                                    cmap[glyph_idx_off + 1],
-                                ]);
-                                if raw == 0 {
-                                    0
-                                } else {
-                                    ((raw as i32 + delta) & 0xFFFF) as u16
-                                }
-                            } else {
-                                0
-                            }
-                        };
-                        if gid > 0 {
-                            cmap_map.insert(u32::from(c), gid);
-                        }
-                    }
-                }
-            }
-        } else if fmt == 12 && sub_off + 16 <= cmap.len() {
-            let n_groups = u32::from_be_bytes([
-                cmap[sub_off + 12],
-                cmap[sub_off + 13],
-                cmap[sub_off + 14],
-                cmap[sub_off + 15],
-            ]) as usize;
-            for g in 0..n_groups.min(16384) {
-                let grp = sub_off + 16 + g * 12;
-                if grp + 12 > cmap.len() {
-                    break;
-                }
-                let start_c =
-                    u32::from_be_bytes([cmap[grp], cmap[grp + 1], cmap[grp + 2], cmap[grp + 3]]);
-                let end_c = u32::from_be_bytes([
-                    cmap[grp + 4],
-                    cmap[grp + 5],
-                    cmap[grp + 6],
-                    cmap[grp + 7],
-                ]);
-                let start_gid = u32::from_be_bytes([
-                    cmap[grp + 8],
-                    cmap[grp + 9],
-                    cmap[grp + 10],
-                    cmap[grp + 11],
-                ]);
-                if end_c >= start_c && end_c - start_c <= MAX_GLYPHS as u32 {
-                    for c in start_c..=end_c {
-                        if cmap_map.len() >= MAX_GLYPHS {
-                            return cmap_map;
-                        }
-                        let gid = (start_gid + (c - start_c)) as u16;
-                        if gid > 0 {
-                            cmap_map.insert(c, gid);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    cmap_map
-}
-
-fn parse_sfnt_cmap_table(bytes: &[u8]) -> Option<std::collections::BTreeMap<u32, u16>> {
-    let sfnt = sfnt_view_bytes(bytes)?;
-    let cmap_slice = sfnt_table_slice(&sfnt, b"cmap")?;
-    Some(parse_cmap_subtables(cmap_slice))
-}
-
-fn sfnt_table_slice_at<'a>(sfnt: &'a [u8], dir_off: usize, wanted_tag: &[u8; 4]) -> Option<&'a [u8]> {
+fn sfnt_table_slice_at<'a>(
+    sfnt: &'a [u8],
+    dir_off: usize,
+    wanted_tag: &[u8; 4],
+) -> Option<&'a [u8]> {
     if dir_off.checked_add(12)? > sfnt.len() {
         return None;
     }
@@ -917,16 +989,15 @@ fn sfnt_table_slice_at<'a>(sfnt: &'a [u8], dir_off: usize, wanted_tag: &[u8; 4])
             sfnt[entry + 14],
             sfnt[entry + 15],
         ]) as usize;
-        if tag == wanted_tag && offset.checked_add(length).is_some_and(|end| end <= sfnt.len()) {
+        if tag == wanted_tag
+            && offset
+                .checked_add(length)
+                .is_some_and(|end| end <= sfnt.len())
+        {
             return Some(&sfnt[offset..offset + length]);
         }
     }
     None
-}
-
-fn sfnt_table_slice<'a>(sfnt: &'a [u8], wanted_tag: &[u8; 4]) -> Option<&'a [u8]> {
-    let dir_off = sfnt_first_dir_offset(sfnt)?;
-    sfnt_table_slice_at(sfnt, dir_off, wanted_tag)
 }
 
 fn cmap_subtable_glyph_id(cmap: &[u8], sub_off: usize, codepoint: u32) -> Option<u32> {
@@ -946,7 +1017,9 @@ fn cmap_subtable_glyph_id(cmap: &[u8], sub_off: usize, codepoint: u32) -> Option
                 cmap[sub_off + 14],
                 cmap[sub_off + 15],
             ]) as usize;
-            let groups_end = sub_off.checked_add(16)?.checked_add(n_groups.checked_mul(12)?)?;
+            let groups_end = sub_off
+                .checked_add(16)?
+                .checked_add(n_groups.checked_mul(12)?)?;
             if groups_end > cmap.len() {
                 return None;
             }
@@ -992,8 +1065,7 @@ fn cmap_subtable_glyph_id(cmap: &[u8], sub_off: usize, codepoint: u32) -> Option
             if sub_off.checked_add(14)? > cmap.len() {
                 return None;
             }
-            let seg_count_x2 =
-                u16::from_be_bytes([cmap[sub_off + 6], cmap[sub_off + 7]]) as usize;
+            let seg_count_x2 = u16::from_be_bytes([cmap[sub_off + 6], cmap[sub_off + 7]]) as usize;
             if seg_count_x2 < 2 || !seg_count_x2.is_multiple_of(2) {
                 return None;
             }
@@ -1021,7 +1093,8 @@ fn cmap_subtable_glyph_id(cmap: &[u8], sub_off: usize, codepoint: u32) -> Option
             if lo >= seg_count {
                 return Some(0);
             }
-            let end_c = u16::from_be_bytes([cmap[end_codes + lo * 2], cmap[end_codes + lo * 2 + 1]]);
+            let end_c =
+                u16::from_be_bytes([cmap[end_codes + lo * 2], cmap[end_codes + lo * 2 + 1]]);
             let start_c =
                 u16::from_be_bytes([cmap[start_codes + lo * 2], cmap[start_codes + lo * 2 + 1]]);
             if cp16 < start_c || cp16 > end_c || (start_c == 0xFFFF && cp16 == 0xFFFF) {
@@ -1216,7 +1289,8 @@ fn decode_sfnt_name_string(platform_id: u16, bytes: &[u8]) -> Option<String> {
 
 fn normalize_as3_font_style(raw: &str, bold_flag: bool, italic_flag: bool) -> String {
     let lower = raw.trim().to_ascii_lowercase();
-    let is_bold = bold_flag || lower.contains("bold") || lower.contains("black") || lower.contains("heavy");
+    let is_bold =
+        bold_flag || lower.contains("bold") || lower.contains("black") || lower.contains("heavy");
     let is_italic = italic_flag || lower.contains("italic") || lower.contains("oblique");
     match (is_bold, is_italic) {
         (true, true) => "boldItalic".to_owned(),
@@ -1951,7 +2025,10 @@ mod fonts_tests {
         let sfnt = build_synthetic_sfnt_with_tables(&[]);
         let woff = crate::pack_sfnt_to_woff(&sfnt).expect("pack synthetic SFNT to WOFF1");
         assert!(woff.starts_with(b"wOFF"));
-        assert_eq!(crate::sniff_font_media_type(&woff, "application/octet-stream"), "font/woff");
+        assert_eq!(
+            crate::sniff_font_media_type(&woff, "application/octet-stream"),
+            "font/woff"
+        );
         let unpacked = crate::unpack_woff_to_sfnt(&woff).expect("unpack WOFF1 back to SFNT");
         assert_eq!(crate::sfnt_checksum(&unpacked), 0xB1B0_AFBA);
 
@@ -1965,8 +2042,13 @@ mod fonts_tests {
         // ensure Player::object_text_fit_portable uses its embedded metrics (advance 600 vs builtin).
         let mut project = crate::Project::blank();
         project.resources.push(
-            crate::ResourceUnit::from_bytes("font-woff", "fonts/SyntheticWoff.woff", "font/woff", &woff)
-                .expect("woff resource"),
+            crate::ResourceUnit::from_bytes(
+                "font-woff",
+                "fonts/SyntheticWoff.woff",
+                "font/woff",
+                &woff,
+            )
+            .expect("woff resource"),
         );
         let mut fmt = TextFormat {
             font: "SyntheticWoff".to_owned(),
@@ -2000,9 +2082,7 @@ mod fonts_tests {
             .find(|node| node.name == "woffBox")
             .expect("woffBox display node")
             .path;
-        let child_ref = player
-            .object_ref(&child_path)
-            .expect("woffBox object_ref");
+        let child_ref = player.object_ref(&child_path).expect("woffBox object_ref");
         assert!(
             player
                 .object_text_fit_portable(&project, &child_ref)
@@ -2042,9 +2122,7 @@ mod fonts_tests {
     }
 
     fn build_utf16be_name_table(family: &str, subfamily: &str) -> Vec<u8> {
-        let enc = |s: &str| -> Vec<u8> {
-            s.encode_utf16().flat_map(u16::to_be_bytes).collect()
-        };
+        let enc = |s: &str| -> Vec<u8> { s.encode_utf16().flat_map(u16::to_be_bytes).collect() };
         let fam_bytes = enc(family);
         let sub_bytes = enc(subfamily);
         let mut tbl = Vec::new();
@@ -2082,14 +2160,7 @@ mod fonts_tests {
         // Segment 2 (0x03A9) uses glyphIdArray (1 u16 entry = glyph 30) via idRangeOffset:
         // range_off_pos is at sub_start + 16 + 3*segCount*2 + 2*2; glyphIdArray starts at sub_start + 16 + 4*segCount*2.
         // Byte distance from range_off_pos (segment index 2 out of 6) to glyphIdArray[0] = (6 - 2) * 2 = 8!
-        let id_deltas: [i16; 6] = [
-            1 - 0x0020,
-            2 - 0x0041,
-            0,
-            40 - 0x042F,
-            50 - 0x3042,
-            1,
-        ];
+        let id_deltas: [i16; 6] = [1 - 0x0020, 2 - 0x0041, 0, 40 - 0x042F, 50 - 0x3042, 1];
         let id_range_offsets: [u16; 6] = [0, 0, 8, 0, 0, 0];
 
         let mut fmt4 = Vec::new();
@@ -2132,7 +2203,10 @@ mod fonts_tests {
             &[
                 (*b"cmap", cmap4),
                 (*b"head", head.clone()),
-                (*b"name", build_utf16be_name_table("NeoBmpSans", "Bold Italic")),
+                (
+                    *b"name",
+                    build_utf16be_name_table("NeoBmpSans", "Bold Italic"),
+                ),
             ],
         );
 
@@ -2190,10 +2264,12 @@ mod fonts_tests {
         // Project enumeration + lookup end-to-end
         let mut project = crate::Project::blank();
         project.resources.push(
-            crate::ResourceUnit::from_bytes("f4", "fonts/NeoBmpSans.ttf", "font/ttf", &sfnt4).unwrap(),
+            crate::ResourceUnit::from_bytes("f4", "fonts/NeoBmpSans.ttf", "font/ttf", &sfnt4)
+                .unwrap(),
         );
         project.resources.push(
-            crate::ResourceUnit::from_bytes("f12", "fonts/NeoSmpCff.otf", "font/otf", &sfnt12).unwrap(),
+            crate::ResourceUnit::from_bytes("f12", "fonts/NeoSmpCff.otf", "font/otf", &sfnt12)
+                .unwrap(),
         );
         let enumerated = enumerate_project_embedded_fonts(&project);
         assert_eq!(enumerated.len(), 2);
@@ -2276,5 +2352,49 @@ mod fonts_tests {
             project_font_has_glyphs(&ttc_project, "NeoSmpCff", "regular", "embeddedCFF", "🚀"),
             Some(false)
         );
+
+        // Face-indexed outline validation & standalone SFNT extraction for `.ttc` faces > 0:
+        let color_face0 = build_synthetic_sfnt_with_tables(&[(*b"CBDT", vec![0; 16])]);
+        let mut clean_bold_face1 = build_synthetic_sfnt_with_tables(&[(
+            *b"name",
+            build_utf16be_name_table("NeoBundle", "Bold"),
+        )]);
+        // Mark head.macStyle = 0x0001 (Bold) inside clean_bold_face1
+        if let Some(head_slice) = sfnt_table_slice_at(&clean_bold_face1, 0, b"head") {
+            let head_ptr_off = head_slice.as_ptr() as usize - clean_bold_face1.as_ptr() as usize;
+            clean_bold_face1[head_ptr_off + 44..head_ptr_off + 46]
+                .copy_from_slice(&0x0001u16.to_be_bytes());
+        }
+        let mixed_ttc = pack_sfnts_into_ttc(&[&color_face0, &clean_bold_face1]);
+        assert!(
+            !TextFormat::validate_text_outlines_for_font("loc", "NeoBundle", "AÁ", &mixed_ttc)
+                .is_empty(),
+            "face 0 has CBDT and must be flagged"
+        );
+        assert!(
+            TextFormat::validate_text_outlines_for_font_face(
+                "loc",
+                "NeoBundle",
+                "AÁ",
+                &mixed_ttc,
+                1,
+            )
+            .is_empty(),
+            "face 1 is a clean vector glyf face and must pass validation"
+        );
+        assert_eq!(
+            select_best_sfnt_face_index(&mixed_ttc, "NeoBundle", true, false),
+            1
+        );
+        let standalone_face1 =
+            extract_ttc_face_to_sfnt(&mixed_ttc, 1).expect("extract face 1 SFNT");
+        assert!(
+            TextFormat::unsupported_outline_font_tables(&standalone_face1).is_empty(),
+            "extracted face 1 SFNT must not inherit face 0's CBDT table"
+        );
+        let f1_metrics = PortableFontMetrics::from_bytes("NeoBundle", &standalone_face1)
+            .expect("face 1 metrics");
+        assert!(f1_metrics.has_outline_for_char('A'));
+        assert!(f1_metrics.has_outline_for_char('Á'));
     }
 }

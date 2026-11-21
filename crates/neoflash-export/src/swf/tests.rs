@@ -752,10 +752,15 @@ fn bounded_script_preflight_rejects_trailing_as3_and_keeps_avm1_associativity() 
     .expect("out-of-range numeric AVM1 frame must fail preflight");
     assert!(issue.contains("65536 one-based frames"), "got: {issue}");
 
+    let unqual_goto = compile_avm1_actions("gotoAndStop(3);").unwrap();
+    assert!(
+        unqual_goto.contains(&0x81),
+        "unqualified gotoAndStop uses ActionGotoFrame"
+    );
     let local_goto = compile_avm1_actions("this.gotoAndStop(3);").unwrap();
     assert!(
-        local_goto.contains(&0x81),
-        "this.gotoAndStop uses ActionGotoFrame"
+        local_goto.contains(&0x52) && !local_goto.contains(&0x81),
+        "this.gotoAndStop uses ActionCallMethod on `this` instead of lexical ActionGotoFrame"
     );
     let root_goto = compile_avm1_actions("_root.gotoAndStop(3);").unwrap();
     assert!(
@@ -843,6 +848,8 @@ fn avm1_and_avm2_logical_operators_short_circuit_rhs_evaluation() {
             exceptions: Vec::new(),
             flow_stack: Vec::new(),
             finally_stack: Vec::new(),
+            imports: Avm2ImportCtx::default(),
+            post_super: None,
         };
         compile_avm2_expr(
             &mut pool,
@@ -860,7 +867,7 @@ fn avm1_and_avm2_logical_operators_short_circuit_rhs_evaluation() {
     }
 
     let and_code = compile(SwfBinaryOp::And, false);
-    assert_eq!(&and_code[..3], &[0x27, 0x2A, 0x12]);
+    assert_eq!(&and_code[..4], &[0x27, 0x82, 0x2A, 0x12]);
     assert!(and_code.contains(&0x29), "non-short-circuit path drops lhs");
     assert!(
         !and_code.contains(&0x76),
@@ -869,7 +876,7 @@ fn avm1_and_avm2_logical_operators_short_circuit_rhs_evaluation() {
     assert!(!and_code.contains(&0xA8), "logical && is not eager bitand");
 
     let or_code = compile(SwfBinaryOp::Or, true);
-    assert_eq!(&or_code[..3], &[0x26, 0x2A, 0x11]);
+    assert_eq!(&or_code[..4], &[0x26, 0x82, 0x2A, 0x11]);
     assert!(or_code.contains(&0x29), "non-short-circuit path drops lhs");
     assert!(
         !or_code.contains(&0x76),

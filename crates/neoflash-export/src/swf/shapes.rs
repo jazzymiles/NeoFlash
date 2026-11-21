@@ -2,17 +2,35 @@
 
 use super::*;
 
+fn element_has_gradient(el: &Element) -> bool {
+    matches!(
+        &el.kind,
+        ElementKind::PaintedPath {
+            fill_gradient: Some(_),
+            ..
+        } | ElementKind::PaintedPath {
+            stroke_gradient: Some(_),
+            ..
+        }
+    )
+}
+
 pub(super) fn can_morph_keys(
     start: &neoflash_core::Keyframe,
     end: &neoflash_core::Keyframe,
 ) -> bool {
     start.bitmap_fills.is_empty()
         && end.bitmap_fills.is_empty()
+        && start.appearances.is_empty()
+        && end.appearances.is_empty()
         && can_build_morph_shape(&start.elements, &end.elements)
 }
 
 pub(super) fn can_build_morph_shape(start_els: &[Element], end_els: &[Element]) -> bool {
     if start_els.len() != 1 || end_els.len() != 1 {
+        return false;
+    }
+    if element_has_gradient(&start_els[0]) || element_has_gradient(&end_els[0]) {
         return false;
     }
     let a_cmds = element_vector_commands(&start_els[0]);
@@ -762,17 +780,79 @@ pub(super) fn build_define_shape_for_element(
     Ok(Some((tag_code, w.buf)))
 }
 
+fn bake_affine_into_commands(cmds: &[PathCommand], m: [f64; 6]) -> Vec<PathCommand> {
+    if m == [1.0, 0.0, 0.0, 1.0, 0.0, 0.0] {
+        return cmds.to_vec();
+    }
+    let map_pt =
+        |x: f64, y: f64| -> (f64, f64) { (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]) };
+    cmds.iter()
+        .map(|cmd| match *cmd {
+            PathCommand::MoveTo { x, y } => {
+                let (nx, ny) = map_pt(x, y);
+                PathCommand::MoveTo { x: nx, y: ny }
+            }
+            PathCommand::LineTo { x, y } => {
+                let (nx, ny) = map_pt(x, y);
+                PathCommand::LineTo { x: nx, y: ny }
+            }
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                let (ncx, ncy) = map_pt(cx, cy);
+                let (nx, ny) = map_pt(x, y);
+                PathCommand::QuadraticTo {
+                    cx: ncx,
+                    cy: ncy,
+                    x: nx,
+                    y: ny,
+                }
+            }
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => {
+                let (ncx1, ncy1) = map_pt(cx1, cy1);
+                let (ncx2, ncy2) = map_pt(cx2, cy2);
+                let (nx, ny) = map_pt(x, y);
+                PathCommand::CubicTo {
+                    cx1: ncx1,
+                    cy1: ncy1,
+                    cx2: ncx2,
+                    cy2: ncy2,
+                    x: nx,
+                    y: ny,
+                }
+            }
+            PathCommand::Close => PathCommand::Close,
+        })
+        .collect()
+}
+
 /// Build a `DefineMorphShape` (tag 46) payload for a compatible start/end shape pair.
 pub(super) fn build_define_morph_shape_payload(
     morph_id: u16,
     start_el: &Element,
     end_el: &Element,
 ) -> Option<Vec<u8>> {
-    let start_cmds = element_vector_commands(start_el)?;
-    let end_cmds = element_vector_commands(end_el)?;
-    if start_cmds.len() != end_cmds.len() || start_cmds.is_empty() {
+    if element_has_gradient(start_el) || element_has_gradient(end_el) {
         return None;
     }
+    let raw_start_cmds = element_vector_commands(start_el)?;
+    let raw_end_cmds = element_vector_commands(end_el)?;
+    if raw_start_cmds.len() != raw_end_cmds.len() || raw_start_cmds.is_empty() {
+        return None;
+    }
+    let start_m = transform_matrix(start_el.transform);
+    let end_m = transform_matrix(end_el.transform);
+    let start_cmds = bake_affine_into_commands(&raw_start_cmds, start_m);
+    let end_cmds = bake_affine_into_commands(&raw_end_cmds, end_m);
+    let start_stroke_scale = (start_m[0] * start_m[3] - start_m[1] * start_m[2])
+        .abs()
+        .sqrt();
+    let end_stroke_scale = (end_m[0] * end_m[3] - end_m[1] * end_m[2]).abs().sqrt();
 
     let extract_paints = |el: &Element| -> (Color, Color, f64) {
         match &el.kind {
@@ -803,8 +883,10 @@ pub(super) fn build_define_morph_shape_payload(
             _ => ([0, 0, 0, 255], [0, 0, 0, 0], 0.0),
         }
     };
-    let (s_fill, s_stroke, s_width) = extract_paints(start_el);
-    let (e_fill, e_stroke, e_width) = extract_paints(end_el);
+    let (s_fill, s_stroke, s_raw_width) = extract_paints(start_el);
+    let (e_fill, e_stroke, e_raw_width) = extract_paints(end_el);
+    let s_width = s_raw_width * start_stroke_scale;
+    let e_width = e_raw_width * end_stroke_scale;
     let has_fill = s_fill[3] > 0 || e_fill[3] > 0;
     let has_line = (s_width > 0.0 && s_stroke[3] > 0) || (e_width > 0.0 && e_stroke[3] > 0);
     let fill_idx = u16::from(has_fill);

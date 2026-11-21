@@ -63,17 +63,21 @@ impl SwfOutlineFonts {
         extract: impl Fn(&[u8]) -> Result<Vec<PathCommand>, Vec<String>>,
     ) -> Option<Vec<PathCommand>> {
         use ab_glyph::{Font, FontRef};
-        let covers = |bytes: &[u8]| {
-            FontRef::try_from_slice(bytes).is_ok_and(|font| {
-                text.chars()
-                    .all(|ch| ch.is_whitespace() || font.glyph_id(ch).0 != 0)
-            })
+        let covers_face = |bytes: &[u8], face_idx: u32| {
+            neoflash_core::TextFormat::validate_text_outlines_for_font_face(
+                "SwfText", family, text, bytes, face_idx,
+            )
+            .is_empty()
+                && FontRef::try_from_slice_and_index(bytes, face_idx).is_ok_and(|font| {
+                    text.chars()
+                        .all(|ch| ch.is_whitespace() || font.glyph_id(ch).0 != 0)
+                })
         };
         for (name, b, i, bytes) in &self.recent {
             if name == family
                 && *b == bold
                 && *i == italic
-                && covers(bytes)
+                && covers_face(bytes, 0)
                 && let Ok(commands) = extract(bytes)
             {
                 return Some(commands);
@@ -89,8 +93,7 @@ impl SwfOutlineFonts {
         } else {
             fontdb::Weight::NORMAL
         };
-        // The outline routines address the primary face in an SFNT or collection.
-        let mut faces: Vec<_> = db.faces().filter(|face| face.index == 0).collect();
+        let mut faces: Vec<_> = db.faces().collect();
         faces.sort_by_key(|face| {
             (
                 !face
@@ -99,17 +102,29 @@ impl SwfOutlineFonts {
                     .any(|(name, _)| name.eq_ignore_ascii_case(family)),
                 (face.style != fontdb::Style::Normal) != italic,
                 face.weight.0.abs_diff(weight.0),
+                face.index,
                 face.post_script_name.as_str(),
             )
         });
         for face in faces {
+            let face_idx = face.index;
             if let Some(Some((commands, cached))) = db.with_face_data(face.id, |bytes, _| {
-                if !covers(bytes) {
+                if !covers_face(bytes, face_idx) {
                     return None;
                 }
-                let commands = extract(bytes).ok()?;
+                let standalone_sfnt = if face_idx > 0 || bytes.starts_with(b"ttcf") {
+                    Some(neoflash_core::extract_ttc_face_to_sfnt(bytes, face_idx)?)
+                } else {
+                    None
+                };
+                let slice = standalone_sfnt.as_deref().unwrap_or(bytes);
+                let commands = extract(slice).ok()?;
                 // Bound resident font bytes for the duration of this one publication.
-                let cached = (bytes.len() <= 32 * 1024 * 1024).then(|| bytes.to_vec());
+                let cached = if let Some(sfnt) = standalone_sfnt {
+                    (sfnt.len() <= 32 * 1024 * 1024).then_some(sfnt)
+                } else {
+                    (bytes.len() <= 32 * 1024 * 1024).then(|| bytes.to_vec())
+                };
                 Some((commands, cached))
             }) {
                 self.substitutions
@@ -137,7 +152,20 @@ pub(super) fn swf_text_outline(
     })?;
     let format = &field.format;
     let font =
-        crate::fonts::resolve_project_font_bytes(project, &format.font, format.bold, format.italic);
+        crate::fonts::resolve_project_font_bytes(project, &format.font, format.bold, format.italic)
+            .map(|raw| {
+                if neoflash_core::sfnt_face_count(&raw) > 1 {
+                    let idx = neoflash_core::select_best_sfnt_face_index(
+                        &raw,
+                        &format.font,
+                        format.bold,
+                        format.italic,
+                    );
+                    neoflash_core::extract_ttc_face_to_sfnt(&raw, idx).unwrap_or(raw)
+                } else {
+                    raw
+                }
+            });
     let extract = |bytes: Option<&[u8]>| match &element.kind {
         ElementKind::Text {
             text,
@@ -701,20 +729,9 @@ pub(super) fn swf_collect_include_map(
 fn swf_resolve_include_target(
     base_path: &str,
     requested: &str,
-    files: &BTreeMap<String, Result<String, String>>,
 ) -> Result<(String, String), String> {
     let rel = swf_normalize_include_path(base_path, requested)?;
     let rel_lower = rel.to_ascii_lowercase();
-    if files.contains_key(&rel_lower) {
-        return Ok((rel, rel_lower));
-    }
-    if !base_path.is_empty() && !requested.trim_start().starts_with('.') {
-        let root_rel = swf_normalize_include_path("", requested)?;
-        let root_lower = root_rel.to_ascii_lowercase();
-        if files.contains_key(&root_lower) {
-            return Ok((root_rel, root_lower));
-        }
-    }
     Ok((rel, rel_lower))
 }
 
@@ -782,8 +799,7 @@ pub(super) fn expand_swf_includes_recursive(
         };
         if let Some(req_res) = directive_req {
             let requested = req_res?;
-            let (included, included_lower) =
-                swf_resolve_include_target(base_path, &requested, files)?;
+            let (included, included_lower) = swf_resolve_include_target(base_path, &requested)?;
             if stack.len() >= 32 || stack.contains(&included_lower) {
                 return Err(format!(
                     "Cyclic or over-deep #include: {included} (maximum 32 levels)"
@@ -870,7 +886,7 @@ fn collect_included_paths_from_script(
         if !block
             && let Some(Ok(requested)) = swf_parse_include_line_requested(raw_line, is_as3)
             && let Ok((included, included_lower)) =
-                swf_resolve_include_target(base_path, &requested, files)
+                swf_resolve_include_target(base_path, &requested)
             && stack.len() < 32
             && !stack.contains(&included_lower)
         {
@@ -1081,6 +1097,9 @@ mod parser;
 mod preflight;
 mod shapes;
 mod tags;
+#[cfg(test)]
+#[path = "swf/tests_t414.rs"]
+mod tests_t414;
 
 pub(crate) use avm1::compile_avm1_actions;
 pub use preflight::preflight_swf_publish;

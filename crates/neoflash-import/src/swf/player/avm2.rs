@@ -16,7 +16,18 @@ impl SwfBytecodePlayer {
                 .map(|(init, _)| *init)
                 .collect();
             for init_m in script_inits {
-                self.execute_avm2_method(abc_idx, init_m, Vec::new());
+                self.avm2_thrown = None;
+                let mut steps = 0usize;
+                let _ = self.run_avm2_method_with_outer_scopes(
+                    abc_idx,
+                    init_m,
+                    Avm1Value::MovieClip("_root".to_owned()),
+                    Vec::new(),
+                    Vec::new(),
+                    &mut steps,
+                    0,
+                );
+                self.avm2_thrown = None;
             }
 
             // 2. Run class static initializers (`cinit`) and main timeline / document class constructor (`iinit`)
@@ -24,10 +35,12 @@ impl SwfBytecodePlayer {
             for c_idx in 0..class_count {
                 let cinit = self.abc_tags[abc_idx].abc.classes[c_idx].cinit;
                 let mut cinit_steps = 0usize;
-                let _ = self.run_avm2_method_with_this(
+                let cinit_scopes = self.avm2_captured_class_scopes(abc_idx, c_idx, false);
+                let _ = self.run_avm2_method_with_outer_scopes(
                     abc_idx,
                     cinit,
                     Avm1Value::MovieClip(format!("__avm2_class:{abc_idx}:{c_idx}")),
+                    cinit_scopes,
                     Vec::new(),
                     &mut cinit_steps,
                     0,
@@ -83,6 +96,245 @@ impl SwfBytecodePlayer {
         )
     }
 
+    fn avm2_captured_class_scopes(
+        &self,
+        abc_idx: usize,
+        class_idx: usize,
+        include_class: bool,
+    ) -> Vec<Avm1Value> {
+        let key = format!("__avm2_cscope:{abc_idx}:{class_idx}");
+        let mut scopes = if let Some(Avm1Value::Object(oid)) = self.avm2_globals.get(&key)
+            && let Some(elems) = self
+                .avm1_objects
+                .get(*oid)
+                .and_then(|o| o.array_elements.as_ref())
+        {
+            elems.clone()
+        } else {
+            vec![Avm1Value::MovieClip("_root".to_owned())]
+        };
+        if include_class {
+            scopes.push(Avm1Value::MovieClip(format!(
+                "__avm2_class:{abc_idx}:{class_idx}"
+            )));
+        }
+        scopes
+    }
+
+    fn avm2_method_outer_scopes(
+        &self,
+        abc_idx: usize,
+        method_idx: usize,
+        this_val: &Avm1Value,
+    ) -> Vec<Avm1Value> {
+        if let Some(loaded) = self.abc_tags.get(abc_idx) {
+            if loaded
+                .abc
+                .scripts
+                .iter()
+                .any(|&(init, _)| init == method_idx)
+            {
+                return Vec::new();
+            }
+            for (c_idx, cls) in loaded.abc.classes.iter().enumerate() {
+                if cls.cinit == method_idx {
+                    return self.avm2_captured_class_scopes(abc_idx, c_idx, false);
+                }
+                for tr in &cls.traits {
+                    let matches_tr = matches!(
+                        tr.data,
+                        AbcTraitData::Method { method }
+                            | AbcTraitData::Getter { method }
+                            | AbcTraitData::Setter { method }
+                            | AbcTraitData::Function { method }
+                            if method == method_idx
+                    );
+                    if matches_tr {
+                        return self.avm2_captured_class_scopes(abc_idx, c_idx, true);
+                    }
+                }
+            }
+            for (c_idx, inst) in loaded.abc.instances.iter().enumerate() {
+                if inst.iinit == method_idx {
+                    return self.avm2_captured_class_scopes(abc_idx, c_idx, true);
+                }
+                for tr in &inst.traits {
+                    let matches_tr = matches!(
+                        tr.data,
+                        AbcTraitData::Method { method }
+                            | AbcTraitData::Getter { method }
+                            | AbcTraitData::Setter { method }
+                            | AbcTraitData::Function { method }
+                            if method == method_idx
+                    );
+                    if matches_tr {
+                        return self.avm2_captured_class_scopes(abc_idx, c_idx, true);
+                    }
+                }
+            }
+        }
+        if let Avm1Value::Object(oid) = this_val
+            && let Some((c_abc, c_idx)) = self.avm1_objects.get(*oid).and_then(|o| o.avm2_class)
+        {
+            return self.avm2_captured_class_scopes(c_abc, c_idx, true);
+        }
+        vec![Avm1Value::MovieClip("_root".to_owned())]
+    }
+
+    fn avm2_class_is_display_object(&self, abc_idx: usize, class_idx: usize) -> bool {
+        let mut cur = Some((abc_idx, class_idx));
+        for _ in 0..32 {
+            let Some((a, c)) = cur else { break };
+            if let Some(inst) = self.abc_tags.get(a).and_then(|l| l.abc.instances.get(c)) {
+                let (_, sname) = self.abc_tags[a].abc.split_qname(inst.super_name);
+                if matches!(
+                    sname.as_str(),
+                    "MovieClip"
+                        | "Sprite"
+                        | "DisplayObjectContainer"
+                        | "InteractiveObject"
+                        | "DisplayObject"
+                        | "SimpleButton"
+                        | "Shape"
+                        | "Bitmap"
+                        | "TextField"
+                        | "EventDispatcher"
+                ) {
+                    return true;
+                }
+            }
+            cur = self.avm2_superclass(a, c);
+        }
+        false
+    }
+
+    fn is_avm2_builtin_display_member(prop: &str) -> bool {
+        matches!(
+            prop,
+            "x" | "y"
+                | "scaleX"
+                | "scaleY"
+                | "alpha"
+                | "visible"
+                | "rotation"
+                | "name"
+                | "width"
+                | "height"
+                | "currentFrame"
+                | "totalFrames"
+                | "numChildren"
+                | "graphics"
+                | "stop"
+                | "play"
+                | "nextFrame"
+                | "prevFrame"
+                | "gotoAndStop"
+                | "gotoAndPlay"
+                | "addChild"
+                | "removeChild"
+                | "getChildByName"
+                | "addEventListener"
+                | "removeEventListener"
+                | "dispatchEvent"
+        )
+    }
+
+    fn avm2_mc_has_instance_trait(&self, mc: &str, prop: &str) -> bool {
+        let target = self.canonical_movie_target(mc);
+        let cid_opt = if target == "_root" {
+            Some(0u16)
+        } else {
+            self.target_slot(&target).map(|s| s.character_id)
+        };
+        let Some(cid) = cid_opt else {
+            return false;
+        };
+        let class_pos = if let Some(bound_cls) = self.symbol_classes.get(&cid) {
+            let (bpkg, bshort) = match bound_cls.rsplit_once('.') {
+                Some((p, s)) => (p, s),
+                None => ("", bound_cls.as_str()),
+            };
+            (0..self.abc_tags.len()).find_map(|ai| self.find_avm2_class(ai, bpkg, bshort))
+        } else if cid == 0 {
+            self.abc_tags.iter().enumerate().find_map(|(ai, loaded)| {
+                loaded
+                    .abc
+                    .instances
+                    .iter()
+                    .position(|inst| {
+                        let (_, s) = loaded.abc.split_qname(inst.name);
+                        s == "MainTimeline"
+                    })
+                    .map(|ci| (ai, ci))
+            })
+        } else {
+            None
+        };
+        let mut cur = class_pos;
+        for _ in 0..32 {
+            let Some((a, c)) = cur else { break };
+            if let Some(inst) = self.abc_tags.get(a).and_then(|l| l.abc.instances.get(c))
+                && inst
+                    .traits
+                    .iter()
+                    .any(|tr| self.abc_tags[a].abc.split_qname(tr.name).1 == prop)
+            {
+                return true;
+            }
+            cur = self.avm2_superclass(a, c);
+        }
+        false
+    }
+
+    fn avm2_scope_owns_prop(&self, sc: &Avm1Value, prop: &str) -> bool {
+        match sc {
+            Avm1Value::Object(oid) => {
+                if self.avm2_object_has_prop(*oid, prop) {
+                    return true;
+                }
+                if let Some((c_abc, c_idx)) = self.avm1_objects.get(*oid).and_then(|o| o.avm2_class)
+                    && self.avm2_class_is_display_object(c_abc, c_idx)
+                    && Self::is_avm2_builtin_display_member(prop)
+                {
+                    return true;
+                }
+                false
+            }
+            Avm1Value::MovieClip(mc) => {
+                if mc.starts_with("__avm2_class:") {
+                    self.avm2_class_token_has_static_prop(mc, prop)
+                } else if mc.starts_with("__avm2_type:") {
+                    false
+                } else {
+                    self.avm2_has_property(sc, prop)
+                        || self.avm2_mc_has_instance_trait(mc, prop)
+                        || (mc != "_root" && Self::is_avm2_builtin_display_member(prop))
+                        || (mc == "_root"
+                            && matches!(
+                                prop,
+                                "x" | "y"
+                                    | "scaleX"
+                                    | "scaleY"
+                                    | "alpha"
+                                    | "visible"
+                                    | "rotation"
+                                    | "name"
+                                    | "currentFrame"
+                                    | "totalFrames"
+                                    | "numChildren"
+                                    | "graphics"
+                            ))
+                }
+            }
+            Avm1Value::MovieClipIdentity(mc) => {
+                self.avm2_has_property(sc, prop)
+                    || self.avm2_mc_has_instance_trait(mc, prop)
+                    || Self::is_avm2_builtin_display_member(prop)
+            }
+            _ => false,
+        }
+    }
+
     pub(super) fn run_avm2_method_with_this(
         &mut self,
         abc_idx: usize,
@@ -92,7 +344,7 @@ impl SwfBytecodePlayer {
         steps: &mut usize,
         depth: usize,
     ) -> Avm1Value {
-        let outer_scopes = vec![Avm1Value::MovieClip("_root".to_owned())];
+        let outer_scopes = self.avm2_method_outer_scopes(abc_idx, method_idx, &this_val);
         self.run_avm2_method_with_outer_scopes(
             abc_idx,
             method_idx,
@@ -559,18 +811,47 @@ impl SwfBytecodePlayer {
                     if let Avm1Value::Object(oid) = receiver {
                         if let Some((owner_abc, owner_cls)) =
                             self.resolve_avm2_method_owner(abc_idx, method_idx, oid)
-                            && let Some((sup_abc, sup_cls)) =
-                                self.avm2_superclass(owner_abc, owner_cls)
                         {
-                            let sup_iinit = self.abc_tags[sup_abc].abc.instances[sup_cls].iinit;
-                            let _ = self.run_avm2_method_with_this(
-                                sup_abc,
-                                sup_iinit,
-                                Avm1Value::Object(oid),
-                                cargs,
-                                steps,
-                                depth + 1,
-                            );
+                            if let Some((sup_abc, sup_cls)) =
+                                self.avm2_superclass(owner_abc, owner_cls)
+                            {
+                                let sup_iinit = self.abc_tags[sup_abc].abc.instances[sup_cls].iinit;
+                                let _ = self.run_avm2_method_with_this(
+                                    sup_abc,
+                                    sup_iinit,
+                                    Avm1Value::Object(oid),
+                                    cargs,
+                                    steps,
+                                    depth + 1,
+                                );
+                            } else {
+                                let inst = &self.abc_tags[owner_abc].abc.instances[owner_cls];
+                                let (_, super_short) =
+                                    self.abc_tags[owner_abc].abc.split_qname(inst.super_name);
+                                let (_, cls_short) =
+                                    self.abc_tags[owner_abc].abc.split_qname(inst.name);
+                                if super_short == "Error" || super_short.ends_with("Error") {
+                                    let msg = cargs
+                                        .first()
+                                        .filter(|v| {
+                                            !matches!(v, Avm1Value::Undefined | Avm1Value::Null)
+                                        })
+                                        .map(|v| v.to_trace_string(9, &self.avm1_objects))
+                                        .unwrap_or_default();
+                                    let err_id =
+                                        cargs.get(1).map(|v| v.to_number() as i32).unwrap_or(0);
+                                    if let Some(obj) = self.avm1_objects.get_mut(oid) {
+                                        obj.props.insert("message".into(), Avm1Value::String(msg));
+                                        obj.props.insert(
+                                            "errorID".into(),
+                                            Avm1Value::Number(f64::from(err_id)),
+                                        );
+                                        obj.props
+                                            .entry("name".into())
+                                            .or_insert_with(|| Avm1Value::String(cls_short));
+                                    }
+                                }
+                            }
                         }
                     } else if matches!(&receiver, Avm1Value::MovieClip(mc) if mc == "_root")
                         && let Some(owner_cls) = self.abc_tags.get(abc_idx).and_then(|l| {
@@ -684,9 +965,20 @@ impl SwfBytecodePlayer {
                     self.push_avm_stack(&mut stack, Avm1Value::Object(obj_id));
                 }
                 0x58 => {
-                    // newclass
+                    // newclass — capture the active outer + local scope chain for cinit & class methods
                     let Some(class_idx) = r.u30() else { break };
                     let _base = stack.pop().unwrap_or(Avm1Value::Undefined);
+                    let mut captured_scopes = outer_scopes.clone();
+                    captured_scopes.extend(scope_stack.iter().cloned());
+                    let scope_obj_id = self.avm1_objects.len();
+                    self.avm1_objects.push(Avm1Object {
+                        array_elements: Some(captured_scopes),
+                        ..Default::default()
+                    });
+                    self.avm2_globals.insert(
+                        format!("__avm2_cscope:{abc_idx}:{class_idx}"),
+                        Avm1Value::Object(scope_obj_id),
+                    );
                     self.push_avm_stack(
                         &mut stack,
                         Avm1Value::MovieClip(format!("__avm2_class:{abc_idx}:{class_idx}")),
@@ -718,30 +1010,23 @@ impl SwfBytecodePlayer {
                     let name = self.pop_avm2_multiname(abc_idx, mn_idx, &mut stack);
                     let mut resolved = None;
                     for sc in scope_stack.iter().rev().chain(outer_scopes.iter().rev()) {
-                        if let Avm1Value::Object(oid) = sc
-                            && self.avm2_object_has_prop(*oid, &name)
-                        {
-                            resolved = Some(Avm1Value::Object(*oid));
-                            break;
-                        }
-                        if let Avm1Value::MovieClip(mc) = sc
-                            && self.avm2_class_token_has_static_prop(mc, &name)
-                        {
-                            resolved = Some(Avm1Value::MovieClip(mc.clone()));
+                        if self.avm2_scope_owns_prop(sc, &name) {
+                            resolved = Some(sc.clone());
                             break;
                         }
                     }
+                    if resolved.is_none() && self.avm2_scope_owns_prop(&this_val, &name) {
+                        resolved = Some(this_val.clone());
+                    }
                     if resolved.is_none()
-                        && let Avm1Value::Object(oid) = &this_val
-                        && self.avm2_object_has_prop(*oid, &name)
+                        && op == 0x5E
+                        && let Some(Avm1Value::Object(oid)) = scope_stack.first()
+                        && self
+                            .avm1_objects
+                            .get(*oid)
+                            .is_some_and(|o| o.avm2_class.is_some())
                     {
                         resolved = Some(Avm1Value::Object(*oid));
-                    }
-                    if resolved.is_none()
-                        && let Avm1Value::MovieClip(mc) = &this_val
-                        && self.avm2_class_token_has_static_prop(mc, &name)
-                    {
-                        resolved = Some(Avm1Value::MovieClip(mc.clone()));
                     }
                     self.push_avm_stack(&mut stack, resolved.unwrap_or(Avm1Value::MovieClip(name)));
                 }
@@ -751,50 +1036,13 @@ impl SwfBytecodePlayer {
                     let (pkg, name) = self.abc_tags[abc_idx].abc.split_qname(mn_idx);
                     let mut val_opt = None;
                     for sc in scope_stack.iter().rev().chain(outer_scopes.iter().rev()) {
-                        if let Avm1Value::Object(oid) = sc
-                            && self.avm2_object_has_prop(*oid, &name)
-                        {
-                            val_opt = Some(self.get_avm2_property_eval(
-                                &Avm1Value::Object(*oid),
-                                &name,
-                                steps,
-                                depth,
-                            ));
-                            break;
-                        }
-                        if let Avm1Value::MovieClip(mc) = sc
-                            && self.avm2_class_token_has_static_prop(mc, &name)
-                        {
-                            val_opt = Some(self.get_avm2_property_eval(
-                                &Avm1Value::MovieClip(mc.clone()),
-                                &name,
-                                steps,
-                                depth,
-                            ));
+                        if self.avm2_scope_owns_prop(sc, &name) {
+                            val_opt = Some(self.get_avm2_property_eval(sc, &name, steps, depth));
                             break;
                         }
                     }
-                    if val_opt.is_none()
-                        && let Avm1Value::Object(oid) = &this_val
-                        && self.avm2_object_has_prop(*oid, &name)
-                    {
-                        val_opt = Some(self.get_avm2_property_eval(
-                            &Avm1Value::Object(*oid),
-                            &name,
-                            steps,
-                            depth,
-                        ));
-                    }
-                    if val_opt.is_none()
-                        && let Avm1Value::MovieClip(mc) = &this_val
-                        && self.avm2_class_token_has_static_prop(mc, &name)
-                    {
-                        val_opt = Some(self.get_avm2_property_eval(
-                            &Avm1Value::MovieClip(mc.clone()),
-                            &name,
-                            steps,
-                            depth,
-                        ));
+                    if val_opt.is_none() && self.avm2_scope_owns_prop(&this_val, &name) {
+                        val_opt = Some(self.get_avm2_property_eval(&this_val, &name, steps, depth));
                     }
                     let val = if let Some(v) = val_opt {
                         v

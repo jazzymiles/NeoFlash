@@ -849,15 +849,24 @@ pub(super) fn build_start_sound_payload(
     } else {
         None
     };
-    let end_mark44 = duration_44.max(1).min(u64::from(u32::MAX)) as u32;
+    let max_mark44 = duration_44.max(1).min(u64::from(u32::MAX)) as u32;
+    let start_mark44 = in_samples.unwrap_or(0).min(max_mark44);
+    let end_mark44 = out_samples
+        .map_or(max_mark44, |out| out.min(max_mark44))
+        .max(start_mark44);
+    let span_mark44 = u64::from(end_mark44.saturating_sub(start_mark44));
     let env_points: Vec<(u32, u16, u16)> = if sound.effect == SoundEffect::Custom
         || sound.envelope.as_ref().is_some_and(|pts| !pts.is_empty())
     {
-        encode_sound_envelope_points(sound, duration_44)
+        encode_sound_envelope_points(sound, span_mark44.max(1))
             .into_iter()
             .map(|(m, l, r)| {
+                let rel = if span_mark44 == 0 { 0 } else { m };
+                let pos44 = u64::from(start_mark44)
+                    .saturating_add(rel)
+                    .min(u64::from(max_mark44)) as u32;
                 (
-                    m.min(u64::from(u32::MAX)) as u32,
+                    pos44,
                     l.min(u32::from(u16::MAX)) as u16,
                     r.min(u32::from(u16::MAX)) as u16,
                 )
@@ -866,12 +875,12 @@ pub(super) fn build_start_sound_payload(
     } else {
         match sound.effect {
             SoundEffect::None | SoundEffect::Custom => Vec::new(),
-            SoundEffect::LeftChannel => vec![(0, 32768, 0)],
-            SoundEffect::RightChannel => vec![(0, 0, 32768)],
-            SoundEffect::FadeLeftToRight => vec![(0, 32768, 0), (end_mark44, 0, 32768)],
-            SoundEffect::FadeRightToLeft => vec![(0, 0, 32768), (end_mark44, 32768, 0)],
-            SoundEffect::FadeIn => vec![(0, 0, 0), (end_mark44, 32768, 32768)],
-            SoundEffect::FadeOut => vec![(0, 32768, 32768), (end_mark44, 0, 0)],
+            SoundEffect::LeftChannel => vec![(start_mark44, 32768, 0)],
+            SoundEffect::RightChannel => vec![(start_mark44, 0, 32768)],
+            SoundEffect::FadeLeftToRight => vec![(start_mark44, 32768, 0), (end_mark44, 0, 32768)],
+            SoundEffect::FadeRightToLeft => vec![(start_mark44, 0, 32768), (end_mark44, 32768, 0)],
+            SoundEffect::FadeIn => vec![(start_mark44, 0, 0), (end_mark44, 32768, 32768)],
+            SoundEffect::FadeOut => vec![(start_mark44, 32768, 32768), (end_mark44, 0, 0)],
         }
     };
     let has_envelope = !sync_stop && !env_points.is_empty();

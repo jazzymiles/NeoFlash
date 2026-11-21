@@ -291,3 +291,186 @@ pub(super) fn encode_clip_actions(
     w.u32(0); // end of clip action records
     Ok(Some(w.buf))
 }
+
+pub(super) fn find_event_handler_in_expr(expr: &SwfExpr) -> Option<&SwfStmt> {
+    match expr {
+        SwfExpr::Function { body, .. } => find_event_handler_in_stmts(body),
+        SwfExpr::ArrayLit(elems) => elems.iter().find_map(find_event_handler_in_expr),
+        SwfExpr::ObjectLit(props) => props
+            .iter()
+            .find_map(|(_, v)| find_event_handler_in_expr(v)),
+        SwfExpr::Member(obj, _) => find_event_handler_in_expr(obj),
+        SwfExpr::Index(obj, idx) => {
+            find_event_handler_in_expr(obj).or_else(|| find_event_handler_in_expr(idx))
+        }
+        SwfExpr::Unary { expr, .. } => find_event_handler_in_expr(expr),
+        SwfExpr::Binary { lhs, rhs, .. } => {
+            find_event_handler_in_expr(lhs).or_else(|| find_event_handler_in_expr(rhs))
+        }
+        SwfExpr::Call { callee, args } | SwfExpr::New { callee, args } => {
+            find_event_handler_in_expr(callee)
+                .or_else(|| args.iter().find_map(find_event_handler_in_expr))
+        }
+        SwfExpr::Delete(lv) => match lv.as_ref() {
+            SwfLValue::Ident(_) => None,
+            SwfLValue::Member(obj, _) => find_event_handler_in_expr(obj),
+            SwfLValue::Index(obj, idx) => {
+                find_event_handler_in_expr(obj).or_else(|| find_event_handler_in_expr(idx))
+            }
+        },
+        SwfExpr::Ternary {
+            cond,
+            then_expr,
+            else_expr,
+        } => find_event_handler_in_expr(cond)
+            .or_else(|| find_event_handler_in_expr(then_expr))
+            .or_else(|| find_event_handler_in_expr(else_expr)),
+        SwfExpr::Null
+        | SwfExpr::Undefined
+        | SwfExpr::Bool(_)
+        | SwfExpr::Int(_)
+        | SwfExpr::Float(_)
+        | SwfExpr::Str(_)
+        | SwfExpr::Ident(_) => None,
+    }
+}
+
+pub(super) fn find_event_handler_in_stmts(stmts: &[SwfStmt]) -> Option<&SwfStmt> {
+    for stmt in stmts {
+        match stmt {
+            SwfStmt::EventHandler { .. } => return Some(stmt),
+            SwfStmt::VarDecl { init: Some(e), .. }
+            | SwfStmt::Assign { value: e, .. }
+            | SwfStmt::Expr(e)
+            | SwfStmt::Return(Some(e))
+            | SwfStmt::Throw(e) => {
+                if let Some(found) = find_event_handler_in_expr(e) {
+                    return Some(found);
+                }
+            }
+            SwfStmt::Block(body) | SwfStmt::FunctionDecl { body, .. } => {
+                if let Some(found) = find_event_handler_in_stmts(body) {
+                    return Some(found);
+                }
+            }
+            SwfStmt::While { cond, body }
+            | SwfStmt::ForIn {
+                object: cond, body, ..
+            } => {
+                if let Some(found) = find_event_handler_in_expr(cond) {
+                    return Some(found);
+                }
+                if let Some(found) = find_event_handler_in_stmts(body) {
+                    return Some(found);
+                }
+            }
+            SwfStmt::Switch {
+                discriminant,
+                cases,
+            } => {
+                if let Some(found) = find_event_handler_in_expr(discriminant) {
+                    return Some(found);
+                }
+                for (ce, cb) in cases {
+                    if let Some(e) = ce
+                        && let Some(found) = find_event_handler_in_expr(e)
+                    {
+                        return Some(found);
+                    }
+                    if let Some(found) = find_event_handler_in_stmts(cb) {
+                        return Some(found);
+                    }
+                }
+            }
+            SwfStmt::Try {
+                try_body,
+                catches,
+                finally_body,
+            } => {
+                if let Some(found) = find_event_handler_in_stmts(try_body) {
+                    return Some(found);
+                }
+                for (_, _, cb) in catches {
+                    if let Some(found) = find_event_handler_in_stmts(cb) {
+                        return Some(found);
+                    }
+                }
+                if let Some(fb) = finally_body
+                    && let Some(found) = find_event_handler_in_stmts(fb)
+                {
+                    return Some(found);
+                }
+            }
+            SwfStmt::ClassDecl {
+                ctor,
+                methods,
+                fields,
+                ..
+            } => {
+                if let Some((_, cb)) = ctor
+                    && let Some(found) = find_event_handler_in_stmts(cb)
+                {
+                    return Some(found);
+                }
+                for (_, _, _, mb) in methods {
+                    if let Some(found) = find_event_handler_in_stmts(mb) {
+                        return Some(found);
+                    }
+                }
+                for (_, _, fe_opt) in fields {
+                    if let Some(fe) = fe_opt
+                        && let Some(found) = find_event_handler_in_expr(fe)
+                    {
+                        return Some(found);
+                    }
+                }
+            }
+            SwfStmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                if let Some(found) = find_event_handler_in_expr(cond) {
+                    return Some(found);
+                }
+                if let Some(found) = find_event_handler_in_stmts(then_branch) {
+                    return Some(found);
+                }
+                if let Some(eb) = else_branch
+                    && let Some(found) = find_event_handler_in_stmts(eb)
+                {
+                    return Some(found);
+                }
+            }
+            SwfStmt::For {
+                init,
+                cond,
+                update,
+                body,
+            } => {
+                if let Some(i) = init
+                    && let Some(found) =
+                        find_event_handler_in_stmts(std::slice::from_ref(i.as_ref()))
+                {
+                    return Some(found);
+                }
+                if let Some(c) = cond
+                    && let Some(found) = find_event_handler_in_expr(c)
+                {
+                    return Some(found);
+                }
+                if let Some(u) = update
+                    && let Some(found) =
+                        find_event_handler_in_stmts(std::slice::from_ref(u.as_ref()))
+                {
+                    return Some(found);
+                }
+                if let Some(found) = find_event_handler_in_stmts(body) {
+                    return Some(found);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}

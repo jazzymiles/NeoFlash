@@ -507,6 +507,7 @@ fn encode_bmp_bytes(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, Exp
 
 const MAX_PSD_EXPORT_BYTES: usize = 256 * 1024 * 1024;
 
+#[cfg(test)]
 fn build_psd_bytes(
     project: &Project,
     symbol_id: Option<&str>,
@@ -514,6 +515,18 @@ fn build_psd_bytes(
     width: u32,
     height: u32,
     options: &ImageExportOptions,
+) -> Result<(Vec<u8>, usize), ExportError> {
+    build_psd_bytes_with_composite(project, symbol_id, frame, width, height, options, None)
+}
+
+fn build_psd_bytes_with_composite(
+    project: &Project,
+    symbol_id: Option<&str>,
+    frame: u32,
+    width: u32,
+    height: u32,
+    options: &ImageExportOptions,
+    precomputed_composite: Option<&[u8]>,
 ) -> Result<(Vec<u8>, usize), ExportError> {
     let flattened_project = if symbol_id.is_none() && !project.scenes.is_empty() {
         Some(flatten_scenes_with_ranges(project).0)
@@ -691,17 +704,29 @@ fn build_psd_bytes(
                     }
                 }
             }
-            let scene = evaluate_scene(&single_proj, &sym_id, frame, false, true);
-            let rgba = crate::render_authored_scene_rgba(
-                &single_proj,
-                &sym_id,
-                frame,
-                &scene,
-                width,
-                height,
-                true,
-                &mut bitmap_cache,
-            )?;
+            let rgba = if options.runtime_capture {
+                render_project_frame_rgba(
+                    &single_proj,
+                    Some(&sym_id),
+                    frame,
+                    width,
+                    height,
+                    true,
+                    true,
+                )?
+            } else {
+                let scene = evaluate_scene(&single_proj, &sym_id, frame, false, true);
+                crate::render_authored_scene_rgba(
+                    &single_proj,
+                    &sym_id,
+                    frame,
+                    &scene,
+                    width,
+                    height,
+                    true,
+                    &mut bitmap_cache,
+                )?
+            };
             if rgba.len() != frame_bytes {
                 return Err(ExportError::InvalidProject(format!(
                     "PSD layer renderer returned {} bytes for a {width}x{height} RGBA frame",
@@ -734,15 +759,21 @@ fn build_psd_bytes(
             MAX_PSD_EXPORT_BYTES / (1024 * 1024)
         )));
     }
-    let composite = render_project_frame_rgba(
-        project,
-        symbol_id,
-        frame,
-        width,
-        height,
-        options.transparent_background,
-        false,
-    )?;
+    let owned_composite;
+    let composite: &[u8] = if let Some(pre) = precomputed_composite {
+        pre
+    } else {
+        owned_composite = render_project_frame_rgba(
+            project,
+            symbol_id,
+            frame,
+            width,
+            height,
+            options.transparent_background,
+            options.runtime_capture,
+        )?;
+        &owned_composite
+    };
     if composite.len() != frame_bytes {
         return Err(ExportError::InvalidProject(format!(
             "PSD composite renderer returned {} bytes for a {width}x{height} RGBA frame",
@@ -1001,6 +1032,11 @@ fn normalized_shading_stops(
             let nudged = (prev_pos + 1e-4).min(0.9999);
             if nudged > prev_pos + 1e-7 {
                 pos = nudged;
+            } else if out.len() >= 2 && out[out.len() - 2].0 < 0.9998 {
+                if let Some(last) = out.last_mut() {
+                    last.0 = 0.9999;
+                }
+                pos = 1.0;
             } else if let Some(last) = out.last_mut() {
                 last.1 = col;
                 continue;
@@ -1131,18 +1167,21 @@ fn ps_draw_supported(draw: &AuthoredDraw, options: &ImageExportOptions) -> bool 
             stroke,
             fill_gradient,
             stroke_gradient,
+            stroke_width,
             ..
         } => {
+            let has_stroke = *stroke_width > 0.0;
             let fg_ok = fill_gradient
                 .as_ref()
                 .is_none_or(|g| ps_gradient_supported(g, transform));
-            let sg_ok = stroke_gradient
-                .as_ref()
-                .is_none_or(|g| ps_gradient_supported(g, transform));
+            let sg_ok = !has_stroke
+                || stroke_gradient
+                    .as_ref()
+                    .is_none_or(|g| ps_gradient_supported(g, transform));
             fg_ok
                 && sg_ok
                 && (fill_gradient.is_some() || opaque(*fill))
-                && (stroke_gradient.is_some() || opaque(*stroke))
+                && (!has_stroke || stroke_gradient.is_some() || opaque(*stroke))
         }
         ElementKind::Text {
             text,
@@ -1162,22 +1201,27 @@ fn ps_draw_supported(draw: &AuthoredDraw, options: &ImageExportOptions) -> bool 
                     )
                     .is_empty())
         }
-        ElementKind::TextBox { text, format, .. } => {
-            let outlines = options.ai_text_as_outlines || !text.is_ascii();
-            opaque([
-                ((format.color >> 16) & 0xff) as u8,
-                ((format.color >> 8) & 0xff) as u8,
-                (format.color & 0xff) as u8,
-                255,
-            ]) && (!outlines
-                || text.trim().is_empty()
-                || !neoflash_core::TextFieldState::static_text_to_outline_commands(
-                    text,
-                    &format.font,
-                    format.size,
-                    None,
-                )
-                .is_empty())
+        ElementKind::TextBox { .. } => {
+            let Some(field) = neoflash_core::TextFieldState::from_kind(&draw.item.kind) else {
+                return false;
+            };
+            let color_for = |rgb: u32| -> Color {
+                [
+                    ((rgb >> 16) & 0xff) as u8,
+                    ((rgb >> 8) & 0xff) as u8,
+                    (rgb & 0xff) as u8,
+                    field.alpha,
+                ]
+            };
+            let total_units = field.text.encode_utf16().count() as u32;
+            let mat_runs = field.materialized_runs(total_units);
+            if !opaque(color_for(field.format.color))
+                || !mat_runs.iter().all(|r| opaque(color_for(r.format.color)))
+            {
+                return false;
+            }
+            let outlines = options.ai_text_as_outlines || !field.text.is_ascii();
+            !outlines || field.text.trim().is_empty() || !textbox_outline_runs(&field).is_empty()
         }
         ElementKind::Instance { .. } => true,
         ElementKind::Bitmap { .. } | ElementKind::Video { .. } => false,
@@ -1281,6 +1325,157 @@ fn ps_shape(out: &mut String, commands: &[PathCommand], style: PsShapeStyle<'_>)
     }
 }
 
+fn ps_type1_font_name(family: &str, bold: bool, italic: bool) -> &'static str {
+    let lower = family.trim().to_ascii_lowercase();
+    let is_mono = lower.contains("mono")
+        || lower.contains("courier")
+        || lower.contains("menlo")
+        || lower.contains("consolas");
+    let is_serif = !is_mono
+        && !lower.contains("sans")
+        && (lower.contains("serif") || lower.contains("times") || lower.contains("georgia"));
+    if is_mono {
+        match (bold, italic) {
+            (true, true) => "Courier-BoldOblique",
+            (true, false) => "Courier-Bold",
+            (false, true) => "Courier-Oblique",
+            (false, false) => "Courier",
+        }
+    } else if is_serif {
+        match (bold, italic) {
+            (true, true) => "Times-BoldItalic",
+            (true, false) => "Times-Bold",
+            (false, true) => "Times-Italic",
+            (false, false) => "Times-Roman",
+        }
+    } else {
+        match (bold, italic) {
+            (true, true) => "Helvetica-BoldOblique",
+            (true, false) => "Helvetica-Bold",
+            (false, true) => "Helvetica-Oblique",
+            (false, false) => "Helvetica",
+        }
+    }
+}
+
+fn shear_path_italic(commands: &mut [PathCommand], baseline_y: f64) {
+    const ITALIC_SLANT: f64 = 0.2;
+    let sx = |x: f64, y: f64| x + (baseline_y - y) * ITALIC_SLANT;
+    for cmd in commands {
+        match cmd {
+            PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => {
+                *x = sx(*x, *y);
+            }
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                *cx = sx(*cx, *cy);
+                *x = sx(*x, *y);
+            }
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => {
+                *cx1 = sx(*cx1, *cy1);
+                *cx2 = sx(*cx2, *cy2);
+                *x = sx(*x, *y);
+            }
+            PathCommand::Close => {}
+        }
+    }
+}
+
+struct OutlinedTextRun {
+    color: Color,
+    bold_stroke: f64,
+    commands: Vec<PathCommand>,
+}
+
+fn textbox_outline_runs(field: &neoflash_core::TextFieldState) -> Vec<OutlinedTextRun> {
+    if field.alpha == 0 || field.text.is_empty() {
+        return Vec::new();
+    }
+    let Ok(layout) = field.layout_portable(None) else {
+        return Vec::new();
+    };
+    let mut runs_out: Vec<OutlinedTextRun> = Vec::new();
+    for run in &layout.runs {
+        let fmt = run.format.as_ref().unwrap_or(&field.format);
+        let size = fmt.size.max(1.0);
+        let color = [
+            ((fmt.color >> 16) & 0xff) as u8,
+            ((fmt.color >> 8) & 0xff) as u8,
+            (fmt.color & 0xff) as u8,
+            field.alpha,
+        ];
+        let mut cursor_x = run.x;
+        let mut cmds = Vec::new();
+        let mut measure_fmt = fmt.clone();
+        measure_fmt.letter_spacing = 0.0;
+        for ch in run.text.chars() {
+            if ch == '\r' || ch == '\n' {
+                continue;
+            }
+            let mut glyph_cmds = neoflash_core::TextFormat::glyph_outline_commands(
+                ch, cursor_x, run.y, &fmt.font, size, None,
+            );
+            if fmt.italic && !glyph_cmds.is_empty() {
+                shear_path_italic(&mut glyph_cmds, run.y + size * 0.8);
+            }
+            cmds.extend(glyph_cmds);
+            let ch_str = ch.to_string();
+            let adv = neoflash_core::TextFormat::portable_measure_strings(
+                std::slice::from_ref(&ch_str),
+                &measure_fmt,
+                None,
+            )
+            .first()
+            .copied()
+            .unwrap_or(size * 0.5);
+            cursor_x += adv + fmt.letter_spacing;
+        }
+        if !cmds.is_empty() {
+            let bold_stroke = if fmt.bold {
+                (size * 0.04).max(0.4)
+            } else {
+                0.0
+            };
+            runs_out.push(OutlinedTextRun {
+                color,
+                bold_stroke,
+                commands: cmds,
+            });
+        }
+    }
+    for dec in &layout.decorations {
+        let rgb = dec.color.unwrap_or(field.format.color);
+        let color = [
+            ((rgb >> 16) & 0xff) as u8,
+            ((rgb >> 8) & 0xff) as u8,
+            (rgb & 0xff) as u8,
+            field.alpha,
+        ];
+        let mut rect = rectangle_path(dec.width.max(0.5), dec.height.max(0.5));
+        for cmd in &mut rect {
+            match cmd {
+                PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => {
+                    *x += dec.x;
+                    *y += dec.y;
+                }
+                _ => {}
+            }
+        }
+        runs_out.push(OutlinedTextRun {
+            color,
+            bold_stroke: 0.0,
+            commands: rect.to_vec(),
+        });
+    }
+    runs_out
+}
+
 fn ps_text(
     out: &mut String,
     text: &str,
@@ -1290,6 +1485,10 @@ fn ps_text(
     transform: ColorTransform,
     outlines: bool,
 ) {
+    let effective = transform.apply(color);
+    if effective[3] == 0 {
+        return;
+    }
     if outlines || !text.is_ascii() {
         let commands =
             neoflash_core::TextFieldState::static_text_to_outline_commands(text, font, size, None);
@@ -1297,13 +1496,27 @@ fn ps_text(
             ps_paint(out, FillRule::NonZero, color, [0; 4], 0.0, transform);
         }
     } else {
-        ps_rgb(out, transform.apply(color));
+        let sz = size.max(1.0);
+        let ascent = sz * 0.8;
+        let line_step = sz * 1.2;
+        let ps_font = ps_type1_font_name(font, false, false);
+        ps_rgb(out, effective);
         let _ = writeln!(
             out,
-            "/Helvetica findfont {} scalefont setfont",
-            ps_num(size)
+            "/{ps_font} findfont [{} 0 0 -{} 0 0] makefont setfont",
+            ps_num(sz),
+            ps_num(sz)
         );
-        let _ = writeln!(out, "0 {} moveto ({}) show", ps_num(size), ps_string(text));
+        for (line_idx, raw_line) in text.split('\n').enumerate() {
+            let line = raw_line.trim_end_matches('\r');
+            let baseline_y = ascent + (line_idx as f64) * line_step;
+            let _ = writeln!(
+                out,
+                "0 {} moveto ({}) show",
+                ps_num(baseline_y),
+                ps_string(line)
+            );
+        }
     }
 }
 
@@ -1428,22 +1641,29 @@ fn ps_draw(out: &mut String, draw: &AuthoredDraw, options: &ImageExportOptions) 
                 options.ai_text_as_outlines,
             );
         }
-        ElementKind::TextBox { text, format, .. } => {
-            let color = [
-                ((format.color >> 16) & 0xff) as u8,
-                ((format.color >> 8) & 0xff) as u8,
-                (format.color & 0xff) as u8,
-                255,
-            ];
-            ps_text(
-                out,
-                text,
-                &format.font,
-                format.size,
-                color,
-                item.color_transform,
-                options.ai_text_as_outlines,
-            );
+        ElementKind::TextBox { .. } => {
+            if let Some(field) = neoflash_core::TextFieldState::from_kind(&item.kind) {
+                for run in textbox_outline_runs(&field) {
+                    ps_shape(
+                        out,
+                        &run.commands,
+                        PsShapeStyle {
+                            rule: FillRule::NonZero,
+                            fill: run.color,
+                            stroke: if run.bold_stroke > 0.0 {
+                                run.color
+                            } else {
+                                [0; 4]
+                            },
+                            fill_gradient: None,
+                            stroke_gradient: None,
+                            stroke_width: run.bold_stroke,
+                            transform: item.color_transform,
+                            strokes_as_strokes: options.ai_strokes_as_strokes,
+                        },
+                    );
+                }
+            }
         }
         ElementKind::Instance { .. } | ElementKind::Bitmap { .. } | ElementKind::Video { .. } => {}
     }
@@ -2002,34 +2222,30 @@ fn build_vector_pdf_bytes_with_scene(
                     },
                 );
             }
-            ElementKind::TextBox { text, format, .. } => {
-                let color = [
-                    ((format.color >> 16) & 0xff) as u8,
-                    ((format.color >> 8) & 0xff) as u8,
-                    (format.color & 0xff) as u8,
-                    255,
-                ];
-                let cmds = neoflash_core::TextFieldState::static_text_to_outline_commands(
-                    text,
-                    &format.font,
-                    format.size,
-                    None,
-                );
-                pdf_shape(
-                    &mut stream_body,
-                    &mut shadings,
-                    &cmds,
-                    PsShapeStyle {
-                        rule: FillRule::NonZero,
-                        fill: color,
-                        stroke: [0; 4],
-                        fill_gradient: None,
-                        stroke_gradient: None,
-                        stroke_width: 0.0,
-                        transform: item.color_transform,
-                        strokes_as_strokes: true,
-                    },
-                );
+            ElementKind::TextBox { .. } => {
+                if let Some(field) = neoflash_core::TextFieldState::from_kind(&item.kind) {
+                    for run in textbox_outline_runs(&field) {
+                        pdf_shape(
+                            &mut stream_body,
+                            &mut shadings,
+                            &run.commands,
+                            PsShapeStyle {
+                                rule: FillRule::NonZero,
+                                fill: run.color,
+                                stroke: if run.bold_stroke > 0.0 {
+                                    run.color
+                                } else {
+                                    [0; 4]
+                                },
+                                fill_gradient: None,
+                                stroke_gradient: None,
+                                stroke_width: run.bold_stroke,
+                                transform: item.color_transform,
+                                strokes_as_strokes: true,
+                            },
+                        );
+                    }
+                }
             }
             ElementKind::Instance { .. }
             | ElementKind::Bitmap { .. }
@@ -2276,7 +2492,7 @@ where
         });
         let mut bitmap_cache = HashMap::new();
         let needs_raster_video_session = has_timeline_video
-            && matches!(
+            && (matches!(
                 options.format,
                 ImageExportFormat::Png
                     | ImageExportFormat::Jpeg
@@ -2284,8 +2500,7 @@ where
                     | ImageExportFormat::Gif
                     | ImageExportFormat::Bmp
                     | ImageExportFormat::Pdf
-                    | ImageExportFormat::Psd
-            );
+            ) || (options.format == ImageExportFormat::Psd && options.runtime_capture));
         let mut video_session = if needs_raster_video_session {
             Some(crate::video::SequentialVideoFrameSession::new(
                 project,
@@ -2393,13 +2608,18 @@ where
                     markup.into_bytes()
                 }
                 ImageExportFormat::Psd => {
-                    let (psd, layers) = build_psd_bytes(
+                    let pre_composite = options
+                        .runtime_capture
+                        .then(|| render_rgba(&mut bitmap_cache))
+                        .transpose()?;
+                    let (psd, layers) = build_psd_bytes_with_composite(
                         project,
                         options.symbol_id.as_deref(),
                         frame,
                         width,
                         height,
                         options,
+                        pre_composite.as_deref(),
                     )?;
                     layer_count = layers;
                     psd
@@ -3161,6 +3381,274 @@ mod tests {
         );
         assert_eq!(imp_rad.stops.first().unwrap().color, [255, 255, 0, 255]);
         assert_eq!(imp_rad.stops.last().unwrap().color, [128, 0, 255, 255]);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn t414_ai_pdf_text_matrix_textbox_runs_psd_runtime_capture_and_shading_stops() {
+        // 1) All-at-1.0 stop pairs in `normalized_shading_stops` hold first color up to 0.9999
+        let all_end_paint = GradientPaint {
+            kind: GradientKind::Linear,
+            stops: vec![
+                neoflash_core::GradientStop {
+                    ratio: 255,
+                    color: [255, 0, 0, 255],
+                },
+                neoflash_core::GradientStop {
+                    ratio: 255,
+                    color: [0, 0, 255, 255],
+                },
+            ],
+            ..Default::default()
+        };
+        let all_end_stops = normalized_shading_stops(&all_end_paint, ColorTransform::default());
+        assert_eq!(all_end_stops.len(), 3);
+        assert_eq!(all_end_stops[0], (0.0, [1.0, 0.0, 0.0]));
+        assert!((all_end_stops[1].0 - 0.9999).abs() < 1e-6);
+        assert_eq!(all_end_stops[1].1, [1.0, 0.0, 0.0]);
+        assert_eq!(all_end_stops[2], (1.0, [0.0, 0.0, 1.0]));
+
+        // 2) Default AI export (`ai_text_as_outlines == false`) flips Y font matrix (`[size 0 0 -size 0 0] makefont`),
+        // splits `\n` lines, accepts `stroke_width == 0` semi-transparent `stroke_gradient`, and renders multi-run TextBox!
+        let mut project = Project::blank();
+        project.name = "T414 AI PDF PSD".into();
+        project.width = 240;
+        project.height = 160;
+        let mut tb_state = neoflash_core::TextFieldState {
+            text: "Red Blue".into(),
+            word_wrap: true,
+            multiline: true,
+            alpha: 255,
+            format: neoflash_core::TextFormat {
+                font: "Helvetica".into(),
+                size: 18.0,
+                color: 0xff0000,
+                align: neoflash_core::TextAlign::Center,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut blue_fmt = tb_state.format.clone();
+        blue_fmt.color = 0x0000ff;
+        blue_fmt.bold = true;
+        tb_state.format_runs = vec![
+            neoflash_core::TextFormatRun {
+                start: 0,
+                end: 4,
+                format: tb_state.format.clone(),
+            },
+            neoflash_core::TextFormatRun {
+                start: 4,
+                end: 8,
+                format: blue_fmt,
+            },
+        ];
+        let mut tb_el = Element {
+            id: new_id("element"),
+            name: String::new(),
+            transform: Transform {
+                x: 10.0,
+                y: 50.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::TextBox {
+                text: "Red Blue".into(),
+                width: 180.0,
+                height: 40.0,
+                format: tb_state.format.clone(),
+                word_wrap: true,
+                multiline: true,
+            },
+            ..Element::default()
+        };
+        tb_state.write_to_kind(&mut tb_el.kind);
+
+        let semi_stroke_grad = GradientPaint {
+            kind: GradientKind::Linear,
+            stops: vec![
+                neoflash_core::GradientStop {
+                    ratio: 0,
+                    color: [255, 0, 0, 128],
+                },
+                neoflash_core::GradientStop {
+                    ratio: 255,
+                    color: [0, 255, 0, 128],
+                },
+            ],
+            matrix: [0.05, 0.0, 0.0, 0.05, 20.0, 20.0],
+            ..Default::default()
+        };
+        let root_id = project.root.clone();
+        project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0].elements = vec![
+            Element {
+                id: new_id("element"),
+                name: "Label".into(),
+                transform: Transform {
+                    x: 12.0,
+                    y: 10.0,
+                    ..Transform::default()
+                },
+                kind: ElementKind::Text {
+                    text: "Top\nBottom".into(),
+                    font_family: "Courier".into(),
+                    font_size: 20.0,
+                    color: [20, 40, 60, 255],
+                },
+                ..Element::default()
+            },
+            tb_el,
+            Element {
+                id: new_id("element"),
+                name: "ZeroStrokeGrad".into(),
+                transform: Transform::default(),
+                kind: ElementKind::PaintedPath {
+                    commands: rectangle_path(30.0, 20.0).to_vec(),
+                    fill_rule: FillRule::NonZero,
+                    fill: [100, 150, 200, 255],
+                    stroke: [0, 0, 0, 0],
+                    fill_gradient: None,
+                    stroke_gradient: Some(semi_stroke_grad),
+                    stroke_width: 0.0,
+                },
+                ..Element::default()
+            },
+        ];
+        project.format_version = 5;
+        project.upgrade_format_for_features();
+
+        let dir = std::env::temp_dir().join(format!("neoflash-t414-img-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let mut ai_opts = ImageExportOptions::for_project(&project, 0);
+        ai_opts.format = ImageExportFormat::Ai;
+        ai_opts.transparent_background = true;
+        assert!(!ai_opts.ai_text_as_outlines);
+        let ai_rep = export_project_image(&project, &dir.join("t414.ai"), &ai_opts).unwrap();
+        let ai_str = fs::read_to_string(&ai_rep.files[0]).unwrap();
+        assert!(
+            !ai_str.contains("NeoFlashRasterFallback"),
+            "opaque AI scene with stroke_width==0 stroke_gradient must stay vector"
+        );
+        assert!(
+            ai_str.contains("/Courier findfont [20 0 0 -20 0 0] makefont setfont"),
+            "ps_text must flip font Y-axis in flipped AI coordinate space:\n{ai_str}"
+        );
+        assert!(ai_str.contains("(Top) show") && ai_str.contains("(Bottom) show"));
+        // Both Red (`1 0 0 setrgbcolor`) and Blue (`0 0 1 setrgbcolor`) runs from TextBox must be emitted!
+        assert!(ai_str.contains("1 0 0 setrgbcolor") && ai_str.contains("0 0 1 setrgbcolor"));
+
+        // Opaque multi-run TextBox in PDF stays vector and preserves run colors (`1 0 0 rg` & `0 0 1 rg`)!
+        let mut pdf_opts = ImageExportOptions::for_project(&project, 0);
+        pdf_opts.format = ImageExportFormat::Pdf;
+        pdf_opts.transparent_background = true;
+        let pdf_rep = export_project_image(&project, &dir.join("t414.pdf"), &pdf_opts).unwrap();
+        let pdf_str = String::from_utf8_lossy(&fs::read(&pdf_rep.files[0]).unwrap()).into_owned();
+        assert!(
+            !pdf_str.contains("/Im0 Do"),
+            "opaque multi-run TextBox in PDF must remain vector"
+        );
+        assert!(pdf_str.contains("1 0 0 rg") && pdf_str.contains("0 0 1 rg"));
+
+        // Semi-transparent TextFieldState (`field.alpha = 128`) propagates alpha into `textbox_outline_runs`,
+        // and `ps_draw_supported` rejects semi-transparent text so AI/PDF fall back to raster instead of painting opaque!
+        tb_state.alpha = 128;
+        let direct_runs = textbox_outline_runs(&tb_state);
+        assert!(direct_runs.iter().all(|r| r.color[3] == 128));
+        project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0].elements[1]
+            .transform
+            .alpha = 128.0 / 255.0;
+        let ai_semi_rep =
+            export_project_image(&project, &dir.join("t414_semi.ai"), &ai_opts).unwrap();
+        let ai_semi_str = fs::read_to_string(&ai_semi_rep.files[0]).unwrap();
+        assert!(ai_semi_str.contains("NeoFlashRasterFallback"));
+
+        // 3) PSD `runtime_capture == true` vs `false` on scripted MovieClip movement
+        let mut psd_proj = Project::blank();
+        psd_proj.name = "T414 PSD Runtime".into();
+        psd_proj.width = 100;
+        psd_proj.height = 40;
+        let box_sym_id = new_id("symbol");
+        psd_proj.symbols.push(neoflash_core::Symbol {
+            id: box_sym_id.clone(),
+            name: "RedBox".into(),
+            folder: String::new(),
+            kind: neoflash_core::SymbolKind::MovieClip,
+            class_name: None,
+            linkage_id: None,
+            timeline: neoflash_core::Timeline {
+                frame_count: 1,
+                layers: vec![neoflash_core::Layer {
+                    id: new_id("layer"),
+                    name: "Shape".into(),
+                    visible: true,
+                    locked: false,
+                    keyframes: vec![neoflash_core::Keyframe {
+                        frame: 0,
+                        elements: vec![Element {
+                            id: new_id("element"),
+                            name: String::new(),
+                            transform: Transform::default(),
+                            kind: ElementKind::Rectangle {
+                                width: 20.0,
+                                height: 20.0,
+                                fill: [255, 0, 0, 255],
+                                stroke: [0, 0, 0, 0],
+                                stroke_width: 0.0,
+                            },
+                            ..Element::default()
+                        }],
+                        ..Default::default()
+                    }],
+                    properties: neoflash_core::LayerProperties::default(),
+                }],
+                scripts: Vec::new(),
+                guides: Vec::new(),
+            },
+        });
+        let psd_root = psd_proj.root.clone();
+        psd_proj.symbol_mut(&psd_root).unwrap().timeline.layers[0].keyframes[0].elements =
+            vec![Element {
+                id: new_id("element"),
+                name: "mover".into(),
+                transform: Transform {
+                    x: 5.0,
+                    y: 10.0,
+                    ..Transform::default()
+                },
+                kind: ElementKind::Instance {
+                    symbol_id: box_sym_id,
+                    playback: neoflash_core::InstancePlayback::Independent,
+                },
+                ..Element::default()
+            }];
+        psd_proj.symbol_mut(&psd_root).unwrap().timeline.scripts =
+            vec![neoflash_core::FrameScript {
+                layer: None,
+                frame: 0,
+                script: neoflash_core::Script {
+                    language: neoflash_core::ScriptLanguage::ActionScript2,
+                    source: "mover._x = 70;".into(),
+                },
+            }];
+        psd_proj.upgrade_format_for_features();
+
+        let mut psd_static = ImageExportOptions::for_project(&psd_proj, 0);
+        psd_static.format = ImageExportFormat::Psd;
+        psd_static.runtime_capture = false;
+        let psd_static_rep =
+            export_project_image(&psd_proj, &dir.join("static.psd"), &psd_static).unwrap();
+        let psd_static_bytes = fs::read(&psd_static_rep.files[0]).unwrap();
+
+        let mut psd_rt = psd_static.clone();
+        psd_rt.runtime_capture = true;
+        let psd_rt_rep = export_project_image(&psd_proj, &dir.join("rt.psd"), &psd_rt).unwrap();
+        let psd_rt_bytes = fs::read(&psd_rt_rep.files[0]).unwrap();
+        assert_ne!(
+            psd_static_bytes, psd_rt_bytes,
+            "PSD export must honor options.runtime_capture when scripts move stage instances"
+        );
 
         let _ = fs::remove_dir_all(dir);
     }

@@ -702,13 +702,20 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     let eased_t = neoflash_core::easing(raw_t, ease).clamp(0.0, 1.0);
                     let ratio = (eased_t * 65535.0).round() as u16;
                     let start_el = &layer.keyframes[k_idx].elements[0];
+                    let end_el = layer
+                        .keyframes
+                        .get(k_idx + 1)
+                        .and_then(|nk| nk.elements.first())
+                        .unwrap_or(start_el);
+                    let interp_alpha = start_el.transform.alpha
+                        + (end_el.transform.alpha - start_el.transform.alpha) * eased_t;
                     next_slots.insert(
                         base_depth,
                         SlotPlacement {
                             character_id: morph_id,
-                            matrix: transform_matrix(start_el.transform),
+                            matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
                             color_transform: start_el.transform.color_transform,
-                            alpha: start_el.transform.alpha,
+                            alpha: interp_alpha,
                             ratio: Some(ratio),
                             name: String::new(),
                             clip_depth,
@@ -810,7 +817,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
 
             // Emit FrameLabel (tag 43), StartSound (tag 15), and DoAction (tag 12) in stream order
             // AFTER display-list updates for the frame and BEFORE ShowFrame (tag 1).
-            if let Some(&(lbl, is_anchor)) = frame_labels.first() {
+            for &(lbl, is_anchor) in &frame_labels {
                 let mut lw = SwfBitWriter::new();
                 lw.c_string(lbl);
                 if is_anchor && self.options.profile.swf_version() >= 6 {

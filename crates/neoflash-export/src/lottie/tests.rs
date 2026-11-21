@@ -2,6 +2,8 @@
 mod episode3;
 #[path = "tests_episode4.rs"]
 mod episode4;
+#[path = "tests_t414.rs"]
+mod t414;
 
 use super::{shapes::sample_shape_tween_frame, *};
 use base64::Engine as _;
