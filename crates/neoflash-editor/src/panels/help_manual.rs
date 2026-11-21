@@ -6000,6 +6000,7 @@ mod tests {
         // (0 chars selected, primary == secondary) MUST keep has_egui_label_selection == false,
         // keep Edit ▸ Copy disabled while Help is open, and close Help on the FIRST Escape press!
         open_help_manual(&ctx);
+        set_help_manual_page(&ctx, 0);
         let help_out = frame(&mut editor, &ctx, vec![]);
         let click_pt = help_out
             .shapes
@@ -6032,13 +6033,16 @@ mod tests {
 
         // Regression (T-440 #1b): With Help CLOSED and a Stage Rectangle selected, single-clicking
         // OR drag-selecting a docked panel label (plus Edit ▸ Select All) MUST NEVER hijack Stage Copy!
-        let run_docked_frame = |editor: &mut Editor,
-                                ctx: &egui::Context,
-                                events: Vec<egui::Event>|
+        let mut docked_time = 10.0_f64;
+        let mut run_docked_frame = |editor: &mut Editor,
+                                    ctx: &egui::Context,
+                                    events: Vec<egui::Event>|
          -> egui::FullOutput {
+            docked_time += 1.0;
             ctx.run(
                 egui::RawInput {
                     screen_rect: Some(WIDE),
+                    time: Some(docked_time),
                     events,
                     ..Default::default()
                 },
@@ -6051,6 +6055,7 @@ mod tests {
                 },
             )
         };
+        let _ = run_docked_frame(&mut editor, &ctx, vec![]);
         let dock_out = run_docked_frame(&mut editor, &ctx, vec![]);
         let (lbl_pos, lbl_galley) = dock_out
             .shapes
