@@ -168,6 +168,22 @@ impl Editor {
                 }
             }
         }
+        // Native capture of Properties above a nested Library / Color row in the main inspector.
+        if is_screenshot && std::env::var("NEOFLASH_SCREENSHOT_DOCK").as_deref() == Ok("nested") {
+            use crate::workspace::{DockDestination, DockEdge};
+            s.show_panel(PanelId::Library);
+            s.show_panel(PanelId::Properties);
+            if let Some(library) = s.workspace.dock.location(PanelId::Library) {
+                s.workspace.dock_panel(
+                    PanelId::Color,
+                    DockDestination::SplitGroup {
+                        area: library.edge,
+                        group: library.group,
+                        side: DockEdge::Right,
+                    },
+                );
+            }
+        }
         // Screenshot aid: `NEOFLASH_SCREENSHOT_TOOLS=rail` docks the one-column Tools rail; `menu`
         // and `rail-menu` open the palette's "⋯" menu; `float` floats the palette inside the main
         // window (embedded viewport) so the capture shows it.

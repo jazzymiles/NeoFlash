@@ -13,9 +13,9 @@ pub(crate) use dock::recover_geometry_with_bounds;
 #[allow(unused_imports)]
 pub use dock::{
     DetachedPanels, DockArea, DockDestination, DockEdge, DockGroup, DockLayout, DockLocation,
-    DockSurface, FloatingDock, FloatingNode, PanelPlacement, PanelWindowPrefs, ScreenRect,
-    SplitAxis, ToolsStageAnchor, WindowGeometry, default_window_size, maximum_window_size,
-    minimum_tools_window_width, minimum_window_size, recover_geometry,
+    DockSurface, FloatingDock, FloatingNode, MainDockNode, PanelPlacement, PanelWindowPrefs,
+    ScreenRect, SplitAxis, ToolsStageAnchor, WindowGeometry, default_window_size,
+    maximum_window_size, minimum_tools_window_width, minimum_window_size, recover_geometry,
 };
 pub use panel_id::{PanelId, PanelSizes, PanelVisibility};
 #[allow(unused_imports)]
@@ -570,6 +570,7 @@ impl WorkspacePrefs {
                 .iter()
                 .flat_map(|g| g.tabs.iter().copied())
                 .collect();
+            self.dock.right.root = None;
             self.dock.right.groups = vec![DockGroup {
                 id: 4,
                 tabs,
@@ -849,18 +850,48 @@ impl WorkspacePrefs {
                 let geometry = self.detached_geometry(panel);
                 self.float_panel(panel, geometry);
             } else {
-                let destination = self.detached.get(panel).and_then(|w| w.last_dock).map_or(
+                let previous = self.detached.get(panel).copied().unwrap_or_default();
+                let restore = previous
+                    .last_dock
+                    .zip(previous.return_split)
+                    .filter(|(loc, _)| {
+                        !self
+                            .dock
+                            .area(loc.edge)
+                            .groups
+                            .iter()
+                            .any(|g| g.id == loc.group)
+                    });
+                let destination = previous.last_dock.map_or(
                     DockDestination::Edge(DockEdge::default_for(panel)),
                     DockDestination::Tabs,
                 );
                 self.dock_panel(panel, destination);
+                if let Some((loc, slot)) = restore
+                    && let Some(actual) = self.dock.location(panel)
+                {
+                    self.dock
+                        .area_mut(loc.edge)
+                        .restore_leaf(actual.group, slot);
+                }
             }
         }
         let shown = self.show_panel(panel);
         self.normalize_active_bottom();
         old != placement || grouped || shown
     }
+    fn valid_dock_target(&self, destination: DockDestination) -> bool {
+        match destination {
+            DockDestination::SplitGroup { area, group, .. } => {
+                self.dock.area(area).groups.iter().any(|g| g.id == group)
+            }
+            _ => true,
+        }
+    }
     pub fn dock_panel(&mut self, panel: PanelId, destination: DockDestination) {
+        if !self.valid_dock_target(destination) {
+            return;
+        }
         match destination {
             DockDestination::FloatingTabs {
                 window,
@@ -942,6 +973,7 @@ impl WorkspacePrefs {
         let window = self.detached.get_mut(panel).expect("known panel");
         window.placement = PanelPlacement::Docked;
         window.last_dock = location;
+        window.return_split = None;
         self.show_panel(panel);
         self.normalize_active_bottom();
     }
@@ -954,6 +986,9 @@ impl WorkspacePrefs {
         destination: DockDestination,
     ) {
         let Some(&first) = panels.first() else { return };
+        if !self.valid_dock_target(destination) {
+            return;
+        }
         let same_group = match destination {
             DockDestination::Tabs(location) => self
                 .dock
@@ -962,7 +997,9 @@ impl WorkspacePrefs {
                 .iter()
                 .find(|g| g.id == location.group)
                 .map(|g| &g.tabs),
-            DockDestination::Split { edge, group, .. } => self
+            DockDestination::SplitGroup {
+                area: edge, group, ..
+            } => self
                 .dock
                 .area(edge)
                 .groups
@@ -1112,7 +1149,14 @@ impl WorkspacePrefs {
     }
     fn leave_root_dock(&mut self, panel: PanelId) {
         if let Some(location) = self.dock.location(panel) {
-            self.detached.get_mut(panel).expect("known panel").last_dock = Some(location);
+            let window = self.detached.get_mut(panel).expect("known panel");
+            window.last_dock = Some(location);
+            window.return_split = self
+                .dock
+                .area(location.edge)
+                .root
+                .as_ref()
+                .and_then(|root| root.return_split(location.group));
             self.dock.remove(panel, None);
         }
     }

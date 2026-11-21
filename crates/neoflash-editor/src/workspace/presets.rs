@@ -37,7 +37,7 @@ where
     #[serde(untagged)]
     enum StoredPreset {
         Complete(Box<WorkspacePreset>),
-        Legacy(DockLayout),
+        Legacy(Box<DockLayout>),
     }
     let stored = std::collections::BTreeMap::<String, StoredPreset>::deserialize(deserializer)?;
     Ok(stored
@@ -46,7 +46,7 @@ where
             let preset = match preset {
                 StoredPreset::Complete(preset) => *preset,
                 StoredPreset::Legacy(dock) => WorkspacePreset::capture(&WorkspacePrefs {
-                    dock,
+                    dock: *dock,
                     ..WorkspacePrefs::default()
                 }),
             };
@@ -309,7 +309,11 @@ impl WorkspaceTemplate {
             tabs,
             weight,
         };
-        let area = |size: f32, groups: Vec<DockGroup>| DockArea { size, groups };
+        let area = |size: f32, groups: Vec<DockGroup>| DockArea {
+            size,
+            groups,
+            root: None,
+        };
         let tools = |size: f32| area(size + 6., vec![group(3, vec![Tools], 1.)]);
         let two_columns = neoflash_ui::metrics::tools_two_columns();
         let inspector = neoflash_ui::metrics::inspector() + 6.;

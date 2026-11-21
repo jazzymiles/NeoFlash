@@ -3544,3 +3544,175 @@ fn t390_root_menu_popup_lowers_only_overlapping_floating_windows_and_preserves_n
         Some(egui::WindowLevel::AlwaysOnTop)
     );
 }
+
+#[test]
+fn main_dock_body_drop_splits_only_the_target_and_resizes_its_children() {
+    use crate::workspace::{DockDestination, DockLocation};
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    let before = editor.project.clone();
+    editor.workspace.dock.right.size = 800.;
+    let window_width = std::cell::Cell::new(1920.);
+    editor.show_panel(PanelId::Library);
+    editor.show_panel(PanelId::Properties);
+    let bottom = editor.workspace.dock.location(PanelId::Timeline).unwrap();
+    editor.workspace.dock_panel(
+        PanelId::Color,
+        DockDestination::Tabs(DockLocation { index: 0, ..bottom }),
+    );
+    let mut clock = 0.;
+    let mut frame = |editor: &mut Editor, events| {
+        clock += 0.05;
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(window_width.get(), 1080.),
+                )),
+                time: Some(clock),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                editor.dock_grid(ctx);
+                editor.stage(ctx);
+                editor.finalize_panel_drag(ctx);
+            },
+        );
+    };
+    let group = |editor: &Editor, panel| {
+        let location = editor.workspace.dock.location(panel).unwrap();
+        editor
+            .detached
+            .dock_groups
+            .iter()
+            .find(|g| {
+                g.surface == DockSurface::Main
+                    && g.edge == location.edge
+                    && g.group == location.group
+            })
+            .unwrap()
+            .clone()
+    };
+    frame(&mut editor, vec![]);
+    frame(&mut editor, vec![]);
+    let source = group(&editor, PanelId::Color);
+    let tab = source
+        .tabs
+        .iter()
+        .find(|(p, _)| *p == PanelId::Color)
+        .unwrap()
+        .1
+        .center();
+    let library = group(&editor, PanelId::Library);
+    // The local right edge belongs to this group; the outermost window halo docks a whole edge.
+    let drop = egui::pos2(
+        library.rect.right() - library.rect.width() * 0.2,
+        (library.header.bottom() + library.rect.bottom()) / 2.,
+    );
+    for (side, point) in [
+        (DockEdge::Left, egui::pos2(library.rect.left() + 8., drop.y)),
+        (DockEdge::Right, drop),
+        (
+            DockEdge::Top,
+            egui::pos2(library.rect.center().x, library.header.bottom() + 8.),
+        ),
+        (
+            DockEdge::Bottom,
+            egui::pos2(library.rect.center().x, library.rect.bottom() - 8.),
+        ),
+    ] {
+        let hit = editor.dock_hit(point, 1.).expect("local group target");
+        assert_eq!(
+            hit.destination,
+            DockDestination::SplitGroup {
+                area: DockEdge::Right,
+                group: library.group,
+                side,
+            }
+        );
+    }
+    frame(
+        &mut editor,
+        vec![
+            egui::Event::PointerMoved(tab),
+            crate::tests::primary_button(tab, true),
+        ],
+    );
+    frame(&mut editor, vec![egui::Event::PointerMoved(drop)]);
+    frame(&mut editor, vec![crate::tests::primary_button(drop, false)]);
+    frame(&mut editor, vec![]);
+    frame(&mut editor, vec![]);
+
+    let properties = group(&editor, PanelId::Properties).rect;
+    let library = group(&editor, PanelId::Library).rect;
+    let color = group(&editor, PanelId::Color).rect;
+    assert!(properties.bottom() <= library.top() && library.top() == color.top());
+    assert_eq!(properties.left(), library.left());
+    assert_eq!(properties.right(), color.right());
+    assert!(library.right() < color.left());
+
+    let grip = egui::pos2((library.right() + color.left()) / 2., color.center().y);
+    let moved = grip + egui::vec2(45., 0.);
+    frame(
+        &mut editor,
+        vec![
+            egui::Event::PointerMoved(grip),
+            crate::tests::primary_button(grip, true),
+        ],
+    );
+    frame(&mut editor, vec![egui::Event::PointerMoved(moved)]);
+    frame(
+        &mut editor,
+        vec![crate::tests::primary_button(moved, false)],
+    );
+    frame(&mut editor, vec![]);
+    let resized = group(&editor, PanelId::Library).rect;
+    assert!((resized.width() - library.width() - 45.).abs() < 1.);
+    assert_eq!(group(&editor, PanelId::Properties).rect, properties);
+    assert_eq!(group(&editor, PanelId::Color).rect.right(), color.right());
+
+    editor.set_panel_visible(PanelId::Color, false);
+    frame(&mut editor, vec![]);
+    assert_eq!(
+        group(&editor, PanelId::Library).rect.width(),
+        group(&editor, PanelId::Properties).rect.width()
+    );
+    editor.show_panel(PanelId::Color);
+    frame(&mut editor, vec![]);
+    assert_eq!(group(&editor, PanelId::Library).rect, resized);
+    // A far drag stops at the other child's usable minimum on a roomy screen.
+    let grip = egui::pos2(resized.right() + 3., resized.center().y);
+    let far = egui::pos2(color.right() - 10., grip.y);
+    frame(
+        &mut editor,
+        vec![
+            egui::Event::PointerMoved(grip),
+            crate::tests::primary_button(grip, true),
+        ],
+    );
+    frame(&mut editor, vec![egui::Event::PointerMoved(far)]);
+    frame(&mut editor, vec![crate::tests::primary_button(far, false)]);
+    frame(&mut editor, vec![]);
+    let clamped = group(&editor, PanelId::Color).rect;
+    assert!(
+        (clamped.width() - crate::workspace::minimum_window_size(PanelId::Color)[0]).abs() < 1.
+    );
+    assert_eq!(group(&editor, PanelId::Properties).rect, properties);
+
+    // In a cramped window preserve the Stage and the stored ratio for the next resize.
+    let layout = editor.workspace.dock.clone();
+    window_width.set(800.);
+    frame(&mut editor, vec![]);
+    let narrow_left = group(&editor, PanelId::Tools).rect;
+    let narrow_right = group(&editor, PanelId::Properties).rect;
+    assert!(narrow_right.left() - narrow_left.right() >= 320.);
+    assert!(group(&editor, PanelId::Color).rect.width() < clamped.width());
+    assert_eq!(editor.workspace.dock, layout);
+    window_width.set(1920.);
+    frame(&mut editor, vec![]);
+    assert_eq!(group(&editor, PanelId::Color).rect, clamped);
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+}

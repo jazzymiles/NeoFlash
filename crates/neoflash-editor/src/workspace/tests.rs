@@ -456,10 +456,10 @@ fn detached_preferences_roundtrip_migrate_and_restore_without_changing_theme() {
     );
     prefs.dock_panel(
         PanelId::Properties,
-        DockDestination::Split {
-            edge: DockEdge::Right,
+        DockDestination::SplitGroup {
+            area: DockEdge::Right,
             group: library.group,
-            before: true,
+            side: DockEdge::Top,
         },
     );
     assert_eq!(
@@ -925,4 +925,208 @@ fn saved_sizes_survive_the_density_based_size_tables() {
     prefs.set_density(DensityPref::ClassicFlash);
     assert_eq!(prefs.dock.right.size, 412.);
     metrics::set_density(saved);
+}
+
+#[test]
+fn nested_main_docks_keep_split_ratios_visibility_and_presets() {
+    use PanelId::{Color, Library, Properties, Swatches};
+    let mut prefs = WorkspacePrefs::default();
+    let right = DockEdge::Right;
+    let library = prefs.dock.location(Library).unwrap().group;
+    let props = prefs.dock.location(Properties).unwrap().group;
+    // Removing the optional tree field is exactly the old stored representation.
+    let legacy = serde_json::to_value(&prefs).unwrap();
+    assert!(legacy["dock"]["right"].get("root").is_none());
+    prefs = WorkspacePrefs::from_json(&legacy.to_string());
+    let width = prefs.dock.right.size;
+    let top_share = prefs.dock.right.groups[0].weight;
+
+    prefs.dock_panel(
+        Color,
+        DockDestination::SplitGroup {
+            area: right,
+            group: library,
+            side: DockEdge::Right,
+        },
+    );
+    let color = prefs.dock.location(Color).unwrap().group;
+    prefs.dock_panel(
+        Swatches,
+        DockDestination::SplitGroup {
+            area: right,
+            group: color,
+            side: DockEdge::Top,
+        },
+    );
+    let swatches = prefs.dock.location(Swatches).unwrap().group;
+    prefs.dock.right.set_ratio(&[true], 0.39);
+    prefs.dock.right.set_ratio(&[true, true], 0.73);
+    let split = |axis, ratio, first, second| MainDockNode::Split {
+        axis,
+        ratio,
+        first: Box::new(first),
+        second: Box::new(second),
+    };
+    let expected = split(
+        SplitAxis::Vertical,
+        top_share,
+        MainDockNode::Group(props),
+        split(
+            SplitAxis::Horizontal,
+            0.39,
+            MainDockNode::Group(library),
+            split(
+                SplitAxis::Vertical,
+                0.73,
+                MainDockNode::Group(swatches),
+                MainDockNode::Group(color),
+            ),
+        ),
+    );
+    assert_eq!(prefs.dock.right.root.as_ref(), Some(&expected));
+    assert_eq!(prefs.dock.right.size, width);
+
+    prefs.set_panel_visible(Swatches, false);
+    assert!(!prefs.is_panel_visible(Swatches));
+    assert_eq!(prefs.dock.right.root.as_ref(), Some(&expected));
+    prefs.show_panel(Swatches);
+    prefs.save_named_preset("Nested");
+    let mut restored = WorkspacePrefs::from_json(&serde_json::to_string(&prefs).unwrap());
+    assert_eq!(restored.dock.right.root.as_ref(), Some(&expected));
+    restored.apply_template(WorkspaceTemplate::Classic);
+    assert!(restored.apply_named_preset("Nested"));
+    assert_eq!(restored.dock.right.root.as_ref(), Some(&expected));
+
+    // Detaching this sole leaf collapses its branch. Dock restores it next to the whole
+    // surviving sibling subtree, even after quitting while the panel is floating.
+    let order: Vec<_> = restored.dock.right.groups.iter().map(|g| g.id).collect();
+    restored.set_placement(Library, PanelPlacement::Detached);
+    assert!(restored.dock.location(Library).is_none());
+    restored = WorkspacePrefs::from_json(&serde_json::to_string(&restored).unwrap());
+    restored.set_placement(Library, PanelPlacement::Docked);
+    assert_eq!(restored.dock.right.root.as_ref(), Some(&expected));
+    assert_eq!(restored.dock.location(Library).unwrap().group, library);
+    assert_eq!(
+        restored
+            .dock
+            .right
+            .groups
+            .iter()
+            .map(|g| g.id)
+            .collect::<Vec<_>>(),
+        order
+    );
+    assert!(restored.dock.give_priority(Color));
+    assert!(restored.dock.has_priority(Color));
+    assert!(!restored.dock.has_priority(Properties));
+}
+
+#[test]
+fn nested_main_dock_tab_groups_move_both_ways_and_stale_drops_preserve_them() {
+    use PanelId::{Align, Color, Info, Library, Swatches};
+    let mut prefs = WorkspacePrefs::default();
+    prefs.set_placement(Color, PanelPlacement::Detached);
+    let floating = prefs.floating_window(Color).unwrap();
+    let group = floating.root.as_ref().unwrap().location(Color).unwrap().0;
+    let floating_id = floating.id;
+    prefs.dock_panel(
+        Swatches,
+        DockDestination::FloatingTabs {
+            window: floating_id,
+            group,
+            index: 1,
+        },
+    );
+    prefs.dock_panel(
+        Info,
+        DockDestination::FloatingTabs {
+            window: floating_id,
+            group,
+            index: 2,
+        },
+    );
+    prefs.set_panel_visible(Info, false);
+    let tabs = [Color, Swatches, Info];
+    let previous = prefs.clone();
+    prefs.dock_group(
+        &tabs,
+        Swatches,
+        DockDestination::SplitGroup {
+            area: DockEdge::Right,
+            group: 9999,
+            side: DockEdge::Bottom,
+        },
+    );
+    assert_eq!(prefs, previous);
+
+    prefs.dock_group(
+        &tabs,
+        Swatches,
+        DockDestination::SplitGroup {
+            area: DockEdge::Right,
+            group: prefs.dock.location(Library).unwrap().group,
+            side: DockEdge::Left,
+        },
+    );
+    let location = prefs.dock.location(Color).unwrap();
+    let root = prefs.dock.right.nested_layout().unwrap();
+    let tab_group = root.group(location.group).unwrap();
+    assert_eq!(tab_group.tabs, tabs);
+    assert_eq!(tab_group.active, Swatches);
+    assert!(!prefs.is_panel_visible(Info));
+    assert!(prefs.floating_window(Color).is_none());
+    // Adding a tab, moving the entire group to a floating window, then hiding/reopening it.
+    prefs.dock_panel(
+        Align,
+        DockDestination::Tabs(DockLocation {
+            index: 1,
+            ..location
+        }),
+    );
+    let tabs = [Color, Align, Swatches, Info];
+    let window = prefs.float_group(&tabs, Swatches, window([120., 80.], [420., 380.]));
+    let floating = prefs.floating_window(Swatches).unwrap();
+    assert_eq!(floating.id, window);
+    assert_eq!(floating.panels(), tabs);
+    assert!(!prefs.is_panel_visible(Info));
+    assert!(
+        prefs
+            .dock
+            .right
+            .nested_layout()
+            .unwrap()
+            .group(location.group)
+            .is_none()
+    );
+    prefs.set_panel_visible(Swatches, false);
+    prefs.show_panel(Swatches);
+    assert_eq!(prefs.floating_window(Swatches).unwrap().id, window);
+}
+
+#[test]
+fn nested_main_dock_repairs_broken_layout_without_losing_tabs() {
+    let mut prefs = WorkspacePrefs::default();
+    let ids: Vec<_> = prefs.dock.right.groups.iter().map(|g| g.id).collect();
+    let expected = prefs.dock.right.groups.clone();
+    prefs.dock.right.root = Some(MainDockNode::Split {
+        axis: SplitAxis::Horizontal,
+        ratio: 1.5,
+        first: Box::new(MainDockNode::Group(ids[0])),
+        second: Box::new(MainDockNode::Group(99_999)),
+    });
+    let cleaned = WorkspacePrefs::from_json(&serde_json::to_string(&prefs).unwrap());
+    assert!(cleaned.dock.right.root.is_none());
+    assert_eq!(cleaned.dock.right.groups, expected);
+    for group in expected {
+        for (index, tab) in group.tabs.iter().enumerate() {
+            assert_eq!(
+                cleaned.dock.location(*tab),
+                Some(DockLocation {
+                    edge: DockEdge::Right,
+                    group: group.id,
+                    index
+                })
+            );
+        }
+    }
 }

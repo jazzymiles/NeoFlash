@@ -120,10 +120,11 @@ pub struct DockLocation {
 pub enum DockDestination {
     Edge(DockEdge),
     Tabs(DockLocation),
-    Split {
-        edge: DockEdge,
+    /// Split just the target leaf on the chosen side of a main-window area.
+    SplitGroup {
+        area: DockEdge,
         group: u32,
-        before: bool,
+        side: DockEdge,
     },
     FloatingTabs {
         window: PanelId,
@@ -150,12 +151,12 @@ pub enum SplitAxis {
     Vertical,
 }
 
-/// Floating windows use the same tab groups as the main grid, with a small
-/// split tree so every side can accept a panel without reserving an empty Stage.
+/// Binary split geometry shared by floating windows and nested main-window areas.
+/// Main leaves reference the tab records by ID; floating leaves own their tab records.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "content", rename_all = "snake_case")]
-pub enum FloatingNode {
-    Group(DockGroup),
+pub enum DockNode<G> {
+    Group(G),
     Split {
         axis: SplitAxis,
         ratio: f32,
@@ -163,6 +164,104 @@ pub enum FloatingNode {
         second: Box<Self>,
     },
 }
+pub type FloatingNode = DockNode<DockGroup>;
+pub type MainDockNode = DockNode<u32>;
+
+impl<G> DockNode<G> {
+    fn branch(axis: SplitAxis, ratio: f32, first: Self, second: Self) -> Self {
+        Self::Split {
+            axis,
+            ratio,
+            first: Box::new(first),
+            second: Box::new(second),
+        }
+    }
+
+    fn beside(self, side: DockEdge, added: G) -> Self {
+        let axis = if side.vertical() {
+            SplitAxis::Horizontal
+        } else {
+            SplitAxis::Vertical
+        };
+        if matches!(side, DockEdge::Top | DockEdge::Left) {
+            Self::branch(axis, 0.5, Self::Group(added), self)
+        } else {
+            Self::branch(axis, 0.5, self, Self::Group(added))
+        }
+    }
+
+    fn leaf_mut(&mut self, matches: &impl Fn(&G) -> bool) -> Option<&mut Self> {
+        match self {
+            Self::Group(g) if matches(g) => Some(self),
+            Self::Group(_) => None,
+            Self::Split { first, second, .. } => {
+                first.leaf_mut(matches).or_else(|| second.leaf_mut(matches))
+            }
+        }
+    }
+
+    fn split_leaf(&mut self, matches: impl Fn(&G) -> bool, side: DockEdge, new: G)
+    where
+        G: Clone,
+    {
+        if let Some(leaf) = self.leaf_mut(&matches) {
+            *leaf = leaf.clone().beside(side, new);
+        }
+    }
+
+    /// Preserve the structure of surviving leaves and collapse a branch if one side vanishes.
+    fn map_groups<T>(&self, visit: &mut impl FnMut(&G) -> Option<T>) -> Option<DockNode<T>> {
+        match self {
+            Self::Group(group) => visit(group).map(DockNode::Group),
+            Self::Split {
+                axis,
+                ratio,
+                first,
+                second,
+            } => {
+                let ratio = if ratio.is_finite() {
+                    ratio.clamp(0.001, 0.999)
+                } else {
+                    0.5
+                };
+                DockNode::join(
+                    *axis,
+                    ratio,
+                    first.map_groups(visit),
+                    second.map_groups(visit),
+                )
+            }
+        }
+    }
+
+    fn set_ratio(&mut self, path: &[bool], value: f32) {
+        let mut node = self;
+        for side in path {
+            let Self::Split { first, second, .. } = node else {
+                return;
+            };
+            node = if *side { second } else { first };
+        }
+        if let Self::Split { ratio, .. } = node
+            && value.is_finite()
+        {
+            *ratio = value.clamp(0.05, 0.95);
+        }
+    }
+
+    fn join(
+        axis: SplitAxis,
+        ratio: f32,
+        first: Option<Self>,
+        second: Option<Self>,
+    ) -> Option<Self> {
+        match (first, second) {
+            (Some(first), Some(second)) => Some(Self::branch(axis, ratio, first, second)),
+            (first, second) => first.or(second),
+        }
+    }
+}
+
 impl FloatingNode {
     pub fn panels(&self, out: &mut Vec<PanelId>) {
         match self {
@@ -223,71 +322,12 @@ impl FloatingNode {
             ),
         }
     }
-    pub(super) fn join(
-        axis: SplitAxis,
-        ratio: f32,
-        first: Option<Self>,
-        second: Option<Self>,
-    ) -> Option<Self> {
-        match (first, second) {
-            (Some(first), Some(second)) => Some(Self::Split {
-                axis,
-                ratio,
-                first: Box::new(first),
-                second: Box::new(second),
-            }),
-            (first, second) => first.or(second),
-        }
-    }
-    pub(super) fn split(self, target: Option<u32>, edge: DockEdge, group: DockGroup) -> Self {
-        if target.is_none() || matches!(&self, Self::Group(old) if Some(old.id) == target) {
-            let axis = if edge.vertical() {
-                SplitAxis::Horizontal
-            } else {
-                SplitAxis::Vertical
-            };
-            let added = Box::new(Self::Group(group));
-            let existing = Box::new(self);
-            return if matches!(edge, DockEdge::Top | DockEdge::Left) {
-                Self::Split {
-                    axis,
-                    ratio: 0.5,
-                    first: added,
-                    second: existing,
-                }
-            } else {
-                Self::Split {
-                    axis,
-                    ratio: 0.5,
-                    first: existing,
-                    second: added,
-                }
-            };
-        }
-        match self {
-            Self::Split {
-                axis,
-                ratio,
-                first,
-                second,
-            } => {
-                if target.is_some_and(|id| first.group(id).is_some()) {
-                    Self::Split {
-                        axis,
-                        ratio,
-                        first: Box::new(first.split(target, edge, group)),
-                        second,
-                    }
-                } else {
-                    Self::Split {
-                        axis,
-                        ratio,
-                        first,
-                        second: Box::new(second.split(target, edge, group)),
-                    }
-                }
-            }
-            node => node.split(None, edge, group),
+    pub(super) fn split(mut self, target: Option<u32>, edge: DockEdge, group: DockGroup) -> Self {
+        if let Some(id) = target {
+            self.split_leaf(|g| g.id == id, edge, group);
+            self
+        } else {
+            self.beside(edge, group)
         }
     }
     pub fn minimum_size(&self) -> [f32; 2] {
@@ -469,17 +509,8 @@ impl FloatingDock {
         }
     }
     pub fn set_ratio(&mut self, path: &[bool], value: f32) {
-        let Some(mut node) = self.root.as_mut() else {
-            return;
-        };
-        for side in path {
-            let FloatingNode::Split { first, second, .. } = node else {
-                return;
-            };
-            node = if *side { second } else { first };
-        }
-        if let FloatingNode::Split { ratio, .. } = node {
-            *ratio = value.clamp(0.05, 0.95);
+        if let Some(root) = &mut self.root {
+            root.set_ratio(path, value);
         }
     }
 }
@@ -514,6 +545,223 @@ impl DockGroup {
 pub struct DockArea {
     pub size: f32,
     pub groups: Vec<DockGroup>,
+    /// Absent on original stacked areas. Tab records remain in `groups` for both forms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<MainDockNode>,
+}
+/// Identifies the sibling subtree of a detached leaf by its first and last group.
+/// This remains usable if another part of the layout is resized while the panel floats.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub(super) struct DockReturnSplit {
+    sibling: [u32; 2],
+    side: DockEdge,
+    ratio: f32,
+}
+
+impl MainDockNode {
+    fn ends(&self) -> [u32; 2] {
+        match self {
+            Self::Group(id) => [*id; 2],
+            Self::Split { first, second, .. } => [first.ends()[0], second.ends()[1]],
+        }
+    }
+
+    pub(super) fn return_split(&self, group: u32) -> Option<DockReturnSplit> {
+        let Self::Split {
+            first,
+            second,
+            axis,
+            ratio,
+        } = self
+        else {
+            return None;
+        };
+        let (leading, trailing) = match axis {
+            SplitAxis::Horizontal => (DockEdge::Left, DockEdge::Right),
+            SplitAxis::Vertical => (DockEdge::Top, DockEdge::Bottom),
+        };
+        for (child, sibling, side) in [(first, second, leading), (second, first, trailing)] {
+            if matches!(**child, Self::Group(id) if id == group) {
+                return Some(DockReturnSplit {
+                    sibling: sibling.ends(),
+                    side,
+                    ratio: *ratio,
+                });
+            }
+        }
+        first
+            .return_split(group)
+            .or_else(|| second.return_split(group))
+    }
+
+    fn reattach(&mut self, id: u32, slot: DockReturnSplit) -> bool {
+        if self.ends() == slot.sibling {
+            let mut split = self.clone().beside(slot.side, id);
+            if let Self::Split { ratio, .. } = &mut split {
+                *ratio = slot.ratio;
+            }
+            *self = split;
+            return true;
+        }
+        match self {
+            Self::Group(_) => false,
+            Self::Split { first, second, .. } => {
+                first.reattach(id, slot) || second.reattach(id, slot)
+            }
+        }
+    }
+
+    fn from_stack(groups: &[DockGroup], axis: SplitAxis) -> Option<Self> {
+        match groups {
+            [] => None,
+            [only] => Some(Self::Group(only.id)),
+            _ => {
+                let (left, right) = groups.split_at(groups.len() / 2);
+                let total: f32 = groups.iter().map(|g| g.weight).sum();
+                let leading: f32 = left.iter().map(|g| g.weight).sum();
+                Self::join(
+                    axis,
+                    leading / total,
+                    Self::from_stack(left, axis),
+                    Self::from_stack(right, axis),
+                )
+            }
+        }
+    }
+
+    fn share(&self, group: u32) -> f32 {
+        match self {
+            Self::Group(id) => {
+                if *id == group {
+                    1.
+                } else {
+                    0.
+                }
+            }
+            Self::Split {
+                ratio,
+                first,
+                second,
+                ..
+            } => first.share(group) * ratio + second.share(group) * (1. - ratio),
+        }
+    }
+
+    fn apply_weights(&mut self, groups: &[DockGroup]) -> f32 {
+        match self {
+            Self::Group(id) => groups.iter().find(|g| g.id == *id).map_or(0., |g| g.weight),
+            Self::Split {
+                ratio,
+                first,
+                second,
+                ..
+            } => {
+                let a = first.apply_weights(groups);
+                let b = second.apply_weights(groups);
+                if a + b > 0. {
+                    *ratio = a / (a + b);
+                }
+                a + b
+            }
+        }
+    }
+}
+
+impl DockArea {
+    /// Resolved groups for the shared split renderer, including temporarily hidden leaves.
+    pub fn nested_layout(&self) -> Option<FloatingNode> {
+        self.root
+            .as_ref()?
+            .map_groups(&mut |id| self.groups.iter().find(|g| g.id == *id).cloned())
+    }
+
+    pub fn set_ratio(&mut self, path: &[bool], value: f32) {
+        if let Some(root) = &mut self.root {
+            root.set_ratio(path, value);
+        }
+    }
+
+    /// Recreate the former leaf at its sibling subtree. Keep the normal docking fallback
+    /// when that subtree has been reorganised or removed since detaching.
+    pub(super) fn restore_leaf(&mut self, group: u32, slot: DockReturnSplit) {
+        if !slot.ratio.is_finite() || !(0.0..1.0).contains(&slot.ratio) {
+            return;
+        }
+        let previous = if let Some(root) = &self.root {
+            root.map_groups(&mut |id| (*id != group).then_some(*id))
+        } else if self.groups.len() == 2 {
+            self.groups
+                .iter()
+                .find(|g| g.id != group)
+                .map(|g| MainDockNode::Group(g.id))
+        } else {
+            None
+        };
+        if let Some(mut tree) = previous
+            && tree.reattach(group, slot)
+        {
+            self.root = Some(tree);
+            // Keep the tab registry in the same reading order as the restored tree.
+            if let Some(index) = self.groups.iter().position(|g| g.id == group) {
+                let restored = self.groups.remove(index);
+                let after = matches!(slot.side, DockEdge::Right | DockEdge::Bottom);
+                let anchor = slot.sibling[usize::from(after)];
+                let neighbour = self
+                    .groups
+                    .iter()
+                    .position(|g| g.id == anchor)
+                    .expect("restored sibling");
+                self.groups.insert(neighbour + usize::from(after), restored);
+            }
+        }
+    }
+
+    fn prune_root(&mut self) {
+        if let Some(root) = self.root.take() {
+            let mut remaining: std::collections::HashSet<_> =
+                self.groups.iter().map(|g| g.id).collect();
+            let cleaned = root.map_groups(&mut |id| remaining.remove(id).then_some(*id));
+            // An incomplete stored tree cannot position all panels: fall back to their intact stack.
+            if remaining.is_empty() && self.groups.len() > 1 {
+                self.root = cleaned;
+            }
+        }
+    }
+
+    fn push_group(&mut self, edge: DockEdge, group: DockGroup) {
+        if let Some(root) = self.root.take() {
+            let side = if edge.vertical() {
+                DockEdge::Bottom
+            } else {
+                DockEdge::Right
+            };
+            self.root = Some(root.beside(side, group.id));
+        }
+        self.groups.push(group);
+    }
+
+    fn split_group(&mut self, edge: DockEdge, target: u32, side: DockEdge, mut group: DockGroup) {
+        let Some(index) = self.groups.iter().position(|g| g.id == target) else {
+            self.push_group(edge, group);
+            return;
+        };
+        // Keep the former stack geometry when the first explicit split builds a tree.
+        if self.root.is_none() {
+            let axis = if edge.vertical() {
+                SplitAxis::Vertical
+            } else {
+                SplitAxis::Horizontal
+            };
+            self.root = MainDockNode::from_stack(&self.groups, axis);
+        }
+        if let Some(root) = self.root.as_mut() {
+            root.split_leaf(|id| *id == target, side, group.id);
+        }
+        self.groups[index].weight *= 0.5;
+        group.weight = self.groups[index].weight;
+        let after = matches!(side, DockEdge::Right | DockEdge::Bottom);
+        self.groups.insert(index + usize::from(after), group);
+    }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -543,6 +791,9 @@ impl DockLayout {
                     others
                 };
             }
+            if let Some(root) = &mut area.root {
+                root.apply_weights(&area.groups);
+            }
             return true;
         }
         false
@@ -551,6 +802,13 @@ impl DockLayout {
     /// Whether the stacked group holding `panel` currently has the larger share of its area.
     pub fn has_priority(&self, panel: PanelId) -> bool {
         [&self.left, &self.right].into_iter().any(|area| {
+            if let Some(root) = &area.root {
+                return area
+                    .groups
+                    .iter()
+                    .find(|g| g.tabs.contains(&panel))
+                    .is_some_and(|g| root.share(g.id) > 0.5);
+            }
             let total: f32 = area.groups.iter().map(|g| g.weight).sum();
             area.groups.len() > 1
                 && area
@@ -573,10 +831,12 @@ impl Default for DockLayout {
         // one full-width bottom dock with Timeline · Actions · Output · Accessibility.
         Self {
             top: DockArea {
+                root: None,
                 size: crate::theme::timeline_h(),
                 groups: vec![],
             },
             bottom: DockArea {
+                root: None,
                 size: neoflash_ui::metrics::BOTTOM_DOCK,
                 groups: vec![group(
                     2,
@@ -593,10 +853,12 @@ impl Default for DockLayout {
             },
             // Base Tools layout is two columns; one column (with a "…" overflow) is the narrow variant.
             left: DockArea {
+                root: None,
                 size: neoflash_ui::metrics::tools_two_columns() + 6.,
                 groups: vec![group(3, vec![PanelId::Tools])],
             },
             right: DockArea {
+                root: None,
                 // `width/inspector` panel + the 6 pt resize strip.
                 size: neoflash_ui::metrics::inspector() + 6.,
                 groups: vec![
@@ -677,6 +939,7 @@ impl DockLayout {
             }
             area.groups
                 .retain(|g| !g.tabs.is_empty() || keep_group == Some(g.id));
+            area.prune_root();
         }
     }
     pub(super) fn fresh_group(&mut self, panel: PanelId) -> DockGroup {
@@ -722,41 +985,31 @@ impl DockLayout {
                     {
                         group.id = location.group;
                     }
-                    self.area_mut(location.edge).groups.push(group);
+                    self.next_group = self.next_group.max(group.id + 1);
+                    self.area_mut(location.edge)
+                        .push_group(location.edge, group);
                 }
             }
-            DockDestination::Split {
-                edge,
-                group,
-                before,
-            } => {
+            DockDestination::SplitGroup { area, group, side } => {
                 if self
-                    .area(edge)
+                    .area(area)
                     .groups
                     .iter()
-                    .any(|g| g.id == group && g.tabs == [panel])
+                    .find(|g| g.id == group)
+                    .is_none_or(|g| g.tabs == [panel])
                 {
                     return;
                 }
                 self.remove(panel, None);
-                let mut new_group = self.fresh_group(panel);
-                let area = self.area_mut(edge);
-                let index = area.groups.iter().position(|g| g.id == group);
-                if let Some(index) = index {
-                    let target = &mut area.groups[index];
-                    target.weight *= 0.5;
-                    new_group.weight = target.weight;
-                    area.groups.insert(index + usize::from(!before), new_group);
-                } else {
-                    area.groups.push(new_group);
-                }
+                let added = self.fresh_group(panel);
+                self.area_mut(area).split_group(area, group, side, added);
             }
             DockDestination::Edge(edge) => {
                 self.remove(panel, None);
                 let mut group = self.fresh_group(panel);
                 let area = self.area_mut(edge);
                 group.weight = area.groups.last().map_or(1., |g| g.weight);
-                area.groups.push(group);
+                area.push_group(edge, group);
             }
             DockDestination::FloatingTabs { .. } | DockDestination::FloatingSplit { .. } => {
                 unreachable!("floating destinations are routed by WorkspacePrefs")
@@ -817,6 +1070,7 @@ impl DockLayout {
                 }
             }
             area.groups.retain(|g| !g.tabs.is_empty());
+            area.prune_root();
         }
         let minimum_id = ids.into_iter().max().unwrap_or(0) + 1;
         self.next_group = self.next_group.clamp(minimum_id, 1_000_008);
@@ -938,6 +1192,8 @@ pub struct PanelWindowPrefs {
     pub placement: PanelPlacement,
     pub geometry: Option<WindowGeometry>,
     pub last_dock: Option<DockLocation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) return_split: Option<DockReturnSplit>,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]

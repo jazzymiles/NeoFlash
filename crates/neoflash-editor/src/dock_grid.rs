@@ -188,6 +188,34 @@ pub(crate) fn side_dock_content_limits(
         .reduce(|a, b| (a.0.max(b.0), a.1.max(b.1)))
 }
 
+/// On the split axis, child extents add up. Across it, both children share the
+/// same space. A hidden subtree does not reserve space on either axis.
+fn nested_limits(
+    node: &FloatingNode,
+    direction: SplitAxis,
+    measure: impl Fn(&DockGroup) -> Option<(f32, f32)> + Copy,
+) -> Option<(f32, f32)> {
+    match node {
+        FloatingNode::Group(group) => measure(group),
+        FloatingNode::Split {
+            axis,
+            first,
+            second,
+            ..
+        } => {
+            let first = nested_limits(first, direction, measure);
+            let second = nested_limits(second, direction, measure);
+            match (first, second) {
+                (Some(a), Some(b)) if *axis == direction => {
+                    Some((a.0 + b.0 + SPLITTER, a.1 + b.1 + SPLITTER))
+                }
+                (Some(a), Some(b)) => Some((a.0.max(b.0), a.1.max(b.1))),
+                (a, b) => a.or(b),
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct AreaResize {
     size: f32,
@@ -366,10 +394,15 @@ impl Editor {
             } else {
                 0.
             };
-            (
-                min,
-                (available.height() - doc_bar - MIN_STAGE_HEIGHT - reserve).clamp(min, 800.),
-            )
+            let budget = (available.height() - doc_bar - MIN_STAGE_HEIGHT - reserve).max(min);
+            if let Some(root) = self.workspace.dock.area(edge).nested_layout() {
+                let height_limits = self.main_node_limits(&root, SplitAxis::Vertical);
+                let (ideal_min, ideal_max) = height_limits.unwrap_or((min, budget));
+                let min = (ideal_min + AREA_GRIP).clamp(min, budget);
+                (min, (ideal_max + AREA_GRIP).clamp(min, budget))
+            } else {
+                (min, budget.min(800.))
+            }
         };
         let effective = size.clamp(minimum, maximum);
         if edge.vertical() {
@@ -411,7 +444,12 @@ impl Editor {
     ) -> (f32, f32) {
         let visible = |panel: PanelId| self.workspace.is_panel_visible(panel);
         let limits = |edge: DockEdge| {
-            side_dock_content_limits(&self.workspace.dock.area(edge).groups, visible)
+            let area = self.workspace.dock.area(edge);
+            if let Some(root) = area.nested_layout() {
+                self.main_node_limits(&root, SplitAxis::Horizontal)
+            } else {
+                side_dock_content_limits(&area.groups, visible)
+            }
         };
         let Some((content_min, content_max)) = limits(edge) else {
             let floor = neoflash_ui::metrics::inspector() + AREA_GRIP;
@@ -442,11 +480,14 @@ impl Editor {
         } else {
             0.
         };
-        let content_max = (content_max + AREA_GRIP).clamp(min, 1000.);
-        (
-            min,
-            (available.x - MIN_STAGE_WIDTH - reserve).clamp(min, content_max),
-        )
+        // With many horizontal splits the ideal content minimum may exceed the entire
+        // window. Keep the Stage usable and clip the individual leaf bodies in that case.
+        let budget = (available.x - MIN_STAGE_WIDTH - reserve).max(AREA_GRIP);
+        let nested = self.workspace.dock.area(edge).root.is_some();
+        let min = if nested { min.min(budget) } else { min };
+        let cap = if nested { budget } else { 1000. };
+        let max = (content_max + AREA_GRIP).min(cap).min(budget).max(min);
+        (min, max)
     }
 
     fn dock_edge_visible(&self, edge: DockEdge) -> bool {
@@ -487,6 +528,12 @@ impl Editor {
                 rect.min.x += AREA_GRIP;
                 grip.max.x = rect.min.x;
             }
+        }
+        if let Some(root) = self.workspace.dock.area(edge).nested_layout() {
+            self.dock_node_contents(ui, (DockSurface::Main, edge), &root, rect, &mut Vec::new());
+            self.dock_area_resize_grip(ui, edge, grip, effective, minimum, maximum);
+            ui.expand_to_include_rect(full_rect);
+            return;
         }
         let vertical = edge.vertical();
         let length = if vertical {
@@ -1355,7 +1402,13 @@ impl Editor {
             .find(|w| w.id == window)
             .and_then(|w| w.root.clone());
         if let Some(root) = root {
-            self.floating_node_contents(ui, window, &root, ui.max_rect(), &mut Vec::new());
+            self.dock_node_contents(
+                ui,
+                (surface, DockEdge::Left),
+                &root,
+                ui.max_rect(),
+                &mut Vec::new(),
+            );
         }
     }
 
@@ -1414,26 +1467,50 @@ impl Editor {
         }
     }
 
-    fn floating_node_visible(&self, node: &FloatingNode) -> bool {
+    fn main_node_limits(&self, node: &FloatingNode, axis: SplitAxis) -> Option<(f32, f32)> {
+        nested_limits(node, axis, |group| {
+            group
+                .tabs
+                .iter()
+                .copied()
+                .filter(|panel| self.workspace.is_panel_visible(*panel))
+                .map(|p| match axis {
+                    SplitAxis::Horizontal => (
+                        crate::workspace::minimum_window_size(p)[0],
+                        crate::workspace::maximum_window_size(p)[0],
+                    ),
+                    SplitAxis::Vertical => (
+                        p.min_stacked_height(),
+                        crate::workspace::maximum_window_size(p)[1],
+                    ),
+                })
+                .reduce(|a, b| (a.0.max(b.0), a.1.max(b.1)))
+        })
+    }
+
+    fn dock_node_visible(&self, node: &FloatingNode) -> bool {
         match node {
             FloatingNode::Group(group) => group
                 .tabs
                 .iter()
                 .any(|p| self.workspace.is_panel_visible(*p)),
             FloatingNode::Split { first, second, .. } => {
-                self.floating_node_visible(first) || self.floating_node_visible(second)
+                self.dock_node_visible(first) || self.dock_node_visible(second)
             }
         }
     }
 
-    fn floating_node_contents(
+    fn dock_node_contents(
         &mut self,
         ui: &mut egui::Ui,
-        window: PanelId,
+        location: (DockSurface, DockEdge),
         node: &FloatingNode,
         rect: egui::Rect,
         path: &mut Vec<bool>,
     ) {
+        if !rect.is_positive() {
+            return;
+        }
         match node {
             FloatingNode::Group(group) => {
                 let mut visible = group.clone();
@@ -1444,13 +1521,7 @@ impl Editor {
                 if !visible.tabs.contains(&visible.active) {
                     visible.active = visible.tabs[0];
                 }
-                self.dock_group_contents(
-                    ui,
-                    DockSurface::Floating(window),
-                    DockEdge::Left,
-                    &visible,
-                    rect,
-                );
+                self.dock_group_contents(ui, location.0, location.1, &visible, rect);
             }
             FloatingNode::Split {
                 axis,
@@ -1458,62 +1529,109 @@ impl Editor {
                 first,
                 second,
             } => {
-                let a = self.floating_node_visible(first);
-                let b = self.floating_node_visible(second);
-                if !a || !b {
-                    if a || b {
-                        path.push(b);
-                        self.floating_node_contents(
+                let minimum = |node: &FloatingNode| match location.0 {
+                    DockSurface::Main => self.main_node_limits(node, *axis).map(|bounds| bounds.0),
+                    DockSurface::Floating(_) => self.dock_node_visible(node).then_some(48.),
+                };
+                let (first_min, second_min) = (minimum(first), minimum(second));
+                let (Some(first_min), Some(second_min)) = (first_min, second_min) else {
+                    if first_min.is_some() || second_min.is_some() {
+                        path.push(second_min.is_some());
+                        self.dock_node_contents(
                             ui,
-                            window,
-                            if a { first } else { second },
+                            location,
+                            if first_min.is_some() { first } else { second },
                             rect,
                             path,
                         );
                         path.pop();
                     }
                     return;
-                }
+                };
                 let vertical = *axis == SplitAxis::Vertical;
                 let extent = if vertical {
                     rect.height()
                 } else {
                     rect.width()
                 };
-                let space = (extent - SPLITTER).max(1.);
-                let minimum = (48. / space).clamp(0.05, 0.45);
-                let ratio = ratio.clamp(minimum, 1. - minimum);
+                // A deep split in a very narrow window can be smaller than the grip.
+                // Keep both child rectangles inside their parent even then.
+                let grip = SPLITTER.min((extent - 2.).max(0.));
+                let space = extent - grip;
+                let (low, high) = match location.0 {
+                    DockSurface::Main if first_min + second_min <= space => {
+                        let low = first_min / space;
+                        (low, ((space - second_min) / space).max(low))
+                    }
+                    // In a smaller window both minima cannot fit. Honor the stored share
+                    // temporarily; the next larger frame recovers the preferred layout.
+                    DockSurface::Main => (0.05, 0.95),
+                    DockSurface::Floating(_) => {
+                        let low = (first_min / space).clamp(0.05, 0.45);
+                        (low, 1. - low)
+                    }
+                };
+                let ratio = ratio.clamp(low, high);
                 let coordinate = if vertical { rect.top() } else { rect.left() } + space * ratio;
                 let mut first_rect = rect;
                 let mut second_rect = rect;
                 let mut divider = rect;
                 if vertical {
                     first_rect.max.y = coordinate;
-                    second_rect.min.y = coordinate + SPLITTER;
+                    second_rect.min.y = coordinate + grip;
                     divider.min.y = coordinate;
-                    divider.max.y = coordinate + SPLITTER;
+                    divider.max.y = coordinate + grip;
                 } else {
                     first_rect.max.x = coordinate;
-                    second_rect.min.x = coordinate + SPLITTER;
+                    second_rect.min.x = coordinate + grip;
                     divider.min.x = coordinate;
-                    divider.max.x = coordinate + SPLITTER;
+                    divider.max.x = coordinate + grip;
                 }
                 path.push(false);
-                self.floating_node_contents(ui, window, first, first_rect, path);
+                self.dock_node_contents(ui, location, first, first_rect, path);
                 path.pop();
                 path.push(true);
-                self.floating_node_contents(ui, window, second, second_rect, path);
+                self.dock_node_contents(ui, location, second, second_rect, path);
                 path.pop();
-                let response = ui.interact(
-                    divider,
-                    egui::Id::new(("floating-divider", window, path.clone())),
-                    egui::Sense::drag(),
-                );
-                ui.painter().rect_filled(
-                    divider,
-                    0.,
-                    ui.visuals().widgets.noninteractive.bg_stroke.color,
-                );
+                let response = match location.0 {
+                    DockSurface::Main => {
+                        let response = nf::tooltip(
+                            ui.interact(
+                                divider,
+                                ui.id().with(("dock-divider", location.1, &*path)),
+                                egui::Sense::click_and_drag(),
+                            ),
+                            "Drag to resize · double-click to swap priority",
+                            None,
+                        );
+                        ui.painter().rect_filled(
+                            divider,
+                            0.,
+                            neoflash_ui::palette(ui.ctx()).bg_panel,
+                        );
+                        nf::surface::splitter(
+                            ui.painter(),
+                            ui.ctx(),
+                            divider,
+                            !vertical,
+                            &response,
+                        );
+                        response
+                    }
+                    DockSurface::Floating(window) => {
+                        let response = ui.interact(
+                            divider,
+                            egui::Id::new(("floating-divider", window, &*path)),
+                            egui::Sense::drag(),
+                        );
+                        ui.painter().rect_filled(
+                            divider,
+                            0.,
+                            ui.visuals().widgets.noninteractive.bg_stroke.color,
+                        );
+                        response
+                    }
+                };
                 let divider_hovered = response.hovered()
                     && !self.has_modal_dialog_in(ui.ctx())
                     && !crate::panels::dialog_helpers::is_editor_popup_open_on_viewport(
@@ -1535,7 +1653,10 @@ impl Editor {
                         egui::CursorIcon::ResizeHorizontal
                     });
                 }
-                if response.dragged() {
+                let next_ratio = if location.0 == DockSurface::Main && response.double_clicked() {
+                    let priority = crate::workspace::DockLayout::PRIORITY_WEIGHT;
+                    Some(if ratio > 0.5 { 1. - priority } else { priority })
+                } else if response.dragged() {
                     let delta = ui.input(|i| {
                         if vertical {
                             i.pointer.delta().y
@@ -1543,13 +1664,26 @@ impl Editor {
                             i.pointer.delta().x
                         }
                     });
-                    if let Some(window) =
-                        self.workspace.floating.iter_mut().find(|w| w.id == window)
-                    {
-                        window
-                            .set_ratio(path, (ratio + delta / space).clamp(minimum, 1. - minimum));
-                        self.persist_workspace_requested = true;
+                    Some((ratio + delta / space).clamp(low, high))
+                } else {
+                    None
+                };
+                if let Some(value) = next_ratio {
+                    match location.0 {
+                        DockSurface::Main => self
+                            .workspace
+                            .dock
+                            .area_mut(location.1)
+                            .set_ratio(path, value),
+                        DockSurface::Floating(id) => {
+                            if let Some(window) =
+                                self.workspace.floating.iter_mut().find(|w| w.id == id)
+                            {
+                                window.set_ratio(path, value);
+                            }
+                        }
                     }
+                    self.persist_workspace_requested = true;
                 }
             }
         }
@@ -1858,7 +1992,8 @@ impl Editor {
                 caption: "Place tab".into(),
             });
         }
-        let closest_edge = edge_acceptance_targets(view.content, view.zoom)
+        let edge_zones = edge_acceptance_targets(view.content, view.zoom);
+        let closest_edge = edge_zones
             .into_iter()
             .filter(|(_, rect)| rect.contains(pointer))
             .min_by(|(a, _), (b, _)| {
@@ -1892,44 +2027,31 @@ impl Editor {
             });
         }
         let target = groups.iter().find(|g| g.rect.contains(pointer))?;
-        let split = match view.surface {
+        // Headers insert tabs; the outer window bands dock an entire edge. Calculate a
+        // main leaf's four local split zones within its remaining body so even a narrow
+        // Tools rail or a short group has reachable targets on each exposed side.
+        let body = match view.surface {
             DockSurface::Main => {
-                let relative = if target.edge.vertical() {
-                    (pointer.y - target.rect.top()) / target.rect.height()
-                } else {
-                    (pointer.x - target.rect.left()) / target.rect.width()
-                };
-                if !(0.25..=0.75).contains(&relative) {
-                    Some(if target.edge.vertical() {
-                        if relative < 0.5 {
-                            DockEdge::Top
-                        } else {
-                            DockEdge::Bottom
-                        }
-                    } else if relative < 0.5 {
-                        DockEdge::Left
-                    } else {
-                        DockEdge::Right
-                    })
-                } else {
-                    None
-                }
+                let [(_, top), (_, bottom), (_, left), (_, right)] = edge_zones;
+                target.rect.intersect(egui::Rect::from_min_max(
+                    egui::pos2(left.right(), top.bottom().max(target.header.bottom())),
+                    egui::pos2(right.left(), bottom.top()),
+                ))
             }
-            DockSurface::Floating(_) => {
-                let x = (pointer.x - target.rect.left()) / target.rect.width();
-                let y = (pointer.y - target.rect.top()) / target.rect.height();
-                [
-                    (DockEdge::Left, x),
-                    (DockEdge::Right, 1. - x),
-                    (DockEdge::Top, y),
-                    (DockEdge::Bottom, 1. - y),
-                ]
-                .into_iter()
-                .filter(|(_, distance)| *distance < 0.24)
-                .min_by(|a, b| a.1.total_cmp(&b.1))
-                .map(|(edge, _)| edge)
-            }
+            DockSurface::Floating(_) => target.rect,
         };
+        let x = (pointer.x - body.left()) / body.width().max(1.);
+        let y = (pointer.y - body.top()) / body.height().max(1.);
+        let split = [
+            (DockEdge::Left, x),
+            (DockEdge::Right, 1. - x),
+            (DockEdge::Top, y),
+            (DockEdge::Bottom, 1. - y),
+        ]
+        .into_iter()
+        .filter(|(_, distance)| *distance < 0.24)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(edge, _)| edge);
         if let Some(edge) = split {
             let mut rect = target.rect;
             match edge {
@@ -1939,10 +2061,10 @@ impl Editor {
                 DockEdge::Right => rect.min.x = rect.center().x,
             }
             let destination = match view.surface {
-                DockSurface::Main => DockDestination::Split {
-                    edge: target.edge,
+                DockSurface::Main => DockDestination::SplitGroup {
+                    area: target.edge,
                     group: target.group,
-                    before: matches!(edge, DockEdge::Top | DockEdge::Left),
+                    side: edge,
                 },
                 DockSurface::Floating(window) => DockDestination::FloatingSplit {
                     window,
