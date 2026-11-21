@@ -490,17 +490,19 @@ pub enum PublishProfilePreset {
     WebBalanced,
     WebAppDom,
     WebBannerNative,
+    Criteo,
     HighQuality,
     DebugPreview,
 }
 
 impl PublishProfilePreset {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Default,
         Self::WebCompact,
         Self::WebBalanced,
         Self::WebAppDom,
         Self::WebBannerNative,
+        Self::Criteo,
         Self::HighQuality,
         Self::DebugPreview,
     ];
@@ -512,6 +514,7 @@ impl PublishProfilePreset {
             Self::WebBalanced => "Web Balanced",
             Self::WebAppDom => "Web App · DOM",
             Self::WebBannerNative => "Web Banner · Native",
+            Self::Criteo => "Criteo · HTML5 ZIP",
             Self::HighQuality => "High Quality",
             Self::DebugPreview => "Preview / Debug",
         }
@@ -524,6 +527,10 @@ pub(super) fn default_true() -> bool {
 
 pub(super) fn default_banner_max_gzip_kb() -> u32 {
     150
+}
+
+fn default_criteo_max_zip_kib() -> u32 {
+    (neoflash_export::DEFAULT_CRITEO_MAX_ZIP_BYTES / 1024) as u32
 }
 
 pub(super) fn default_sequence_import_options() -> neoflash_import::ImageSequenceImportOptions {
@@ -633,6 +640,9 @@ pub struct PublishPrefs {
     /// Maximum gzip byte budget (in KiB) for the no-WASM `Web Banner · Native` profile (`T-216`).
     #[serde(default = "default_banner_max_gzip_kb")]
     pub banner_max_gzip_kb: u32,
+    /// Whole archive budget for the Criteo preset, in KiB, independently of native HTML's gzip budget.
+    #[serde(default = "default_criteo_max_zip_kib")]
+    pub criteo_max_zip_kib: u32,
     /// Include `trace()` output in published HTML5 packages.
     #[serde(default)]
     pub include_trace: bool,
@@ -698,6 +708,7 @@ impl Default for PublishPrefs {
             sprite_sheets: false,
             sequence_policy: neoflash_export::SequencePublishPolicy::KeepFrames,
             banner_max_gzip_kb: default_banner_max_gzip_kb(),
+            criteo_max_zip_kib: default_criteo_max_zip_kib(),
             include_trace: false,
             minify: true,
             publish_clean: true,
@@ -715,6 +726,7 @@ impl PublishPrefs {
         self.jpeg_quality = self.jpeg_quality.clamp(1, 100);
         self.atlas_extrude = self.atlas_extrude.min(8);
         self.banner_max_gzip_kb = self.banner_max_gzip_kb.clamp(10, 5000);
+        self.criteo_max_zip_kib = self.criteo_max_zip_kib.clamp(1, 5000);
         self.video_options.quality = self.video_options.quality.clamp(1, 100);
         if self.video_options.width > 0 {
             self.video_options.width = self.video_options.width.clamp(16, 7680);
@@ -749,6 +761,11 @@ impl PublishPrefs {
             PublishTarget::ImageSequence => self.image_sequence_enabled = true,
             PublishTarget::SvgAnimation => self.svg_enabled = true,
         }
+    }
+
+    pub(crate) fn criteo_zip_budget(&self) -> Option<usize> {
+        (self.profile == PublishProfilePreset::Criteo)
+            .then_some(self.criteo_max_zip_kib as usize * 1024)
     }
 
     /// Apply a built-in [`PublishProfilePreset`] to these preferences.
@@ -804,11 +821,13 @@ impl PublishPrefs {
                 self.publish_clean = true;
                 self.html5_enabled = true;
             }
-            PublishProfilePreset::WebBannerNative => {
+            PublishProfilePreset::WebBannerNative | PublishProfilePreset::Criteo => {
                 self.options.size = neoflash_export::SizeLevel::Compact;
                 self.options.fonts = neoflash_export::FontExportPolicy::Subset;
                 self.options.audio = neoflash_export::AudioExportPolicy::Mp3_128;
-                self.render_mode = neoflash_core::HtmlRenderMode::Canvas;
+                if preset == PublishProfilePreset::WebBannerNative {
+                    self.render_mode = neoflash_core::HtmlRenderMode::Canvas;
+                }
                 self.html_wrapper = true;
                 self.source_maps = false;
                 self.jpeg_quality = 75;

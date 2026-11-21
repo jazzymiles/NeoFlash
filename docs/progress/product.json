@@ -2029,6 +2029,11 @@
           "status": "working"
         },
         {
+          "id": "criteo-html5-banner-zip",
+          "title": "Publish a self-contained animated HTML5 ad as a Criteo ZIP with a click-through and exact byte budget",
+          "status": "working"
+        },
+        {
           "id": "per-bitmap-publish-optimization",
           "title": "Per-bitmap Library compression (Photo JPEG, Lossless PNG, WebP), smoothing and SHA-256 content-hashed export deduplication/cache",
           "status": "working"

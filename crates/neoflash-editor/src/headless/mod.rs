@@ -1185,7 +1185,7 @@ fn subcommands_schema() -> Value {
         {
             "name": "export",
             "summary": "Publish or export HTML5, SWF, Image (PNG/JPEG/WebP/GIF/BMP/PSD/PDF/AI), PNG/Image Sequence, After Effects (AEP), FLA, XFL, SVG, Lottie/dotLottie, Atlas, Video, Audio, Banner, or Desktop targets",
-            "flags": ["--project <file.nflash>", "--target <html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop>", "--out <path>", "--profile <name|id>", "--size-level <full|balanced|compact|shared>", "--runtime <dir>", "--runtime-url <url>", "--font-policy <device|embed|subset|outlines>", "--audio-policy <original|preserve|strip|disabled|wav16|mp3-64|mp3-96|mp3-128|mp3-160|mp3-192|mp3-256|mp3-320>", "--render-mode <canvas|dom>", "--clean", "--sprite-sheets", "--no-sprite-sheets", "--assets-folder", "--scale-mode <show-all|no-scale|exact-fit|no-border>", "--stage-align <str>", "--fullscreen", "--fla-profile <...>", "--swf-target <fp8|fp9|fp10|fp10-scriptless>", "--swf-profile <fp8|fp9|fp10>", "--scriptless", "--outline-text", "--symbol <id|name>", "--frame <u32>", "--end-frame <u32>", "--scale <f32>", "--width <u32>", "--height <u32>", "--transparent", "--jpeg-quality <1..=100>", "--text-as-outlines", "--pretty", "--atlas-format <...>", "--atlas-extrude <u32>", "--audio-format <wav|mp3|ogg|flac|aac>", "--banner-max-gzip <usize>", "--image-format <original|png|jpeg|webp|gif|bmp|psd|pdf|ai|svg>", "--html-preview", "--no-aepx", "--no-jsx", "--no-translate-scripts", "--shape-morph-step <u32>", "-h", "--help"]
+            "flags": ["--project <file.nflash>", "--target <html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop>", "--out <path>", "--profile <name|id>", "--size-level <full|balanced|compact|shared>", "--runtime <dir>", "--runtime-url <url>", "--font-policy <device|embed|subset|outlines>", "--audio-policy <original|preserve|strip|disabled|wav16|mp3-64|mp3-96|mp3-128|mp3-160|mp3-192|mp3-256|mp3-320>", "--render-mode <canvas|dom>", "--clean", "--sprite-sheets", "--no-sprite-sheets", "--assets-folder", "--scale-mode <show-all|no-scale|exact-fit|no-border>", "--stage-align <str>", "--fullscreen", "--fla-profile <...>", "--swf-target <fp8|fp9|fp10|fp10-scriptless>", "--swf-profile <fp8|fp9|fp10>", "--scriptless", "--outline-text", "--symbol <id|name>", "--frame <u32>", "--end-frame <u32>", "--scale <f32>", "--width <u32>", "--height <u32>", "--transparent", "--jpeg-quality <1..=100>", "--text-as-outlines", "--pretty", "--atlas-format <...>", "--atlas-extrude <u32>", "--audio-format <wav|mp3|ogg|flac|aac>", "--banner-max-gzip <usize>", "--banner-max-zip <bytes>", "--image-format <original|png|jpeg|webp|gif|bmp|psd|pdf|ai|svg>", "--html-preview", "--no-aepx", "--no-jsx", "--no-translate-scripts", "--shape-morph-step <u32>", "-h", "--help"]
         }
     ])
 }
@@ -1396,6 +1396,7 @@ fn batch_operations_schema() -> Value {
             "atlas_extrude?",
             "audio_format?",
             "banner_max_gzip?",
+            "banner_max_zip?",
             "image_format?",
             "html_preview?",
             "include_aepx?",
@@ -1520,6 +1521,7 @@ fn cmd_capabilities<W1: Write, W2: Write>(
         "Shared",
         "Web App · DOM",
         "Web Banner · Native",
+        "Criteo · HTML5 ZIP",
         "Desktop app",
         "High Quality",
         "Preview / Debug"

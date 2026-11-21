@@ -26,6 +26,8 @@ Multiple document tabs (including dedicated full-window pure Script Editor tabs 
 
 Individual compatible algorithms may be adapted into the shared Rust core with their licenses and provenance preserved. Complete third-party ActionScript engines are not embedded. Unsupported content must produce actionable diagnostics rather than being silently dropped.
 
+For HTML5 ad delivery, the next interoperability check is submitting a Criteo-preset creative through the receiving placement’s validator with its actual click convention and byte budget.
+
 ## AS3: Flash Player foundations first
 
 Adapt remaining built-in Flash Player behavior in the order below. The first six stages support ordinary websites, games and timeline animation; local media follows, then cameras, networking and platform services. Each stage should deliver a useful coherent subset before pursuing rare conformance cases. Existing bounded implementations are dependencies, not new implementation tasks.

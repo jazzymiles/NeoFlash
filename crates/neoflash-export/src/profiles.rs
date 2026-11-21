@@ -192,6 +192,9 @@ pub struct PublishProfile {
     pub name: String,
     #[serde(default)]
     pub options: ExportOptions,
+    /// A Criteo HTML5 ZIP delivery profile and its budget for the complete archive, in KiB.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub criteo_max_zip_kib: Option<u32>,
     /// Optional custom HTML wrapper template with `$TITLE`, `$WIDTH`, `$HEIGHT`, `$BG`, `$FPS`,
     /// `$SCRIPT_BUNDLE`, `$RUNTIME_SCRIPT`, and `$PROJECT_JSON` tokens.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -213,6 +216,7 @@ impl Default for PublishProfile {
             name: "Default".to_string(),
             options: ExportOptions::default(),
             html_template: None,
+            criteo_max_zip_kib: None,
             network_profile: NetworkSimulationProfile::default(),
             render_mode: neoflash_core::HtmlRenderMode::Canvas,
         }
@@ -226,6 +230,7 @@ impl PublishProfile {
             name: name.into(),
             options,
             html_template: None,
+            criteo_max_zip_kib: None,
             network_profile: NetworkSimulationProfile::default(),
             render_mode: neoflash_core::HtmlRenderMode::Canvas,
         }
@@ -239,6 +244,18 @@ impl PublishProfile {
             ));
         }
         self.options.validated().map_err(ExportError::Options)?;
+        if let Some(kib) = self.criteo_max_zip_kib {
+            if !(1..=5000).contains(&kib) {
+                return Err(ExportError::Options(
+                    "Criteo ZIP budget must be between 1 and 5000 KiB.".into(),
+                ));
+            }
+            if self.html_template.is_some() {
+                return Err(ExportError::Options(
+                    "Criteo ZIP uses its own offline HTML template.".into(),
+                ));
+            }
+        }
         if let Some(template) = &self.html_template {
             validate_custom_html_wrapper(template)
         } else {
@@ -258,6 +275,7 @@ pub fn duplicate_profile(profile: &PublishProfile, new_name: Option<&str>) -> Pu
         name,
         options: profile.options.clone(),
         html_template: profile.html_template.clone(),
+        criteo_max_zip_kib: profile.criteo_max_zip_kib,
         network_profile: profile.network_profile.clone(),
         render_mode: profile.render_mode,
     }

@@ -182,6 +182,8 @@ pub(crate) struct ExportSpec {
     #[serde(default)]
     pub(crate) banner_max_gzip: Option<usize>,
     #[serde(default)]
+    pub(crate) banner_max_zip: Option<usize>,
+    #[serde(default)]
     pub(crate) image_format: Option<String>,
     #[serde(default)]
     pub(crate) html_preview: bool,
@@ -213,6 +215,9 @@ pub(crate) fn plan_export_effects(
                     neoflash_export::preflight_package_output_dir(&spec.out)
                         .map_err(|error| CliError::runtime("export_failed", error.to_string()))?;
                     effects.plan_tree(&spec.out)?;
+                }
+                BuiltinHtmlRoute::Criteo => {
+                    effects.plan_path(criteo_output(project, &spec.out)?)?
                 }
                 BuiltinHtmlRoute::BannerNative => plan_banner_effects(&spec.out, effects)?,
                 BuiltinHtmlRoute::DesktopApp => plan_desktop_effects(project, &spec.out, effects)?,
@@ -505,6 +510,19 @@ fn plan_desktop_effects(
     effects.plan_path(output.join(format!("Launch {stem}.bat")))?;
     effects.plan_path(output.join(format!("Launch {stem}.sh")))?;
     Ok(())
+}
+
+fn criteo_output(project: &Project, output: &Path) -> Result<PathBuf, CliError> {
+    if output.is_dir() || output.extension().is_none() {
+        return Ok(output.join(crate::output_paths::criteo_archive_name(project)));
+    }
+    if ext_lower(output).as_deref() != Some("zip") {
+        return Err(CliError::usage(
+            "invalid_argument",
+            "Criteo output must be a .zip file or a directory",
+        ));
+    }
+    Ok(output.to_owned())
 }
 
 fn plan_banner_effects(output: &Path, effects: &HeadlessEffectTransaction) -> Result<(), CliError> {
@@ -2599,6 +2617,15 @@ fn run_cmd_export<W1: Write>(
             "--audio-format" => {
                 spec.audio_format = Some(take_flag_value(args, &mut i, "--audio-format")?);
             }
+            "--banner-max-zip" => {
+                let raw = take_flag_value(args, &mut i, "--banner-max-zip")?;
+                spec.banner_max_zip = Some(raw.parse::<usize>().map_err(|_| {
+                    CliError::usage(
+                        "invalid_argument",
+                        format!("Invalid --banner-max-zip value '{raw}'"),
+                    )
+                })?);
+            }
             "--banner-max-gzip" => {
                 let raw = take_flag_value(args, &mut i, "--banner-max-gzip")?;
                 spec.banner_max_gzip = Some(raw.parse::<usize>().map_err(|_| {
@@ -2835,6 +2862,7 @@ fn parse_atlas_format(raw: &str) -> Result<AtlasFormat, CliError> {
 enum BuiltinHtmlRoute {
     Standard,
     BannerNative,
+    Criteo,
     DesktopApp,
 }
 
@@ -2898,6 +2926,14 @@ fn resolve_builtin_profile(
             profile.options.size = SizeLevel::Compact;
             Ok(Some((profile, BuiltinHtmlRoute::BannerNative)))
         }
+        "criteo" | "criteo html5 zip" | "builtin criteo" => {
+            profile.id = "builtin-criteo".to_owned();
+            profile.name = crate::workspace::PublishProfilePreset::Criteo
+                .label()
+                .to_owned();
+            profile.options.size = SizeLevel::Compact;
+            Ok(Some((profile, BuiltinHtmlRoute::Criteo)))
+        }
         "desktop app" | "desktop" => {
             profile.id = "builtin-desktop-app".to_owned();
             profile.name = "Desktop app".to_owned();
@@ -2929,7 +2965,7 @@ fn resolve_publish_profile_and_options(
             return Err(CliError::runtime(
                 "profile_not_found",
                 format!(
-                    "Publish profile '{selector}' not found in project or built-in presets (Default, Full, Balanced, Compact, Shared, Web App · DOM, Web Banner · Native, Desktop app)"
+                    "Publish profile '{selector}' not found in project or built-in presets (Default, Full, Balanced, Compact, Shared, Web App · DOM, Web Banner · Native, Criteo · HTML5 ZIP, Desktop app)"
                 ),
             ));
         }
@@ -2967,6 +3003,11 @@ fn resolve_publish_profile_and_options(
         profile.render_mode = neoflash_core::HtmlRenderMode::parse(rm)
             .map_err(|e| CliError::usage("invalid_argument", e))?;
     }
+    let route = if profile.criteo_max_zip_kib.is_some() {
+        BuiltinHtmlRoute::Criteo
+    } else {
+        route
+    };
     Ok((profile, has_stored_or_preset, route))
 }
 
@@ -3276,6 +3317,23 @@ pub(crate) fn export_project_with_spec(
             let project = isolated_symbol_project.as_ref().unwrap_or(project);
             let (profile, _has_stored, route) = resolve_publish_profile_and_options(project, spec)?;
             match route {
+                BuiltinHtmlRoute::Criteo => {
+                    let path = criteo_output(project, &spec.out)?;
+                    let budget = spec
+                        .banner_max_zip
+                        .or_else(|| profile.criteo_max_zip_kib.map(|kib| kib as usize * 1024))
+                        .unwrap_or(neoflash_export::DEFAULT_CRITEO_MAX_ZIP_BYTES);
+                    let report = neoflash_export::export_criteo_banner_zip(project, &path, budget)
+                        .map_err(|e| CliError::runtime("export_failed", e.to_string()))?;
+                    return Ok(json!({
+                        "target": target.as_str(),
+                        "profile": profile.name,
+                        "render_mode": "criteo-native",
+                        "output_path": path,
+                        "html_bytes": report.html_bytes,
+                        "zip_bytes": report.zip_bytes,
+                    }));
+                }
                 BuiltinHtmlRoute::BannerNative => {
                     let mut opts = BannerOptions::default();
                     if let Some(max_gz) = spec.banner_max_gzip {

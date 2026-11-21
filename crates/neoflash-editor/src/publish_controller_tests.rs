@@ -293,7 +293,7 @@ fn pending_edits_replacement_cancel_and_runtime_changes_discard_old_results() {
         controller.pending.as_ref().unwrap().options.size,
         prefs.options.size
     );
-    sender.send(Ok(Some(initial))).unwrap();
+    sender.send(Ok(EstimateState::Ready(initial))).unwrap();
     let current = wait_ready(&mut controller, &project, &prefs, &runtime, &ctx);
     assert_eq!(current.level, prefs.options.size);
 
@@ -394,6 +394,101 @@ fn export_image_and_native_banner_publish_persist_confirmed_settings_and_discard
     let html = std::fs::read_to_string(banner_dir.join("index.html")).unwrap();
     assert!(html.contains("window.clickTag"));
     assert!(!banner_dir.join("neoflash_web.js").exists());
+
+    // The Criteo profile publishes a project-named ZIP without a player runtime.
+    let mut criteo_settings = banner_settings;
+    criteo_settings.apply_profile(crate::workspace::PublishProfilePreset::Criteo);
+    let missing_runtime = fixture.0.join("missing-runtime");
+    let archive = banner_dir.join(crate::output_paths::criteo_archive_name(&editor.project));
+    assert!(editor.publish_html5_with_settings(&banner_dir, &missing_runtime, &criteo_settings));
+    let bytes = std::fs::read(&archive).unwrap();
+    let expected = neoflash_export::estimate_criteo_banner(
+        &editor.project,
+        neoflash_export::DEFAULT_CRITEO_MAX_ZIP_BYTES,
+    )
+    .unwrap();
+    assert_eq!(bytes.len(), expected.zip_bytes);
+    criteo_settings.criteo_max_zip_kib = 0;
+    assert!(!editor.publish_html5_with_settings(&banner_dir, &missing_runtime, &criteo_settings));
+    assert_eq!(std::fs::read(&archive).unwrap(), bytes);
+    assert_eq!(
+        std::fs::read_to_string(banner_dir.join("index.html")).unwrap(),
+        html
+    );
+}
+
+#[test]
+fn t434_direct_publish_switching_from_stored_criteo_restores_workspace_delivery() {
+    use crate::workspace::PublishProfilePreset;
+    let fixture = Fixture::new();
+    let ctx = egui::Context::default();
+    let mut ordinary = Project::blank();
+    ordinary.symbols[0]
+        .timeline
+        .scripts
+        .push(neoflash_core::FrameScript {
+            layer: None,
+            frame: 0,
+            script: neoflash_core::Script {
+                language: neoflash_core::ScriptLanguage::JavaScript,
+                source: "console.log('ordinary document');".into(),
+            },
+        });
+    let mut editor = Editor::from_project(&ctx, ordinary);
+    let example =
+        Project::from_json(include_str!("../../../examples/moon-tide-300x250.nflash")).unwrap();
+    let archive_name = crate::output_paths::criteo_archive_name(&example);
+    let ad_dir = fixture.0.join("banner");
+    editor.workspace.publish.output_folder = Some(ad_dir.to_string_lossy().into_owned());
+    let banner_tab = editor.open_new_session_tab(&ctx, example, None);
+    editor.export(false);
+    assert!(ad_dir.join(archive_name).is_file(), "{}", editor.status);
+    assert_eq!(
+        editor.workspace.publish.profile,
+        PublishProfilePreset::Default
+    );
+    // Opening/confirming the document-specific settings must not promote the stored preset to
+    // a workspace default either.
+    editor.open_publish_settings();
+    let mut draft = editor.publish_settings.take().unwrap();
+    assert_eq!(draft.settings.profile, PublishProfilePreset::Criteo);
+    editor.apply_publish_settings_draft(&mut draft);
+
+    assert!(editor.switch_session_tab(&ctx, 0));
+    assert_eq!(
+        editor.effective_publish_preferences().profile,
+        PublishProfilePreset::Default
+    );
+    let ordinary_dir = fixture.0.join("ordinary");
+    editor.workspace.publish.output_folder = Some(ordinary_dir.to_string_lossy().into_owned());
+    editor.publish_document_with_runtime(&fixture.runtime());
+    assert!(
+        ordinary_dir.join("index.html").is_file(),
+        "{}",
+        editor.status
+    );
+    assert!(
+        !ordinary_dir
+            .join(crate::output_paths::criteo_archive_name(&editor.project))
+            .exists()
+    );
+
+    // An explicit workspace Criteo budget remains distinct from another document's preset.
+    editor
+        .workspace
+        .publish
+        .apply_profile(PublishProfilePreset::Criteo);
+    editor.workspace.publish.criteo_max_zip_kib = 44;
+    assert!(editor.switch_session_tab(&ctx, banner_tab));
+    assert_ne!(
+        editor.effective_publish_preferences().criteo_max_zip_kib,
+        44
+    );
+    assert!(editor.switch_session_tab(&ctx, 0));
+    assert_eq!(
+        editor.effective_publish_preferences().criteo_zip_budget(),
+        Some(44 * 1024)
+    );
 }
 
 #[test]

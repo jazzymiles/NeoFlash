@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Save checks for further changes after **Keep editing**, including when another application recreates a deleted file while the conflict dialog is open. Opening an unpacked XFL by its folder, Adobe marker or `DOMDocument.xml` returns to the same edited tab.
+- Added a **Criteo · HTML5 ZIP** publish preset for compact, self-contained animated ads, with a final ZIP byte budget and a 300×250 Moon Tide example.
 - Custom HTML publish templates preserve literal tokens in project titles and content, including embedded JSON containing closing script tags. The export CLI and headless editor retain the custom wrapper when writing an assets folder or sprite sheet, and honor an explicit Canvas override on DOM projects.
 - Streamlined the verification workflow by sharing freshly exported HTML5 fixtures between Rust and Chrome.
   Ordinary checks cover representative settings. `./scripts/check.sh --release` runs the complete publish matrix.

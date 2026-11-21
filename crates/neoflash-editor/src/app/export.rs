@@ -538,7 +538,13 @@ impl Editor {
             }
             return;
         }
-        let settings = self.workspace.publish.clone();
+        self.publish_document_with_runtime(&Self::runtime_dir());
+    }
+
+    pub(crate) fn publish_document_with_runtime(&mut self, runtime_dir: &std::path::Path) {
+        use crate::output_pipeline::{OutputSeverity, OutputSource};
+
+        let settings = self.effective_publish_preferences();
         if !settings.has_any_enabled_target() {
             let _ = self.message_event(
                 OutputSeverity::Warning,
@@ -554,7 +560,7 @@ impl Editor {
             || (settings.image_sequence_enabled && settings.image_sequence_folder.is_none())
             || (settings.svg_enabled && settings.svg_file.is_none());
         if !needs_shared_output {
-            self.publish_enabled_targets_with_settings(None, &Self::runtime_dir(), &settings, true);
+            self.publish_enabled_targets_with_settings(None, runtime_dir, &settings, true);
             return;
         }
         let output = if let Some(configured) = self.configured_publish_folder() {
@@ -571,12 +577,7 @@ impl Editor {
             crate::output_paths::project_output_dir(&base, &self.project)
         };
         let parent_opt = (!output.as_os_str().is_empty()).then_some(output.as_path());
-        self.publish_enabled_targets_with_settings(
-            parent_opt,
-            &Self::runtime_dir(),
-            &settings,
-            true,
-        );
+        self.publish_enabled_targets_with_settings(parent_opt, runtime_dir, &settings, true);
     }
     /// Export the document (or a specific `symbol_id`) to a Bodymovin / Lottie `.json` file.
     #[cfg(test)]

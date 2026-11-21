@@ -1032,6 +1032,61 @@ fn batch_rolls_back_save_multi_output_export_and_flfile_after_late_failure() {
 }
 
 #[test]
+fn t434_publish_named_criteo_profile_and_restore_archive_after_failed_batch() {
+    let tmp = TempDirGuard::new("criteo-batch");
+    let project_path = tmp.path.join("campaign.nflash");
+    let mut project = Project::blank();
+    project.name = "Night / Sky".into();
+    let profile = neoflash_export::PublishProfile {
+        id: "campaign-zip".into(),
+        name: "Campaign ZIP".into(),
+        criteo_max_zip_kib: Some(25),
+        ..Default::default()
+    };
+    neoflash_export::store_profiles_in_project(&mut project, &[profile], Some("campaign-zip"))
+        .unwrap();
+    fs::write(&project_path, project.to_json().unwrap()).unwrap();
+    let output = tmp.path.join("ad");
+    let archive = output.join(crate::output_paths::criteo_archive_name(&project));
+    let (code, stdout, _) = run_args(
+        &[
+            "--headless",
+            "export",
+            "--project",
+            project_path.to_str().unwrap(),
+            "--target",
+            "html5",
+            "--out",
+            output.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "{stdout}");
+    let result: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(result["profile"], "Campaign ZIP");
+    assert_eq!(result["zip_bytes"], fs::metadata(&archive).unwrap().len());
+    fs::write(&archive, b"previous creative").unwrap();
+    let ops = json!([
+        { "op": "export", "target": "html5", "profile": "Criteo", "out": output },
+        { "op": "export", "target": "html5", "profile": "Criteo", "out": output, "banner_max_zip": 1 }
+    ]);
+    let (code, stdout, _) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--stdin",
+            "--project",
+            project_path.to_str().unwrap(),
+        ],
+        &ops.to_string(),
+    );
+    assert_eq!(code, 1, "{stdout}");
+    let failure: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(failure["error"]["details"]["step_index"], 1, "{stdout}");
+    assert_eq!(fs::read(archive).unwrap(), b"previous creative");
+}
+
+#[test]
 fn successful_mixed_batch_commits_read_your_writes_and_step_snapshot_once() {
     let tmp = TempDirGuard::new("batch-effects-success");
     let mid_save = tmp.path.join("mid.nflash");

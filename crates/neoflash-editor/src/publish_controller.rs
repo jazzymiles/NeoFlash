@@ -20,6 +20,10 @@ pub(crate) enum EstimateState {
     Idle,
     Computing,
     Ready(SizeEstimate),
+    Criteo {
+        html_bytes: usize,
+        zip_bytes: usize,
+    },
     Failed(String),
 }
 
@@ -67,6 +71,7 @@ struct Request {
     options: PublishOptions,
     html_config: neoflash_export::HtmlPublishConfig,
     warnings_as_errors: bool,
+    criteo_budget: Option<usize>,
     runtime: RuntimeStamp,
 }
 
@@ -76,7 +81,7 @@ struct Demand {
     preferences: PublishPrefs,
 }
 
-type Outcome = Result<Option<SizeEstimate>, String>;
+type Outcome = Result<EstimateState, String>;
 struct Running {
     request: Arc<Request>,
     cancel: Arc<AtomicBool>,
@@ -117,10 +122,12 @@ impl PublishController {
             runtime: runtime.to_owned(),
             preferences: prefs.clone(),
         });
+        let criteo_budget = prefs.criteo_zip_budget();
         let stamp = RuntimeStamp::read(runtime);
         let html_config = prefs.publish_html_config();
         let matches = self.current.as_ref().is_some_and(|request| {
             request.project.as_ref() == project
+                && request.criteo_budget == criteo_budget
                 && request.options == prefs.options
                 && request.html_config == html_config
                 && request.warnings_as_errors == prefs.warnings_as_errors
@@ -135,11 +142,17 @@ impl PublishController {
                 options: prefs.options.clone(),
                 html_config,
                 warnings_as_errors: prefs.warnings_as_errors,
+                criteo_budget,
                 runtime: stamp,
             });
             self.current = Some(request.clone());
             // Validate synchronously so an invalid URL never displays a previous valid total.
-            match prefs.export_options(project) {
+            let validation = if criteo_budget.is_some() {
+                Ok(())
+            } else {
+                prefs.export_options(project).map(|_| ())
+            };
+            match validation {
                 Ok(_) => {
                     self.pending = Some(request);
                     self.state = EstimateState::Computing;
@@ -181,8 +194,7 @@ impl PublishController {
                     && self.current.as_ref() == Some(&running.request)
                 {
                     self.state = match result {
-                        Ok(Some(estimate)) => EstimateState::Ready(estimate),
-                        Ok(None) => EstimateState::Idle,
+                        Ok(state) => state,
                         Err(error) => EstimateState::Failed(error),
                     };
                 }
@@ -225,6 +237,15 @@ impl PublishController {
 }
 
 fn estimate(request: &Request, cancel: &AtomicBool) -> Outcome {
+    if let Some(budget) = request.criteo_budget {
+        let report =
+            neoflash_export::estimate_criteo_banner_cancellable(&request.project, budget, cancel)
+                .map_err(|err| err.to_string())?;
+        return Ok(EstimateState::Criteo {
+            html_bytes: report.html_bytes,
+            zip_bytes: report.zip_bytes,
+        });
+    }
     let options = request.options.validated()?;
     let result = neoflash_export::estimate_publish_options_cancellable_with_config(
         &request.project,
@@ -235,7 +256,7 @@ fn estimate(request: &Request, cancel: &AtomicBool) -> Outcome {
     )
     .map_err(|error| error.to_string())?;
     if cancel.load(Ordering::Relaxed) {
-        return Ok(None);
+        return Ok(EstimateState::Idle);
     }
     if RuntimeStamp::read(&request.runtime.directory) != request.runtime {
         return Err(
@@ -243,7 +264,7 @@ fn estimate(request: &Request, cancel: &AtomicBool) -> Outcome {
                 .into(),
         );
     }
-    Ok(result)
+    Ok(result.map_or(EstimateState::Idle, EstimateState::Ready))
 }
 
 impl PublishPrefs {
@@ -454,6 +475,33 @@ impl Editor {
             .into_owned();
         resolved_project.set_html_render_mode(settings.render_mode);
 
+        if let Some(budget) = settings.criteo_zip_budget() {
+            let archive = output.join(crate::output_paths::criteo_archive_name(&resolved_project));
+            return match neoflash_export::export_criteo_banner_zip(
+                &resolved_project,
+                &archive,
+                budget,
+            ) {
+                Ok(report) => {
+                    let _ = self.message_event(
+                        OutputSeverity::Info,
+                        OutputSource::Publish,
+                        format!(
+                            "Criteo HTML5 banner exported: {} ({} B ZIP, {} B HTML)",
+                            archive.display(),
+                            report.zip_bytes,
+                            report.html_bytes
+                        ),
+                        Some(OutputLocation::for_file(archive)),
+                    );
+                    true
+                }
+                Err(error) => {
+                    self.record_publish_export_failure(&resolved_project, &archive, &error, false);
+                    false
+                }
+            };
+        }
         if settings.profile == PublishProfilePreset::WebBannerNative {
             let out_html = output.join("index.html");
             let banner_opts = neoflash_export::BannerOptions {

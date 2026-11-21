@@ -20,10 +20,10 @@ Open-source vector animation, interactive media and application authoring studio
 | --- | ---: | ---: | ---: | ---: |
 | Editor and graphics | 168 of 170 | 1 | 1 | 10 / 2 / 0 |
 | Timelines and animation | 84 of 84 | 0 | 0 | 10 / 0 / 0 |
-| HTML5 and interactivity | 108 of 109 | 1 | 0 | 11 / 1 / 0 |
+| HTML5 and interactivity | 109 of 110 | 1 | 0 | 11 / 1 / 0 |
 | Import and file compatibility | 63 of 68 | 5 | 0 | 5 / 5 / 0 |
 | Platform and quality | 61 of 67 | 4 | 2 | 7 / 3 / 0 |
-| **All areas** | 484 of 498 | 11 | 3 | 43 / 11 / 0 |
+| **All areas** | 485 of 499 | 11 | 3 | 43 / 11 / 0 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
@@ -82,6 +82,7 @@ The first source build downloads pinned Rust/WASM dependencies. Node.js 22+ is n
 | Linked classes and input events | [Project program](examples/project-program.nflash), [AS2 input](examples/as2-project-input.nflash) |
 | Text entry and saved values | [Text form](examples/text-form.nflash), [Saved game](examples/saved-game.nflash) |
 | Images, filters and resource loading | [Loader gallery](examples/loader-gallery.nflash), [Filter gallery](examples/filter-gallery.nflash) |
+| Self-contained 300×250 HTML5 ad | [Moon Tide](examples/moon-tide-300x250.nflash) · Publish settings → Profile → **Criteo · HTML5 ZIP** |
 | Tweens, motion guides and scenes | [Timeline tweens](examples/timeline-tweens.nflash) |
 | Timeline sound with Flash sync | [Timeline sound](examples/timeline-sound.nflash) |
 | Audio and video | [Sound playback](examples/sound-playback.nflash), [Video playback](examples/video-playback.nflash) |

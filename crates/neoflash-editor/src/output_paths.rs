@@ -119,6 +119,10 @@ pub(crate) fn safe_output_file_name(
     format!("{stem}.{extension}")
 }
 
+pub(crate) fn criteo_archive_name(project: &Project) -> String {
+    format!("{}.zip", safe_output_file_stem(&project.name, "Untitled"))
+}
+
 pub(crate) fn project_folder_name(project: &Project) -> String {
     safe_project_folder_name(&project.name)
 }

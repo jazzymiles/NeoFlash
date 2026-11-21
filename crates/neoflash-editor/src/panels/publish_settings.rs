@@ -43,7 +43,11 @@ impl PublishSettingsDraft {
             SizeLevel::Shared(url) => url.clone(),
             _ => String::new(),
         };
-        let selected_target = settings.default_target;
+        let selected_target = if settings.profile == PublishProfilePreset::Criteo {
+            PublishTarget::Html5
+        } else {
+            settings.default_target
+        };
         Self {
             settings,
             selected_target,
@@ -74,6 +78,7 @@ impl PublishSettingsDraft {
             if let Some(ref act) = active_id
                 && let Some(found) = draft.custom_profiles.iter().find(|p| p.id == *act).cloned()
             {
+                draft.restore_profile_delivery(&found);
                 draft.active_custom_profile_id = Some(found.id.clone());
                 draft.network_preset = found.network_profile.preset;
                 draft.settings.render_mode = found.render_mode;
@@ -98,6 +103,7 @@ impl PublishSettingsDraft {
         {
             let mut profile = found.clone();
             profile.options = self.settings.options.clone();
+            profile.criteo_max_zip_kib = self.criteo_max_zip_kib();
             profile.network_profile.preset = self.network_preset;
             profile.render_mode = self.settings.render_mode;
             return profile;
@@ -113,6 +119,7 @@ impl PublishSettingsDraft {
             ),
             name: self.settings.profile.label().to_string(),
             options: self.settings.options.clone(),
+            criteo_max_zip_kib: self.criteo_max_zip_kib(),
             html_template: None,
             network_profile: NetworkSimulationProfile {
                 preset: self.network_preset,
@@ -120,6 +127,18 @@ impl PublishSettingsDraft {
                 extra_asset_delay_ms: 0,
             },
             render_mode: self.settings.render_mode,
+        }
+    }
+
+    fn criteo_max_zip_kib(&self) -> Option<u32> {
+        (self.settings.profile == PublishProfilePreset::Criteo)
+            .then_some(self.settings.criteo_max_zip_kib)
+    }
+
+    fn restore_profile_delivery(&mut self, profile: &PublishProfile) {
+        restore_criteo_preferences(&mut self.settings, profile);
+        if self.settings.profile == PublishProfilePreset::Criteo {
+            self.selected_target = PublishTarget::Html5;
         }
     }
 
@@ -132,6 +151,7 @@ impl PublishSettingsDraft {
         else {
             return false;
         };
+        self.restore_profile_delivery(&found);
         self.active_custom_profile_id = Some(found.id);
         self.settings.options = found.options;
         self.settings.render_mode = found.render_mode;
@@ -196,6 +216,10 @@ impl PublishSettingsDraft {
         project: &neoflash_core::Project,
     ) -> Result<NetworkStartupEstimate, String> {
         let profile = self.to_publish_profile();
+        if profile.criteo_max_zip_kib.is_some() {
+            self.network_estimate = None;
+            return Err("Criteo ZIP plays entirely from the archive.".into());
+        }
         let report = simulate_network_startup(project, &profile).map_err(|e| e.to_string())?;
         self.network_estimate = Some(report.clone());
         Ok(report)
@@ -300,6 +324,9 @@ fn footer_label(draft: &PublishSettingsDraft, state: &EstimateState) -> String {
             bytes_label(size.gzip_bytes),
             size.files
         ),
+        EstimateState::Criteo { zip_bytes, .. } => {
+            format!("Criteo · {} ZIP · 1 file", bytes_label(*zip_bytes))
+        }
         EstimateState::Idle | EstimateState::Computing => "Estimating…".into(),
         EstimateState::Failed(_) => "Size unknown".into(),
     }
@@ -328,11 +355,50 @@ fn video_footer_label(project: &neoflash_core::Project, draft: &PublishSettingsD
     }
 }
 
-pub(crate) fn sync_publish_profile_with_render_mode(
+fn restore_criteo_preferences(settings: &mut PublishPrefs, profile: &PublishProfile) {
+    if let Some(budget) = profile.criteo_max_zip_kib {
+        settings.profile = PublishProfilePreset::Criteo;
+        settings.criteo_max_zip_kib = budget;
+    } else if settings.profile == PublishProfilePreset::Criteo {
+        settings.profile = PublishProfilePreset::Default;
+    }
+}
+
+fn active_document_profile(project: &neoflash_core::Project) -> Option<PublishProfile> {
+    // With no stored profiles, the loader synthesizes a Default profile. In that case
+    // the workspace preset is the explicitly chosen fallback, including Criteo.
+    if !project.resources.iter().any(|r| {
+        r.path
+            .eq_ignore_ascii_case(neoflash_export::PUBLISH_PROFILES_RESOURCE_PATH)
+    }) {
+        return None;
+    }
+    let (profiles, active) = load_profiles_from_project(project).ok()?;
+    let active = active?;
+    profiles.into_iter().find(|profile| profile.id == active)
+}
+
+pub(crate) fn sync_document_publish_preferences(
+    settings: &mut PublishPrefs,
+    project: &neoflash_core::Project,
+) {
+    // A stored banner preset belongs to this document. It must not affect the next
+    // document's workspace delivery or overwrite a different explicit ZIP budget.
+    if active_document_profile(project).is_some_and(|profile| profile.criteo_max_zip_kib.is_some())
+    {
+        return;
+    }
+    sync_publish_profile_with_render_mode(settings, project.html_render_mode());
+}
+
+fn sync_publish_profile_with_render_mode(
     publish: &mut PublishPrefs,
     doc_mode: neoflash_core::HtmlRenderMode,
 ) {
     publish.render_mode = doc_mode;
+    if publish.profile == PublishProfilePreset::Criteo {
+        return;
+    }
     match doc_mode {
         neoflash_core::HtmlRenderMode::Dom => {
             if publish.profile != PublishProfilePreset::WebAppDom {
@@ -400,10 +466,31 @@ impl Editor {
         draft.profiles_dirty = false;
     }
 
+    /// File > Publish and publish-on-save resolve the same document override as the dialog.
+    pub(crate) fn effective_publish_preferences(&self) -> PublishPrefs {
+        let mut settings = self.workspace.publish.clone();
+        if let Some(profile) = active_document_profile(&self.project) {
+            restore_criteo_preferences(&mut settings, &profile);
+        }
+        settings
+    }
+
+    fn save_publish_settings(&mut self, draft: &mut PublishSettingsDraft) {
+        self.commit_publish_settings_to_project(draft);
+        let mut settings = draft.settings.clone();
+        if draft.active_custom_profile_id.is_some()
+            && (settings.profile == PublishProfilePreset::Criteo
+                || self.workspace.publish.profile == PublishProfilePreset::Criteo)
+        {
+            settings.profile = self.workspace.publish.profile;
+            settings.criteo_max_zip_kib = self.workspace.publish.criteo_max_zip_kib;
+        }
+        self.workspace.publish = settings;
+    }
+
     pub(crate) fn apply_publish_settings_draft(&mut self, draft: &mut PublishSettingsDraft) {
         draft.settings.sanitize();
-        self.commit_publish_settings_to_project(draft);
-        self.workspace.publish = draft.settings.clone();
+        self.save_publish_settings(draft);
     }
 
     pub(crate) fn open_publish_settings(&mut self) {
@@ -460,6 +547,9 @@ impl Editor {
                                     draft.profiles_dirty = true;
                                 }
                                 draft.settings.apply_profile(preset);
+                                if preset == PublishProfilePreset::Criteo {
+                                    draft.selected_target = PublishTarget::Html5;
+                                }
                                 let _ = draft.simulate_network(&self.project);
                                 draft.error = None;
                                 ui.close();
@@ -556,12 +646,15 @@ impl Editor {
         estimate: &mut EstimateState,
     ) -> bool {
         let mut export_runtime = false;
-        page_title(ui, PublishTarget::Html5);
+        page_title(ui, PublishTarget::Html5, draft);
         // The exporter owns the entry file name; Browse selects its folder.
-        let entry_name = if draft.settings.html_wrapper {
-            "index.html"
+        let criteo = draft.settings.profile == PublishProfilePreset::Criteo;
+        let entry_name = if criteo {
+            crate::output_paths::criteo_archive_name(&self.project)
+        } else if draft.settings.html_wrapper {
+            "index.html".into()
         } else {
-            "bundle.js"
+            "bundle.js".into()
         };
         let mut file = draft
             .settings
@@ -583,13 +676,20 @@ impl Editor {
             draft.settings.output_folder = Some(folder.to_string_lossy().into_owned());
         }
         form_row(ui, "", |ui| {
+            if criteo {
+                ui.disable();
+            }
             ui.add(c::Checkbox::new(
                 &mut draft.settings.html_wrapper,
                 "Include HTML wrapper",
             ));
             c::Select::new(
                 ui.id().with("publish-settings-template"),
-                draft.settings.template.label(),
+                if criteo {
+                    "Criteo"
+                } else {
+                    draft.settings.template.label()
+                },
             )
             .prefix("Template")
             .width(metrics::field_l())
@@ -610,26 +710,62 @@ impl Editor {
         });
 
         group_caption(ui, "Runtime");
-        if draft.settings.profile == PublishProfilePreset::WebBannerNative {
+        if criteo || draft.settings.profile == PublishProfilePreset::WebBannerNative {
+            let (field_label, minimum, unit, hint) = if criteo {
+                ("Max ZIP", 1, "KiB", "Self-contained HTML5 ZIP")
+            } else {
+                (
+                    "Max gzip",
+                    10,
+                    "KB",
+                    "Single-file HTML5 ad banner (no WASM)",
+                )
+            };
             form_row(ui, "Budget", |ui| {
-                let mut max_kb = f64::from(draft.settings.banner_max_gzip_kb.clamp(10, 5000));
+                let stored = if criteo {
+                    &mut draft.settings.criteo_max_zip_kib
+                } else {
+                    &mut draft.settings.banner_max_gzip_kb
+                };
+                let mut max_kb = f64::from((*stored).clamp(minimum, 5000));
                 if ui
                     .add(
-                        c::Field::new(&mut max_kb, "Max gzip")
-                            .prefix("Max gzip")
-                            .unit("KB")
+                        c::Field::new(&mut max_kb, field_label)
+                            .prefix(field_label)
+                            .unit(unit)
                             .decimals(0)
-                            .range(10.0..=5000.0)
+                            .range(f64::from(minimum)..=5000.0)
                             .width(metrics::field_m()),
                     )
                     .changed()
                     && max_kb.is_finite()
                 {
-                    draft.settings.banner_max_gzip_kb = max_kb.round().clamp(10.0, 5000.0) as u32;
+                    *stored = max_kb.round().clamp(f64::from(minimum), 5000.0) as u32;
+                    if criteo
+                        && let Some(profile) = draft
+                            .custom_profiles
+                            .iter_mut()
+                            .find(|p| Some(&p.id) == draft.active_custom_profile_id.as_ref())
+                    {
+                        profile.criteo_max_zip_kib = Some(*stored);
+                        draft.profiles_dirty = true;
+                    }
                     draft.error = None;
                 }
-                caption(ui, "Single-file HTML5 ad banner (no WASM)");
+                caption(ui, hint);
             });
+            if criteo {
+                form_hint(
+                    ui,
+                    "Packs index.html and its artwork into a ZIP. The budget applies to the finished archive.",
+                );
+                *estimate = self.request_publish_estimate(ctx, &draft.settings).clone();
+                if form_block(ui, |ui| weight(ui, estimate, draft)) {
+                    self.publish_controller.cancel();
+                    *estimate = self.request_publish_estimate(ctx, &draft.settings).clone();
+                }
+                return false;
+            }
             form_hint(
                 ui,
                 "Compiles eligible vector/bitmap artwork into one self-contained index.html with inline SVG, timeline transport, and window.clickTag.",
@@ -1069,8 +1205,7 @@ impl Editor {
                     ok &= self.publish_svg_with_settings(None, &draft.settings);
                 }
                 if ok {
-                    self.commit_publish_settings_to_project(&mut draft);
-                    self.workspace.publish = draft.settings.clone();
+                    self.save_publish_settings(&mut draft);
                     close = true;
                 } else {
                     draft.error = Some(self.status.clone());
@@ -1105,8 +1240,7 @@ impl Editor {
                     ok &= self.publish_svg_with_settings(Some(&output), &draft.settings);
                 }
                 if ok {
-                    self.commit_publish_settings_to_project(&mut draft);
-                    self.workspace.publish = draft.settings.clone();
+                    self.save_publish_settings(&mut draft);
                     close = true;
                 } else {
                     draft.error = Some(self.status.clone());
@@ -1295,12 +1429,19 @@ pub(crate) fn target_short_name(target: PublishTarget) -> &'static str {
 }
 
 /// Page title: the full target name.
-fn page_title(ui: &mut Ui, target: PublishTarget) {
+fn page_title(ui: &mut Ui, target: PublishTarget, draft: &PublishSettingsDraft) {
     let p = neoflash_ui::palette(ui.ctx());
     let title = PublishTarget::OPTIONS
         .iter()
         .find(|(t, _)| *t == target)
         .map_or("", |(_, title)| title);
+    let title = if target == PublishTarget::Html5
+        && draft.settings.profile == PublishProfilePreset::Criteo
+    {
+        PublishProfilePreset::Criteo.label()
+    } else {
+        title
+    };
     ui.label(rich(title, TextStyle::Title).color(p.text_primary));
 }
 
@@ -1323,7 +1464,7 @@ fn video_target_page(
     let mut opts = draft.effective_video_options(project);
     let mut changed = false;
 
-    page_title(ui, PublishTarget::VideoMp4);
+    page_title(ui, PublishTarget::VideoMp4, draft);
     let default_hint = draft
         .settings
         .output_folder
@@ -1557,7 +1698,7 @@ fn video_target_page(
 }
 
 fn desktop_app_target_page(ui: &mut Ui, draft: &mut PublishSettingsDraft) {
-    page_title(ui, PublishTarget::DesktopApp);
+    page_title(ui, PublishTarget::DesktopApp, draft);
     let mut folder = draft
         .settings
         .desktop_app_folder
@@ -1598,7 +1739,7 @@ fn image_sequence_target_page(
     project: &neoflash_core::Project,
     draft: &mut PublishSettingsDraft,
 ) {
-    page_title(ui, PublishTarget::ImageSequence);
+    page_title(ui, PublishTarget::ImageSequence, draft);
     let mut folder = draft
         .settings
         .image_sequence_folder
@@ -1767,7 +1908,7 @@ fn svg_target_page(
     project: &neoflash_core::Project,
     draft: &mut PublishSettingsDraft,
 ) {
-    page_title(ui, PublishTarget::SvgAnimation);
+    page_title(ui, PublishTarget::SvgAnimation, draft);
     let mut file = draft
         .settings
         .svg_file
@@ -1835,7 +1976,31 @@ fn publish_output(settings: &PublishPrefs, project: &neoflash_core::Project) -> 
 
 /// Returns whether Retry was pressed. All byte data comes from the exporter's assembled package.
 fn weight(ui: &mut Ui, state: &EstimateState, draft: &PublishSettingsDraft) -> bool {
+    let criteo = draft.settings.profile == PublishProfilePreset::Criteo;
+    let pending_totals = if criteo {
+        [("HTML", "—"), ("ZIP", "—"), ("Budget", "—")]
+    } else {
+        [("On disk", "—"), ("Transfer (gzip)", "—"), ("Files", "—")]
+    };
     match state {
+        EstimateState::Criteo {
+            html_bytes,
+            zip_bytes,
+        } => {
+            let budget = draft.settings.criteo_max_zip_kib;
+            c::weight_totals(
+                ui,
+                &[
+                    ("HTML", &bytes_label(*html_bytes)),
+                    ("ZIP", &format!("{zip_bytes} B")),
+                    ("Budget", &format!("{budget} KiB")),
+                ],
+            );
+            if *zip_bytes > budget as usize * 1024 {
+                ui.add(c::InlineMessage::error("ZIP exceeds the selected budget."));
+            }
+            false
+        }
         EstimateState::Ready(estimate) => {
             if matches!(estimate.level, SizeLevel::Compact)
                 && let Some(omissions) = estimate
@@ -1854,14 +2019,18 @@ fn weight(ui: &mut Ui, state: &EstimateState, draft: &PublishSettingsDraft) -> b
         EstimateState::Idle | EstimateState::Computing => {
             c::progress(
                 ui,
-                &format!("Estimating {}…", level_label(&draft.settings.options.size)),
+                &format!(
+                    "Estimating {}…",
+                    if criteo {
+                        "ZIP"
+                    } else {
+                        level_label(&draft.settings.options.size)
+                    }
+                ),
                 None,
                 ui.available_width(),
             );
-            c::weight_totals(
-                ui,
-                &[("On disk", "—"), ("Transfer (gzip)", "—"), ("Files", "—")],
-            );
+            c::weight_totals(ui, &pending_totals);
             false
         }
         EstimateState::Failed(error) => {
@@ -1871,10 +2040,7 @@ fn weight(ui: &mut Ui, state: &EstimateState, draft: &PublishSettingsDraft) -> b
                 ui.add(c::InlineMessage::error(error));
                 retry = ui.add(c::Button::ghost("Retry")).clicked();
             }
-            c::weight_totals(
-                ui,
-                &[("On disk", "—"), ("Transfer (gzip)", "—"), ("Files", "—")],
-            );
+            c::weight_totals(ui, &pending_totals);
             retry
         }
     }

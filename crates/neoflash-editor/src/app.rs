@@ -442,9 +442,9 @@ impl Editor {
             last_workspace_snapshot: None,
             last_viewport_title: None,
         };
-        crate::panels::publish_settings::sync_publish_profile_with_render_mode(
+        crate::panels::publish_settings::sync_document_publish_preferences(
             &mut s.workspace.publish,
-            s.project.html_render_mode(),
+            &s.project,
         );
         s.sync_output_document_id();
         s.fonts.install_ui(ctx);
@@ -1971,7 +1971,7 @@ impl Editor {
                     self.sync_session_tabs_to_prefs();
                     self.message("Project saved.");
                     if self.workspace.publish.publish_on_save {
-                        let settings = self.workspace.publish.clone();
+                        let settings = self.effective_publish_preferences();
                         let output = self.configured_publish_folder();
                         self.publish_enabled_targets_with_settings(
                             output.as_deref(),

@@ -5,6 +5,9 @@
 //! geometry `<defs>` + compact frame scheduler + standard `window.clickTag`) with zero WebAssembly,
 //! zero external requests, located eligibility diagnostics, and strict raw/gzip byte budgets.
 
+mod criteo_timeline;
+pub(crate) use criteo_timeline::compile_criteo_banner_html;
+
 use crate::{ExportError, atomic_write, gzip_len, html_escape};
 use neoflash_core::{
     AuthoredDraw, AuthoredPlayback, BlendMode, Color, ColorTransform, ElementKind, FillRule,
@@ -523,6 +526,7 @@ fn render_banner_draw(
     options: &BannerOptions,
     element_filters: &BTreeMap<String, Vec<FilterSpec>>,
     frame_clips: &BTreeMap<String, String>,
+    path_animation: Option<&str>,
     defs: &mut SharedBannerDefs,
     out: &mut String,
 ) -> Result<(), ExportError> {
@@ -676,14 +680,18 @@ fn render_banner_draw(
         } => {
             let d = path_d(commands, prec);
             if !d.is_empty() {
-                let pid = defs.intern_path(&d);
                 let pa = paint_attrs(*fill, *stroke, *stroke_width, None, None, defs);
                 let rule = if *fill_rule == FillRule::EvenOdd {
                     " fill-rule=\"evenodd\""
                 } else {
                     ""
                 };
-                let _ = write!(out, "<use href=\"#{pid}\"{rule}{pa}{xf}/>");
+                if let Some(animation) = path_animation {
+                    let _ = write!(out, "<path d=\"{d}\"{rule}{pa}{xf}>{animation}</path>");
+                } else {
+                    let pid = defs.intern_path(&d);
+                    let _ = write!(out, "<use href=\"#{pid}\"{rule}{pa}{xf}/>");
+                }
             }
         }
         ElementKind::PaintedPath {
@@ -697,7 +705,6 @@ fn render_banner_draw(
         } => {
             let d = path_d(commands, prec);
             if !d.is_empty() {
-                let pid = defs.intern_path(&d);
                 let pa = paint_attrs(
                     *fill,
                     *stroke,
@@ -711,7 +718,12 @@ fn render_banner_draw(
                 } else {
                     ""
                 };
-                let _ = write!(out, "<use href=\"#{pid}\"{rule}{pa}{xf}/>");
+                if let Some(animation) = path_animation {
+                    let _ = write!(out, "<path d=\"{d}\"{rule}{pa}{xf}>{animation}</path>");
+                } else {
+                    let pid = defs.intern_path(&d);
+                    let _ = write!(out, "<use href=\"#{pid}\"{rule}{pa}{xf}/>");
+                }
             }
         }
         ElementKind::Bitmap {
@@ -938,6 +950,7 @@ fn compile_native_banner_html_inner(
                 options,
                 &frame_element_filters,
                 &frame_clips,
+                None,
                 &mut defs,
                 &mut frame_markup,
             )?;

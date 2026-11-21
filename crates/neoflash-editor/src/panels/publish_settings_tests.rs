@@ -912,6 +912,40 @@ fn publish_settings_dialog_rect_is_identical_for_every_target_in_each_density() 
 }
 
 #[test]
+fn t434_publish_criteo_menu_to_zip_and_portable_profile() {
+    let mut d = Driver::new(ThemeMode::Dark);
+    d.editor.project.name = "Weekend/Studio".into();
+    let dir = std::env::temp_dir().join(neoflash_core::new_id("criteo-publish-test"));
+    d.editor.workspace.publish.output_folder = Some(dir.to_string_lossy().into_owned());
+    d.open();
+    d.click("Profile, Default");
+    d.click("Criteo · HTML5 ZIP");
+    let draft = d.editor.publish_settings.as_mut().unwrap();
+    assert_eq!(draft.settings.profile, PublishProfilePreset::Criteo);
+    draft.settings.criteo_max_zip_kib = 80;
+    let saved = draft.duplicate_active_profile(Some("Campaign ZIP"));
+    let json = draft.export_active_profile_json().unwrap();
+    draft.settings.apply_profile(PublishProfilePreset::Default);
+    draft.import_profile_from_json(&json).unwrap();
+    assert_eq!(draft.active_profile_label(), saved.name);
+    assert_eq!(draft.settings.criteo_zip_budget(), Some(80 * 1024));
+
+    d.click("Publish");
+    assert!(d.editor.publish_settings.is_none(), "{}", d.editor.status);
+    let archive = dir.join("Weekend_Studio.zip");
+    let actual = std::fs::metadata(archive).unwrap().len() as usize;
+    let expected = neoflash_export::estimate_criteo_banner(&d.editor.project, 80 * 1024).unwrap();
+    assert_eq!(actual, expected.zip_bytes);
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+    let reopened = Editor::from_project(&d.ctx, d.editor.project.clone());
+    assert_eq!(
+        reopened.effective_publish_preferences().criteo_zip_budget(),
+        Some(80 * 1024)
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn publish_profiles_and_all_five_targets_desktop_image_sequence_svg_and_html5() {
     use crate::workspace::{PublishProfilePreset, PublishTarget};
     use neoflash_export::SizeLevel;
