@@ -213,30 +213,291 @@
   };
   Object.defineProperty(AccessibilityProperties, Symbol.hasInstance, { value: AccessibilityProperties.__nfIs });
 
+  const accessibilityImplRecords = new WeakMap();
+  function ensureStageAccImpl(receiver) {
+    let rec = accessibilityImplRecords.get(receiver);
+    if (!rec) {
+      rec = { errno: 0, stub: false };
+      accessibilityImplRecords.set(receiver, rec);
+    }
+    return rec;
+  }
+  class AccessibilityImplementation {
+    constructor(...args) {
+      if (args.length > 0) {
+        const err = new Error('ArgumentError: Error #1063: AccessibilityImplementation constructor expects 0 arguments.');
+        err.name = 'ArgumentError';
+        err.errorID = 1063;
+        throw err;
+      }
+      ensureStageAccImpl(this);
+    }
+    get errno() { return ensureStageAccImpl(this).errno; }
+    set errno(v) { ensureStageAccImpl(this).errno = Number(v) >>> 0; }
+    get stub() { return ensureStageAccImpl(this).stub; }
+    set stub(v) { ensureStageAccImpl(this).stub = Boolean(v); }
+    accDoDefaultAction(_childID) {}
+    accLocation(_childID) { return null; }
+    accSelect(_operation, _childID) {}
+    getChildIDArray() { return null; }
+    get_accDefaultAction(_childID) { return null; }
+    get_accFocus() { return 0; }
+    get_accName(_childID) { return null; }
+    get_accRole(_childID) {
+      const err = new Error('Error #2143: AccessibilityImplementation.get_accRole() must be overridden from its default.');
+      err.errorID = 2143;
+      throw err;
+    }
+    get_accSelection() { return null; }
+    get_accState(_childID) {
+      const err = new Error('Error #2144: AccessibilityImplementation.get_accState() must be overridden from its default.');
+      err.errorID = 2144;
+      throw err;
+    }
+    get_accValue(_childID) { return null; }
+    isLabeledBy(_labelBounds) { return false; }
+  }
+  AccessibilityImplementation.__nfIs = v => v !== null && typeof v === 'object' && (accessibilityImplRecords.has(v) || v instanceof AccessibilityImplementation);
+  AccessibilityImplementation.__nfInitialize = (receiver, args = []) => {
+    if (args.length > 0) {
+      const err = new Error('ArgumentError: Error #1063: AccessibilityImplementation constructor expects 0 arguments.');
+      err.name = 'ArgumentError';
+      err.errorID = 1063;
+      throw err;
+    }
+    ensureStageAccImpl(receiver);
+  };
+  Object.defineProperty(AccessibilityImplementation, Symbol.hasInstance, { value: AccessibilityImplementation.__nfIs });
+
+  function msaaRoleToAria(role) {
+    if (typeof global.NeoFlashAccessibility?.msaaRoleToAria === 'function') {
+      return global.NeoFlashAccessibility.msaaRoleToAria(role);
+    }
+    switch (Number(role) >>> 0) {
+      case 0x09: case 0x10: return 'region';
+      case 0x0a: case 0x14: return 'group';
+      case 0x0b: return 'menu';
+      case 0x0c: return 'menuitem';
+      case 0x0d: return 'tooltip';
+      case 0x0e: return 'application';
+      case 0x0f: return 'document';
+      case 0x12: return 'dialog';
+      case 0x15: return 'separator';
+      case 0x16: return 'toolbar';
+      case 0x17: return 'status';
+      case 0x18: return 'table';
+      case 0x19: return 'columnheader';
+      case 0x1a: return 'rowheader';
+      case 0x1c: return 'row';
+      case 0x1d: return 'cell';
+      case 0x1e: return 'link';
+      case 0x21: return 'listbox';
+      case 0x22: return 'option';
+      case 0x23: return 'tree';
+      case 0x24: return 'treeitem';
+      case 0x25: return 'tab';
+      case 0x26: return 'tabpanel';
+      case 0x28: return 'img';
+      case 0x29: return 'note';
+      case 0x2a: return 'textbox';
+      case 0x2b: return 'button';
+      case 0x2c: return 'checkbox';
+      case 0x2d: return 'radio';
+      case 0x2e: return 'combobox';
+      case 0x30: return 'progressbar';
+      case 0x33: return 'slider';
+      case 0x34: return 'spinbutton';
+      case 0x3c: return 'tablist';
+      default: return 'group';
+    }
+  }
+
+  function decodeMsaaState(state, ariaRole = '') {
+    if (typeof global.NeoFlashAccessibility?.decodeMsaaState === 'function') {
+      return global.NeoFlashAccessibility.decodeMsaaState(state, ariaRole);
+    }
+    const bits = Number(state) >>> 0;
+    const r = String(ariaRole || '').toLowerCase();
+    const selectable = (bits & 0x00200000) !== 0 || ['option', 'tab', 'treeitem', 'row', 'cell'].includes(r);
+    return {
+      disabled: (bits & 0x00000001) !== 0,
+      selected: (bits & 0x00000002) !== 0 ? true : (selectable ? false : null),
+      focused: (bits & 0x00000004) !== 0,
+      pressed: (bits & 0x00000008) !== 0,
+      checked: (bits & 0x00000020) !== 0 ? 'mixed' : ((bits & 0x00000010) !== 0 ? 'true' : (['checkbox', 'radio', 'menuitemcheckbox', 'menuitemradio'].includes(r) ? 'false' : null)),
+      readonly: (bits & 0x00000040) !== 0,
+      expanded: (bits & 0x00000200) !== 0 ? true : ((bits & 0x00000400) !== 0 ? false : null),
+      invisible: (bits & 0x00008000) !== 0,
+      focusable: (bits & 0x00100000) !== 0,
+      selectable,
+    };
+  }
+
+  function extractAccImplDetails(impl, baseX, baseY, baseW, baseH, forceSimple = false, labelCandidates = null) {
+    if (!impl || typeof impl !== 'object' || impl.stub) return null;
+    let role = null;
+    try {
+      const r = impl.get_accRole?.(0);
+      if (r !== undefined && r !== null && Number.isFinite(Number(r))) role = msaaRoleToAria(Number(r) >>> 0);
+    } catch (_) {}
+    let state = null;
+    try {
+      const s = impl.get_accState?.(0);
+      if (s !== undefined && s !== null && Number.isFinite(Number(s))) state = decodeMsaaState(Number(s) >>> 0, role || 'group');
+    } catch (_) {}
+    let name = null;
+    try {
+      const n = impl.get_accName?.(0);
+      if (typeof n === 'string' && n.length > 0) name = n;
+    } catch (_) {}
+    if (!name && Array.isArray(labelCandidates) && typeof impl.isLabeledBy === 'function') {
+      for (const cand of labelCandidates) {
+        if (!cand || typeof cand.text !== 'string' || !cand.text.trim()) continue;
+        try {
+          const rect = stageAdapters.makeRectangle(Number(cand.x) || 0, Number(cand.y) || 0, Number(cand.width) || 0, Number(cand.height) || 0);
+          if (impl.isLabeledBy(rect)) {
+            name = cand.text.trim();
+            break;
+          }
+        } catch (_) {}
+      }
+    }
+    let valueText = null;
+    try {
+      const v = impl.get_accValue?.(0);
+      if (typeof v === 'string' && v.length > 0) valueText = v;
+    } catch (_) {}
+    let defaultAction = null;
+    try {
+      const d = impl.get_accDefaultAction?.(0);
+      if (typeof d === 'string' && d.length > 0) defaultAction = d;
+    } catch (_) {}
+    let focusChildId = 0;
+    try {
+      const f = impl.get_accFocus?.();
+      if (Number.isFinite(Number(f))) focusChildId = Number(f) >>> 0;
+    } catch (_) {}
+    const selectedSet = new Set();
+    try {
+      const sel = impl.get_accSelection?.();
+      if (Array.isArray(sel)) {
+        for (const id of sel) if (Number.isFinite(Number(id))) selectedSet.add(Number(id) >>> 0);
+      }
+    } catch (_) {}
+    const children = [];
+    if (!forceSimple) {
+      let childIds = null;
+      try { childIds = impl.getChildIDArray?.(); } catch (_) {}
+      if (Array.isArray(childIds)) {
+        const limit = Math.min(childIds.length, 512);
+        for (let i = 0; i < limit; i++) {
+          const cid = Number(childIds[i]) >>> 0;
+          if (cid === 0) continue;
+          let cRole = 'option';
+          try {
+            const cr = impl.get_accRole?.(cid);
+            if (cr !== undefined && cr !== null && Number.isFinite(Number(cr))) cRole = msaaRoleToAria(Number(cr) >>> 0);
+          } catch (_) {}
+          let cState = decodeMsaaState(0, cRole);
+          try {
+            const cs = impl.get_accState?.(cid);
+            if (cs !== undefined && cs !== null && Number.isFinite(Number(cs))) cState = decodeMsaaState(Number(cs) >>> 0, cRole);
+          } catch (_) {}
+          if (selectedSet.has(cid)) cState = { ...cState, selected: true, selectable: true };
+          if (cState.invisible) continue;
+          let cName = '';
+          try {
+            const cn = impl.get_accName?.(cid);
+            if (typeof cn === 'string') cName = cn;
+          } catch (_) {}
+          let cVal = null;
+          try {
+            const cv = impl.get_accValue?.(cid);
+            if (typeof cv === 'string' && cv.length > 0) cVal = cv;
+          } catch (_) {}
+          let cDefAct = null;
+          try {
+            const cd = impl.get_accDefaultAction?.(cid);
+            if (typeof cd === 'string' && cd.length > 0) cDefAct = cd;
+          } catch (_) {}
+          let cx = baseX, cy = baseY, cw = baseW, ch = baseH;
+          try {
+            const loc = impl.accLocation?.(cid);
+            if (loc && typeof loc === 'object' && Number.isFinite(Number(loc.width)) && Number.isFinite(Number(loc.height))) {
+              cx = baseX + (Number(loc.x) || 0);
+              cy = baseY + (Number(loc.y) || 0);
+              cw = Math.max(0, Number(loc.width));
+              ch = Math.max(0, Number(loc.height));
+            }
+          } catch (_) {}
+          children.push({
+            childID: cid,
+            role: cRole,
+            ariaLabel: cName || `child-${cid}`,
+            valueText: cVal,
+            defaultAction: cDefAct,
+            ariaDisabled: Boolean(cState.disabled),
+            selected: cState.selected,
+            checked: cState.checked,
+            pressed: Boolean(cState.pressed),
+            expanded: cState.expanded,
+            readonly: Boolean(cState.readonly),
+            selectable: Boolean(cState.selectable),
+            focusable: Boolean(cState.focusable || cState.selectable || cDefAct || focusChildId === cid),
+            x: cx,
+            y: cy,
+            width: cw,
+            height: ch,
+            hooks: {
+              onDefaultAction: () => impl.accDoDefaultAction?.(cid),
+              onSelect: op => impl.accSelect?.(Number(op) >>> 0, cid),
+            },
+          });
+        }
+      }
+    }
+    return {
+      role,
+      state,
+      name,
+      valueText,
+      defaultAction,
+      focusChildId,
+      children,
+      hooks: {
+        onDefaultAction: () => impl.accDoDefaultAction?.(0),
+        onSelect: op => impl.accSelect?.(Number(op) >>> 0, 0),
+      },
+    };
+  }
+
   function extractAccessibilityEntry(raw, index = 0) {
     const target = raw && typeof raw === 'object' && raw.target ? raw.target : raw;
     const acc = (raw && raw.accessibilityProperties) || (target && target.accessibilityProperties) || null;
+    const impl = (raw && raw.accessibilityImplementation) || (target && target.accessibilityImplementation) || null;
     const id = String((raw && raw.id) ?? (target && (target.id ?? target.name)) ?? `node-${index + 1}`);
-    const roleRaw = (raw && raw.role) ?? (acc && acc.role) ?? (target && target.accessibilityRole) ?? '';
+    const forceSimple = Boolean((raw && raw.forceSimple) ?? (acc && acc.forceSimple) ?? false);
+    const x = Number.isFinite(Number(raw && raw.x)) ? Number(raw.x) : (Number.isFinite(Number(target && target.x)) ? Number(target.x) : 0);
+    const y = Number.isFinite(Number(raw && raw.y)) ? Number(raw.y) : (Number.isFinite(Number(target && target.y)) ? Number(target.y) : 0);
+    const width = Number.isFinite(Number(raw && raw.width)) ? Math.max(0, Number(raw.width)) : (Number.isFinite(Number(target && target.width)) ? Math.max(0, Number(target.width)) : 0);
+    const height = Number.isFinite(Number(raw && raw.height)) ? Math.max(0, Number(raw.height)) : (Number.isFinite(Number(target && target.height)) ? Math.max(0, Number(target.height)) : 0);
+    const implDetails = extractAccImplDetails(impl, x, y, width, height, forceSimple, raw?.labelCandidates || null);
+    const roleRaw = (implDetails && implDetails.role) ?? (raw && raw.role) ?? (acc && acc.role) ?? (target && target.accessibilityRole) ?? '';
     const role = String(roleRaw || '').trim() || 'group';
-    const ariaLabelRaw = (raw && raw.ariaLabel) || (acc && acc.name) || (target && target.accessibilityName) || (raw && raw.name) || (target && target.name) || '';
+    const ariaLabelRaw = (implDetails && implDetails.name) || (raw && raw.ariaLabel) || (acc && acc.name) || (target && target.accessibilityName) || (raw && raw.name) || (target && target.name) || '';
     const ariaLabel = String(ariaLabelRaw || '').trim() || id;
-    const ariaDescRaw = (raw && (raw.ariaDescription ?? raw.description)) ?? (acc && acc.description) ?? (target && target.accessibilityDescription) ?? '';
+    const ariaDescRaw = (raw && (raw.ariaDescription ?? raw.description)) ?? (acc && acc.description) ?? (target && target.accessibilityDescription) ?? (implDetails && implDetails.valueText) ?? '';
     const ariaDescription = String(ariaDescRaw || '').trim();
     const liveRaw = String((raw && (raw.ariaLive ?? raw.live)) ?? (acc && acc.live) ?? (target && target.accessibilityLive) ?? 'off').trim().toLowerCase();
     const ariaLive = (liveRaw === 'polite' || liveRaw === 'assertive') ? liveRaw : 'off';
     const shortcut = String((raw && raw.shortcut) ?? (acc && acc.shortcut) ?? (target && target.accessibilityShortcut) ?? '').trim();
-    const silent = Boolean((raw && (raw.silent ?? raw.ariaHidden)) ?? (acc && acc.silent) ?? false);
-    const disabled = Boolean((raw && (raw.disabled ?? raw.ariaDisabled)) ?? (target && target.enabled === false) ?? false);
+    const silent = Boolean((raw && (raw.silent ?? raw.ariaHidden)) ?? (acc && acc.silent) ?? (implDetails?.state?.invisible) ?? false);
+    const disabled = Boolean((raw && (raw.disabled ?? raw.ariaDisabled)) ?? (target && target.enabled === false) ?? (implDetails?.state?.disabled) ?? false);
     const tabEnabled = raw && raw.tabEnabled !== undefined ? Boolean(raw.tabEnabled) : (target && target.tabEnabled !== undefined ? Boolean(target.tabEnabled) : true);
     const rawTab = Number((raw && raw.tabIndex) ?? (target && target.tabIndex));
     const explicitTab = Number.isInteger(rawTab) && rawTab > 0 ? rawTab : null;
     const rawOrder = Number((raw && (raw.readingOrder ?? raw.tabOrder)) ?? explicitTab);
     const explicitOrder = Number.isInteger(rawOrder) && rawOrder > 0 ? rawOrder : null;
-    const x = Number.isFinite(Number(raw && raw.x)) ? Number(raw.x) : (Number.isFinite(Number(target && target.x)) ? Number(target.x) : 0);
-    const y = Number.isFinite(Number(raw && raw.y)) ? Number(raw.y) : (Number.isFinite(Number(target && target.y)) ? Number(target.y) : 0);
-    const width = Number.isFinite(Number(raw && raw.width)) ? Math.max(0, Number(raw.width)) : (Number.isFinite(Number(target && target.width)) ? Math.max(0, Number(target.width)) : 0);
-    const height = Number.isFinite(Number(raw && raw.height)) ? Math.max(0, Number(raw.height)) : (Number.isFinite(Number(target && target.height)) ? Math.max(0, Number(target.height)) : 0);
     return {
       index,
       id,
@@ -244,6 +505,17 @@
       role,
       ariaLabel,
       ariaDescription,
+      valueText: (raw && raw.valueText) ?? (implDetails ? implDetails.valueText : null),
+      defaultAction: (raw && raw.defaultAction) ?? (implDetails ? implDetails.defaultAction : null),
+      selected: (raw && typeof raw.selected === 'boolean') ? raw.selected : (implDetails?.state ? implDetails.state.selected : null),
+      checked: (raw && raw.checked !== undefined) ? raw.checked : (implDetails?.state ? implDetails.state.checked : null),
+      pressed: Boolean((raw && raw.pressed) ?? implDetails?.state?.pressed ?? false),
+      expanded: (raw && typeof raw.expanded === 'boolean') ? raw.expanded : (implDetails?.state ? implDetails.state.expanded : null),
+      readonly: Boolean((raw && raw.readonly) ?? implDetails?.state?.readonly ?? false),
+      selectable: Boolean((raw && raw.selectable) ?? implDetails?.state?.selectable ?? false),
+      focusChildId: implDetails ? implDetails.focusChildId : 0,
+      accChildren: implDetails ? implDetails.children : [],
+      hooks: (raw && raw.hooks) || (implDetails ? implDetails.hooks : null),
       ariaLive,
       shortcut,
       ariaHidden: silent,
@@ -306,20 +578,33 @@
     const focusedTarget = options && options.focusedTarget ? options.focusedTarget : null;
     const focusReason = options && options.focusReason ? String(options.focusReason) : null;
     const resolved = [];
-    active.forEach((item, idx) => {
-      const readingOrder = idx + 1;
+    let orderCounter = 0;
+    active.forEach(item => {
+      const readingOrder = ++orderCounter;
       const tabIndex = (item.ariaDisabled || !item.tabEnabled)
         ? -1
         : (item.explicitTab != null ? item.explicitTab : readingOrder);
       const isFocused = Boolean(focusedTarget && (item.target === focusedTarget || item.id === focusedTarget.id || item.id === focusedTarget.name));
       resolved.push({
         id: item.id,
+        childID: 0,
+        parentId: null,
         target: item.target,
         role: item.role,
         tabIndex,
         readingOrder,
         ariaLabel: item.ariaLabel,
         ariaDescription: item.ariaDescription,
+        valueText: item.valueText ?? null,
+        defaultAction: item.defaultAction ?? null,
+        selected: item.selected ?? null,
+        checked: item.checked ?? null,
+        pressed: item.pressed,
+        expanded: item.expanded ?? null,
+        readonly: item.readonly,
+        selectable: item.selectable,
+        focusChildId: item.focusChildId || 0,
+        hooks: item.hooks || null,
         ariaLive: item.ariaLive,
         ariaHidden: false,
         ariaDisabled: item.ariaDisabled,
@@ -332,16 +617,66 @@
         focusReason: isFocused ? focusReason : null,
         keyboardFocusRing: Boolean(isFocused && focusReason === 'key'),
       });
+      if (Array.isArray(item.accChildren) && item.accChildren.length > 0) {
+        for (const child of item.accChildren) {
+          const childReadingOrder = ++orderCounter;
+          const childTab = (child.ariaDisabled || !child.focusable) ? -1 : 0;
+          resolved.push({
+            id: `${item.id}-child-${child.childID}`,
+            childID: child.childID,
+            parentId: item.id,
+            target: item.target,
+            role: child.role,
+            tabIndex: childTab,
+            readingOrder: childReadingOrder,
+            ariaLabel: child.ariaLabel,
+            ariaDescription: '',
+            valueText: child.valueText ?? null,
+            defaultAction: child.defaultAction ?? null,
+            selected: child.selected ?? null,
+            checked: child.checked ?? null,
+            pressed: child.pressed,
+            expanded: child.expanded ?? null,
+            readonly: child.readonly,
+            selectable: child.selectable,
+            focusChildId: 0,
+            hooks: child.hooks || null,
+            ariaLive: 'off',
+            ariaHidden: false,
+            ariaDisabled: child.ariaDisabled,
+            shortcut: '',
+            x: child.x,
+            y: child.y,
+            width: child.width,
+            height: child.height,
+            focused: Boolean(isFocused && item.focusChildId === child.childID),
+            focusReason: isFocused && item.focusChildId === child.childID ? focusReason : null,
+            keyboardFocusRing: false,
+          });
+        }
+      }
     });
     hidden.forEach(item => {
       resolved.push({
         id: item.id,
+        childID: 0,
+        parentId: null,
         target: item.target,
         role: item.role,
         tabIndex: -1,
         readingOrder: 0,
         ariaLabel: item.ariaLabel,
         ariaDescription: item.ariaDescription,
+        valueText: null,
+        defaultAction: null,
+        selected: null,
+        checked: null,
+        pressed: false,
+        expanded: null,
+        readonly: false,
+        selectable: false,
+        focusChildId: 0,
+        hooks: null,
         ariaLive: item.ariaLive,
         ariaHidden: true,
         ariaDisabled: item.ariaDisabled,
@@ -362,6 +697,7 @@
     const attrs = new Map();
     const dataset = {};
     const style = {};
+    const listeners = new Map();
     return {
       tagName: String(tagName).toUpperCase(),
       tabIndex: -1,
@@ -386,6 +722,23 @@
           delete dataset[camel];
         }
       },
+      addEventListener(type, fn) {
+        const list = listeners.get(type) || [];
+        list.push(fn);
+        listeners.set(type, list);
+      },
+      dispatchEvent(ev) {
+        for (const fn of listeners.get(ev?.type) || []) fn(ev);
+        return !ev?.defaultPrevented;
+      },
+      click() {
+        if (attrs.get('aria-disabled') === 'true') return;
+        for (const fn of listeners.get('click') || []) fn({ type: 'click', target: this });
+      },
+      focus() {
+        if (attrs.get('aria-disabled') === 'true' || this.tabIndex < 0) return;
+        for (const fn of listeners.get('focus') || []) fn({ type: 'focus', target: this });
+      },
     };
   }
 
@@ -394,6 +747,7 @@
   // otherwise unchanged controls. The target identity still retires a node when a placement's
   // runtime lifetime changes, matching the Stage event/semantic-layer boundary.
   const accessibilityOverlayTargets = new WeakMap();
+  const accessibilityOverlayBoundNodes = new WeakMap();
 
   const CONTENT_ACCESSIBLE_ROLE_MAP = Object.freeze({
     auto: 'generic',
@@ -517,7 +871,8 @@
         const kindType = element.kind?.type || '';
         const isInteractiveOrText = kindType === 'text' || kindType === 'text_box' || kindType === 'instance';
         const runtimeAcc = safeGet(runtimeTarget, 'accessibilityProperties') || null;
-        if (!element.accessibility && !hasNonDefaultExt && !isInteractiveOrText && !runtimeAcc) continue;
+        const runtimeImpl = safeGet(runtimeTarget, 'accessibilityImplementation') || null;
+        if (!element.accessibility && !hasNonDefaultExt && !isInteractiveOrText && !runtimeAcc && !runtimeImpl) continue;
 
         let role = 'img';
         if (runtimeAcc && typeof runtimeAcc.role === 'string' && runtimeAcc.role.trim()) {
@@ -655,18 +1010,49 @@
       if (!previousById.has(id)) previousById.set(id, []);
       previousById.get(id).push(el);
     }
+    const hostElementById = new Map();
     const elements = nodes.map(node => {
       const candidates = previousById.get(node.id) || [];
       const candidateIndex = candidates.findIndex(el => accessibilityOverlayTargets.get(el) === node.target);
       const el = candidateIndex >= 0 ? candidates.splice(candidateIndex, 1)[0] : createNode();
       accessibilityOverlayTargets.set(el, node.target);
+      if (!accessibilityOverlayBoundNodes.has(el) && typeof el.addEventListener === 'function') {
+        const triggerDefault = ev => {
+          const cur = accessibilityOverlayBoundNodes.get(el);
+          if (!cur || cur.ariaDisabled || !cur.hooks) return;
+          if (cur.selectable) {
+            const selOp = ev?.shiftKey ? 0x04 : ((ev?.ctrlKey || ev?.metaKey) ? (cur.selected === true ? 0x10 : 0x08) : 0x02);
+            cur.hooks.onSelect?.(selOp);
+          }
+          cur.hooks.onDefaultAction?.();
+        };
+        el.addEventListener('click', ev => triggerDefault(ev));
+        el.addEventListener('keydown', ev => {
+          if (ev?.key === 'Enter' || ev?.key === ' ' || ev?.key === 'Spacebar') {
+            ev.preventDefault?.();
+            triggerDefault(ev);
+          }
+        });
+        el.addEventListener('focus', () => {
+          const cur = accessibilityOverlayBoundNodes.get(el);
+          if (!cur || cur.ariaDisabled || !cur.hooks) return;
+          cur.hooks.onSelect?.(0x01);
+        });
+      }
+      accessibilityOverlayBoundNodes.set(el, node);
       el.id = `nf-a11y-${node.id}`;
       el.tabIndex = node.tabIndex;
+      if (!node.childID) hostElementById.set(node.id, { el, node });
       if (typeof el.setAttribute === 'function') {
         el.setAttribute('id', `nf-a11y-${node.id}`);
         el.setAttribute('data-element-id', node.id);
         el.setAttribute('data-neoflash-id', node.id);
         el.setAttribute('data-reading-order', String(node.readingOrder));
+        if (node.childID > 0) {
+          el.setAttribute('data-child-id', String(node.childID));
+        } else {
+          el.removeAttribute?.('data-child-id');
+        }
         el.setAttribute('role', node.role);
         el.setAttribute('tabindex', String(node.tabIndex));
         el.setAttribute('aria-label', node.ariaLabel);
@@ -675,6 +1061,41 @@
           el.setAttribute('aria-description', node.ariaDescription);
         } else {
           el.removeAttribute?.('aria-description');
+        }
+        if (node.valueText !== null && node.valueText !== undefined && String(node.valueText).length > 0) {
+          el.setAttribute('aria-valuetext', String(node.valueText));
+        } else {
+          el.removeAttribute?.('aria-valuetext');
+        }
+        if (typeof node.selected === 'boolean') {
+          el.setAttribute('aria-selected', String(node.selected));
+        } else {
+          el.removeAttribute?.('aria-selected');
+        }
+        if (node.checked !== null && node.checked !== undefined && node.checked !== '') {
+          el.setAttribute('aria-checked', String(node.checked));
+        } else {
+          el.removeAttribute?.('aria-checked');
+        }
+        if (node.pressed) {
+          el.setAttribute('aria-pressed', 'true');
+        } else {
+          el.removeAttribute?.('aria-pressed');
+        }
+        if (typeof node.expanded === 'boolean') {
+          el.setAttribute('aria-expanded', String(node.expanded));
+        } else {
+          el.removeAttribute?.('aria-expanded');
+        }
+        if (node.readonly) {
+          el.setAttribute('aria-readonly', 'true');
+        } else {
+          el.removeAttribute?.('aria-readonly');
+        }
+        if (node.defaultAction) {
+          el.setAttribute('data-default-action', String(node.defaultAction));
+        } else {
+          el.removeAttribute?.('data-default-action');
         }
         if (node.ariaLive && node.ariaLive !== 'off') {
           el.setAttribute('aria-live', node.ariaLive);
@@ -698,6 +1119,13 @@
           el.removeAttribute?.('data-focus-reason');
           el.removeAttribute?.('data-keyboard-focus-ring');
         }
+        if (!node.childID) el.removeAttribute?.('aria-activedescendant');
+      }
+      if (node.childID > 0 && node.parentId) {
+        const parentEntry = hostElementById.get(node.parentId);
+        if (parentEntry && parentEntry.node.focusChildId === node.childID) {
+          parentEntry.el.setAttribute?.('aria-activedescendant', `nf-a11y-${node.id}`);
+        }
       }
       if (el.style && typeof el.style === 'object') {
         el.style.position = 'absolute';
@@ -705,7 +1133,7 @@
         el.style.top = `${node.y}px`;
         el.style.width = `${node.width}px`;
         el.style.height = `${node.height}px`;
-        el.style.pointerEvents = 'none';
+        el.style.pointerEvents = node.hooks ? 'auto' : 'none';
       }
       return el;
     });
@@ -824,6 +1252,17 @@
   };
   Object.defineProperty(ContextMenuItem, Symbol.hasInstance, { value: ContextMenuItem.__nfIs });
   const contextMenuRecords = new WeakMap();
+  const contextMenuItemOwners = new WeakMap();
+  const stageContextMenuOpeners = new WeakMap();
+  function makeStageRangeError(message, code = 2006) {
+    const err = new RangeError(message);
+    err.errorID = code;
+    return err;
+  }
+  function isStageValidMenuItem(item) {
+    if (!item || typeof item !== 'object') return false;
+    return ContextMenuItem.__nfIs(item) || typeof item.caption === 'string' || typeof item.label === 'string';
+  }
   class ContextMenu extends (eventsAPI?.EventDispatcher || class {}) {
     constructor() {
       super();
@@ -845,7 +1284,105 @@
     get customItems() { return contextMenuRecords.get(this).customItems; }
     set customItems(value) {
       if (!Array.isArray(value)) throw new TypeError('ContextMenu.customItems requires an Array.');
-      contextMenuRecords.get(this).customItems = value;
+      const rec = contextMenuRecords.get(this);
+      for (const prev of rec.customItems) {
+        if (contextMenuItemOwners.get(prev) === this) contextMenuItemOwners.delete(prev);
+      }
+      rec.customItems = value;
+      for (const it of value) {
+        if (it && typeof it === 'object') contextMenuItemOwners.set(it, this);
+      }
+    }
+    get items() {
+      return contextMenuRecords.get(this).customItems.slice();
+    }
+    set items(value) {
+      if (!Array.isArray(value)) throw new TypeError('ContextMenu.items requires an Array.');
+      for (const it of value) {
+        if (!isStageValidMenuItem(it)) throw new TypeError('ContextMenu.items elements must be ContextMenuItem instances.');
+      }
+      this.removeAllItems();
+      for (const it of value) this.addItemAt(it, this.numItems);
+    }
+    get numItems() {
+      return contextMenuRecords.get(this).customItems.length;
+    }
+    addItem(item) {
+      return this.addItemAt(item, this.numItems);
+    }
+    addItemAt(item, index) {
+      if (!isStageValidMenuItem(item)) throw new TypeError('ContextMenu.addItemAt requires a ContextMenuItem.');
+      const rec = contextMenuRecords.get(this);
+      const raw = Number(index);
+      const idx = raw | 0;
+      if (!Number.isFinite(raw) || idx < 0 || idx > rec.customItems.length) {
+        throw makeStageRangeError(`Error #2006: The supplied index ${idx} is out of bounds.`, 2006);
+      }
+      const prevOwner = contextMenuItemOwners.get(item);
+      if (prevOwner && contextMenuRecords.has(prevOwner)) {
+        const prevList = contextMenuRecords.get(prevOwner).customItems;
+        const prevIdx = prevList.indexOf(item);
+        if (prevIdx >= 0) prevList.splice(prevIdx, 1);
+      }
+      const clamped = Math.min(idx, rec.customItems.length);
+      rec.customItems.splice(clamped, 0, item);
+      contextMenuItemOwners.set(item, this);
+      return item;
+    }
+    getItemAt(index) {
+      const rec = contextMenuRecords.get(this);
+      const raw = Number(index);
+      const idx = raw | 0;
+      if (!Number.isFinite(raw) || idx < 0 || idx >= rec.customItems.length) {
+        throw makeStageRangeError(`Error #2006: The supplied index ${idx} is out of bounds.`, 2006);
+      }
+      return rec.customItems[idx];
+    }
+    getItemIndex(item) {
+      return contextMenuRecords.get(this).customItems.indexOf(item);
+    }
+    containsItem(item) {
+      if (!item || typeof item !== 'object') return false;
+      return contextMenuRecords.get(this).customItems.includes(item);
+    }
+    removeItem(item) {
+      const idx = this.getItemIndex(item);
+      if (idx < 0) {
+        const err = new Error('ArgumentError: Error #2025: The supplied MenuItem must be a child of the caller.');
+        err.name = 'ArgumentError';
+        err.errorID = 2025;
+        throw err;
+      }
+      return this.removeItemAt(idx);
+    }
+    removeItemAt(index) {
+      const rec = contextMenuRecords.get(this);
+      const raw = Number(index);
+      const idx = raw | 0;
+      if (!Number.isFinite(raw) || idx < 0 || idx >= rec.customItems.length) {
+        throw makeStageRangeError(`Error #2006: The supplied index ${idx} is out of bounds.`, 2006);
+      }
+      const [removed] = rec.customItems.splice(idx, 1);
+      if (removed && contextMenuItemOwners.get(removed) === this) contextMenuItemOwners.delete(removed);
+      return removed;
+    }
+    removeAllItems() {
+      const rec = contextMenuRecords.get(this);
+      for (const it of rec.customItems) {
+        if (it && contextMenuItemOwners.get(it) === this) contextMenuItemOwners.delete(it);
+      }
+      rec.customItems.length = 0;
+    }
+    display(stageObj, stageX, stageY) {
+      if (!stageObj || typeof stageObj !== 'object') {
+        throw new TypeError('TypeError: Error #2007: Parameter stage must be non-null.');
+      }
+      const opener = stageContextMenuOpeners.get(stageObj);
+      if (typeof opener === 'function') {
+        const sx = Number(stageX) || 0;
+        const sy = Number(stageY) || 0;
+        opener({ clientX: sx, clientY: sy, stageX: sx, stageY: sy }, stageObj.focus || stageObj, this, stageObj);
+      }
     }
     get link() { return contextMenuRecords.get(this).link; }
     set link(value) { contextMenuRecords.get(this).link = value ?? null; }
@@ -861,6 +1398,9 @@
       copyRec.clipboardItems = rec.clipboardItems.clone();
       copyRec.clipboardMenu = rec.clipboardMenu;
       copyRec.customItems = rec.customItems.map(item => typeof item?.clone === 'function' ? item.clone() : item);
+      for (const it of copyRec.customItems) {
+        if (it && typeof it === 'object') contextMenuItemOwners.set(it, copy);
+      }
       copyRec.link = rec.link;
       return copy;
     }
@@ -873,6 +1413,48 @@
     }
   };
   Object.defineProperty(ContextMenu, Symbol.hasInstance, { value: ContextMenu.__nfIs });
+
+  const stageCompRangeRecords = new WeakMap();
+  class StageCompositionAttributeRange {
+    constructor(relativeStart, relativeEnd, selected, converted) {
+      if (new.target !== StageCompositionAttributeRange) {
+        throw new TypeError('CompositionAttributeRange is final and cannot be subclassed.');
+      }
+      stageCompRangeRecords.set(this, {
+        relativeStart: Number(relativeStart) | 0,
+        relativeEnd: Number(relativeEnd) | 0,
+        selected: Boolean(selected),
+        converted: Boolean(converted),
+      });
+      return Object.seal(this);
+    }
+    get relativeStart() { return stageCompRangeRecords.get(this).relativeStart; }
+    set relativeStart(v) { stageCompRangeRecords.get(this).relativeStart = Number(v) | 0; }
+    get relativeEnd() { return stageCompRangeRecords.get(this).relativeEnd; }
+    set relativeEnd(v) { stageCompRangeRecords.get(this).relativeEnd = Number(v) | 0; }
+    get selected() { return stageCompRangeRecords.get(this).selected; }
+    set selected(v) { stageCompRangeRecords.get(this).selected = Boolean(v); }
+    get converted() { return stageCompRangeRecords.get(this).converted; }
+    set converted(v) { stageCompRangeRecords.get(this).converted = Boolean(v); }
+  }
+  StageCompositionAttributeRange.__nfIs = v => stageCompRangeRecords.has(v);
+  Object.defineProperty(StageCompositionAttributeRange, Symbol.hasInstance, { value: StageCompositionAttributeRange.__nfIs });
+
+  const STAGE_IME_CLIENT_MEMBERS = [
+    'compositionStartIndex',
+    'compositionEndIndex',
+    'selectionActiveIndex',
+    'selectionAnchorIndex',
+    'verticalTextLayout',
+    'confirmComposition',
+    'getTextBounds',
+    'getTextInRange',
+    'selectRange',
+    'updateComposition',
+  ];
+  function isStageImeClient(value) {
+    return Boolean(value && typeof value === 'object' && STAGE_IME_CLIENT_MEMBERS.every(m => m in value));
+  }
   class StageScaleMode { constructor() { throw new TypeError('StageScaleMode supplies EXACT_FIT, NO_BORDER, NO_SCALE and SHOW_ALL constants.'); } }
   Object.assign(StageScaleMode, { EXACT_FIT: 'exactFit', NO_BORDER: 'noBorder', NO_SCALE: 'noScale', SHOW_ALL: 'showAll' }); Object.freeze(StageScaleMode);
   class StageAlign { constructor() { throw new TypeError('StageAlign supplies stage alignment constants.'); } }
@@ -1612,7 +2194,8 @@
         const handled=options.onFocusChanged?.(value,previous)===true;
         if(version!==focusVersion)return true;
         nativeFocus=handled;
-        if(value&&!handled)options.canvas?.focus?.({preventScroll:true});
+        if(!handled)syncStandaloneImeClientInput(value);
+        if(value&&!handled&&!standaloneImeInput)options.canvas?.focus?.({preventScroll:true});
         if(value&&alive(value))hub.dispatch(value,new FocusEvent(FocusEvent.FOCUS_IN,true,false,previous,false,0,direction));
         return true;
       }finally{focusDepth--;}
@@ -1847,24 +2430,456 @@
       options.afterInput?.();
       return allAllowed;
     }
+    const AS3_IME_REGISTRY = Symbol.for('neoflash.as3.imeRegistry.v1');
+    const AS2_IME_DOC_HOOKS = Symbol.for('neoflash.as2.imeDocHooks.v1');
+    let standaloneImeInput = null;
+    let standaloneImeCleanups = [];
+    let standaloneImeClient = null;
+    let standaloneImeBaseStart = 0;
+    let activeStageContextMenuEl = null;
+    let stageContextClipboardBuffer = '';
+    let stageAssignedContextMenu = null;
+
+    function getAs3StageImeEntry() {
+      let reg = global[AS3_IME_REGISTRY];
+      if (!reg) {
+        reg = { byDisplay: new WeakMap(), byStage: new WeakMap(), latest: null };
+        Object.defineProperty(global, AS3_IME_REGISTRY, { value: reg, configurable: true });
+      }
+      let entry = reg.byStage.get(stage);
+      if (!entry && reg.latest && (!reg.latest.fte3d || reg.latest.fte3d.getStage?.() === stage)) {
+        entry = reg.latest;
+        reg.byStage.set(stage, entry);
+      }
+      if (!entry) {
+        entry = { netSys: null, fte3d: null, stage: null };
+        reg.byStage.set(stage, entry);
+      }
+      return entry;
+    }
+
+    function teardownStandaloneImeInput() {
+      for (const fn of standaloneImeCleanups.splice(0)) {
+        try { fn(); } catch (_) {}
+      }
+      if (standaloneImeInput) {
+        try { standaloneImeInput.remove?.(); } catch (_) {}
+        standaloneImeInput = null;
+      }
+      standaloneImeClient = null;
+    }
+
+    function syncStandaloneImeInputAttrs(targetObj, clientObj) {
+      if (!standaloneImeInput) return;
+      const entry = getAs3StageImeEntry();
+      const imeOn = entry?.netSys ? Boolean(entry.netSys.isEnabled()) : true;
+      const mode = entry?.netSys ? String(entry.netSys.getConversionMode() || 'ALPHANUMERIC_HALF') : 'ALPHANUMERIC_HALF';
+      const editable = imeOn && !(clientObj && clientObj.readOnly === true);
+      standaloneImeInput.readOnly = !editable;
+      standaloneImeInput.setAttribute?.('data-ime-enabled', String(editable));
+      standaloneImeInput.setAttribute?.('data-ime-mode', mode);
+      if (clientObj && isStageImeClient(clientObj) && standaloneImeInput.style) {
+        standaloneImeInput.style.writingMode = clientObj.verticalTextLayout ? 'vertical-rl' : 'horizontal-tb';
+        try {
+          const a = Number(clientObj.selectionAnchorIndex ?? 0) | 0;
+          const b = Number(clientObj.selectionActiveIndex ?? a) | 0;
+          const lo = Math.max(0, Math.min(a, b));
+          const hi = Math.max(lo, Math.max(a, b));
+          const rect = clientObj.getTextBounds(lo, hi);
+          if (rect) {
+            standaloneImeInput.style.left = `${(Number(rect.x) || 0) + (Number(targetObj?.x) || 0)}px`;
+            standaloneImeInput.style.top = `${(Number(rect.y) || 0) + (Number(targetObj?.y) || 0)}px`;
+            standaloneImeInput.style.width = `${Math.max(1, Number(rect.width) || 2)}px`;
+            standaloneImeInput.style.height = `${Math.max(1, Number(rect.height) || 16)}px`;
+          }
+        } catch (_) {}
+      }
+    }
+
+    function syncStandaloneImeClientInput(nextTarget) {
+      const entry = getAs3StageImeEntry();
+      if (entry?.fte3d && entry.fte3d.getStage?.() === stage) {
+        teardownStandaloneImeInput();
+        return;
+      }
+      teardownStandaloneImeInput();
+      if (!nextTarget || typeof nextTarget !== 'object' || options.ownsTextInput?.(nextTarget)) return;
+      if (!isStageImeClient(nextTarget)) return;
+      const d = doc();
+      const container = options.viewport || options.canvas?.parentElement || d?.body || null;
+      if (!d || typeof d.createElement !== 'function') return;
+      const input = d.createElement('input');
+      input.type = 'text';
+      input.setAttribute?.('data-neoflash-ime-client', 'true');
+      input.setAttribute?.('aria-hidden', 'true');
+      if (input.style) {
+        Object.assign(input.style, {
+          position: 'absolute',
+          left: '0px',
+          top: '0px',
+          width: '2px',
+          height: '16px',
+          opacity: '0',
+          pointerEvents: 'none',
+        });
+      }
+      const bind = (t, fn) => {
+        if (typeof input.addEventListener !== 'function') return;
+        input.addEventListener(t, fn);
+        standaloneImeCleanups.push(() => input.removeEventListener?.(t, fn));
+      };
+      bind('compositionstart', ev => handleComposition('compositionstart', ev, nextTarget));
+      bind('compositionupdate', ev => handleComposition('compositionupdate', ev, nextTarget));
+      bind('compositionend', ev => handleComposition('compositionend', ev, nextTarget));
+      bind('select', () => {
+        if (!imeComposing && isStageImeClient(nextTarget) && typeof input.selectionStart === 'number' && typeof input.selectionEnd === 'number') {
+          nextTarget.selectRange(input.selectionStart, input.selectionEnd);
+        }
+      });
+      if (container && typeof container.appendChild === 'function') container.appendChild(input);
+      standaloneImeInput = input;
+      standaloneImeClient = nextTarget;
+      syncStandaloneImeInputAttrs(nextTarget, nextTarget);
+      try { input.focus?.({ preventScroll: true }); } catch (_) {}
+    }
+
+    const stageImeBridgeHook = {
+      getStage: () => stage,
+      syncState: () => syncStandaloneImeInputAttrs(focus, standaloneImeClient || (isStageImeClient(focus) ? focus : null)),
+      setComposition(txt, s = 0, e = String(txt ?? '').length) {
+        const tgt = focus || stage;
+        const cl = standaloneImeClient || (isStageImeClient(tgt) ? tgt : null);
+        if (!imeComposing) {
+          imeComposing = true;
+          standaloneImeBaseStart = cl ? Math.max(0, Math.min(cl.selectionAnchorIndex | 0, cl.selectionActiveIndex | 0)) : 0;
+        }
+        imeText = String(txt ?? '');
+        if (standaloneImeInput) standaloneImeInput.value = imeText;
+        if (cl && isStageImeClient(cl)) {
+          const ranges = imeText.length > 0 ? [new StageCompositionAttributeRange(s, e > s ? e : imeText.length, true, false)] : [];
+          cl.updateComposition(imeText, ranges, standaloneImeBaseStart, standaloneImeBaseStart + imeText.length);
+          syncStandaloneImeInputAttrs(tgt, cl);
+        }
+      },
+      selectionChanged(s, e) {
+        const tgt = focus || stage;
+        const cl = standaloneImeClient || (isStageImeClient(tgt) ? tgt : null);
+        if (!cl || !isStageImeClient(cl)) return;
+        if (imeComposing && imeText.length > 0) {
+          const lo = Math.max(0, Math.min(imeText.length, Math.min(s, e)));
+          const hi = Math.max(lo, Math.min(imeText.length, Math.max(s, e)));
+          const ranges = [];
+          if (lo > 0) ranges.push(new StageCompositionAttributeRange(0, lo, false, false));
+          ranges.push(new StageCompositionAttributeRange(lo, hi > lo ? hi : imeText.length, true, false));
+          if (hi > lo && hi < imeText.length) ranges.push(new StageCompositionAttributeRange(hi, imeText.length, false, false));
+          cl.updateComposition(imeText, ranges, standaloneImeBaseStart, standaloneImeBaseStart + imeText.length);
+        } else {
+          cl.selectRange(s | 0, e | 0);
+        }
+        syncStandaloneImeInputAttrs(tgt, cl);
+      },
+      abandon() {
+        const tgt = focus || stage;
+        const cl = standaloneImeClient || (isStageImeClient(tgt) ? tgt : null);
+        const wasComp = imeComposing;
+        imeComposing = false;
+        imeText = '';
+        if (standaloneImeInput) standaloneImeInput.value = '';
+        if (wasComp && cl && isStageImeClient(cl)) {
+          cl.updateComposition('', [], standaloneImeBaseStart, standaloneImeBaseStart);
+          syncStandaloneImeInputAttrs(tgt, cl);
+        }
+      },
+      confirmForDoConversion(txt) {
+        const tgt = focus || stage;
+        const cl = standaloneImeClient || (isStageImeClient(tgt) ? tgt : null);
+        imeComposing = false;
+        imeText = '';
+        if (standaloneImeInput) standaloneImeInput.value = '';
+        if (cl && isStageImeClient(cl) && !cl.readOnly) {
+          cl.confirmComposition(String(txt ?? ''), false);
+          syncStandaloneImeInputAttrs(tgt, cl);
+        }
+        return { client: cl || null, target: tgt };
+      },
+    };
+    getAs3StageImeEntry().stage = stageImeBridgeHook;
+
+    function closeContextMenu() {
+      if (activeStageContextMenuEl) {
+        try { activeStageContextMenuEl.remove?.(); } catch (_) {}
+        activeStageContextMenuEl = null;
+      }
+    }
+
+    function getActiveContextMenu() {
+      return activeStageContextMenuEl;
+    }
+
+    function createStageMenuDomNode(tagName) {
+      const d = doc();
+      if (d && typeof d.createElement === 'function') return d.createElement(tagName);
+      return createFallbackOverlayDomElement(tagName);
+    }
+
+    function openContextMenu(rawEvent = {}, targetOverride = null, explicitMenu = null, explicitOwner = null) {
+      closeContextMenu();
+      const mouseTarget = targetOverride || (options.hitTest ? options.hitTest(rawEvent) : null) || focus || stage;
+      let owner = explicitOwner || null;
+      let menu = explicitMenu || null;
+      if (!menu) {
+        let cur = mouseTarget;
+        const seen = new Set();
+        while (cur && typeof cur === 'object' && !seen.has(cur)) {
+          seen.add(cur);
+          if (cur.contextMenu && typeof cur.contextMenu === 'object') {
+            owner = cur;
+            menu = cur.contextMenu;
+            break;
+          }
+          cur = options.parentOf ? options.parentOf(cur) : cur.parent;
+        }
+        if (!menu && (stage.contextMenu || stageAssignedContextMenu)) {
+          owner = stage;
+          menu = stage.contextMenu || stageAssignedContextMenu;
+        }
+      }
+      if (!menu) return null;
+      rawEvent?.preventDefault?.();
+
+      const CtxEventCtor = options.ContextMenuEvent || eventsAPI.ContextMenuEvent || null;
+      const makeCtxEvent = (type) => {
+        if (CtxEventCtor) return new CtxEventCtor(type, false, false, mouseTarget, owner);
+        const ev = new Event(type, false, false);
+        ev.mouseTarget = mouseTarget;
+        ev.contextMenuOwner = owner;
+        return ev;
+      };
+      if (typeof menu.dispatchEvent === 'function') {
+        menu.dispatchEvent(makeCtxEvent('menuSelect'));
+      }
+
+      const root = createStageMenuDomNode('div');
+      root.className = 'nf-as3-context-menu';
+      root.setAttribute?.('role', 'menu');
+      if (root.style) {
+        Object.assign(root.style, {
+          position: 'absolute',
+          left: `${Number(rawEvent?.clientX ?? rawEvent?.stageX ?? 0)}px`,
+          top: `${Number(rawEvent?.clientY ?? rawEvent?.stageY ?? 0)}px`,
+          zIndex: '10000',
+          display: 'flex',
+          flexDirection: 'column',
+        });
+      }
+      const childrenList = [];
+      const appendNode = child => {
+        childrenList.push(child);
+        if (typeof root.appendChild === 'function') root.appendChild(child);
+        else if (Array.isArray(root.children)) root.children.push(child);
+        else root.children = childrenList;
+      };
+      if (typeof root.querySelectorAll !== 'function') {
+        root.querySelectorAll = sel => {
+          if (sel === '[role="menuitem"]') return childrenList.filter(c => c.getAttribute?.('role') === 'menuitem');
+          if (sel === '[role="separator"]') return childrenList.filter(c => c.getAttribute?.('role') === 'separator');
+          return childrenList.slice();
+        };
+      }
+      const addSep = () => {
+        const sep = createStageMenuDomNode('div');
+        sep.setAttribute?.('role', 'separator');
+        appendNode(sep);
+      };
+      const addBtn = (caption, isEnabled, kind, extra, onClick) => {
+        const btn = createStageMenuDomNode('button');
+        btn.type = 'button';
+        btn.textContent = String(caption);
+        btn.disabled = !isEnabled;
+        btn.setAttribute?.('role', 'menuitem');
+        btn.setAttribute?.('data-kind', kind);
+        btn.setAttribute?.('aria-disabled', String(!isEnabled));
+        for (const [k, v] of Object.entries(extra || {})) btn.setAttribute?.(k, String(v));
+        btn.addEventListener?.('click', () => {
+          if (btn.disabled) return;
+          try { onClick(); } finally { closeContextMenu(); }
+        });
+        appendNode(btn);
+        return btn;
+      };
+
+      let customCount = 0;
+      for (const item of (Array.isArray(menu.customItems) ? menu.customItems : [])) {
+        if (!item || item.visible === false || !(item.caption ?? item.label)) continue;
+        if (item.separatorBefore) addSep();
+        customCount++;
+        addBtn(item.caption ?? item.label, item.enabled !== false, 'custom', {}, () => {
+          if (typeof item.dispatchEvent === 'function') {
+            item.dispatchEvent(makeCtxEvent('menuItemSelect'));
+          }
+          options.afterInput?.();
+        });
+      }
+
+      const clip = menu.clipboardItems;
+      const clipSpecs = [
+        ['cut', 'Cut', Event.CUT || 'cut'],
+        ['copy', 'Copy', Event.COPY || 'copy'],
+        ['paste', 'Paste', Event.PASTE || 'paste'],
+        ['clear', 'Clear', Event.CLEAR || 'clear'],
+        ['selectAll', 'Select All', Event.SELECT_ALL || 'selectAll'],
+      ];
+      const showClip = clip && (menu.clipboardMenu || clip.cut || clip.copy || clip.paste || clip.clear);
+      if (showClip) {
+        if (customCount > 0) addSep();
+        for (const [key, label, evType] of clipSpecs) {
+          if (!menu.clipboardMenu && !clip[key]) continue;
+          addBtn(label, Boolean(clip[key]), 'clipboard', { 'data-action': key }, () => {
+            const eventTarget = focus || mouseTarget || owner || stage;
+            const clipEv = new Event(evType, true, true);
+            let allowed = true;
+            if (eventTarget && typeof hub.dispatch === 'function') {
+              try { allowed = hub.dispatch(eventTarget, clipEv) !== false && !clipEv.defaultPrevented; } catch (_) {
+                if (typeof eventTarget.dispatchEvent === 'function') {
+                  allowed = eventTarget.dispatchEvent(clipEv) !== false && !clipEv.defaultPrevented;
+                }
+              }
+            } else if (eventTarget && typeof eventTarget.dispatchEvent === 'function') {
+              allowed = eventTarget.dispatchEvent(clipEv) !== false && !clipEv.defaultPrevented;
+            }
+            if (allowed) {
+              const txtObj = eventTarget && typeof eventTarget.text === 'string'
+                ? eventTarget
+                : (mouseTarget && typeof mouseTarget.text === 'string' ? mouseTarget : null);
+              if (txtObj) {
+                const t = txtObj.text;
+                const b = Math.max(0, Math.min(t.length, Number(txtObj.selectionBeginIndex ?? 0) | 0));
+                const e = Math.max(b, Math.min(t.length, Number(txtObj.selectionEndIndex ?? t.length) | 0));
+                if (key === 'selectAll') {
+                  if (typeof txtObj.setSelection === 'function') txtObj.setSelection(0, t.length);
+                  else { txtObj.selectionBeginIndex = 0; txtObj.selectionEndIndex = t.length; }
+                } else if (key === 'copy') {
+                  stageContextClipboardBuffer = b < e ? t.slice(b, e) : t;
+                } else if (key === 'cut') {
+                  stageContextClipboardBuffer = b < e ? t.slice(b, e) : t;
+                  txtObj.text = b < e ? t.slice(0, b) + t.slice(e) : '';
+                } else if (key === 'paste') {
+                  txtObj.text = t.slice(0, b) + stageContextClipboardBuffer + t.slice(e);
+                } else if (key === 'clear') {
+                  txtObj.text = b < e ? t.slice(0, b) + t.slice(e) : '';
+                }
+              }
+            }
+            options.afterInput?.();
+          });
+        }
+      }
+
+      const container = options.menuContainer || options.viewport || options.canvas?.parentElement || doc()?.body || null;
+      if (container && typeof container.appendChild === 'function') {
+        container.appendChild(root);
+      } else if (container && Array.isArray(container.children)) {
+        container.children.push(root);
+      }
+      activeStageContextMenuEl = root;
+      return root;
+    }
+    stageContextMenuOpeners.set(stage, openContextMenu);
+
     function handleComposition(type, domEvent = {}, explicitTarget = null) {
       if (!enabled()) return true;
+      if (domEvent?.target && options.ownsTextInput?.(domEvent.target)) {
+        imeComposing = type !== 'compositionend';
+        return true;
+      }
+      const entry = getAs3StageImeEntry();
+      if (entry?.fte3d?.handleComposition && entry.fte3d.getStage?.() === stage) {
+        const phaseMap = {
+          compositionstart: 'start',
+          imeStartComposition: 'start',
+          compositionupdate: 'update',
+          imeComposition: 'update',
+          compositionend: 'end',
+        };
+        const mapped = phaseMap[type];
+        if (!mapped) throw new Error(`Unsupported IME composition event '${type}'.`);
+        return entry.fte3d.handleComposition(mapped, domEvent, explicitTarget || stage.focus || stage);
+      }
+      const as2Reg = global[AS2_IME_DOC_HOOKS];
+      if (as2Reg) {
+        const d = doc();
+        const phase = (type === 'compositionstart' || type === 'imeStartComposition') ? 'start' : (type === 'compositionend' ? 'end' : 'update');
+        const set = d && typeof d === 'object' ? as2Reg.byDoc?.get(d) : null;
+        if (set) for (const fn of set) fn(phase, domEvent);
+        for (const fn of as2Reg.globalHooks || []) fn(phase, domEvent);
+      }
+      if (entry?.netSys && !entry.netSys.isEnabled()) {
+        domEvent?.preventDefault?.();
+        return false;
+      }
       const text = typeof domEvent.data === 'string' ? domEvent.data : (typeof domEvent.text === 'string' ? domEvent.text : '');
       const target = explicitTarget || stage.focus || stage;
+      const IMEEventCtor = options.IMEEvent || eventsAPI.IMEEvent || eventsAPI.TextEvent || Event;
+      const makeImeEv = (evType, clientObj) => {
+        const ev = new IMEEventCtor(evType, false, true, text, clientObj ?? null);
+        if (ev.text === undefined) ev.text = text;
+        if (ev.imeClient === undefined) ev.imeClient = clientObj ?? null;
+        return ev;
+      };
       if (type === 'compositionstart' || type === 'imeStartComposition') {
+        const initClient = isStageImeClient(target) ? target : null;
+        if (initClient && initClient.readOnly === true) {
+          domEvent?.preventDefault?.();
+          return false;
+        }
+        const startEvt = makeImeEv('imeStartComposition', initClient);
+        const res = deliver(target, startEvt, domEvent);
+        if (!res || startEvt.defaultPrevented) {
+          domEvent?.preventDefault?.();
+          options.afterInput?.();
+          return false;
+        }
         imeComposing = true;
         imeText = text;
-        const startEvt = new (eventsAPI.TextEvent || Event)('imeStartComposition', false, true, text);
-        const res = deliver(target, startEvt, domEvent);
+        standaloneImeClient = isStageImeClient(startEvt.imeClient) ? startEvt.imeClient : initClient;
+        if (standaloneImeClient) {
+          const a = Number(standaloneImeClient.selectionAnchorIndex ?? 0) | 0;
+          const b = Number(standaloneImeClient.selectionActiveIndex ?? a) | 0;
+          standaloneImeBaseStart = Math.max(0, Math.min(a, b));
+          try { standaloneImeClient.getTextInRange(0, standaloneImeBaseStart); } catch (_) {}
+          syncStandaloneImeInputAttrs(target, standaloneImeClient);
+          if (text.length > 0) {
+            const ranges = [new StageCompositionAttributeRange(0, text.length, true, false)];
+            standaloneImeClient.updateComposition(text, ranges, standaloneImeBaseStart, standaloneImeBaseStart + text.length);
+          }
+        }
+        entry?.netSys?.notifyDomComposition?.('start', text, standaloneImeClient);
         options.afterInput?.();
         return res;
       }
       if (type === 'compositionupdate' || type === 'compositionend' || type === 'imeComposition') {
         imeText = text;
-        if (type === 'compositionend') imeComposing = false;
-        const IME = options.IMEEvent || eventsAPI.TextEvent || Event;
-        const imeEvt = new IME('imeComposition', false, true, text);
-        if (imeEvt.text === undefined) imeEvt.text = text;
+        const client = standaloneImeClient || (isStageImeClient(target) ? target : null);
+        if (type === 'compositionend') {
+          imeComposing = false;
+          if (client && !client.readOnly) {
+            client.confirmComposition(text, false);
+            syncStandaloneImeInputAttrs(target, client);
+          }
+          entry?.netSys?.notifyDomComposition?.('end', text, client);
+        } else {
+          if (!imeComposing) {
+            imeComposing = true;
+            standaloneImeBaseStart = client ? Math.max(0, Math.min(client.selectionAnchorIndex | 0, client.selectionActiveIndex | 0)) : 0;
+          }
+          if (client && !client.readOnly) {
+            const ranges = text.length > 0 ? [new StageCompositionAttributeRange(0, text.length, true, false)] : [];
+            client.updateComposition(text, ranges, standaloneImeBaseStart, standaloneImeBaseStart + text.length);
+            syncStandaloneImeInputAttrs(target, client);
+          }
+          entry?.netSys?.notifyDomComposition?.('update', text, client);
+        }
+        const imeEvt = makeImeEv('imeComposition', client);
         const res = deliver(target, imeEvt, domEvent);
         if (type === 'compositionend' && res && text.length > 0 && !options.ownsTextInput?.(domEvent.target)) {
           const textEvt = new (eventsAPI.TextEvent || Event)(eventsAPI.TextEvent?.TEXT_INPUT || 'textInput', true, true, text);
@@ -1876,6 +2891,7 @@
       throw new Error(`Unsupported IME composition event '${type}'.`);
     }
     function handleKey(type, domEvent = {}) {
+      if (imeComposing && domEvent?.key === 'Escape') imeComposing = false;
       if (!enabled() || domEvent.isComposing || imeComposing) return true;
       const nativeTarget = domEvent.target;
       if (nativeTarget && nativeTarget !== options.canvas && !options.ownsTextInput?.(nativeTarget) &&
@@ -1935,7 +2951,12 @@
       for(const type of ['pointermove','pointerup','pointercancel'])listen(outside,type,event=>{if(event.target!==options.canvas&&(captured!==null||pressedTarget!==null||options.hasDrag?.()))handlePointer(type,event);});
       listen(outside,'blur',()=>{if(cancelPointer())options.afterInput?.();});
       listen(options.canvas, 'wheel', event => handlePointer('wheel', event), { passive: false });
-      listen(options.canvas, 'contextmenu', event => { if (!showDefaultContextMenu) event.preventDefault?.(); });
+      listen(options.canvas, 'contextmenu', event => {
+        if (!showDefaultContextMenu) event.preventDefault?.();
+        if (!options.canvas?.__nfHasAs3ContextMenu) {
+          openContextMenu(event);
+        }
+      });
       if (doc()) {
         const onFsChange = () => {
           const fsEl = docFullscreenElement();
@@ -2016,15 +3037,28 @@
       mouseChildren = true; tabChildren = true; doubleClickEnabled = false; showDefaultContextMenu = true; stageFocusRect = true; invalidated = false;
       keyboardState.capsLock = Boolean(options.capsLock); keyboardState.numLock = Boolean(options.numLock);
       activeTouches.clear(); imeComposing = false; imeText = '';
+      closeContextMenu();
+      teardownStandaloneImeInput();
       Mouse[resetMouseToken]?.();
       mouseStateRecord.cursor = 'auto'; mouseStateRecord.visible = true;
       fallbackChildren.splice(0, fallbackChildren.length, ...(Array.isArray(options.initialChildren) ? options.initialChildren : []));
       applyDomMouseCursor();
       options.onMouseChanged?.();
     }
-    function dispose() { cancelPointer();for (const cleanup of cleanups.splice(0)) cleanup(); attached = false; hub.release(stage); focus = null; focusReason = null; nativeFocus=false; over = null; resetState(); }
+    function dispose() {
+      cancelPointer();
+      closeContextMenu();
+      teardownStandaloneImeInput();
+      const entry = getAs3StageImeEntry();
+      if (entry && entry.stage === stageImeBridgeHook) entry.stage = null;
+      stageContextMenuOpeners.delete(stage);
+      for (const cleanup of cleanups.splice(0)) cleanup();
+      attached = false; hub.release(stage); focus = null; focusReason = null; nativeFocus=false; over = null; resetState();
+    }
     function reset() {
       cancelPointer();
+      closeContextMenu();
+      teardownStandaloneImeInput();
       focus = null; focusReason = null; nativeFocus=false; focusVersion++; over = null; mouseX = 0; mouseY = 0;
       width = initial.width; height = initial.height;
       if (options.setFrameRate) options.setFrameRate(initial.frameRate);
@@ -2038,6 +3072,7 @@
       focusReason: () => (focus && alive(focus) ? focusReason : null),
       fullScreenSourceRect: () => (fullScreenSourceRect ? { ...fullScreenSourceRect } : null),
       colorAssigned: () => colorAssigned, broadcastPhase, flushRender, handlePointer, handleTouch, handleComposition, handleKey, cancelPointer, changeFocus, resize, attach, dispose, reset,
+      openContextMenu, closeContextMenu, getActiveContextMenu, imeInputElement: () => standaloneImeInput,
       resolveAccessibilityOverlayNodes: (entries = [], extraOptions = {}) => resolveAccessibilityOverlayNodes(
         entries,
         {
@@ -2082,7 +3117,8 @@
   }
   const api = Object.freeze({ create, computeStageLayout, Stage, StageScaleMode, StageAlign, StageDisplayState, StageQuality,
     Keyboard: DefaultKeyboard, KeyLocation, KeyboardType, Mouse: DefaultMouse, MouseCursor, MouseCursorData,
-    AccessibilityProperties, ContextMenuBuiltInItems, ContextMenuClipboardItems, ContextMenu, ContextMenuItem,
+    AccessibilityProperties, AccessibilityImplementation, ContextMenuBuiltInItems, ContextMenuClipboardItems, ContextMenu, ContextMenuItem,
+    CompositionAttributeRange: StageCompositionAttributeRange, msaaRoleToAria, decodeMsaaState,
     createKeyboard, createMouse, setStageAdapters,
     collectProjectAccessibilityEntries, resolveAccessibilityOverlayNodes, validateAccessibilityReadOrder, syncAccessibilityOverlay });
   global.NeoFlashStage = api;

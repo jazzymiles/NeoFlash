@@ -820,3 +820,317 @@ test('Stage quality, wmodeGPU, colorCorrection/colorCorrectionSupport, mouseLock
   assert.equal(controller.cursorCss(), null);
   controller.dispose();
 });
+
+test('T-419: Stage ContextMenu, AS2 System.IME DOM composition, IIMEClient, and AccessibilityImplementation ARIA child overlay work end-to-end', async () => {
+  const path = require('node:path');
+  const root = path.resolve(__dirname, '../..');
+  const { runtimeWasm } = await import('../../crates/neoflash-script/tests/rust-runtime-host.mjs');
+  const NeoFlashEvents = require('../events.js');
+  const NeoFlashStage = require('../stage.js');
+  const NeoFlashAS2Platform = require('../as2-platform.js');
+
+  function createMiniDom() {
+    const makeEl = tag => {
+      const attrs = new Map();
+      const listeners = new Map();
+      const children = [];
+      return {
+        tagName: String(tag).toUpperCase(),
+        type: 'text',
+        value: '',
+        disabled: false,
+        readOnly: false,
+        tabIndex: -1,
+        textContent: '',
+        style: {},
+        dataset: {},
+        children,
+        parentElement: null,
+        ownerDocument: null,
+        setAttribute(k, v) {
+          const s = String(v);
+          attrs.set(String(k), s);
+          if (k === 'tabindex') this.tabIndex = Number(s);
+        },
+        getAttribute(k) { return attrs.has(String(k)) ? attrs.get(String(k)) : null; },
+        removeAttribute(k) { attrs.delete(String(k)); },
+        appendChild(ch) { ch.parentElement = this; children.push(ch); return ch; },
+        insertBefore(node, ref) {
+          const oldIdx = children.indexOf(node);
+          if (oldIdx >= 0) children.splice(oldIdx, 1);
+          node.parentElement = this;
+          const refIdx = ref ? children.indexOf(ref) : -1;
+          if (refIdx >= 0) children.splice(refIdx, 0, node);
+          else children.push(node);
+          return node;
+        },
+        removeChild(ch) {
+          const idx = children.indexOf(ch);
+          if (idx >= 0) { children.splice(idx, 1); ch.parentElement = null; }
+          return ch;
+        },
+        remove() { if (this.parentElement) this.parentElement.removeChild(this); },
+        querySelectorAll(sel) {
+          if (sel === '[role="menuitem"]') return children.filter(c => c.getAttribute('role') === 'menuitem');
+          if (sel === '[role="separator"]') return children.filter(c => c.getAttribute('role') === 'separator');
+          return children.slice();
+        },
+        addEventListener(type, fn) {
+          const list = listeners.get(type) || [];
+          list.push(fn);
+          listeners.set(type, list);
+        },
+        removeEventListener(type, fn) {
+          const list = listeners.get(type) || [];
+          const idx = list.indexOf(fn);
+          if (idx >= 0) list.splice(idx, 1);
+        },
+        dispatchEvent(ev) {
+          ev.target ??= this;
+          for (const fn of [...(listeners.get(ev.type) || [])]) fn(ev);
+          return !ev.defaultPrevented;
+        },
+        click() {
+          if (this.disabled || attrs.get('aria-disabled') === 'true') return;
+          this.dispatchEvent({ type: 'click', target: this });
+        },
+        focus() {
+          if (attrs.get('aria-disabled') === 'true') return;
+          doc.activeElement = this;
+          this.dispatchEvent({ type: 'focus', target: this });
+        },
+      };
+    };
+    const docListeners = new Map();
+    const doc = {
+      body: null,
+      documentElement: null,
+      activeElement: null,
+      createElement(tag) {
+        const el = makeEl(tag);
+        el.ownerDocument = doc;
+        return el;
+      },
+      addEventListener(type, fn) {
+        const list = docListeners.get(type) || [];
+        list.push(fn);
+        docListeners.set(type, list);
+      },
+      removeEventListener(type, fn) {
+        const list = docListeners.get(type) || [];
+        const idx = list.indexOf(fn);
+        if (idx >= 0) list.splice(idx, 1);
+      },
+      dispatchEvent(ev) {
+        for (const fn of [...(docListeners.get(ev.type) || [])]) fn(ev);
+      },
+    };
+    doc.documentElement = doc.createElement('html');
+    doc.body = doc.createElement('body');
+    const viewport = doc.createElement('div');
+    const canvas = doc.createElement('canvas');
+    const overlay = doc.createElement('div');
+    viewport.appendChild(canvas);
+    viewport.appendChild(overlay);
+    doc.body.appendChild(viewport);
+    return { doc, viewport, canvas, overlay };
+  }
+
+  const dom = createMiniDom();
+  NeoFlashStage.setStageAdapters({
+    makePoint: (x, y) => ({ x, y }),
+    isPoint: v => Boolean(v && Number.isFinite(v.x) && Number.isFinite(v.y)),
+    makeRectangle: (x, y, width, height) => ({ x, y, width, height }),
+    isRectangle: v => Boolean(v && Number.isFinite(v.width) && Number.isFinite(v.height)),
+  });
+
+  const as2Platform = NeoFlashAS2Platform.create(runtimeWasm, {
+    global: { navigator: { language: 'ja-JP', platform: 'MacIntel' }, screen: { width: 1280, height: 800, colorDepth: 24 }, CompositionEvent: function CompositionEvent() {} },
+    document: dom.doc,
+  });
+
+  const hub = NeoFlashEvents.create({ alive: () => true });
+  const stageCtrl = NeoFlashStage.create({
+    events: hub,
+    width: 800,
+    height: 600,
+    canvas: dom.canvas,
+    viewport: dom.viewport,
+    keyboardTarget: dom.viewport,
+  });
+  stageCtrl.attach();
+
+  try {
+    // 1. AS2 System.IME (all 18 declarations: constants, get/setEnabled, get/setConversionMode,
+    // setCompositionString, doConversion, addListener, removeListener, onIMEComposition on DOM compositionend)
+    const as2Ime = as2Platform.System.IME;
+    assert.equal(as2Ime.ALPHANUMERIC_FULL, 'ALPHANUMERIC_FULL');
+    assert.equal(as2Ime.ALPHANUMERIC_HALF, 'ALPHANUMERIC_HALF');
+    assert.equal(as2Ime.CHINESE, 'CHINESE');
+    assert.equal(as2Ime.JAPANESE_HIRAGANA, 'JAPANESE_HIRAGANA');
+    assert.equal(as2Ime.JAPANESE_KATAKANA_FULL, 'JAPANESE_KATAKANA_FULL');
+    assert.equal(as2Ime.JAPANESE_KATAKANA_HALF, 'JAPANESE_KATAKANA_HALF');
+    assert.equal(as2Ime.KOREAN, 'KOREAN');
+    assert.equal(as2Ime.UNKNOWN, 'UNKNOWN');
+    assert.equal(as2Ime.getEnabled(), true);
+    assert.equal(as2Ime.getConversionMode(), 'ALPHANUMERIC_HALF');
+    assert.equal(as2Ime.setConversionMode(as2Ime.KOREAN), true);
+    assert.equal(as2Ime.getConversionMode(), 'KOREAN');
+    assert.equal(as2Ime.setConversionMode('NOT_A_MODE'), false);
+
+    const as2Compositions = [];
+    const listener = { onIMEComposition(str) { as2Compositions.push(str); } };
+    assert.equal(as2Ime.addListener(listener), true);
+    assert.equal(as2Ime.setCompositionString('한글'), true);
+    assert.equal(as2Ime.doConversion(), true);
+    dom.doc.dispatchEvent({ type: 'compositionend', data: '서울' });
+    assert.deepEqual(as2Compositions, ['한글', '서울']);
+    assert.equal(as2Ime.setEnabled(false), true);
+    dom.doc.dispatchEvent({ type: 'compositionend', data: '무시' });
+    assert.equal(as2Compositions.length, 2, 'disabled System.IME suppresses compositionend broadcast');
+    assert.equal(as2Ime.setEnabled(true), true);
+    assert.equal(as2Ime.removeListener(listener), true);
+    dom.doc.dispatchEvent({ type: 'compositionend', data: '부산' });
+    assert.equal(as2Compositions.length, 2, 'removeListener stops onIMEComposition delivery');
+
+    // 2. Stage ContextMenu (items, numItems, addItemAt, getItemAt, getItemIndex, containsItem,
+    // removeItemAt, removeAllItems, display, clipboardMenu/clipboardItems Event.CUT..SELECT_ALL)
+    const { ContextMenu, ContextMenuItem, AccessibilityImplementation, CompositionAttributeRange } = NeoFlashStage;
+    const menu = new ContextMenu();
+    const item1 = new ContextMenuItem('First Action');
+    const item2 = new ContextMenuItem('Second Action', true);
+    menu.addItemAt(item1, 0);
+    menu.addItemAt(item2, 1);
+    assert.equal(menu.numItems, 2);
+    assert.equal(menu.getItemAt(0), item1);
+    assert.equal(menu.getItemIndex(item2), 1);
+    assert.equal(menu.containsItem(item1), true);
+    assert.throws(() => menu.addItemAt(new ContextMenuItem('X'), 3), RangeError);
+    assert.throws(() => menu.getItemAt(2), RangeError);
+    assert.equal(menu.removeItemAt(0), item1);
+    assert.equal(menu.numItems, 1);
+    menu.removeAllItems();
+    assert.equal(menu.numItems, 0);
+    menu.addItemAt(item1, 0);
+    menu.clipboardMenu = true;
+    menu.clipboardItems.copy = true;
+    menu.clipboardItems.cut = true;
+    menu.clipboardItems.paste = true;
+    menu.clipboardItems.clear = true;
+    menu.clipboardItems.selectAll = true;
+
+    const focusBox = {
+      contextMenu: menu,
+      text: 'Stage Text',
+      selectionBeginIndex: 0,
+      selectionEndIndex: 5,
+    };
+    Object.assign(focusBox, hub.methods(focusBox));
+    const seenClipEvents = [];
+    for (const t of ['cut', 'copy', 'paste', 'clear', 'selectAll']) {
+      focusBox.addEventListener(t, ev => seenClipEvents.push(ev.type));
+    }
+    let menuSelected = 0;
+    let itemSelected = 0;
+    menu.addEventListener('menuSelect', () => { menuSelected++; });
+    item1.addEventListener('menuItemSelect', () => { itemSelected++; });
+
+    stageCtrl.changeFocus(focusBox);
+    menu.display(stageCtrl.stage, 30, 40);
+    assert.equal(menuSelected, 1);
+    let menuDom = stageCtrl.getActiveContextMenu();
+    assert.ok(menuDom);
+    menuDom.querySelectorAll('[role="menuitem"]').find(b => b.textContent === 'First Action').click();
+    assert.equal(itemSelected, 1);
+
+    for (const label of ['Copy', 'Cut', 'Paste', 'Select All', 'Clear']) {
+      stageCtrl.openContextMenu({ clientX: 15, clientY: 25 }, focusBox);
+      menuDom = stageCtrl.getActiveContextMenu();
+      menuDom.querySelectorAll('[role="menuitem"]').find(b => b.textContent === label).click();
+    }
+    assert.deepEqual(seenClipEvents, ['copy', 'cut', 'paste', 'selectAll', 'clear']);
+
+    // 3. Stage IIMEClient + CompositionAttributeRange DOM composition round-trip
+    const car = new CompositionAttributeRange(0, 2, true, false);
+    assert.equal(car.relativeStart, 0);
+    assert.equal(car.relativeEnd, 2);
+    assert.equal(car.selected, true);
+    assert.equal(car.converted, false);
+
+    let imeBuf = '';
+    const imeCalls = [];
+    const imeClientObj = {
+      x: 12,
+      y: 18,
+      compositionStartIndex: 0,
+      compositionEndIndex: 0,
+      selectionAnchorIndex: 0,
+      selectionActiveIndex: 0,
+      verticalTextLayout: false,
+      updateComposition(txt, attrs, s, e) { imeCalls.push(['update', txt, attrs.length, s, e]); },
+      confirmComposition(txt) { imeBuf += txt || ''; imeCalls.push(['confirm', txt]); },
+      getTextBounds() { return { x: 4, y: 6, width: 20, height: 16 }; },
+      getTextInRange(s, e) { return imeBuf.slice(s, e); },
+      selectRange(a, b) { imeCalls.push(['selectRange', a, b]); },
+    };
+    Object.assign(imeClientObj, hub.methods(imeClientObj));
+    stageCtrl.changeFocus(imeClientObj);
+    const hiddenImeInput = stageCtrl.imeInputElement();
+    assert.ok(hiddenImeInput, 'Stage mounts hidden input for focused IIMEClient');
+    hiddenImeInput.dispatchEvent({ type: 'compositionstart', data: 'か' });
+    hiddenImeInput.dispatchEvent({ type: 'compositionupdate', data: 'かな' });
+    hiddenImeInput.dispatchEvent({ type: 'compositionend', data: '仮名' });
+    assert.equal(imeBuf, '仮名');
+    assert.ok(imeCalls.some(c => c[0] === 'update' && c[1] === 'かな' && c[2] === 1));
+    assert.ok(imeCalls.some(c => c[0] === 'confirm' && c[1] === '仮名'));
+
+    // 4. Stage AccessibilityImplementation ARIA child projection & action/selection routing
+    class CustomTreeAccImpl extends AccessibilityImplementation {
+      constructor() {
+        super();
+        this.actions = [];
+        this.selections = [];
+      }
+      get_accRole(childID) { return childID === 0 ? 0x23 : 0x24; } // tree / treeitem
+      get_accState(childID) {
+        if (childID === 0) return 0x00100000;
+        if (childID === 1) return 0x00100000 | 0x00200000 | 0x00000002 | 0x00000200; // focusable, selectable, selected, expanded
+        return 0x00000001; // child 2 disabled
+      }
+      get_accName(childID) { return childID === 0 ? 'Scene Tree' : `Node ${childID}`; }
+      get_accValue(childID) { return childID === 1 ? 'Layer Root' : null; }
+      get_accDefaultAction(childID) { return childID === 1 ? 'Expand' : null; }
+      get_accFocus() { return 1; }
+      get_accSelection() { return [1]; }
+      getChildIDArray() { return [1, 2]; }
+      accLocation(childID) { return { x: 8, y: childID * 22, width: 140, height: 20 }; }
+      accDoDefaultAction(childID) { this.actions.push(childID); }
+      accSelect(op, childID) { this.selections.push([op, childID]); }
+    }
+    const treeImpl = new CustomTreeAccImpl();
+    const treeWidget = { id: 'sceneTree', x: 50, y: 80, width: 160, height: 100, accessibilityImplementation: treeImpl };
+    const synced = stageCtrl.syncAccessibilityOverlay(dom.overlay, [treeWidget]);
+    assert.equal(synced.elements.length, 3, 'host tree + 2 treeitem children');
+    const [hostEl, child1El, child2El] = synced.elements;
+    assert.equal(hostEl.getAttribute('role'), 'tree');
+    assert.equal(hostEl.getAttribute('aria-label'), 'Scene Tree');
+    assert.equal(hostEl.getAttribute('aria-activedescendant'), child1El.id);
+    assert.equal(child1El.getAttribute('role'), 'treeitem');
+    assert.equal(child1El.getAttribute('aria-label'), 'Node 1');
+    assert.equal(child1El.getAttribute('aria-valuetext'), 'Layer Root');
+    assert.equal(child1El.getAttribute('aria-selected'), 'true');
+    assert.equal(child1El.getAttribute('aria-expanded'), 'true');
+    assert.equal(child1El.style.left, '58px'); // 50 + 8
+    assert.equal(child1El.style.top, '102px'); // 80 + 22
+    assert.equal(child2El.getAttribute('aria-disabled'), 'true');
+
+    child1El.focus();
+    child1El.click();
+    assert.deepEqual(treeImpl.actions, [1]);
+    assert.ok(treeImpl.selections.some(s => s[0] === 0x01 && s[1] === 1));
+    assert.ok(treeImpl.selections.some(s => s[0] === 0x02 && s[1] === 1));
+  } finally {
+    stageCtrl.dispose();
+    as2Platform.dispose();
+  }
+});

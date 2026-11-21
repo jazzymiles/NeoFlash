@@ -194,8 +194,20 @@ fn as3_media_events_ui_and_accessibility_compile_and_execute_end_to_end() {
                         cm.clipboardMenu = true;
                         cm.clipboardItems.copy = true;
                         var cmi:ContextMenuItem = new ContextMenuItem("About Player", true, true, true);
-                        cm.customItems = [cmi];
+                        var cmi2:ContextMenuItem = new ContextMenuItem("Inspect Stage", false, true, true);
+                        cm.addItemAt(cmi, 0);
+                        cm.addItemAt(cmi2, 1);
+                        if (cm.numItems != 2 || !cm.containsItem(cmi) || cm.getItemIndex(cmi2) != 1 || cm.getItemAt(0) !== cmi) {
+                            throw new Error("ContextMenu item management mismatch");
+                        }
+                        cm.removeItemAt(1);
+                        if (cm.items.length != 1) {
+                            throw new Error("ContextMenu.removeItemAt mismatch");
+                        }
+                        cm.removeAllItems();
+                        cm.items = [cmi];
                         sp.contextMenu = cm;
+                        cm.display(stage, 10, 20);
                         var cmCopy:ContextMenu = cm.clone();
 
                         Multitouch.inputMode = MultitouchInputMode.TOUCH_POINT;

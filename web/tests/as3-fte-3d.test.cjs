@@ -914,3 +914,293 @@ test('Pixel Bender Shaders, ShaderJob, ShaderFilter, GraphicsShaderFill, 3D Disp
     player.free();
   }
 });
+
+test('T-419: flash.system.IME, IMEConversionMode, IMEEvent, IIMEClient, and CompositionAttributeRange DOM bridge work end-to-end', async () => {
+  const { runtimeWasm } = await import('../../crates/neoflash-script/tests/rust-runtime-host.mjs');
+  const { createRuntimeHost } = await import('../../crates/neoflash-script/tests/host-integration.mjs');
+
+  function makeMiniDom() {
+    const createNode = tag => {
+      const attrs = new Map();
+      const listeners = new Map();
+      const children = [];
+      return {
+        tagName: String(tag).toUpperCase(),
+        type: 'text',
+        value: '',
+        readOnly: false,
+        lang: '',
+        selectionStart: 0,
+        selectionEnd: 0,
+        selectionDirection: 'forward',
+        style: {},
+        dataset: {},
+        children,
+        parentElement: null,
+        ownerDocument: null,
+        setAttribute(k, v) { attrs.set(String(k), String(v)); },
+        getAttribute(k) { return attrs.has(String(k)) ? attrs.get(String(k)) : null; },
+        removeAttribute(k) { attrs.delete(String(k)); },
+        appendChild(ch) { ch.parentElement = this; children.push(ch); return ch; },
+        remove() {
+          if (this.parentElement) {
+            const idx = this.parentElement.children.indexOf(this);
+            if (idx >= 0) this.parentElement.children.splice(idx, 1);
+            this.parentElement = null;
+          }
+        },
+        setSelectionRange(s, e, dir = 'forward') {
+          this.selectionStart = s;
+          this.selectionEnd = e;
+          this.selectionDirection = dir;
+        },
+        focus() { doc.activeElement = this; },
+        blur() { if (doc.activeElement === this) doc.activeElement = null; },
+        addEventListener(type, fn) {
+          const list = listeners.get(type) || [];
+          list.push(fn);
+          listeners.set(type, list);
+        },
+        removeEventListener(type, fn) {
+          const list = listeners.get(type) || [];
+          const idx = list.indexOf(fn);
+          if (idx >= 0) list.splice(idx, 1);
+        },
+        dispatchEvent(ev) {
+          ev.target ??= this;
+          for (const fn of [...(listeners.get(ev.type) || [])]) fn(ev);
+          return !ev.defaultPrevented;
+        },
+      };
+    };
+    const body = createNode('body');
+    const container = createNode('div');
+    const canvas = createNode('canvas');
+    const doc = {
+      body,
+      documentElement: createNode('html'),
+      activeElement: null,
+      createElement(tag) {
+        const n = createNode(tag);
+        n.ownerDocument = doc;
+        return n;
+      },
+      addEventListener() {},
+      removeEventListener() {},
+    };
+    body.ownerDocument = doc;
+    container.ownerDocument = doc;
+    canvas.ownerDocument = doc;
+    container.appendChild(canvas);
+    body.appendChild(container);
+    return { doc, container, canvas };
+  }
+
+  const dom = makeMiniDom();
+  const dummyProject = {
+    format_version: 1,
+    name: 'IME Client Suite',
+    width: 640,
+    height: 480,
+    fps: 30,
+    background: [255, 255, 255, 255],
+    root: 'root',
+    symbols: [
+      {
+        id: 'root',
+        name: 'Main',
+        kind: 'movie_clip',
+        timeline: {
+          frame_count: 1,
+          layers: [{ id: 'l1', name: 'Layer 1', visible: true, locked: false, keyframes: [{ frame: 0, elements: [], label: '', tween: null }] }],
+          scripts: [],
+        },
+      },
+    ],
+  };
+
+  const player = new runtimeWasm.WebPlayer(JSON.stringify(dummyProject));
+  const { host } = createRuntimeHost(root, player, [], {
+    project: dummyProject,
+    bundle: { project: dummyProject },
+    canvas: dom.canvas,
+    keyboardTarget: dom.container,
+    fte3d: { document: dom.doc, imeContainer: dom.container, canvas: dom.canvas },
+    stage: { document: dom.doc, viewport: dom.container, canvas: dom.canvas },
+  });
+
+  try {
+    const prog = host.program();
+    const IME = prog.type('flash.system.IME');
+    const System = prog.type('flash.system.System');
+    const IMEConversionMode = prog.type('flash.system.IMEConversionMode');
+    const IMEEvent = prog.type('flash.events.IMEEvent');
+    const TextEvent = prog.type('flash.events.TextEvent');
+    const IIMEClient = prog.type('flash.text.ime.IIMEClient');
+    const CompositionAttributeRange = prog.type('flash.text.ime.CompositionAttributeRange');
+    const Sprite = prog.type('flash.display.Sprite');
+    const Rectangle = prog.type('flash.geom.Rectangle');
+
+    assert.equal(IME.isSupported, true);
+    assert.equal(System.ime.isSupported, true);
+    assert.throws(() => new IME(), err => err.errorID === 2012);
+
+    for (const mode of [
+      IMEConversionMode.ALPHANUMERIC_FULL,
+      IMEConversionMode.ALPHANUMERIC_HALF,
+      IMEConversionMode.CHINESE,
+      IMEConversionMode.JAPANESE_HIRAGANA,
+      IMEConversionMode.JAPANESE_KATAKANA_FULL,
+      IMEConversionMode.JAPANESE_KATAKANA_HALF,
+      IMEConversionMode.KOREAN,
+      IMEConversionMode.UNKNOWN,
+    ]) {
+      IME.conversionMode = mode;
+      assert.equal(IME.conversionMode, mode);
+    }
+    IME.conversionMode = IMEConversionMode.JAPANESE_HIRAGANA;
+    assert.throws(() => { IME.conversionMode = 'BOGUS_MODE'; }, err => err.errorID === 2004);
+    assert.throws(() => IME.setCompositionString(null), TypeError);
+
+    // Custom Sprite implementing IIMEClient on Stage
+    const rootClip = host.proxyFor([]);
+    const clientSprite = new Sprite();
+    clientSprite.x = 40;
+    clientSprite.y = 60;
+    rootClip.addChild(clientSprite);
+
+    const log = [];
+    let buffer = 'Hello ';
+    let compStart = 6;
+    let compEnd = 6;
+    let selAnchor = 6;
+    let selActive = 6;
+    let lastRanges = [];
+
+    Object.defineProperties(clientSprite, {
+      compositionStartIndex: { get: () => compStart, configurable: true },
+      compositionEndIndex: { get: () => compEnd, configurable: true },
+      selectionAnchorIndex: { get: () => selAnchor, configurable: true },
+      selectionActiveIndex: { get: () => selActive, configurable: true },
+      verticalTextLayout: { get: () => true, configurable: true },
+      updateComposition: {
+        value(text, attributes, startIdx, endIdx) {
+          compStart = startIdx;
+          compEnd = endIdx;
+          lastRanges = Array.from(attributes || []).map(r => ({
+            start: r.relativeStart,
+            end: r.relativeEnd,
+            selected: r.selected,
+            converted: r.converted,
+            isCar: r instanceof CompositionAttributeRange,
+          }));
+          log.push(['update', text, startIdx, endIdx, lastRanges.length]);
+        },
+      },
+      confirmComposition: {
+        value(text = null, preserveSelection = false) {
+          if (text !== null) buffer = 'Hello ' + text;
+          compStart = buffer.length;
+          compEnd = buffer.length;
+          if (!preserveSelection) {
+            selAnchor = buffer.length;
+            selActive = buffer.length;
+          }
+          log.push(['confirm', text, preserveSelection]);
+        },
+      },
+      getTextBounds: {
+        value(startIdx, endIdx) {
+          log.push(['bounds', startIdx, endIdx]);
+          return new Rectangle(startIdx * 10, 5, Math.max(4, (endIdx - startIdx) * 10), 22);
+        },
+      },
+      getTextInRange: {
+        value(startIdx, endIdx) {
+          log.push(['range', startIdx, endIdx]);
+          return buffer.slice(startIdx, endIdx);
+        },
+      },
+      selectRange: {
+        value(anchorIdx, activeIdx) {
+          selAnchor = anchorIdx;
+          selActive = activeIdx;
+          log.push(['select', anchorIdx, activeIdx]);
+        },
+      },
+    });
+    assert.equal(IIMEClient.__nfIs(clientSprite), true);
+    assert.equal(host.fte3d().builtins['flash.text.ime.IIMEClient'](clientSprite), clientSprite);
+
+    const eventsSeen = [];
+    clientSprite.addEventListener(IMEEvent.IME_START_COMPOSITION, ev => {
+      eventsSeen.push(['start', ev.text, ev.imeClient === clientSprite]);
+    });
+    clientSprite.addEventListener(IMEEvent.IME_COMPOSITION, ev => {
+      eventsSeen.push(['targetComp', ev.text, ev.imeClient === clientSprite]);
+    });
+    clientSprite.addEventListener(TextEvent.TEXT_INPUT, ev => {
+      eventsSeen.push(['textInput', ev.text]);
+    });
+    IME.addEventListener(IMEEvent.IME_COMPOSITION, ev => {
+      eventsSeen.push(['imeSingletonComp', ev.text, ev.imeClient === clientSprite]);
+    });
+
+    // Focusing clientSprite mounts and positions the hidden DOM input bridge
+    host.stage().stage.focus = clientSprite;
+    const imeInput = host.fte3d().getImeClientInputElement();
+    assert.ok(imeInput, 'focusing IIMEClient mounts hidden DOM input bridge');
+    assert.equal(imeInput.style.writingMode, 'vertical-rl');
+    assert.equal(imeInput.style.left, '100px'); // clientSprite.x (40) + getTextBounds(6,6).x (60)
+    assert.equal(imeInput.style.top, '65px');   // clientSprite.y (60) + getTextBounds(6,6).y (5)
+    assert.equal(imeInput.lang, 'ja');
+
+    // DOM compositionstart -> compositionupdate -> compositionend round-trip on hidden input
+    imeInput.dispatchEvent({ type: 'compositionstart', data: 'に' });
+    imeInput.dispatchEvent({ type: 'compositionupdate', data: 'にほん' });
+    assert.equal(lastRanges.length, 1);
+    assert.deepEqual(lastRanges[0], { start: 0, end: 3, selected: true, converted: false, isCar: true });
+
+    // Programmatic selection change during composition splits CompositionAttributeRange clauses
+    IME.compositionSelectionChanged(1, 2);
+    assert.equal(lastRanges.length, 3);
+    assert.deepEqual(lastRanges[1], { start: 1, end: 2, selected: true, converted: false, isCar: true });
+
+    imeInput.dispatchEvent({ type: 'compositionend', data: '日本' });
+    assert.equal(buffer, 'Hello 日本');
+    assert.ok(eventsSeen.some(e => e[0] === 'start' && e[1] === 'に' && e[2] === true));
+    assert.ok(eventsSeen.some(e => e[0] === 'imeSingletonComp' && e[1] === '日本' && e[2] === true));
+    assert.ok(eventsSeen.some(e => e[0] === 'targetComp' && e[1] === '日本' && e[2] === true));
+    assert.ok(eventsSeen.some(e => e[0] === 'textInput' && e[1] === '日本'));
+
+    // Programmatic IME.setCompositionString + IME.compositionAbandoned + IME.doConversion
+    IME.setCompositionString('かな');
+    assert.ok(log.some(entry => entry[0] === 'update' && entry[1] === 'かな'));
+    IME.compositionAbandoned();
+    assert.ok(log.some(entry => entry[0] === 'update' && entry[1] === ''));
+
+    IME.setCompositionString('東京');
+    IME.doConversion();
+    assert.equal(buffer, 'Hello 東京');
+    assert.ok(eventsSeen.some(e => e[0] === 'imeSingletonComp' && e[1] === '東京'));
+
+    // Non-composing IME.compositionSelectionChanged routes to IIMEClient.selectRange
+    IME.compositionSelectionChanged(2, 5);
+    assert.equal(selAnchor, 2);
+    assert.equal(selActive, 5);
+
+    // IME.enabled = false blocks DOM compositionstart and programmatic doConversion
+    const countBeforeDisabled = eventsSeen.length;
+    IME.enabled = false;
+    assert.equal(IME.enabled, false);
+    let prevented = false;
+    imeInput.dispatchEvent({ type: 'compositionstart', data: 'x', preventDefault() { prevented = true; } });
+    assert.equal(prevented, true);
+    IME.doConversion();
+    assert.equal(eventsSeen.length, countBeforeDisabled);
+    IME.enabled = true;
+  } finally {
+    host.disposeFamily();
+    player.free();
+  }
+});

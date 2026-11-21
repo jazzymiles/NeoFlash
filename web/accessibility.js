@@ -142,6 +142,73 @@
   }
 
   const roleAliases={image:'img',check_box:'checkbox',radio_button:'radio',combo_box:'combobox',list_item:'listitem',menu_item:'menuitem',progress_bar:'progressbar',tab_panel:'tabpanel'};
+  function msaaRoleToAria(role) {
+    switch (Number(role) >>> 0) {
+      case 0x09: case 0x10: return 'region';
+      case 0x0a: case 0x14: return 'group';
+      case 0x0b: return 'menu';
+      case 0x0c: return 'menuitem';
+      case 0x0d: return 'tooltip';
+      case 0x0e: return 'application';
+      case 0x0f: return 'document';
+      case 0x12: return 'dialog';
+      case 0x15: return 'separator';
+      case 0x16: return 'toolbar';
+      case 0x17: return 'status';
+      case 0x18: return 'table';
+      case 0x19: return 'columnheader';
+      case 0x1a: return 'rowheader';
+      case 0x1c: return 'row';
+      case 0x1d: return 'cell';
+      case 0x1e: return 'link';
+      case 0x21: return 'listbox';
+      case 0x22: return 'option';
+      case 0x23: return 'tree';
+      case 0x24: return 'treeitem';
+      case 0x25: return 'tab';
+      case 0x26: return 'tabpanel';
+      case 0x28: return 'img';
+      case 0x29: return 'note';
+      case 0x2a: return 'textbox';
+      case 0x2b: return 'button';
+      case 0x2c: return 'checkbox';
+      case 0x2d: return 'radio';
+      case 0x2e: return 'combobox';
+      case 0x30: return 'progressbar';
+      case 0x33: return 'slider';
+      case 0x34: return 'spinbutton';
+      case 0x3c: return 'tablist';
+      default: return 'group';
+    }
+  }
+  function decodeMsaaState(state, roleName = '') {
+    const bits = Number(state) >>> 0;
+    const r = String(roleName || '').toLowerCase();
+    const disabled = (bits & 0x00000001) !== 0;
+    const selectedFlag = (bits & 0x00000002) !== 0;
+    const focused = (bits & 0x00000004) !== 0;
+    const pressed = (bits & 0x00000008) !== 0;
+    const checkedFlag = (bits & 0x00000010) !== 0;
+    const mixedFlag = (bits & 0x00000020) !== 0;
+    const readonly = (bits & 0x00000040) !== 0;
+    const expandedFlag = (bits & 0x00000200) !== 0;
+    const collapsedFlag = (bits & 0x00000400) !== 0;
+    const invisible = (bits & 0x00008000) !== 0;
+    const focusable = (bits & 0x00100000) !== 0;
+    const selectable = (bits & 0x00200000) !== 0 || ['option', 'tab', 'treeitem', 'row', 'cell'].includes(r);
+    return {
+      disabled,
+      selected: selectedFlag ? true : (selectable ? false : null),
+      focused,
+      pressed,
+      checked: mixedFlag ? 'mixed' : (checkedFlag ? 'true' : (['checkbox', 'radio', 'menuitemcheckbox', 'menuitemradio'].includes(r) ? 'false' : null)),
+      readonly,
+      expanded: expandedFlag ? true : (collapsedFlag ? false : null),
+      invisible,
+      focusable,
+      selectable,
+    };
+  }
   function ariaRole(role) {
     const value=String(role || '').trim().toLowerCase();
     return !value || value==='auto' ? null : (Object.hasOwn(roleAliases,value) ? roleAliases[value] : value);
@@ -156,7 +223,10 @@
     return Number.isInteger(order) && order>=0 ? order : null;
   }
   function metadataOrder(metadata) { return nonnegativeOrder(metadata?.tab_order ?? metadata?.tabIndex); }
-  const semanticKey=node=>node.owner_ref?referenceKey(node.owner_ref):JSON.stringify(node.instance_path)+'\u0000'+node.lifetime_id;
+  const semanticKey=node=>{
+    const childSuffix=node.childID!==undefined&&node.childID!==null&&Number(node.childID)>0?'#child:'+Number(node.childID):'';
+    return (node.owner_ref?referenceKey(node.owner_ref):JSON.stringify(node.instance_path)+'\u0000'+node.lifetime_id)+childSuffix;
+  };
 
   class SemanticLayer {
     constructor(container, onActivate, options = {}) {
@@ -194,6 +264,7 @@
       const boundsByPath=sceneBoundsByPath(scene,project.width,project.height,measureText,origin);
       const collapsedPaths=[], collapsedRefs=new Set();
       for (const node of nodes) {
+        if (node && Number(node.childID) > 0) continue;
         const meta=node&&node.accessibility;
         if (!meta) continue;
         if (meta.silent || meta.forceSimple || meta.force_simple) {
@@ -202,6 +273,7 @@
         }
       }
       const isSuppressedByAncestor=node=>{
+        if (node && Number(node.childID) > 0) return false;
         if (!node.owner_ref && Array.isArray(node.instance_path)) {
           for (const prefix of collapsedPaths) {
             if (node.instance_path.length>prefix.length && prefix.every((seg,idx)=>node.instance_path[idx]===seg)) return true;
@@ -216,45 +288,116 @@
         }
         return false;
       };
+      const expandedNodes = [];
       for (const node of nodes) {
+        expandedNodes.push(node);
+        const meta = node && node.accessibility;
+        if (meta && !meta.silent && !(meta.forceSimple || meta.force_simple) && Array.isArray(meta.accChildren)) {
+          const hostBounds = boundsByPath.get(node.owner_ref ? referenceKey(node.owner_ref) : JSON.stringify(node.instance_path)) || node.explicitBounds || null;
+          for (const childSpec of meta.accChildren) {
+            if (!childSpec || childSpec.invisible) continue;
+            let childBounds = null;
+            if (childSpec.rect && Number.isFinite(childSpec.rect.width) && Number.isFinite(childSpec.rect.height) && childSpec.rect.width > 0 && childSpec.rect.height > 0) {
+              const baseX = childSpec.rectSpace === 'stage' ? 0 : (hostBounds ? hostBounds.left : 0);
+              const baseY = childSpec.rectSpace === 'stage' ? 0 : (hostBounds ? hostBounds.top : 0);
+              childBounds = {
+                left: baseX + Number(childSpec.rect.x || 0),
+                top: baseY + Number(childSpec.rect.y || 0),
+                right: baseX + Number(childSpec.rect.x || 0) + Number(childSpec.rect.width),
+                bottom: baseY + Number(childSpec.rect.y || 0) + Number(childSpec.rect.height),
+              };
+            } else if (hostBounds) {
+              childBounds = hostBounds;
+            }
+            expandedNodes.push({
+              owner_ref: node.owner_ref,
+              instance_path: node.instance_path,
+              lifetime_id: node.lifetime_id,
+              childID: childSpec.childID,
+              explicitBounds: childBounds,
+              accessibility: childSpec.accessibility,
+            });
+          }
+        }
+      }
+      const hostRecordsByBaseKey = new Map();
+      for (const node of expandedNodes) {
         const metadata=node&&node.accessibility;
         if (!metadata || metadata.silent || isSuppressedByAncestor(node)) continue;
-        const bounds=boundsByPath.get(node.owner_ref?referenceKey(node.owner_ref):JSON.stringify(node.instance_path));
+        const bounds=node.explicitBounds || boundsByPath.get(node.owner_ref?referenceKey(node.owner_ref):JSON.stringify(node.instance_path));
         if (!bounds) continue;
         const key=semanticKey(node);
         let record=this.records.get(key);
         const role=ariaRole(metadata.role);
+        const hasAccHooks=Boolean(metadata.accImplHooks);
+        const isChildNode=Number(node.childID)>0;
         const activateButton=metadata.activateButton===undefined ? role==='button' : metadata.activateButton===true;
-        if (record && (record.role!==role || record.activateButton!==activateButton)) { this.retire(record); this.records.delete(key); record=null; }
+        const useButtonTag=activateButton && !isChildNode;
+        if (record && (record.role!==role || record.useButtonTag!==useButtonTag || record.hasAccHooks!==hasAccHooks)) { this.retire(record); this.records.delete(key); record=null; }
         if (!record) {
-          const element=doc.createElement(activateButton?'button':'span');
-          element.className='semantic-target';
-          if (activateButton) element.type='button';
+          const element=doc.createElement(useButtonTag?'button':'span');
+          element.className=isChildNode?'semantic-target semantic-child-target':'semantic-target';
+          element.id='nf-semantic-'+this.nextId++;
+          if (useButtonTag) element.type='button';
           const description=doc.createElement('span'); description.hidden=true; description.id='nf-description-'+this.nextId++;
           element.appendChild(description);
-          record={element,description,liveContent:null,role,activateButton,node,active:true};
-          if (activateButton) {
-            // Native button activation supplies Enter/Space exactly once. No key handler.
-            element.addEventListener('click',()=>{
-              if(record.active && this.records.get(key)===record && element.parentNode===this.container && !element.disabled)this.onActivate(record.node);
+          record={element,description,liveContent:null,role,activateButton,useButtonTag,hasAccHooks,node,active:true};
+          const invokeNodeAction=(ev)=>{
+            if(!record.active || this.records.get(key)!==record || element.parentNode!==this.container || element.disabled || element.getAttribute('aria-disabled')==='true')return;
+            const curMeta=record.node?.accessibility;
+            const hooks=curMeta?.accImplHooks;
+            if(hooks){
+              if(curMeta.selectable){
+                const selOp=ev?.shiftKey ? 0x04 : ((ev?.ctrlKey || ev?.metaKey) ? (curMeta.selected === true ? 0x10 : 0x08) : 0x02);
+                hooks.onSelect?.(selOp, ev);
+              }
+              hooks.onDefaultAction?.(ev);
+            }
+            if(!Number(record.node?.childID) && record.activateButton){
+              this.onActivate?.(record.node);
+            }
+          };
+          if (useButtonTag || hasAccHooks) {
+            element.addEventListener('click', ev => invokeNodeAction(ev));
+          }
+          if (!useButtonTag && (hasAccHooks || activateButton)) {
+            element.addEventListener('keydown', ev => {
+              if (ev?.key === 'Enter' || ev?.key === ' ' || ev?.key === 'Spacebar') {
+                ev.preventDefault?.();
+                invokeNodeAction(ev);
+              }
             });
           }
           element.addEventListener('focus',event=>{
             if(this.syncingFocus || !this.eligible(record))return;
-            if(!this.restoringFocus)element.scrollIntoView({block:'nearest',inline:'nearest'});
-            this.onFocus?.(record.node,event);
+            if(!this.restoringFocus)element.scrollIntoView?.({block:'nearest',inline:'nearest'});
+            const hooks=record.node?.accessibility?.accImplHooks;
+            hooks?.onSelect?.(0x01, event);
+            if(!Number(record.node?.childID))this.onFocus?.(record.node,event);
           });
           element.addEventListener('blur',event=>{
             if(this.syncingFocus || !record.active)return;
             if(this.eligible(this.elements.get(event?.relatedTarget)))return;
-            this.onBlur?.(record.node,event);
+            if(!Number(record.node?.childID))this.onBlur?.(record.node,event);
           });
           this.elements.set(element,record);
           this.records.set(key,record);
         }
         record.node=node;
         const element=record.element;
-        applyDomAccessibility(element,metadata,{isInteractive:activateButton,tabEnabled:node.input?.tab_enabled ?? metadata.tabEnabled,explicitTabIndex:node.input?.tab_index});
+        const isInteractive=useButtonTag || activateButton || hasAccHooks && Boolean(metadata.focusable || metadata.selectable || metadata.defaultAction);
+        applyDomAccessibility(element,{...metadata,childID:node.childID},{isInteractive,tabEnabled:node.input?.tab_enabled ?? metadata.tabEnabled,explicitTabIndex:node.input?.tab_index});
+        if (!isChildNode) {
+          const baseKey = node.owner_ref ? referenceKey(node.owner_ref) : JSON.stringify(node.instance_path) + '\u0000' + node.lifetime_id;
+          hostRecordsByBaseKey.set(baseKey, record);
+          attribute(element, 'aria-activedescendant', null);
+        } else {
+          const baseKey = node.owner_ref ? referenceKey(node.owner_ref) : JSON.stringify(node.instance_path) + '\u0000' + node.lifetime_id;
+          const hostRec = hostRecordsByBaseKey.get(baseKey);
+          if (hostRec && Number(hostRec.node?.accessibility?.activeDescendantChildId) === Number(node.childID)) {
+            attribute(hostRec.element, 'aria-activedescendant', element.id);
+          }
+        }
         // A live region needs changed text content, not only a changed accessible name.
         // The existing semantic-target style keeps this text visually transparent.
         const live=element.getAttribute('aria-live');
@@ -306,6 +449,16 @@
     attribute(element,'aria-label',!silent && label ? label : null);
     const description = String(metadata?.description || '').trim();
     attribute(element,'aria-description',!silent && description ? description : null);
+    const valueText = metadata?.valueText ?? metadata?.ariaValueText;
+    attribute(element,'aria-valuetext',!silent && valueText !== undefined && valueText !== null && String(valueText).length > 0 ? String(valueText) : null);
+    attribute(element,'aria-selected',!silent && typeof metadata?.selected === 'boolean' ? String(metadata.selected) : null);
+    const checkedVal = metadata?.checked;
+    attribute(element,'aria-checked',!silent && checkedVal !== undefined && checkedVal !== null && checkedVal !== '' ? String(checkedVal) : null);
+    attribute(element,'aria-pressed',!silent && typeof metadata?.pressed === 'boolean' && metadata.pressed ? 'true' : null);
+    attribute(element,'aria-expanded',!silent && typeof metadata?.expanded === 'boolean' ? String(metadata.expanded) : null);
+    attribute(element,'aria-readonly',!silent && metadata?.readonly === true ? 'true' : null);
+    attribute(element,'data-default-action',!silent && metadata?.defaultAction ? String(metadata.defaultAction) : null);
+    attribute(element,'data-child-id',metadata?.childID !== undefined && metadata?.childID !== null && Number(metadata.childID) > 0 ? String(metadata.childID) : null);
     const shortcut = String(metadata?.shortcut || '').trim();
     attribute(element,'aria-keyshortcuts',!silent && shortcut ? shortcut : null);
     const live = String(metadata?.live || '').trim().toLowerCase();
@@ -334,6 +487,6 @@
       if(element.ownerDocument?.activeElement===element)element.blur?.();
     }
   }
-  const api={itemBounds,targetBounds,sceneBoundsByPath,pathBounds,areaCapable,SemanticLayer,applyDomAccessibility};
+  const api={itemBounds,targetBounds,sceneBoundsByPath,pathBounds,areaCapable,msaaRoleToAria,decodeMsaaState,SemanticLayer,applyDomAccessibility};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAccessibility=api;
 })(globalThis);

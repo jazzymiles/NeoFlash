@@ -587,6 +587,14 @@ fn native_is_final(name: &str) -> bool {
                 | "flash.display.PixelSnapping"
                 | "flash.display.BitmapDataChannel"
                 | "flash.utils.Endian"
+                | "flash.ui.ContextMenu"
+                | "flash.ui.ContextMenuItem"
+                | "flash.ui.ContextMenuBuiltInItems"
+                | "flash.ui.ContextMenuClipboardItems"
+                | "flash.text.ime.CompositionAttributeRange"
+                | "flash.system.IMEConversionMode"
+                | "flash.system.IME"
+                | "flash.accessibility.Accessibility"
         )
 }
 
@@ -645,6 +653,48 @@ fn build_native_class(name: &str) -> Class {
                 m_fn("writeInt", "void", &[("int", false)], false),
                 m_fn("writeObject", "void", &[("*", false)], false),
                 m_fn("writeUTF", "void", &[("String", false)], false),
+            ],
+            "flash.text.ime.IIMEClient" => vec![
+                m_get("compositionStartIndex", "int"),
+                m_get("compositionEndIndex", "int"),
+                m_get("selectionActiveIndex", "int"),
+                m_get("selectionAnchorIndex", "int"),
+                m_get("verticalTextLayout", "Boolean"),
+                m_fn(
+                    "confirmComposition",
+                    "void",
+                    &[("String", true), ("Boolean", true)],
+                    false,
+                ),
+                m_fn(
+                    "getTextBounds",
+                    "flash.geom.Rectangle",
+                    &[("int", false), ("int", false)],
+                    false,
+                ),
+                m_fn(
+                    "getTextInRange",
+                    "String",
+                    &[("int", false), ("int", false)],
+                    false,
+                ),
+                m_fn(
+                    "selectRange",
+                    "void",
+                    &[("int", false), ("int", false)],
+                    false,
+                ),
+                m_fn(
+                    "updateComposition",
+                    "void",
+                    &[
+                        ("String", false),
+                        ("Vector.<flash.text.ime.CompositionAttributeRange>", false),
+                        ("int", false),
+                        ("int", false),
+                    ],
+                    false,
+                ),
             ],
             _ => vec![],
         };
@@ -1603,6 +1653,213 @@ fn build_native_class(name: &str) -> Class {
                 "deltaTransformPoint",
                 "flash.geom.Point",
                 &[("flash.geom.Point", false)],
+                false,
+            ));
+        }
+        "flash.ui.ContextMenu" => {
+            members.push(Member {
+                name: "isSupported".into(),
+                kind: "get".into(),
+                access: "public".into(),
+                is_static: true,
+                ty: "Boolean".into(),
+                parameters: vec![],
+                rest: false,
+            });
+            members.extend(m_rw("builtInItems", "flash.ui.ContextMenuBuiltInItems"));
+            members.extend(m_rw("clipboardItems", "flash.ui.ContextMenuClipboardItems"));
+            members.extend(m_rw("clipboardMenu", "Boolean"));
+            members.extend(m_rw("customItems", "Array"));
+            members.extend(m_rw("items", "Array"));
+            members.extend(m_rw("link", "flash.net.URLRequest"));
+            members.push(m_get("numItems", "int"));
+            members.push(m_fn(
+                "addItemAt",
+                "flash.display.NativeMenuItem",
+                &[("flash.display.NativeMenuItem", false), ("int", false)],
+                false,
+            ));
+            members.push(m_fn("clone", "flash.ui.ContextMenu", &[], false));
+            members.push(m_fn(
+                "containsItem",
+                "Boolean",
+                &[("flash.display.NativeMenuItem", false)],
+                false,
+            ));
+            members.push(m_fn(
+                "display",
+                "void",
+                &[
+                    ("flash.display.Stage", false),
+                    ("Number", false),
+                    ("Number", false),
+                ],
+                false,
+            ));
+            members.push(m_fn(
+                "getItemAt",
+                "flash.display.NativeMenuItem",
+                &[("int", false)],
+                false,
+            ));
+            members.push(m_fn(
+                "getItemIndex",
+                "int",
+                &[("flash.display.NativeMenuItem", false)],
+                false,
+            ));
+            members.push(m_fn("hideBuiltInItems", "void", &[], false));
+            members.push(m_fn("removeAllItems", "void", &[], false));
+            members.push(m_fn(
+                "removeItemAt",
+                "flash.display.NativeMenuItem",
+                &[("int", false)],
+                false,
+            ));
+        }
+        "flash.ui.ContextMenuClipboardItems" => {
+            for prop in ["clear", "copy", "cut", "paste", "selectAll"] {
+                members.extend(m_rw(prop, "Boolean"));
+            }
+            members.push(m_fn(
+                "clone",
+                "flash.ui.ContextMenuClipboardItems",
+                &[],
+                false,
+            ));
+        }
+        "flash.ui.ContextMenuBuiltInItems" => {
+            for prop in [
+                "forwardAndBack",
+                "loop",
+                "play",
+                "print",
+                "quality",
+                "rewind",
+                "save",
+                "zoom",
+            ] {
+                members.extend(m_rw(prop, "Boolean"));
+            }
+            members.push(m_fn(
+                "clone",
+                "flash.ui.ContextMenuBuiltInItems",
+                &[],
+                false,
+            ));
+        }
+        "flash.ui.ContextMenuItem" => {
+            ctor.push(param("String", false));
+            ctor.push(param("Boolean", true));
+            ctor.push(param("Boolean", true));
+            ctor.push(param("Boolean", true));
+            members.extend(m_rw("caption", "String"));
+            members.extend(m_rw("separatorBefore", "Boolean"));
+            members.extend(m_rw("enabled", "Boolean"));
+            members.extend(m_rw("visible", "Boolean"));
+        }
+        "flash.system.IMEConversionMode" => {
+            for c in [
+                "ALPHANUMERIC_FULL",
+                "ALPHANUMERIC_HALF",
+                "CHINESE",
+                "JAPANESE_HIRAGANA",
+                "JAPANESE_KATAKANA_FULL",
+                "JAPANESE_KATAKANA_HALF",
+                "KOREAN",
+                "UNKNOWN",
+            ] {
+                members.push(m_const(c, "String", true));
+            }
+        }
+        "flash.system.IME" => {
+            members.push(Member {
+                name: "isSupported".into(),
+                kind: "get".into(),
+                access: "public".into(),
+                is_static: true,
+                ty: "Boolean".into(),
+                parameters: vec![],
+                rest: false,
+            });
+            for (prop, ty) in [("enabled", "Boolean"), ("conversionMode", "String")] {
+                members.push(Member {
+                    name: prop.into(),
+                    kind: "get".into(),
+                    access: "public".into(),
+                    is_static: true,
+                    ty: ty.into(),
+                    parameters: vec![],
+                    rest: false,
+                });
+                members.push(Member {
+                    name: prop.into(),
+                    kind: "set".into(),
+                    access: "public".into(),
+                    is_static: true,
+                    ty: ty.into(),
+                    parameters: vec![param(ty, false)],
+                    rest: false,
+                });
+            }
+            members.push(m_fn("compositionAbandoned", "void", &[], true));
+            members.push(m_fn(
+                "compositionSelectionChanged",
+                "void",
+                &[("int", false), ("int", false)],
+                true,
+            ));
+            members.push(m_fn("doConversion", "void", &[], true));
+            members.push(m_fn(
+                "setCompositionString",
+                "void",
+                &[("String", false)],
+                true,
+            ));
+        }
+        "flash.text.ime.CompositionAttributeRange" => {
+            ctor.push(param("int", false));
+            ctor.push(param("int", false));
+            ctor.push(param("Boolean", false));
+            ctor.push(param("Boolean", false));
+            members.extend(m_rw("relativeStart", "int"));
+            members.extend(m_rw("relativeEnd", "int"));
+            members.extend(m_rw("selected", "Boolean"));
+            members.extend(m_rw("converted", "Boolean"));
+        }
+        "flash.accessibility.AccessibilityImplementation" => {
+            members.extend(m_rw("errno", "uint"));
+            members.extend(m_rw("stub", "Boolean"));
+            members.push(m_fn(
+                "accDoDefaultAction",
+                "void",
+                &[("uint", false)],
+                false,
+            ));
+            members.push(m_fn("accLocation", "*", &[("uint", false)], false));
+            members.push(m_fn(
+                "accSelect",
+                "void",
+                &[("uint", false), ("uint", false)],
+                false,
+            ));
+            members.push(m_fn("getChildIDArray", "Array", &[], false));
+            members.push(m_fn(
+                "get_accDefaultAction",
+                "String",
+                &[("uint", false)],
+                false,
+            ));
+            members.push(m_fn("get_accFocus", "uint", &[], false));
+            members.push(m_fn("get_accName", "String", &[("uint", false)], false));
+            members.push(m_fn("get_accRole", "uint", &[("uint", false)], false));
+            members.push(m_fn("get_accSelection", "Array", &[], false));
+            members.push(m_fn("get_accState", "uint", &[("uint", false)], false));
+            members.push(m_fn("get_accValue", "String", &[("uint", false)], false));
+            members.push(m_fn(
+                "isLabeledBy",
+                "Boolean",
+                &[("flash.geom.Rectangle", false)],
                 false,
             ));
         }

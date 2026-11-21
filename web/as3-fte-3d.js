@@ -3814,7 +3814,22 @@
       get converted() { return compRangeMap.get(this).converted; }
       set converted(v) { compRangeMap.get(this).converted = Boolean(v); }
     }
-    tagType(CompositionAttributeRange, 'CompositionAttributeRange', v => compRangeMap.has(v));
+    tagType(
+      CompositionAttributeRange,
+      'CompositionAttributeRange',
+      v => compRangeMap.has(v),
+      (receiver, args = []) => {
+        if (!compRangeMap.has(receiver)) {
+          const [rs = 0, re = 0, sel = false, conv = false] = args;
+          compRangeMap.set(receiver, {
+            relativeStart: Number(rs) | 0,
+            relativeEnd: Number(re) | 0,
+            selected: Boolean(sel),
+            converted: Boolean(conv),
+          });
+        }
+      }
+    );
 
     const IIMEClient = function (value) {
       if (new.target) throw new TypeError('IIMEClient is an interface and cannot be instantiated.');
@@ -3847,6 +3862,514 @@
             IME_CLIENT_MEMBERS.every(m => m in v)
         )
     );
+
+    // ---- Live HTML5 DOM Input & Composition Bridge for IIMEClient ----
+    const AS3_IME_REGISTRY = Symbol.for('neoflash.as3.imeRegistry.v1');
+    const AS2_IME_DOC_HOOKS = Symbol.for('neoflash.as2.imeDocHooks.v1');
+    const handledImeDomEvents = new WeakSet();
+    let activeImeSession = null;
+
+    function getAs3ImeRegistry() {
+      let reg = global[AS3_IME_REGISTRY];
+      if (!reg) {
+        reg = { byDisplay: new WeakMap(), byStage: new WeakMap(), latest: null };
+        Object.defineProperty(global, AS3_IME_REGISTRY, { value: reg, configurable: true });
+      }
+      return reg;
+    }
+
+    function resolveFteImeBridgeEntry() {
+      const reg = getAs3ImeRegistry();
+      const disp = getDisplay();
+      const stg = getStage();
+      if (disp && typeof disp === 'object') {
+        let entry = reg.byDisplay.get(disp);
+        if (!entry) {
+          entry = { netSys: null, fte3d: null, stage: null };
+          reg.byDisplay.set(disp, entry);
+        }
+        if (stg && typeof stg === 'object') reg.byStage.set(stg, entry);
+        reg.latest = entry;
+        return entry;
+      }
+      if (stg && typeof stg === 'object') {
+        let entry = reg.byStage.get(stg);
+        if (!entry) {
+          entry = reg.latest || { netSys: null, fte3d: null, stage: null };
+          reg.byStage.set(stg, entry);
+        }
+        reg.latest = entry;
+        return entry;
+      }
+      if (!reg.latest) {
+        reg.latest = { netSys: null, fte3d: null, stage: null };
+      }
+      return reg.latest;
+    }
+
+    function notifyAs2DocHooks(doc, phase, ev) {
+      const reg = global[AS2_IME_DOC_HOOKS];
+      if (!reg) return;
+      const set = doc && typeof doc === 'object' ? reg.byDoc.get(doc) : null;
+      if (set) {
+        for (const fn of set) fn(phase, ev);
+      }
+      for (const fn of reg.globalHooks || []) fn(phase, ev);
+    }
+
+    function isAs3ImeEnabled() {
+      const entry = resolveFteImeBridgeEntry();
+      return entry?.netSys ? Boolean(entry.netSys.isEnabled()) : true;
+    }
+
+    function getAs3ImeMode() {
+      const entry = resolveFteImeBridgeEntry();
+      return entry?.netSys ? String(entry.netSys.getConversionMode() || 'ALPHANUMERIC_HALF') : 'ALPHANUMERIC_HALF';
+    }
+
+    function makeImeEventInstance(type, text = '', imeClient = null, cancelable = true) {
+      const IMEEventCtor =
+        options.eventFamilies?.IMEEvent ||
+        events.IMEEvent ||
+        getBuiltin('flash.events.IMEEvent') ||
+        null;
+      if (IMEEventCtor) {
+        return new IMEEventCtor(type, false, cancelable, String(text ?? ''), imeClient ?? null);
+      }
+      const TextEvt = events.TextEvent || events.Event;
+      const ev = new TextEvt(type, false, cancelable, String(text ?? ''));
+      if (ev.text === undefined) ev.text = String(text ?? '');
+      ev.imeClient = imeClient ?? null;
+      return ev;
+    }
+
+    function buildRangeVector(text, selStart = 0, selEnd = String(text ?? '').length, customClauses = null) {
+      const str = String(text ?? '');
+      const len = str.length;
+      if (Array.isArray(customClauses) && customClauses.length > 0) {
+        const mapped = customClauses.map(c =>
+          compRangeMap.has(c)
+            ? c
+            : new CompositionAttributeRange(
+                Number(c?.relativeStart ?? 0) | 0,
+                Number(c?.relativeEnd ?? len) | 0,
+                Boolean(c?.selected ?? true),
+                Boolean(c?.converted ?? false)
+              )
+        );
+        return makeVector('flash.text.ime.CompositionAttributeRange', mapped);
+      }
+      if (len === 0) {
+        return makeVector('flash.text.ime.CompositionAttributeRange', []);
+      }
+      const s = Math.max(0, Math.min(len, Number(selStart) | 0));
+      const e = Math.max(s, Math.min(len, Number(selEnd) | 0));
+      const ranges = [];
+      if (s > 0) ranges.push(new CompositionAttributeRange(0, s, false, false));
+      ranges.push(new CompositionAttributeRange(s, e > s ? e : len, true, false));
+      if (e > s && e < len) ranges.push(new CompositionAttributeRange(e, len, false, false));
+      return makeVector('flash.text.ime.CompositionAttributeRange', ranges);
+    }
+
+    function syncImeInputGeometryAndAttrs(session) {
+      if (!session || !session.input) return;
+      const { input, client, target } = session;
+      const enabled = isAs3ImeEnabled() && !(client && client.readOnly === true);
+      const mode = getAs3ImeMode();
+      input.readOnly = !enabled;
+      input.setAttribute?.('data-ime-enabled', String(enabled));
+      input.setAttribute?.('data-ime-mode', mode);
+      const lang = mode.startsWith('JAPANESE') ? 'ja' : mode === 'KOREAN' ? 'ko' : mode === 'CHINESE' ? 'zh' : 'en';
+      input.lang = lang;
+      if (client && IIMEClient.__nfIs(client)) {
+        const vertical = Boolean(client.verticalTextLayout);
+        if (input.style) {
+          input.style.writingMode = vertical ? 'vertical-rl' : 'horizontal-tb';
+        }
+        try {
+          const anchor = Number(client.selectionAnchorIndex ?? 0) | 0;
+          const active = Number(client.selectionActiveIndex ?? anchor) | 0;
+          const lo = Math.max(0, Math.min(anchor, active));
+          const hi = Math.max(lo, Math.max(anchor, active));
+          const bounds = client.getTextBounds(lo, hi);
+          if (bounds && input.style) {
+            const tx = Number(target?.x) || 0;
+            const ty = Number(target?.y) || 0;
+            const bx = (Number(bounds.x) || 0) + tx;
+            const by = (Number(bounds.y) || 0) + ty;
+            const bw = Math.max(1, Number(bounds.width) || 2);
+            const bh = Math.max(1, Number(bounds.height) || 16);
+            input.style.left = `${bx}px`;
+            input.style.top = `${by}px`;
+            input.style.width = `${bw}px`;
+            input.style.height = `${bh}px`;
+          }
+        } catch (_) {}
+      }
+    }
+
+    function teardownImeSession(commitPending = false) {
+      const session = activeImeSession;
+      if (!session) return;
+      activeImeSession = null;
+      if (commitPending && session.composing && session.client && IIMEClient.__nfIs(session.client)) {
+        try {
+          session.client.confirmComposition(session.compositionText || '', false);
+        } catch (_) {}
+      }
+      for (const cleanup of session.cleanups || []) {
+        try { cleanup(); } catch (_) {}
+      }
+      try { session.input?.remove?.(); } catch (_) {}
+    }
+
+    function beginImeCompositionSession(target, rawText, domEvent = null) {
+      if (!isAs3ImeEnabled()) {
+        domEvent?.preventDefault?.();
+        return null;
+      }
+      const initialClient = IIMEClient.__nfIs(target) ? target : null;
+      if (initialClient && initialClient.readOnly === true) {
+        domEvent?.preventDefault?.();
+        return null;
+      }
+      const startEv = makeImeEventInstance('imeStartComposition', rawText, initialClient, true);
+      if (target && typeof target.dispatchEvent === 'function') {
+        const ok = target.dispatchEvent(startEv);
+        if (ok === false || startEv.defaultPrevented) {
+          domEvent?.preventDefault?.();
+          return null;
+        }
+      }
+      const resolvedClient = IIMEClient.__nfIs(startEv.imeClient)
+        ? startEv.imeClient
+        : initialClient;
+      if (resolvedClient && resolvedClient.readOnly === true) {
+        domEvent?.preventDefault?.();
+        return null;
+      }
+      let baseStart = 0;
+      if (resolvedClient) {
+        const anchor = Number(resolvedClient.selectionAnchorIndex ?? 0) | 0;
+        const active = Number(resolvedClient.selectionActiveIndex ?? anchor) | 0;
+        baseStart = Math.max(0, Math.min(anchor, active));
+        try {
+          resolvedClient.getTextInRange(0, baseStart);
+        } catch (_) {}
+      }
+      return { client: resolvedClient, baseStart };
+    }
+
+    function processImeDomComposition(phase, domEvent, targetOverride = null) {
+      if (disposed) return false;
+      if (domEvent && typeof domEvent === 'object') {
+        if (handledImeDomEvents.has(domEvent)) return true;
+        handledImeDomEvents.add(domEvent);
+      }
+      const stg = getStage();
+      const target = targetOverride || activeImeSession?.target || stg?.focus || stg || null;
+      if (!target) return false;
+      const ctxDoc = getStageContext()?.canvas?.ownerDocument || global.document || null;
+      notifyAs2DocHooks(ctxDoc, phase, domEvent);
+
+      const text = typeof domEvent?.data === 'string'
+        ? domEvent.data
+        : typeof domEvent?.text === 'string'
+          ? domEvent.text
+          : '';
+      const entry = resolveFteImeBridgeEntry();
+
+      if (phase === 'start' || phase === 'compositionstart') {
+        const started = beginImeCompositionSession(target, text, domEvent);
+        if (!started) return false;
+        if (!activeImeSession || activeImeSession.target !== target) {
+          activeImeSession = {
+            target,
+            client: started.client,
+            baseStart: started.baseStart,
+            composing: true,
+            cancelled: false,
+            compositionText: text,
+            input: activeImeSession?.input || null,
+            cleanups: activeImeSession?.cleanups || [],
+          };
+        } else {
+          activeImeSession.client = started.client;
+          activeImeSession.baseStart = started.baseStart;
+          activeImeSession.composing = true;
+          activeImeSession.cancelled = false;
+          activeImeSession.compositionText = text;
+        }
+        entry?.netSys?.notifyDomComposition?.('start', text, started.client);
+        syncImeInputGeometryAndAttrs(activeImeSession);
+        if (started.client && text.length > 0) {
+          const vec = buildRangeVector(text, 0, text.length, domEvent?.clauses || domEvent?.attributes || null);
+          started.client.updateComposition(text, vec, started.baseStart, started.baseStart + text.length);
+        }
+        afterEvent();
+        return true;
+      }
+
+      if (phase === 'update' || phase === 'compositionupdate') {
+        if (!isAs3ImeEnabled()) {
+          domEvent?.preventDefault?.();
+          return false;
+        }
+        if (!activeImeSession || !activeImeSession.composing) {
+          const started = beginImeCompositionSession(target, text, domEvent);
+          if (!started) return false;
+          activeImeSession = {
+            target,
+            client: started.client,
+            baseStart: started.baseStart,
+            composing: true,
+            cancelled: false,
+            compositionText: text,
+            input: activeImeSession?.input || null,
+            cleanups: activeImeSession?.cleanups || [],
+          };
+        }
+        activeImeSession.compositionText = text;
+        const client = activeImeSession.client;
+        const baseStart = activeImeSession.baseStart;
+        entry?.netSys?.notifyDomComposition?.('update', text, client);
+        const [selS, selE] = entry?.netSys?.getSelection?.() || [0, text.length];
+        if (client) {
+          const clampedEnd = selE > 0 && selE <= text.length ? selE : text.length;
+          const clampedStart = Math.max(0, Math.min(clampedEnd, selS));
+          const vec = buildRangeVector(text, clampedStart, clampedEnd, domEvent?.clauses || domEvent?.attributes || null);
+          client.updateComposition(text, vec, baseStart, baseStart + text.length);
+          syncImeInputGeometryAndAttrs(activeImeSession);
+        }
+        if (target && typeof target.dispatchEvent === 'function') {
+          target.dispatchEvent(makeImeEventInstance('imeComposition', text, client, true));
+        }
+        afterEvent();
+        return true;
+      }
+
+      if (phase === 'end' || phase === 'compositionend') {
+        if (!isAs3ImeEnabled()) {
+          domEvent?.preventDefault?.();
+          return false;
+        }
+        const session = activeImeSession;
+        const wasCancelled = Boolean(session?.cancelled);
+        const client = session?.client || (IIMEClient.__nfIs(target) ? target : null);
+        if (session) {
+          session.composing = false;
+          session.cancelled = false;
+          session.compositionText = '';
+        }
+        if (wasCancelled) {
+          afterEvent();
+          return false;
+        }
+        if (client && (!client.readOnly)) {
+          client.confirmComposition(text, false);
+          syncImeInputGeometryAndAttrs(session);
+        }
+        entry?.netSys?.notifyDomComposition?.('end', text, client);
+        let compAllowed = true;
+        if (target && typeof target.dispatchEvent === 'function') {
+          const compEv = makeImeEventInstance('imeComposition', text, client, true);
+          const r = target.dispatchEvent(compEv);
+          compAllowed = r !== false && !compEv.defaultPrevented;
+        }
+        if (compAllowed && text.length > 0 && target && typeof target.dispatchEvent === 'function') {
+          const TextEvt = events.TextEvent || events.Event;
+          if (TextEvt) {
+            target.dispatchEvent(new TextEvt(TextEvt.TEXT_INPUT || 'textInput', true, true, text));
+          }
+        }
+        afterEvent();
+        return compAllowed;
+      }
+      return false;
+    }
+
+    function mountImeClientBridgeForTarget(target) {
+      teardownImeSession(true);
+      if (!target || typeof target !== 'object') return null;
+      const disp = getDisplay();
+      try {
+        if (disp && disp.descriptor?.(target)?.owner === 'text') return null;
+      } catch (_) {}
+      const isClient = IIMEClient.__nfIs(target);
+      const listensStart = typeof target.hasEventListener === 'function' && target.hasEventListener('imeStartComposition');
+      if (!isClient && !listensStart) return null;
+
+      const canvas = getStageContext()?.canvas || options.canvas || null;
+      const doc = options.document || canvas?.ownerDocument || global.document || null;
+      const container = options.imeContainer || canvas?.parentElement || doc?.body || null;
+      let input = null;
+      const cleanups = [];
+      if (doc && typeof doc.createElement === 'function') {
+        input = doc.createElement('input');
+        input.type = 'text';
+        input.autocomplete = 'off';
+        input.autocapitalize = 'off';
+        input.spellcheck = false;
+        input.setAttribute?.('data-neoflash-ime-client', 'true');
+        input.setAttribute?.('aria-hidden', 'true');
+        if (input.style) {
+          Object.assign(input.style, {
+            position: 'absolute',
+            left: '0px',
+            top: '0px',
+            width: '2px',
+            height: '16px',
+            opacity: '0',
+            padding: '0',
+            margin: '0',
+            border: '0',
+            outline: 'none',
+            background: 'transparent',
+            pointerEvents: 'none',
+            zIndex: '1',
+          });
+        }
+        const bind = (type, fn) => {
+          if (typeof input.addEventListener !== 'function') return;
+          const wrapped = ev => {
+            try { fn(ev); } catch (err) { onError(err); }
+          };
+          input.addEventListener(type, wrapped);
+          cleanups.push(() => input.removeEventListener?.(type, wrapped));
+        };
+        bind('compositionstart', ev => processImeDomComposition('start', ev, target));
+        bind('compositionupdate', ev => processImeDomComposition('update', ev, target));
+        bind('compositionend', ev => processImeDomComposition('end', ev, target));
+        bind('keydown', ev => {
+          if (activeImeSession?.composing && ev?.key === 'Escape') {
+            ev.preventDefault?.();
+            fteImeBridgeHook.abandon();
+          }
+        });
+        bind('select', () => {
+          if (!activeImeSession || activeImeSession.composing) return;
+          const c = activeImeSession.client;
+          if (c && IIMEClient.__nfIs(c) && typeof input.selectionStart === 'number' && typeof input.selectionEnd === 'number') {
+            const backward = input.selectionDirection === 'backward';
+            c.selectRange(backward ? input.selectionEnd : input.selectionStart, backward ? input.selectionStart : input.selectionEnd);
+          }
+        });
+        if (container && typeof container.appendChild === 'function') {
+          container.appendChild(input);
+        }
+      }
+      activeImeSession = {
+        target,
+        client: isClient ? target : null,
+        baseStart: isClient ? Math.max(0, Math.min(target.selectionAnchorIndex | 0, target.selectionActiveIndex | 0)) : 0,
+        composing: false,
+        cancelled: false,
+        compositionText: '',
+        input,
+        cleanups,
+      };
+      syncImeInputGeometryAndAttrs(activeImeSession);
+      if (input && typeof input.focus === 'function') {
+        try { input.focus({ preventScroll: true }); } catch (_) {}
+      }
+      return input;
+    }
+
+    const fteImeBridgeHook = {
+      getStage: () => getStage(),
+      handleComposition: (phase, ev, explicitTarget = null) => processImeDomComposition(phase, ev, explicitTarget),
+      syncState() {
+        syncImeInputGeometryAndAttrs(activeImeSession);
+      },
+      setComposition(text, selStart = 0, selEnd = String(text ?? '').length) {
+        const stg = getStage();
+        const target = activeImeSession?.target || stg?.focus || null;
+        if (!target) return;
+        if (!activeImeSession || !activeImeSession.composing) {
+          const started = beginImeCompositionSession(target, text, null);
+          if (!started) return;
+          activeImeSession = {
+            target,
+            client: started.client,
+            baseStart: started.baseStart,
+            composing: true,
+            cancelled: false,
+            compositionText: text,
+            input: activeImeSession?.input || null,
+            cleanups: activeImeSession?.cleanups || [],
+          };
+        } else {
+          activeImeSession.compositionText = text;
+        }
+        if (activeImeSession.input) {
+          activeImeSession.input.value = text;
+          try { activeImeSession.input.setSelectionRange?.(selStart, selEnd); } catch (_) {}
+        }
+        if (activeImeSession.client) {
+          const vec = buildRangeVector(text, selStart, selEnd);
+          activeImeSession.client.updateComposition(
+            text,
+            vec,
+            activeImeSession.baseStart,
+            activeImeSession.baseStart + text.length
+          );
+          syncImeInputGeometryAndAttrs(activeImeSession);
+        }
+      },
+      selectionChanged(start, end) {
+        const stg = getStage();
+        const target = activeImeSession?.target || stg?.focus || null;
+        const client = activeImeSession?.client || (IIMEClient.__nfIs(target) ? target : null);
+        if (activeImeSession?.input) {
+          const dir = end < start ? 'backward' : 'forward';
+          try { activeImeSession.input.setSelectionRange?.(Math.min(start, end), Math.max(start, end), dir); } catch (_) {}
+        }
+        if (!client) return;
+        if (activeImeSession?.composing && activeImeSession.compositionText.length > 0) {
+          const text = activeImeSession.compositionText;
+          const lo = Math.min(start, end);
+          const hi = Math.max(start, end);
+          const vec = buildRangeVector(text, lo, hi);
+          client.updateComposition(text, vec, activeImeSession.baseStart, activeImeSession.baseStart + text.length);
+          syncImeInputGeometryAndAttrs(activeImeSession);
+        } else {
+          client.selectRange(start | 0, end | 0);
+          syncImeInputGeometryAndAttrs(activeImeSession);
+        }
+      },
+      abandon() {
+        const session = activeImeSession;
+        if (!session) return;
+        const wasComposing = session.composing;
+        session.composing = false;
+        session.cancelled = true;
+        session.compositionText = '';
+        if (session.input) session.input.value = '';
+        if (wasComposing && session.client && IIMEClient.__nfIs(session.client)) {
+          const emptyVec = makeVector('flash.text.ime.CompositionAttributeRange', []);
+          session.client.updateComposition('', emptyVec, session.baseStart, session.baseStart);
+          syncImeInputGeometryAndAttrs(session);
+        }
+        session.cancelled = false;
+      },
+      confirmForDoConversion(text) {
+        const stg = getStage();
+        const target = activeImeSession?.target || stg?.focus || null;
+        const client = activeImeSession?.client || (IIMEClient.__nfIs(target) ? target : null);
+        if (activeImeSession) {
+          activeImeSession.composing = false;
+          activeImeSession.cancelled = false;
+          activeImeSession.compositionText = '';
+          if (activeImeSession.input) activeImeSession.input.value = '';
+        }
+        if (client && !client.readOnly) {
+          client.confirmComposition(String(text ?? ''), false);
+          syncImeInputGeometryAndAttrs(activeImeSession);
+        }
+        return { client: client || null, target };
+      },
+    };
+    resolveFteImeBridgeEntry().fte3d = fteImeBridgeHook;
 
     // =========================================================================
     // 4. 3D DisplayObject / Transform / SoftKeyboard / MorphShape / AVM1Movie
@@ -4212,6 +4735,8 @@
       if (next && softKeyboardMap.get(next)?.needs) {
         requestSoftKeyboard(next, 'userTriggered');
       }
+      resolveFteImeBridgeEntry().fte3d = fteImeBridgeHook;
+      mountImeClientBridgeForTarget(next || null);
     }
 
     function getSoftKeyboardRect() {
@@ -4422,6 +4947,7 @@
     });
 
     function reset() {
+      teardownImeSession(false);
       if (kernel) kernel.reset();
       stage3DList = null;
       stageVideoList = null;
@@ -4432,12 +4958,15 @@
       softKeyboardMap = new WeakMap();
       activeSoftKeyboardRect = null;
       generation++;
+      resolveFteImeBridgeEntry().fte3d = fteImeBridgeHook;
     }
 
     function dispose() {
       if (disposed) return;
       reset();
       disposed = true;
+      const entry = resolveFteImeBridgeEntry();
+      if (entry && entry.fte3d === fteImeBridgeHook) entry.fte3d = null;
       for (const st of instanceShaderStates) {
         st.kernel = null;
       }
@@ -4547,6 +5076,8 @@
       requestSoftKeyboard,
       deactivateSoftKeyboard,
       handleFocusChange,
+      getImeClientInputElement: () => activeImeSession?.input || null,
+      handleImeComposition: (phase, ev, target = null) => processImeDomComposition(phase, ev, target),
       textLineBounds,
       textLineGet,
       textLineSet,

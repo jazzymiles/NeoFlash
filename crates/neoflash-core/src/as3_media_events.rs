@@ -464,6 +464,32 @@ pub fn validate_acc_string(value: &str, field: &str) -> Result<String, MediaEven
     Ok(value.to_owned())
 }
 
+pub fn validate_context_menu_insert_index(
+    index: i32,
+    num_items: usize,
+) -> Result<usize, MediaEventsError> {
+    if index < 0 || (index as usize) > num_items {
+        return Err(MediaEventsError::range(
+            2006,
+            format!("The supplied index {index} is out of bounds."),
+        ));
+    }
+    Ok(index as usize)
+}
+
+pub fn validate_context_menu_item_index(
+    index: i32,
+    num_items: usize,
+) -> Result<usize, MediaEventsError> {
+    if index < 0 || (index as usize) >= num_items {
+        return Err(MediaEventsError::range(
+            2006,
+            format!("The supplied index {index} is out of bounds."),
+        ));
+    }
+    Ok(index as usize)
+}
+
 pub fn snap_microphone_rate(rate: i32) -> i32 {
     if rate <= 6 {
         5
@@ -1614,6 +1640,13 @@ mod tests {
         assert!(built_in.play && built_in.zoom);
         built_in.hide_all();
         assert!(!built_in.play && !built_in.zoom && !built_in.print);
+        assert_eq!(validate_context_menu_insert_index(0, 0).unwrap(), 0);
+        assert_eq!(validate_context_menu_insert_index(2, 2).unwrap(), 2);
+        assert!(validate_context_menu_insert_index(-1, 2).is_err());
+        assert!(validate_context_menu_insert_index(3, 2).is_err());
+        assert_eq!(validate_context_menu_item_index(1, 2).unwrap(), 1);
+        assert!(validate_context_menu_item_index(2, 2).is_err());
+        assert!(validate_context_menu_item_index(-1, 2).is_err());
 
         // Microphone PCM sample generation
         let (pos0, pcm0) = rt.mic_sample_pcm_bytes(0, 64).unwrap();

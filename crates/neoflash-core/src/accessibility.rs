@@ -675,9 +675,157 @@ impl Keyframe {
     }
 }
 
+/// Decoded ARIA state flags from an MSAA `AccessibilityImplementation.get_accState()` bitmask.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MsaaAriaState {
+    pub disabled: bool,
+    pub selected: Option<bool>,
+    pub focused: bool,
+    pub pressed: bool,
+    pub checked: Option<&'static str>,
+    pub readonly: bool,
+    pub expanded: Option<bool>,
+    pub invisible: bool,
+    pub focusable: bool,
+    pub selectable: bool,
+}
+
+/// Maps an MSAA `ROLE_SYSTEM_*` numeric role returned by `AccessibilityImplementation.get_accRole()`
+/// to its canonical WAI-ARIA role token for HTML5 DOM accessibility overlays.
+pub fn msaa_role_to_aria(role: u32) -> &'static str {
+    match role {
+        0x09 | 0x10 => "region",
+        0x0A | 0x14 => "group",
+        0x0B => "menu",
+        0x0C => "menuitem",
+        0x0D => "tooltip",
+        0x0E => "application",
+        0x0F => "document",
+        0x12 => "dialog",
+        0x15 => "separator",
+        0x16 => "toolbar",
+        0x17 => "status",
+        0x18 => "table",
+        0x19 => "columnheader",
+        0x1A => "rowheader",
+        0x1C => "row",
+        0x1D => "cell",
+        0x1E => "link",
+        0x21 => "listbox",
+        0x22 => "option",
+        0x23 => "tree",
+        0x24 => "treeitem",
+        0x25 => "tab",
+        0x26 => "tabpanel",
+        0x28 => "img",
+        0x29 => "note",
+        0x2A => "textbox",
+        0x2B => "button",
+        0x2C => "checkbox",
+        0x2D => "radio",
+        0x2E => "combobox",
+        0x30 => "progressbar",
+        0x33 => "slider",
+        0x34 => "spinbutton",
+        0x3C => "tablist",
+        _ => "group",
+    }
+}
+
+/// Decodes an MSAA `STATE_SYSTEM_*` bitmask returned by `AccessibilityImplementation.get_accState()`
+/// into WAI-ARIA state properties.
+pub fn decode_msaa_state(state: u32, aria_role: &str) -> MsaaAriaState {
+    let disabled = (state & 0x0000_0001) != 0;
+    let selected_flag = (state & 0x0000_0002) != 0;
+    let focused = (state & 0x0000_0004) != 0;
+    let pressed = (state & 0x0000_0008) != 0;
+    let checked_flag = (state & 0x0000_0010) != 0;
+    let mixed_flag = (state & 0x0000_0020) != 0;
+    let readonly = (state & 0x0000_0040) != 0;
+    let expanded_flag = (state & 0x0000_0200) != 0;
+    let collapsed_flag = (state & 0x0000_0400) != 0;
+    let invisible = (state & 0x0000_8000) != 0;
+    let focusable = (state & 0x0010_0000) != 0;
+    let selectable = (state & 0x0020_0000) != 0
+        || matches!(aria_role, "option" | "tab" | "treeitem" | "row" | "cell");
+    let selected = if selected_flag {
+        Some(true)
+    } else if selectable {
+        Some(false)
+    } else {
+        None
+    };
+    let checked = if mixed_flag {
+        Some("mixed")
+    } else if checked_flag {
+        Some("true")
+    } else if matches!(
+        aria_role,
+        "checkbox" | "radio" | "menuitemcheckbox" | "menuitemradio"
+    ) {
+        Some("false")
+    } else {
+        None
+    };
+    let expanded = if expanded_flag {
+        Some(true)
+    } else if collapsed_flag {
+        Some(false)
+    } else {
+        None
+    };
+    MsaaAriaState {
+        disabled,
+        selected,
+        focused,
+        pressed,
+        checked,
+        readonly,
+        expanded,
+        invisible,
+        focusable,
+        selectable,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn msaa_role_and_state_mapping_covers_flash_accessibility_implementation() {
+        assert_eq!(msaa_role_to_aria(0x2B), "button");
+        assert_eq!(msaa_role_to_aria(0x2C), "checkbox");
+        assert_eq!(msaa_role_to_aria(0x2D), "radio");
+        assert_eq!(msaa_role_to_aria(0x21), "listbox");
+        assert_eq!(msaa_role_to_aria(0x22), "option");
+        assert_eq!(msaa_role_to_aria(0x23), "tree");
+        assert_eq!(msaa_role_to_aria(0x24), "treeitem");
+        assert_eq!(msaa_role_to_aria(0x25), "tab");
+        assert_eq!(msaa_role_to_aria(0x3C), "tablist");
+        assert_eq!(msaa_role_to_aria(0x2A), "textbox");
+        assert_eq!(msaa_role_to_aria(0x33), "slider");
+
+        let st = decode_msaa_state(0x0020_0000 | 0x0010_0000 | 0x0000_0002, "option");
+        assert_eq!(st.selected, Some(true));
+        assert!(st.selectable);
+        assert!(st.focusable);
+        assert!(!st.disabled);
+
+        let chk = decode_msaa_state(0x0000_0010 | 0x0000_0001, "checkbox");
+        assert_eq!(chk.checked, Some("true"));
+        assert!(chk.disabled);
+
+        let unchecked = decode_msaa_state(0, "checkbox");
+        assert_eq!(unchecked.checked, Some("false"));
+
+        let mixed = decode_msaa_state(0x0000_0020, "checkbox");
+        assert_eq!(mixed.checked, Some("mixed"));
+
+        let collapsed = decode_msaa_state(0x0000_0400, "treeitem");
+        assert_eq!(collapsed.expanded, Some(false));
+        assert_eq!(collapsed.selected, Some(false));
+    }
     use crate::{Accessibility, InstancePlayback, Layer, LayerProperties, Symbol, Transform};
 
     #[test]

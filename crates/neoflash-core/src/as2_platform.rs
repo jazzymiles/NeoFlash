@@ -234,6 +234,32 @@ impl ScriptAS2Platform {
                     json!({"ok": false, "text": ""})
                 }
             }
+            "ime_composition_event" => {
+                let phase = q["phase"]
+                    .as_str()
+                    .filter(|p| matches!(*p, "start" | "update" | "end"))
+                    .ok_or("System.IME composition event requires start, update or end phase")?;
+                let data = q["data"]
+                    .as_str()
+                    .filter(|s| s.len() <= 4096)
+                    .ok_or("System.IME composition data requires a String of at most 4096 bytes")?;
+                if self.ime_enabled {
+                    self.ime_composition = data.to_owned();
+                    json!({
+                        "enabled": true,
+                        "broadcast": phase == "end",
+                        "text": self.ime_composition,
+                        "mode": self.ime_mode,
+                    })
+                } else {
+                    json!({
+                        "enabled": false,
+                        "broadcast": false,
+                        "text": "",
+                        "mode": self.ime_mode,
+                    })
+                }
+            }
             "allow_domain" => json!(register_domains(&mut self.allowed_domains, &q["domains"])?),
             "allow_insecure_domain" => json!(register_domains(
                 &mut self.allowed_insecure_domains,
@@ -456,6 +482,65 @@ mod tests {
             serde_json::from_str(&platform.execute(r#"{"op":"ime_do_conversion"}"#).unwrap())
                 .unwrap();
         assert_eq!(conv, json!({"ok":true,"text":"かな"}));
+        for mode in [
+            "ALPHANUMERIC_FULL",
+            "ALPHANUMERIC_HALF",
+            "CHINESE",
+            "JAPANESE_HIRAGANA",
+            "JAPANESE_KATAKANA_FULL",
+            "JAPANESE_KATAKANA_HALF",
+            "KOREAN",
+            "UNKNOWN",
+        ] {
+            assert_eq!(
+                platform
+                    .execute(&json!({"op":"ime_set_mode","mode":mode}).to_string())
+                    .unwrap(),
+                "true"
+            );
+            assert_eq!(
+                platform.execute(r#"{"op":"ime_get_mode"}"#).unwrap(),
+                serde_json::to_string(mode).unwrap()
+            );
+        }
+        assert_eq!(
+            platform
+                .execute(r#"{"op":"ime_set_mode","mode":"INVALID_MODE"}"#)
+                .unwrap(),
+            "false"
+        );
+        let comp_upd: Value = serde_json::from_str(
+            &platform
+                .execute(r#"{"op":"ime_composition_event","phase":"update","data":"にほん"}"#)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(comp_upd["enabled"], true);
+        assert_eq!(comp_upd["broadcast"], false);
+        assert_eq!(comp_upd["text"], "にほん");
+        let comp_end: Value = serde_json::from_str(
+            &platform
+                .execute(r#"{"op":"ime_composition_event","phase":"end","data":"日本"}"#)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(comp_end["enabled"], true);
+        assert_eq!(comp_end["broadcast"], true);
+        assert_eq!(comp_end["text"], "日本");
+        platform
+            .execute(r#"{"op":"ime_set_enabled","enabled":false}"#)
+            .unwrap();
+        let comp_disabled: Value = serde_json::from_str(
+            &platform
+                .execute(r#"{"op":"ime_composition_event","phase":"end","data":"無視"}"#)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(comp_disabled["enabled"], false);
+        assert_eq!(comp_disabled["broadcast"], false);
+        platform
+            .execute(r#"{"op":"ime_set_enabled","enabled":true}"#)
+            .unwrap();
         assert_eq!(
             platform
                 .execute(r#"{"op":"allow_domain","domains":["example.com"]}"#)

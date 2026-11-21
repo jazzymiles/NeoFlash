@@ -1302,8 +1302,75 @@ test('runtime host wires DisplayObject.accessibilityProperties, Stage.accessibil
     ],
   };
 
+  const AccessibilityLib = require('../accessibility.js');
+  const liveDomRecords = [];
+  const liveDoc = {
+    activeElement: null,
+    createElement(tag) {
+      const attrs = new Map();
+      const children = [];
+      const listeners = new Map();
+      return {
+        tagName: tag.toUpperCase(),
+        className: '',
+        type: '',
+        hidden: false,
+        id: '',
+        disabled: false,
+        textContent: '',
+        style: {},
+        parentNode: null,
+        children,
+        setAttribute(k, v) { attrs.set(k, String(v)); },
+        getAttribute(k) { return attrs.has(k) ? attrs.get(k) : null; },
+        removeAttribute(k) { attrs.delete(k); },
+        appendChild(c) { c.parentNode = this; children.push(c); return c; },
+        addEventListener(type, fn) {
+          const list = listeners.get(type) || [];
+          list.push(fn);
+          listeners.set(type, list);
+        },
+        dispatchEvent(ev) {
+          const list = listeners.get(ev.type) || [];
+          for (const fn of [...list]) fn(ev);
+          return true;
+        },
+        focus() {
+          liveDoc.activeElement = this;
+          this.dispatchEvent({ type: 'focus', target: this });
+        },
+        blur() {
+          if (liveDoc.activeElement === this) liveDoc.activeElement = null;
+          this.dispatchEvent({ type: 'blur', target: this, relatedTarget: null });
+        },
+        remove() {
+          this.parentNode = null;
+          const idx = liveDomRecords.indexOf(this);
+          if (idx >= 0) liveDomRecords.splice(idx, 1);
+        },
+        get nextElementSibling() {
+          const idx = liveDomRecords.indexOf(this);
+          return idx >= 0 ? liveDomRecords[idx + 1] || null : null;
+        },
+      };
+    },
+  };
+  const liveContainer = {
+    ownerDocument: liveDoc,
+    get firstElementChild() { return liveDomRecords[0] || null; },
+    insertBefore(el, before) {
+      el.parentNode = this;
+      const existing = liveDomRecords.indexOf(el);
+      if (existing >= 0) liveDomRecords.splice(existing, 1);
+      const idx = before ? liveDomRecords.indexOf(before) : -1;
+      if (idx >= 0) liveDomRecords.splice(idx, 0, el);
+      else liveDomRecords.push(el);
+    },
+  };
+  const liveSemanticLayer = new AccessibilityLib.SemanticLayer(liveContainer, () => {});
+
   const player = new wasm.WebPlayer(JSON.stringify(dummyProject));
-  const { host } = createRuntimeHost(root, player, [], { project: dummyProject });
+  const { host } = createRuntimeHost(root, player, [], { project: dummyProject, semanticLayer: liveSemanticLayer });
   try {
     const prog = host.program();
     const Sprite = prog.type('flash.display.Sprite');
@@ -1312,8 +1379,11 @@ test('runtime host wires DisplayObject.accessibilityProperties, Stage.accessibil
     const SoundMixer = prog.type('flash.media.SoundMixer');
     const NetStatusEvent = prog.type('flash.events.NetStatusEvent');
     const AccessibilityProperties = prog.type('flash.accessibility.AccessibilityProperties');
+    const AccessibilityImplementation = prog.type('flash.accessibility.AccessibilityImplementation');
     const Accessibility = prog.type('flash.accessibility.Accessibility');
+    const Rectangle = prog.type('flash.geom.Rectangle');
 
+    assert.equal(Accessibility.active, true);
     assert.equal(SoundMixer.areSoundsInaccessible(), false);
 
     const nse = new NetStatusEvent(NetStatusEvent.NET_STATUS, false, false, {
@@ -1333,6 +1403,44 @@ test('runtime host wires DisplayObject.accessibilityProperties, Stage.accessibil
     const rootClip = host.proxyFor([]);
     rootClip.addChild(sp);
     Accessibility.updateProperties();
+
+    // Live DisplayObject.accessibilityImplementation (without AccessibilityProperties) projects host + children on Accessibility.updateProperties()
+    const liveImplLog = [];
+    class LiveMenuAccImpl extends AccessibilityImplementation {
+      get_accRole(cid) { return cid === 0 ? 0x21 : 0x22; } // listbox / option
+      get_accState(cid) { return cid === 1 ? (0x00100000 | 0x00200000 | 0x00000002) : 0x00100000; }
+      get_accName(cid) { return cid === 0 ? 'Runtime ListBox' : `Item ${cid}`; }
+      get_accValue(cid) { return cid === 0 ? 'Item 1' : `v-${cid}`; }
+      get_accDefaultAction(cid) { return cid > 0 ? 'Choose' : null; }
+      get_accFocus() { return 1; }
+      get_accSelection() { return [1]; }
+      getChildIDArray() { return [1, 2]; }
+      accLocation(cid) { return new Rectangle(5, cid * 20, 90, 18); }
+      accDoDefaultAction(cid) { liveImplLog.push(['act', cid]); }
+      accSelect(op, cid) { liveImplLog.push(['sel', op, cid]); }
+    }
+    const accWidget = new Sprite();
+    accWidget.x = 30;
+    accWidget.y = 50;
+    accWidget.accessibilityImplementation = new LiveMenuAccImpl();
+    rootClip.addChild(accWidget);
+    Accessibility.updateProperties();
+
+    const hostListDom = liveDomRecords.find(el => el.getAttribute('aria-label') === 'Runtime ListBox');
+    const item1Dom = liveDomRecords.find(el => el.getAttribute('aria-label') === 'Item 1');
+    const item2Dom = liveDomRecords.find(el => el.getAttribute('aria-label') === 'Item 2');
+    assert.ok(hostListDom, 'Accessibility.updateProperties() projects live Sprite.accessibilityImplementation');
+    assert.equal(hostListDom.getAttribute('role'), 'listbox');
+    assert.equal(hostListDom.getAttribute('aria-activedescendant'), item1Dom.id);
+    assert.equal(item1Dom.getAttribute('role'), 'option');
+    assert.equal(item1Dom.getAttribute('aria-selected'), 'true');
+    assert.equal(item1Dom.style.left, '35px'); // accWidget.x (30) + accLocation.x (5)
+    assert.equal(item1Dom.style.top, '70px');  // accWidget.y (50) + accLocation.y (20)
+    assert.equal(item2Dom.style.top, '90px');  // accWidget.y (50) + accLocation.y (40)
+    item2Dom.focus();
+    item2Dom.dispatchEvent({ type: 'click' });
+    assert.ok(liveImplLog.some(e => e[0] === 'sel' && e[1] === 0x01 && e[2] === 2));
+    assert.ok(liveImplLog.some(e => e[0] === 'act' && e[1] === 2));
 
     // Stage.accessibilityProperties throws IllegalOperationError #2071 on write
     assert.equal(rootClip.stage.accessibilityProperties, null);
@@ -1770,6 +1878,7 @@ test('Wave 6: GameInput live gamepad sync, StageVideo canvas compositing, Microp
       createElement(tag) {
         const attrs = new Map();
         const children = [];
+        const listeners = new Map();
         return {
           tagName: tag.toUpperCase(),
           className: '',
@@ -1779,13 +1888,32 @@ test('Wave 6: GameInput live gamepad sync, StageVideo canvas compositing, Microp
           disabled: false,
           textContent: '',
           style: {},
+          parentNode: null,
           children,
           setAttribute(k, v) { attrs.set(k, String(v)); },
           getAttribute(k) { return attrs.has(k) ? attrs.get(k) : null; },
           removeAttribute(k) { attrs.delete(k); },
-          appendChild(c) { children.push(c); return c; },
-          addEventListener() {},
+          appendChild(c) { c.parentNode = this; children.push(c); return c; },
+          addEventListener(type, fn) {
+            const list = listeners.get(type) || [];
+            list.push(fn);
+            listeners.set(type, list);
+          },
+          dispatchEvent(ev) {
+            const list = listeners.get(ev.type) || [];
+            for (const fn of [...list]) fn(ev);
+            return true;
+          },
+          focus() {
+            fakeDoc.activeElement = this;
+            this.dispatchEvent({ type: 'focus', target: this });
+          },
+          blur() {
+            if (fakeDoc.activeElement === this) fakeDoc.activeElement = null;
+            this.dispatchEvent({ type: 'blur', target: this, relatedTarget: null });
+          },
           remove() {
+            this.parentNode = null;
             const idx = domRecords.indexOf(this);
             if (idx >= 0) domRecords.splice(idx, 1);
           },
@@ -1800,6 +1928,7 @@ test('Wave 6: GameInput live gamepad sync, StageVideo canvas compositing, Microp
       ownerDocument: fakeDoc,
       get firstElementChild() { return domRecords[0] || null; },
       insertBefore(el, before) {
+        el.parentNode = this;
         const existing = domRecords.indexOf(el);
         if (existing >= 0) domRecords.splice(existing, 1);
         const idx = before ? domRecords.indexOf(before) : -1;
@@ -1876,27 +2005,248 @@ test('Wave 6: GameInput live gamepad sync, StageVideo canvas compositing, Microp
     assert.equal(domRecords[0].getAttribute('data-force-simple'), 'true');
     assert.equal(domRecords[0].getAttribute('data-no-auto-labeling'), 'true');
 
-    // The custom implementation bridge consumes only the placement's name/value (child 0).
-    // Child inventories and role/state/action overrides do not manufacture an ARIA widget tree.
+    // Full AccessibilityImplementation bridge: queries child 0 role/state/name/value/defaultAction,
+    // isLabeledBy, get_accFocus, get_accSelection, and getChildIDArray() child tree with accLocation
+    // Rectangle positioning, projecting ARIA attributes and routing click/keydown/focus to
+    // accDoDefaultAction(childID) and accSelect(operation, childID).
     const implementationCalls = [];
+    let selectedSet = new Set([2]);
+    let checkedChild1 = false;
     const implementation = {
       stub: false,
-      get_accName(child) { implementationCalls.push(['name', child]); return 'Custom control'; },
-      get_accValue(child) { implementationCalls.push(['value', child]); return 'Custom value'; },
-      getChildIDArray() { implementationCalls.push(['children']); return [1, 2]; },
-      get_accRole(child) { implementationCalls.push(['role', child]); return 0x2a; },
-      get_accState(child) { implementationCalls.push(['state', child]); return 1; },
-      accDoDefaultAction(child) { implementationCalls.push(['action', child]); },
+      errno: 0,
+      get_accRole(child) {
+        implementationCalls.push(['role', child]);
+        if (child === 0) return 0x21; // ROLE_SYSTEM_LIST -> 'listbox'
+        if (child === 1) return 0x2c; // ROLE_SYSTEM_CHECKBUTTON -> 'checkbox'
+        return 0x22; // ROLE_SYSTEM_LISTITEM -> 'option'
+      },
+      get_accState(child) {
+        implementationCalls.push(['state', child]);
+        if (child === 0) return 0x00100000; // FOCUSABLE
+        if (child === 1) return 0x00100000 | (checkedChild1 ? 0x00000010 : 0);
+        if (child === 2) return 0x00100000 | 0x00200000 | (selectedSet.has(2) ? 0x00000002 : 0);
+        return 0x00000001; // child 3: UNAVAILABLE (disabled)
+      },
+      get_accName(child) {
+        implementationCalls.push(['name', child]);
+        if (child === 0) return 'Custom control';
+        return `Option ${child}`;
+      },
+      get_accValue(child) {
+        implementationCalls.push(['value', child]);
+        return child === 0 ? 'Custom value' : `val-${child}`;
+      },
+      get_accDefaultAction(child) {
+        implementationCalls.push(['defaultAction', child]);
+        return child === 1 ? 'Toggle' : 'Select';
+      },
+      get_accFocus() {
+        implementationCalls.push(['focus']);
+        return 2;
+      },
+      get_accSelection() {
+        implementationCalls.push(['selection']);
+        return Array.from(selectedSet);
+      },
+      getChildIDArray() {
+        implementationCalls.push(['children']);
+        return [1, 2, 3];
+      },
+      accLocation(child) {
+        implementationCalls.push(['location', child]);
+        return new geom.Rectangle(4, child * 20, 120, 18);
+      },
+      accDoDefaultAction(child) {
+        implementationCalls.push(['doAction', child]);
+        if (child === 1) checkedChild1 = !checkedChild1;
+      },
+      accSelect(op, child) {
+        implementationCalls.push(['select', op, child]);
+        if ((op & 0x02) !== 0) selectedSet = new Set([child]);
+      },
+      isLabeledBy(rect) {
+        implementationCalls.push(['labeledBy', rect.width]);
+        return rect.width === 88;
+      },
     };
-    const customSource = {...rawNodes[0], accessibility:{role:'button',name:'Authored name',description:''}};
-    const customNodes = host.applyAccessibilityPropertiesToSemanticNodes([customSource],()=>({accessibilityImplementation:implementation}));
-    assert.deepEqual(implementationCalls,[['name',0],['value',0]]);
-    assert.equal(customNodes[0].accessibility.name,'Custom control');assert.equal(customNodes[0].accessibility.description,'Custom value');assert.equal(customNodes[0].accessibility.role,'button');
-    semanticLayer.update(customNodes,sceneItems,{width:800,height:600},1,()=>20);
-    assert.equal(domRecords.length,1);assert.equal(domRecords[0].getAttribute('aria-label'),'Custom control');assert.deepEqual(implementationCalls,[['name',0],['value',0]]);
-    implementation.stub=true;
-    assert.equal(host.applyAccessibilityPropertiesToSemanticNodes([customSource],()=>({accessibilityImplementation:implementation}))[0].accessibility.name,'Authored name');
-    assert.deepEqual(implementationCalls,[['name',0],['value',0]],'stub implementations are not queried');
+    const customSource = { ...rawNodes[0], accessibility: { role: 'button', name: 'Authored name', description: '' } };
+    const customNodes = host.applyAccessibilityPropertiesToSemanticNodes(
+      [customSource],
+      () => ({ accessibilityImplementation: implementation })
+    );
+    assert.equal(customNodes[0].accessibility.name, 'Custom control');
+    assert.equal(customNodes[0].accessibility.description, 'Custom value');
+    assert.equal(customNodes[0].accessibility.valueText, 'Custom value');
+    assert.equal(customNodes[0].accessibility.role, 'listbox');
+    assert.equal(customNodes[0].accessibility.accChildren.length, 3);
+
+    semanticLayer.update(customNodes, sceneItems, { width: 800, height: 600 }, 1, () => 20);
+    assert.equal(domRecords.length, 4, 'host listbox + 3 AccessibilityImplementation child ARIA nodes');
+    const hostDom = domRecords[0];
+    const child1Dom = domRecords.find(el => el.getAttribute('data-child-id') === '1');
+    const child2Dom = domRecords.find(el => el.getAttribute('data-child-id') === '2');
+    const child3Dom = domRecords.find(el => el.getAttribute('data-child-id') === '3');
+    assert.equal(hostDom.getAttribute('role'), 'listbox');
+    assert.equal(hostDom.getAttribute('aria-label'), 'Custom control');
+    assert.equal(hostDom.getAttribute('aria-valuetext'), 'Custom value');
+    assert.equal(hostDom.getAttribute('aria-activedescendant'), child2Dom.id);
+
+    assert.equal(child1Dom.getAttribute('role'), 'checkbox');
+    assert.equal(child1Dom.getAttribute('aria-label'), 'Option 1');
+    assert.equal(child1Dom.getAttribute('aria-valuetext'), 'val-1');
+    assert.equal(child1Dom.getAttribute('aria-checked'), 'false');
+    assert.equal(child1Dom.style.left, '4px');  // hostBounds.left (0) + accLocation.x (4)
+    assert.equal(child1Dom.style.top, '20px');  // hostBounds.top (0) + accLocation.y (20)
+    assert.equal(child1Dom.style.width, '120px');
+    assert.equal(child1Dom.style.height, '18px');
+
+    // Verify non-zero host world transform translates accLocation relative to host bounds
+    semanticLayer.update(
+      customNodes,
+      [{ ...sceneItems[0], transform: [1, 0, 0, 1, 10, 10] }],
+      { width: 800, height: 600 },
+      1,
+      () => 20
+    );
+    assert.equal(child1Dom.style.left, '14px'); // hostBounds.left (10) + accLocation.x (4)
+    assert.equal(child1Dom.style.top, '30px');  // hostBounds.top (10) + accLocation.y (20)
+
+    assert.equal(child2Dom.getAttribute('role'), 'option');
+    assert.equal(child2Dom.getAttribute('aria-selected'), 'true');
+    assert.equal(child3Dom.getAttribute('aria-disabled'), 'true');
+
+    // Focus and keyboard/click activation on child nodes route to accSelect & accDoDefaultAction
+    child2Dom.focus();
+    assert.ok(implementationCalls.some(c => c[0] === 'select' && c[1] === 0x01 && c[2] === 2));
+    child1Dom.dispatchEvent({ type: 'keydown', key: 'Enter', preventDefault() {} });
+    assert.ok(implementationCalls.some(c => c[0] === 'doAction' && c[1] === 1));
+    assert.equal(checkedChild1, true);
+    child2Dom.dispatchEvent({ type: 'click' });
+    assert.ok(implementationCalls.some(c => c[0] === 'select' && c[1] === 0x02 && c[2] === 2));
+    assert.ok(implementationCalls.some(c => c[0] === 'doAction' && c[1] === 2));
+
+    // isLabeledBy fallback when get_accName(0) returns null
+    const namelessImpl = {
+      stub: false,
+      get_accRole: () => 0x2a,
+      get_accState: () => 0x00100000,
+      get_accName: () => null,
+      isLabeledBy: r => r.width === 88,
+    };
+    const labeledNodes = host.applyAccessibilityPropertiesToSemanticNodes(
+      [{ ...rawNodes[0], accessibility: { role: 'group', name: '', description: '' } }],
+      () => ({ accessibilityImplementation: namelessImpl }),
+      [{ x: 0, y: 0, width: 88, height: 18, text: 'Associated Field Label' }]
+    );
+    assert.equal(labeledNodes[0].accessibility.name, 'Associated Field Label');
+
+    // stub = true suppresses all AccessibilityImplementation queries
+    const countBeforeStub = implementationCalls.length;
+    implementation.stub = true;
+    assert.equal(
+      host.applyAccessibilityPropertiesToSemanticNodes([customSource], () => ({ accessibilityImplementation: implementation }))[0].accessibility.name,
+      'Authored name'
+    );
+    assert.equal(implementationCalls.length, countBeforeStub, 'stub implementations are not queried');
+  } finally {
+    h.dispose();
+  }
+});
+
+test('T-419: flash.ui.ContextMenu items/numItems/addItemAt/getItemAt/getItemIndex/containsItem/removeItemAt/removeAllItems/display and clipboardMenu Event.CUT..SELECT_ALL dispatch', async () => {
+  await ready;
+  const h = createMediaEventsHarness();
+  try {
+    const { mediaEvents: host, B, E, stageHost } = h;
+    const ContextMenu = B['flash.ui.ContextMenu'];
+    const ContextMenuItem = B['flash.ui.ContextMenuItem'];
+
+    const cm = new ContextMenu();
+    assert.equal(cm.numItems, 0);
+    assert.deepEqual(cm.items, []);
+
+    const a = new ContextMenuItem('Item A');
+    const b = new ContextMenuItem('Item B', true);
+    const c = new ContextMenuItem('Item C');
+
+    assert.equal(cm.addItemAt(a, 0), a);
+    assert.equal(cm.addItemAt(c, 1), c);
+    assert.equal(cm.addItemAt(b, 1), b);
+    assert.equal(cm.numItems, 3);
+    assert.deepEqual(cm.items, [a, b, c]);
+    assert.equal(cm.getItemAt(0), a);
+    assert.equal(cm.getItemAt(1), b);
+    assert.equal(cm.getItemAt(2), c);
+    assert.equal(cm.getItemIndex(b), 1);
+    assert.equal(cm.containsItem(b), true);
+    assert.equal(cm.containsItem(new ContextMenuItem('Other')), false);
+
+    assert.throws(() => cm.addItemAt(new ContextMenuItem('Bad'), -1), RangeError);
+    assert.throws(() => cm.addItemAt(new ContextMenuItem('Bad'), 4), RangeError);
+    assert.throws(() => cm.getItemAt(-1), RangeError);
+    assert.throws(() => cm.getItemAt(3), RangeError);
+    assert.throws(() => cm.removeItemAt(-1), RangeError);
+    assert.throws(() => cm.removeItemAt(3), RangeError);
+
+    const removed = cm.removeItemAt(1);
+    assert.equal(removed, b);
+    assert.equal(cm.numItems, 2);
+    assert.equal(cm.containsItem(b), false);
+    assert.equal(cm.getItemIndex(b), -1);
+
+    cm.removeAllItems();
+    assert.equal(cm.numItems, 0);
+    assert.deepEqual(cm.items, []);
+
+    cm.items = [a, c];
+    assert.equal(cm.numItems, 2);
+    assert.equal(cm.getItemAt(1), c);
+
+    // ContextMenu.display(stage, stageX, stageY) + clipboardMenu Event.CUT/COPY/PASTE/CLEAR/SELECT_ALL
+    cm.clipboardMenu = true;
+    cm.clipboardItems.cut = true;
+    cm.clipboardItems.copy = true;
+    cm.clipboardItems.paste = true;
+    cm.clipboardItems.clear = true;
+    cm.clipboardItems.selectAll = true;
+
+    const dispatchedClipboardEvents = [];
+    const focusedEditor = new E.EventDispatcher();
+    focusedEditor.text = 'Alpha Beta';
+    focusedEditor.selectionBeginIndex = 0;
+    focusedEditor.selectionEndIndex = 5;
+    for (const evType of ['cut', 'copy', 'paste', 'clear', 'selectAll']) {
+      focusedEditor.addEventListener(evType, ev => {
+        dispatchedClipboardEvents.push(ev.type);
+      });
+    }
+    stageHost.changeFocus(focusedEditor);
+
+    let menuSelectCount = 0;
+    let customItemSelectCount = 0;
+    cm.addEventListener('menuSelect', () => { menuSelectCount++; });
+    a.addEventListener('menuItemSelect', () => { customItemSelectCount++; });
+
+    cm.display(stageHost.stage, 45, 75);
+    let activeMenu = host.getActiveContextMenu();
+    assert.ok(activeMenu, 'ContextMenu.display mounts Stage context menu overlay');
+    assert.equal(menuSelectCount, 1);
+    assert.equal(activeMenu.style.left, '45px');
+    assert.equal(activeMenu.style.top, '75px');
+
+    activeMenu.querySelectorAll('[role="menuitem"]').find(btn => btn.textContent === 'Item A').click();
+    assert.equal(customItemSelectCount, 1);
+
+    for (const label of ['Copy', 'Cut', 'Paste', 'Select All', 'Clear']) {
+      cm.display(stageHost.stage, 20, 30);
+      activeMenu = host.getActiveContextMenu();
+      const btn = activeMenu.querySelectorAll('[role="menuitem"]').find(el => el.textContent === label);
+      assert.ok(btn, `Expected clipboard menu item ${label}`);
+      btn.click();
+    }
+    assert.deepEqual(dispatchedClipboardEvents, ['copy', 'cut', 'paste', 'selectAll', 'clear']);
+    assert.equal(focusedEditor.text, '');
   } finally {
     h.dispose();
   }

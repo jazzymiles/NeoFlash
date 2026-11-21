@@ -76,33 +76,98 @@
         return function(...args){active();if(created!==generation)throw new Error('This AS2 Delegate belongs to a restarted publication.');return Reflect.apply(method,receiver,args);};
       }},__nfIs:{value:()=>false}
     });
-    const imeListeners=new wasm.ScriptBroadcaster(1024),imeReferences=new Map();
+    const AS2_IME_DOC_HOOKS=Symbol.for('neoflash.as2.imeDocHooks.v1');
+    function getAs2DocHookRegistry(){
+      let reg=global[AS2_IME_DOC_HOOKS];
+      if(!reg){
+        reg={byDoc:new WeakMap(),globalHooks:new Set()};
+        Object.defineProperty(global,AS2_IME_DOC_HOOKS,{value:reg,configurable:true});
+      }
+      return reg;
+    }
+    const imeListeners=new wasm.ScriptBroadcaster(1024),imeReferences=new Map(),handledEvents=new WeakSet();
     let imeIdentities=new WeakMap(),systemOnStatus=null;
     function unsupported(api,reason){throw new Error(`${api} is unavailable in the HTML5 publication: ${reason}`);}
     function platform(request){active();try{return JSON.parse(core.execute(JSON.stringify(request)));}catch(error){throw error instanceof Error?error:new TypeError(String(error));}}
+    function syncDomImeAttributes(enabled,mode){
+      const rootEl=document?.documentElement;
+      if(rootEl&&typeof rootEl.setAttribute==='function'){
+        if(enabled!==undefined)rootEl.setAttribute('data-ime-enabled',String(Boolean(enabled)));
+        if(mode!==undefined)rootEl.setAttribute('data-ime-mode',String(mode));
+      }
+      const activeEl=document?.activeElement;
+      if(activeEl&&typeof activeEl.setAttribute==='function'&&/^(?:INPUT|TEXTAREA)$/.test(String(activeEl.tagName||''))){
+        if(enabled!==undefined)activeEl.setAttribute('data-ime-enabled',String(Boolean(enabled)));
+        if(mode!==undefined)activeEl.setAttribute('data-ime-mode',String(mode));
+      }
+    }
+    function broadcastImeMessage(name,...args){
+      if(disposed||typeof name!=='string'||!name)return false;
+      const current=generation,length=imeListeners.len();
+      try{
+        for(let index=0;index<length;index++){
+          if(disposed||current!==generation)return true;
+          const listener=imeReferences.get(imeListeners.at(index));
+          if(listener&&typeof listener[name]==='function')Reflect.apply(listener[name],listener,args);
+        }
+        options.afterEvent?.();
+      }catch(error){if(options.onError)options.onError(error);else throw error;}
+      return true;
+    }
     const IME={
       ALPHANUMERIC_FULL:'ALPHANUMERIC_FULL',ALPHANUMERIC_HALF:'ALPHANUMERIC_HALF',CHINESE:'CHINESE',
       JAPANESE_HIRAGANA:'JAPANESE_HIRAGANA',JAPANESE_KATAKANA_FULL:'JAPANESE_KATAKANA_FULL',
       JAPANESE_KATAKANA_HALF:'JAPANESE_KATAKANA_HALF',KOREAN:'KOREAN',UNKNOWN:'UNKNOWN',
-      addListener(listener){active();object(listener);const id=imeListeners.add(imeIdentities.get(listener)||0);imeIdentities.set(listener,id);imeReferences.set(id,listener);},
+      addListener(listener){active();object(listener);const id=imeListeners.add(imeIdentities.get(listener)||0);imeIdentities.set(listener,id);imeReferences.set(id,listener);return true;},
       removeListener(listener){active();if(listener===null||(typeof listener!=='object'&&typeof listener!=='function'))return false;const id=imeIdentities.get(listener)||0,removed=imeListeners.remove(id);if(removed)imeReferences.delete(id);return removed;},
-      doConversion(){const res=platform({op:'ime_do_conversion'});if(res.ok)composition({data:res.text});return res.ok;},
+      broadcastMessage(name,...args){active();if(typeof name!=='string')throw new TypeError('AsBroadcaster event names require strings.');return broadcastImeMessage(name,...args);},
+      get _listeners(){active();return Object.freeze(Array.from(imeListeners.listeners(),id=>imeReferences.get(id)));},
+      doConversion(){const res=platform({op:'ime_do_conversion'});if(res.ok)broadcastImeMessage('onIMEComposition',String(res.text??''));return res.ok;},
       getConversionMode(){return platform({op:'ime_get_mode'});},
       getEnabled(){return platform({op:'ime_get_enabled'});},
-      setCompositionString(text){return platform({op:'ime_set_composition',composition:text});},
-      setConversionMode(mode){return platform({op:'ime_set_mode',mode});},
-      setEnabled(enabled){return platform({op:'ime_set_enabled',enabled});}
-    };
-    function composition(event){
-      if(disposed)return;const current=generation,length=imeListeners.len();
-      try{
-        for(let index=0;index<length;index++){
-          if(disposed||current!==generation)return;
-          const listener=imeReferences.get(imeListeners.at(index));
-          if(listener&&typeof listener.onIMEComposition==='function')Reflect.apply(listener.onIMEComposition,listener,[String(event.data||'')]);
+      setCompositionString(text){
+        const ok=platform({op:'ime_set_composition',composition:text});
+        if(ok){
+          const activeEl=document?.activeElement;
+          if(activeEl&&typeof activeEl.setAttribute==='function'&&/^(?:INPUT|TEXTAREA)$/.test(String(activeEl.tagName||''))){
+            activeEl.setAttribute('data-ime-composition',String(text));
+          }
         }
-      }catch(error){if(options.onError)options.onError(error);else throw error;}
+        return ok;
+      },
+      setConversionMode(mode){
+        const ok=platform({op:'ime_set_mode',mode});
+        if(ok)syncDomImeAttributes(undefined,mode);
+        return ok;
+      },
+      setEnabled(enabled){
+        const ok=platform({op:'ime_set_enabled',enabled});
+        if(ok)syncDomImeAttributes(enabled,undefined);
+        return ok;
+      }
+    };
+    function handleDomComposition(phase,event){
+      if(disposed)return false;
+      if(event&&typeof event==='object'){
+        if(handledEvents.has(event))return false;
+        handledEvents.add(event);
+      }
+      const rawData=String(event?.data??event?.text??'').slice(0,4096);
+      let res;
+      try{
+        res=JSON.parse(core.execute(JSON.stringify({op:'ime_composition_event',phase,data:rawData})));
+      }catch(_){
+        const en=IME.getEnabled();
+        if(en){try{IME.setCompositionString(rawData);}catch(_e){}}
+        res={enabled:en,broadcast:en&&phase==='end',text:en?rawData:''};
+      }
+      if(!res.enabled)return false;
+      if(res.broadcast)broadcastImeMessage('onIMEComposition',String(res.text??''));
+      return true;
     }
+    const onCompStart=ev=>handleDomComposition('start',ev);
+    const onCompUpdate=ev=>handleDomComposition('update',ev);
+    const onCompEnd=ev=>handleDomComposition('end',ev);
     const security=Object.freeze({
       get sandboxType(){active();return core.sandbox_type();},
       allowDomain(...domains){platform({op:'allow_domain',domains});},
@@ -118,13 +183,31 @@
       setClipboard(text){const ok=platform({op:'set_clipboard',text});if(typeof host.navigator?.clipboard?.writeText==='function')Promise.resolve(host.navigator.clipboard.writeText(text)).catch(()=>{});return ok;},
       showSettings(tabID){const tab=platform({op:'show_settings',tab:tabID===undefined?0:tabID});options.onShowSettings?.(tab);}
     });
+    const hookReg=getAs2DocHookRegistry();
+    if(document&&typeof document==='object'){
+      let set=hookReg.byDoc.get(document);
+      if(!set){set=new Set();hookReg.byDoc.set(document,set);}
+      set.add(handleDomComposition);
+    }else{
+      hookReg.globalHooks.add(handleDomComposition);
+    }
+    document?.addEventListener?.('compositionstart',onCompStart);
+    document?.addEventListener?.('compositionupdate',onCompUpdate);
+    document?.addEventListener?.('compositionend',onCompEnd);
     function observeKeyEvent(event){active();if(typeof event?.getModifierState==='function'){core.key_toggle(20,!!event.getModifierState('CapsLock'));core.key_toggle(144,!!event.getModifierState('NumLock'));}}
     function reset(){active();for(const value of [...records])freeRecord(value);imeListeners.reset();imeReferences.clear();imeIdentities=new WeakMap();systemOnStatus=null;generation++;core.reset();}
-    function dispose(){if(disposed)return;reset();disposed=true;document?.removeEventListener?.('compositionend',composition);imeListeners.free();core.free();}
-    document?.addEventListener?.('compositionend',composition);
+    function dispose(){
+      if(disposed)return;reset();disposed=true;
+      document?.removeEventListener?.('compositionstart',onCompStart);
+      document?.removeEventListener?.('compositionupdate',onCompUpdate);
+      document?.removeEventListener?.('compositionend',onCompEnd);
+      if(document&&typeof document==='object')hookReg.byDoc.get(document)?.delete(handleDomComposition);
+      hookReg.globalHooks.delete(handleDomComposition);
+      imeListeners.free();core.free();
+    }
     function getVersion(){active();return capabilities.version;}
     function updateAfterEvent(){active();if(typeof options.requestRender!=='function')throw new Error('AS2 updateAfterEvent requires the publication render-request hook.');options.requestRender();}
-    return Object.freeze({System,Delegate,EventDispatcher,getVersion,updateAfterEvent,observeKeyEvent,isToggled(code){active();return core.is_toggled(Number(code)>>>0);},reset,dispose});
+    return Object.freeze({System,Delegate,EventDispatcher,getVersion,updateAfterEvent,observeKeyEvent,notifyComposition:handleDomComposition,isToggled(code){active();return core.is_toggled(Number(code)>>>0);},reset,dispose});
   }
   const api=Object.freeze({create});
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAS2Platform=api;

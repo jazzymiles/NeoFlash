@@ -642,4 +642,37 @@ impl As3MediaEventsKernel {
         self.inner.accessibility_updates = self.inner.accessibility_updates.saturating_add(1);
         self.inner.accessibility_updates
     }
+
+    pub fn msaa_role_to_aria(&self, role: u32) -> String {
+        neoflash_core::accessibility::msaa_role_to_aria(role).to_owned()
+    }
+
+    pub fn decode_msaa_state_json(&self, state: u32, aria_role: &str) -> Result<String, JsValue> {
+        media_events_json(&neoflash_core::accessibility::decode_msaa_state(
+            state, aria_role,
+        ))
+    }
+
+    pub fn validate_context_menu_insert_index(
+        &self,
+        index: i32,
+        num_items: u32,
+    ) -> Result<u32, JsValue> {
+        neoflash_core::as3_media_events::validate_context_menu_insert_index(
+            index,
+            num_items as usize,
+        )
+        .map(|idx| idx as u32)
+        .map_err(media_events_js_err)
+    }
+
+    pub fn validate_context_menu_item_index(
+        &self,
+        index: i32,
+        num_items: u32,
+    ) -> Result<u32, JsValue> {
+        neoflash_core::as3_media_events::validate_context_menu_item_index(index, num_items as usize)
+            .map(|idx| idx as u32)
+            .map_err(media_events_js_err)
+    }
 }

@@ -1305,15 +1305,39 @@
           hit.el.readOnly=!domCanEdit(hit.field)||Boolean(hit.el.disabled);
         });
       }
+      const AS2_IME_DOC_HOOKS=Symbol.for('neoflash.as2.imeDocHooks.v1');
+      const AS3_IME_REGISTRY=Symbol.for('neoflash.as3.imeRegistry.v1');
+      function notifyCapturedImeHooks(phase,ev,receiver=null){
+        const docRef=ev?.target?.ownerDocument||document||global.document||null;
+        const as2Reg=global[AS2_IME_DOC_HOOKS];
+        if(as2Reg){
+          const set=docRef&&typeof docRef==='object'?as2Reg.byDoc?.get(docRef):null;
+          if(set)for(const fn of set)fn(phase,ev);
+          for(const fn of as2Reg.globalHooks||[])fn(phase,ev);
+        }
+        const as3Reg=global[AS3_IME_REGISTRY];
+        const netSysHook=as3Reg?.latest?.netSys;
+        if(netSysHook){
+          const txt=typeof ev?.data==='string'?ev.data:'';
+          netSysHook.notifyDomComposition?.(phase,txt,receiver);
+        }
+      }
+      function isGlobalAs3ImeDisabled(){
+        const as3Reg=global[AS3_IME_REGISTRY];
+        const netSysHook=as3Reg?.latest?.netSys;
+        return Boolean(netSysHook&&!netSysHook.isEnabled());
+      }
       addDocCapture('compositionstart',ev=>{
         const hit=resolveDomInputTarget(ev);if(!hit)return;
-        if(!domCanEdit(hit.field)||hit.el.disabled){ev.preventDefault?.();ev.stopImmediatePropagation?.();return;}
+        if(!domCanEdit(hit.field)||hit.el.disabled||isGlobalAs3ImeDisabled()){ev.preventDefault?.();ev.stopImmediatePropagation?.();return;}
         ev.stopImmediatePropagation?.();
         syncDomSelectionToPlayer(hit.el,hit.ownerKey);
         const snap=info(hit.ownerKey);
         domIme.set(hit.el,{ownerKey:hit.ownerKey,baseText:hit.el.value,previewValue:hit.el.value,snapshot:snap,cancelled:false});
+        const receiver=resolveReceiver(hit.ownerKey);
+        notifyCapturedImeHooks('start',ev,receiver);
         if(events){
-          const receiver=resolveReceiver(hit.ownerKey),Evt=events.IMEEvent||events.TextEvent;
+          const Evt=events.IMEEvent||events.TextEvent;
           if(receiver&&Evt)receiver.dispatchEvent?.(new Evt('imeStartComposition',false,true,typeof ev.data==='string'?ev.data:''));
         }
       });
@@ -1323,8 +1347,10 @@
         const ime=domIme.get(hit.el);
         const previewVal=hit.el.value,pStart=hit.el.selectionStart,pEnd=hit.el.selectionEnd;
         if(ime)ime.previewValue=previewVal;
+        const receiver=resolveReceiver(hit.ownerKey);
+        notifyCapturedImeHooks('update',ev,receiver);
         if(events){
-          const receiver=resolveReceiver(hit.ownerKey),Evt=events.IMEEvent||events.TextEvent;
+          const Evt=events.IMEEvent||events.TextEvent;
           if(receiver&&Evt)receiver.dispatchEvent?.(new Evt('imeComposition',false,true,typeof ev.data==='string'?ev.data:''));
         }
         if(hit.el.value!==previewVal){
@@ -1422,8 +1448,10 @@
           const sb=ime.snapshot?.selection_begin||0,se=ime.snapshot?.selection_end??sb;
           committedDomValue=ime.baseText.slice(0,sb)+evText+ime.baseText.slice(se);
         }
+        const receiver=resolveReceiver(hit.ownerKey);
+        notifyCapturedImeHooks('end',ev,receiver);
         if(events){
-          const receiver=resolveReceiver(hit.ownerKey),Evt=events.IMEEvent||events.TextEvent;
+          const Evt=events.IMEEvent||events.TextEvent;
           if(receiver&&Evt)receiver.dispatchEvent?.(new Evt('imeComposition',false,true,evText));
         }
         if(committedDomValue===ime.baseText)return;

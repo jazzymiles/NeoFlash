@@ -122,21 +122,41 @@
         if(!record.composing){selection(record);record.base=text.info(record.key);}
       });
       on('input',event=>{if(!record.composing&&!event.isComposing)acceptDom(record);});
+      const AS2_IME_DOC_HOOKS=Symbol.for('neoflash.as2.imeDocHooks.v1');
+      const AS3_IME_REGISTRY=Symbol.for('neoflash.as3.imeRegistry.v1');
+      const notifyInputImeHooks=(phase,event,txt)=>{
+        const as2Reg=global[AS2_IME_DOC_HOOKS];
+        if(as2Reg){
+          const dSet=doc&&typeof doc==='object'?as2Reg.byDoc?.get(doc):null;
+          if(dSet)for(const fn of dSet)fn(phase,event);
+          for(const fn of as2Reg.globalHooks||[])fn(phase,event);
+        }
+        const as3Reg=global[AS3_IME_REGISTRY];
+        const entry=(display&&as3Reg?.byDisplay?.get(display))||(stage?.stage&&as3Reg?.byStage?.get(stage.stage))||as3Reg?.latest;
+        entry?.netSys?.notifyDomComposition?.(phase,txt,null);
+      };
+      const isInputAs3ImeDisabled=()=>{
+        const as3Reg=global[AS3_IME_REGISTRY];
+        const entry=(display&&as3Reg?.byDisplay?.get(display))||(stage?.stage&&as3Reg?.byStage?.get(stage.stage))||as3Reg?.latest;
+        return Boolean(entry?.netSys&&!entry.netSys.isEnabled());
+      };
       on('compositionstart',event=>{
         const curField=text.info(record.key);
-        if(!editable(curField)){event.preventDefault?.();return;}
+        if(!editable(curField)||isInputAs3ImeDisabled()){event.preventDefault?.();return;}
         selection(record);
         record.imeSnapshot=text.info(record.key);
         record.base=record.imeSnapshot;
         record.composing=true;
         record.imeCancelled=false;
         const textValue=typeof event?.data==='string'?event.data:'';
+        notifyInputImeHooks('start',event,textValue);
         const Evt=events.IMEEvent||events.TextEvent;
         hub.dispatch(record.target,new Evt('imeStartComposition',false,false,textValue));
       });
       on('compositionupdate',event=>{
         if(!record.composing)return;
         const textValue=typeof event?.data==='string'?event.data:'';
+        notifyInputImeHooks('update',event,textValue);
         const Evt=events.IMEEvent||events.TextEvent;
         hub.dispatch(record.target,new Evt('imeComposition',false,false,textValue));
       });
@@ -146,14 +166,19 @@
         record.composing=false;
         record.imeCancelled=false;
         record.imeSnapshot=null;
-        if(wasCancelled||!editable(text.info(record.key))){
+        if(wasCancelled||!editable(text.info(record.key))||isInputAs3ImeDisabled()){
           record.base=null;
           sync(record.key,true);
           return;
         }
+        const committedDomVal=control.value;
         const textValue=typeof event?.data==='string'?event.data:'';
+        notifyInputImeHooks('end',event,textValue);
         const Evt=events.IMEEvent||events.TextEvent;
         hub.dispatch(record.target,new Evt('imeComposition',false,false,textValue));
+        if(snap&&control.value!==committedDomVal&&text.info(record.key).text===snap.text){
+          control.value=committedDomVal;
+        }
         if(snap)record.base=snap;
         acceptDom(record);
       });

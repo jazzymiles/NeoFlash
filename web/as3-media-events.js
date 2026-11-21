@@ -2793,6 +2793,41 @@
     tagType(ContextMenuItem, 'ContextMenuItem', v => cmItemStates.has(v));
 
     const cmStates = new WeakMap();
+    const cmItemOwners = new WeakMap();
+    function isValidMenuItem(item) {
+      if (!item || typeof item !== 'object') return false;
+      if (cmItemStates.has(item)) return true;
+      if (BaseNativeMenuItem !== BaseDispatcher && item instanceof BaseNativeMenuItem) return true;
+      return typeof item.caption === 'string' || typeof item.label === 'string';
+    }
+    function validateCmInsertIndex(index, len) {
+      const raw = Number(index);
+      if (!Number.isFinite(raw)) {
+        throw makeRangeError('Error #2006: The supplied index is out of bounds.', 2006);
+      }
+      const idx = raw | 0;
+      if (typeof kernel?.validate_context_menu_insert_index === 'function') {
+        return callKernel(() => kernel.validate_context_menu_insert_index(idx, len >>> 0));
+      }
+      if (idx < 0 || idx > len) {
+        throw makeRangeError(`Error #2006: The supplied index ${idx} is out of bounds.`, 2006);
+      }
+      return idx;
+    }
+    function validateCmItemIndex(index, len) {
+      const raw = Number(index);
+      if (!Number.isFinite(raw)) {
+        throw makeRangeError('Error #2006: The supplied index is out of bounds.', 2006);
+      }
+      const idx = raw | 0;
+      if (typeof kernel?.validate_context_menu_item_index === 'function') {
+        return callKernel(() => kernel.validate_context_menu_item_index(idx, len >>> 0));
+      }
+      if (idx < 0 || idx >= len) {
+        throw makeRangeError(`Error #2006: The supplied index ${idx} is out of bounds.`, 2006);
+      }
+      return idx;
+    }
     class ContextMenu extends BaseNativeMenu {
       constructor() {
         super();
@@ -2826,7 +2861,122 @@
         if (!Array.isArray(v)) {
           throw new TypeError('ContextMenu.customItems requires an Array.');
         }
-        cmStates.get(this).customItems = v;
+        const st = cmStates.get(this);
+        for (const prev of st.customItems) {
+          if (cmItemOwners.get(prev) === this) cmItemOwners.delete(prev);
+        }
+        st.customItems = v;
+        for (const item of v) {
+          if (item && typeof item === 'object') cmItemOwners.set(item, this);
+        }
+      }
+      get items() {
+        return cmStates.get(this).customItems.slice();
+      }
+      set items(v) {
+        if (!Array.isArray(v)) {
+          throw makeArgumentError('ContextMenu.items requires an Array.', 2004);
+        }
+        for (const item of v) {
+          if (!isValidMenuItem(item)) {
+            throw new TypeError('ContextMenu.items elements must be NativeMenuItem or ContextMenuItem instances.');
+          }
+        }
+        this.removeAllItems();
+        for (const item of v) {
+          this.addItemAt(item, this.numItems);
+        }
+      }
+      get numItems() {
+        return cmStates.get(this).customItems.length;
+      }
+      addItem(item) {
+        return this.addItemAt(item, this.numItems);
+      }
+      addItemAt(item, index) {
+        if (!isValidMenuItem(item)) {
+          throw new TypeError('ContextMenu.addItemAt requires a ContextMenuItem or NativeMenuItem.');
+        }
+        const st = cmStates.get(this);
+        const idx = validateCmInsertIndex(index, st.customItems.length);
+        const prevOwner = cmItemOwners.get(item);
+        if (prevOwner && cmStates.has(prevOwner)) {
+          const prevList = cmStates.get(prevOwner).customItems;
+          const prevIdx = prevList.indexOf(item);
+          if (prevIdx >= 0) prevList.splice(prevIdx, 1);
+        }
+        const clamped = Math.min(idx, st.customItems.length);
+        st.customItems.splice(clamped, 0, item);
+        cmItemOwners.set(item, this);
+        return item;
+      }
+      getItemAt(index) {
+        const st = cmStates.get(this);
+        const idx = validateCmItemIndex(index, st.customItems.length);
+        return st.customItems[idx];
+      }
+      getItemIndex(item) {
+        return cmStates.get(this).customItems.indexOf(item);
+      }
+      containsItem(item) {
+        if (!item || typeof item !== 'object') return false;
+        const seen = new Set();
+        const checkList = list => {
+          for (const entry of list) {
+            if (entry === item) return true;
+            const sub = entry?.submenu;
+            if (sub && typeof sub === 'object' && !seen.has(sub)) {
+              seen.add(sub);
+              const subItems = cmStates.has(sub)
+                ? cmStates.get(sub).customItems
+                : Array.isArray(sub.items)
+                  ? sub.items
+                  : [];
+              if (checkList(subItems)) return true;
+            }
+          }
+          return false;
+        };
+        return checkList(cmStates.get(this).customItems);
+      }
+      removeItem(item) {
+        const idx = this.getItemIndex(item);
+        if (idx < 0) {
+          throw makeArgumentError('Error #2025: The supplied MenuItem must be a child of the caller.', 2025);
+        }
+        return this.removeItemAt(idx);
+      }
+      removeItemAt(index) {
+        const st = cmStates.get(this);
+        const idx = validateCmItemIndex(index, st.customItems.length);
+        const [removed] = st.customItems.splice(idx, 1);
+        if (removed && cmItemOwners.get(removed) === this) {
+          cmItemOwners.delete(removed);
+        }
+        return removed;
+      }
+      removeAllItems() {
+        const st = cmStates.get(this);
+        for (const item of st.customItems) {
+          if (item && cmItemOwners.get(item) === this) cmItemOwners.delete(item);
+        }
+        st.customItems.length = 0;
+      }
+      display(stage, stageX, stageY) {
+        if (!stage || typeof stage !== 'object') {
+          throw new TypeError('TypeError: Error #2007: Parameter stage must be non-null.');
+        }
+        if (options.StageClass?.__nfIs && !options.StageClass.__nfIs(stage) && stage !== options.getStage?.()) {
+          throw new TypeError('ContextMenu.display requires a Stage instance.');
+        }
+        const sx = Number(stageX) || 0;
+        const sy = Number(stageY) || 0;
+        openContextMenu(
+          { clientX: sx, clientY: sy, stageX: sx, stageY: sy },
+          stage.focus || stage,
+          this,
+          stage
+        );
       }
       get link() { return cmStates.get(this).link; }
       set link(v) {
@@ -2853,7 +3003,7 @@
         copy.clipboardMenu = this.clipboardMenu;
         copy.link = this.link;
         copy.customItems = this.customItems.map(item =>
-          cmItemStates.has(item) ? item.clone() : item
+          cmItemStates.has(item) || typeof item?.clone === 'function' ? item.clone() : item
         );
         return copy;
       }
@@ -2875,28 +3025,59 @@
       return activeMenuElement;
     }
 
-    function executeClipboardMenuAction(action, target) {
-      if (!target || typeof target !== 'object') return;
-      const text = typeof target.text === 'string' ? target.text : '';
-      const begin = Math.max(0, Math.min(text.length, Number(target.selectionBeginIndex ?? 0) | 0));
-      const end = Math.max(begin, Math.min(text.length, Number(target.selectionEndIndex ?? text.length) | 0));
+    const CLIPBOARD_EVENT_TYPES = Object.freeze({
+      cut: BaseEvent.CUT || 'cut',
+      copy: BaseEvent.COPY || 'copy',
+      paste: BaseEvent.PASTE || 'paste',
+      clear: BaseEvent.CLEAR || 'clear',
+      selectAll: BaseEvent.SELECT_ALL || 'selectAll',
+    });
+
+    function executeClipboardMenuAction(action, mouseTarget, contextMenuOwner = null) {
+      const stg = typeof options.getStage === 'function' ? options.getStage() : null;
+      const eventTarget = stg?.focus || mouseTarget || contextMenuOwner;
+      const evType = CLIPBOARD_EVENT_TYPES[action];
+      let defaultPrevented = false;
+      if (evType && eventTarget && typeof eventTarget === 'object') {
+        const clipEv = new BaseEvent(evType, true, true);
+        const res = dispatchOnTarget(eventTarget, clipEv);
+        defaultPrevented = Boolean(clipEv.defaultPrevented || res === false);
+      }
+      if (defaultPrevented) {
+        options.afterEvent?.();
+        return;
+      }
+      const textTarget =
+        eventTarget && typeof eventTarget.text === 'string'
+          ? eventTarget
+          : mouseTarget && typeof mouseTarget.text === 'string'
+            ? mouseTarget
+            : null;
+      if (!textTarget) {
+        options.afterEvent?.();
+        return;
+      }
+      const text = textTarget.text;
+      const begin = Math.max(0, Math.min(text.length, Number(textTarget.selectionBeginIndex ?? 0) | 0));
+      const end = Math.max(begin, Math.min(text.length, Number(textTarget.selectionEndIndex ?? text.length) | 0));
       if (action === 'selectAll') {
-        if (typeof target.setSelection === 'function') {
-          target.setSelection(0, text.length);
+        if (typeof textTarget.setSelection === 'function') {
+          textTarget.setSelection(0, text.length);
         } else {
-          target.selectionBeginIndex = 0;
-          target.selectionEndIndex = text.length;
+          textTarget.selectionBeginIndex = 0;
+          textTarget.selectionEndIndex = text.length;
         }
       } else if (action === 'copy') {
         clipboardTextBuffer = begin < end ? text.slice(begin, end) : text;
       } else if (action === 'cut') {
         clipboardTextBuffer = begin < end ? text.slice(begin, end) : text;
-        target.text = begin < end ? text.slice(0, begin) + text.slice(end) : '';
+        textTarget.text = begin < end ? text.slice(0, begin) + text.slice(end) : '';
       } else if (action === 'paste') {
-        target.text = text.slice(0, begin) + clipboardTextBuffer + text.slice(end);
+        textTarget.text = text.slice(0, begin) + clipboardTextBuffer + text.slice(end);
       } else if (action === 'clear') {
-        target.text = begin < end ? text.slice(0, begin) + text.slice(end) : '';
+        textTarget.text = begin < end ? text.slice(0, begin) + text.slice(end) : '';
       }
+      options.afterEvent?.();
     }
 
     function findContextMenuOwner(mouseTarget) {
@@ -2941,6 +3122,10 @@
           list.push(fn);
           listeners.set(type, list);
         },
+        dispatchEvent(ev) {
+          for (const fn of listeners.get(ev?.type) || []) fn(ev);
+          return !ev?.defaultPrevented;
+        },
         click() {
           if (this.disabled) return;
           for (const fn of listeners.get('click') || []) fn({ type: 'click', target: this });
@@ -2958,11 +3143,13 @@
       };
     }
 
-    function openContextMenu(rawEvent, targetOverride = null) {
+    function openContextMenu(rawEvent, targetOverride = null, explicitMenu = null, explicitOwner = null) {
       if (disposed) return null;
       closeContextMenu();
       const mouseTarget = resolveEventTarget(rawEvent, targetOverride);
-      const found = findContextMenuOwner(mouseTarget);
+      const found = explicitMenu && cmStates.has(explicitMenu)
+        ? { owner: explicitOwner || mouseTarget || options.getStage?.() || null, menu: explicitMenu }
+        : findContextMenuOwner(mouseTarget);
       if (!found) return null;
       const { owner: contextMenuOwner, menu } = found;
       rawEvent?.preventDefault?.();
@@ -3037,14 +3224,16 @@
 
       let renderedCustomCount = 0;
       for (const item of menu.customItems) {
-        if (!item || !cmItemStates.has(item)) continue;
-        if (!item.visible || !item.caption) continue;
+        if (!item || !isValidMenuItem(item)) continue;
+        const caption = item.caption ?? item.label ?? '';
+        const visible = item.visible !== undefined ? Boolean(item.visible) : true;
+        if (!visible || !caption) continue;
         if (item.separatorBefore || (renderedCustomCount === 0 && root.children?.length > 0)) {
           appendSeparator();
         }
         renderedCustomCount++;
-        appendButton(item.caption, Boolean(item.enabled), 'custom', {}, () => {
-          if (ContextMenuEvent) {
+        appendButton(caption, item.enabled !== false, 'custom', {}, () => {
+          if (ContextMenuEvent && typeof item.dispatchEvent === 'function') {
             const itemEv = new ContextMenuEvent(
               ContextMenuEvent.MENU_ITEM_SELECT || 'menuItemSelect',
               false,
@@ -3054,6 +3243,7 @@
             );
             item.dispatchEvent(itemEv);
           }
+          options.afterEvent?.();
         });
       }
 
@@ -3076,7 +3266,7 @@
         for (const [key, label] of clipSpecs) {
           if (!menu.clipboardMenu && !clip[key]) continue;
           appendButton(label, Boolean(clip[key]), 'clipboard', { 'data-action': key }, () => {
-            executeClipboardMenuAction(key, mouseTarget);
+            executeClipboardMenuAction(key, mouseTarget, contextMenuOwner);
           });
         }
       }
@@ -3464,14 +3654,186 @@
       }
     );
 
-    function applyAccessibilityPropertiesToSemanticNodes(nodes, resolveDisplayObject) {
+    function msaaRoleToAriaHelper(role) {
+      if (typeof kernel?.msaa_role_to_aria === 'function') {
+        try { return kernel.msaa_role_to_aria(Number(role) >>> 0); } catch (_) {}
+      }
+      if (typeof global.NeoFlashAccessibility?.msaaRoleToAria === 'function') {
+        return global.NeoFlashAccessibility.msaaRoleToAria(role);
+      }
+      switch (Number(role) >>> 0) {
+        case 0x09: case 0x10: return 'region';
+        case 0x0a: case 0x14: return 'group';
+        case 0x0b: return 'menu';
+        case 0x0c: return 'menuitem';
+        case 0x0d: return 'tooltip';
+        case 0x0e: return 'application';
+        case 0x0f: return 'document';
+        case 0x12: return 'dialog';
+        case 0x15: return 'separator';
+        case 0x16: return 'toolbar';
+        case 0x17: return 'status';
+        case 0x18: return 'table';
+        case 0x19: return 'columnheader';
+        case 0x1a: return 'rowheader';
+        case 0x1c: return 'row';
+        case 0x1d: return 'cell';
+        case 0x1e: return 'link';
+        case 0x21: return 'listbox';
+        case 0x22: return 'option';
+        case 0x23: return 'tree';
+        case 0x24: return 'treeitem';
+        case 0x25: return 'tab';
+        case 0x26: return 'tabpanel';
+        case 0x28: return 'img';
+        case 0x29: return 'note';
+        case 0x2a: return 'textbox';
+        case 0x2b: return 'button';
+        case 0x2c: return 'checkbox';
+        case 0x2d: return 'radio';
+        case 0x2e: return 'combobox';
+        case 0x30: return 'progressbar';
+        case 0x33: return 'slider';
+        case 0x34: return 'spinbutton';
+        case 0x3c: return 'tablist';
+        default: return 'group';
+      }
+    }
+
+    function decodeMsaaStateHelper(state, ariaRole) {
+      if (typeof kernel?.decode_msaa_state_json === 'function') {
+        try { return JSON.parse(kernel.decode_msaa_state_json(Number(state) >>> 0, String(ariaRole || ''))); } catch (_) {}
+      }
+      if (typeof global.NeoFlashAccessibility?.decodeMsaaState === 'function') {
+        return global.NeoFlashAccessibility.decodeMsaaState(state, ariaRole);
+      }
+      const bits = Number(state) >>> 0;
+      const r = String(ariaRole || '').toLowerCase();
+      const selectable = (bits & 0x00200000) !== 0 || ['option', 'tab', 'treeitem', 'row', 'cell'].includes(r);
+      return {
+        disabled: (bits & 0x00000001) !== 0,
+        selected: (bits & 0x00000002) !== 0 ? true : (selectable ? false : null),
+        focused: (bits & 0x00000004) !== 0,
+        pressed: (bits & 0x00000008) !== 0,
+        checked: (bits & 0x00000020) !== 0 ? 'mixed' : ((bits & 0x00000010) !== 0 ? 'true' : (['checkbox', 'radio', 'menuitemcheckbox', 'menuitemradio'].includes(r) ? 'false' : null)),
+        readonly: (bits & 0x00000040) !== 0,
+        expanded: (bits & 0x00000200) !== 0 ? true : ((bits & 0x00000400) !== 0 ? false : null),
+        invisible: (bits & 0x00008000) !== 0,
+        focusable: (bits & 0x00100000) !== 0,
+        selectable,
+      };
+    }
+
+    function extractAccLocationRect(loc) {
+      if (!loc || typeof loc !== 'object') return null;
+      const x = Number(loc.x);
+      const y = Number(loc.y);
+      const width = Number(loc.width);
+      const height = Number(loc.height);
+      if (Number.isFinite(width) && Number.isFinite(height)) {
+        return {
+          x: Number.isFinite(x) ? x : 0,
+          y: Number.isFinite(y) ? y : 0,
+          width: Math.max(0, width),
+          height: Math.max(0, height),
+        };
+      }
+      return null;
+    }
+
+    const synthAccIds = new WeakMap();
+    let nextSynthAccId = 100000;
+
+    function applyAccessibilityPropertiesToSemanticNodes(nodes, resolveDisplayObject, labelCandidates = null) {
       if (!Array.isArray(nodes)) return [];
+      const candidateNodes = [];
+      const seenDisp = new Set();
+      const seenRefKeys = new Set();
+      for (const n of nodes) {
+        if (!n || typeof n !== 'object') continue;
+        candidateNodes.push(n);
+        if (n.owner_ref) seenRefKeys.add(JSON.stringify(n.owner_ref));
+        if (typeof resolveDisplayObject === 'function') {
+          try {
+            const d = resolveDisplayObject(n);
+            if (d && typeof d === 'object') seenDisp.add(d);
+          } catch (_) {}
+        }
+      }
+      const stg = typeof options.getStage === 'function' ? options.getStage() : null;
+      if (stg && typeof stg === 'object' && typeof stg.getChildAt === 'function') {
+        const queue = [stg];
+        const visitedWalk = new Set([stg]);
+        while (queue.length > 0 && visitedWalk.size < 2048) {
+          const cur = queue.shift();
+          let count = 0;
+          try { count = Number(cur.numChildren) || 0; } catch (_) { count = 0; }
+          for (let i = 0; i < count; i++) {
+            let child = null;
+            try { child = cur.getChildAt(i); } catch (_) { child = null; }
+            if (!child || typeof child !== 'object' || visitedWalk.has(child)) continue;
+            visitedWalk.add(child);
+            let isVis = true;
+            try { isVis = child.visible !== false; } catch (_) {}
+            if (!isVis) continue;
+            queue.push(child);
+            if (seenDisp.has(child)) continue;
+            let cImpl = null;
+            try { cImpl = child.accessibilityImplementation; } catch (_) {}
+            if (cImpl && typeof cImpl === 'object' && !cImpl.stub) {
+              let ident = null;
+              try { ident = typeof child.toJSON === 'function' ? child.toJSON() : null; } catch (_) {}
+              const ownerRef = ident?.object_ref || null;
+              const refKeyStr = ownerRef ? JSON.stringify(ownerRef) : null;
+              if (refKeyStr && seenRefKeys.has(refKeyStr)) continue;
+              if (refKeyStr) seenRefKeys.add(refKeyStr);
+              seenDisp.add(child);
+              let synthId = synthAccIds.get(child);
+              if (!synthId) {
+                synthId = nextSynthAccId++;
+                synthAccIds.set(child, synthId);
+              }
+              let explicitBounds = null;
+              try {
+                const b = typeof child.getBounds === 'function' ? child.getBounds(stg) : null;
+                if (b && Number.isFinite(Number(b.width)) && Number.isFinite(Number(b.height)) && Number(b.width) > 0 && Number(b.height) > 0) {
+                  const bx = Number(b.x) || 0;
+                  const by = Number(b.y) || 0;
+                  explicitBounds = { left: bx, top: by, right: bx + Number(b.width), bottom: by + Number(b.height) };
+                }
+              } catch (_) {}
+              if (!explicitBounds) {
+                let cx = 0;
+                let cy = 0;
+                let cw = 1;
+                let ch = 1;
+                try {
+                  cx = Number(child.x) || 0;
+                  cy = Number(child.y) || 0;
+                  cw = Math.max(1, Number(child.width) || 1);
+                  ch = Math.max(1, Number(child.height) || 1);
+                } catch (_) {}
+                explicitBounds = { left: cx, top: cy, right: cx + cw, bottom: cy + ch };
+              }
+              candidateNodes.push({
+                ...(ownerRef ? { owner_ref: ownerRef } : {}),
+                instance_path: Array.isArray(ident?.path) ? ident.path : [],
+                lifetime_id: ownerRef ? ownerRef.generation : synthId,
+                explicitBounds,
+                __nfDisp: child,
+                accessibility: { role: 'group', name: '', description: '' },
+              });
+            }
+          }
+        }
+      }
+
       const out = [];
-      for (const node of nodes) {
+      for (const node of candidateNodes) {
         if (!node || typeof node !== 'object') continue;
         const baseAcc = { ...(node.accessibility || {}) };
-        let disp = null;
-        if (typeof resolveDisplayObject === 'function') {
+        let disp = node.__nfDisp || null;
+        if (!disp && typeof resolveDisplayObject === 'function') {
           try { disp = resolveDisplayObject(node); } catch (_) {}
         }
         const props = disp?.accessibilityProperties;
@@ -3485,19 +3847,196 @@
         }
         const impl = disp?.accessibilityImplementation;
         if (impl && typeof impl === 'object' && !impl.stub) {
+          let hostRoleCode = null;
           try {
-            const implName = impl.get_accName?.(0);
-            if (typeof implName === 'string' && implName.length > 0) baseAcc.name = implName;
-          } catch (_) {}
-          try {
-            const implVal = impl.get_accValue?.(0);
-            if (typeof implVal === 'string' && implVal.length > 0 && !baseAcc.description) {
-              baseAcc.description = implVal;
+            const rawRole = impl.get_accRole?.(0);
+            if (rawRole !== undefined && rawRole !== null && Number.isFinite(Number(rawRole))) {
+              hostRoleCode = Number(rawRole) >>> 0;
+              baseAcc.role = msaaRoleToAriaHelper(hostRoleCode);
             }
           } catch (_) {}
+
+          let hostState = null;
+          try {
+            const rawState = impl.get_accState?.(0);
+            if (rawState !== undefined && rawState !== null && Number.isFinite(Number(rawState))) {
+              hostState = decodeMsaaStateHelper(Number(rawState) >>> 0, baseAcc.role);
+            }
+          } catch (_) {}
+
+          if (hostState) {
+            if (hostState.invisible) baseAcc.silent = true;
+            if (hostState.disabled) baseAcc.disabled = true;
+            if (hostState.selected !== null) baseAcc.selected = hostState.selected;
+            if (hostState.checked !== null) baseAcc.checked = hostState.checked;
+            if (hostState.pressed) baseAcc.pressed = true;
+            if (hostState.expanded !== null) baseAcc.expanded = hostState.expanded;
+            if (hostState.readonly) baseAcc.readonly = true;
+            if (hostState.focusable) baseAcc.focusable = true;
+            if (hostState.selectable) baseAcc.selectable = true;
+          }
+
+          let hasImplName = false;
+          try {
+            const implName = impl.get_accName?.(0);
+            if (typeof implName === 'string' && implName.length > 0) {
+              baseAcc.name = implName;
+              hasImplName = true;
+            }
+          } catch (_) {}
+
+          if (!hasImplName && !baseAcc.noAutoLabeling && Array.isArray(labelCandidates) && typeof impl.isLabeledBy === 'function') {
+            for (const cand of labelCandidates) {
+              if (!cand || typeof cand.text !== 'string' || !cand.text.trim()) continue;
+              try {
+                const rect = makeRectangle(Number(cand.x) || 0, Number(cand.y) || 0, Number(cand.width) || 0, Number(cand.height) || 0);
+                if (impl.isLabeledBy(rect)) {
+                  baseAcc.name = cand.text.trim();
+                  break;
+                }
+              } catch (_) {}
+            }
+          }
+
+          try {
+            const implVal = impl.get_accValue?.(0);
+            if (typeof implVal === 'string' && implVal.length > 0) {
+              baseAcc.valueText = implVal;
+              if (!baseAcc.description) {
+                baseAcc.description = implVal;
+              }
+            }
+          } catch (_) {}
+
+          try {
+            const defAct = impl.get_accDefaultAction?.(0);
+            if (typeof defAct === 'string' && defAct.length > 0) {
+              baseAcc.defaultAction = defAct;
+            }
+          } catch (_) {}
+
+          let focusChildId = 0;
+          try {
+            const f = impl.get_accFocus?.();
+            if (Number.isFinite(Number(f))) focusChildId = Number(f) >>> 0;
+          } catch (_) {}
+          if (focusChildId > 0) baseAcc.activeDescendantChildId = focusChildId;
+
+          const selectedChildren = new Set();
+          try {
+            const selArr = impl.get_accSelection?.();
+            if (Array.isArray(selArr)) {
+              for (const item of selArr) {
+                if (Number.isFinite(Number(item))) selectedChildren.add(Number(item) >>> 0);
+              }
+            }
+          } catch (_) {}
+
+          baseAcc.accImplHooks = {
+            onDefaultAction() {
+              try { impl.accDoDefaultAction?.(0); } finally { options.afterEvent?.(); }
+            },
+            onSelect(operation) {
+              try { impl.accSelect?.(Number(operation) >>> 0, 0); } finally { options.afterEvent?.(); }
+            },
+          };
+
+          if (!baseAcc.forceSimple && !baseAcc.force_simple) {
+            let childIds = null;
+            try { childIds = impl.getChildIDArray?.(); } catch (_) {}
+            if (Array.isArray(childIds) && childIds.length > 0) {
+              const accChildren = [];
+              const limit = Math.min(childIds.length, 512);
+              for (let i = 0; i < limit; i++) {
+                const cid = Number(childIds[i]) >>> 0;
+                if (cid === 0) continue;
+                let cRole = 'option';
+                try {
+                  const cr = impl.get_accRole?.(cid);
+                  if (cr !== undefined && cr !== null && Number.isFinite(Number(cr))) {
+                    cRole = msaaRoleToAriaHelper(Number(cr) >>> 0);
+                  }
+                } catch (_) {}
+                let cState = decodeMsaaStateHelper(0, cRole);
+                try {
+                  const cs = impl.get_accState?.(cid);
+                  if (cs !== undefined && cs !== null && Number.isFinite(Number(cs))) {
+                    cState = decodeMsaaStateHelper(Number(cs) >>> 0, cRole);
+                  }
+                } catch (_) {}
+                if (selectedChildren.has(cid)) {
+                  cState = { ...cState, selected: true, selectable: true };
+                }
+                let cName = '';
+                try {
+                  const cn = impl.get_accName?.(cid);
+                  if (typeof cn === 'string') cName = cn;
+                } catch (_) {}
+                let cVal = null;
+                try {
+                  const cv = impl.get_accValue?.(cid);
+                  if (typeof cv === 'string' && cv.length > 0) cVal = cv;
+                } catch (_) {}
+                let cDefAct = null;
+                try {
+                  const cd = impl.get_accDefaultAction?.(cid);
+                  if (typeof cd === 'string' && cd.length > 0) cDefAct = cd;
+                } catch (_) {}
+                let cRect = null;
+                try {
+                  cRect = extractAccLocationRect(impl.accLocation?.(cid));
+                } catch (_) {}
+                accChildren.push({
+                  childID: cid,
+                  invisible: Boolean(cState.invisible),
+                  rect: cRect,
+                  rectSpace: 'local',
+                  accessibility: {
+                    role: cRole,
+                    name: cName,
+                    valueText: cVal,
+                    defaultAction: cDefAct,
+                    disabled: Boolean(cState.disabled),
+                    selected: cState.selected,
+                    checked: cState.checked,
+                    pressed: Boolean(cState.pressed),
+                    expanded: cState.expanded,
+                    readonly: Boolean(cState.readonly),
+                    focusable: Boolean(cState.focusable || cState.selectable || cDefAct),
+                    selectable: Boolean(cState.selectable),
+                    tabEnabled: !cState.disabled && Boolean(cState.focusable || cState.selectable || cDefAct || focusChildId === cid),
+                    accImplHooks: {
+                      onDefaultAction() {
+                        try { impl.accDoDefaultAction?.(cid); } finally { options.afterEvent?.(); }
+                      },
+                      onSelect(operation) {
+                        try { impl.accSelect?.(Number(operation) >>> 0, cid); } finally { options.afterEvent?.(); }
+                      },
+                    },
+                  },
+                });
+              }
+              if (accChildren.length > 0) {
+                baseAcc.accChildren = accChildren;
+              }
+            }
+          }
         }
         if (baseAcc.silent) continue;
-        out.push({ ...node, accessibility: baseAcc });
+        const cleanNode = { ...node, accessibility: baseAcc };
+        delete cleanNode.__nfDisp;
+        if (cleanNode.explicitBounds && Array.isArray(baseAcc.accChildren) && baseAcc.accChildren.length > 0) {
+          let maxR = cleanNode.explicitBounds.right;
+          let maxB = cleanNode.explicitBounds.bottom;
+          for (const ch of baseAcc.accChildren) {
+            if (ch?.rect) {
+              maxR = Math.max(maxR, cleanNode.explicitBounds.left + (Number(ch.rect.x) || 0) + (Number(ch.rect.width) || 0));
+              maxB = Math.max(maxB, cleanNode.explicitBounds.top + (Number(ch.rect.y) || 0) + (Number(ch.rect.height) || 0));
+            }
+          }
+          cleanNode.explicitBounds = { ...cleanNode.explicitBounds, right: maxR, bottom: maxB };
+        }
+        out.push(cleanNode);
       }
       return out;
     }
@@ -3596,6 +4135,7 @@
     };
 
     if (canvasEl && typeof canvasEl.addEventListener === 'function') {
+      try { canvasEl.__nfHasAs3ContextMenu = true; } catch (_) {}
       canvasEl.addEventListener('contextmenu', onCanvasContextMenu);
       canvasEl.addEventListener('pointerdown', onCanvasPointerDown);
       canvasEl.addEventListener('pointermove', onCanvasPointerMove);
@@ -3623,6 +4163,7 @@
       disposed = true;
       closeContextMenu();
       if (canvasEl && typeof canvasEl.removeEventListener === 'function') {
+        try { delete canvasEl.__nfHasAs3ContextMenu; } catch (_) {}
         canvasEl.removeEventListener('contextmenu', onCanvasContextMenu);
         canvasEl.removeEventListener('pointerdown', onCanvasPointerDown);
         canvasEl.removeEventListener('pointermove', onCanvasPointerMove);

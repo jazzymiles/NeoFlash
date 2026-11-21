@@ -268,10 +268,11 @@
       return ev;
     }
 
-    function makeIMEEvent(type, text = '') {
+    function makeIMEEvent(type, text = '', imeClient = null) {
       const Ctor = getEventCtor('flash.events.IMEEvent');
-      if (Ctor) return new Ctor(type, false, false, String(text));
+      if (Ctor) return new Ctor(type, false, false, String(text), imeClient ?? null);
       const ev = new events.TextEvent(type, false, false, String(text));
+      ev.imeClient = imeClient ?? null;
       return ev;
     }
 
@@ -5181,6 +5182,36 @@
       [Symbol.hasInstance]: { value: () => false },
     });
 
+    const AS3_IME_REGISTRY = Symbol.for('neoflash.as3.imeRegistry.v1');
+    function getAs3ImeRegistry() {
+      let reg = global[AS3_IME_REGISTRY];
+      if (!reg) {
+        reg = { byDisplay: new WeakMap(), byStage: new WeakMap(), latest: null };
+        Object.defineProperty(global, AS3_IME_REGISTRY, { value: reg, configurable: true });
+      }
+      return reg;
+    }
+    function resolveImeBridgeEntry() {
+      const reg = getAs3ImeRegistry();
+      if (displayHost && typeof displayHost === 'object') {
+        let entry = reg.byDisplay.get(displayHost);
+        if (!entry) {
+          entry = { netSys: null, fte3d: null, stage: null };
+          reg.byDisplay.set(displayHost, entry);
+        }
+        reg.latest = entry;
+        return entry;
+      }
+      if (!reg.latest) {
+        reg.latest = { netSys: null, fte3d: null, stage: null };
+      }
+      return reg.latest;
+    }
+    function activeImeClientBridge() {
+      const entry = resolveImeBridgeEntry();
+      return entry?.fte3d || entry?.stage || null;
+    }
+
     const IMEConversionMode = defConstClass('IMEConversionMode', {
       ALPHANUMERIC_FULL: 'ALPHANUMERIC_FULL',
       ALPHANUMERIC_HALF: 'ALPHANUMERIC_HALF',
@@ -5197,9 +5228,16 @@
     let imeCompositionText = '';
     let imeSelectionStart = 0;
     let imeSelectionEnd = 0;
+    const imeCtorToken = {};
 
     class IME extends events.EventDispatcher {
-      constructor() {
+      constructor(token) {
+        if (token !== imeCtorToken) {
+          const err = new Error('ArgumentError: Error #2012: IME$ class cannot be instantiated.');
+          err.name = 'ArgumentError';
+          err.errorID = 2012;
+          throw err;
+        }
         super();
         registerDispatcher(this);
       }
@@ -5212,7 +5250,15 @@
       }
       static set enabled(value) {
         ensureActive();
-        imeEnabled = Boolean(value);
+        const next = Boolean(value);
+        imeEnabled = next;
+        if (!next && imeCompositionText.length > 0) {
+          imeCompositionText = '';
+          imeSelectionStart = 0;
+          imeSelectionEnd = 0;
+          activeImeClientBridge()?.abandon?.();
+        }
+        activeImeClientBridge()?.syncState?.();
       }
       static get conversionMode() {
         ensureActive();
@@ -5238,33 +5284,54 @@
           throw err;
         }
         imeConversionMode = m;
+        activeImeClientBridge()?.syncState?.();
       }
       static setCompositionString(composition) {
         ensureActive();
         if (composition === null || composition === undefined) {
-          throw new TypeError('TypeError: Error #2007: Parameter composition must be non-null.');
+          const err = new TypeError('TypeError: Error #2007: Parameter composition must be non-null.');
+          err.errorID = 2007;
+          throw err;
         }
+        if (!imeEnabled) return;
         imeCompositionText = String(composition);
+        imeSelectionStart = 0;
+        imeSelectionEnd = imeCompositionText.length;
+        activeImeClientBridge()?.setComposition?.(imeCompositionText, imeSelectionStart, imeSelectionEnd);
       }
       static compositionSelectionChanged(start, end) {
         ensureActive();
         imeSelectionStart = Number(start) | 0;
         imeSelectionEnd = Number(end) | 0;
+        activeImeClientBridge()?.selectionChanged?.(imeSelectionStart, imeSelectionEnd);
       }
       static compositionAbandoned() {
         ensureActive();
         imeCompositionText = '';
         imeSelectionStart = 0;
         imeSelectionEnd = 0;
+        activeImeClientBridge()?.abandon?.();
       }
       static doConversion() {
         ensureActive();
         if (!imeEnabled) return;
         const text = imeCompositionText;
-        dispatchNow(imeSingleton, makeIMEEvent('imeComposition', text));
+        imeCompositionText = '';
+        imeSelectionStart = 0;
+        imeSelectionEnd = 0;
+        const bridge = activeImeClientBridge();
+        const confirmResult = bridge?.confirmForDoConversion?.(text) || null;
+        const imeClient = confirmResult?.client || null;
+        const focusTarget = confirmResult?.target || bridge?.getStage?.()?.focus || null;
+        dispatchNow(imeSingleton, makeIMEEvent('imeComposition', text, imeClient));
+        if (focusTarget && focusTarget !== imeSingleton && typeof focusTarget.dispatchEvent === 'function') {
+          try {
+            focusTarget.dispatchEvent(makeIMEEvent('imeComposition', text, imeClient));
+          } catch (_) {}
+        }
       }
     }
-    const imeSingleton = new IME();
+    const imeSingleton = new IME(imeCtorToken);
     for (const methodName of ['addEventListener', 'removeEventListener', 'dispatchEvent', 'hasEventListener', 'willTrigger']) {
       Object.defineProperty(IME, methodName, {
         configurable: true,
@@ -5272,7 +5339,48 @@
         value: (...args) => imeSingleton[methodName](...args),
       });
     }
+    Object.defineProperties(IME.prototype, {
+      isSupported: { get: () => IME.isSupported, enumerable: true },
+      enabled: { get: () => IME.enabled, set: v => { IME.enabled = v; }, enumerable: true },
+      conversionMode: { get: () => IME.conversionMode, set: v => { IME.conversionMode = v; }, enumerable: true },
+      setCompositionString: { value: s => IME.setCompositionString(s) },
+      compositionSelectionChanged: { value: (s, e) => IME.compositionSelectionChanged(s, e) },
+      compositionAbandoned: { value: () => IME.compositionAbandoned() },
+      doConversion: { value: () => IME.doConversion() },
+    });
     tagType(IME, 'IME', v => v === imeSingleton);
+
+    const netSysImeHook = {
+      isEnabled: () => (disposed ? true : imeEnabled),
+      getConversionMode: () => imeConversionMode,
+      getCompositionText: () => imeCompositionText,
+      getSelection: () => [imeSelectionStart, imeSelectionEnd],
+      syncCompositionState(text, selStart = 0, selEnd = String(text ?? '').length) {
+        if (disposed || !imeEnabled) return;
+        imeCompositionText = String(text ?? '');
+        imeSelectionStart = Number(selStart) | 0;
+        imeSelectionEnd = Number(selEnd) | 0;
+      },
+      notifyDomComposition(phase, text, imeClient = null) {
+        if (disposed || !imeEnabled) return false;
+        const str = String(text ?? '');
+        if (phase === 'start' || phase === 'update') {
+          imeCompositionText = str;
+          imeSelectionStart = 0;
+          imeSelectionEnd = str.length;
+          return true;
+        }
+        if (phase === 'end') {
+          imeCompositionText = '';
+          imeSelectionStart = 0;
+          imeSelectionEnd = 0;
+          imeSingleton.dispatchEvent(makeIMEEvent('imeComposition', str, imeClient));
+          return true;
+        }
+        return false;
+      },
+    };
+    resolveImeBridgeEntry().netSys = netSysImeHook;
 
     const securityDomains = new WeakSet();
     let currentSecurityDomain = null;
@@ -5856,6 +5964,8 @@
       imeEnabled = true;
       imeConversionMode = 'ALPHANUMERIC_HALF';
       imeCompositionText = '';
+      imeSelectionStart = 0;
+      imeSelectionEnd = 0;
       systemUseCodePage = false;
       securityExactSettings = true;
       mockBrowseSelection = null;
@@ -5866,6 +5976,8 @@
       if (disposed) return;
       reset();
       disposed = true;
+      const entry = resolveImeBridgeEntry();
+      if (entry && entry.netSys === netSysImeHook) entry.netSys = null;
       kernel.free?.();
       kernel = null;
     }
