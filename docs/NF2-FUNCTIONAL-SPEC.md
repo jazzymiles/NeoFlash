@@ -302,8 +302,8 @@ returns a tool to Available, drag reorders, Restore default resets the draft, Ca
 Empty slots drop on OK. The saved tool layout is global, outside named workspace presets; changing these controls
 preserves the selected tool and document Undo. History can replay, copy and save supported structured authoring steps
 as project Commands; arbitrary `.nfsl` source execution and a stable public extension contract remain unavailable.
-The approved 36 pt Brush/Pencil type header still needs a compact shared API; the existing locked `TypeHeader`
-remains 48 pt.
+Brush and Pencil use the shared `CompactTypeHeader` in Properties and Tool Options. Their icon, tool name and
+shortcut share one row at the current panel-tab height (34, 30 or 26 pt).
 
 Modify ▸ Bitmap ▸ Trace bitmap (`CommandId::ModifyTraceBitmap`) converts one selected bitmap (either a direct
 `ElementKind::Bitmap` placement or a static 1-frame `Graphic` symbol instance wrapping a bitmap, such as images placed

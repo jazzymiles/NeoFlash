@@ -556,7 +556,7 @@ against a swept capsule. Untouched contours remain exact; touched curves are bou
 controls retain original fills and gradient matrices, extend/prune groups and reject unsupported effects before
 editing; refusals route to Warning/Output. Open work: physical tablet acceptance, tilt, other paint modes,
 custom/artistic/pattern presets, advanced Pencil stroke controls, predictive smoothing preview and partial-fill
-erasing. The approved compact Brush/Pencil header requires a shared TypeHeader API; locked UI code is unchanged.
+erasing.
 
 **Trace bitmap:** core `bitmap_trace.rs` performs bounded palette reduction, connected-region/noise handling,
 contour extraction with holes/islands, polygon simplification and optional quadratic rounding. Abutting uses

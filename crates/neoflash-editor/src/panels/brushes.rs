@@ -207,7 +207,7 @@ impl Editor {
         });
     }
     pub(crate) fn brush_tool_contents(&mut self, ui: &mut egui::Ui) {
-        ui.add(nf::TypeHeader {
+        ui.add(nf::CompactTypeHeader {
             icon: i20::TOOL_BRUSH,
             title: "Brush tool",
             subtitle: "Paints fills · B",
@@ -320,7 +320,7 @@ impl Editor {
         }
     }
     pub(crate) fn pencil_tool_contents(&mut self, ui: &mut egui::Ui) {
-        ui.add(nf::TypeHeader {
+        ui.add(nf::CompactTypeHeader {
             icon: i20::TOOL_PENCIL,
             title: "Pencil tool",
             subtitle: "Draws strokes · Y",

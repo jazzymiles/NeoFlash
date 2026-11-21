@@ -2474,6 +2474,102 @@ fn history_panel_lists_named_steps_jumps_back_and_forward_clears_and_updates_edi
 }
 
 #[test]
+fn used_colours_project_and_selection_edits_follow_each_panel_scope_in_one_undo() {
+    let original = [202, 52, 40, 255];
+    let replacement = [38, 122, 90, 255];
+    let rectangle = |id| Element {
+        id: new_id(id),
+        kind: ElementKind::Rectangle {
+            width: 40.0,
+            height: 20.0,
+            fill: original,
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        ..Default::default()
+    };
+    let mut project = Project::blank();
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .extend([rectangle("stage-left"), rectangle("stage-right")]);
+    let mut library_symbol = Project::blank().symbols.remove(0);
+    library_symbol.name = "Unplaced symbol".into();
+    library_symbol.timeline.layers[0].keyframes[0]
+        .elements
+        .push(rectangle("library-rectangle"));
+    project.symbols.push(library_symbol);
+    project.validate().unwrap();
+
+    for panel in [PanelId::Swatches, PanelId::Properties] {
+        let mut d = T319Driver::new(project.clone());
+        d.editor.fill = [128, 64, 32, 255];
+        d.editor.show_panel(panel);
+        d.settle();
+        let body = d.panel_rect(panel);
+        d.step(wheel(body.center(), Vec2::new(0.0, -1600.0)));
+        d.settle();
+        for label in ["From colour", "To colour", "Replace all"] {
+            assert!(
+                named_bounds_in(&d.out, label, body).is_some(),
+                "{panel:?} must expose {label} in the panel"
+            );
+        }
+        d.click("To colour");
+        let hex = d
+            .out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find_map(|(_, node)| {
+                (node.value() == Some("804020"))
+                    .then(|| node.bounds())
+                    .flatten()
+            })
+            .expect("editable hex in the destination picker");
+        d.click_at(Pos2::new(
+            ((hex.x0 + hex.x1) / 2.0) as f32,
+            ((hex.y0 + hex.y1) / 2.0) as f32,
+        ));
+        d.replace_focused_text("267A5A");
+        d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+        d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+        d.settle();
+        d.click("Replace all");
+        assert_eq!(d.editor.history.undo_label(), Some("JSFL Change Colour"));
+        let saved = Project::from_json(&d.editor.project.to_json().unwrap()).unwrap();
+        let fills_match = |symbol: &Symbol, colour| {
+            symbol.timeline.layers[0].keyframes[0]
+                .elements
+                .iter()
+                .all(|el| matches!(el.kind, ElementKind::Rectangle { fill, .. } if fill == colour))
+        };
+        assert!(saved.symbols.iter().all(|s| fills_match(s, replacement)));
+        d.editor.undo();
+        assert_eq!(d.editor.project, project);
+        d.editor.redo();
+        assert_eq!(d.editor.project, saved);
+
+        if panel == PanelId::Properties {
+            d.editor.select_all();
+            assert_eq!(d.editor.selection.targets.len(), 2);
+            d.settle();
+            d.click("Colour 1 hex");
+            d.replace_focused_text("5A209D");
+            d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+            d.settle();
+            let selected_colour = [90, 32, 157, 255];
+            assert!(fills_match(&d.editor.project.symbols[0], selected_colour));
+            assert!(fills_match(&d.editor.project.symbols[1], replacement));
+            d.editor.undo();
+            assert_eq!(d.editor.project, saved);
+        }
+    }
+}
+
+#[test]
 fn swatches_panel_scans_document_paints_applies_solid_none_and_gradient_and_persists_swatches() {
     let mut d = Driver::new();
     let mut project = Project::blank();

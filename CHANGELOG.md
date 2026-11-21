@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Brush and Pencil use the compact tool header in Properties and Tool Options. Its single row follows the selected interface density.
 - Redrew every interface icon (286 at 12 and 16 px, 131 at 20 px) from exact geometry: arrowheads have equal arms,
   circles are round, dashes and repeated bars are evenly spaced, mirrored pairs are true mirrors, and the paragraph,
   text and tool-modifier icons have clean, readable shapes (`T-426`).
