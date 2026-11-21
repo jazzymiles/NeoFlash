@@ -1626,3 +1626,82 @@ trace("AS2_SND_SHARED=" + (as2Tf.ll == 30 && as2Tf.lr == 70 && as2Tf.rl == 40 &&
     fs.rmSync(workRoot, { recursive: true, force: true });
   }
 });
+
+test('Recorded NetStream preserves lastFrame across collectFrames() GC and caps recorded send() messages at 4096', async () => {
+  const wasm = await loadWasmRuntime();
+  const makeMockCanvas = (w = 64, h = 48) => ({
+    width: w,
+    height: h,
+    getContext() {
+      return {
+        fillStyle: '#000',
+        fillRect() {},
+        drawImage() {},
+        clearRect() {},
+        save() {},
+        restore() {},
+      };
+    },
+  });
+  const binary = Binary.create(wasm);
+  const net = Net.create({ events: Events, binary, resources: [] });
+  const videoHost = Video.create({
+    player: { object_video_info: () => JSON.stringify({ width: 64, height: 48, deblocking: 0, smoothing: false }), object_alive: () => true },
+    wasm,
+    net,
+    events: Events,
+    binary,
+    referenceOf: obj => obj?.__ref || null,
+    createCanvas: (w, h) => makeMockCanvas(w, h),
+    schedule: fn => fn(),
+  });
+  try {
+    const nc = new videoHost.LegacyNetConnection();
+    nc.connect(null);
+    const pub = new videoHost.LegacyNetStream(nc);
+    pub.attachVideo({ __nfBrand: 'Camera', width: 64, height: 48, fps: 30, currentFPS: 30, muted: false });
+    pub.publish('recorded-clip', 'record');
+    for (let i = 0; i < 4200; i++) {
+      pub.send('onMetaCue', i);
+    }
+    pub.publish(false);
+    pub.close();
+
+    // Allocate 20 unrelated live streams so frame() runs collectFrames() repeatedly after publisher closed
+    for (let k = 0; k < 20; k++) {
+      const other = new videoHost.LegacyNetStream(nc);
+      other.attachVideo({ __nfBrand: 'Camera', width: 32, height: 32, fps: 15, currentFPS: 15, muted: false });
+      other.publish(`temp-live-${k}`, 'live');
+      other.publish(false);
+      other.close();
+    }
+
+    const received = [];
+    const sub = new videoHost.LegacyNetStream(nc);
+    sub.onMetaCue = idx => received.push(idx);
+    sub.play('recorded-clip');
+    assert.equal(received.length, 4096, 'recorded entry.messages is capped at 4096');
+    assert.equal(received[0], 104, 'oldest messages beyond 4096 are evicted FIFO');
+    assert.equal(received[received.length - 1], 4199);
+
+    // Verify retained lastFrame canvas dimensions were NOT zeroed by collectFrames()!
+    const drawCalls = [];
+    const targetCtx = {
+      imageSmoothingEnabled: false,
+      save() {},
+      restore() {},
+      drawImage(src, x, y, w, h) {
+        drawCalls.push({ srcW: src.width, srcH: src.height, x, y, w, h });
+      },
+    };
+    const vidRef = 'vid-ref-1';
+    const vidProxy = { __ref: { key: JSON.stringify(vidRef), objectRef: vidRef } };
+    videoHost.methods(vidProxy).attachVideo(sub);
+    videoHost.draw(targetCtx, { width: 64, height: 48, smoothing: false }, vidRef);
+    assert.equal(drawCalls.length, 1, 'subscriber Video draws recorded lastFrame');
+    assert.equal(drawCalls[0].srcW, 64, 'recorded lastFrame.canvas.width survived collectFrames()');
+    assert.equal(drawCalls[0].srcH, 48, 'recorded lastFrame.canvas.height survived collectFrames()');
+  } finally {
+    videoHost.dispose();
+  }
+});

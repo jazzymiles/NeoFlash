@@ -840,13 +840,14 @@
       const fam=String(fontName||'sans-serif').trim();
       const stylePrefix=fontStyle===FontStyle.BOLD_ITALIC?'italic bold ':fontStyle===FontStyle.BOLD?'bold ':fontStyle===FontStyle.ITALIC?'italic ':'';
       const genericFamilies=new Set(['sans-serif','serif','monospace','cursive','fantasy','system-ui','_sans','_serif','_typewriter']);
+      const ctx=getGlyphProbeContext();
       for(const ch of value){
         const cp=ch.codePointAt(0);
         if(cp<0x20||(cp>=0x7f&&cp<=0x9f)||(cp>=0xd800&&cp<=0xdfff)||cp===0xfffd||(cp>=0xfdd0&&cp<=0xfdef)||(cp&0xfffe)===0xfffe)return false;
-        // Private Use Areas and unassigned astral planes have no universal device-font mapping unless verified in SFNT/Canvas.
-        if((cp>=0xe000&&cp<=0xf8ff)||cp>=0xf0000||(cp>=0x323b0&&cp<=0xdffff))return false;
+        if(cp>=0x323b0&&cp<=0xdffff)return false;
+        // Private Use Areas have no universal device-font mapping without Canvas tofu verification.
+        if(!ctx&&((cp>=0xe000&&cp<=0xf8ff)||cp>=0xf0000))return false;
       }
-      const ctx=getGlyphProbeContext();
       if(!ctx){
         if(!genericFamilies.has(fam.toLowerCase())&&document?.fonts?.check){
           try{if(!document.fonts.check(`${stylePrefix}16px ${cssFontFamily(fam)}`))return false;}catch(_){}

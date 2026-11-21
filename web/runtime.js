@@ -106,10 +106,17 @@
   // In browser DOM hosts we compile user scripts via disjoint-line `<script>` elements so
   // Safari, Chrome, and Firefox all report exact 1-based line & column numbers; non-DOM
   // hosts (Node/VM tests) transparently fall back to calibrated `new Function`.
+  const MAX_DOM_SCRIPT_LINE_BASE = 8192;
   let nextDomScriptLineBase = 200;
   function tryCompileDomScriptUnit(unit, paramList, headerLines, bodyCode, footerCode, url) {
     if (typeof document === 'undefined' || !document?.head || typeof document.createElement !== 'function' || typeof document.head.appendChild !== 'function') {
       return null;
+    }
+    if (!unit?.source_map && !(Array.isArray(unit?.source_locations) && unit.source_locations.length > 0)) {
+      return null;
+    }
+    if (nextDomScriptLineBase > MAX_DOM_SCRIPT_LINE_BASE) {
+      nextDomScriptLineBase = 200;
     }
     const lineBase = nextDomScriptLineBase;
     const padding = '\n'.repeat(lineBase - 1);
@@ -457,6 +464,7 @@
         const visible=clippings.draw(target,{...item,clip_ids},clips,paths,canvas=>paintItem(canvas,item),{bounds:bounded(item),readBounds,bitmaps:bitmapHost?.cache});
         if(readBounds)clippedBounds.set(item,visible||null);
       };
+      let maskScratch=null;
       const composite=(target,surface,bounds,clip_ids,operation='source-over')=>{
         if(typeof operation==='string'&&operation.startsWith('shader:')){
           const spec=JSON.parse(operation.slice(7));
@@ -473,12 +481,69 @@
           const sctx=sc.getContext('2d');
           sctx.setTransform(1,0,0,1,0,0);sctx.globalAlpha=1;sctx.globalCompositeOperation='source-over';sctx.clearRect(0,0,dw,dh);
           sctx.setTransform(tm.a,tm.b,tm.c,tm.d,tm.e-dx0,tm.f-dy0);
-          const drawSrc=canvas=>canvas.drawImage(surface,bounds.left,bounds.top);
-          if(clip_ids.length)clippings.draw(sctx,{clip_ids},clips,paths,drawSrc,{bounds,bitmaps:bitmapHost?.cache});else drawSrc(sctx);
-          const fgData=sctx.getImageData(0,0,dw,dh).data,dstImg=target.getImageData(dx0,dy0,dw,dh),bgData=dstImg.data;
-          const outBytes=evalBlend(bgData,fgData,dw,dh,spec);
-          dstImg.data.set(outBytes);
-          target.save();try{target.setTransform(1,0,0,1,0,0);target.putImageData(dstImg,dx0,dy0);}finally{target.restore();}
+          sctx.drawImage(surface,bounds.left,bounds.top);
+          const rawFg=sctx.getImageData(0,0,dw,dh).data;
+          let maskData=null,rx0=0,ry0=0,rx1=dw,ry1=dh;
+          if(clip_ids.length){
+            const mc=maskScratch||(maskScratch=typeof OffscreenCanvas==='function'?new OffscreenCanvas(1,1):global.document.createElement('canvas'));
+            if(mc.width!==dw||mc.height!==dh){mc.width=1;mc.height=dh;mc.width=dw;}
+            const mctx=mc.getContext('2d');
+            mctx.setTransform(1,0,0,1,0,0);mctx.globalAlpha=1;mctx.globalCompositeOperation='source-over';mctx.clearRect(0,0,dw,dh);
+            mctx.setTransform(tm.a,tm.b,tm.c,tm.d,tm.e-dx0,tm.f-dy0);
+            const drawMaskFill=canvas=>{canvas.save();canvas.setTransform(1,0,0,1,0,0);canvas.fillStyle='#ffffff';canvas.fillRect(0,0,dw,dh);canvas.restore();};
+            clippings.draw(mctx,{clip_ids},clips,paths,drawMaskFill,{bounds,bitmaps:bitmapHost?.cache});
+            maskData=mctx.getImageData(0,0,dw,dh).data;
+            let minX=dw,minY=dh,maxX=-1,maxY=-1;
+            for(let y=0;y<dh;y++){
+              const row=y*dw*4;
+              for(let x=0;x<dw;x++){
+                if(maskData[row+x*4+3]>0&&rawFg[row+x*4+3]>0){
+                  if(x<minX)minX=x;if(x>maxX)maxX=x;
+                  if(y<minY)minY=y;if(y>maxY)maxY=y;
+                }
+              }
+            }
+            if(maxX<minX||maxY<minY)return;
+            rx0=minX;ry0=minY;rx1=maxX+1;ry1=maxY+1;
+          }
+          const rw=rx1-rx0,rh=ry1-ry0;
+          if(!(rw>0&&rh>0))return;
+          const dstImg=target.getImageData(dx0+rx0,dy0+ry0,rw,rh),bgSub=dstImg.data;
+          let fgSub;
+          if(rx0===0&&ry0===0&&rw===dw&&rh===dh){
+            fgSub=rawFg;
+          }else{
+            fgSub=new Uint8ClampedArray(rw*rh*4);
+            for(let y=0;y<rh;y++){
+              const srcOff=((ry0+y)*dw+rx0)*4;
+              fgSub.set(rawFg.subarray(srcOff,srcOff+rw*4),y*rw*4);
+            }
+          }
+          const outBytes=evalBlend(bgSub,fgSub,rw,rh,spec);
+          if(!maskData){
+            bgSub.set(outBytes);
+          }else{
+            for(let y=0;y<rh;y++){
+              for(let x=0;x<rw;x++){
+                const si=(y*rw+x)*4,ca=maskData[((ry0+y)*dw+(rx0+x))*4+3];
+                if(ca===0)continue;
+                if(ca>=255){
+                  bgSub[si]=outBytes[si];bgSub[si+1]=outBytes[si+1];bgSub[si+2]=outBytes[si+2];bgSub[si+3]=outBytes[si+3];
+                  continue;
+                }
+                const cov=ca/255,inv=1-cov;
+                const ba=bgSub[si+3]/255,sa=outBytes[si+3]/255;
+                const outA=ba*inv+sa*cov;
+                if(outA<=1e-6){bgSub[si]=bgSub[si+1]=bgSub[si+2]=bgSub[si+3]=0;continue;}
+                for(let c=0;c<3;c++){
+                  const pm=(bgSub[si+c]/255)*ba*inv+(outBytes[si+c]/255)*sa*cov;
+                  bgSub[si+c]=Math.max(0,Math.min(255,Math.round((pm/outA)*255)));
+                }
+                bgSub[si+3]=Math.max(0,Math.min(255,Math.round(outA*255)));
+              }
+            }
+          }
+          target.save();try{target.setTransform(1,0,0,1,0,0);target.putImageData(dstImg,dx0+rx0,dy0+ry0);}finally{target.restore();}
           return;
         }
         if(operation==='subtract'||operation==='invert'){
@@ -573,21 +638,54 @@
     if (!tsDesc) return true;
     return Object.hasOwn(tsDesc, 'value') && tsDesc.value === Object.prototype.toString;
   }
+  const sharedProxyRegistryKey = Symbol.for('neoflash.actionscript.proxy-registry.v1');
+  function unwrapAs3ProxyTarget(val) {
+    if (val === null || (typeof val !== 'object' && typeof val !== 'function')) return val;
+    const reg = global?.[sharedProxyRegistryKey];
+    return reg?.rawMap instanceof WeakMap ? (reg.rawMap.get(val) || val) : val;
+  }
+  function standaloneProxyTraceInfo(val) {
+    if (val === null || (typeof val !== 'object' && typeof val !== 'function')) return null;
+    const reg = global?.[sharedProxyRegistryKey];
+    if (!reg || !(reg.rawMap instanceof WeakMap)) return null;
+    const raw = reg.rawMap.get(val) || (reg.wrapMap?.has?.(val) ? val : null);
+    if (!raw) return null;
+    const adapter = reg.adapters?.get?.(raw);
+    if (!adapter || typeof adapter.invokeTrap !== 'function') return null;
+    const entries = [], seenKeys = new Set();
+    try {
+      let index = 0, guard = 0;
+      while (guard++ < 4096) {
+        index = Number(adapter.invokeTrap('nextNameIndex', [index])) | 0;
+        if (index <= 0) break;
+        const k = String(adapter.invokeTrap('nextName', [index]));
+        if (seenKeys.has(k)) continue;
+        seenKeys.add(k);
+        let v;
+        try { v = adapter.invokeTrap('nextValue', [index]); }
+        catch (_) { try { v = adapter.invokeTrap('getProperty', [k]); } catch (_2) { v = undefined; } }
+        entries.push([k, v]);
+      }
+    } catch (_) {}
+    const ctorName = Object.getPrototypeOf(raw)?.constructor?.name || 'Proxy';
+    return { className: ctorName === 'ObjectProxy' ? 'mx.utils.ObjectProxy' : ctorName, customToString: false, entries };
+  }
   function isNestedTraceContainer(val, program) {
     if (val === null || typeof val !== 'object') return false;
     try {
-      if (Object.getOwnPropertyDescriptor(val, traceGetterBrand)?.value === true) return false;
-      if (Array.isArray(val)) return val.length > 0 || Object.keys(val).length > 0;
-      const vecState = Object.getOwnPropertyDescriptor(val, vectorInstanceBrand)?.value;
+      const rawVal = unwrapAs3ProxyTarget(val);
+      if (Object.getOwnPropertyDescriptor(rawVal, traceGetterBrand)?.value === true) return false;
+      if (rawVal === val && Array.isArray(val)) return val.length > 0 || Object.keys(val).length > 0;
+      const vecState = Object.getOwnPropertyDescriptor(rawVal, vectorInstanceBrand)?.value;
       if (vecState?.version === 1 && Array.isArray(vecState.values)) return vecState.values.length > 0;
-      const dictState = Object.getOwnPropertyDescriptor(val, dictionaryInstanceBrand)?.value;
+      const dictState = Object.getOwnPropertyDescriptor(rawVal, dictionaryInstanceBrand)?.value;
       if (dictState?.version === 1) return (dictState.entries?.size || 0) > 0;
-      if (val instanceof Map || val instanceof Set) return val.size > 0;
-      if (ArrayBuffer.isView(val) && !(val instanceof DataView)) return val.length > 0;
-      if (val instanceof Date || val instanceof RegExp || val instanceof Error) return false;
-      const clsInfo = program?.traceObjectInfo?.(val);
+      if (rawVal instanceof Map || rawVal instanceof Set) return rawVal.size > 0;
+      if (ArrayBuffer.isView(rawVal) && !(rawVal instanceof DataView)) return rawVal.length > 0;
+      if (rawVal instanceof Date || rawVal instanceof RegExp || rawVal instanceof Error) return false;
+      const clsInfo = program?.traceObjectInfo?.(val) || standaloneProxyTraceInfo(val);
       if (clsInfo) return !clsInfo.customToString && clsInfo.entries.length > 0;
-      if (isDefaultPlainOrClassObject(val)) return Object.keys(val).length > 0;
+      if (rawVal === val && isDefaultPlainOrClassObject(val)) return Object.keys(val).length > 0;
     } catch (_) {}
     return false;
   }
@@ -629,19 +727,20 @@
       }
     }
     try {
-      if (Object.getOwnPropertyDescriptor(value, traceGetterBrand)?.value === true) return '[Getter]';
-      if (value instanceof Number || value instanceof String || value instanceof Boolean) {
-        const prim = value.valueOf();
+      const rawTarget = unwrapAs3ProxyTarget(value);
+      if (Object.getOwnPropertyDescriptor(rawTarget, traceGetterBrand)?.value === true) return '[Getter]';
+      if (rawTarget instanceof Number || rawTarget instanceof String || rawTarget instanceof Boolean) {
+        const prim = rawTarget.valueOf();
         return formatTraceValue(prim, { ...options, topLevel });
       }
-      if (value instanceof Date) {
-        const t = value.getTime();
-        return Number.isNaN(t) ? 'Invalid Date' : value.toISOString();
+      if (rawTarget instanceof Date) {
+        const t = rawTarget.getTime();
+        return Number.isNaN(t) ? 'Invalid Date' : rawTarget.toISOString();
       }
-      if (value instanceof RegExp) return String(value);
-      if (value instanceof Error) return describeThrown(value);
-      if (value[Symbol.toStringTag] === 'NeoFlashDisplayObject') return String(value);
-      if (value[Symbol.toStringTag] === 'XML' || value[Symbol.toStringTag] === 'XMLList') {
+      if (rawTarget instanceof RegExp) return String(rawTarget);
+      if (rawTarget instanceof Error) return describeThrown(rawTarget);
+      if (rawTarget === value && value[Symbol.toStringTag] === 'NeoFlashDisplayObject') return String(value);
+      if (rawTarget === value && (value[Symbol.toStringTag] === 'XML' || value[Symbol.toStringTag] === 'XMLList')) {
         return typeof value.toXMLString === 'function' ? String(value.toXMLString()) : String(value);
       }
 
@@ -777,7 +876,7 @@
         }
       }
 
-      const clsInfo = program?.traceObjectInfo?.(value);
+      const clsInfo = program?.traceObjectInfo?.(value) || standaloneProxyTraceInfo(value);
       if (clsInfo) {
         if (clsInfo.customToString) return String(value.toString());
         const open = `${clsInfo.className} {`;
@@ -2595,10 +2694,61 @@
       if(global.NeoFlashAS2Locale&&netHost)as2LocaleHost=global.NeoFlashAS2Locale.create(wasm,{URLLoader:netHost.URLLoader,URLRequest:netHost.URLRequest,language:()=>as2PlatformHost.System.capabilities.language,afterEvent:afterTimerEvent,fields:{isText:value=>references.has(value)&&display.alive(value)&&display.descriptor(value).owner==='text'&&!as2TextHost.as2Ref(references.get(value).key,'html').get(),alive:value=>display.alive(value),write:(value,next)=>{if(as2TextHost.as2Ref(references.get(value).key,'html').get())throw new Error('Locale automatic replacement currently requires plain text.');textHost.update(references.get(value).key,{text:next});as2ObjectHost?.textChanged(value);}}});
       if(global.NeoFlashLoader&&netHost&&binaryHost&&global.NeoFlashEvents){
         const dynamicScriptBindings=['event','_root','_parent','trace','play','stop','gotoAndPlay','gotoAndStop','nextFrame','prevFrame','__nfAs2Method','__nfAs2Value','__nfProgram','__nfDisplay','__nfLegacy','__nfXML'];
+        const AsyncFnCtor=Object.getPrototypeOf(async function(){}).constructor;
+        const GenFnCtor=Object.getPrototypeOf(function*(){}).constructor;
+        const AsyncGenFnCtor=Object.getPrototypeOf(async function*(){}).constructor;
+        const blockedSwfCallables=new Set([
+          Function,AsyncFnCtor,GenFnCtor,AsyncGenFnCtor,
+          global.Function,global.eval,global.setTimeout,global.setInterval,
+        ].filter(Boolean));
+        const isBlockedSwfProp=key=>key==='constructor'||key==='__proto__'||key==='prototype';
+        const sanitizeSwfValue=val=>(typeof val==='function'&&blockedSwfCallables.has(val))?undefined:val;
+        const __nfSwfStubFn=()=>{
+          const fn=function(){return undefined;};
+          Object.defineProperty(fn,'constructor',{value:undefined,writable:false,configurable:false});
+          return Object.freeze(fn);
+        };
+        const __nfSwfGet=(obj,prop)=>{
+          if(obj==null)return undefined;
+          const k=String(prop);
+          if(isBlockedSwfProp(k))return undefined;
+          return sanitizeSwfValue(obj[k]);
+        };
+        const __nfSwfSet=(obj,prop,val)=>{
+          if(obj==null||(typeof obj!=='object'&&typeof obj!=='function'))return val;
+          const k=String(prop);
+          if(isBlockedSwfProp(k))return val;
+          if(obj===Object.prototype||obj===Function.prototype||obj===Array.prototype)return val;
+          obj[k]=val;
+          return val;
+        };
+        const __nfSwfCall=(obj,prop,args)=>{
+          if(obj==null)return undefined;
+          const k=String(prop);
+          if(isBlockedSwfProp(k))return undefined;
+          const fn=obj[k];
+          if(typeof fn!=='function'||blockedSwfCallables.has(fn))return undefined;
+          return sanitizeSwfValue(Reflect.apply(fn,obj,Array.isArray(args)?args:[]));
+        };
+        const __nfSwfApply=(fn,receiver,args)=>{
+          if(typeof fn!=='function'||blockedSwfCallables.has(fn))return undefined;
+          const safeThis=(receiver===global||receiver===globalThis||(typeof window!=='undefined'&&receiver===window))?null:receiver;
+          return sanitizeSwfValue(Reflect.apply(fn,safeThis,Array.isArray(args)?args:[]));
+        };
+        const swfHelperNames=['__nfSwfGet','__nfSwfSet','__nfSwfCall','__nfSwfApply','__nfSwfStubFn'];
+        const swfHelperValues=[__nfSwfGet,__nfSwfSet,__nfSwfCall,__nfSwfApply,__nfSwfStubFn];
+        const fullDynamicBindings=[...dynamicScriptBindings,...swfHelperNames];
         const compileDynamicBundleScript=unit=>{
-          if(typeof scriptFunction==='function')return scriptFunction(unit,dynamicScriptBindings);
-          const url=/^neoflash-script-\d+\.js$/.test(unit.source_url||'')?unit.source_url:'neoflash-user-script.js';
-          return new Function(...dynamicScriptBindings,'"use strict";\nreturn (function () {\n'+unit.code+'\n}).call(this);\n//# sourceURL='+url);
+          let rawFn;
+          if(typeof scriptFunction==='function')rawFn=scriptFunction(unit,fullDynamicBindings);
+          else{
+            const url=/^neoflash-script-\d+\.js$/.test(unit.source_url||'')?unit.source_url:'neoflash-user-script.js';
+            rawFn=new Function(...fullDynamicBindings,'"use strict";\nreturn (function () {\n'+unit.code+'\n}).call(this);\n//# sourceURL='+url);
+          }
+          return function(...args){
+            const padded=args.length>=dynamicScriptBindings.length?args.slice(0,dynamicScriptBindings.length):[...args,...new Array(dynamicScriptBindings.length-args.length)];
+            return Reflect.apply(rawFn,this,[...padded,...swfHelperValues]);
+          };
         };
         const mountedByPrefix=new Map();
         const mountedTargetUrl=new Map();
@@ -2609,6 +2759,15 @@
           if(typeof project!=='undefined'&&Array.isArray(project?.resources)&&clean.resourceIds?.length){
             const drop=new Set(clean.resourceIds);
             project.resources=project.resources.filter(r=>!drop.has(r.id));
+          }
+          if(Array.isArray(clean.scriptKeys)){
+            for(const k of clean.scriptKeys)functions.delete(k);
+          }
+          if(clean.prefix){
+            const pfxTag='/*'+clean.prefix+'*/';
+            for(const[fk,fv]of functions.entries()){
+              if(fv?.prefix===clean.prefix||fk.includes(pfxTag))functions.delete(fk);
+            }
           }
           if(clean.targetKey)mountedTargetUrl.delete(clean.targetKey);
         };
@@ -2723,15 +2882,24 @@
             const mut=mounted.mutation||mounted;
             const contentTargetKey=JSON.stringify(mut.content_ref||record.ref);
             if(normUrl)mountedTargetUrl.set(contentTargetKey,normUrl);
-            const cleanEntry={prefix:mounted.mounted_prefix||null,targetKey:contentTargetKey,resourcePaths:addedPaths,resourceIds:addedIds.length?addedIds:remappedResources.map(r=>r.id)};
+            const mountedPrefix=mounted.prefix||mounted.mounted_prefix||null;
+            const scriptKeys=[];
+            const cleanEntry={prefix:mountedPrefix,targetKey:contentTargetKey,resourcePaths:addedPaths,resourceIds:addedIds.length?addedIds:remappedResources.map(r=>r.id),scriptKeys};
             if(cleanEntry.prefix)mountedByPrefix.set(cleanEntry.prefix,cleanEntry);
             record.publishedCleanup=cleanEntry;
             for(const unit of childBundle.scripts||[]){
               const item=unit.script?unit:{...unit,language:unit.language,source:unit.source};
               const k=sourceKey(item.script||item);
               if(!functions.has(k)){
-                functions.set(k,{fn:compileDynamicBundleScript(unit),location:unit.location||'published-bundle'});
+                functions.set(k,{fn:compileDynamicBundleScript(unit),location:unit.location||'published-bundle',prefix:mountedPrefix});
+                scriptKeys.push(k);
               }
+            }
+            if(Array.isArray(childBundle.warnings)&&childBundle.warnings.length){
+              const prevSuppress=global.__neoflashSuppressConsoleRelay;
+              global.__neoflashSuppressConsoleRelay=true;
+              try{for(const warning of childBundle.warnings)console.warn?.('NeoFlash:',warning);}
+              finally{global.__neoflashSuppressConsoleRelay=prevSuppress;}
             }
             return {
               contentRef:mut.content_ref||null,
@@ -2752,10 +2920,13 @@
             );
           },
           unloadPublishedBundle:(record,stopDetached=false)=>{
-            cleanupPublishedResources(record);
-            if(typeof player.loader_unload_published!=='function')return {events:[]};
+            if(typeof player.loader_unload_published!=='function'){
+              cleanupPublishedResources(record);
+              return {events:[]};
+            }
             const out=JSON.parse(player.loader_unload_published(JSON.stringify(record.ref),Boolean(record.as2),Boolean(stopDetached)));
             drainRetiredPublished();
+            cleanupPublishedResources(record);
             drainSounds();drainVideos();
             return out;
           },
@@ -4626,6 +4797,8 @@
           }
         },
         () => {
+          functions.clear();
+          if (mountedContainers.size <= 1) nextDomScriptLineBase = 200;
           if (container && mountedContainers.get(container) === moduleHandle) {
             mountedContainers.delete(container);
           }

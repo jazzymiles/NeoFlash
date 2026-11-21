@@ -620,3 +620,267 @@ test('Loader.loadBytes and Loader.load execute FWS, CWS, and ZWS SWFs with timel
     player.free();
   }
 });
+
+test('SWF loader blocks constructor/__proto__/prototype sandbox escapes, escapes strict-mode control strings, surfaces warnings, and cleans up repeated loadBytes+unload cycles', async () => {
+  const { runtimeWasm } = await import('../../crates/neoflash-script/tests/rust-runtime-host.mjs');
+  const { createRuntimeHost } = await import('../../crates/neoflash-script/tests/host-integration.mjs');
+
+  const avm1PushStr = str => {
+    const b = Buffer.from(str + '\0', 'utf8');
+    const out = Buffer.alloc(1 + 2 + 1 + b.length);
+    out[0] = 0x96;
+    out.writeUInt16LE(1 + b.length, 1);
+    out[3] = 0;
+    b.copy(out, 4);
+    return out;
+  };
+  const avm1PushInt = n => {
+    const out = Buffer.alloc(1 + 2 + 1 + 4);
+    out[0] = 0x96;
+    out.writeUInt16LE(5, 1);
+    out[3] = 7; // integer type
+    out.writeInt32LE(n, 4);
+    return out;
+  };
+
+  // 1. AVM1 SWF attempting:
+  //    - `[]["filter"]["constructor"]("globalThis.__avm1Escaped = 1; return 99;")()`
+  //    - `({})["__proto__"].polluted = 1`
+  //    - strict-mode octal-like control strings "\x001", "\x008", and "\u2028"
+  //    - unsupported GetURL (0x83) opcode producing a deduplicated bundle warning
+  const getUrlBody = Buffer.from('https://example.test/\0_blank\0', 'utf8');
+  const getUrlOp = Buffer.alloc(3 + getUrlBody.length);
+  getUrlOp[0] = 0x83;
+  getUrlOp.writeUInt16LE(getUrlBody.length, 1);
+  getUrlBody.copy(getUrlOp, 3);
+
+  const avm1SandboxAction = Buffer.concat([
+    // arr = [] (InitArray count=0 -> 0x42)
+    avm1PushInt(0), Buffer.from([0x42]),
+    // fn = arr["filter"] (GetMember -> 0x4e)
+    avm1PushStr('filter'), Buffer.from([0x4e]),
+    // ctor = fn["constructor"] -> MUST be undefined!
+    avm1PushStr('constructor'), Buffer.from([0x4e]),
+    avm1PushStr('avm1CtorLookup'), Buffer.from([0x3c]), // DefineLocal: var avm1CtorLookup = ... (Wait: stack order for 0x1d SetVariable is name, val)
+    // Store via this.ctorBlocked = (([]["filter"]["constructor"]) === undefined)
+    avm1PushStr('ctorVal'),
+    avm1PushInt(0), Buffer.from([0x42]),
+    avm1PushStr('filter'), Buffer.from([0x4e]),
+    avm1PushStr('constructor'), Buffer.from([0x4e]),
+    Buffer.from([0x1d]), // SetVariable: ctorVal = []["filter"]["constructor"]
+
+    // Attempt `({})["__proto__"]["polluted"] = 1`:
+    // obj = {} (InitObject count=0 -> 0x43), proto = obj["__proto__"], SetMember("polluted", 1)
+    avm1PushInt(0), Buffer.from([0x43]),
+    avm1PushStr('__proto__'), Buffer.from([0x4e]),
+    avm1PushStr('polluted'), avm1PushInt(1), Buffer.from([0x4f]),
+
+    // Strict-mode control strings ("\x01" + "1" = "\x011", "\u2028"): Note AVM1 C-strings cannot contain literal NUL,
+    // so we test "\x078" + "\u2028" in AVM1 and "\x001" + "\x008" + "\u2028" in AVM2 UTF-8 pool!
+    avm1PushStr('lineSepVal'), avm1PushStr('ok\u2028after'), Buffer.from([0x1d]),
+
+    // Two GetURL opcodes -> must emit deduplicated warning
+    getUrlOp,
+    getUrlOp,
+    Buffer.from([0x00]),
+  ]);
+
+  // Also test PlaceObject3 with blendMode=3 (multiply) for PlaceObject3 warning
+  const po3 = new BitWriter();
+  po3.writeU8(0x06); // flags1: HasMatrix | HasCharacter
+  po3.writeU8(0x02); // flags2: HasBlendMode
+  po3.writeU16(1);   // depth 1
+  po3.writeU16(1);   // charId 1
+  po3.writeU8(0);    // identity matrix (hasScale=0, hasRotate=0, nTranslateBits=0)
+  po3.align();
+  po3.writeU8(3);    // blend_mode = 3 (unsupported in SWF loader -> warning)
+
+  const avm1Swf = wrapSwf('FWS', 8, 80, 60, 24, 1, [
+    makeSwfTag(69, Buffer.from([0x00, 0, 0, 0])),
+    makeSolidRectShapeTag(1, 10, 10, 0x112233),
+    makeSwfTag(70, po3.toBuffer()), // PlaceObject3
+    makeSwfTag(12, avm1SandboxAction),
+    makeSwfTag(1, Buffer.alloc(0)),
+  ]);
+
+  // Verify decoded bundle warnings directly via decode_swf_bundle_json
+  const decodedAvm1 = JSON.parse(runtimeWasm.decode_swf_bundle_json(avm1Swf));
+  assert.ok(Array.isArray(decodedAvm1.warnings));
+  assert.equal(decodedAvm1.warnings.filter(w => w.includes('GetURL')).length, 1, 'duplicate GetURL warnings are deduplicated');
+  assert.ok(decodedAvm1.warnings.some(w => w.includes('PlaceObject3')), 'PlaceObject3 blendMode emits warning');
+
+  // 2. Build an AVM2 SWF attempting:
+  //    - `[]["filter"]["constructor"]("globalThis.__avm2Escaped = 1; return 77;")()`
+  //    - `(function(){})["constructor"]` via 0x40 newfunction
+  //    - `({})["__proto__"].polluted = 1`
+  //    - strict-mode strings "\x001", "\x008", and "\u2028"
+  //    - non-root SymbolClass (cid=1) warning
+  function buildHardenedTestAvm2Tag() {
+    const abc = [];
+    abc.push(16, 0, 46, 0);
+    writeU30(abc, 1); writeU30(abc, 1); writeU30(abc, 1);
+    const strings = [
+      '',
+      '', // 1: empty package ns
+      'SandboxDoc', // 2
+      'Object', // 3
+      'filter', // 4
+      'constructor', // 5
+      'return 77', // 6
+      '__proto__', // 7
+      'polluted', // 8
+      'ctorResult', // 9
+      'stubCtorResult', // 10
+      'strictStr', // 11
+      '\x001|\x008|\u2028|\u2029', // 12: strict-mode octal-like escapes + line separators!
+    ];
+    writeU30(abc, strings.length);
+    for (let i = 1; i < strings.length; i++) {
+      const b = Buffer.from(strings[i], 'utf8');
+      writeU30(abc, b.length);
+      for (const c of b) abc.push(c);
+    }
+    writeU30(abc, 2); abc.push(0x16); writeU30(abc, 1); // PackageNamespace("")
+    writeU30(abc, 1); // ns_sets
+    // multinames:
+    // 1: SandboxDoc(2), 2: Object(3), 3: filter(4), 4: constructor(5), 5: __proto__(7),
+    // 6: polluted(8), 7: ctorResult(9), 8: stubCtorResult(10), 9: strictStr(11)
+    const mnStrIds = [2, 3, 4, 5, 7, 8, 9, 10, 11];
+    writeU30(abc, 1 + mnStrIds.length);
+    for (const sid of mnStrIds) {
+      abc.push(0x07); writeU30(abc, 1); writeU30(abc, sid);
+    }
+    // methods: 4 (0: cinit, 1: iinit, 2: script_init, 3: dummyClosure)
+    writeU30(abc, 4);
+    for (let m = 0; m < 4; m++) {
+      writeU30(abc, 0); writeU30(abc, 0); writeU30(abc, 0); abc.push(0);
+    }
+    writeU30(abc, 0); // metadata
+    writeU30(abc, 1); // 1 class
+    writeU30(abc, 1); writeU30(abc, 2); abc.push(0); writeU30(abc, 0); writeU30(abc, 1); writeU30(abc, 0);
+    writeU30(abc, 0); writeU30(abc, 0);
+    writeU30(abc, 1); writeU30(abc, 2); writeU30(abc, 0);
+
+    const iinitCode = [
+      // this.ctorResult = []["filter"]["constructor"]
+      0xd0, // getlocal_0
+      0x56, 0, // newarray(0) -> []
+      0x66, 3, // getproperty("filter")
+      0x66, 4, // getproperty("constructor") -> MUST be undefined
+      0x61, 7, // setproperty("ctorResult")
+
+      // this.stubCtorResult = (newfunction 3)["constructor"]
+      0xd0, // getlocal_0
+      0x40, 3, // newfunction(3) -> __nfSwfStubFn()
+      0x66, 4, // getproperty("constructor") -> MUST be undefined
+      0x61, 8, // setproperty("stubCtorResult")
+
+      // ({})["__proto__"]["polluted"] = 1
+      0x55, 0, // newobject(0) -> {}
+      0x66, 5, // getproperty("__proto__") -> undefined
+      0x24, 1, // pushbyte(1)
+      0x61, 6, // setproperty("polluted") -> no-op via __nfSwfSet
+
+      // this.strictStr = "\x001|\x008|\u2028|\u2029"
+      0xd0,
+      0x2c, 12, // pushstring(12)
+      0x61, 9, // setproperty("strictStr")
+
+      0x47, // returnvoid
+    ];
+    const dummyBody = [0x47];
+    writeU30(abc, 2);
+    for (const [mid, code] of [[1, iinitCode], [3, dummyBody]]) {
+      writeU30(abc, mid); writeU30(abc, 8); writeU30(abc, 4); writeU30(abc, 0); writeU30(abc, 4);
+      writeU30(abc, code.length);
+      for (const b of code) abc.push(b);
+      writeU30(abc, 0); writeU30(abc, 0);
+    }
+    const prefix = Buffer.from([1, 0, 0, 0, ...Buffer.from('sandbox\0', 'utf8')]);
+    return makeSwfTag(82, Buffer.concat([prefix, Buffer.from(abc)]));
+  }
+
+  const symPayload = new BitWriter();
+  symPayload.writeU16(2);
+  symPayload.writeU16(0); symPayload.writeCString('SandboxDoc');
+  symPayload.writeU16(1); symPayload.writeCString('NonRootLinkage');
+
+  const avm2Swf = wrapSwf('FWS', 13, 80, 60, 30, 1, [
+    makeSwfTag(69, Buffer.from([0x08, 0, 0, 0])),
+    makeSolidRectShapeTag(1, 10, 10, 0x445566),
+    buildHardenedTestAvm2Tag(),
+    makeSwfTag(76, symPayload.toBuffer()),
+    makeSwfTag(1, Buffer.alloc(0)),
+  ]);
+
+  const decodedAvm2 = JSON.parse(runtimeWasm.decode_swf_bundle_json(avm2Swf));
+  assert.ok(decodedAvm2.warnings.some(w => w.includes('newfunction')), 'AVM2 newfunction closure emits warning');
+  assert.ok(decodedAvm2.warnings.some(w => w.includes('NonRootLinkage')), 'non-root SymbolClass emits warning');
+
+  const baseProj = {
+    format_version: 3,
+    name: 'Hardened SWF Host',
+    width: 160,
+    height: 120,
+    fps: 30,
+    background: [255, 255, 255, 255],
+    root: 'root',
+    resources: [],
+    symbols: [{
+      id: 'root', name: 'Main', kind: 'movie_clip',
+      timeline: { frame_count: 1, layers: [{ id: 'l0', name: 'L0', visible: true, locked: false, keyframes: [{ frame: 0, elements: [], label: '', tween: null }] }], scripts: [] },
+    }],
+  };
+
+  const player = new runtimeWasm.WebPlayer(JSON.stringify(baseProj));
+  const functionsMap = new Map();
+  const { host } = createRuntimeHost(root, player, [], {
+    project: baseProj,
+    bundle: { project: baseProj },
+    functions: functionsMap,
+  });
+
+  try {
+    const prog = host.program();
+    const Loader = prog.type('flash.display.Loader');
+    const ByteArray = prog.type('flash.utils.ByteArray');
+    const rootClip = host.proxyFor([]);
+
+    const toBa = buf => {
+      const ba = new ByteArray();
+      for (const b of buf) ba.writeByte(b);
+      return ba;
+    };
+
+    // Execute AVM1 sandbox test SWF
+    const l1 = new Loader();
+    rootClip.addChild(l1);
+    l1.loadBytes(toBa(avm1Swf));
+    await new Promise(r => setTimeout(r, 20));
+    assert.equal(l1.content.ctorVal, undefined, 'AVM1 []["filter"]["constructor"] must be blocked');
+    assert.equal(({}).polluted, undefined, 'AVM1 ({})["__proto__"].polluted must not pollute Object.prototype');
+    assert.equal(l1.content.lineSepVal, 'ok\u2028after', 'AVM1 \\u2028 string literal executes cleanly in strict mode');
+    l1.unload();
+
+    // Execute AVM2 sandbox + strict-mode control-string test SWF across repeated loadBytes + unload() cycles
+    const l2 = new Loader();
+    l2.contentLoaderInfo.addEventListener('ioError', e => { throw new Error('L2 ioError: ' + e.text); });
+    rootClip.addChild(l2);
+    for (let cycle = 0; cycle < 6; cycle++) {
+      l2.loadBytes(toBa(avm2Swf));
+      await new Promise(r => setTimeout(r, 15));
+      assert.equal(l2.content.ctorResult, undefined, 'AVM2 []["filter"]["constructor"] must be blocked');
+      assert.equal(l2.content.stubCtorResult, undefined, 'AVM2 newfunction stub .constructor must be undefined');
+      assert.equal(({}).polluted, undefined, 'AVM2 ({})["__proto__"].polluted must not pollute Object.prototype');
+      assert.equal(l2.content.strictStr, '\x001|\x008|\u2028|\u2029', 'AVM2 \\x001, \\x008, \\u2028, \\u2029 execute without strict SyntaxError');
+      assert.ok(functionsMap.size > 0, 'mounted SWF registers compiled script');
+      l2.unload();
+      assert.equal(functionsMap.size, 0, `cycle ${cycle}: Loader.unload() deletes child functions entries`);
+      assert.equal(baseProj.resources.length, 0, `cycle ${cycle}: Loader.unload() retires child resources`);
+    }
+  } finally {
+    delete ({}).polluted;
+    host.disposeFamily();
+    player.free();
+  }
+});

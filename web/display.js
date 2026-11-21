@@ -339,7 +339,38 @@
     function buildMaskComponentsForNode(n,inheritedClips){
       const geom=[],alpha=[];
       let hasSoftAlpha=false;
-      const nodeAlpha=Number.isFinite(n.transform?.alpha)?n.transform.alpha:1;
+      const ct=n.concatenated_color_transform||null;
+      const ctAlphaMul=Number.isFinite(ct?.multipliers?.[3])?ct.multipliers[3]:(Number.isFinite(n.transform?.alpha)?n.transform.alpha:1);
+      const ctAlphaOff=Number.isFinite(ct?.offsets?.[3])?ct.offsets[3]/255:0;
+      const nodeAlpha=Math.max(0,Math.min(1,ctAlphaMul+ctAlphaOff));
+      if(nodeAlpha<1||ctAlphaOff!==0)hasSoftAlpha=true;
+      const shapeSolidAlpha=kind=>{
+        if(kind.fill_gradient||kind.fill_bitmap||!kind.fill)return nodeAlpha;
+        const fa=Math.max(0,Math.min(1,(kind.fill[3]??255)/255));
+        if(fa<1)hasSoftAlpha=true;
+        return Math.max(0,Math.min(1,fa*ctAlphaMul+ctAlphaOff));
+      };
+      const composeMaskGradient=grad=>{
+        if(!grad||!ct||(ctAlphaMul===1&&ctAlphaOff===0))return grad;
+        return {
+          ...grad,
+          stops:(grad.stops||[]).map(s=>({
+            ...s,
+            color:[
+              s.color[0],s.color[1],s.color[2],
+              Math.max(0,Math.min(255,Math.round(s.color[3]*ctAlphaMul+(ct.offsets?.[3]||0)))),
+            ],
+          })),
+        };
+      };
+      const composeMaskBitmapCt=baseCt=>{
+        const b=baseCt||identityColor;
+        if(!ct)return b;
+        return {
+          multipliers:[b.multipliers[0]*ct.multipliers[0],b.multipliers[1]*ct.multipliers[1],b.multipliers[2]*ct.multipliers[2],b.multipliers[3]*ct.multipliers[3]],
+          offsets:[b.offsets[0]*ct.multipliers[0]+ct.offsets[0],b.offsets[1]*ct.multipliers[1]+ct.offsets[1],b.offsets[2]*ct.multipliers[2]+ct.offsets[2],b.offsets[3]*ct.multipliers[3]+ct.offsets[3]],
+        };
+      };
       const baseClips=[...new Set([...(n.clip_ids||[]),...inheritedClips])];
       for(const kind of [...nodeShapes(n),...(n.graphics||[])]){
         if(kind.type==='rectangle'){
@@ -347,34 +378,34 @@
           if(!hasFill||!(kind.width>0&&kind.height>0))continue;
           const cmds=rectCommands(0,0,kind.width,kind.height);
           geom.push({commands:cmds,fill_rule:'nonzero',matrix:n.world,clip_ids:baseClips});
-          const ac={commands:cmds,fill_rule:'nonzero',matrix:n.world,alpha:nodeAlpha,clip_ids:baseClips};
-          if(kind.fill_gradient){ac.fill_gradient=kind.fill_gradient;hasSoftAlpha=true;}
-          if(kind.fill_bitmap){ac.fill_bitmap=kind.fill_bitmap;hasSoftAlpha=true;}
+          const ac={commands:cmds,fill_rule:'nonzero',matrix:n.world,alpha:shapeSolidAlpha(kind),clip_ids:baseClips};
+          if(kind.fill_gradient){ac.fill_gradient=composeMaskGradient(kind.fill_gradient);ac.alpha=1;hasSoftAlpha=true;}
+          if(kind.fill_bitmap){ac.fill_bitmap={...kind.fill_bitmap,color_transform:composeMaskBitmapCt(kind.fill_bitmap.color_transform)};ac.alpha=1;hasSoftAlpha=true;}
           alpha.push(ac);
         }else if(kind.type==='ellipse'){
           const hasFill=Boolean((kind.fill&&kind.fill[3]>0)||kind.fill_gradient||kind.fill_bitmap);
           if(!hasFill||!(kind.width>0&&kind.height>0))continue;
           const cmds=ellipseCommands(kind.width,kind.height);
           geom.push({commands:cmds,fill_rule:'nonzero',matrix:n.world,clip_ids:baseClips});
-          const ac={commands:cmds,fill_rule:'nonzero',matrix:n.world,alpha:nodeAlpha,clip_ids:baseClips};
-          if(kind.fill_gradient){ac.fill_gradient=kind.fill_gradient;hasSoftAlpha=true;}
-          if(kind.fill_bitmap){ac.fill_bitmap=kind.fill_bitmap;hasSoftAlpha=true;}
+          const ac={commands:cmds,fill_rule:'nonzero',matrix:n.world,alpha:shapeSolidAlpha(kind),clip_ids:baseClips};
+          if(kind.fill_gradient){ac.fill_gradient=composeMaskGradient(kind.fill_gradient);ac.alpha=1;hasSoftAlpha=true;}
+          if(kind.fill_bitmap){ac.fill_bitmap={...kind.fill_bitmap,color_transform:composeMaskBitmapCt(kind.fill_bitmap.color_transform)};ac.alpha=1;hasSoftAlpha=true;}
           alpha.push(ac);
-        }else if(kind.type==='path'||kind.type==='gradient_path'){
+        }else if(kind.type==='path'||kind.type==='gradient_path'||kind.type==='painted_path'){
           const hasFill=Boolean((kind.fill&&kind.fill[3]>0)||kind.fill_gradient||kind.fill_bitmap);
           if(!hasFill||!kind.commands?.length)continue;
           const rule=kind.fill_rule||'nonzero';
           geom.push({commands:kind.commands,fill_rule:rule,matrix:n.world,clip_ids:baseClips});
-          const ac={commands:kind.commands,fill_rule:rule,matrix:n.world,alpha:nodeAlpha,clip_ids:baseClips};
-          if(kind.fill_gradient){ac.fill_gradient=kind.fill_gradient;hasSoftAlpha=true;}
-          if(kind.fill_bitmap){ac.fill_bitmap=kind.fill_bitmap;hasSoftAlpha=true;}
+          const ac={commands:kind.commands,fill_rule:rule,matrix:n.world,alpha:shapeSolidAlpha(kind),clip_ids:baseClips};
+          if(kind.fill_gradient){ac.fill_gradient=composeMaskGradient(kind.fill_gradient);ac.alpha=1;hasSoftAlpha=true;}
+          if(kind.fill_bitmap){ac.fill_bitmap={...kind.fill_bitmap,color_transform:composeMaskBitmapCt(kind.fill_bitmap.color_transform)};ac.alpha=1;hasSoftAlpha=true;}
           alpha.push(ac);
         }else if(kind.type==='bitmap_pixels'){
           if(!(kind.width>0&&kind.height>0))continue;
           const cmds=rectCommands(0,0,kind.width,kind.height);
-          const fb={pixel_ref:kind.pixel_ref,width:kind.width,height:kind.height,revision:kind.revision,color_transform:kind.color_transform||identityColor,matrix:[1,0,0,1,0,0],repeat:false,smoothing:Boolean(kind.smoothing)};
+          const fb={pixel_ref:kind.pixel_ref,width:kind.width,height:kind.height,revision:kind.revision,color_transform:composeMaskBitmapCt(kind.color_transform),matrix:[1,0,0,1,0,0],repeat:false,smoothing:Boolean(kind.smoothing)};
           geom.push({commands:cmds,fill_rule:'nonzero',matrix:n.world,clip_ids:baseClips});
-          alpha.push({commands:cmds,fill_rule:'nonzero',matrix:n.world,alpha:nodeAlpha,clip_ids:baseClips,fill_bitmap:fb});
+          alpha.push({commands:cmds,fill_rule:'nonzero',matrix:n.world,alpha:1,clip_ids:baseClips,fill_bitmap:fb});
           hasSoftAlpha=true;
         }else if(kind.type==='video_frame'){
           if(!(kind.width>0&&kind.height>0))continue;
@@ -680,7 +711,7 @@
           const rx=Math.hypot(m[0]*kind.width/2,m[2]*kind.height/2)+(customStroke?customDx:stroke*Math.hypot(m[0],m[2]));
           const ry=Math.hypot(m[1]*kind.width/2,m[3]*kind.height/2)+(customStroke?customDy:stroke*Math.hypot(m[1],m[3]));
           include(center.x-rx,center.y-ry);include(center.x+rx,center.y+ry);
-        } else if(kind.type==='path'||kind.type==='gradient_path') {
+        } else if(kind.type==='path'||kind.type==='gradient_path'||kind.type==='painted_path') {
           const b=pathBounds(kind.commands,m);
           if(b){const dx=customStroke?customDx:stroke*Math.hypot(m[0],m[2]),dy=customStroke?customDy:stroke*Math.hypot(m[1],m[3]);include(b.left-dx,b.top-dy);include(b.right+dx,b.bottom+dy);}
         } else if(kind.type==='text') {
@@ -1007,7 +1038,7 @@
             const tx=(x,y)=>{const p=point(m,x,y);return [p.x,p.y];};
             const shapes=[...(leaf.kind?[leaf.kind]:[]),...(leaf.graphics||[])];
             for(const kind of shapes){
-              if(!['rectangle','ellipse','path','gradient_path'].includes(kind.type))continue;
+              if(!['rectangle','ellipse','path','gradient_path','painted_path'].includes(kind.type))continue;
               const cmds=[],coords=[];
               if(kind.type==='rectangle'){
                 const [x0,y0]=tx(0,0),[x1,y1]=tx(kind.width,0),[x2,y2]=tx(kind.width,kind.height),[x3,y3]=tx(0,kind.height);
@@ -1493,7 +1524,7 @@
         else if(kind.type==='text'){const lines=kind.text.split('\n');if(q.x>=0&&q.y>=0&&q.y<=lines.length*kind.font_size*1.2&&q.x<=Math.max(0,...lines.map(line=>measureText(line,kind))))return true;}
         else if(kind.type==='bitmap_pixels'){if(getBitmap()?.cache.hit(kind,q.x,q.y))return true;}
         else if(kind.type==='video_frame'){if(getVideo()?.get(nodeProxy(node),'videoWidth')>0&&q.x>=0&&q.y>=0&&q.x<kind.width&&q.y<kind.height)return true;}
-        else if(kind.type==='path'||kind.type==='gradient_path'){if(!shapeContains)throw new Error('Shape hit testing requires the Canvas Path2D service.');if(shapeContains(kind,q.x,q.y,node.world))return true;}
+        else if(kind.type==='path'||kind.type==='gradient_path'||kind.type==='painted_path'){if(!shapeContains)throw new Error('Shape hit testing requires the Canvas Path2D service.');if(shapeContains(kind,q.x,q.y,node.world))return true;}
       }
       return false;
     }
@@ -2576,7 +2607,7 @@
       };
       const mappedDraws=(full.draws||[]).filter(d=>subKeys.has(refKey(d.owner_ref))).map(d=>{
         for(const cid of (d.clip_ids||[]))collectClip(cid);
-        let kind=d.kind;
+        let kind=d.kind?.type==='painted_path'?{...d.kind,type:'gradient_path'}:d.kind;
         let alpha=d.alpha;
         if(!isIdentityCt){
           if(kind.type==='rectangle'||kind.type==='ellipse'||kind.type==='path'||kind.type==='gradient_path'){

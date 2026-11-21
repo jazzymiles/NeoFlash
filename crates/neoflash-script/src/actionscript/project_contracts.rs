@@ -47,31 +47,35 @@ pub(super) fn check_accessor_pairs(
     contracts: &BTreeMap<(String, MethodKind), MethodContract>,
     errors: &mut Vec<Diagnostic>,
 ) {
+    let member_offset = |trait_name: &str, kind: MethodKind| {
+        let local = trait_name
+            .rsplit_once("::")
+            .map_or(trait_name, |(_, local)| local);
+        class
+            .methods
+            .iter()
+            .find(|m| m.function.name.as_deref() == Some(local) && m.kind == kind)
+            .map_or(class.header.decl_offset, |m| m.function.offset)
+    };
     for ((name, kind), getter) in contracts {
         if *kind == MethodKind::Get
             && let Some(setter) = contracts.get(&(name.clone(), MethodKind::Set))
             && (getter.signature.returns != setter.signature.params[0]
                 || getter.access != setter.access)
         {
-            errors.push(Diagnostic::at(
-                &class.header.script,
-                0,
+            errors.push(class.header.diag(
+                member_offset(name, *kind),
                 format!(
-                    "{}: getter and setter '{name}' must use the same property type and access namespace",
-                    class.header.path
+                    "getter and setter '{name}' must use the same property type and access namespace"
                 ),
             ));
         }
         if *kind != MethodKind::Method
             && contracts.contains_key(&(name.clone(), MethodKind::Method))
         {
-            errors.push(Diagnostic::at(
-                &class.header.script,
-                0,
-                format!(
-                    "{}: accessor '{name}' conflicts with a method",
-                    class.header.path
-                ),
+            errors.push(class.header.diag(
+                member_offset(name, *kind),
+                format!("accessor '{name}' conflicts with a method"),
             ));
         }
     }

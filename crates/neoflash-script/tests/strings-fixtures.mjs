@@ -153,6 +153,10 @@ var pcreComment:Boolean = new RegExp("foo(?# inline comment )bar").test("foobar"
 var pcreCondNum:Array = [new RegExp("(a)?(?(1)yes|no)").exec("ayes")[0], new RegExp("(a)?(?(1)yes|no)").exec("no")[0]];
 var pcreCondNamed:Array = [new RegExp("(?P<k>@)?(?(k)at|plain)").exec("@at")[0], new RegExp("(?P<k>@)?(?(k)at|plain)").exec("plain")[0]];
 var pcreCondAssert:Array = [new RegExp("(?(?=\\d)\\d+|[a-z]+)").exec("42")[0], new RegExp("(?(?=\\d)\\d+|[a-z]+)").exec("ok")[0]];
+var pcreCondCapsYes:Array = new RegExp("(a)?(?(1)(b)|(c))(d)").exec("abd");
+var pcreCondCapsNo:Array = new RegExp("(a)?(?(1)(b)|(c))(d)").exec("cd");
+var pcreCondLookCapture:Object = new RegExp("(?(?=(?P<dig>\\d+))\\d+|[a-z]+)").exec("987");
+var pcreCondLookCaptureElse:Object = new RegExp("(?(?=(?P<dig>\\d+))\\d+|[a-z]+)").exec("abc");
 var pcreEscapes:Boolean = new RegExp("\\A\\a\\e\\x{03B1}\\Z").test("\x07\x1bα\n") && !new RegExp("\\Aα\\z").test("α\n") && new RegExp("\\Aα\\z").test("α");
 var pcreReclone:RegExp = new RegExp(pcreNamed);
 var pcreFlagOverrideError:Boolean = false;
@@ -197,6 +201,10 @@ export const stringsFixtures = ['as2','as3'].map(language => ({
       assert.equal(c.pcreYear,'2026');assert.equal(c.pcreMonth,'11');assert.equal(c.pcreReplaced,'11/2026');
       assert.equal(c.pcreInlineFlags,true);assert.equal(c.pcreScopedFlags,true);assert.equal(c.pcreComment,true);
       assert.deepEqual(c.pcreCondNum,['ayes','no']);assert.deepEqual(c.pcreCondNamed,['@at','plain']);assert.deepEqual(c.pcreCondAssert,['42','ok']);
+      assert.deepEqual(Array.from(c.pcreCondCapsYes),['abd','a','b',undefined,'d'],'conditional untaken branch preserves capture group indices');
+      assert.deepEqual(Array.from(c.pcreCondCapsNo),['cd',undefined,undefined,'c','d'],'conditional yes branch dummy capture preserves group indices');
+      assert.equal(c.pcreCondLookCapture[0],'987');assert.equal(c.pcreCondLookCapture.dig,'987');
+      assert.equal(c.pcreCondLookCaptureElse[0],'abc');assert.equal(c.pcreCondLookCaptureElse.dig,undefined);
       assert.equal(c.pcreEscapes,true);assert.equal(c.pcreSameCall,true);
       assert.equal(c.untouched,'blue'); expected.push(['REPLACE','$& red','RED:0:7 red','blue']);
     } else {

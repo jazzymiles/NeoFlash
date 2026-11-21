@@ -288,7 +288,7 @@
     function later(r,fn){const epoch=generation,sequence=r.sequence;schedule(()=>{if(disposed||epoch!==generation||r.generation!==generation||r.sequence!==sequence)return;try{fn();}catch(error){if(!disposed&&epoch===generation)report(error);}});}
     function noBase(Type,predicate){Object.defineProperties(Type,{__nfIs:{value:predicate},[Symbol.hasInstance]:{value:predicate},__nfInitialize:{configurable:true,value:()=>unsupported(`${Type.name} native subclassing`)}});}
     function canvas(w,h){const surface=options.createCanvas?options.createCanvas(w,h):typeof global.OffscreenCanvas==='function'?new global.OffscreenCanvas(w,h):global.document?.createElement('canvas');if(!surface)throw new Error('Video painting requires Canvas 2D.');surface.width=w;surface.height=h;return surface;}
-    function collectFrames(){const keep=new Set();for(const r of streamRecords){if(r.frozen)keep.add(r.frozen);if(r.suppressedFrame)keep.add(r.suppressedFrame);if(r.appendFrame?.canvas)keep.add(r.appendFrame);}for(const b of bindings.values())if(b.frozen)keep.add(b.frozen);for(const f of derived.values())keep.add(f);for(const f of frames)if(!keep.has(f)){framePixels-=f.width*f.height;f.canvas.width=f.canvas.height=0;frames.delete(f);}}
+    function collectFrames(){const keep=new Set();for(const r of streamRecords){if(r.frozen)keep.add(r.frozen);if(r.suppressedFrame)keep.add(r.suppressedFrame);if(r.appendFrame?.canvas)keep.add(r.appendFrame);}for(const entry of publishedStreams.values())if(entry.lastFrame?.canvas)keep.add(entry.lastFrame);for(const b of bindings.values())if(b.frozen)keep.add(b.frozen);for(const f of derived.values())keep.add(f);for(const f of frames)if(!keep.has(f)){framePixels-=f.width*f.height;f.canvas.width=f.canvas.height=0;frames.delete(f);}}
     function frame(w,h){collectFrames();if(frames.size>=32||framePixels+w*h>MAX_PIXELS)throw new RangeError('Retained video frames exceed 16 Mi pixels / 32 surfaces; clear detached video images or restart.');const result={canvas:canvas(w,h),width:w,height:h,id:++serial};frames.add(result);framePixels+=w*h;return result;}
     function fitsDecoderBounds(w,h){
       return Number.isInteger(w)&&Number.isInteger(h)&&w>0&&h>0&&Math.max(w,h)<=1920&&Math.min(w,h)<=1080;
@@ -1549,6 +1549,7 @@
         recordDataBytes(r,{handlerName,args});
         const entry=r.publishedName?publishedStreams.get(r.publishedName):null;
         if(entry&&entry.publisher===r&&(entry.mode==='record'||entry.mode==='append')){
+          if(entry.messages.length>=4096)entry.messages.shift();
           entry.messages.push({handlerName,args:[...args]});
         }
         const subs=entry&&entry.publisher===r?[...(entry.subscribers||[])]:[];

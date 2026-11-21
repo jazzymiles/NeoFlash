@@ -272,14 +272,11 @@ export async function verifyBitmapPixels(root,cargo) {
     const jpgEncoded=encSrc.encode(encSrc.rect,new JpgOpts(85));
     jpgEncoded.position=0;
     assert.deepEqual([jpgEncoded.readUnsignedByte(),jpgEncoded.readUnsignedByte()],[0xff,0xd8]);
-    const jxrLossless=encSrc.encode(encSrc.rect,new JxrOpts(0,ColorSpaceEnum.COLORSPACE_4_4_4,0));
-    const jxr422=encSrc.encode(encSrc.rect,new JxrOpts(25,ColorSpaceEnum.COLORSPACE_4_2_2,1));
-    const jxr420Trim=encSrc.encode(encSrc.rect,new JxrOpts(60,ColorSpaceEnum.COLORSPACE_4_2_0,4));
-    jxrLossless.position=0;
-    assert.deepEqual([jxrLossless.readUnsignedByte(),jxrLossless.readUnsignedByte(),jxrLossless.readUnsignedByte(),jxrLossless.readUnsignedByte()],[0x49,0x49,0xbc,0x01],'JPEGXREncoderOptions emits ITU-T T.832 .jxr header');
-    assert.ok(jxr422.length>16&&jxr420Trim.length>16);
-    assert.notEqual(jxrLossless.length,jxr420Trim.length,'JPEG-XR quantization/colorSpace/trimFlexBits changes encoded bitstream');
     assert.throws(()=>new JxrOpts(20,'invalid-cs',0),err=>err.name==='ArgumentError');
+    assert.throws(
+      ()=>encSrc.encode(encSrc.rect,new JxrOpts(0,ColorSpaceEnum.COLORSPACE_4_4_4,0)),
+      /JPEGXREncoderOptions \(ITU-T T\.832 \.jxr\) encoding is not supported in the HTML5\/WASM profile/,
+    );
 
     const RectCls=host.program().type('flash.geom.Rectangle');
     const lockBmp=new BitmapData(8,8,true,0xff112233);

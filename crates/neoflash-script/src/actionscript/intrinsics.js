@@ -65,27 +65,7 @@ const __nfFunctionClass = (() => {
         if (args.length === 0) {
             return __nfSourceFunction(function() {}, { as3: true, length: 0, required: 0, allowExtra: true, constructible: true, defaultReceiver: {} });
         }
-        const rawParams = [];
-        for (let i = 0; i < args.length - 1; i++) {
-            const segment = __nfString(args[i]);
-            for (const part of segment.split(',')) {
-                const trimmed = part.trim();
-                if (!trimmed) continue;
-                const colonIdx = trimmed.indexOf(':');
-                const eqIdx = trimmed.indexOf('=');
-                let clean = trimmed;
-                if (colonIdx !== -1 && (eqIdx === -1 || colonIdx < eqIdx)) {
-                    clean = trimmed.slice(0, colonIdx).trim() + (eqIdx !== -1 ? ' ' + trimmed.slice(eqIdx) : '');
-                }
-                rawParams.push(clean);
-            }
-        }
-        const arity = rawParams.filter(p => !p.startsWith('...')).length;
-        const bodyStr = __nfString(args[args.length - 1]);
-        const compiled = __nfApply(__nfNativeFunctionConstructor, undefined, [...rawParams, bodyStr]);
-        return __nfSourceFunction(function(activation) {
-            return __nfApply(compiled, this, activation.values);
-        }, { as3: true, length: arity, required: 0, allowExtra: true, constructible: true, defaultReceiver: {} });
+        throw __nfMakeError('EvalError', true, ["Error #1066: The form function('function body') is not supported.", 1066]);
     }
     const facade = function(...args) {
         if (new.target) return buildDynamicFunction(args);
@@ -126,7 +106,14 @@ function __nfMarkProxyAttribute(obj) {
     if (obj !== null && typeof obj === 'object') __nfProxyAttrKeys.add(obj);
     return obj;
 }
-const __nfAs3ProxyBypassProps = new Set(['isAttribute', 'hasOwnProperty', 'propertyIsEnumerable', 'setPropertyIsEnumerable', 'isPrototypeOf', 'toString', 'valueOf', 'toLocaleString', 'constructor']);
+const __nfAs3ProxyBypassProps = new Set(['hasOwnProperty', 'propertyIsEnumerable', 'setPropertyIsEnumerable', 'isPrototypeOf', 'toString', 'valueOf', 'toLocaleString', 'constructor']);
+function __nfIsHostBypassProxyProp(prop) {
+    return typeof prop === 'symbol'
+        || prop === '__proto__'
+        || prop === 'prototype'
+        || prop === 'then'
+        || (typeof prop === 'string' && prop.startsWith('__nf'));
+}
 function __nfUnwrapAs3Proxy(value) {
     return value !== null && (typeof value === 'object' || typeof value === 'function') ? (__nfAs3ProxyRawMap.get(value) || value) : value;
 }
@@ -136,7 +123,7 @@ function __nfIsAs3Proxy(value) {
 }
 function __nfHasStandaloneAs3ProxyTrait(value, key) {
     const raw = __nfUnwrapAs3Proxy(value);
-    return __nfAs3ProxyBypassProps.has(key) || Boolean(__nfAs3ProxyAdapters.get(raw)?.hasFixedTrait?.(key));
+    return __nfIsHostBypassProxyProp(key) || __nfAs3ProxyBypassProps.has(key) || Boolean(__nfAs3ProxyAdapters.get(raw)?.hasFixedTrait?.(key));
 }
 function __nfInvokeStandaloneAs3Proxy(value, trap, args) {
     const raw = __nfUnwrapAs3Proxy(value);
@@ -150,14 +137,14 @@ function __nfCreateAs3Proxy(rawTarget, adapter) {
     __nfAs3ProxyAdapters.set(rawTarget, adapter);
     const proxy = new Proxy(rawTarget, {
         get(target, prop, _receiver) {
-            if (typeof prop === 'symbol' || prop === '__proto__' || __nfAs3ProxyBypassProps.has(prop)) {
+            if (__nfIsHostBypassProxyProp(prop) || __nfAs3ProxyBypassProps.has(prop)) {
                 return Reflect.get(target, prop, target);
             }
             if (adapter.hasFixedTrait(prop)) return adapter.getFixedTrait(prop);
             return adapter.invokeTrap('getProperty', [prop]);
         },
         set(target, prop, value, _receiver) {
-            if (typeof prop === 'symbol' || prop === '__proto__') {
+            if (typeof prop === 'symbol' || prop === '__proto__' || prop === 'prototype' || (typeof prop === 'string' && prop.startsWith('__nf'))) {
                 return Reflect.set(target, prop, value, target);
             }
             if (adapter.hasFixedTrait(prop)) {
@@ -168,13 +155,15 @@ function __nfCreateAs3Proxy(rawTarget, adapter) {
             return true;
         },
         has(target, prop) {
-            if (typeof prop === 'symbol' || __nfAs3ProxyBypassProps.has(prop) || adapter.hasFixedTrait(prop) || prop in Object.prototype) {
+            if (__nfIsHostBypassProxyProp(prop) || __nfAs3ProxyBypassProps.has(prop) || adapter.hasFixedTrait(prop) || prop in Object.prototype) {
                 return Reflect.has(target, prop);
             }
             return Boolean(adapter.invokeTrap('hasProperty', [prop]));
         },
         deleteProperty(target, prop) {
-            if (typeof prop === 'symbol') return Reflect.deleteProperty(target, prop);
+            if (typeof prop === 'symbol' || prop === '__proto__' || prop === 'prototype' || (typeof prop === 'string' && prop.startsWith('__nf'))) {
+                return Reflect.deleteProperty(target, prop);
+            }
             if (adapter.hasFixedTrait(prop)) return false;
             return Boolean(adapter.invokeTrap('deleteProperty', [prop]));
         },
@@ -1341,7 +1330,7 @@ function __nfInstallWave7Legacy(legacy, frame) {
             }
             const u = String(targetURI);
             this.uri = u;
-            if (u.startsWith('http://') || u.startsWith('https://') || u.startsWith('rtmp://') || u.startsWith('local:')) {
+            if (u.startsWith('http://') || u.startsWith('https://') || u.startsWith('local:')) {
                 this.isConnected = true;
                 if (typeof this.onStatus === 'function') {
                     this.onStatus({ level: 'status', code: 'NetConnection.Connect.Success', uri: u });
@@ -1456,6 +1445,14 @@ function __nfInstallWave7Legacy(legacy, frame) {
                 return;
             }
             const streamKey = String(name ?? '');
+            if ((this.connection && this.connection.isConnected === false) || /^(?:rtmp|rtmpt|rtmpe|rtmpte):\/\//i.test(streamKey)) {
+                this.playingUrl = null;
+                this.currentFps = 0;
+                if (typeof this.onStatus === 'function') {
+                    this.onStatus({ level: 'error', code: 'NetStream.Play.Failed', details: streamKey });
+                }
+                return;
+            }
             this.playingUrl = streamKey;
             this.paused = false;
             this.time = start !== undefined && Number(start) > 0 ? Number(start) : 0;
@@ -1501,7 +1498,16 @@ function __nfInstallWave7Legacy(legacy, frame) {
         };
         NetStream.prototype.play2 = function(param) {
             this.play2Options = param || null;
-            this.playingUrl = String(param?.streamName ?? '');
+            const streamKey = String(param?.streamName ?? '');
+            if ((this.connection && this.connection.isConnected === false) || /^(?:rtmp|rtmpt|rtmpe|rtmpte):\/\//i.test(streamKey)) {
+                this.playingUrl = null;
+                this.currentFps = 0;
+                if (typeof this.onStatus === 'function') {
+                    this.onStatus({ level: 'error', code: 'NetStream.Play.Failed', details: streamKey });
+                }
+                return;
+            }
+            this.playingUrl = streamKey;
             this.time = param?.start !== undefined && Number(param.start) > 0 ? Number(param.start) : 0;
             this.bytesTotal = 2048;
             this.bytesLoaded = 2048;
@@ -1627,7 +1633,10 @@ function __nfInstallWave7Legacy(legacy, frame) {
             }
             if (this.publishedName && loopbackStreams.get(this.publishedName)?.publisher === this) {
                 const entry = loopbackStreams.get(this.publishedName);
-                if (entry.mode === 'record' || entry.mode === 'append') entry.messages.push(msg);
+                if (entry.mode === 'record' || entry.mode === 'append') {
+                    if (entry.messages.length >= 4096) entry.messages.shift();
+                    entry.messages.push(msg);
+                }
                 for (const sub of entry.subscribers) {
                     if (typeof sub[msg.handlerName] === 'function') sub[msg.handlerName](...args);
                 }
@@ -2780,7 +2789,13 @@ const __nfWave7Registry = (() => {
             this.client = this;
         }
         connect(command) {
-            this.uri = command == null ? null : String(command);
+            const u = command == null ? null : String(command);
+            this.uri = u;
+            if (u !== null && /^(?:rtmp|rtmpt|rtmpe|rtmpte):\/\//i.test(u)) {
+                this.connected = false;
+                this.dispatchEvent({ type: 'netStatus', info: { level: 'error', code: 'NetConnection.Connect.Failed', uri: u } });
+                return;
+            }
             this.connected = true;
             this.dispatchEvent({ type: 'netStatus', info: { level: 'status', code: 'NetConnection.Connect.Success' } });
         }
@@ -2816,7 +2831,14 @@ const __nfWave7Registry = (() => {
         get checkPolicyFile() { return this._checkPolicyFile; }
         set checkPolicyFile(v) { this._checkPolicyFile = Boolean(v); }
         play(...args) {
-            this.playingUrl = String(args[0] ?? '');
+            const streamUrl = String(args[0] ?? '');
+            if ((this.connection && this.connection.connected === false) || /^(?:rtmp|rtmpt|rtmpe|rtmpte):\/\//i.test(streamUrl)) {
+                this.playingUrl = null;
+                this.currentFPS = 0;
+                this.dispatchEvent({ type: 'netStatus', info: { level: 'error', code: 'NetStream.Play.Failed' } });
+                return;
+            }
+            this.playingUrl = streamUrl;
             this.bytesTotal = 1024;
             this.bytesLoaded = 1024;
             this.currentFPS = 30;
@@ -2824,7 +2846,14 @@ const __nfWave7Registry = (() => {
         }
         play2(param) {
             this.play2Options = param || null;
-            this.playingUrl = String(param?.streamName ?? '');
+            const streamUrl = String(param?.streamName ?? '');
+            if ((this.connection && this.connection.connected === false) || /^(?:rtmp|rtmpt|rtmpe|rtmpte):\/\//i.test(streamUrl)) {
+                this.playingUrl = null;
+                this.currentFPS = 0;
+                this.dispatchEvent({ type: 'netStatus', info: { level: 'error', code: 'NetStream.Play.Failed' } });
+                return;
+            }
+            this.playingUrl = streamUrl;
             this.currentFPS = 30;
             this.dispatchEvent({ type: 'netStatus', info: { level: 'status', code: 'NetStream.Play.Transition' } });
         }

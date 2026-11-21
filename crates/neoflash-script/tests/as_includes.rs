@@ -236,4 +236,68 @@ fn include_error_contracts_and_nested_diagnostic_origins_are_preserved() {
     .expect_err("syntax error in nested include must fail");
     assert_eq!(nested_errs[0].path.as_deref(), Some("sub/broken.as"));
     assert_eq!(nested_errs[0].line, 2);
+
+    // 5. AS2 & AS3 class `#include` / `include` diagnostics map syntax, contract, and body errors
+    //    to the exact included `.as` file path and line number!
+    let mut as3_class_proj = Project::blank();
+    as3_class_proj.format_version = 2;
+    as3_class_proj.script_language = Some(ScriptLanguage::ActionScript3);
+    add_as_resource(
+        &mut as3_class_proj,
+        "inc-bad-body",
+        "pkg/bad_members.as",
+        b"public var ok:int = 1;\npublic function broken():int {\n    return \"not-an-int\" + ;\n}\n",
+    );
+    as3_class_proj.sources.push(SourceUnit {
+        id: "src-hero".into(),
+        path: "pkg/Hero.as".into(),
+        language: ScriptLanguage::ActionScript3,
+        source: "package pkg {\npublic class Hero {\ninclude \"bad_members.as\";\n}\n}\n".into(),
+    });
+    let Err(class_errs) = neoflash_script::compile_project(&as3_class_proj) else {
+        panic!("broken included AS3 class body must fail");
+    };
+    assert_eq!(class_errs[0].path.as_deref(), Some("pkg/bad_members.as"));
+    assert_eq!(class_errs[0].line, 3);
+
+    let mut as3_type_proj = Project::blank();
+    as3_type_proj.format_version = 2;
+    as3_type_proj.script_language = Some(ScriptLanguage::ActionScript3);
+    add_as_resource(
+        &mut as3_type_proj,
+        "inc-bad-override",
+        "pkg/bad_override.as",
+        b"// line 1\noverride public function nonexistent():void {}\n",
+    );
+    as3_type_proj.sources.push(SourceUnit {
+        id: "src-hero-ov".into(),
+        path: "pkg/HeroOv.as".into(),
+        language: ScriptLanguage::ActionScript3,
+        source: "package pkg {\npublic class HeroOv {\ninclude \"bad_override.as\";\n}\n}\n".into(),
+    });
+    let Err(ov_errs) = neoflash_script::compile_project(&as3_type_proj) else {
+        panic!("invalid override inside included AS3 class member must fail");
+    };
+    assert_eq!(ov_errs[0].path.as_deref(), Some("pkg/bad_override.as"));
+    assert_eq!(ov_errs[0].line, 2);
+
+    let mut as2_class_proj = Project::blank();
+    as2_class_proj.script_language = Some(ScriptLanguage::ActionScript2);
+    add_as_resource(
+        &mut as2_class_proj,
+        "inc-as2-bad",
+        "app/as2_bad_member.as",
+        b"// comment\npublic var computed:Array = [1, 2, 3];\n",
+    );
+    as2_class_proj.sources.push(SourceUnit {
+        id: "src-as2-widget".into(),
+        path: "app/Widget.as".into(),
+        language: ScriptLanguage::ActionScript2,
+        source: "class app.Widget {\n#include \"as2_bad_member.as\"\n}\n".into(),
+    });
+    let Err(as2_errs) = neoflash_script::compile_project(&as2_class_proj) else {
+        panic!("non-scalar inline initializer inside AS2 included member must fail");
+    };
+    assert_eq!(as2_errs[0].path.as_deref(), Some("app/as2_bad_member.as"));
+    assert_eq!(as2_errs[0].line, 2);
 }

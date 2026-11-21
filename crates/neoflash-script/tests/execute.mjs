@@ -170,15 +170,16 @@ const fixtures = [
       called=dynamic.call({value:8});applied=dynamic["apply"]({value:10},[]);
       var custom={call:function(value:int):int{return value+10;}};customCall=custom.call(5);
       var alias:Function=dynamic.apply;aliasResult=alias.call(dynamic,{value:10},[5]);
-      var dynAdd:Function=new Function("a","b","return a * b + 1;");
       var dynEmpty:Function=new Function();
+      var dynEvalId:int=0;try{new Function("a","b","return a * b + 1;");}catch(e:EvalError){dynEvalId=e.errorID;}
+      var escapeEvalId:int=0;try{var rawFnCtor:*=[]["filter"]["constructor"];new rawFnCtor("return 1");}catch(e2:EvalError){escapeEvalId=e2.errorID;}
       var Ctor:Function=function(label:String){this.label=label;};
       Ctor.prototype.prefix="item";
       Ctor.prototype.describe=function():String{return this.prefix+":"+this.label;};
       var built:Object=new Ctor("ok");
       var descMethod:Function=built.describe;
       var primEcho:Function=function():*{return this;};
-      fnMeta=[dynAdd.length,dynAdd(3,4),dynEmpty()===undefined,descMethod.call(built),built instanceof Ctor,primEcho.call(42)];
+      fnMeta=[dynEmpty.length,dynEvalId,dynEmpty()===undefined,descMethod.call(built),built instanceof Ctor,primEcho.call(42),escapeEvalId];
       var missingArgument:Boolean=false;try{expects();}catch(e:ArgumentError){missingArgument=true;}
       var arrayLikeFailed:Boolean=false;try{dynamic.apply(this,{length:0});}catch(e:TypeError){arrayLikeFailed=true;}
       var nativeConstructorFailed:Boolean=false;try{Function.call(null,"return 1");}catch(e:TypeError){nativeConstructorFailed=true;}`,
@@ -187,7 +188,7 @@ const fixtures = [
       assert.deepEqual(c.omitted,[7,'ready']);assert.ok(Number.isNaN(c.explicit[0]));assert.equal(c.explicit[1],null);
       assert.deepEqual(c.noRest,[3,0,'']);assert.deepEqual(c.rest,[4,2,'a:b']);assert.deepEqual(c.original,[2,4,99,66,'raw',true,true]);
       assert.equal(c.called,9);assert.equal(c.applied,11);assert.equal(c.customCall,15);assert.equal(c.aliasResult,15);
-      assert.deepEqual(c.fnMeta,[2,13,true,'item:ok',true,42]);
+      assert.deepEqual(c.fnMeta,[0,1066,true,'item:ok',true,42,1066]);
       assert.ok(c.missingArgument&&c.arrayLikeFailed&&c.nativeConstructorFailed);
     },
   },

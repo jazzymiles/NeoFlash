@@ -178,7 +178,7 @@ pub(super) fn header(
             "A source unit is limited to 1 MiB.",
         ));
     }
-    let script = if (raw_script.language == ScriptLanguage::ActionScript2
+    let expanded = if (raw_script.language == ScriptLanguage::ActionScript2
         && raw_script.source.contains("#include"))
         || (raw_script.language == ScriptLanguage::ActionScript3
             && (raw_script.source.contains("include ")
@@ -186,10 +186,28 @@ pub(super) fn header(
                 || raw_script.source.contains("include'")
                 || raw_script.source.contains("#include")))
     {
-        super::includes::expand_at(&raw_script, &source.path, includes)?.script
+        Some(super::includes::expand_at(
+            &raw_script,
+            &source.path,
+            includes,
+        )?)
     } else {
-        raw_script
+        None
     };
+    let script = expanded
+        .as_ref()
+        .map_or_else(|| raw_script.clone(), |exp| exp.script.clone());
+    parse_header_script(script, &source.path, expanded.clone()).map_err(|err| match &expanded {
+        Some(exp) => exp.diagnostic(err),
+        None => err,
+    })
+}
+
+fn parse_header_script(
+    script: Script,
+    source_path: &str,
+    expanded: Option<super::includes::Expanded>,
+) -> Result<Header, Diagnostic> {
     let tokens = TokenCursor::default();
     let mut p = frontend(&script, tokens, CompileContext::default());
     let as2 = script.language == ScriptLanguage::ActionScript2;
@@ -267,6 +285,7 @@ pub(super) fn header(
             intrinsic = true;
         } else if !as2 && !dynamic && !final_ && p.eat("namespace") {
             let short = p.ident()?;
+            let ns_offset = p.token().offset;
             if invalid_binding(&short, false) {
                 return Err(p.error("Invalid or reserved namespace name."));
             }
@@ -295,7 +314,9 @@ pub(super) fn header(
                 let tokens = p.tokens;
                 return Ok(Header {
                     script,
-                    path: source.path.clone(),
+                    expanded,
+                    decl_offset: ns_offset,
+                    path: source_path.to_owned(),
                     package,
                     name,
                     base: None,
@@ -323,6 +344,7 @@ pub(super) fn header(
             break;
         }
     }
+    let decl_offset = p.token().offset;
     let is_interface = p.eat("interface");
     if is_interface && (dynamic || final_) {
         return Err(p.error("Interfaces cannot be dynamic or final."));
@@ -344,7 +366,7 @@ pub(super) fn header(
             .rsplit_once('.')
             .map_or("", |(owner, _)| owner)
             .to_owned();
-        if source.path != format!("{}.as", name.replace('.', "/")) {
+        if source_path != format!("{}.as", name.replace('.', "/")) {
             return Err(p.error("AS2 source path must match its qualified class name (app/Widget.as for app.Widget)."));
         }
     }
@@ -387,7 +409,9 @@ pub(super) fn header(
     let tokens = p.tokens;
     Ok(Header {
         script,
-        path: source.path.clone(),
+        expanded,
+        decl_offset,
+        path: source_path.to_owned(),
         package,
         name,
         base,
@@ -580,6 +604,33 @@ pub(super) fn parse_class(
     interface_names: &BTreeSet<String>,
     namespace_uris: &BTreeMap<String, String>,
 ) -> Result<Class, Diagnostic> {
+    let (c, base, interfaces, fields, methods) =
+        parse_class_body(&header, names, interface_names, namespace_uris)
+            .map_err(|err| header.map_diag(err))?;
+    Ok(Class {
+        header,
+        context: c,
+        base,
+        interfaces,
+        fields,
+        methods,
+    })
+}
+
+type ParsedClassParts = (
+    CompileContext,
+    Option<String>,
+    Vec<String>,
+    Vec<Field>,
+    Vec<Method>,
+);
+
+fn parse_class_body(
+    header: &Header,
+    names: &BTreeSet<String>,
+    interface_names: &BTreeSet<String>,
+    namespace_uris: &BTreeMap<String, String>,
+) -> Result<ParsedClassParts, Diagnostic> {
     let mut c = context(
         names,
         &header.package,
@@ -588,7 +639,7 @@ pub(super) fn parse_class(
         interface_names,
         namespace_uris,
     )
-    .map_err(|m| Diagnostic::at(&header.script, 0, m))?;
+    .map_err(|m| Diagnostic::at(&header.script, header.decl_offset, m))?;
     for (k, v) in &header.local_namespaces {
         c.namespaces.insert(k.clone(), v.clone());
     }
@@ -596,7 +647,7 @@ pub(super) fn parse_class(
         let uri = c.namespaces.get(ns_name).cloned().ok_or_else(|| {
             Diagnostic::at(
                 &header.script,
-                0,
+                header.decl_offset,
                 format!("Unresolved namespace '{ns_name}' in use namespace directive."),
             )
         })?;
@@ -613,7 +664,7 @@ pub(super) fn parse_class(
     }) {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "Native Date/RegExp/Vector/XML-family subclass initialization is outside this profile; use composition. JSON supplies static functions and cannot be a base class.",
         ));
     }
@@ -622,7 +673,11 @@ pub(super) fn parse_class(
         .as_ref()
         .map(|b| {
             c.types.get(b).cloned().ok_or_else(|| {
-                Diagnostic::at(&header.script, 0, format!("Unknown base class '{b}'."))
+                Diagnostic::at(
+                    &header.script,
+                    header.decl_offset,
+                    format!("Unknown base class '{b}'."),
+                )
             })
         })
         .transpose()?;
@@ -632,14 +687,14 @@ pub(super) fn parse_class(
     {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "AS2 utility classes provide static factory/initialize methods and cannot be subclassed.",
         ));
     }
     if base.as_deref() == Some("flash.external.ExternalInterface") {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "ExternalInterface supplies static browser integration methods and cannot be subclassed.",
         ));
     }
@@ -649,7 +704,7 @@ pub(super) fn parse_class(
     ) {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "FrameLabel and Scene are final metadata types and cannot be subclassed.",
         ));
     }
@@ -659,7 +714,7 @@ pub(super) fn parse_class(
     {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "A class cannot extend an interface; use implements.",
         ));
     }
@@ -672,14 +727,14 @@ pub(super) fn parse_class(
             .ok_or_else(|| {
                 Diagnostic::at(
                     &header.script,
-                    0,
+                    header.decl_offset,
                     format!("'{name}' is not a resolved project interface."),
                 )
             })?;
         if interfaces.contains(resolved) {
             return Err(Diagnostic::at(
                 &header.script,
-                0,
+                header.decl_offset,
                 format!("Duplicate interface '{name}'."),
             ));
         }
@@ -688,7 +743,7 @@ pub(super) fn parse_class(
     if base.as_deref().is_some_and(is_graphics_constants) {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "Graphics enum classes supply constants and cannot be native base classes.",
         ));
     }
@@ -710,14 +765,14 @@ pub(super) fn parse_class(
     ) {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "Native subclass initialization for geometry/motion values and utilities, and Dictionary is outside this profile; use native instances through composition.",
         ));
     }
     if base.as_deref() == Some("flash.display.InteractiveObject") {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "InteractiveObject is an abstract native base class and cannot be extended directly; extend Sprite, MovieClip or SimpleButton.",
         ));
     }
@@ -732,7 +787,7 @@ pub(super) fn parse_class(
     ) {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "ByteArray indexed storage cannot initialize an existing native subclass receiver; Endian and CompressionAlgorithm supply constants and Graphics comes from its display owner. Inheritance from these built-ins is unsupported.",
         ));
     }
@@ -762,7 +817,7 @@ pub(super) fn parse_class(
     ) {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "Bitmap, BitmapData and Stage native subclass initialization is outside this profile; construct or read the native facade and use composition. PixelSnapping, BitmapDataChannel and Stage enum classes provide constants; encoder options and IGraphicsData command classes are final.",
         ));
     }
@@ -772,7 +827,7 @@ pub(super) fn parse_class(
     {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "flash.xml XMLNode, XMLDocument and XMLNodeType native subclass initialization is outside this profile; construct XMLNode or XMLDocument and use composition.",
         ));
     }
@@ -782,7 +837,7 @@ pub(super) fn parse_class(
     {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "flash.ui Keyboard and Mouse classes are final and cannot be extended.",
         ));
     }
@@ -792,7 +847,7 @@ pub(super) fn parse_class(
     ) {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "Loader and LoaderInfo native subclass initialization is outside this profile; construct Loader() and use its contentLoaderInfo through composition.",
         ));
     }
@@ -802,7 +857,7 @@ pub(super) fn parse_class(
     {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "Native filter subclasses are outside this profile; construct a supported concrete filter and use BitmapFilter-typed values through composition.",
         ));
     }
@@ -812,7 +867,7 @@ pub(super) fn parse_class(
     {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "TextField, TextFormat, StyleSheet, TextRenderer and CSMSettings native subclass initialization is outside this profile; construct the native facade and use composition. Text enum classes supply constants only.",
         ));
     }
@@ -822,7 +877,7 @@ pub(super) fn parse_class(
     {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "Video and Sound-family native subclass initialization is outside this profile; construct native objects and use composition.",
         ));
     }
@@ -839,7 +894,7 @@ pub(super) fn parse_class(
     }) {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "Network/persistence request, loader, value and event subclasses are outside this profile; use the supported native facade through composition. Constant classes cannot be native bases.",
         ));
     }
@@ -924,7 +979,7 @@ pub(super) fn parse_class(
     ) {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "This native event family does not support subclass initialization; construct its event facade and use typed listeners through composition. GesturePhase supplies constants only.",
         ));
     }
@@ -1010,7 +1065,7 @@ pub(super) fn parse_class(
     }) {
         return Err(Diagnostic::at(
             &header.script,
-            0,
+            header.decl_offset,
             "AIR native runtime, window, filesystem, SQL, sensor and constant classes do not support native subclass initialization in this profile; construct or obtain the native facade and use composition.",
         ));
     }
@@ -1174,7 +1229,11 @@ pub(super) fn parse_class(
                 .any(|(old, old_ns, _)| old == &ns_name && old_ns == &member_ns)
                 || !seen.insert((ns_name.clone(), member_ns.clone(), MethodKind::Method))
             {
-                return Err(p.error(format!("Duplicate class member '{ns_name}'.")));
+                return Err(Diagnostic::at(
+                    &header.script,
+                    member_offset,
+                    format!("Duplicate class member '{ns_name}'."),
+                ));
             }
             fields.push(Field {
                 offset: member_offset,
@@ -1218,24 +1277,36 @@ pub(super) fn parse_class(
                     .any(|(old, old_ns, _)| old == &name && old_ns == &member_ns)
                     || !seen.insert((name.clone(), member_ns.clone(), MethodKind::Method))
                 {
-                    return Err(p.error(format!("Duplicate class member '{name}'.")));
+                    return Err(Diagnostic::at(
+                        &header.script,
+                        member_offset,
+                        format!("Duplicate class member '{name}'."),
+                    ));
                 }
                 if header.intrinsic && value.is_some() {
-                    return Err(p.error(
+                    return Err(Diagnostic::at(
+                        &header.script,
+                        member_offset,
                         "AS2 intrinsic class declarations cannot include field initializers.",
                     ));
                 }
                 if constant && value.is_none() {
-                    return Err(
-                        p.error("Class const fields require an initializer in this profile.")
-                    );
+                    return Err(Diagnostic::at(
+                        &header.script,
+                        member_offset,
+                        "Class const fields require an initializer in this profile.",
+                    ));
                 }
                 if as2
                     && value
                         .as_ref()
                         .is_some_and(|value| !scalar_initializer(value))
                 {
-                    return Err(p.error("AS2 inline field initializers currently require scalar constants. Initialize arrays, objects and computed values in the constructor."));
+                    return Err(Diagnostic::at(
+                        &header.script,
+                        member_offset,
+                        "AS2 inline field initializers currently require scalar constants. Initialize arrays, objects and computed values in the constructor.",
+                    ));
                 }
                 fields.push(Field {
                     offset: member_offset,
@@ -1265,19 +1336,35 @@ pub(super) fn parse_class(
             };
             let name = f.name.as_ref().unwrap();
             if header.is_interface && name == header.name.rsplit('.').next().unwrap() {
-                return Err(p.error("Interfaces cannot declare constructors."));
+                return Err(Diagnostic::at(
+                    &header.script,
+                    f.offset,
+                    "Interfaces cannot declare constructors.",
+                ));
             }
             if name == header.name.rsplit('.').next().unwrap() && kind == MethodKind::Method {
                 if (access_seen && access != Access::Public) || member_ns.is_some() {
-                    return Err(p.error("Constructors must be public."));
+                    return Err(Diagnostic::at(
+                        &header.script,
+                        f.offset,
+                        "Constructors must be public.",
+                    ));
                 }
                 if final_ {
-                    return Err(p.error("Constructors cannot be final."));
+                    return Err(Diagnostic::at(
+                        &header.script,
+                        f.offset,
+                        "Constructors cannot be final.",
+                    ));
                 }
                 access = Access::Public;
             }
             if final_ && is_static {
-                return Err(p.error("Static methods cannot use final in this profile."));
+                return Err(Diagnostic::at(
+                    &header.script,
+                    f.offset,
+                    "Static methods cannot use final in this profile.",
+                ));
             }
             if kind == MethodKind::Get
                 && (!f.params.is_empty()
@@ -1285,7 +1372,11 @@ pub(super) fn parse_class(
                     || (f.returns.as_deref() == Some("void")
                         || (as2 && f.returns.as_deref() == Some("Void"))))
             {
-                return Err(p.error("A getter requires no parameters and cannot return void."));
+                return Err(Diagnostic::at(
+                    &header.script,
+                    f.offset,
+                    "A getter requires no parameters and cannot return void.",
+                ));
             }
             if kind == MethodKind::Set {
                 if f.params.len() != 1
@@ -1295,12 +1386,20 @@ pub(super) fn parse_class(
                         .as_deref()
                         .is_some_and(|ty| ty != "void" && !(as2 && ty == "Void"))
                 {
-                    return Err(p.error("A setter requires exactly one required parameter, no rest parameter, and a void or omitted return type."));
+                    return Err(Diagnostic::at(
+                        &header.script,
+                        f.offset,
+                        "A setter requires exactly one required parameter, no rest parameter, and a void or omitted return type.",
+                    ));
                 }
                 f.returns = Some("void".into());
             }
             if kind != MethodKind::Method && name == header.name.rsplit('.').next().unwrap() {
-                return Err(p.error("An accessor cannot use its containing type's constructor name in this profile."));
+                return Err(Diagnostic::at(
+                    &header.script,
+                    f.offset,
+                    "An accessor cannot use its containing type's constructor name in this profile.",
+                ));
             }
             if f.params
                 .iter()
@@ -1310,7 +1409,11 @@ pub(super) fn parse_class(
                 .len()
                 != f.params.len() + usize::from(f.rest.is_some())
             {
-                return Err(p.error("Duplicate parameter name in method signature."));
+                return Err(Diagnostic::at(
+                    &header.script,
+                    f.offset,
+                    "Duplicate parameter name in method signature.",
+                ));
             }
             if seen.contains(&(name.clone(), member_ns.clone(), kind))
                 || seen.iter().any(|(old, old_ns, old_kind)| {
@@ -1319,7 +1422,11 @@ pub(super) fn parse_class(
                         && (*old_kind == MethodKind::Method || kind == MethodKind::Method)
                 })
             {
-                return Err(p.error(format!("Duplicate class member '{name}'.")));
+                return Err(Diagnostic::at(
+                    &header.script,
+                    f.offset,
+                    format!("Duplicate class member '{name}'."),
+                ));
             }
             seen.insert((name.clone(), member_ns.clone(), kind));
             methods.push(Method {
@@ -1345,14 +1452,7 @@ pub(super) fn parse_class(
     if p.token().kind != Kind::End {
         return Err(p.error("A source unit must contain exactly one class or interface."));
     }
-    Ok(Class {
-        header,
-        context: c,
-        base,
-        interfaces,
-        fields,
-        methods,
-    })
+    Ok((c, base, interfaces, fields, methods))
 }
 pub(super) fn prefix(mut e: Diagnostic, path: &str) -> Diagnostic {
     if e.path.is_none() {

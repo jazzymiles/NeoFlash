@@ -4,8 +4,10 @@ use crate::Diagnostic;
 use neoflash_core::{AuthoredPlayback, ResourceUnit, Script};
 use std::collections::BTreeMap;
 
+#[derive(Clone)]
 pub(super) struct Expanded {
     pub script: Script,
+    pub(super) base_path: String,
     pub(super) origins: Vec<(String, usize)>,
     pub(super) sources: BTreeMap<String, String>,
 }
@@ -18,7 +20,10 @@ impl Expanded {
             error.end_line = end
                 .filter(|(end_path, _)| end_path == path)
                 .map_or(*line, |(_, line)| *line);
-            error.path = (!path.is_empty()).then(|| path.clone());
+            let is_included = !path.is_empty() && path != &self.base_path;
+            if is_included {
+                error.path = Some(path.clone());
+            }
             if let Some(source) = self.sources.get(path) {
                 error.span = (
                     crate::line_col_to_byte_offset(source, error.line, error.column),
@@ -26,7 +31,7 @@ impl Expanded {
                 );
                 error.fixes = crate::warnings::quick_fixes_for_diagnostic(&error, source);
             }
-            if !path.is_empty() {
+            if is_included {
                 error.message = format!("#include {path}: {}", error.message);
             }
         }
@@ -49,6 +54,7 @@ pub(super) fn expand_at(
     match AuthoredPlayback::expand_script_includes(script, base_path, resources) {
         Ok((expanded_script, origins, sources)) => Ok(Expanded {
             script: expanded_script,
+            base_path: base_path.to_owned(),
             origins,
             sources,
         }),

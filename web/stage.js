@@ -1216,7 +1216,6 @@
     }
     function applyColorCorrectionSurface() {
       const active = isColorCorrectionActive();
-      const sup = detectColorCorrectionSupport();
       for (const el of [options.canvas, options.viewport]) {
         if (!el) continue;
         if (el.dataset) {
@@ -1225,9 +1224,6 @@
         }
         if (el.style) {
           el.style.colorInterpolation = active ? 'sRGB' : 'linearRGB';
-          if (sup !== 'unsupported') {
-            el.style.filter = active ? 'none' : ' contrast(0.985) saturate(0.96)'.trim();
-          }
         }
       }
       return active;
@@ -1235,12 +1231,26 @@
     function pointerLockTarget() {
       return options.pointerLockTarget || options.canvas || options.viewport || null;
     }
+    function clearMouseLockState() {
+      if (!mouseLock) return;
+      mouseLock = false;
+      if (options.canvas?.dataset) options.canvas.dataset.mouseLock = 'false';
+      options.onMouseLockChanged?.(false);
+    }
     function requestStagePointerLock() {
       const target = pointerLockTarget();
       if (typeof options.requestPointerLock === 'function') {
-        options.requestPointerLock(target);
+        try {
+          const res = options.requestPointerLock(target);
+          if (res === false) { clearMouseLockState(); return; }
+          if (res && typeof res.then === 'function') res.catch(() => clearMouseLockState());
+        } catch (_) { clearMouseLockState(); return; }
       } else if (typeof target?.requestPointerLock === 'function') {
-        try { Promise.resolve(target.requestPointerLock()).catch(() => {}); } catch (_) {}
+        try {
+          const res = target.requestPointerLock();
+          if (res === false) { clearMouseLockState(); return; }
+          Promise.resolve(res).catch(() => clearMouseLockState());
+        } catch (_) { clearMouseLockState(); return; }
       }
       if (options.canvas?.dataset) options.canvas.dataset.mouseLock = 'true';
     }
@@ -1958,6 +1968,7 @@
         listen(doc(), 'fullscreenchange', onFsChange);
         listen(doc(), 'webkitfullscreenchange', onFsChange);
         listen(doc(), 'pointerlockchange', onPointerLockChange);
+        listen(doc(), 'pointerlockerror', () => clearMouseLockState());
       }
       // Existing runtime click owns authored Click dispatch; opt in only for standalone use.
       if (options.attachClick) listen(options.canvas, 'click', event => handlePointer('click', event));

@@ -88,6 +88,7 @@ public dynamic class BagProxy extends Proxy {
   private var vals:Object = {};
   private var attrs:Object = {};
   public var log:Array = [];
+  public var lastQName:String = "";
 
   public function BagProxy() {
     super();
@@ -98,6 +99,9 @@ public dynamic class BagProxy extends Proxy {
   }
 
   object_proxy override function getProperty(name:*):* {
+    if (name is QName) {
+      lastQName = QName(name).uri + "|" + QName(name).localName;
+    }
     var k:String = String(name);
     if (isAttribute(name)) {
       log.push("get@" + k);
@@ -108,6 +112,9 @@ public dynamic class BagProxy extends Proxy {
   }
 
   object_proxy override function setProperty(name:*, value:*):void {
+    if (name is QName) {
+      lastQName = QName(name).uri + "|" + QName(name).localName;
+    }
     var k:String = String(name);
     if (isAttribute(name)) {
       log.push("set@" + k);
@@ -167,14 +174,24 @@ public dynamic class BagProxy extends Proxy {
 import flash.events.Event;
 import flash.utils.object_proxy;
 import mx.utils.ObjectProxy;
-use namespace object_proxy;
 
 var bag:BagProxy = new BagProxy();
+this.bagRef = bag;
 bag.alpha = 10;
 bag.beta = 25;
 this.readSum = int(bag.alpha) + int(bag.beta);
 this.callOut = bag.sum(3, 4, 5);
 this.hasBefore = ("alpha" in bag) && !("missing" in bag);
+
+bag.isAttribute = "public-prop";
+this.publicIsAttr = String(bag.isAttribute);
+delete bag.isAttribute;
+
+var qn:QName = new QName("urn:neoflash:test", "qslot");
+bag[qn] = 77;
+this.qnameRead = int(bag[qn]);
+this.qnameCaptured = bag.lastQName;
+delete bag[qn];
 
 var names:Array = [];
 for (var k:String in bag) names.push(k);
@@ -183,6 +200,8 @@ this.iterNames = names.join(",");
 var values:Array = [];
 for each (var v:* in bag) values.push(v);
 this.iterValues = values.join(",");
+
+trace(bag);
 
 bag.@badge = "gold";
 this.attrRead = bag.@badge;
@@ -198,11 +217,14 @@ var propEvents:int = 0;
 wrapped.addEventListener("propertyChange", function(ev:Event):void { propEvents++; });
 wrapped.count = 4;
 wrapped.count = 9;
-this.objectProxySummary = wrapped.title + ":" + wrapped.count + ":" + propEvents + ":" + ("count" in wrapped) + ":" + (wrapped.object === rawObj);
+trace(wrapped);
+this.objectProxySummary = wrapped.title + ":" + wrapped.count + ":" + propEvents + ":" + ("count" in wrapped) + ":" + (wrapped.object_proxy::object === rawObj);
 
-var fnDyn:Function = new Function("a", "b", "return a * b + 2;");
+var fnDyn:Function = function(a:int, b:int):int { return a * b + 2; };
 var fnEmpty:Function = new Function();
-var fnPrim:Function = new Function("return Number(this) + 5;");
+var fnEvalErrId:int = 0;
+try { new Function("a", "b", "return a * b + 2;"); } catch (evalErr:EvalError) { fnEvalErrId = evalErr.errorID; }
+var fnPrim:Function = function():Number { return Number(this) + 5; };
 var extractedCall:Function = Function.prototype.call;
 var extractedApply:Function = Function.prototype.apply;
 function checkCaller():* { return arguments.caller; }
@@ -216,6 +238,7 @@ this.fnSummary = [
   fnDyn.length,
   fnEmpty() === undefined,
   fnEmpty.length,
+  fnEvalErrId,
   fnDyn.call(null, 3, 5),
   fnDyn.apply(null, [4, 6]),
   fnPrim.call(37),
@@ -242,12 +265,18 @@ this.fnSummary = [
     sandbox.wasmBytes=Buffer.from(bundle.wasm,'base64');
     const wasm=await vm.runInContext('NeoFlashWasm({module_or_path:wasmBytes}).then(()=>NeoFlashWasm)',sandbox);
     player=new wasm.WebPlayer(JSON.stringify(bundle.project));
-    ({host}=createRuntimeHost(root,player,Array.from(bundle.scripts,item=>({script:{language:item.language,source:item.source},code:item.code,location:item.location})),{bundle}));
+    let scriptMessages;
+    ({host, scriptMessages}=createRuntimeHost(root,player,Array.from(bundle.scripts,item=>({script:{language:item.language,source:item.source},code:item.code,location:item.location})),{bundle}));
     host.dispatchScripts();
     const scene=host.proxyFor([]);
     assert.equal(scene.readSum,35);
     assert.equal(scene.callOut,'sum:12');
     assert.equal(scene.hasBefore,true);
+    assert.equal(scene.publicIsAttr,'public-prop','public bag.isAttribute dispatches through Proxy getProperty/setProperty');
+    assert.equal(scene.qnameRead,77,'Proxy bracket indexing preserves QName');
+    assert.equal(scene.qnameCaptured,'urn:neoflash:test|qslot');
+    const resolvedBag = await Promise.resolve(scene.bagRef);
+    assert.equal(resolvedBag, scene.bagRef, 'Promise.resolve(proxy) bypasses .then without throwing');
     assert.equal(scene.iterNames,'alpha,beta');
     assert.equal(scene.iterValues,'10,25');
     assert.equal(scene.attrRead,'attr:gold');
@@ -257,7 +286,10 @@ this.fnSummary = [
     assert.match(scene.proxyLog,/set:alpha\|set:beta\|get:alpha\|get:beta\|call:sum:3\|has:alpha\|has:missing/);
     assert.match(scene.proxyLog,/set@badge\|get@badge\|del@badge\|del:alpha\|has:alpha/);
     assert.equal(scene.objectProxySummary,'Neo:9:2:true:true');
-    assert.equal(scene.fnSummary,'44|2|true|0|17|26|42|18|27|true|box:ready');
+    assert.equal(scene.fnSummary,'44|2|true|0|1066|17|26|42|18|27|true|box:ready');
+    const traceMsgs = scriptMessages.filter(m => m.kind === 'trace').map(m => m.message);
+    assert.ok(traceMsgs.some(msg => msg.includes('BagProxy') && msg.includes('alpha: 10')), `trace(bag) formats Proxy safely, got: ${JSON.stringify(traceMsgs)}`);
+    assert.ok(traceMsgs.some(msg => msg.includes('ObjectProxy') && msg.includes('Neo')), `trace(wrapped) formats ObjectProxy safely, got: ${JSON.stringify(traceMsgs)}`);
   } finally {
     host?.disposeFamily();player?.free();rmSync(directory,{recursive:true,force:true});
   }

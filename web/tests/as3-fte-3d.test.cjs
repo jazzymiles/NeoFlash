@@ -536,6 +536,45 @@ test('Pixel Bender Shaders, ShaderJob, ShaderFilter, GraphicsShaderFill, 3D Disp
       assert.equal(outBmp.getPixel32(1, 1) >>> 0, 0xff705060, '2-input blendShader difference(|bg - fg|) insidefg');
       assert.equal(outBmp.getPixel32(6, 1) >>> 0, 0xffa04080, 'outside fg preserves bg');
       outBmp.dispose();
+
+      // Masked invert blendShader (1.0 - bg.rgb): unmasked (ca == 0) pixels MUST NOT be overwritten!
+      const invertBytes = new ByteArray();
+      invertBytes.writeUTFBytes(JSON.stringify({
+        name: 'InvertBgKernel',
+        op: 'invert',
+        inputs: [{ name: 'bg', channels: 4 }, { name: 'fg', channels: 4 }],
+        parameters: [],
+      }));
+      const invertShader = new Shader(invertBytes);
+      const maskedHolder = new Sprite();
+      const invBg = new Sprite();
+      invBg.graphics.beginFill(0x204080, 1);
+      invBg.graphics.drawRect(0, 0, 8, 8);
+      invBg.graphics.endFill();
+      const invFg = new Sprite();
+      invFg.graphics.beginFill(0xffffff, 1);
+      invFg.graphics.drawRect(0, 0, 8, 8);
+      invFg.graphics.endFill();
+      const maskSp = new Sprite();
+      maskSp.graphics.beginFill(0xffffff, 1);
+      maskSp.graphics.drawRect(0, 0, 4, 8); // only left half x=0..4 is masked in!
+      maskSp.graphics.endFill();
+      invFg.blendShader = invertShader;
+      invFg.blendMode = BlendMode.SHADER;
+      maskedHolder.addChild(invBg);
+      maskedHolder.addChild(invFg);
+      maskedHolder.addChild(maskSp);
+      invFg.mask = maskSp;
+
+      const maskedBmp = new BitmapData(8, 8, true, 0x00000000);
+      maskedBmp.draw(maskedHolder);
+      assert.equal(maskedBmp.getPixel32(1, 1) >>> 0, 0xffdfbf7f, 'masked-in pixel inverts 0x204080 -> 0xdfbf7f');
+      assert.equal(maskedBmp.getPixel32(6, 1) >>> 0, 0xff204080, 'unmasked (ca == 0) pixel must remain 0x204080');
+      maskedBmp.dispose();
+
+      // Verify inspectShaderForFilter attaches per-shader __kernel and dispose() clears kernel without dangling global
+      const specBefore = require('../as3-fte-3d.js').inspectShaderForFilter(invertShader);
+      assert.ok(specBefore.__kernel, 'inspectShaderForFilter attaches non-enumerable per-shader kernel');
     }
 
     // 3D DisplayObject & Transform

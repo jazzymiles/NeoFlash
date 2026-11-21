@@ -25,13 +25,14 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   const bodyOffset = functionBodyLineOffset();
   const mappedUnits = sourceUnits.concat(options.bundle?.program ? [options.bundle.program] : []);
   const sourceFrames = error => mappedErrorFrames(error, mappedUnits, bodyOffset);
-  const functions = new Map(sourceUnits.map(unit => {
+  const functions = options.functions instanceof Map ? options.functions : new Map();
+  for (const unit of sourceUnits) {
     const hostGlobal=options.external?.hostGlobal||globalThis;
     const compiled = scriptFunction(unit, [...bindings, 'console', 'globalThis', 'window', 'document']);
     const fn = function(...args) { return compiled.call(this, ...args,
       {log: (...values) => scriptConsole.push(values)}, hostGlobal, hostGlobal, hostGlobal.document); };
-    return [sourceKey(unit.script), { fn, location: unit.location }];
-  }));
+    functions.set(sourceKey(unit.script), { fn, location: unit.location });
+  }
   const globals = { NeoFlashDisplay:require(resolve(root,'web/display.js')), NeoFlashEvents:require(resolve(root,'web/events.js')),
     NeoFlashStage:require(resolve(root,'web/stage.js')), NeoFlashLegacyInput:require(resolve(root,'web/legacy-input.js')), NeoFlashAccessibility:require(resolve(root,'web/accessibility.js')) };
   globals.NeoFlashAS2DepthManager=require(resolve(root,'web/as2-depth-manager.js'));

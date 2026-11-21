@@ -605,31 +605,51 @@ impl Player {
         stop_detached: bool,
     ) -> Result<LoaderMutation, DisplayError> {
         let old_state = self.graph.loaders.get(target).cloned();
-        if stop_detached
-            && !as2_replace
+        let should_retire_child = !as2_replace
+            && old_state.as_ref().is_some_and(|s| {
+                stop_detached
+                    || (s.mounted_prefix.is_some()
+                        && s.content.as_ref().is_some_and(|cid| {
+                            self.graph
+                                .dynamic
+                                .get(cid)
+                                .is_some_and(|n| n.parent.as_ref() == Some(target))
+                        }))
+            });
+        if should_retire_child
             && let Some(content_id) = old_state.as_ref().and_then(|s| s.content.as_ref())
         {
             let subtree: BTreeSet<_> = self.graph.subtree(content_id).into_iter().collect();
             let stopped_sounds = self.graph.retire_objects(&subtree);
-            self.sound.extend(stopped_sounds);
+            if stop_detached {
+                self.sound.extend(stopped_sounds);
+            }
         }
         let mutation = self.loader_replace_with_payload(project, target, None, as2_replace)?;
-        if let Some(prefix) = old_state.and_then(|s| s.mounted_prefix) {
-            self.prune_unused_published_prefix(project, &prefix);
+        if let Some(prefix) = old_state.and_then(|s| s.mounted_prefix)
+            && self.prune_unused_published_prefix(project, &prefix)
+        {
+            self.graph.retired_published_prefixes.insert(prefix);
         }
-        self.drain_retired_published_prefixes(project);
         Ok(mutation)
     }
 
     /// Prune any `__nfpub_<seq>_` namespaces whose owning display objects were retired by
-    /// timeline navigation or `removeMovieClip` / `removeChild`.
-    pub fn drain_retired_published_prefixes(&mut self, project: &mut Project) {
+    /// timeline navigation, `Loader.unload` / `Loader.unloadAndStop`, or `removeMovieClip` / `removeChild`,
+    /// returning every prefix whose resources were removed.
+    pub fn drain_retired_published_prefixes(&mut self, project: &mut Project) -> Vec<String> {
         let prefixes: Vec<String> = std::mem::take(&mut self.graph.retired_published_prefixes)
             .into_iter()
             .collect();
+        let mut pruned = Vec::new();
         for prefix in prefixes {
-            self.prune_unused_published_prefix(project, &prefix);
+            if self.prune_unused_published_prefix(project, &prefix)
+                || !project.symbols.iter().any(|s| s.id.starts_with(&prefix))
+            {
+                pruned.push(prefix);
+            }
         }
+        pruned
     }
 
     /// Hydrate decoded RGBA pixels for an externalized/sprite-sheet child bitmap resource (`T-248`).
@@ -666,7 +686,7 @@ impl Player {
         Ok(())
     }
 
-    fn prune_unused_published_prefix(&mut self, project: &mut Project, prefix: &str) {
+    fn prune_unused_published_prefix(&mut self, project: &mut Project, prefix: &str) -> bool {
         let still_mounted = self
             .graph
             .loaders
@@ -693,7 +713,9 @@ impl Player {
                 }
                 self.graph.hydrated_bitmaps.remove(&res_id);
             }
+            return true;
         }
+        false
     }
 
     /// Dynamically mount another published NeoFlash `Project` inside `target` (`T-248` `loadPublish`).
@@ -810,11 +832,23 @@ impl Player {
                 .insert(res_id.clone(), pref.clone());
         }
 
-        let old_prefix = self
-            .graph
-            .loaders
-            .get(target)
+        let old_state_for_mount = self.graph.loaders.get(target).cloned();
+        let old_prefix = old_state_for_mount
+            .as_ref()
             .and_then(|s| s.mounted_prefix.clone());
+        if !as2_replace
+            && let Some(old_s) = &old_state_for_mount
+            && old_s.mounted_prefix.is_some()
+            && let Some(old_cid) = &old_s.content
+            && self
+                .graph
+                .dynamic
+                .get(old_cid)
+                .is_some_and(|n| n.parent.as_ref() == Some(target))
+        {
+            let subtree: BTreeSet<_> = self.graph.subtree(old_cid).into_iter().collect();
+            let _ = self.graph.retire_objects(&subtree);
+        }
 
         let prev_format_version = project.format_version;
         let prev_sym_len = project.symbols.len();
@@ -887,10 +921,11 @@ impl Player {
             }
         };
 
-        if let Some(old_p) = old_prefix {
-            self.prune_unused_published_prefix(project, &old_p);
+        if let Some(old_p) = old_prefix
+            && self.prune_unused_published_prefix(project, &old_p)
+        {
+            self.graph.retired_published_prefixes.insert(old_p);
         }
-        self.drain_retired_published_prefixes(project);
 
         Ok(MountedPublishResult {
             mutation,
@@ -1120,5 +1155,30 @@ mod tests {
         assert!(!player.object_alive(&as3_content));
         assert_eq!(host_project.symbols.len(), initial_syms);
         assert_eq!(host_project.resources.len(), initial_res);
+        let drained = player.drain_retired_published_prefixes(&mut host_project);
+        assert!(drained.contains(&mounted_as3.prefix));
+
+        // Verify repeated AS3 Loader.unload() (`stop_detached = false`) cycles retire
+        // unreferenced child namespaces and return retired prefixes without leaking
+        let baseline_dyn = player.graph.dynamic.len();
+        for _ in 0..32 {
+            let m = player
+                .loader_mount_project(
+                    &mut host_project,
+                    &loader_obj,
+                    linked_stream_project(),
+                    false,
+                )
+                .expect("mount cycle");
+            player
+                .loader_unload_published(&mut host_project, &loader_obj, false, false)
+                .expect("plain Loader.unload()");
+            let pruned = player.drain_retired_published_prefixes(&mut host_project);
+            assert_eq!(pruned, vec![m.prefix]);
+        }
+        assert_eq!(host_project.symbols.len(), initial_syms);
+        assert_eq!(host_project.resources.len(), initial_res);
+        assert_eq!(player.graph.dynamic.len(), baseline_dyn);
+        assert!(player.graph.namespaces.is_empty());
     }
 }

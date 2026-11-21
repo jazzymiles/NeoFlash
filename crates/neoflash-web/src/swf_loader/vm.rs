@@ -2,7 +2,46 @@
 
 use super::{SwfDecodeCtx, attach_compiled_frame_script};
 use neoflash_core::Timeline;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+pub(super) fn js_string_literal(s: &str) -> String {
+    serde_json::to_string(s)
+        .unwrap_or_else(|_| "\"\"".into())
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029")
+}
+
+fn avm1_unsupported_warning(op: u8) -> String {
+    match op {
+        0x83 => {
+            "SWF AVM1 opcode GetURL (0x83) is not supported in the bounded SWF loader and was skipped."
+                .into()
+        }
+        0x9A => {
+            "SWF AVM1 opcode GetURL2 (0x9A) is not supported in the bounded SWF loader and was skipped."
+                .into()
+        }
+        0x9B => {
+            "SWF AVM1 opcode DefineFunction (0x9B) is not supported in the bounded SWF loader and was skipped."
+                .into()
+        }
+        0x8E => {
+            "SWF AVM1 opcode DefineFunction2 (0x8E) is not supported in the bounded SWF loader and was skipped."
+                .into()
+        }
+        0x94 => {
+            "SWF AVM1 opcode With (0x94) is not supported in the bounded SWF loader and was skipped."
+                .into()
+        }
+        0x8F => {
+            "SWF AVM1 opcode Try (0x8F) is not supported in the bounded SWF loader and was skipped."
+                .into()
+        }
+        other => format!(
+            "SWF AVM1 opcode 0x{other:02X} is not supported in the bounded SWF loader and was skipped."
+        ),
+    }
+}
 
 // ============================================================================
 // Bounded AVM1 (`DoAction` / `DoInitAction`) Bytecode-to-JS Compiler
@@ -15,7 +54,7 @@ struct Avm1Inst {
     payload: Vec<u8>,
 }
 
-pub(super) fn compile_avm1_actions(bytes: &[u8]) -> Option<String> {
+pub(super) fn compile_avm1_actions(ctx: &mut SwfDecodeCtx, bytes: &[u8]) -> Option<String> {
     let mut insts = Vec::new();
     let mut pos = 0usize;
     while pos < bytes.len() && insts.len() < 4096 {
@@ -34,6 +73,13 @@ pub(super) fn compile_avm1_actions(bytes: &[u8]) -> Option<String> {
             let end = (pos + len).min(bytes.len());
             let slice = bytes[pos..end].to_vec();
             pos = end;
+            if matches!(op, 0x9B | 0x8E) && slice.len() >= 2 {
+                let code_size = usize::from(u16::from_le_bytes([
+                    slice[slice.len() - 2],
+                    slice[slice.len() - 1],
+                ]));
+                pos = pos.saturating_add(code_size).min(bytes.len());
+            }
             slice
         } else {
             Vec::new()
@@ -56,7 +102,7 @@ pub(super) fn compile_avm1_actions(bytes: &[u8]) -> Option<String> {
     offset_to_idx.insert(end_offset, insts.len());
 
     let mut js = String::from(
-        "const __st = [], __regs = [undefined, undefined, undefined, undefined], __locals = Object.create(null);\nlet __cp = [], __pc = 0, __steps = 0;\nconst __propNames = ['x','y','scaleX','scaleY','currentFrame','totalFrames','alpha','visible','width','height','rotation'];\nconst __readVar = k => (k in __locals ? __locals[k] : k === '_root' ? _root : k === '_parent' ? _parent : k === 'this' ? this : this[k]);\nconst __writeVar = (k, v) => { if (k in __locals) __locals[k] = v; else this[k] = v; };\nwhile (__pc < ",
+        "const __st = [], __regs = Object.create(null), __locals = Object.create(null);\nlet __cp = [], __pc = 0, __steps = 0;\nconst __propNames = ['x','y','scaleX','scaleY','currentFrame','totalFrames','alpha','visible','width','height','rotation'];\nconst __isSafeLocal = k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype';\nconst __readVar = k => (__isSafeLocal(k) && Object.hasOwn(__locals, k) ? __locals[k] : k === '_root' ? _root : k === '_parent' ? _parent : k === 'this' ? this : __nfSwfGet(this, k));\nconst __writeVar = (k, v) => { if (__isSafeLocal(k) && Object.hasOwn(__locals, k)) __locals[k] = v; else __nfSwfSet(this, k, v); };\nwhile (__pc < ",
     );
     js.push_str(&insts.len().to_string());
     js.push_str(") {\n  if (++__steps > 10000) break;\n  switch (__pc) {\n");
@@ -86,9 +132,9 @@ pub(super) fn compile_avm1_actions(bytes: &[u8]) -> Option<String> {
                 }
             }
             0x8C => {
-                let label = cstr_from_bytes(p);
+                let label = js_string_literal(&cstr_from_bytes(p));
                 js.push_str(&format!(
-                    "      if (typeof gotoAndStop === 'function') gotoAndStop({label:?});\n"
+                    "      if (typeof gotoAndStop === 'function') gotoAndStop({label});\n"
                 ));
             }
             0x9F if !p.is_empty() => {
@@ -116,7 +162,7 @@ pub(super) fn compile_avm1_actions(bytes: &[u8]) -> Option<String> {
                 }
                 let arr_lit = strs
                     .iter()
-                    .map(|s| format!("{s:?}"))
+                    .map(|s| js_string_literal(s))
                     .collect::<Vec<_>>()
                     .join(",");
                 js.push_str(&format!("      __cp = [{arr_lit}];\n"));
@@ -132,9 +178,9 @@ pub(super) fn compile_avm1_actions(bytes: &[u8]) -> Option<String> {
                             while off < p.len() && p[off] != 0 {
                                 off += 1;
                             }
-                            let s = String::from_utf8_lossy(&p[start..off]).into_owned();
+                            let s = js_string_literal(&String::from_utf8_lossy(&p[start..off]));
                             off = (off + 1).min(p.len());
-                            js.push_str(&format!("      __st.push({s:?});\n"));
+                            js.push_str(&format!("      __st.push({s});\n"));
                         }
                         1 if off + 4 <= p.len() => {
                             let v = f32::from_le_bytes([p[off], p[off + 1], p[off + 2], p[off + 3]]);
@@ -191,12 +237,12 @@ pub(super) fn compile_avm1_actions(bytes: &[u8]) -> Option<String> {
             0x26 => js.push_str("      trace(__st.pop());\n"),
             0x1C => js.push_str("      { const __k = String(__st.pop() ?? ''); __st.push(__readVar(__k)); }\n"),
             0x1D => js.push_str("      { const __v = __st.pop(), __k = String(__st.pop() ?? ''); __writeVar(__k, __v); }\n"),
-            0x3C => js.push_str("      { const __v = __st.pop(), __k = String(__st.pop() ?? ''); __locals[__k] = __v; }\n"),
-            0x41 => js.push_str("      { const __k = String(__st.pop() ?? ''); if (!(__k in __locals)) __locals[__k] = undefined; }\n"),
-            0x4E => js.push_str("      { const __m = String(__st.pop() ?? ''), __o = __st.pop(); __st.push(__o != null ? __o[__m] : undefined); }\n"),
-            0x4F => js.push_str("      { const __v = __st.pop(), __m = String(__st.pop() ?? ''), __o = __st.pop(); if (__o != null) __o[__m] = __v; }\n"),
-            0x22 => js.push_str("      { const __pi = Number(__st.pop()) | 0, __t = __st.pop() || this, __pn = __propNames[__pi]; __st.push(__pn ? (__pi === 2 || __pi === 3 || __pi === 6 ? __t[__pn] * 100 : __t[__pn]) : undefined); }\n"),
-            0x23 => js.push_str("      { const __v = __st.pop(), __pi = Number(__st.pop()) | 0, __t = __st.pop() || this, __pn = __propNames[__pi]; if (__pn) __t[__pn] = (__pi === 2 || __pi === 3 || __pi === 6) ? Number(__v) / 100 : __v; }\n"),
+            0x3C => js.push_str("      { const __v = __st.pop(), __k = String(__st.pop() ?? ''); if (__isSafeLocal(__k)) __locals[__k] = __v; }\n"),
+            0x41 => js.push_str("      { const __k = String(__st.pop() ?? ''); if (__isSafeLocal(__k) && !Object.hasOwn(__locals, __k)) __locals[__k] = undefined; }\n"),
+            0x4E => js.push_str("      { const __m = String(__st.pop() ?? ''), __o = __st.pop(); __st.push(__nfSwfGet(__o, __m)); }\n"),
+            0x4F => js.push_str("      { const __v = __st.pop(), __m = String(__st.pop() ?? ''), __o = __st.pop(); __nfSwfSet(__o, __m, __v); }\n"),
+            0x22 => js.push_str("      { const __pi = Number(__st.pop()) | 0, __t = __st.pop() || this, __pn = __propNames[__pi]; __st.push(__pn ? (__pi === 2 || __pi === 3 || __pi === 6 ? __nfSwfGet(__t, __pn) * 100 : __nfSwfGet(__t, __pn)) : undefined); }\n"),
+            0x23 => js.push_str("      { const __v = __st.pop(), __pi = Number(__st.pop()) | 0, __t = __st.pop() || this, __pn = __propNames[__pi]; if (__pn) __nfSwfSet(__t, __pn, (__pi === 2 || __pi === 3 || __pi === 6) ? Number(__v) / 100 : __v); }\n"),
             0x0A => js.push_str("      { const __b = Number(__st.pop()) || 0, __a = Number(__st.pop()) || 0; __st.push(__a + __b); }\n"),
             0x47 => js.push_str("      { const __b = __st.pop(), __a = __st.pop(); __st.push(typeof __a === 'string' || typeof __b === 'string' ? String(__a ?? '') + String(__b ?? '') : (Number(__a) || 0) + (Number(__b) || 0)); }\n"),
             0x0B => js.push_str("      { const __b = Number(__st.pop()) || 0, __a = Number(__st.pop()) || 0; __st.push(__a - __b); }\n"),
@@ -222,9 +268,9 @@ pub(super) fn compile_avm1_actions(bytes: &[u8]) -> Option<String> {
                 js.push_str(&format!("      __regs[{reg}] = __st[__st.length - 1];\n"));
             }
             0x42 => js.push_str("      { const __n = Math.max(0, Number(__st.pop()) | 0), __arr = []; for (let __i = 0; __i < __n; __i++) __arr.push(__st.pop()); __st.push(__arr); }\n"),
-            0x43 => js.push_str("      { const __n = Math.max(0, Number(__st.pop()) | 0), __obj = {}; for (let __i = 0; __i < __n; __i++) { const __v = __st.pop(), __k = String(__st.pop() ?? ''); __obj[__k] = __v; } __st.push(__obj); }\n"),
-            0x3D => js.push_str("      { const __fnName = String(__st.pop() ?? ''), __argc = Math.max(0, Number(__st.pop()) | 0), __args = []; for (let __i = 0; __i < __argc; __i++) __args.push(__st.pop()); const __fn = __fnName === 'stop' ? stop : __fnName === 'play' ? play : __fnName === 'gotoAndStop' ? gotoAndStop : __fnName === 'gotoAndPlay' ? gotoAndPlay : __fnName === 'nextFrame' ? nextFrame : __fnName === 'prevFrame' ? prevFrame : __fnName === 'trace' ? trace : __readVar(__fnName); __st.push(typeof __fn === 'function' ? __fn.apply(this, __args) : undefined); }\n"),
-            0x52 => js.push_str("      { const __mName = String(__st.pop() ?? ''), __obj = __st.pop() ?? this, __argc = Math.max(0, Number(__st.pop()) | 0), __args = []; for (let __i = 0; __i < __argc; __i++) __args.push(__st.pop()); const __fn = __obj != null ? __obj[__mName] : undefined; __st.push(typeof __fn === 'function' ? __fn.apply(__obj, __args) : undefined); }\n"),
+            0x43 => js.push_str("      { const __n = Math.max(0, Number(__st.pop()) | 0), __obj = {}; for (let __i = 0; __i < __n; __i++) { const __v = __st.pop(), __k = String(__st.pop() ?? ''); __nfSwfSet(__obj, __k, __v); } __st.push(__obj); }\n"),
+            0x3D => js.push_str("      { const __fnName = String(__st.pop() ?? ''), __argc = Math.max(0, Number(__st.pop()) | 0), __args = []; for (let __i = 0; __i < __argc; __i++) __args.push(__st.pop()); const __fn = __fnName === 'stop' ? stop : __fnName === 'play' ? play : __fnName === 'gotoAndStop' ? gotoAndStop : __fnName === 'gotoAndPlay' ? gotoAndPlay : __fnName === 'nextFrame' ? nextFrame : __fnName === 'prevFrame' ? prevFrame : __fnName === 'trace' ? trace : __readVar(__fnName); __st.push(__nfSwfApply(__fn, this, __args)); }\n"),
+            0x52 => js.push_str("      { const __mName = String(__st.pop() ?? ''), __obj = __st.pop() ?? this, __argc = Math.max(0, Number(__st.pop()) | 0), __args = []; for (let __i = 0; __i < __argc; __i++) __args.push(__st.pop()); __st.push(__nfSwfCall(__obj, __mName, __args)); }\n"),
             0x99 if p.len() >= 2 => {
                 let rel = i16::from_le_bytes([p[0], p[1]]) as isize;
                 let base = (inst.offset + 3 + p.len()) as isize;
@@ -242,14 +288,16 @@ pub(super) fn compile_avm1_actions(bytes: &[u8]) -> Option<String> {
                 ));
             }
             0x3E => js.push_str("      return __st.pop();\n"),
-            _ => {}
+            other => {
+                ctx.warn(avm1_unsupported_warning(other));
+            }
         }
         js.push_str(&format!("      __pc = {next_idx}; break;\n    }}\n"));
     }
     js.push_str("    default: __pc = ");
     js.push_str(&insts.len().to_string());
     js.push_str("; break;\n  }\n}\n");
-    Some(format!("(function() {{\n{js}}}).call(this);\n"))
+    Some(format!("(() => {{\n{js}}})();\n"))
 }
 
 fn cstr_from_bytes(bytes: &[u8]) -> String {
@@ -264,8 +312,10 @@ fn format_js_f64(v: f64) -> String {
         "Infinity".into()
     } else if v == f64::NEG_INFINITY {
         "-Infinity".into()
+    } else if v == 0.0 && v.is_sign_negative() {
+        "-0".into()
     } else {
-        format!("{v:?}")
+        v.to_string()
     }
 }
 
@@ -662,14 +712,18 @@ pub(super) fn apply_abc_scripts(ctx: &mut SwfDecodeCtx, root_timeline: &mut Time
         if let Some(inst) = chosen_inst
             && let Some(iinit_code) = abc.bodies.get(&inst.iinit)
         {
-            let frame_hooks = extract_avm2_add_frame_scripts(abc, iinit_code);
-            if let Some(ctor_js) = compile_avm2_method_body(abc, iinit_code, true) {
+            let (frame_hooks, hook_fn_indices) = extract_avm2_add_frame_scripts(abc, iinit_code);
+            if let Some(ctor_js) =
+                compile_avm2_method_body(ctx, abc, iinit_code, true, &hook_fn_indices)
+            {
                 attach_compiled_frame_script(ctx, root_timeline, 0, &ctor_js, "avm2-doc-ctor");
             }
+            let empty_hooks = HashSet::new();
             for (frame_idx, method_id) in frame_hooks {
                 if frame_idx < root_timeline.frame_count
                     && let Some(m_code) = abc.bodies.get(&method_id)
-                    && let Some(f_js) = compile_avm2_method_body(abc, m_code, false)
+                    && let Some(f_js) =
+                        compile_avm2_method_body(ctx, abc, m_code, false, &empty_hooks)
                 {
                     attach_compiled_frame_script(
                         ctx,
@@ -682,9 +736,11 @@ pub(super) fn apply_abc_scripts(ctx: &mut SwfDecodeCtx, root_timeline: &mut Time
             }
         } else if let Some(&script_init) = abc.script_inits.last()
             && let Some(s_code) = abc.bodies.get(&script_init)
-            && let Some(s_js) = compile_avm2_method_body(abc, s_code, false)
         {
-            attach_compiled_frame_script(ctx, root_timeline, 0, &s_js, "avm2-script");
+            let empty_hooks = HashSet::new();
+            if let Some(s_js) = compile_avm2_method_body(ctx, abc, s_code, false, &empty_hooks) {
+                attach_compiled_frame_script(ctx, root_timeline, 0, &s_js, "avm2-script");
+            }
         }
     }
 }
@@ -750,9 +806,10 @@ fn decode_avm2_instructions(code: &[u8]) -> Vec<Avm2Inst> {
     out
 }
 
-fn extract_avm2_add_frame_scripts(abc: &AbcFile, code: &[u8]) -> Vec<(u32, u32)> {
+fn extract_avm2_add_frame_scripts(abc: &AbcFile, code: &[u8]) -> (Vec<(u32, u32)>, HashSet<usize>) {
     let insts = decode_avm2_instructions(code);
     let mut hooks = Vec::new();
+    let mut fn_inst_indices = HashSet::new();
     for (idx, inst) in insts.iter().enumerate() {
         if matches!(inst.op, 0x46 | 0x4F) && inst.args.len() >= 2 {
             let mn_idx = inst.args[0] as usize;
@@ -765,8 +822,9 @@ fn extract_avm2_add_frame_scripts(abc: &AbcFile, code: &[u8]) -> Vec<(u32, u32)>
                 let pairs = argc / 2;
                 if idx >= argc {
                     for p in 0..pairs {
+                        let fn_pos = idx - argc + p * 2 + 1;
                         let f_inst = &insts[idx - argc + p * 2];
-                        let fn_inst = &insts[idx - argc + p * 2 + 1];
+                        let fn_inst = &insts[fn_pos];
                         let frame_opt = match f_inst.op {
                             0x24 => Some(f_inst.args[0] as i8 as i32),
                             0x25 => Some(f_inst.args[0] as i32),
@@ -782,19 +840,22 @@ fn extract_avm2_add_frame_scripts(abc: &AbcFile, code: &[u8]) -> Vec<(u32, u32)>
                             && f >= 0
                         {
                             hooks.push((f as u32, mid));
+                            fn_inst_indices.insert(fn_pos);
                         }
                     }
                 }
             }
         }
     }
-    hooks
+    (hooks, fn_inst_indices)
 }
 
 fn compile_avm2_method_body(
+    ctx: &mut SwfDecodeCtx,
     abc: &AbcFile,
     code: &[u8],
     skip_add_frame_script: bool,
+    extracted_fn_indices: &HashSet<usize>,
 ) -> Option<String> {
     let insts = decode_avm2_instructions(code);
     if insts.is_empty() {
@@ -807,7 +868,7 @@ fn compile_avm2_method_body(
     offset_to_idx.insert(code.len(), insts.len());
 
     let mut js = String::from(
-        "const __st = [], __sc = [this], __loc = [this];\nlet __pc = 0, __steps = 0;\nconst __callGlobal = (n, a) => n === 'stop' ? stop() : n === 'play' ? play() : n === 'gotoAndStop' ? gotoAndStop(...a) : n === 'gotoAndPlay' ? gotoAndPlay(...a) : n === 'nextFrame' ? nextFrame() : n === 'prevFrame' ? prevFrame() : n === 'trace' ? trace(...a) : (typeof this[n] === 'function' ? this[n](...a) : undefined);\nwhile (__pc < ",
+        "const __st = [], __sc = [this], __loc = [this];\nlet __pc = 0, __steps = 0;\nconst __callGlobal = (n, a) => n === 'stop' ? stop() : n === 'play' ? play() : n === 'gotoAndStop' ? gotoAndStop(...a) : n === 'gotoAndPlay' ? gotoAndPlay(...a) : n === 'nextFrame' ? nextFrame() : n === 'prevFrame' ? prevFrame() : n === 'trace' ? trace(...a) : __nfSwfCall(this, n, a);\nwhile (__pc < ",
     );
     js.push_str(&insts.len().to_string());
     js.push_str(") {\n  if (++__steps > 10000) break;\n  switch (__pc) {\n");
@@ -853,8 +914,12 @@ fn compile_avm2_method_body(
             0x24 => js.push_str(&format!("      __st.push({});\n", inst.args[0] as i8)),
             0x25 => js.push_str(&format!("      __st.push({});\n", inst.args[0])),
             0x2C => {
-                let s = abc.strings.get(inst.args[0] as usize).cloned().unwrap_or_default();
-                js.push_str(&format!("      __st.push({s:?});\n"));
+                let s = js_string_literal(
+                    abc.strings
+                        .get(inst.args[0] as usize)
+                        .map_or("", String::as_str),
+                );
+                js.push_str(&format!("      __st.push({s});\n"));
             }
             0x2D => {
                 let v = abc.ints.get(inst.args[0] as usize).copied().unwrap_or(0);
@@ -871,10 +936,21 @@ fn compile_avm2_method_body(
             0x29 => js.push_str("      __st.pop();\n"),
             0x2A => js.push_str("      __st.push(__st[__st.length - 1]);\n"),
             0x2B => js.push_str("      if (__st.length >= 2) { const __t = __st[__st.length - 1]; __st[__st.length - 1] = __st[__st.length - 2]; __st[__st.length - 2] = __t; }\n"),
-            0x40 => js.push_str("      __st.push(function(){});\n"),
+            0x40 => {
+                if !extracted_fn_indices.contains(&idx) {
+                    ctx.warn("SWF AVM2 opcode newfunction (0x40) closure is not supported in the bounded SWF loader; substituted a hardened no-op stub.");
+                }
+                js.push_str("      __st.push(__nfSwfStubFn());\n");
+            }
+            0x41 => {
+                let argc = inst.args.first().copied().unwrap_or(0).max(0);
+                js.push_str(&format!(
+                    "      {{ const __args = new Array({argc}); for (let __i = {argc} - 1; __i >= 0; __i--) __args[__i] = __st.pop(); const __recv = __st.pop(), __fn = __st.pop(); __st.push(__nfSwfApply(__fn, __recv, __args)); }}\n"
+                ));
+            }
             0x55 => {
                 let cnt = inst.args[0].max(0);
-                js.push_str(&format!("      {{ const __o = {{}}; for (let __i = 0; __i < {cnt}; __i++) {{ const __v = __st.pop(), __k = String(__st.pop() ?? ''); __o[__k] = __v; }} __st.push(__o); }}\n"));
+                js.push_str(&format!("      {{ const __o = {{}}; for (let __i = 0; __i < {cnt}; __i++) {{ const __v = __st.pop(), __k = String(__st.pop() ?? ''); __nfSwfSet(__o, __k, __v); }} __st.push(__o); }}\n"));
             }
             0x56 => {
                 let cnt = inst.args[0].max(0);
@@ -889,27 +965,28 @@ fn compile_avm2_method_body(
             }
             0x60 => {
                 let (name, _) = mn(0);
-                js.push_str(&format!(
-                    "      __st.push({name:?} in this ? this[{name:?}] : undefined);\n"
-                ));
+                let name_lit = js_string_literal(&name);
+                js.push_str(&format!("      __st.push(__nfSwfGet(this, {name_lit}));\n"));
             }
             0x66 => {
                 let (name, rt) = mn(0);
                 if rt {
-                    js.push_str("      { const __k = String(__st.pop() ?? ''), __o = __st.pop() ?? this; __st.push(__o != null ? __o[__k] : undefined); }\n");
+                    js.push_str("      { const __k = String(__st.pop() ?? ''), __o = __st.pop() ?? this; __st.push(__nfSwfGet(__o, __k)); }\n");
                 } else {
+                    let name_lit = js_string_literal(&name);
                     js.push_str(&format!(
-                        "      {{ const __o = __st.pop() ?? this; __st.push(__o != null ? __o[{name:?}] : undefined); }}\n"
+                        "      {{ const __o = __st.pop() ?? this; __st.push(__nfSwfGet(__o, {name_lit})); }}\n"
                     ));
                 }
             }
             0x61 | 0x68 => {
                 let (name, rt) = mn(0);
                 if rt {
-                    js.push_str("      { const __v = __st.pop(), __k = String(__st.pop() ?? ''), __o = __st.pop() ?? this; if (__o != null) __o[__k] = __v; }\n");
+                    js.push_str("      { const __v = __st.pop(), __k = String(__st.pop() ?? ''), __o = __st.pop() ?? this; __nfSwfSet(__o, __k, __v); }\n");
                 } else {
+                    let name_lit = js_string_literal(&name);
                     js.push_str(&format!(
-                        "      {{ const __v = __st.pop(), __o = __st.pop() ?? this; if (__o != null) __o[{name:?}] = __v; }}\n"
+                        "      {{ const __v = __st.pop(), __o = __st.pop() ?? this; __nfSwfSet(__o, {name_lit}, __v); }}\n"
                     ));
                 }
             }
@@ -919,12 +996,13 @@ fn compile_avm2_method_body(
                 let push_ret = inst.op != 0x4F;
                 js.push_str(&format!("      {{ const __args = new Array({argc}); for (let __i = {argc} - 1; __i >= 0; __i--) __args[__i] = __st.pop();\n"));
                 if rt {
-                    js.push_str("        const __m = String(__st.pop() ?? ''), __recv = __st.pop() ?? this;\n        const __r = (__recv === this) ? __callGlobal(__m, __args) : (typeof __recv?.[__m] === 'function' ? __recv[__m](...__args) : undefined);\n");
+                    js.push_str("        const __m = String(__st.pop() ?? ''), __recv = __st.pop() ?? this;\n        const __r = (__recv === this) ? __callGlobal(__m, __args) : __nfSwfCall(__recv, __m, __args);\n");
                 } else if skip_add_frame_script && name == "addFrameScript" {
                     js.push_str("        __st.pop(); const __r = undefined;\n");
                 } else {
+                    let name_lit = js_string_literal(&name);
                     js.push_str(&format!(
-                        "        const __recv = __st.pop() ?? this;\n        const __r = (__recv === this && !Object.hasOwn(this, {name:?})) ? __callGlobal({name:?}, __args) : (typeof __recv?.[{name:?}] === 'function' ? __recv[{name:?}](...__args) : __callGlobal({name:?}, __args));\n"
+                        "        const __recv = __st.pop() ?? this;\n        const __r = (__recv === this && !Object.hasOwn(this, {name_lit})) ? __callGlobal({name_lit}, __args) : __nfSwfCall(__recv, {name_lit}, __args);\n"
                     ));
                 }
                 if push_ret {
@@ -933,6 +1011,7 @@ fn compile_avm2_method_body(
                 js.push_str("      }\n");
             }
             0x49 => {
+                ctx.warn("SWF AVM2 opcode constructsuper (0x49) superclass constructor chaining is not supported in the bounded SWF loader and was skipped.");
                 let argc = inst.args[0].max(0);
                 js.push_str(&format!(
                     "      for (let __i = 0; __i < {argc}; __i++) __st.pop(); __st.pop();\n"
@@ -1007,7 +1086,12 @@ fn compile_avm2_method_body(
             }
             0x47 => js.push_str("      return;\n"),
             0x48 => js.push_str("      return __st.pop();\n"),
-            _ => {}
+            0xEF | 0xF0 | 0xF1 | 0xF2 | 0x02 => {}
+            other => {
+                ctx.warn(format!(
+                    "SWF AVM2 opcode 0x{other:02X} is not supported in the bounded SWF loader and was skipped."
+                ));
+            }
         }
         js.push_str(&format!("      __pc = {next_idx}; break;\n    }}\n"));
     }
@@ -1015,5 +1099,5 @@ fn compile_avm2_method_body(
     js.push_str("    default: __pc = ");
     js.push_str(&insts.len().to_string());
     js.push_str("; break;\n  }\n}\n");
-    Some(format!("(function() {{\n{js}}}).call(this);\n"))
+    Some(format!("(() => {{\n{js}}})();\n"))
 }

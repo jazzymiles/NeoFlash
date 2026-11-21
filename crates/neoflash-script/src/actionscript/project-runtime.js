@@ -118,11 +118,31 @@ const __nfProgram = (() => {
         return chain(cls).some(definition=>definition.name===member.owner);
     }
     function nativeNamespaceSlot(receiver,name,uri){
-        if(!uri||!is(receiver,'mx.utils.ObjectProxy'))return null;
+        if(!uri||!isProxy(receiver))return null;
         const raw=unwrapProxy(receiver);
-        const sym=Symbol.for('neoflash.ns.'+uri+'::'+name);
-        if(sym in raw){
-            return {get:()=>raw[sym],set:v=>{raw[sym]=v;},member:{name,access:'namespace',namespace:uri}};
+        if(is(receiver,'mx.utils.ObjectProxy')){
+            const sym=Symbol.for('neoflash.ns.'+uri+'::'+name);
+            if(sym in raw){
+                return {get:()=>raw[sym],set:v=>{raw[sym]=v;},member:{name,access:'namespace',namespace:uri}};
+            }
+        }
+        if(uri==='http://www.adobe.com/2006/actionscript/flash/proxy'||uri==='http://www.adobe.com/2006/flex/mx/internal'){
+            const protoFn=(is(receiver,'mx.utils.ObjectProxy')&&typeof MxObjectProxy.prototype?.[name]==='function')
+                ?MxObjectProxy.prototype[name]
+                :FlashProxy.prototype[name];
+            if(typeof protoFn==='function'&&Object.hasOwn(FlashProxy.prototype,name)){
+                return {get:()=>protoFn.bind(receiver),set:()=>{throw new TypeError('Cannot overwrite native Proxy method.');},member:{name,access:'namespace',namespace:uri}};
+            }
+        }
+        return null;
+    }
+    function resolveOpenNamespaceSlot(receiver,name,caller,cls){
+        const openNs=callerNamespaces(caller)||(cls?definitions.get(cls)?.openNamespaces:null);
+        if(Array.isArray(openNs)){
+            for(const uri of openNs){
+                const nsSlot=nativeNamespaceSlot(receiver,name,uri);
+                if(nsSlot)return nsSlot;
+            }
         }
         return null;
     }
@@ -130,16 +150,7 @@ const __nfProgram = (() => {
         const raw=unwrapProxy(receiver);
         const map=slots.get(raw);
         const cls=callerClass(caller);
-        if(!map){
-            const openNs=callerNamespaces(caller)||(cls?definitions.get(cls)?.openNamespaces:null);
-            if(Array.isArray(openNs)){
-                for(const uri of openNs){
-                    const nsSlot=nativeNamespaceSlot(receiver,name,uri);
-                    if(nsSlot)return nsSlot;
-                }
-            }
-            return null;
-        }
+        if(!map)return resolveOpenNamespaceSlot(receiver,name,caller,cls);
         // A lexical declaration resolves its own namespace before any unrelated
         // same-spelled trait. Virtual overrides share that namespace slot.
         if(cls)for(const definition of chain(cls).reverse()){
@@ -150,7 +161,7 @@ const __nfProgram = (() => {
         const matches=[...map.values()].filter(slot=>slot.member.name===name&&eligible(slot.member,caller));
         if(matches.length>1)throw new ReferenceError(`Ambiguous project property ${name}; qualify the declaration or use a public accessor.`);
         if(matches.length===1)return matches[0];
-        return null;
+        return resolveOpenNamespaceSlot(receiver,name,caller,cls);
     }
     function publicSlot(receiver,name){return [...(slots.get(unwrapProxy(receiver))?.values()||[])].find(slot=>slot.member.name===name&&slot.member.access==='public')||null;}
     function namespaceSlot(receiver,name,uri){
@@ -168,13 +179,16 @@ const __nfProgram = (() => {
     function isProxy(receiver){
         return receiver!=null&&(typeof receiver==='object'||typeof receiver==='function')&&!classFacades.has(receiver)&&(is(receiver,'flash.utils.Proxy')||is(receiver,'mx.utils.ObjectProxy'));
     }
-    const proxyBypassProps=new Set(['isAttribute','hasOwnProperty','propertyIsEnumerable','setPropertyIsEnumerable','isPrototypeOf','toString','valueOf','toLocaleString','constructor']);
+    const proxyBypassProps=new Set(['hasOwnProperty','propertyIsEnumerable','setPropertyIsEnumerable','isPrototypeOf','toString','valueOf','toLocaleString','constructor']);
+    function isProxyBypassProp(name){
+        return typeof name==='symbol'||name==='__proto__'||name==='prototype'||name==='then'||(typeof name==='string'&&name.startsWith('__nf'))||proxyBypassProps.has(name);
+    }
     const proxyTrapNamespaces=['http://www.adobe.com/2006/flex/mx/internal','http://www.adobe.com/2006/actionscript/flash/proxy'];
     function hasNativeObjectProxyTrait(receiver,name){
         return is(receiver,'mx.utils.ObjectProxy')&&typeof MxObjectProxy.__nfHasFixedMethod==='function'&&MxObjectProxy.__nfHasFixedMethod(name);
     }
     function hasTrait(receiver,name,caller){
-        if(proxyBypassProps.has(name)||hasNativeObjectProxyTrait(receiver,name))return true;
+        if(isProxyBypassProp(name)||hasNativeObjectProxyTrait(receiver,name))return true;
         const effectiveCaller=callerClass(caller)?caller:(caller?{class:ownerName(receiver),ns:callerNamespaces(caller)}:ownerName(receiver));
         if(!classDefinition(receiver))return Boolean(resolveSlot(receiver,name,effectiveCaller));
         return Boolean(resolveSlot(receiver,name,effectiveCaller));
@@ -203,7 +217,7 @@ const __nfProgram = (() => {
         if(!classDefinition(receiver)){
             const nsSlot=resolveSlot(receiver,name,caller);
             if(nsSlot)return {get:nsSlot.get,set(value){nsSlot.set(value);return value;},delete:()=>false,has:()=>true};
-            if(isProxy(receiver)&&!proxyBypassProps.has(name)&&!hasNativeObjectProxyTrait(receiver,name)){
+            if(isProxy(receiver)&&!isProxyBypassProp(name)&&!hasNativeObjectProxyTrait(receiver,name)){
                 return {
                     get:()=>invokeProxy(receiver,'getProperty',[name]),
                     set(value){invokeProxy(receiver,'setProperty',[name,value]);return value;},
@@ -215,7 +229,7 @@ const __nfProgram = (() => {
         }
         const slot=resolveSlot(receiver,name,caller);
         if(slot)return {get:slot.get,set(value){slot.set(value);return slot.kind==='field'?slot.get():value;},delete:()=>false,has:()=>true};
-        if(isProxy(receiver)&&!proxyBypassProps.has(name)&&!hasNativeObjectProxyTrait(receiver,name)){
+        if(isProxy(receiver)&&!isProxyBypassProp(name)&&!hasNativeObjectProxyTrait(receiver,name)){
             return {
                 get:()=>invokeProxy(receiver,'getProperty',[name]),
                 set(value){invokeProxy(receiver,'setProperty',[name,value]);return value;},
@@ -801,31 +815,33 @@ const __nfProgram = (() => {
     const getterMarker = Object.freeze({ [Symbol.for('neoflash.trace.getter.v1')]: true });
     function traceObjectInfo(value) {
         if (value == null || (typeof value !== 'object' && typeof value !== 'function')) return null;
-        if (classFacades.has(value) || __nfBuiltins.__nfIsNativeDisplay?.(value)) return null;
-        const name = identities.get(value);
+        const raw = unwrapProxy(value);
+        if (classFacades.has(value) || classFacades.has(raw) || __nfBuiltins.__nfIsNativeDisplay?.(raw)) return null;
+        const proxyObj = isProxy(value);
+        const name = identities.get(value) || identities.get(raw) || (proxyObj && is(value, 'mx.utils.ObjectProxy') ? 'mx.utils.ObjectProxy' : null);
         if (!name) return null;
         const definition = definitions.get(name);
-        if (!definition) return null;
-        const tsSlot = publicSlot(value, 'toString');
+        if (!definition && !proxyObj) return null;
+        const tsSlot = publicSlot(raw, 'toString');
         if (tsSlot && tsSlot.kind === 'method') return { className: name, customToString: true };
-        const ownTs = Object.getOwnPropertyDescriptor(value, 'toString');
+        const ownTs = Object.getOwnPropertyDescriptor(raw, 'toString');
         if (ownTs && Object.hasOwn(ownTs, 'value') && typeof ownTs.value === 'function' && ownTs.value !== Object.prototype.toString) {
             return { className: name, customToString: true };
         }
-        if (definition.dialect === 'as2') {
+        if (definition?.dialect === 'as2') {
             for (const def of chain(name)) {
                 if (def.methods.some(m => !m.static && m.name === 'toString')) return { className: name, customToString: true };
             }
         }
         const entries = [], seenKeys = new Set();
-        if (definition.dialect === 'as2') {
+        if (definition?.dialect === 'as2') {
             for (const def of chain(name)) {
                 for (const field of def.fields) {
                     if (field.static || seenKeys.has(field.name)) continue;
                     seenKeys.add(field.name);
-                    let desc = Object.getOwnPropertyDescriptor(value, field.name);
+                    let desc = Object.getOwnPropertyDescriptor(raw, field.name);
                     if (!desc) {
-                        for (let p = Object.getPrototypeOf(value); p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
+                        for (let p = Object.getPrototypeOf(raw); p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
                             desc = Object.getOwnPropertyDescriptor(p, field.name);
                             if (desc) break;
                         }
@@ -833,8 +849,8 @@ const __nfProgram = (() => {
                     if (desc) entries.push([field.name, Object.hasOwn(desc, 'value') ? desc.value : getterMarker]);
                 }
             }
-        } else {
-            const states = fieldStates.get(value);
+        } else if (definition) {
+            const states = fieldStates.get(raw);
             for (const def of chain(name)) {
                 for (const field of def.fields) {
                     if (field.static || field.access !== 'public' || seenKeys.has(field.name)) continue;
@@ -843,12 +859,29 @@ const __nfProgram = (() => {
                     if (state) entries.push([field.name, state.value]);
                 }
             }
-            for (const slot of slots.get(value)?.values() || []) {
+            for (const slot of slots.get(raw)?.values() || []) {
                 if (slot.member.access === 'public' && slot.kind === 'accessor' && slot.readable && !seenKeys.has(slot.member.name)) {
                     seenKeys.add(slot.member.name);
                     entries.push([slot.member.name, getterMarker]);
                 }
             }
+        }
+        if (proxyObj) {
+            try {
+                let index = 0, guard = 0;
+                while (guard++ < 4096) {
+                    index = Number(invokeProxy(value, 'nextNameIndex', [index])) | 0;
+                    if (index <= 0) break;
+                    const k = String(invokeProxy(value, 'nextName', [index]));
+                    if (seenKeys.has(k)) continue;
+                    seenKeys.add(k);
+                    let v;
+                    try { v = invokeProxy(value, 'nextValue', [index]); }
+                    catch (_) { try { v = invokeProxy(value, 'getProperty', [k]); } catch (_2) { v = undefined; } }
+                    entries.push([k, v]);
+                }
+            } catch (_) {}
+            return { className: name, customToString: false, entries };
         }
         for (const key of Object.keys(value)) {
             if (seenKeys.has(key)) continue;

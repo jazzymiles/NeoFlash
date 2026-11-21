@@ -2,14 +2,15 @@
 
 use super::vm::compile_avm1_actions;
 use super::{
-    ActivePlacement, BitReader, MAX_SWF_FRAMES, SwfDecodeCtx, SwfFontRecord,
-    attach_compiled_frame_script, make_default_element, parse_tag_slice,
+    ActivePlacement, BitReader, MAX_SWF_FRAMES, MAX_SWF_KEYFRAMES, MAX_SWF_PLACEMENTS,
+    SwfDecodeCtx, SwfFontRecord, attach_compiled_frame_script, make_default_element,
+    parse_tag_slice,
 };
 use neoflash_core::{
-    Color, ColorTransform, ElementKind, InstancePlayback, Keyframe, Layer, LayerProperties,
-    LayerRole, Symbol, SymbolKind, TextFormat, Timeline, Transform,
+    Color, ColorTransform, Element, ElementKind, InstancePlayback, Keyframe, Layer,
+    LayerProperties, LayerRole, Symbol, SymbolKind, TextFormat, Timeline, Transform,
 };
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 pub(super) fn decode_font_tag(
     ctx: &mut SwfDecodeCtx,
@@ -431,6 +432,41 @@ pub(super) fn decode_symbol_class_tag(ctx: &mut SwfDecodeCtx, data: &[u8]) -> Re
     Ok(())
 }
 
+fn placement_to_element(
+    ctx: &SwfDecodeCtx,
+    scope_prefix: &str,
+    depth: u16,
+    p: &ActivePlacement,
+) -> Option<Element> {
+    let mut tf = Transform::from_matrix(p.matrix).unwrap_or_default();
+    tf.alpha = p.cxform.multipliers[3].clamp(0.0, 1.0);
+    tf.color_transform = p.cxform;
+    let kind = if let Some((tb_kind, bx, by)) = ctx.char_edit_texts.get(&p.char_id) {
+        tf.x += *bx;
+        tf.y += *by;
+        tb_kind.clone()
+    } else {
+        let sym_id = ctx.char_symbols.get(&p.char_id)?.clone();
+        ElementKind::Instance {
+            symbol_id: sym_id,
+            playback: InstancePlayback::Independent,
+        }
+    };
+    let mut el = make_default_element(
+        format!(
+            "swf-{}-{scope_prefix}-d{depth}-c{}",
+            ctx.mount_seq, p.char_id
+        ),
+        kind,
+        tf.x,
+        tf.y,
+    );
+    el.name = p.name.clone();
+    el.transform = tf;
+    el.visible = p.visible;
+    Some(el)
+}
+
 pub(super) fn build_timeline_from_tags(
     ctx: &mut SwfDecodeCtx,
     tags: &[(u16, &[u8])],
@@ -438,115 +474,137 @@ pub(super) fn build_timeline_from_tags(
     scope_prefix: &str,
 ) -> Timeline {
     let mut active: BTreeMap<u16, ActivePlacement> = BTreeMap::new();
-    let mut snapshots: Vec<BTreeMap<u16, ActivePlacement>> = Vec::new();
+    let mut dirty_depths: BTreeSet<u16> = BTreeSet::new();
+    let mut depth_tracks: BTreeMap<u16, Vec<(u32, Option<ActivePlacement>)>> = BTreeMap::new();
+    let mut max_clip_by_depth: BTreeMap<u16, u16> = BTreeMap::new();
     let mut frame_labels: BTreeMap<u32, String> = BTreeMap::new();
     let mut frame_actions: BTreeMap<u32, Vec<String>> = BTreeMap::new();
-    let mut cur_frame = 0u32;
+    let mut shown_frames = 0u32;
+
+    let flush_dirty = |ctx: &mut SwfDecodeCtx,
+                       frame_idx: u32,
+                       active: &BTreeMap<u16, ActivePlacement>,
+                       dirty_depths: &mut BTreeSet<u16>,
+                       depth_tracks: &mut BTreeMap<u16, Vec<(u32, Option<ActivePlacement>)>>,
+                       max_clip_by_depth: &mut BTreeMap<u16, u16>| {
+        for depth in std::mem::take(dirty_depths) {
+            if ctx.total_keyframes >= MAX_SWF_KEYFRAMES {
+                ctx.warn(
+                    "SWF keyframe budget (65536) reached; truncating excess timeline keyframes.",
+                );
+                break;
+            }
+            let cur = active.get(&depth).cloned();
+            if let Some(p) = &cur
+                && p.clip_depth > depth
+            {
+                max_clip_by_depth
+                    .entry(depth)
+                    .and_modify(|m| *m = (*m).max(p.clip_depth))
+                    .or_insert(p.clip_depth);
+            }
+            let track = depth_tracks.entry(depth).or_default();
+            if track.last().is_some_and(|(_, prev)| prev == &cur) {
+                continue;
+            }
+            track.push((frame_idx, cur));
+            ctx.total_keyframes += 1;
+        }
+    };
 
     for &(code, payload) in tags {
         match code {
             4 => {
-                let _ = apply_place_object1(&mut active, payload);
+                if let Ok(Some(depth)) = apply_place_object1(ctx, &mut active, payload) {
+                    dirty_depths.insert(depth);
+                }
             }
             26 | 70 => {
-                let _ = apply_place_object2_or_3(&mut active, payload, code == 70);
+                if let Ok(Some(depth)) =
+                    apply_place_object2_or_3(ctx, &mut active, payload, code == 70)
+                {
+                    dirty_depths.insert(depth);
+                }
             }
             5 if payload.len() >= 4 => {
                 let depth = u16::from_le_bytes([payload[2], payload[3]]);
-                active.remove(&depth);
+                if active.remove(&depth).is_some() {
+                    dirty_depths.insert(depth);
+                }
             }
             28 if payload.len() >= 2 => {
                 let depth = u16::from_le_bytes([payload[0], payload[1]]);
-                active.remove(&depth);
+                if active.remove(&depth).is_some() {
+                    dirty_depths.insert(depth);
+                }
             }
             43 => {
                 let mut r = BitReader::new(payload, 0);
                 if let Ok(lbl) = r.read_c_string()
                     && !lbl.is_empty()
                 {
-                    frame_labels.entry(cur_frame).or_insert(lbl);
+                    frame_labels.entry(shown_frames).or_insert(lbl);
                 }
             }
             12 => {
                 ctx.saw_do_action = true;
-                if let Some(js) = compile_avm1_actions(payload) {
-                    frame_actions.entry(cur_frame).or_default().push(js);
+                if let Some(js) = compile_avm1_actions(ctx, payload) {
+                    frame_actions.entry(shown_frames).or_default().push(js);
                 }
             }
-            1 if (snapshots.len() as u32) < MAX_SWF_FRAMES => {
-                snapshots.push(active.clone());
-                cur_frame += 1;
+            1 if shown_frames < MAX_SWF_FRAMES => {
+                flush_dirty(
+                    ctx,
+                    shown_frames,
+                    &active,
+                    &mut dirty_depths,
+                    &mut depth_tracks,
+                    &mut max_clip_by_depth,
+                );
+                shown_frames += 1;
             }
             _ => {}
         }
     }
 
-    if snapshots.is_empty() {
-        snapshots.push(active);
+    if shown_frames == 0 {
+        flush_dirty(
+            ctx,
+            0,
+            &active,
+            &mut dirty_depths,
+            &mut depth_tracks,
+            &mut max_clip_by_depth,
+        );
+        shown_frames = 1;
     }
+
     let total_frames = declared_frames
-        .unwrap_or(snapshots.len() as u32)
-        .max(snapshots.len() as u32)
+        .unwrap_or(shown_frames)
+        .max(shown_frames)
         .clamp(1, MAX_SWF_FRAMES);
-    while (snapshots.len() as u32) < total_frames {
-        let last = snapshots.last().cloned().unwrap_or_default();
-        snapshots.push(last);
-    }
 
-    let mut all_depths = std::collections::BTreeSet::new();
-    for snap in &snapshots {
-        for &d in snap.keys() {
-            all_depths.insert(d);
-        }
-    }
-
-    let mut layers = Vec::new();
+    let mut layers = Vec::with_capacity(depth_tracks.len());
     let mut clip_ranges: Vec<(u16, u16, String)> = Vec::new();
 
-    for &depth in &all_depths {
+    for (depth, changes) in depth_tracks {
         let layer_id = format!("swf-{}-{scope_prefix}-d{depth}", ctx.mount_seq);
-        let max_clip_depth = snapshots
-            .iter()
-            .filter_map(|s| s.get(&depth).map(|p| p.clip_depth))
-            .max()
-            .unwrap_or(0);
+        let max_clip_depth = max_clip_by_depth.get(&depth).copied().unwrap_or(0);
         if max_clip_depth > depth {
             clip_ranges.push((depth, max_clip_depth, layer_id.clone()));
         }
 
-        let mut keyframes: Vec<Keyframe> = Vec::new();
-        for (f_idx, snap) in snapshots.iter().enumerate() {
-            let placement = snap.get(&depth);
-            let element = placement.and_then(|p| {
-                let mut tf = Transform::from_matrix(p.matrix).unwrap_or_default();
-                tf.alpha = p.cxform.multipliers[3].clamp(0.0, 1.0);
-                tf.color_transform = p.cxform;
-                let kind = if let Some((tb_kind, bx, by)) = ctx.char_edit_texts.get(&p.char_id) {
-                    tf.x += *bx;
-                    tf.y += *by;
-                    tb_kind.clone()
-                } else {
-                    let sym_id = ctx.char_symbols.get(&p.char_id)?.clone();
-                    ElementKind::Instance {
-                        symbol_id: sym_id,
-                        playback: InstancePlayback::Independent,
-                    }
-                };
-                let mut el = make_default_element(
-                    format!(
-                        "swf-{}-{scope_prefix}-d{depth}-c{}",
-                        ctx.mount_seq, p.char_id
-                    ),
-                    kind,
-                    tf.x,
-                    tf.y,
-                );
-                el.name = p.name.clone();
-                el.transform = tf;
-                el.visible = p.visible;
-                Some(el)
+        let mut keyframes: Vec<Keyframe> = Vec::with_capacity(changes.len() + 1);
+        if changes.first().is_none_or(|(f_idx, _)| *f_idx > 0) {
+            keyframes.push(Keyframe {
+                frame: 0,
+                ..Default::default()
             });
-
+        }
+        for (f_idx, placement_opt) in changes {
+            let element = placement_opt
+                .as_ref()
+                .and_then(|p| placement_to_element(ctx, scope_prefix, depth, p));
             let same_as_prev = keyframes.last().is_some_and(|prev_kf| {
                 match (prev_kf.elements.first(), element.as_ref()) {
                     (None, None) => true,
@@ -554,20 +612,13 @@ pub(super) fn build_timeline_from_tags(
                     _ => false,
                 }
             });
-            let has_label_on_first_layer =
-                layers.is_empty() && frame_labels.contains_key(&(f_idx as u32));
-            if f_idx == 0 || !same_as_prev || has_label_on_first_layer {
+            if keyframes.is_empty() || !same_as_prev {
                 let mut kf = Keyframe {
-                    frame: f_idx as u32,
+                    frame: f_idx,
                     ..Default::default()
                 };
                 if let Some(el) = element {
                     kf.elements.push(el);
-                }
-                if layers.is_empty()
-                    && let Some(lbl) = frame_labels.get(&(f_idx as u32))
-                {
-                    kf.label = lbl.clone();
                 }
                 keyframes.push(kf);
             }
@@ -600,17 +651,19 @@ pub(super) fn build_timeline_from_tags(
 
     let mut final_layers: Vec<Layer> = layers.into_iter().map(|(_, l)| l).collect();
     if final_layers.is_empty() {
-        let mut kfs = Vec::new();
-        for f in 0..total_frames {
-            if f == 0 || frame_labels.contains_key(&f) {
-                let mut kf = Keyframe {
+        let mut kfs = vec![Keyframe {
+            frame: 0,
+            label: frame_labels.get(&0).cloned().unwrap_or_default(),
+            ..Default::default()
+        }];
+        for (&f, lbl) in &frame_labels {
+            if f > 0 && f < total_frames && ctx.total_keyframes < MAX_SWF_KEYFRAMES {
+                kfs.push(Keyframe {
                     frame: f,
+                    label: lbl.clone(),
                     ..Default::default()
-                };
-                if let Some(lbl) = frame_labels.get(&f) {
-                    kf.label = lbl.clone();
-                }
-                kfs.push(kf);
+                });
+                ctx.total_keyframes += 1;
             }
         }
         final_layers.push(Layer {
@@ -624,10 +677,30 @@ pub(super) fn build_timeline_from_tags(
     } else if !frame_labels.is_empty() {
         let first_layer = &mut final_layers[0];
         for (&f, lbl) in &frame_labels {
-            if let Some(kf) = first_layer.keyframes.iter_mut().find(|k| k.frame == f)
-                && kf.label.is_empty()
-            {
-                kf.label = lbl.clone();
+            if f >= total_frames {
+                continue;
+            }
+            if let Some(kf) = first_layer.keyframes.iter_mut().find(|k| k.frame == f) {
+                if kf.label.is_empty() {
+                    kf.label = lbl.clone();
+                }
+            } else if ctx.total_keyframes < MAX_SWF_KEYFRAMES {
+                let insert_pos = first_layer.keyframes.partition_point(|k| k.frame < f);
+                let held_elements = insert_pos
+                    .checked_sub(1)
+                    .and_then(|i| first_layer.keyframes.get(i))
+                    .map(|k| k.elements.clone())
+                    .unwrap_or_default();
+                first_layer.keyframes.insert(
+                    insert_pos,
+                    Keyframe {
+                        frame: f,
+                        label: lbl.clone(),
+                        elements: held_elements,
+                        ..Default::default()
+                    },
+                );
+                ctx.total_keyframes += 1;
             }
         }
     }
@@ -650,9 +723,14 @@ pub(super) fn build_timeline_from_tags(
 }
 
 fn apply_place_object1(
+    ctx: &mut SwfDecodeCtx,
     active: &mut BTreeMap<u16, ActivePlacement>,
     data: &[u8],
-) -> Result<(), String> {
+) -> Result<Option<u16>, String> {
+    if ctx.total_placements >= MAX_SWF_PLACEMENTS {
+        ctx.warn("SWF placement budget (65536) reached; truncating excess timeline placements.");
+        return Ok(None);
+    }
     let mut r = BitReader::new(data, 0);
     let char_id = r.read_u16()?;
     let depth = r.read_u16()?;
@@ -662,6 +740,7 @@ fn apply_place_object1(
     } else {
         ColorTransform::default()
     };
+    ctx.total_placements += 1;
     active.insert(
         depth,
         ActivePlacement {
@@ -673,14 +752,19 @@ fn apply_place_object1(
             visible: true,
         },
     );
-    Ok(())
+    Ok(Some(depth))
 }
 
 fn apply_place_object2_or_3(
+    ctx: &mut SwfDecodeCtx,
     active: &mut BTreeMap<u16, ActivePlacement>,
     data: &[u8],
     is_v3: bool,
-) -> Result<(), String> {
+) -> Result<Option<u16>, String> {
+    if ctx.total_placements >= MAX_SWF_PLACEMENTS {
+        ctx.warn("SWF placement budget (65536) reached; truncating excess timeline placements.");
+        return Ok(None);
+    }
     let mut r = BitReader::new(data, 0);
     let flags1 = r.read_u8()?;
     let flags2 = if is_v3 { r.read_u8()? } else { 0 };
@@ -734,13 +818,20 @@ fn apply_place_object2_or_3(
         None
     };
     if has_filter_list {
+        ctx.warn("SWF PlaceObject3 filters are not supported in the bounded SWF loader and were skipped.");
         skip_swf_filter_list(&mut r)?;
     }
     if has_blend_mode {
-        let _ = r.read_u8()?;
+        let mode_byte = r.read_u8()?;
+        if mode_byte > 1 {
+            ctx.warn("SWF PlaceObject3 blendMode is not supported in the bounded SWF loader and was skipped.");
+        }
     }
     if has_cache_bitmap {
-        let _ = r.read_u8()?;
+        let cache_byte = r.read_u8()?;
+        if cache_byte != 0 {
+            ctx.warn("SWF PlaceObject3 cacheAsBitmap is not supported in the bounded SWF loader and was skipped.");
+        }
     }
     let visible = if has_visible {
         Some(r.read_u8()? != 0)
@@ -752,6 +843,7 @@ fn apply_place_object2_or_3(
     }
 
     if has_move && let Some(existing) = active.get_mut(&depth) {
+        ctx.total_placements += 1;
         if let Some(cid) = char_id {
             existing.char_id = cid;
         }
@@ -770,7 +862,9 @@ fn apply_place_object2_or_3(
         if let Some(v) = visible {
             existing.visible = v;
         }
+        return Ok(Some(depth));
     } else if let Some(cid) = char_id {
+        ctx.total_placements += 1;
         active.insert(
             depth,
             ActivePlacement {
@@ -782,8 +876,9 @@ fn apply_place_object2_or_3(
                 visible: visible.unwrap_or(true),
             },
         );
+        return Ok(Some(depth));
     }
-    Ok(())
+    Ok(None)
 }
 
 fn skip_swf_filter_list(r: &mut BitReader<'_>) -> Result<(), String> {

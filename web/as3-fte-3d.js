@@ -409,7 +409,7 @@
 
   // Global weak registry for Shader instances so NeoFlashFilters.ShaderFilter can inspect them without circular host initialization.
   const globalShaderStates = new WeakMap();
-  let lastActiveKernel = null;
+  const activeKernels = new Set();
 
   function inspectShaderForFilter(shader) {
     const st = globalShaderStates.get(shader);
@@ -429,16 +429,25 @@
         params.__extra_inputs__ = extraInputs;
       }
     }
-    return {
+    const spec = {
       isShader: true,
       bytecode_base64: bytesToBase64(st.bytes),
       precision_hint: st.precisionHint || 'full',
       params_json: JSON.stringify(params),
     };
+    Object.defineProperty(spec, '__kernel', { value: st.kernel || null, enumerable: false });
+    return spec;
+  }
+
+  function resolveLatestActiveKernel() {
+    let last = null;
+    for (const k of activeKernels) last = k;
+    return last;
   }
 
   function evaluateBlendShaderRgbaStatic(bgRgba, fgRgba, width, height, spec, kernelOverride = null) {
-    const k = kernelOverride || lastActiveKernel;
+    const specKernel = spec?.__kernel && activeKernels.has(spec.__kernel) ? spec.__kernel : null;
+    const k = kernelOverride || specKernel || resolveLatestActiveKernel();
     if (!k || typeof k.evaluate_blend_shader_rgba !== 'function') {
       throw new Error('Pixel Bender blendShader kernel is unavailable.');
     }
@@ -482,7 +491,8 @@
     const onError = options.onError || (err => { throw err; });
 
     let kernel = new wasm.As3Fte3dKernel();
-    lastActiveKernel = kernel;
+    activeKernels.add(kernel);
+    const instanceShaderStates = new Set();
     let generation = 1;
     let disposed = false;
     let vectorFactory = (_typeName, values) => Array.from(values);
@@ -778,6 +788,7 @@
 
     function makeShaderState() {
       const st = {
+        kernel,
         bytes: null,
         data: null,
         precisionHint: 'full',
@@ -827,6 +838,7 @@
           return out;
         },
       };
+      instanceShaderStates.add(st);
       return st;
     }
 
@@ -4410,7 +4422,7 @@
     });
 
     function reset() {
-      kernel.reset();
+      if (kernel) kernel.reset();
       stage3DList = null;
       stageVideoList = null;
       pose3DMap = new WeakMap();
@@ -4426,6 +4438,15 @@
       if (disposed) return;
       reset();
       disposed = true;
+      for (const st of instanceShaderStates) {
+        st.kernel = null;
+      }
+      instanceShaderStates.clear();
+      if (kernel) {
+        activeKernels.delete(kernel);
+        kernel.free?.();
+        kernel = null;
+      }
     }
 
     const builtins = {

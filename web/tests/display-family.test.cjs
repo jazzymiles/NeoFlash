@@ -592,6 +592,41 @@ trace("AS2 as3only deleted", delete classic.soundTransform, delete classic.upSta
       resetDocument.stage.focus=null;
       resetDocument.removeChild(crossChild);
     }
+    // Verify extMasks buildMaskComponentsForNode handles concatenated_color_transform alpha < 1 and painted_path
+    {
+      const SpriteCls=linked.program().type('flash.display.Sprite');
+      const ColorTransformCls=linked.program().type('flash.geom.ColorTransform');
+      const maskTarget=new SpriteCls();
+      maskTarget.graphics.beginFill(0x00ff00,1);
+      maskTarget.graphics.drawRect(0,0,20,20);
+      maskTarget.graphics.endFill();
+      const maskParent=new SpriteCls();
+      maskParent.transform.colorTransform=new ColorTransformCls(1,1,1,0.5,0,0,0,0);
+      const maskLeaf=new SpriteCls();
+      maskLeaf.graphics.beginFill(0xffffff,1);
+      maskLeaf.graphics.drawRect(0,0,10,20);
+      maskLeaf.graphics.endFill();
+      const innerMask=new SpriteCls();
+      innerMask.graphics.beginFill(0xffffff,1);
+      innerMask.graphics.drawRect(0,0,10,20);
+      innerMask.graphics.endFill();
+      maskParent.addChild(maskLeaf);
+      maskParent.addChild(innerMask);
+      resetDocument.addChild(maskTarget);
+      resetDocument.addChild(maskParent);
+      maskTarget.cacheAsBitmap=true;
+      maskLeaf.cacheAsBitmap=true;
+      maskLeaf.mask=innerMask;
+      maskTarget.mask=maskLeaf;
+      const enriched=linked.display().snapshot();
+      const softClip=(enriched.clips||[]).find(c=>String(c.id).startsWith('ext-mask-')&&Array.isArray(c.alpha_components));
+      assert.ok(softClip,'parent ColorTransform alphaMultiplier=0.5 promotes runtime mask to soft alpha_components');
+      assert.ok(Math.abs(softClip.alpha_components[0].alpha-0.5)<0.02,'alpha_components inherits concatenated_color_transform alpha');
+      maskTarget.mask=null;
+      maskLeaf.mask=null;
+      resetDocument.removeChild(maskTarget);
+      resetDocument.removeChild(maskParent);
+    }
     linked.disposeFamily();
   } finally {
     if (player) player.free();

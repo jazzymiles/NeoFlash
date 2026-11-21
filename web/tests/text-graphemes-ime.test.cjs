@@ -1628,3 +1628,62 @@ test('Browser HTML5 (Canvas + DOM): graphemes, mixed-run IME commit/cancel, rich
     }
   }
 });
+
+test('Device Font.hasGlyphs probes Private Use Area (PUA) icon codepoints via Canvas tofu comparison when Canvas 2D is available', () => {
+  const NeoFlashText = require('../text.js');
+  const makeProbeCanvas = () => ({
+    width: 64,
+    height: 64,
+    getContext() {
+      let currentText = '';
+      return {
+        font: '',
+        textBaseline: 'top',
+        fillStyle: '#fff',
+        clearRect() {},
+        measureText(str) {
+          // Installed custom icon font 'IconSetFont' has distinct metrics from monospace/serif
+          const isIcon = String(this.font).includes('IconSetFont');
+          if (str === '\ue001') return { width: isIcon ? 24 : 12 };
+          if (str === '\ue999' || str === '\uffff') return { width: 12 };
+          return { width: isIcon ? str.length * 14 : str.length * 10 };
+        },
+        fillText(str) {
+          currentText = str;
+        },
+        getImageData(_x, _y, w, h) {
+          const data = new Uint8ClampedArray(w * h * 4);
+          // U+E001 renders an icon glyph (distinct ink pattern from U+FFFF tofu); U+E999 renders .notdef tofu!
+          if (currentText === '\ue001') {
+            data[3] = 255; data[7] = 255; data[11] = 200;
+          } else {
+            data[3] = 128;
+          }
+          return { data };
+        },
+      };
+    },
+  });
+  const prevOffscreen = globalThis.OffscreenCanvas;
+  globalThis.OffscreenCanvas = function(w, h) {
+    const c = makeProbeCanvas();
+    c.width = w;
+    c.height = h;
+    return c;
+  };
+  try {
+    const textHost = NeoFlashText.create({
+      player: {
+        project_fonts: () => '[]',
+        enumerate_device_fonts: () => JSON.stringify([{ name: 'IconSetFont', style: 'regular' }]),
+      },
+    });
+    const iconFont = textHost.Font.__nfAllocate({ fontName: 'IconSetFont', fontStyle: 'regular', fontType: 'device' });
+    assert.ok(iconFont, 'allocated IconSetFont device font');
+    assert.equal(iconFont.hasGlyphs('\ue001'), true, 'mapped PUA icon glyph U+E001 passes Canvas tofu check');
+    assert.equal(iconFont.hasGlyphs('\ue999'), false, 'unmapped PUA codepoint U+E999 matching .notdef tofu returns false');
+  } finally {
+    if (prevOffscreen === undefined) delete globalThis.OffscreenCanvas;
+    else globalThis.OffscreenCanvas = prevOffscreen;
+  }
+});

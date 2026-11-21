@@ -7,10 +7,12 @@ use neoflash_core::{
     Project, ResourceUnit, Script, ScriptLanguage, Symbol, SymbolKind, Timeline, Transform,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use wasm_bindgen::prelude::*;
 
+#[cfg(test)]
+mod tests;
 mod timeline;
 mod vm;
 
@@ -24,6 +26,8 @@ const MAX_SWF_DECOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
 const MAX_BITMAP_RAW_BYTES: usize = 16 * 1024 * 1024;
 const MAX_SWF_FRAMES: u32 = 4096;
 const MAX_SWF_TAGS: usize = 32768;
+pub(super) const MAX_SWF_KEYFRAMES: usize = 65_536;
+pub(super) const MAX_SWF_PLACEMENTS: usize = 65_536;
 
 static SWF_MOUNT_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -53,6 +57,7 @@ pub struct DecodedSwfBundle {
     pub swf_info: DecodedSwfInfo,
     pub project: Project,
     pub scripts: Vec<CompiledSwfScriptUnit>,
+    pub warnings: Vec<String>,
 }
 
 #[wasm_bindgen]
@@ -395,6 +400,10 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
         scripts: Vec::new(),
         abc_blocks: Vec::new(),
         init_actions: Vec::new(),
+        total_keyframes: 0,
+        total_placements: 0,
+        warnings: Vec::new(),
+        warning_set: HashSet::new(),
     };
 
     let tags = parse_tag_slice(&body[reader.byte_pos()..])?;
@@ -449,13 +458,15 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
             }
             72 | 82 => {
                 ctx.saw_do_abc = true;
-                if let Ok(abc) = parse_abc_tag(tag_bytes, tag_code == 82) {
-                    ctx.abc_blocks.push(abc);
+                match parse_abc_tag(tag_bytes, tag_code == 82) {
+                    Ok(abc) => ctx.abc_blocks.push(abc),
+                    Err(err) => ctx.warn(format!("SWF DoABC tag skipped: {err}")),
                 }
             }
             59 if tag_bytes.len() > 2 => {
                 ctx.saw_do_action = true;
-                if let Some(js) = compile_avm1_actions(&tag_bytes[2..]) {
+                let payload = &tag_bytes[2..];
+                if let Some(js) = compile_avm1_actions(&mut ctx, payload) {
                     ctx.init_actions.push(js);
                 }
             }
@@ -486,20 +497,30 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
     for (&cid, linkage) in &ctx.export_assets {
         if let Some(sym_id) = ctx.char_symbols.get(&cid)
             && let Some(sym) = ctx.symbols.iter_mut().find(|s| &s.id == sym_id)
+            && matches!(sym.kind, SymbolKind::MovieClip | SymbolKind::Button)
         {
             sym.linkage_id = Some(linkage.clone());
         }
     }
-    for (&cid, cls_name) in &ctx.symbol_classes {
+    let sym_classes: Vec<(u16, String)> = ctx
+        .symbol_classes
+        .iter()
+        .map(|(&cid, name)| (cid, name.clone()))
+        .collect();
+    for (cid, cls_name) in sym_classes {
         if cid == 0 {
             continue;
         }
+        ctx.warn(format!(
+            "SWF AVM2 SymbolClass binding '{cls_name}' (character {cid}) is not executed in the bounded SWF loader."
+        ));
         if let Some(sym_id) = ctx.char_symbols.get(&cid)
             && let Some(sym) = ctx.symbols.iter_mut().find(|s| &s.id == sym_id)
+            && matches!(sym.kind, SymbolKind::MovieClip | SymbolKind::Button)
         {
             sym.class_name = Some(cls_name.clone());
             if sym.linkage_id.is_none() {
-                sym.linkage_id = Some(cls_name.clone());
+                sym.linkage_id = Some(cls_name);
             }
         }
     }
@@ -555,7 +576,19 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
         swf_info,
         project,
         scripts: ctx.scripts,
+        warnings: ctx.warnings,
     })
+}
+
+impl PartialEq for ActivePlacement {
+    fn eq(&self, other: &Self) -> bool {
+        self.char_id == other.char_id
+            && self.matrix == other.matrix
+            && self.cxform == other.cxform
+            && self.name == other.name
+            && self.clip_depth == other.clip_depth
+            && self.visible == other.visible
+    }
 }
 
 struct SwfDecodeCtx {
@@ -576,6 +609,19 @@ struct SwfDecodeCtx {
     scripts: Vec<CompiledSwfScriptUnit>,
     abc_blocks: Vec<AbcFile>,
     init_actions: Vec<String>,
+    total_keyframes: usize,
+    total_placements: usize,
+    warnings: Vec<String>,
+    warning_set: HashSet<String>,
+}
+
+impl SwfDecodeCtx {
+    pub(super) fn warn(&mut self, msg: impl Into<String>) {
+        let msg = msg.into();
+        if self.warning_set.insert(msg.clone()) && self.warnings.len() < 256 {
+            self.warnings.push(msg);
+        }
+    }
 }
 
 fn parse_tag_slice(data: &[u8]) -> Result<Vec<(u16, &[u8])>, String> {

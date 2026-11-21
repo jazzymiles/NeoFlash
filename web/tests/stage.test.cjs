@@ -751,6 +751,7 @@ test('Stage quality, wmodeGPU, colorCorrection/colorCorrectionSupport, mouseLock
   assert.equal(stage.colorCorrection, 'off');
   assert.equal(mockCanvas.dataset.colorCorrection, 'off');
   assert.equal(mockCanvas.style.colorInterpolation, 'linearRGB');
+  assert.equal(mockCanvas.style.filter, undefined, 'ColorCorrection.OFF must not inject synthetic CSS contrast/saturate filter');
   stage.colorCorrection = 'on';
   assert.equal(stage.colorCorrection, 'on');
   assert.equal(mockCanvas.dataset.colorCorrection, 'on');
@@ -773,6 +774,12 @@ test('Stage quality, wmodeGPU, colorCorrection/colorCorrectionSupport, mouseLock
   // Browser-initiated pointerlock release (e.g. Escape) syncs stage.mouseLock back to false
   mockDoc.exitPointerLock();
   assert.equal(stage.mouseLock, false);
+  stage.mouseLock = true;
+  assert.equal(stage.mouseLock, true);
+  // pointerlockerror resets stage.mouseLock to false
+  pointerLockElement = null;
+  for (const fn of docListeners.get('pointerlockerror') || []) fn();
+  assert.equal(stage.mouseLock, false, 'pointerlockerror resets Stage.mouseLock to false');
   stage.mouseLock = true;
   assert.equal(stage.mouseLock, true);
   stage.mouseLock = false;

@@ -104,6 +104,7 @@ function __nfQualifiedRef(receiver,namespace,key,as3,caller){
     const sym=Symbol.for('neoflash.ns.'+uri+'::'+name);
     const obj=Object(receiver);
     const program=__nfContainerProgram();
+    const isProxy=__nfIsProxyReceiver(receiver,program);
     const makeProxyQName=()=>{
         if(typeof __nfXML!=='undefined'&&typeof __nfXML?.QName==='function')return new __nfXML.QName(uri,name);
         return Object.freeze({uri,localName:name,toString(){return uri?uri+'::'+name:name;},valueOf(){return name;}});
@@ -114,7 +115,7 @@ function __nfQualifiedRef(receiver,namespace,key,as3,caller){
                 const slot=program?.resolveQualifiedSlot?.(receiver,name,caller,uri);
                 if(slot)return slot.get();
                 if(sym in obj)return obj[sym];
-                if(as3&&program?.isProxy?.(receiver))return program.invokeProxy(receiver,'getProperty',[makeProxyQName()]);
+                if(as3&&isProxy)return __nfInvokeProxyTrap(receiver,program,'getProperty',[makeProxyQName()]);
             }
             return __nfContainerRef(receiver,name,true,caller).get();
         },
@@ -123,7 +124,7 @@ function __nfQualifiedRef(receiver,namespace,key,as3,caller){
                 const slot=program?.resolveQualifiedSlot?.(receiver,name,caller,uri);
                 if(slot){slot.set(value);return value;}
                 if(sym in obj){obj[sym]=value;return value;}
-                if(as3&&program?.isProxy?.(receiver)){program.invokeProxy(receiver,'setProperty',[makeProxyQName(),value]);return value;}
+                if(as3&&isProxy){__nfInvokeProxyTrap(receiver,program,'setProperty',[makeProxyQName(),value]);return value;}
                 obj[sym]=value;
                 return value;
             }
@@ -131,16 +132,25 @@ function __nfQualifiedRef(receiver,namespace,key,as3,caller){
         },
         delete(){
             if((typeof receiver==='object'||typeof receiver==='function')&&(sym in obj))return delete obj[sym];
-            if(as3&&program?.isProxy?.(receiver))return Boolean(program.invokeProxy(receiver,'deleteProperty',[makeProxyQName()]));
+            if(as3&&isProxy)return Boolean(__nfInvokeProxyTrap(receiver,program,'deleteProperty',[makeProxyQName()]));
             return __nfContainerRef(receiver,name,true,caller).delete();
         },
         has(){
             if((typeof receiver==='object'||typeof receiver==='function')&&(sym in obj))return true;
             if(program?.resolveQualifiedSlot?.(receiver,name,caller,uri))return true;
-            if(as3&&program?.isProxy?.(receiver))return Boolean(program.invokeProxy(receiver,'hasProperty',[makeProxyQName()]));
+            if(as3&&isProxy)return Boolean(__nfInvokeProxyTrap(receiver,program,'hasProperty',[makeProxyQName()]));
             return __nfContainerRef(receiver,name,true,caller).has();
         },
     };
+}
+function __nfIsQNameKey(key){
+    return key!==null&&typeof key==='object'&&((typeof __nfXML!=='undefined'&&__nfXML?.QName?.__nfIs?.(key))||(typeof key.localName==='string'&&typeof key.uri==='string'));
+}
+function __nfIsProxyReceiver(receiver,program){
+    return Boolean(program?.isProxy?.(receiver)||(typeof __nfIsAs3Proxy==='function'&&__nfIsAs3Proxy(receiver)));
+}
+function __nfInvokeProxyTrap(receiver,program,trap,args){
+    return program?.isProxy?.(receiver)?program.invokeProxy(receiver,trap,args):__nfInvokeStandaloneAs3Proxy(receiver,trap,args);
 }
 function __nfXmlOrProxySelectRef(receiver,makeSelector,namespace,local,attribute,descendant,as3){
     if(receiver!=null&&as3&&(typeof __nfXML==='undefined'||!__nfXML?.is?.(receiver))){
@@ -197,12 +207,13 @@ function __nfQualifiedMethod(receiver,namespace,key,as3,caller){
     if((typeof receiver==='object'||typeof receiver==='function')&&typeof obj[sym]==='function'){
         return (...args)=>__nfApply(obj[sym],receiver,args);
     }
-    if((uri==='http://www.adobe.com/2006/actionscript/flash/proxy'||uri==='http://www.adobe.com/2006/flex/mx/internal')&&program?.isProxy?.(receiver)){
-        return (...args)=>program.invokeProxy(receiver,name,args);
+    const isProxy=__nfIsProxyReceiver(receiver,program);
+    if((uri==='http://www.adobe.com/2006/actionscript/flash/proxy'||uri==='http://www.adobe.com/2006/flex/mx/internal')&&isProxy){
+        return (...args)=>__nfInvokeProxyTrap(receiver,program,name,args);
     }
-    if(as3&&program?.isProxy?.(receiver)){
+    if(as3&&isProxy){
         const qn=(typeof __nfXML!=='undefined'&&typeof __nfXML?.QName==='function')?new __nfXML.QName(uri,name):Object.freeze({uri,localName:name,toString(){return uri?uri+'::'+name:name;}});
-        return (...args)=>program.invokeProxy(receiver,'callProperty',[qn,...args]);
+        return (...args)=>__nfInvokeProxyTrap(receiver,program,'callProperty',[qn,...args]);
     }
     return __nfContainerMethod(receiver,name,true,caller);
 }
@@ -215,6 +226,16 @@ function __nfContainerRef(receiver,key,as3,caller,legacyCase){
     if(__nfDictionaryIs(receiver)){if(!as3)throw new __nfTypeError('Dictionary access requires AS3.');return __nfDictionaryRef(receiver,key);}
     if(typeof __nfVectorIs==='function'&&__nfVectorIs(receiver)){if(!as3)throw new __nfTypeError('Vector access requires AS3.');return __nfVectorRef(receiver,key);}
     const object=Object(receiver),program=__nfContainerProgram();
+    if(as3&&__nfIsQNameKey(key)&&__nfIsProxyReceiver(receiver,program)){
+        const qSlot=program?.resolveQualifiedSlot?.(receiver,key.localName,caller,key.uri||null);
+        if(qSlot)return {get:()=>qSlot.get(),set(value){qSlot.set(value);return value;},delete:()=>false,has:()=>true};
+        return {
+            get:()=>__nfInvokeProxyTrap(receiver,program,'getProperty',[key]),
+            set(value){__nfInvokeProxyTrap(receiver,program,'setProperty',[key,value]);return value;},
+            delete:()=>Boolean(__nfInvokeProxyTrap(receiver,program,'deleteProperty',[key])),
+            has:()=>Boolean(__nfInvokeProxyTrap(receiver,program,'hasProperty',[key])),
+        };
+    }
     const legacy=!as3&&typeof __nfLegacy!=='undefined'?__nfLegacy:null;
     const scopedRef=name=>legacy?.nativeRef?.(receiver,name)??program?.ref?.(receiver,name,caller);
     // Capture the key expression once, but retain its value: ordinary property
@@ -233,6 +254,9 @@ function __nfContainerRef(receiver,key,as3,caller,legacyCase){
             if(as3&&typeof receiver==='number')return __nfNumericMethodValue(receiver,value);
             if(as3&&Object.hasOwn(__nfObjectPropertyMethods,name)&&value===__nfObjectPropertyMethods[name])return __nfObjectPropertyMethod(receiver,name);
             if(as3){const method=__nfObjectDefaultMethod(receiver,name,value,program);if(method)return method;}
+            if(name==='constructor'&&typeof __nfNativeFunctionConstructor==='function'&&value===__nfNativeFunctionConstructor){
+                return as3?__nfFunctionClass:(typeof legacy?.Function==='function'?legacy.Function:__nfFunctionClass);
+            }
             if(!as3&&name==='constructor'){
                 if(value===Boolean)return __nfBoolean2;
                 if(value===String)return __nfStringClass(false);
@@ -291,6 +315,15 @@ function __nfContainerMethod(receiver,key,as3,caller,legacyCase){
         const method=__nfContainerRef(receiver,key,as3).get();
         return (...args)=>__nfApply(method,receiver,args);
     }
+    const program=__nfContainerProgram();
+    if(as3&&__nfIsQNameKey(key)&&__nfIsProxyReceiver(receiver,program)){
+        const qSlot=program?.resolveQualifiedSlot?.(receiver,key.localName,caller,key.uri||null);
+        if(qSlot){
+            const fn=qSlot.get();
+            return (...args)=>__nfApply(fn,receiver,args);
+        }
+        return (...args)=>__nfInvokeProxyTrap(receiver,program,'callProperty',[key,...args]);
+    }
     key=__nfLegacyKey(receiver,key,as3,legacyCase);
     if(__nfArrayIsArray(receiver)&&!(as3&&(key==='hasOwnProperty'||key==='propertyIsEnumerable'||key==='setPropertyIsEnumerable')))return __nfArrayMethod(receiver,key,as3,null,legacyCase);
     if(typeof receiver==='string')return __nfStringMethod(receiver,key,as3);
@@ -299,11 +332,10 @@ function __nfContainerMethod(receiver,key,as3,caller,legacyCase){
     if(key==='toExponential'||key==='toPrecision')return __nfNumberFormatMethod(receiver,key,as3);
     if(as3&&typeof receiver==='number'&&(key==='toString'||key==='valueOf'))return __nfNumericMethod(receiver,key);
     if(!as3&&typeof receiver==='number'&&key==='toString')return (...args)=>{if(!args.length||args[0]===undefined)return String(receiver);const n=Number(args[0]),base=Number.isFinite(n)?Math.trunc(n):10;return base>=2&&base<=36&&base!==10&&Number.isFinite(receiver)&&receiver!==0?__nfApply(__nfNativeNumberString,receiver,[base]):String(receiver);};
-    const program=__nfContainerProgram();
     if(as3&&program?.isProxy?.(receiver)&&!program?.hasTrait?.(receiver,key,caller)){
         return (...args)=>program.invokeProxy(receiver,'callProperty',[key,...args]);
     }
-    if(as3&&!program&&typeof __nfIsAs3Proxy==='function'&&__nfIsAs3Proxy(receiver)&&!__nfHasStandaloneAs3ProxyTrait(receiver,key)){
+    if(as3&&typeof __nfIsAs3Proxy==='function'&&__nfIsAs3Proxy(receiver)&&!program?.isProxy?.(receiver)&&!__nfHasStandaloneAs3ProxyTrait(receiver,key)){
         return (...args)=>__nfInvokeStandaloneAs3Proxy(receiver,'callProperty',[key,...args]);
     }
     const method=__nfContainerRef(receiver,key,as3,caller,legacyCase).get();

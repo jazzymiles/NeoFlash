@@ -242,13 +242,16 @@ function __nfCompilePcre(source, initialFlags) {
                         const subYes = __nfCompileSubpattern(branches[0], currentFlags);
                         const subNo = branches.length === 2 ? __nfCompileSubpattern(branches[1], currentFlags) : '';
                         const subLook = __nfCompileSubpattern(lookRaw, currentFlags);
+                        const strippedLookBody = lookRaw.startsWith('(?<=') || lookRaw.startsWith('(?<!')
+                            ? __nfStripCaptures(subLook.slice(4))
+                            : __nfStripCaptures(subLook.slice(3));
                         const negLook = lookRaw.startsWith('(?=')
-                            ? '(?!' + subLook.slice(3)
+                            ? '(?!' + strippedLookBody
                             : lookRaw.startsWith('(?!')
-                                ? '(?=' + subLook.slice(3)
+                                ? '(?=' + strippedLookBody
                                 : lookRaw.startsWith('(?<=')
-                                    ? '(?<!' + subLook.slice(4)
-                                    : '(?<=' + subLook.slice(4);
+                                    ? '(?<!' + strippedLookBody
+                                    : '(?<=' + strippedLookBody;
                         buf += '(?:' + subLook + subYes + '|' + negLook + subNo + ')';
                         continue;
                     }
@@ -320,6 +323,77 @@ function __nfCompilePcre(source, initialFlags) {
     if (pos < source.length) __nfRegExpSyntaxError('unexpected closing parenthesis.');
     return { compiledTemplate, conditionals, groupNames };
 }
+function __nfStripCaptures(frag) {
+    let out = '', inClass = false;
+    for (let i = 0; i < frag.length; i++) {
+        const ch = frag[i];
+        if (ch === '\\') {
+            out += ch + (frag[i + 1] ?? '');
+            i++;
+            continue;
+        }
+        if (ch === '[') { inClass = true; out += ch; continue; }
+        if (ch === ']' && inClass) { inClass = false; out += ch; continue; }
+        if (!inClass && ch === '(') {
+            if (frag[i + 1] !== '?') {
+                out += '(?:';
+                continue;
+            }
+            if (frag[i + 2] === '<' && frag[i + 3] !== '=' && frag[i + 3] !== '!') {
+                const closeAngle = frag.indexOf('>', i + 3);
+                if (closeAngle > i + 2) {
+                    out += '(?:';
+                    i = closeAngle;
+                    continue;
+                }
+            }
+        }
+        out += ch;
+    }
+    return out;
+}
+function __nfCollectNamedCaptures(frag) {
+    const names = new Set();
+    let inClass = false;
+    for (let i = 0; i < frag.length; i++) {
+        const ch = frag[i];
+        if (ch === '\\') { i++; continue; }
+        if (ch === '[') { inClass = true; continue; }
+        if (ch === ']' && inClass) { inClass = false; continue; }
+        if (!inClass && ch === '(' && frag[i + 1] === '?' && frag[i + 2] === '<' && frag[i + 3] !== '=' && frag[i + 3] !== '!') {
+            const closeAngle = frag.indexOf('>', i + 3);
+            if (closeAngle > i + 2) {
+                names.add(frag.slice(i + 3, closeAngle));
+                i = closeAngle;
+            }
+        }
+    }
+    return names;
+}
+function __nfDummyCaptures(frag, excludeNames) {
+    let out = '', inClass = false;
+    for (let i = 0; i < frag.length; i++) {
+        const ch = frag[i];
+        if (ch === '\\') { i++; continue; }
+        if (ch === '[') { inClass = true; continue; }
+        if (ch === ']' && inClass) { inClass = false; continue; }
+        if (!inClass && ch === '(') {
+            if (frag[i + 1] !== '?') {
+                out += '()';
+                continue;
+            }
+            if (frag[i + 2] === '<' && frag[i + 3] !== '=' && frag[i + 3] !== '!') {
+                const closeAngle = frag.indexOf('>', i + 3);
+                if (closeAngle > i + 2) {
+                    const name = frag.slice(i + 3, closeAngle);
+                    out += excludeNames && excludeNames.has(name) ? '()' : '(?<' + name + '>)';
+                    i = closeAngle;
+                }
+            }
+        }
+    }
+    return out;
+}
 function __nfAttachNamedGroups(match) {
     if (match && match.groups) {
         for (const [k, v] of Object.entries(match.groups)) {
@@ -332,23 +406,47 @@ function __nfBuildVariants(compiledInfo, nativeFlags) {
     const { compiledTemplate, conditionals, groupNames } = compiledInfo;
     if (conditionals.length === 0) {
         const engine = new __nfRegExpNative(compiledTemplate, nativeFlags);
-        return [{ engine, checks: [] }];
+        return [{ engine, sticky: null, checks: [] }];
     }
+    const stickyFlags = nativeFlags.replace(/g|y/g, '') + 'y';
     const count = 1 << conditionals.length;
     const variants = [];
     for (let mask = count - 1; mask >= 0; mask--) {
+        const expanded = conditionals.map(c => ({ yes: c.yes, no: c.no, ref: c.ref }));
+        const replacements = new Array(conditionals.length);
+        for (let i = conditionals.length - 1; i >= 0; i--) {
+            let yesBranch = expanded[i].yes;
+            let noBranch = expanded[i].no;
+            for (let j = i + 1; j < conditionals.length; j++) {
+                const token = '\0COND' + j + '\0';
+                if (yesBranch.includes(token)) yesBranch = yesBranch.replace(token, () => replacements[j]);
+                if (noBranch.includes(token)) noBranch = noBranch.replace(token, () => replacements[j]);
+            }
+            const takeYes = ((mask >> (conditionals.length - 1 - i)) & 1) === 1;
+            if (takeYes) {
+                const noDummy = __nfDummyCaptures(noBranch, __nfCollectNamedCaptures(yesBranch));
+                replacements[i] = noDummy ? '(?:' + yesBranch + '|(?!)(' + noDummy.slice(1) + ')' : '(?:' + yesBranch + ')';
+                if (noDummy) replacements[i] = '(?:' + yesBranch + '|(?!)' + noDummy + ')';
+            } else {
+                const yesDummy = __nfDummyCaptures(yesBranch, __nfCollectNamedCaptures(noBranch));
+                replacements[i] = yesDummy ? '(?:(?!)' + yesDummy + '|' + noBranch + ')' : '(?:' + noBranch + ')';
+            }
+        }
         let pattern = compiledTemplate;
         const checks = [];
         for (let i = 0; i < conditionals.length; i++) {
             const takeYes = ((mask >> (conditionals.length - 1 - i)) & 1) === 1;
             const cond = conditionals[i];
-            const replacement = takeYes ? '(?:' + cond.yes + ')' : '(?:' + cond.no + ')';
-            pattern = pattern.replace('\0COND' + i + '\0', () => replacement);
+            if (pattern.includes('\0COND' + i + '\0')) {
+                pattern = pattern.replace('\0COND' + i + '\0', () => replacements[i]);
+            }
             const isNum = /^\d+$/.test(cond.ref);
             const groupIdx = isNum ? Number(cond.ref) : groupNames.get(cond.ref);
             checks.push({ ref: cond.ref, groupIdx, takeYes });
         }
-        variants.push({ engine: new __nfRegExpNative(pattern, nativeFlags), checks });
+        const engine = new __nfRegExpNative(pattern, nativeFlags);
+        const sticky = new __nfRegExpNative(pattern, stickyFlags);
+        variants.push({ engine, sticky, checks });
     }
     return variants;
 }
@@ -362,8 +460,7 @@ function __nfExecVariants(variants, text, startIndex, stickyGlobal) {
     let best = null;
     for (let pos = stickyGlobal ? startIndex : 0; pos <= text.length; pos++) {
         for (const v of variants) {
-            const flags = v.engine.flags.replace(/g|y/g, '') + 'y';
-            const sticky = new __nfRegExpNative(v.engine.source, flags);
+            const sticky = v.sticky;
             sticky.lastIndex = pos;
             const m = __nfRegExpApply(__nfRegExpNativeExec, sticky, [text]);
             if (!m) continue;

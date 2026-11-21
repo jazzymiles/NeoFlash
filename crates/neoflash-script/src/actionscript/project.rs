@@ -76,6 +76,8 @@ struct MemberRecord {
 
 struct Header {
     script: Script,
+    expanded: Option<super::includes::Expanded>,
+    decl_offset: usize,
     path: String,
     package: String,
     name: String,
@@ -94,6 +96,20 @@ struct Header {
     dynamic: bool,
     final_: bool,
     intrinsic: bool,
+}
+impl Header {
+    pub(super) fn map_diag(&self, err: Diagnostic) -> Diagnostic {
+        match &self.expanded {
+            Some(exp) => exp.diagnostic(err),
+            None => err,
+        }
+    }
+    pub(super) fn diag(&self, offset: usize, message: impl Into<String>) -> Diagnostic {
+        prefix(
+            self.map_diag(Diagnostic::at(&self.script, offset, message)),
+            &self.path,
+        )
+    }
 }
 struct Field {
     offset: usize,
@@ -131,12 +147,7 @@ struct Class {
 }
 
 pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnostic>> {
-    let includes: BTreeMap<_, _> = project
-        .resources
-        .iter()
-        .filter(|r| r.path.to_ascii_lowercase().ends_with(".as"))
-        .map(|r| (r.path.clone(), r.clone()))
-        .collect();
+    let includes = neoflash_core::AuthoredPlayback::build_project_include_map(project);
     let mut headers = vec![];
     let mut errors = vec![];
     let mut names: BTreeSet<String> = BUILTINS
@@ -148,11 +159,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         match header(source, &includes) {
             Ok(h) => {
                 if !names.insert(h.name.clone()) {
-                    errors.push(Diagnostic::at(
-                        &h.script,
-                        0,
-                        format!("{}: duplicate class {}", h.path, h.name),
-                    ));
+                    errors.push(h.diag(h.decl_offset, format!("duplicate class {}", h.name)));
                 }
                 headers.push(h);
             }
@@ -223,11 +230,9 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         }
         if pending.len() == before {
             let c = &classes[pending.first().unwrap()];
-            return Err(vec![Diagnostic::at(
-                &c.header.script,
-                0,
-                format!("{}: inheritance cycle", c.header.path),
-            )]);
+            return Err(vec![
+                c.header.diag(c.header.decl_offset, "inheritance cycle"),
+            ]);
         }
     }
     // Retain ancestor traits with their declaring owner; a foreign-package
@@ -447,14 +452,9 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             .as_ref()
             .is_some_and(|base| final_classes.contains(base))
         {
-            errors.push(Diagnostic::at(
-                &c.header.script,
-                0,
-                format!(
-                    "{}: cannot extend final class '{}'",
-                    c.header.path,
-                    c.base.as_ref().unwrap()
-                ),
+            errors.push(c.header.diag(
+                c.header.decl_offset,
+                format!("cannot extend final class '{}'", c.base.as_ref().unwrap()),
             ));
         }
         if c.header.is_interface {
@@ -467,13 +467,9 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                         .get(key)
                         .is_some_and(|old: &MethodContract| old.signature != contract.signature)
                     {
-                        errors.push(Diagnostic::at(
-                            &c.header.script,
-                            0,
-                            format!(
-                                "{}: conflicting inherited interface signature '{}'",
-                                c.header.path, key.0
-                            ),
+                        errors.push(c.header.diag(
+                            c.header.decl_offset,
+                            format!("conflicting inherited interface signature '{}'", key.0),
                         ));
                     }
                     inherited.insert(key.clone(), contract.clone());
@@ -486,13 +482,9 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                     .get(&key)
                     .is_some_and(|old| old.signature != contract.signature)
                 {
-                    errors.push(Diagnostic::at(
-                        &c.header.script,
+                    errors.push(c.header.diag(
                         method.function.offset,
-                        format!(
-                            "{}: incompatible interface signature '{}'",
-                            c.header.path, key.0
-                        ),
+                        format!("incompatible interface signature '{}'", key.0),
                     ));
                 }
                 inherited.insert(key, contract);
@@ -529,20 +521,23 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                     contract.entry(key.clone()).or_insert_with(|| item.clone());
                 }
             }
-            for member in c
+            for (member, member_offset) in c
                 .fields
                 .iter()
                 .filter(|f| !f.is_static && f.namespace.is_none())
-                .map(|f| f.name.as_str())
+                .map(|f| (f.name.as_str(), f.offset))
                 .chain(
                     c.methods
                         .iter()
                         .filter(|m| !m.is_static && m.namespace.is_none())
-                        .filter_map(|m| m.function.name.as_deref()),
+                        .filter_map(|m| m.function.name.as_deref().map(|n| (n, m.function.offset))),
                 )
             {
                 if !c.header.intrinsic && native_member(base, member) {
-                    errors.push(Diagnostic::at(&c.header.script, 0, format!("{}: redeclaring native member '{member}' is not supported by this class profile", c.header.path)));
+                    errors.push(c.header.diag(
+                        member_offset,
+                        format!("redeclaring native member '{member}' is not supported by this class profile"),
+                    ));
                 }
             }
         }
@@ -573,12 +568,11 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                     .get(&f.name)
                     .is_some_and(|m| !m.is_static && !f.is_static)
             {
-                errors.push(Diagnostic::at(
-                    &c.header.script,
-                    0,
+                errors.push(c.header.diag(
+                    f.offset,
                     format!(
-                        "{}: field '{}' redeclares an accessible inherited member",
-                        c.header.path, f.name
+                        "field '{}' redeclares an accessible inherited member",
+                        f.name
                     ),
                 ));
             }
@@ -639,7 +633,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                         .namespace_members
                         .insert((uri.to_owned(), hook.to_owned()));
                 }
-                if hook == "isAttribute" || has_open_proxy_ns {
+                if has_open_proxy_ns {
                     members
                         .entry(hook.to_owned())
                         .or_insert_with(|| Some("Function".into()));
@@ -709,13 +703,9 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                         && (*kind == MethodKind::Method || m.kind == MethodKind::Method)
                 });
                 if m.override_ && inherited.is_none() && !is_native_proxy_hook {
-                    errors.push(Diagnostic::at(
-                        &c.header.script,
+                    errors.push(c.header.diag(
                         m.function.offset,
-                        format!(
-                            "{}: override target '{n}' not found in a project base",
-                            c.header.path
-                        ),
+                        format!("override target '{n}' not found in a project base"),
                     ));
                 }
                 if c.header.script.language == ScriptLanguage::ActionScript3 {
@@ -725,7 +715,10 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                             || base.access != own_contract.access
                             || base.final_
                         {
-                            errors.push(Diagnostic::at(&c.header.script, m.function.offset, format!("{}: inherited member '{n}' requires a non-final base, override and an identical access/signature", c.header.path)));
+                            errors.push(c.header.diag(
+                                m.function.offset,
+                                format!("inherited member '{n}' requires a non-final base, override and an identical access/signature"),
+                            ));
                         }
                     } else if !m.is_static
                         && m.namespace.is_none()
@@ -733,12 +726,10 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                             || inherited_members.contains_key(n)
                                 && !inherited_contract.keys().any(|(name, _)| name == n))
                     {
-                        errors.push(Diagnostic::at(
-                            &c.header.script,
+                        errors.push(c.header.diag(
                             m.function.offset,
                             format!(
-                                "{}: member '{n}' conflicts with an inherited field or method kind",
-                                c.header.path
+                                "member '{n}' conflicts with an inherited field or method kind"
                             ),
                         ));
                     }
@@ -802,10 +793,9 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                     && m.namespace == getter.namespace
                     && m.is_static != getter.is_static
             }) {
-                errors.push(Diagnostic::at(
-                    &c.header.script,
+                errors.push(c.header.diag(
                     getter.function.offset,
-                    format!("{}: getter and setter must agree on static", c.header.path),
+                    "getter and setter must agree on static",
                 ));
             }
         }
@@ -816,7 +806,10 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                 if !contract.get(key).is_some_and(|actual| {
                     actual.access == Access::Public && actual.signature == expected.signature
                 }) {
-                    errors.push(Diagnostic::at(&c.header.script, 0, format!("{}: interface '{interface}' requires public member '{}' with the matching method/accessor signature", c.header.path, key.0)));
+                    errors.push(c.header.diag(
+                        c.header.decl_offset,
+                        format!("interface '{interface}' requires public member '{}' with the matching method/accessor signature", key.0),
+                    ));
                 }
             }
         }
@@ -860,7 +853,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         c.context.mapping_prefix = Some(format!("{mapping_prefix}class{}:", resolved.len()));
         match emit_class(c) {
             Ok(code) => registrations.push_str(&code),
-            Err(e) => errors.push(prefix(e, &c.header.path)),
+            Err(e) => errors.push(prefix(c.header.map_diag(e), &c.header.path)),
         }
     }
     for linked in project
@@ -1070,18 +1063,12 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             &code,
             marker,
         );
-        if let Some(unit) = project
-            .sources
-            .iter()
-            .find(|unit| unit.path == c.header.path)
-        {
-            let raw = Script {
-                language: unit.language,
-                source: unit.source.clone(),
-            };
-            if let Ok(expanded) = super::includes::expand_at(&raw, &unit.path, &includes) {
-                map = remap_includes(map, &expanded, &unit.path, &raw.source);
-            }
+        if let Some(expanded) = &c.header.expanded {
+            let raw_src = expanded
+                .sources
+                .get(&c.header.path)
+                .map_or("", String::as_str);
+            map = remap_includes(map, expanded, &c.header.path, raw_src);
         }
         source_maps.insert(c.header.path.clone(), map);
     }

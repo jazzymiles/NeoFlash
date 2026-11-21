@@ -30,6 +30,10 @@ export async function verifyFunctionWorkflow(root,cargo) {
             report.encoded=encodeURIComponent("score="+total);report.decoded=decodeURIComponent(report.encoded);
             report.formatted=total.toExponential(1)+" / "+total.toPrecision(3);
             report.sequence=(void(report.effect=1),new Object(report)===report);
+            var emptyFn:Function=new Function();
+            var fnEvalCode:int=0;
+            try { new Function("return 1"); } catch (fe:EvalError) { fnEvalCode = fe.errorID; }
+            report.fnContract=(emptyFn()===undefined)&&(emptyFn.length===0)&&(fnEvalCode===1066);
             return report;
         }
         public function inspect(seed:int=5):String {`);
@@ -58,7 +62,7 @@ legacyCore.sequence=(void(legacyCore.effect=7),Object(legacyCore)===legacyCore);
       const report=scene.coreReport;
       assert.equal(report.total,10);assert.equal(report.missing,true);assert.equal(report.sparse,true);assert.equal(report.types,true);
       assert.deepEqual(Array.from(report.scalar),[2.5,true,4294967295]);assert.equal(report.encoded,'score%3D10');assert.equal(report.decoded,'score=10');
-      assert.equal(report.formatted,'1.0e+1 / 10.0');assert.equal(report.sequence,true);assert.equal(report.effect,1);
+      assert.equal(report.formatted,'1.0e+1 / 10.0');assert.equal(report.sequence,true);assert.equal(report.effect,1);assert.equal(report.fnContract,true);
       assert.equal(scene.legacyCore.total,9);assert.equal(scene.legacyCore.randomZero,0);assert.equal(scene.legacyCore.omitted,undefined);assert.equal(scene.legacyCore.explicit,false);
       assert.equal(scene.legacyCore.sequence,true);assert.equal(scene.legacyCore.effect,7);
     };
