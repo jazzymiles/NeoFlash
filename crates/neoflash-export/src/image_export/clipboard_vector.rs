@@ -279,7 +279,7 @@ fn transform_rect_corners(m: [f64; 6], w: f64, h: f64) -> [f64; 4] {
     [x0, y0, x1, y1]
 }
 
-fn compute_scene_bounds(scene: &AuthoredScene, fallback_w: u32, fallback_h: u32) -> [f64; 4] {
+fn compute_draws_bounds(draws: &[AuthoredDraw], fallback_w: u32, fallback_h: u32) -> [f64; 4] {
     let mut min_x = f64::INFINITY;
     let mut min_y = f64::INFINITY;
     let mut max_x = f64::NEG_INFINITY;
@@ -294,7 +294,7 @@ fn compute_scene_bounds(scene: &AuthoredScene, fallback_w: u32, fallback_h: u32)
         }
     };
 
-    for draw in &scene.draws {
+    for draw in draws {
         let m = draw.item.transform;
         match &draw.item.kind {
             ElementKind::Rectangle {
@@ -398,6 +398,10 @@ fn compute_scene_bounds(scene: &AuthoredScene, fallback_w: u32, fallback_h: u32)
             f64::from(fallback_h.max(1)),
         ]
     }
+}
+
+fn compute_scene_bounds(scene: &AuthoredScene, fallback_w: u32, fallback_h: u32) -> [f64; 4] {
+    compute_draws_bounds(&scene.draws, fallback_w, fallback_h)
 }
 
 fn emit_pdf_clips_open(
@@ -909,20 +913,26 @@ pub fn export_clipboard_pdf(
                 .map(|c| (c.id.as_str(), c))
                 .collect();
 
-            let mut local_max_x = 100.0f64;
-            let mut local_max_y = 100.0f64;
+            let mut local_authored: Vec<AuthoredDraw> = Vec::with_capacity(end - idx);
             let mut local_draws: Vec<[f64; 6]> = Vec::with_capacity(end - idx);
             for d in &scene.draws[idx..end] {
                 let lm = affine_multiply(inv_inst, d.item.transform);
-                local_max_x = local_max_x.max(lm[4].abs() + 256.0);
-                local_max_y = local_max_y.max(lm[5].abs() + 256.0);
+                let mut ld = d.clone();
+                ld.item.transform = lm;
+                local_authored.push(ld);
                 local_draws.push(lm);
             }
-            let form_w = local_max_x.clamp(16.0, 8_192.0);
-            let form_h = local_max_y.clamp(16.0, 8_192.0);
+            let [lx0, ly0, lx1, ly1] = compute_draws_bounds(&local_authored, 16, 16);
+            let pad = 1.0;
+            let bx0 = lx0 - pad;
+            let by0 = ly0 - pad;
+            let bx1 = lx1 + pad;
+            let by1 = ly1 + pad;
+            let form_w = (bx1 - bx0).clamp(1.0, 16_384.0);
+            let form_h = (by1 - by0).clamp(1.0, 16_384.0);
 
             let mut form_body = String::new();
-            let _ = writeln!(form_body, "q\n1 0 0 -1 0 {} cm", ps_num(form_h));
+            let _ = writeln!(form_body, "q\n1 0 0 -1 {} {} cm", ps_num(-bx0), ps_num(by1));
             for (offset, d) in scene.draws[idx..end].iter().enumerate() {
                 let mut inner_draw = d.clone();
                 inner_draw
@@ -953,14 +963,15 @@ pub fn export_clipboard_pdf(
             }
             let _ = writeln!(
                 page_stream,
-                "{} {} {} {} {} {} cm\n1 0 0 -1 0 {} cm\n/Fm{form_idx} Do\nQ",
+                "{} {} {} {} {} {} cm\n1 0 0 -1 {} {} cm\n/Fm{form_idx} Do\nQ",
                 ps_num(inst_mat[0]),
                 ps_num(inst_mat[1]),
                 ps_num(inst_mat[2]),
                 ps_num(inst_mat[3]),
                 ps_num(inst_mat[4]),
                 ps_num(inst_mat[5]),
-                ps_num(form_h),
+                ps_num(bx0),
+                ps_num(by1),
             );
             for _ in 0..clip_opens {
                 page_stream.push_str("Q\n");
@@ -1200,10 +1211,10 @@ pub fn export_clipboard_pdf(
         let _ = write!(
             pdf,
             "{oid} 0 obj\n<< /Type /XObject /Subtype /Form /FormType 1 \
-             /BBox [-4096 -4096 {} {}] /Matrix [1 0 0 1 0 0] /Resources 5 0 R \
+             /BBox [0 0 {} {}] /Matrix [1 0 0 1 0 0] /Resources 5 0 R \
              /Filter /FlateDecode /Length {} >>\nstream\n",
-            ps_num(fm.width + 4096.0),
-            ps_num(fm.height + 4096.0),
+            ps_num(fm.width),
+            ps_num(fm.height),
             fm_zlib.len(),
         );
         pdf.extend_from_slice(&fm_zlib);
@@ -1396,7 +1407,7 @@ pub fn export_clipboard_eps(
                 let iw = decoded.width;
                 let ih = decoded.height;
                 let _ = writeln!(out, "/picstr {} string def", iw.saturating_mul(3));
-                let _ = writeln!(out, "{iw} {ih} 8 [{iw} 0 0 -{ih} 0 {ih}]");
+                let _ = writeln!(out, "{iw} {ih} 8 [{iw} 0 0 {ih} 0 0]");
                 out.push_str("{ currentfile picstr readhexstring pop } false 3 colorimage\n");
                 const HEX: &[u8; 16] = b"0123456789abcdef";
                 let mut line = 0usize;

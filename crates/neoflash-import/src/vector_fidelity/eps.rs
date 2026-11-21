@@ -11,12 +11,16 @@ use tiff::{decoder::Decoder, tags::Tag};
 pub(super) const MAGIC: &[u8] = &[0xc5, 0xd0, 0xd3, 0xc6];
 pub(super) const MAX_EPS_GSAVE_DEPTH: usize = 64;
 const MAX_EPS_TOKENS: usize = 1_000_000;
+const MAX_EPS_STACK_LEN: usize = 4096;
+const MAX_EPS_CONTAINER_DEPTH: usize = 64;
+const MAX_EPS_BITMAP_DIM: u32 = 4096;
+const MAX_EPS_BITMAP_BYTES: usize = 64 * 1024 * 1024;
 
 pub(super) struct EpsParsedArtwork {
     pub buckets: Vec<VectorGroupBucket>,
+    pub resources: Vec<neoflash_core::ResourceUnit>,
     pub bounds: [f64; 4],
     pub stage_bounds: [f64; 4],
-    pub used_tiff_fallback: bool,
 }
 
 fn section(bytes: &[u8], at: usize) -> Option<&[u8]> {
@@ -160,7 +164,7 @@ enum PsToken {
     ArrClose,
     DictOpen,
     DictClose,
-    ProcSkip,
+    Proc { reads_hex: bool },
     LayerBegin,
     LayerName(String),
     LayerEnd,
@@ -215,11 +219,28 @@ fn unescape_ps_string(raw_inner: &str) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
-fn tokenize_ps_body(ps_text: &str) -> Result<Vec<PsToken>, ImportError> {
+fn tokenize_ps_body(ps_text: &str) -> Result<Vec<(PsToken, usize)>, ImportError> {
     let mut tokens = Vec::new();
     let mut in_prolog_or_data = false;
 
-    for raw_line in ps_text.lines() {
+    let bytes = ps_text.as_bytes();
+    let mut line_start = 0usize;
+    while line_start < bytes.len() {
+        let mut line_end = line_start;
+        while line_end < bytes.len() && bytes[line_end] != b'\n' && bytes[line_end] != b'\r' {
+            line_end += 1;
+        }
+        let raw_line = &ps_text[line_start..line_end];
+        let mut next_line_start = line_end;
+        if next_line_start < bytes.len() && bytes[next_line_start] == b'\r' {
+            next_line_start += 1;
+        }
+        if next_line_start < bytes.len() && bytes[next_line_start] == b'\n' {
+            next_line_start += 1;
+        }
+        let cur_line_base = line_start;
+        line_start = next_line_start;
+
         let trimmed = raw_line.trim();
         if trimmed.starts_with("%%BeginProlog")
             || trimmed.starts_with("%%BeginResource")
@@ -243,19 +264,19 @@ fn tokenize_ps_body(ps_text: &str) -> Result<Vec<PsToken>, ImportError> {
             continue;
         }
         if trimmed == "%AI5_BeginLayer" {
-            tokens.push(PsToken::LayerBegin);
+            tokens.push((PsToken::LayerBegin, line_end));
             continue;
         }
         if trimmed.starts_with("%AI5_EndLayer") {
-            tokens.push(PsToken::LayerEnd);
+            tokens.push((PsToken::LayerEnd, line_end));
             continue;
         }
         if let Some(rest) = trimmed.strip_prefix("%AI5_Name:") {
             let r = rest.trim();
             if let Some(inner) = r.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
-                tokens.push(PsToken::LayerName(unescape_ps_string(inner)));
+                tokens.push((PsToken::LayerName(unescape_ps_string(inner)), line_end));
             } else if !r.is_empty() {
-                tokens.push(PsToken::LayerName(r.to_owned()));
+                tokens.push((PsToken::LayerName(r.to_owned()), line_end));
             }
             continue;
         }
@@ -263,8 +284,11 @@ fn tokenize_ps_body(ps_text: &str) -> Result<Vec<PsToken>, ImportError> {
             continue;
         }
 
-        let mut chars = raw_line.chars().peekable();
-        while let Some(&ch) = chars.peek() {
+        let mut chars = raw_line.char_indices().peekable();
+        let cur_rel_offset = |it: &mut std::iter::Peekable<std::str::CharIndices<'_>>| -> usize {
+            it.peek().map_or(raw_line.len(), |&(i, _)| i)
+        };
+        while let Some(&(_, ch)) = chars.peek() {
             if tokens.len() >= MAX_EPS_TOKENS {
                 return Err(ImportError::Container(
                     "EPS stream exceeds one million PostScript tokens.".into(),
@@ -281,7 +305,8 @@ fn tokenize_ps_body(ps_text: &str) -> Result<Vec<PsToken>, ImportError> {
                 // Skip PostScript procedure literal `{ ... }` without executing arbitrary code!
                 chars.next();
                 let mut depth = 1usize;
-                for c in chars.by_ref() {
+                let mut proc_body = String::new();
+                for (_, c) in chars.by_ref() {
                     if c == '{' {
                         depth += 1;
                     } else if c == '}' {
@@ -290,8 +315,17 @@ fn tokenize_ps_body(ps_text: &str) -> Result<Vec<PsToken>, ImportError> {
                             break;
                         }
                     }
+                    if proc_body.len() < 256 {
+                        proc_body.push(c);
+                    }
                 }
-                tokens.push(PsToken::ProcSkip);
+                let end_pos = cur_line_base + cur_rel_offset(&mut chars);
+                tokens.push((
+                    PsToken::Proc {
+                        reads_hex: proc_body.contains("readhexstring"),
+                    },
+                    end_pos,
+                ));
                 continue;
             }
             if ch == '}' {
@@ -302,10 +336,10 @@ fn tokenize_ps_body(ps_text: &str) -> Result<Vec<PsToken>, ImportError> {
                 chars.next();
                 let mut inner = String::new();
                 let mut depth = 1usize;
-                while let Some(c) = chars.next() {
+                while let Some((_, c)) = chars.next() {
                     if c == '\\' {
                         inner.push('\\');
-                        if let Some(esc) = chars.next() {
+                        if let Some((_, esc)) = chars.next() {
                             inner.push(esc);
                         }
                         continue;
@@ -320,18 +354,20 @@ fn tokenize_ps_body(ps_text: &str) -> Result<Vec<PsToken>, ImportError> {
                     }
                     inner.push(c);
                 }
-                tokens.push(PsToken::Str(unescape_ps_string(&inner)));
+                let end_pos = cur_line_base + cur_rel_offset(&mut chars);
+                tokens.push((PsToken::Str(unescape_ps_string(&inner)), end_pos));
                 continue;
             }
             if ch == '<' {
                 chars.next();
-                if chars.peek() == Some(&'<') {
+                if chars.peek().map(|&(_, c)| c) == Some('<') {
                     chars.next();
-                    tokens.push(PsToken::DictOpen);
+                    let end_pos = cur_line_base + cur_rel_offset(&mut chars);
+                    tokens.push((PsToken::DictOpen, end_pos));
                     continue;
                 }
                 let mut hex_nibbles = Vec::new();
-                for c in chars.by_ref() {
+                for (_, c) in chars.by_ref() {
                     if c == '>' {
                         break;
                     }
@@ -342,62 +378,71 @@ fn tokenize_ps_body(ps_text: &str) -> Result<Vec<PsToken>, ImportError> {
                 if !hex_nibbles.len().is_multiple_of(2) {
                     hex_nibbles.push(0);
                 }
-                let bytes: Vec<u8> = hex_nibbles
+                let decoded_hex: Vec<u8> = hex_nibbles
                     .as_chunks::<2>()
                     .0
                     .iter()
                     .map(|p| (p[0] << 4) | p[1])
                     .collect();
-                tokens.push(PsToken::Str(String::from_utf8_lossy(&bytes).into_owned()));
+                let end_pos = cur_line_base + cur_rel_offset(&mut chars);
+                tokens.push((
+                    PsToken::Str(String::from_utf8_lossy(&decoded_hex).into_owned()),
+                    end_pos,
+                ));
                 continue;
             }
             if ch == '>' {
                 chars.next();
-                if chars.peek() == Some(&'>') {
+                if chars.peek().map(|&(_, c)| c) == Some('>') {
                     chars.next();
-                    tokens.push(PsToken::DictClose);
+                    let end_pos = cur_line_base + cur_rel_offset(&mut chars);
+                    tokens.push((PsToken::DictClose, end_pos));
                 }
                 continue;
             }
             if ch == '[' {
                 chars.next();
-                tokens.push(PsToken::ArrOpen);
+                let end_pos = cur_line_base + cur_rel_offset(&mut chars);
+                tokens.push((PsToken::ArrOpen, end_pos));
                 continue;
             }
             if ch == ']' {
                 chars.next();
-                tokens.push(PsToken::ArrClose);
+                let end_pos = cur_line_base + cur_rel_offset(&mut chars);
+                tokens.push((PsToken::ArrClose, end_pos));
                 continue;
             }
             if ch == '/' {
                 chars.next();
                 let mut name = String::new();
-                while let Some(&c) = chars.peek() {
+                while let Some(&(_, c)) = chars.peek() {
                     if c.is_ascii_whitespace()
                         || matches!(c, '(' | ')' | '[' | ']' | '<' | '>' | '{' | '}' | '%' | '/')
                     {
                         break;
                     }
-                    name.push(chars.next().unwrap());
+                    name.push(chars.next().unwrap().1);
                 }
-                tokens.push(PsToken::Name(name));
+                let end_pos = cur_line_base + cur_rel_offset(&mut chars);
+                tokens.push((PsToken::Name(name), end_pos));
                 continue;
             }
             let mut word = String::new();
-            while let Some(&c) = chars.peek() {
+            while let Some(&(_, c)) = chars.peek() {
                 if c.is_ascii_whitespace()
                     || matches!(c, '(' | ')' | '[' | ']' | '<' | '>' | '{' | '}' | '%' | '/')
                 {
                     break;
                 }
-                word.push(chars.next().unwrap());
+                word.push(chars.next().unwrap().1);
             }
+            let end_pos = cur_line_base + cur_rel_offset(&mut chars);
             if let Ok(n) = word.parse::<f64>()
                 && n.is_finite()
             {
-                tokens.push(PsToken::Num(n));
+                tokens.push((PsToken::Num(n), end_pos));
             } else if !word.is_empty() {
-                tokens.push(PsToken::Op(word));
+                tokens.push((PsToken::Op(word), end_pos));
             }
         }
     }
@@ -408,11 +453,12 @@ fn tokenize_ps_body(ps_text: &str) -> Result<Vec<PsToken>, ImportError> {
 #[derive(Clone, Debug)]
 enum PsVal {
     Num(f64),
+    Bool(bool),
     Name(String),
     Str(String),
     Arr(Vec<PsVal>),
     Dict(BTreeMap<String, PsVal>),
-    Proc,
+    Proc { reads_hex: bool },
 }
 
 impl PsVal {
@@ -898,7 +944,33 @@ pub(super) fn parse_eps_artwork(
         }
     };
 
-    for tok in tokens {
+    let mut eps_resources: Vec<neoflash_core::ResourceUnit> = Vec::new();
+    let mut png_cache: std::collections::HashMap<Vec<u8>, String> =
+        std::collections::HashMap::new();
+    let mut total_bitmap_rgba_bytes = 0usize;
+
+    let push_ps_val = |val: PsVal,
+                       st: &mut Vec<PsVal>,
+                       containers: &mut [(bool, Vec<PsVal>)]|
+     -> Result<(), ImportError> {
+        if let Some((_, parent)) = containers.last_mut() {
+            if parent.len() >= MAX_EPS_STACK_LEN {
+                return Err(error("EPS array/dictionary exceeds 4096 items."));
+            }
+            parent.push(val);
+        } else {
+            if st.len() >= MAX_EPS_STACK_LEN {
+                return Err(error("EPS operand stack exceeds 4096 items."));
+            }
+            st.push(val);
+        }
+        Ok(())
+    };
+
+    let mut tok_idx = 0usize;
+    while tok_idx < tokens.len() {
+        let (tok, after_byte_pos) = tokens[tok_idx].clone();
+        tok_idx += 1;
         match tok {
             PsToken::LayerBegin => {
                 if !current_bucket.elements.is_empty() || !current_bucket.mask_elements.is_empty() {
@@ -931,21 +1003,22 @@ pub(super) fn parse_eps_artwork(
                 continue;
             }
             PsToken::ArrOpen => {
+                if open_containers.len() >= MAX_EPS_CONTAINER_DEPTH {
+                    return Err(error("EPS container nesting exceeds maximum depth 64."));
+                }
                 open_containers.push((false, Vec::new()));
                 continue;
             }
             PsToken::DictOpen => {
+                if open_containers.len() >= MAX_EPS_CONTAINER_DEPTH {
+                    return Err(error("EPS container nesting exceeds maximum depth 64."));
+                }
                 open_containers.push((true, Vec::new()));
                 continue;
             }
             PsToken::ArrClose => {
                 if let Some((false, items)) = open_containers.pop() {
-                    let val = PsVal::Arr(items);
-                    if let Some((_, parent)) = open_containers.last_mut() {
-                        parent.push(val);
-                    } else {
-                        stack.push(val);
-                    }
+                    push_ps_val(PsVal::Arr(items), &mut stack, &mut open_containers)?;
                 }
                 continue;
             }
@@ -958,52 +1031,31 @@ pub(super) fn parse_eps_artwork(
                             map.insert(key, v);
                         }
                     }
-                    let val = PsVal::Dict(map);
-                    if let Some((_, parent)) = open_containers.last_mut() {
-                        parent.push(val);
-                    } else {
-                        stack.push(val);
-                    }
+                    push_ps_val(PsVal::Dict(map), &mut stack, &mut open_containers)?;
                 }
                 continue;
             }
             PsToken::Num(n) => {
-                let val = PsVal::Num(n);
-                if let Some((_, parent)) = open_containers.last_mut() {
-                    parent.push(val);
-                } else {
-                    stack.push(val);
-                }
+                push_ps_val(PsVal::Num(n), &mut stack, &mut open_containers)?;
                 continue;
             }
             PsToken::Name(s) => {
-                let val = PsVal::Name(s);
-                if let Some((_, parent)) = open_containers.last_mut() {
-                    parent.push(val);
-                } else {
-                    stack.push(val);
-                }
+                push_ps_val(PsVal::Name(s), &mut stack, &mut open_containers)?;
                 continue;
             }
             PsToken::Str(s) => {
-                let val = PsVal::Str(s);
-                if let Some((_, parent)) = open_containers.last_mut() {
-                    parent.push(val);
-                } else {
-                    stack.push(val);
-                }
+                push_ps_val(PsVal::Str(s), &mut stack, &mut open_containers)?;
                 continue;
             }
-            PsToken::ProcSkip => {
-                let val = PsVal::Proc;
-                if let Some((_, parent)) = open_containers.last_mut() {
-                    parent.push(val);
-                } else {
-                    stack.push(val);
-                }
+            PsToken::Proc { reads_hex } => {
+                push_ps_val(PsVal::Proc { reads_hex }, &mut stack, &mut open_containers)?;
                 continue;
             }
             PsToken::Op(op) => {
+                if op == "true" || op == "false" {
+                    push_ps_val(PsVal::Bool(op == "true"), &mut stack, &mut open_containers)?;
+                    continue;
+                }
                 if !open_containers.is_empty() {
                     // Operators inside `[ ... ]` or `<< ... >>` (rare, e.g. `[ 1 2 add ]`)
                     continue;
@@ -1813,6 +1865,193 @@ pub(super) fn parse_eps_artwork(
                         }
                         stack.clear();
                     }
+                    "colorimage" | "image" => {
+                        // Bounded inline hex `colorimage` (`w h bpc [mat] {..readhexstring..} false ncomp colorimage`)
+                        // and `image` (`w h bpc [mat] {..readhexstring..} image`).
+                        let params = if op == "colorimage" && stack.len() >= 7 {
+                            let ncomp = pop_num(&mut stack).map(|v| v.round() as i64);
+                            let multi = match stack.pop() {
+                                Some(PsVal::Bool(b)) => Some(b),
+                                Some(PsVal::Num(n)) => Some(n.round() != 0.0),
+                                _ => None,
+                            };
+                            let reads_hex =
+                                matches!(stack.pop(), Some(PsVal::Proc { reads_hex: true }));
+                            let mat = stack.pop().and_then(|v| v.as_nums());
+                            let bpc = pop_num(&mut stack).map(|v| v.round() as i64);
+                            let h = pop_num(&mut stack).map(|v| v.round() as i64);
+                            let w = pop_num(&mut stack).map(|v| v.round() as i64);
+                            match (w, h, bpc, mat, multi, ncomp) {
+                                (
+                                    Some(w),
+                                    Some(h),
+                                    Some(8),
+                                    Some(m),
+                                    Some(false),
+                                    Some(nc @ (1 | 3 | 4)),
+                                ) if reads_hex && m.len() == 6 => {
+                                    Some((w, h, nc as usize, [m[0], m[1], m[2], m[3], m[4], m[5]]))
+                                }
+                                _ => None,
+                            }
+                        } else if op == "image" && stack.len() >= 5 {
+                            let reads_hex =
+                                matches!(stack.pop(), Some(PsVal::Proc { reads_hex: true }));
+                            let mat = stack.pop().and_then(|v| v.as_nums());
+                            let bpc = pop_num(&mut stack).map(|v| v.round() as i64);
+                            let h = pop_num(&mut stack).map(|v| v.round() as i64);
+                            let w = pop_num(&mut stack).map(|v| v.round() as i64);
+                            match (w, h, bpc, mat) {
+                                (Some(w), Some(h), Some(8), Some(m))
+                                    if reads_hex && m.len() == 6 =>
+                                {
+                                    Some((w, h, 1usize, [m[0], m[1], m[2], m[3], m[4], m[5]]))
+                                }
+                                _ => None,
+                            }
+                        } else {
+                            None
+                        };
+
+                        if let Some((w_i64, h_i64, ncomp, img_mat)) = params {
+                            if w_i64 <= 0 || h_i64 <= 0 {
+                                stack.clear();
+                                continue;
+                            }
+                            if w_i64 > i64::from(MAX_EPS_BITMAP_DIM)
+                                || h_i64 > i64::from(MAX_EPS_BITMAP_DIM)
+                            {
+                                return Err(error(&format!(
+                                    "EPS inline image dimensions ({w_i64}×{h_i64}) exceed maximum {MAX_EPS_BITMAP_DIM}×{MAX_EPS_BITMAP_DIM}."
+                                )));
+                            }
+                            let iw = w_i64 as u32;
+                            let ih = h_i64 as u32;
+                            let px_count = (iw as usize)
+                                .checked_mul(ih as usize)
+                                .ok_or_else(|| error("EPS inline image size overflow."))?;
+                            let rgba_budget = px_count
+                                .checked_mul(4)
+                                .ok_or_else(|| error("EPS inline image RGBA budget overflow."))?;
+                            if total_bitmap_rgba_bytes.saturating_add(rgba_budget)
+                                > MAX_EPS_BITMAP_BYTES
+                            {
+                                return Err(error(
+                                    "EPS inline images exceed cumulative 64 MiB bitmap budget.",
+                                ));
+                            }
+                            let expected_raw_bytes = px_count
+                                .checked_mul(ncomp)
+                                .ok_or_else(|| error("EPS inline image channel overflow."))?;
+
+                            let ps_raw = ps_text.as_bytes();
+                            let mut scan = after_byte_pos.min(ps_raw.len());
+                            let mut raw_samples =
+                                Vec::with_capacity(expected_raw_bytes.min(65_536));
+                            let mut high_nib: Option<u8> = None;
+                            while scan < ps_raw.len() && raw_samples.len() < expected_raw_bytes {
+                                let b = ps_raw[scan];
+                                scan += 1;
+                                if b == b'%' {
+                                    while scan < ps_raw.len() && ps_raw[scan] != b'\n' {
+                                        scan += 1;
+                                    }
+                                    continue;
+                                }
+                                if b.is_ascii_whitespace() {
+                                    continue;
+                                }
+                                let Some(nib) = char::from(b).to_digit(16).map(|d| d as u8) else {
+                                    break;
+                                };
+                                if let Some(hi) = high_nib.take() {
+                                    raw_samples.push((hi << 4) | nib);
+                                } else {
+                                    high_nib = Some(nib);
+                                }
+                            }
+                            while tok_idx < tokens.len() && tokens[tok_idx].1 <= scan {
+                                tok_idx += 1;
+                            }
+
+                            if raw_samples.len() == expected_raw_bytes
+                                && let Some(inv_img) = super::invert_affine_2x2_with_origin(img_mat)
+                            {
+                                total_bitmap_rgba_bytes += rgba_budget;
+                                let mut rgba = Vec::with_capacity(rgba_budget);
+                                match ncomp {
+                                    1 => {
+                                        for &g in &raw_samples {
+                                            rgba.extend_from_slice(&[g, g, g, 255]);
+                                        }
+                                    }
+                                    3 => {
+                                        for rgb in raw_samples.as_chunks::<3>().0 {
+                                            rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
+                                        }
+                                    }
+                                    4 => {
+                                        for cmyk in raw_samples.as_chunks::<4>().0 {
+                                            let c = cmyk_to_rgba(
+                                                f64::from(cmyk[0]) / 255.0,
+                                                f64::from(cmyk[1]) / 255.0,
+                                                f64::from(cmyk[2]) / 255.0,
+                                                f64::from(cmyk[3]) / 255.0,
+                                            );
+                                            rgba.extend_from_slice(&c);
+                                        }
+                                    }
+                                    _ => unreachable!(),
+                                }
+                                let mut png = Vec::new();
+                                image::codecs::png::PngEncoder::new(&mut png)
+                                    .write_image(&rgba, iw, ih, image::ExtendedColorType::Rgba8)
+                                    .map_err(|e| error(&e.to_string()))?;
+                                let res_id = if let Some(existing) = png_cache.get(&png) {
+                                    existing.clone()
+                                } else {
+                                    let rid = new_id("resource");
+                                    let unit = neoflash_core::ResourceUnit::from_bytes(
+                                        rid.clone(),
+                                        format!("eps/{rid}.png"),
+                                        "image/png",
+                                        &png,
+                                    )
+                                    .map_err(|e| error(&e.to_string()))?;
+                                    eps_resources.push(unit);
+                                    png_cache.insert(png, rid.clone());
+                                    rid
+                                };
+
+                                let elem_mat = affine_multiply(gstate.ctm, inv_img);
+                                if let Some(tf) = Transform::from_matrix(elem_mat) {
+                                    sync_bucket_clip(
+                                        &mut current_bucket,
+                                        &mut buckets,
+                                        gstate.clip.as_deref(),
+                                    );
+                                    current_bucket.elements.push(Element {
+                                        id: new_id("element"),
+                                        name: format!(
+                                            "EPS Image {}",
+                                            current_bucket.elements.len() + 1
+                                        ),
+                                        transform: tf,
+                                        kind: ElementKind::Bitmap {
+                                            resource_id: res_id,
+                                            width: iw,
+                                            height: ih,
+                                            smoothing: true,
+                                        },
+                                        ..Element::default()
+                                    });
+                                    report.statistics.elements += 1;
+                                    vector_elements += 1;
+                                }
+                            }
+                        }
+                        stack.clear();
+                    }
                     _ => {
                         stack.clear();
                     }
@@ -1831,18 +2070,18 @@ pub(super) fn parse_eps_artwork(
             code: "eps-content-stream-parsed".to_owned(),
             location: source.to_owned(),
             message: format!(
-                "Parsed {vector_elements} vector element(s) ({total_ops} ops) from PostScript/AICB EPS."
+                "Parsed {vector_elements} element(s) ({total_ops} ops) from PostScript/AICB EPS."
             ),
         });
         return Ok(EpsParsedArtwork {
             buckets,
+            resources: eps_resources,
             bounds,
             stage_bounds,
-            used_tiff_fallback: false,
         });
     }
 
-    // Zero vector paths decoded -> fall back to embedded binary EPS TIFF preview if present!
+    // Zero vector/inline-image elements decoded -> fall back to embedded binary EPS TIFF preview if present!
     let Some(preview) = binary_preview else {
         return Err(error(
             "EPS has no binary TIFF preview and no decodable vector paths. Export the artwork as PDF or SVG.",
@@ -1852,7 +2091,15 @@ pub(super) fn parse_eps_artwork(
     let mut decoder = Decoder::new(Cursor::new(preview))
         .map_err(|e| error(&format!("Invalid EPS preview: {e}")))?;
     let (width, height) = decoder.dimensions().map_err(|e| error(&e.to_string()))?;
-    if width == 0 || height == 0 || width > 4096 || height > 4096 {
+    if width == 0
+        || height == 0
+        || width > MAX_EPS_BITMAP_DIM
+        || height > MAX_EPS_BITMAP_DIM
+        || (width as usize)
+            .saturating_mul(height as usize)
+            .saturating_mul(4)
+            > MAX_EPS_BITMAP_BYTES
+    {
         return Err(error(
             "EPS preview dimensions exceed the 4096-pixel portable bitmap limit. Export as PDF or SVG.",
         ));
@@ -1866,8 +2113,12 @@ pub(super) fn parse_eps_artwork(
                     "Unsupported TIFF preview ({e}). Save the artwork as PDF or SVG."
                 ))
             })?;
+        let mut tiff_limits = image::Limits::default();
+        tiff_limits.max_image_width = Some(MAX_EPS_BITMAP_DIM);
+        tiff_limits.max_image_height = Some(MAX_EPS_BITMAP_DIM);
+        tiff_limits.max_alloc = Some(MAX_EPS_BITMAP_BYTES as u64);
         ordinary
-            .set_limits(image::Limits::default())
+            .set_limits(tiff_limits)
             .map_err(|e| error(&e.to_string()))?;
         image::DynamicImage::from_decoder(ordinary)
             .map_err(|e| error(&e.to_string()))?
@@ -1926,7 +2177,6 @@ pub(super) fn parse_eps_artwork(
         ..Default::default()
     };
 
-    let _ = resource;
     Ok(EpsParsedArtwork {
         buckets: vec![VectorGroupBucket {
             name: source.into(),
@@ -1934,6 +2184,7 @@ pub(super) fn parse_eps_artwork(
             mask_elements: vec![],
             mask_mode: MaskMode::Geometry,
         }],
+        resources: vec![resource],
         bounds: [
             fallback_bounds[0],
             fallback_bounds[1],
@@ -1941,7 +2192,6 @@ pub(super) fn parse_eps_artwork(
             fallback_bounds[1] + f64::from(bh_u32),
         ],
         stage_bounds: [0.0, 0.0, f64::from(bw_u32), f64::from(bh_u32)],
-        used_tiff_fallback: true,
     })
 }
 
@@ -1963,7 +2213,7 @@ pub(super) fn import_with_bounds(
         swc: None,
     };
 
-    let mut art = parse_eps_artwork(
+    let art = parse_eps_artwork(
         bytes,
         source,
         options,
@@ -1971,49 +2221,9 @@ pub(super) fn import_with_bounds(
         &mut report,
     )?;
 
-    if art.used_tiff_fallback
-        && let Some(preview) = section(bytes, 20)
-    {
-        // Re-materialize the PNG resource into `project.resources` and link element's resource_id
-        let error = |message: &str| ImportError::Container(format!("{source}: {message}"));
-        let mut decoder = Decoder::new(Cursor::new(preview))
-            .map_err(|e| error(&format!("Invalid EPS preview: {e}")))?;
-        let (width, height) = decoder.dimensions().map_err(|e| error(&e.to_string()))?;
-        let image = if let Some(indexed) = indexed_preview(preview, &mut decoder, width, height) {
-            indexed
-        } else {
-            let mut ordinary = image::codecs::tiff::TiffDecoder::new(Cursor::new(preview))
-                .map_err(|e| error(&e.to_string()))?;
-            ordinary
-                .set_limits(image::Limits::default())
-                .map_err(|e| error(&e.to_string()))?;
-            image::DynamicImage::from_decoder(ordinary)
-                .map_err(|e| error(&e.to_string()))?
-                .to_rgba8()
-        };
-        let mut png = Vec::new();
-        image::codecs::png::PngEncoder::new(&mut png)
-            .write_image(
-                image.as_raw(),
-                width,
-                height,
-                image::ExtendedColorType::Rgba8,
-            )
-            .map_err(|e| error(&e.to_string()))?;
-        let id = new_id("resource");
-        let resource = neoflash_core::ResourceUnit::from_bytes(
-            id.clone(),
-            format!("eps/{id}.png"),
-            "image/png",
-            &png,
-        )
-        .map_err(|e| error(&e.to_string()))?;
-        project.resources.push(resource);
-        if let Some(el) = art.buckets.first_mut().and_then(|b| b.elements.first_mut())
-            && let ElementKind::Bitmap { resource_id, .. } = &mut el.kind
-        {
-            *resource_id = id;
-        }
+    if !art.resources.is_empty() {
+        project.resources.extend(art.resources);
+        project.format_version = project.format_version.max(3);
     }
 
     if options.resize_stage_to_viewbox {

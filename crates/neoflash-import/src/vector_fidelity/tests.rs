@@ -1137,4 +1137,262 @@ showpage
             "self-referential /Form XObject recursion must be rejected"
         );
     }
+
+    // 4. 36 flat sibling `/Subtype /Form` XObjects sharing ONE `/Resources` dictionary (`O(K)` lazy
+    //    memoization — zero `K!` explosion and zero false `>32` depth error!), PLUS 34-deep nested
+    //    `/Form` chain rejected cleanly!
+    {
+        use lopdf::{Dictionary, Document, Object, Stream, dictionary};
+        let mut doc = Document::with_version("1.5");
+        let tree = doc.new_object_id();
+        let shared_res_id = doc.new_object_id();
+        let mut xobj_dict = Dictionary::new();
+        let mut page_ops = String::new();
+        for i in 0..36 {
+            let fm_id = doc.add_object(Stream::new(
+                dictionary! {
+                    "Type" => "XObject",
+                    "Subtype" => "Form",
+                    "BBox" => vec![0.into(), 0.into(), 12.into(), 12.into()],
+                    "Resources" => Object::Reference(shared_res_id),
+                },
+                b"0.2 0.5 0.9 rg 0 0 10 10 re f\n".to_vec(),
+            ));
+            xobj_dict.set(format!("Fm{i}"), Object::Reference(fm_id));
+            page_ops.push_str(&format!("q 1 0 0 1 {} 10 cm /Fm{i} Do Q\n", i * 14));
+        }
+        doc.objects
+            .insert(shared_res_id, dictionary! { "XObject" => xobj_dict }.into());
+        let contents = doc.add_object(Stream::new(dictionary! {}, page_ops.into_bytes()));
+        let page = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => tree,
+            "MediaBox" => vec![0.into(), 0.into(), 600.into(), 100.into()],
+            "Resources" => Object::Reference(shared_res_id),
+            "Contents" => contents,
+        });
+        doc.objects.insert(
+            tree,
+            dictionary! {
+                "Type" => "Pages",
+                "Count" => 1,
+                "Kids" => vec![Object::Reference(page)],
+            }
+            .into(),
+        );
+        let root = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => tree });
+        doc.trailer.set("Root", root);
+        let mut many_forms_pdf = Vec::new();
+        doc.save_to(&mut many_forms_pdf).unwrap();
+
+        let siblings_out = import_pdf_clipboard(&many_forms_pdf, "siblings36.pdf")
+            .expect("36 flat sibling /Form XObjects sharing one /Resources must succeed in O(K)");
+        siblings_out.project.validate().unwrap();
+        let placed_count = siblings_out
+            .project
+            .symbol(&siblings_out.project.root)
+            .unwrap()
+            .timeline
+            .layers[0]
+            .keyframes[0]
+            .elements
+            .len();
+        assert_eq!(placed_count, 36);
+
+        // 34-deep nested chain Fm0 -> Fm1 -> ... -> Fm33 must fail MAX_PDF_FORM_DEPTH (32)!
+        let mut deep_doc = Document::with_version("1.5");
+        let dtree = deep_doc.new_object_id();
+        let mut prev_fm = deep_doc.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "BBox" => vec![0.into(), 0.into(), 10.into(), 10.into()],
+            },
+            b"0 0 10 10 re f\n".to_vec(),
+        ));
+        for depth in 0..34 {
+            let name = format!("Chain{depth}");
+            prev_fm = deep_doc.add_object(Stream::new(
+                dictionary! {
+                    "Type" => "XObject",
+                    "Subtype" => "Form",
+                    "BBox" => vec![0.into(), 0.into(), 10.into(), 10.into()],
+                    "Resources" => dictionary! {
+                        "XObject" => dictionary! { name.clone() => Object::Reference(prev_fm) }
+                    },
+                },
+                format!("/{name} Do\n").into_bytes(),
+            ));
+        }
+        let dcontents =
+            deep_doc.add_object(Stream::new(dictionary! {}, b"/TopChain Do\n".to_vec()));
+        let dpage = deep_doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => dtree,
+            "MediaBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
+            "Resources" => dictionary! {
+                "XObject" => dictionary! { "TopChain" => Object::Reference(prev_fm) }
+            },
+            "Contents" => dcontents,
+        });
+        deep_doc.objects.insert(
+            dtree,
+            dictionary! {
+                "Type" => "Pages",
+                "Count" => 1,
+                "Kids" => vec![Object::Reference(dpage)],
+            }
+            .into(),
+        );
+        let droot = deep_doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => dtree });
+        deep_doc.trailer.set("Root", droot);
+        let mut deep_pdf = Vec::new();
+        deep_doc.save_to(&mut deep_pdf).unwrap();
+        assert!(
+            import_pdf_clipboard(&deep_pdf, "deep-chain.pdf").is_err(),
+            "34-deep nested /Form chain must be rejected"
+        );
+    }
+
+    // 5. Cumulative >64 MiB multi-/ObjStm decompression bomb (4 x 20 MiB = 80 MiB total, each <64 MiB)
+    //    rejected cleanly with ZERO unbounded `lopdf::Document::load_mem` fallback!
+    {
+        let mut chunk_raw = String::from("30 0 ");
+        chunk_raw.push_str("<< /Dummy (x) >>\n");
+        let pad_target = 20 * 1024 * 1024;
+        let first_off = 5usize;
+        let mut full_chunk = chunk_raw.into_bytes();
+        full_chunk.resize(pad_target, b' ');
+        let compressed_20m = zlib_compress_test(&full_chunk);
+        assert!(
+            compressed_20m.len() < 128 * 1024,
+            "20 MiB space-padded ObjStm compresses to <128 KiB"
+        );
+
+        let mut bomb_pdf = Vec::new();
+        bomb_pdf.extend_from_slice(b"%PDF-1.5\n");
+        let mut offs = [0usize; 9];
+        offs[1] = bomb_pdf.len();
+        bomb_pdf.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+        offs[2] = bomb_pdf.len();
+        bomb_pdf.extend_from_slice(b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+        offs[3] = bomb_pdf.len();
+        bomb_pdf.extend_from_slice(
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>\nendobj\n",
+        );
+        offs[4] = bomb_pdf.len();
+        bomb_pdf.extend_from_slice(
+            b"4 0 obj\n<< /Length 14 >>\nstream\n0 0 10 10 re f\nendstream\nendobj\n",
+        );
+        for (oid, slot) in offs.iter_mut().enumerate().take(9).skip(5) {
+            *slot = bomb_pdf.len();
+            bomb_pdf.extend_from_slice(
+                format!(
+                    "{oid} 0 obj\n<< /Type /ObjStm /N 1 /First {first_off} /Filter /FlateDecode /Length {} >>\nstream\n",
+                    compressed_20m.len()
+                )
+                .as_bytes(),
+            );
+            bomb_pdf.extend_from_slice(&compressed_20m);
+            bomb_pdf.extend_from_slice(b"\nendstream\nendobj\n");
+        }
+        let xref_off = bomb_pdf.len();
+        bomb_pdf.extend_from_slice(b"xref\n0 9\n0000000000 65535 f \n");
+        for &off in &offs[1..=8] {
+            bomb_pdf.extend_from_slice(format!("{off:010} 00000 n \n").as_bytes());
+        }
+        bomb_pdf.extend_from_slice(
+            format!("trailer\n<< /Size 9 /Root 1 0 R >>\nstartxref\n{xref_off}\n%%EOF\n")
+                .as_bytes(),
+        );
+
+        assert!(
+            import_pdf_clipboard(&bomb_pdf, "objstm-bomb.pdf").is_err(),
+            "4 x 20 MiB = 80 MiB cumulative /ObjStm decompression bomb must be rejected without lopdf fallback"
+        );
+    }
+
+    // 6. EPS inline `colorimage` (bitmap-only EPS without TIFF preview!) + rotated PDF `/Rotate 90` bounds!
+    {
+        let bmp_only_eps = "\
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 10 20 50 40
+%AI5_ArtSize: 200 100
+gsave
+10 20 translate
+40 20 scale
+/picstr 6 string def
+2 2 8 [2 0 0 -2 0 2]
+{ currentfile picstr readhexstring pop } false 3 colorimage
+ff000000ff00
+0000ffffff00
+grestore
+showpage
+%%EOF
+";
+        let eps_bmp = import_eps_clipboard(bmp_only_eps.as_bytes(), "bitmap-only.eps")
+            .expect("bitmap-only colorimage EPS must decode without needing a TIFF preview");
+        eps_bmp.project.validate().unwrap();
+        assert_eq!(eps_bmp.project.resources.len(), 1);
+        let root_els = &eps_bmp
+            .project
+            .symbol(&eps_bmp.project.root)
+            .unwrap()
+            .timeline
+            .layers[0]
+            .keyframes[0]
+            .elements;
+        assert!(matches!(
+            root_els[0].kind,
+            ElementKind::Bitmap {
+                width: 2,
+                height: 2,
+                ..
+            }
+        ));
+
+        // Oversized 5000x5000 inline `colorimage` rejected cleanly!
+        let oversized_eps_img = "\
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 100 100
+5000 5000 8 [5000 0 0 -5000 0 5000]
+{ currentfile picstr readhexstring pop } false 3 colorimage
+000000
+%%EOF
+";
+        assert!(import_eps_clipboard(oversized_eps_img.as_bytes(), "oversized-img.eps").is_err());
+
+        // Rotated PDF `/Rotate 90` Stage bounds check:
+        use lopdf::{Document, Object, Stream, dictionary};
+        let mut rdoc = Document::with_version("1.5");
+        let rtree = rdoc.new_object_id();
+        let rcontents =
+            rdoc.add_object(Stream::new(dictionary! {}, b"20 30 40 50 re f\n".to_vec()));
+        let rpage = rdoc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => rtree,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+            "ArtBox" => vec![20.into(), 30.into(), 60.into(), 80.into()],
+            "Rotate" => 90,
+            "Contents" => rcontents,
+        });
+        rdoc.objects.insert(
+            rtree,
+            dictionary! {
+                "Type" => "Pages",
+                "Count" => 1,
+                "Kids" => vec![Object::Reference(rpage)],
+            }
+            .into(),
+        );
+        let rroot = rdoc.add_object(dictionary! { "Type" => "Catalog", "Pages" => rtree });
+        rdoc.trailer.set("Root", rroot);
+        let mut rbytes = Vec::new();
+        rdoc.save_to(&mut rbytes).unwrap();
+        let rout = import_pdf_clipboard(&rbytes, "rot90.pdf").unwrap();
+        // With /Rotate 90 on MediaBox [0,0,200,100], ArtBox [20,30,60,80] has Stage size (50, 40) at [30, 20, 80, 60]
+        assert_eq!(rout.project.width, 50);
+        assert_eq!(rout.project.height, 40);
+        assert_eq!(rout.stage_bounds, [30.0, 20.0, 80.0, 60.0]);
+    }
 }

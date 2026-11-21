@@ -586,22 +586,55 @@ impl Editor {
         .and_then(|payload| payload.to_text())
         .map_err(|e| e.to_string())?;
 
-        let vector_project = build_vector_export_project(
+        let mut vector_project = build_vector_export_project(
             &self.project,
             self.symbol_id(),
             self.frame,
             &selected,
             &capture_project,
         );
+        let mut vector_sel_bounds = sel_bounds;
+        if self.editing_in_place()
+            && let Ok(mapping) = self.edit_stage_mapping()
+        {
+            let edit_to_stage = mapping.matrix();
+            let vroot = vector_project.root.clone();
+            if let Some(root_sym) = vector_project.symbol_mut(&vroot) {
+                for layer in &mut root_sym.timeline.layers {
+                    for kf in &mut layer.keyframes {
+                        for el in &mut kf.elements {
+                            apply_placement_matrix_to_element(el, edit_to_stage);
+                        }
+                    }
+                }
+            }
+            crate::timeline_commands::upgrade_all_format_versions(&mut vector_project);
+            vector_sel_bounds = sel_bounds.map(|[x0, y0, x1, y1]| {
+                let corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
+                let mut sx0 = f64::INFINITY;
+                let mut sy0 = f64::INFINITY;
+                let mut sx1 = f64::NEG_INFINITY;
+                let mut sy1 = f64::NEG_INFINITY;
+                for (cx, cy) in corners {
+                    let tx = edit_to_stage[0] * cx + edit_to_stage[2] * cy + edit_to_stage[4];
+                    let ty = edit_to_stage[1] * cx + edit_to_stage[3] * cy + edit_to_stage[5];
+                    sx0 = sx0.min(tx);
+                    sy0 = sy0.min(ty);
+                    sx1 = sx1.max(tx);
+                    sy1 = sy1.max(ty);
+                }
+                [sx0, sy0, sx1, sy1]
+            });
+        }
         let pdf_bytes =
-            neoflash_export::export_clipboard_pdf(&vector_project, None, 0, sel_bounds).ok();
+            neoflash_export::export_clipboard_pdf(&vector_project, None, 0, vector_sel_bounds).ok();
         let eps_bytes =
-            neoflash_export::export_clipboard_eps(&vector_project, None, 0, sel_bounds).ok();
+            neoflash_export::export_clipboard_eps(&vector_project, None, 0, vector_sel_bounds).ok();
         let svg_text = neoflash_export::export_clipboard_svg(
             &vector_project,
             None,
             0,
-            sel_bounds,
+            vector_sel_bounds,
             Some(&neoflash_text),
         )
         .ok();
@@ -1171,6 +1204,7 @@ impl Editor {
                 self.frame,
                 placement_matrix,
                 self.workspace.timeline_prefs.auto_keyframe,
+                true,
             ) {
                 Ok(res) => res,
                 Err(error) => {
@@ -1293,14 +1327,39 @@ impl Editor {
         let sh = f64::from(self.project.height);
         let placement_matrix = if !in_place {
             let center = self.paste_center();
-            [
-                1.0,
-                0.0,
-                0.0,
-                1.0,
-                center[0] - local_w * 0.5,
-                center[1] - local_h * 0.5,
-            ]
+            if self.editing_in_place() {
+                let Some((edit_to_stage, stage_to_edit)) =
+                    self.edit_stage_mapping().ok().and_then(|m| {
+                        let mat = m.matrix();
+                        neoflash_core::invert_affine_matrix(mat).map(|inv| (mat, inv))
+                    })
+                else {
+                    self.message("Paste failed: edited symbol placement is not invertible.");
+                    return false;
+                };
+                let stage_cx =
+                    edit_to_stage[0] * center[0] + edit_to_stage[2] * center[1] + edit_to_stage[4];
+                let stage_cy =
+                    edit_to_stage[1] * center[0] + edit_to_stage[3] * center[1] + edit_to_stage[5];
+                let stage_translation = [
+                    1.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    stage_cx - local_w * 0.5,
+                    stage_cy - local_h * 0.5,
+                ];
+                neoflash_core::affine_multiply(stage_to_edit, stage_translation)
+            } else {
+                [
+                    1.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    center[0] - local_w * 0.5,
+                    center[1] - local_h * 0.5,
+                ]
+            }
         } else {
             let [sb_x0, sb_y0, sb_x1, sb_y1] = output.stage_bounds;
             let near_stage = sb_x0.is_finite()
@@ -1350,6 +1409,7 @@ impl Editor {
                 self.frame,
                 placement_matrix,
                 self.workspace.timeline_prefs.auto_keyframe,
+                false,
             ) {
                 Ok(res) => res,
                 Err(error) => {
@@ -1513,6 +1573,7 @@ impl Editor {
                         self.frame,
                         placement_matrix,
                         self.workspace.timeline_prefs.auto_keyframe,
+                        false,
                     ) {
                         Ok((target_layer_idx, layer_id, element_ids, created_new_layer)) => {
                             let count = element_ids.len();
@@ -2354,6 +2415,7 @@ fn merge_imported_clipboard_project(
     frame: u32,
     placement_matrix: [f64; 6],
     auto_keyframe: bool,
+    is_figma: bool,
 ) -> Result<(usize, Id, Vec<Id>, bool), String> {
     use std::collections::{HashMap, HashSet};
 
@@ -2405,15 +2467,24 @@ fn merge_imported_clipboard_project(
             wrapped_id.push('_');
         }
         root_symbol.id = wrapped_id.clone();
-        root_symbol.name = "Pasted Figma Clip".into();
-        root_symbol.folder = "Figma Components".into();
+        if is_figma {
+            root_symbol.name = "Pasted Figma Clip".into();
+            root_symbol.folder = "Figma Components".into();
+        } else {
+            root_symbol.name = "Pasted Vector Clip".into();
+            root_symbol.folder = "Imported Artwork".into();
+        }
         root_symbol.kind = neoflash_core::SymbolKind::MovieClip;
         root_symbol.class_name = None;
         root_symbol.linkage_id = None;
         donor_symbols.push(root_symbol);
         let wrapper_el = neoflash_core::Element {
             id: "wrapped-top-0".into(),
-            name: "Pasted_Figma_Clip".into(),
+            name: if is_figma {
+                "Pasted_Figma_Clip".into()
+            } else {
+                "Pasted_Vector_Clip".into()
+            },
             transform: neoflash_core::Transform::default(),
             kind: neoflash_core::ElementKind::Instance {
                 symbol_id: wrapped_id,

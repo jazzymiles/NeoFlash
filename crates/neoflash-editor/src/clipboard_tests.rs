@@ -4656,5 +4656,204 @@ fn t415_editor_illustrator_pdf_and_eps_placement_edit_in_place_locked_layer_dedu
     assert!(!editor.history.can_undo());
     assert!(editor.status.starts_with("Paste failed:"));
 
+    // 7. Plain `⌘V` (`!in_place`) AND outbound `capture_stage_clipboard_bundle` during `Edit in Place`
+    //    inside a `(200, 100) @ 2x` + `90°` rotated MovieClip container!
+    {
+        let mut eip_editor = Editor::from_project(&ctx, Project::blank());
+        let rot_sym_id = new_id("rot-mc");
+        let inner_el_id = new_id("inner-rect");
+        let inner_layer_id = new_id("inner-layer");
+        eip_editor.project.symbols.push(Symbol {
+            id: rot_sym_id.clone(),
+            name: "RotScaledContainer".into(),
+            folder: String::new(),
+            kind: SymbolKind::MovieClip,
+            timeline: Timeline {
+                frame_count: 1,
+                layers: vec![Layer {
+                    id: inner_layer_id.clone(),
+                    name: "Inner".into(),
+                    visible: true,
+                    locked: false,
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![Element {
+                            id: inner_el_id.clone(),
+                            name: "LocalBox".into(),
+                            transform: Transform {
+                                x: 10.0,
+                                y: 20.0,
+                                ..Transform::default()
+                            },
+                            kind: ElementKind::Rectangle {
+                                width: 30.0,
+                                height: 15.0,
+                                fill: [220, 80, 40, 255],
+                                stroke: [0, 0, 0, 0],
+                                stroke_width: 0.0,
+                            },
+                            ..Element::default()
+                        }],
+                        ..Keyframe::default()
+                    }],
+                    properties: LayerProperties::default(),
+                }],
+                scripts: Vec::new(),
+                guides: Vec::new(),
+            },
+            class_name: None,
+            linkage_id: None,
+        });
+        let c_inst_id = new_id("c-inst");
+        let r_lid = eip_editor.symbol().timeline.layers[0].id.clone();
+        eip_editor.symbol_mut().timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: c_inst_id.clone(),
+                name: "RotContainerInst".into(),
+                transform: Transform {
+                    x: 200.0,
+                    y: 100.0,
+                    scale_x: 2.0,
+                    scale_y: 2.0,
+                    rotation: 90.0,
+                    ..Transform::default()
+                },
+                kind: ElementKind::Instance {
+                    symbol_id: rot_sym_id,
+                    playback: InstancePlayback::Independent,
+                },
+                ..Element::default()
+            });
+        eip_editor.set_selection(vec![crate::selection::SelectionTarget {
+            layer: r_lid,
+            element: c_inst_id,
+        }]);
+        assert!(eip_editor.enter_selected_symbol_in_place());
+        assert!(eip_editor.editing_in_place());
+
+        // 7a. Outbound `capture_stage_clipboard_bundle` while `editing_in_place()` exports PDF in world Stage space!
+        eip_editor.set_selection(vec![crate::selection::SelectionTarget {
+            layer: inner_layer_id,
+            element: inner_el_id,
+        }]);
+        let (eip_bundle, _) = eip_editor.capture_stage_clipboard_bundle(&ctx).unwrap();
+        let reimported = neoflash_import::import_pdf_clipboard(
+            eip_bundle.pdf_bytes.as_deref().unwrap(),
+            "eip-export.pdf",
+        )
+        .unwrap();
+        // Local `[10..40, 20..35]` under `(200, 100) @ 2x, +90°` (`x' = 200 - 2*y, y' = 100 + 2*x`)
+        // maps to Stage `[130..160, 120..180]` (`width = 30, height = 60`)!
+        assert!(
+            (reimported.stage_bounds[0] - 130.0).abs() < 2.0
+                && (reimported.stage_bounds[1] - 120.0).abs() < 2.0
+                && (reimported.stage_bounds[2] - 160.0).abs() < 2.0
+                && (reimported.stage_bounds[3] - 180.0).abs() < 2.0,
+            "outbound PDF from Edit in Place must use world Stage /ArtBox [130, 120, 160, 180], got {:?}",
+            reimported.stage_bounds
+        );
+
+        // 7b. Plain `⌘V` (`!in_place`) inside `(200, 100) @ 2x, +90°` scales by `0.5x` and counter-rotates `-90°`!
+        assert!(eip_editor.paste_pdf_clipboard(&ctx, &near_pdf, false));
+        eip_editor.project.validate().unwrap();
+        let pasted_plain_path = eip_editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .iter()
+            .skip(1)
+            .find(|e| matches!(e.kind, ElementKind::Path { .. }))
+            .unwrap();
+        assert!(
+            (pasted_plain_path.transform.scale_x - 0.5).abs() < 1e-4
+                && (pasted_plain_path.transform.scale_y - 0.5).abs() < 1e-4
+                && ((pasted_plain_path.transform.rotation + 90.0).abs() < 1e-4
+                    || (pasted_plain_path.transform.rotation - 270.0).abs() < 1e-4),
+            "plain Paste inside 2x +90° Edit in Place symbol must apply 0.5x scale & -90° counter-rotation, got {:?}",
+            pasted_plain_path.transform
+        );
+    }
+
+    // 8. Copying & PDF-pasting 16 sibling `Instance`s (`export_clipboard_pdf` -> `paste_pdf_clipboard`)
+    //    completes in milliseconds (`O(K)` lazy `/Form` resolution, zero `16!` hang)!
+    {
+        let mut sib_editor = Editor::from_project(&ctx, Project::blank());
+        let root_lid = sib_editor.symbol().timeline.layers[0].id.clone();
+        let mut sel = Vec::new();
+        for i in 0..16 {
+            let sid = format!("sib-sym-{i}");
+            sib_editor.project.symbols.push(Symbol {
+                id: sid.clone(),
+                name: format!("SibSym{i}"),
+                folder: String::new(),
+                kind: SymbolKind::MovieClip,
+                timeline: Timeline {
+                    frame_count: 1,
+                    layers: vec![Layer {
+                        id: new_id("layer"),
+                        name: "L".into(),
+                        visible: true,
+                        locked: false,
+                        keyframes: vec![Keyframe {
+                            frame: 0,
+                            elements: vec![Element {
+                                id: new_id("el"),
+                                name: "Chip".into(),
+                                transform: Transform::default(),
+                                kind: ElementKind::Rectangle {
+                                    width: 12.0 + f64::from(i),
+                                    height: 10.0,
+                                    fill: [(i * 15) as u8, 120, 200, 255],
+                                    stroke: [0, 0, 0, 0],
+                                    stroke_width: 0.0,
+                                },
+                                ..Element::default()
+                            }],
+                            ..Keyframe::default()
+                        }],
+                        properties: LayerProperties::default(),
+                    }],
+                    scripts: Vec::new(),
+                    guides: Vec::new(),
+                },
+                class_name: None,
+                linkage_id: None,
+            });
+            let eid = new_id("sib-inst");
+            sib_editor.symbol_mut().timeline.layers[0].keyframes[0]
+                .elements
+                .push(Element {
+                    id: eid.clone(),
+                    name: format!("Inst{i}"),
+                    transform: Transform {
+                        x: 20.0 + f64::from(i) * 30.0,
+                        y: 40.0,
+                        ..Transform::default()
+                    },
+                    kind: ElementKind::Instance {
+                        symbol_id: sid,
+                        playback: InstancePlayback::Independent,
+                    },
+                    ..Element::default()
+                });
+            sel.push(crate::selection::SelectionTarget {
+                layer: root_lid.clone(),
+                element: eid,
+            });
+        }
+        sib_editor.set_selection(sel);
+        let (sib_bundle, count) = sib_editor.capture_stage_clipboard_bundle(&ctx).unwrap();
+        assert_eq!(count, 16);
+
+        let mut dst_sib = Editor::from_project(&ctx, Project::blank());
+        assert!(dst_sib.paste_pdf_clipboard(&ctx, sib_bundle.pdf_bytes.as_deref().unwrap(), true));
+        dst_sib.project.validate().unwrap();
+        assert_eq!(
+            dst_sib.symbol().timeline.layers[0].keyframes[0]
+                .elements
+                .len(),
+            16
+        );
+    }
+
     set_test_stage_clipboard_flavors(&ctx, None);
 }

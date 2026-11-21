@@ -2,13 +2,14 @@
 //! and Stage clipboard entrypoints (`import_pdf_clipboard`, `import_eps_clipboard`).
 
 use super::pdf::{
-    MAX_PDF_FORM_DEPTH, Page, PdfFormXObject, PdfResourceScope, resolve_color_in_cs,
+    MAX_PDF_FORM_DEPTH, Page, PdfFormRef, PdfResourceScope, resolve_color_in_cs,
     tokenize_pdf_content,
 };
 use super::pdf_color_fn::cmyk_to_rgba;
 use super::pdf_text_font::{PdfTextBlockBuilder, PdfTextStyleState};
 use super::*;
 use lopdf::ObjectId;
+use std::collections::HashSet;
 
 pub(super) fn invert_affine_2x2_with_origin(m: [f64; 6]) -> Option<[f64; 6]> {
     let det = m[0] * m[3] - m[1] * m[2];
@@ -278,7 +279,8 @@ struct PdfSharedBuild<'a> {
     project: &'a mut Project,
     options: &'a VectorImportOptions,
     report: &'a mut ImportReport,
-    form_symbol_cache: HashMap<ObjectId, String>,
+    form_symbol_cache: HashMap<ObjectId, (String, [f64; 4], [f64; 6])>,
+    active_form_ids: HashSet<ObjectId>,
     png_resource_cache: HashMap<Vec<u8>, String>,
     total_ops: usize,
 }
@@ -320,111 +322,131 @@ impl<'a> PdfSharedBuild<'a> {
 
     fn build_or_reuse_form_symbol(
         &mut self,
-        form: &PdfFormXObject,
+        scope: &PdfResourceScope,
+        form_ref: &PdfFormRef,
         source_label: &str,
         form_depth: usize,
-    ) -> Result<String, ImportError> {
+    ) -> Result<(String, [f64; 4], [f64; 6]), ImportError> {
         if form_depth >= MAX_PDF_FORM_DEPTH {
             return Err(ImportError::Container(format!(
                 "PDF Form XObject recursion depth exceeds {MAX_PDF_FORM_DEPTH}."
             )));
         }
-        if let Some(oid) = form.id
-            && let Some(cached_sym_id) = self.form_symbol_cache.get(&oid)
+        if let Some(oid) = form_ref.id
+            && self.active_form_ids.contains(&oid)
         {
-            return Ok(cached_sym_id.clone());
+            return Err(ImportError::Container(
+                "Cyclic PDF Form XObject reference detected.".into(),
+            ));
+        }
+        if let Some(oid) = form_ref.id
+            && let Some(cached) = self.form_symbol_cache.get(&oid)
+        {
+            return Ok(cached.clone());
+        }
+        if let Some(oid) = form_ref.id {
+            self.active_form_ids.insert(oid);
         }
 
-        let [bx0, by0, bx1, by1] = form.bbox;
-        let bw = (bx1 - bx0).abs().max(1.0);
-        let bh = (by1 - by0).abs().max(1.0);
-        let internal_flip = [1.0, 0.0, 0.0, -1.0, -bx0, by1];
+        let res = (|| {
+            let form = scope.resolve_form(form_ref)?;
+            let [bx0, by0, bx1, by1] = form.bbox;
+            let bw = (bx1 - bx0).abs().max(1.0);
+            let bh = (by1 - by0).abs().max(1.0);
+            let internal_flip = [1.0, 0.0, 0.0, -1.0, -bx0, by1];
 
-        let sub_buckets = self.interpret_stream(
-            &form.content,
-            &form.scope,
-            internal_flip,
-            (bw, bh),
-            &format!("{source_label}::Form[{}]", form.name),
-            form_depth + 1,
-        )?;
+            let sub_buckets = self.interpret_stream(
+                &form.content,
+                &form.scope,
+                internal_flip,
+                (bw, bh),
+                &format!("{source_label}::Form[{}]", form.name),
+                form_depth + 1,
+            )?;
 
-        let mut layers = Vec::new();
-        for b in sub_buckets {
-            let mut mask_layer_id = None;
-            if !b.mask_elements.is_empty()
-                && self.options.mask_handling == VectorMaskHandling::MaskLayers
-            {
-                let mid = new_id("layer");
-                mask_layer_id = Some(mid.clone());
+            let mut layers = Vec::new();
+            for b in sub_buckets {
+                let mut mask_layer_id = None;
+                if !b.mask_elements.is_empty()
+                    && self.options.mask_handling == VectorMaskHandling::MaskLayers
+                {
+                    let mid = new_id("layer");
+                    mask_layer_id = Some(mid.clone());
+                    layers.push(Layer {
+                        id: mid,
+                        name: format!("{} Mask", b.name),
+                        visible: true,
+                        locked: false,
+                        keyframes: vec![Keyframe {
+                            frame: 0,
+                            elements: b.mask_elements,
+                            ..Keyframe::default()
+                        }],
+                        properties: LayerProperties {
+                            role: LayerRole::Mask,
+                            mask_mode: b.mask_mode,
+                            ..LayerProperties::default()
+                        },
+                    });
+                    self.report.statistics.layers += 1;
+                    self.report.statistics.keyframes += 1;
+                }
                 layers.push(Layer {
-                    id: mid,
-                    name: format!("{} Mask", b.name),
+                    id: new_id("layer"),
+                    name: b.name,
                     visible: true,
                     locked: false,
                     keyframes: vec![Keyframe {
                         frame: 0,
-                        elements: b.mask_elements,
+                        elements: b.elements,
                         ..Keyframe::default()
                     }],
                     properties: LayerProperties {
-                        role: LayerRole::Mask,
-                        mask_mode: b.mask_mode,
+                        mask: mask_layer_id,
                         ..LayerProperties::default()
                     },
                 });
                 self.report.statistics.layers += 1;
                 self.report.statistics.keyframes += 1;
             }
-            layers.push(Layer {
-                id: new_id("layer"),
-                name: b.name,
-                visible: true,
-                locked: false,
-                keyframes: vec![Keyframe {
-                    frame: 0,
-                    elements: b.elements,
-                    ..Keyframe::default()
-                }],
-                properties: LayerProperties {
-                    mask: mask_layer_id,
-                    ..LayerProperties::default()
-                },
-            });
-            self.report.statistics.layers += 1;
-            self.report.statistics.keyframes += 1;
-        }
-        if layers.is_empty() {
-            layers.push(Layer {
-                id: new_id("layer"),
-                name: form.name.clone(),
-                visible: true,
-                locked: false,
-                keyframes: vec![Keyframe::default()],
-                properties: LayerProperties::default(),
-            });
-        }
+            if layers.is_empty() {
+                layers.push(Layer {
+                    id: new_id("layer"),
+                    name: form.name.clone(),
+                    visible: true,
+                    locked: false,
+                    keyframes: vec![Keyframe::default()],
+                    properties: LayerProperties::default(),
+                });
+            }
 
-        let sym_id = new_id("symbol");
-        self.project.symbols.push(Symbol {
-            id: sym_id.clone(),
-            name: format!("PDF Form {}", form.name),
-            folder: String::new(),
-            kind: SymbolKind::MovieClip,
-            timeline: Timeline {
-                frame_count: 1,
-                layers,
-                scripts: Vec::new(),
-                guides: Vec::new(),
-            },
-            class_name: None,
-            linkage_id: None,
-        });
-        self.report.statistics.symbols += 1;
-        if let Some(oid) = form.id {
-            self.form_symbol_cache.insert(oid, sym_id.clone());
+            let sym_id = new_id("symbol");
+            self.project.symbols.push(Symbol {
+                id: sym_id.clone(),
+                name: format!("PDF Form {}", form.name),
+                folder: String::new(),
+                kind: SymbolKind::MovieClip,
+                timeline: Timeline {
+                    frame_count: 1,
+                    layers,
+                    scripts: Vec::new(),
+                    guides: Vec::new(),
+                },
+                class_name: None,
+                linkage_id: None,
+            });
+            self.report.statistics.symbols += 1;
+            let triple = (sym_id, form.bbox, form.matrix);
+            if let Some(oid) = form.id {
+                self.form_symbol_cache.insert(oid, triple.clone());
+            }
+            Ok(triple)
+        })();
+
+        if let Some(oid) = form_ref.id {
+            self.active_form_ids.remove(&oid);
         }
-        Ok(sym_id)
+        res
     }
 
     fn interpret_stream(
@@ -498,6 +520,11 @@ impl<'a> PdfSharedBuild<'a> {
                 || tok == "["
                 || tok == "]"
             {
+                if operand_stack.len() >= 4096 {
+                    return Err(ImportError::Container(format!(
+                        "{stream_label}: PDF operand stack exceeds 4096 tokens."
+                    )));
+                }
                 operand_stack.push(tok);
                 continue;
             }
@@ -644,17 +671,36 @@ impl<'a> PdfSharedBuild<'a> {
                             gstate.clip_geom = None;
                             gstate.mask_mode = MaskMode::Geometry;
                         } else if let Some(sm) = ext.smask {
-                            // Evaluate soft-mask Form XObject geometry into a Mask element
-                            let [bx0, by0, bx1, by1] = sm.form.bbox;
-                            let sm_mat = affine_multiply(gstate.ctm, sm.form.matrix);
-                            let sm_buckets = self.interpret_stream(
-                                &sm.form.content,
-                                &sm.form.scope,
-                                sm_mat,
-                                ((bx1 - bx0).abs().max(1.0), (by1 - by0).abs().max(1.0)),
-                                &format!("{stream_label}::SMask[{gs_name}]"),
-                                form_depth + 1,
-                            )?;
+                            if form_depth >= MAX_PDF_FORM_DEPTH {
+                                return Err(ImportError::Container(format!(
+                                    "PDF SoftMask Form XObject recursion depth exceeds {MAX_PDF_FORM_DEPTH}."
+                                )));
+                            }
+                            if let Some(oid) = sm.form_ref.id
+                                && !self.active_form_ids.insert(oid)
+                            {
+                                return Err(ImportError::Container(
+                                    "Cyclic PDF SoftMask Form XObject reference detected.".into(),
+                                ));
+                            }
+                            let sm_res = (|| {
+                                let sm_form = scope.resolve_form(&sm.form_ref)?;
+                                let [bx0, by0, bx1, by1] = sm_form.bbox;
+                                let sm_mat = affine_multiply(gstate.ctm, sm_form.matrix);
+                                let sm_buckets = self.interpret_stream(
+                                    &sm_form.content,
+                                    &sm_form.scope,
+                                    sm_mat,
+                                    ((bx1 - bx0).abs().max(1.0), (by1 - by0).abs().max(1.0)),
+                                    &format!("{stream_label}::SMask[{gs_name}]"),
+                                    form_depth + 1,
+                                )?;
+                                Ok::<_, ImportError>((sm_buckets, bx0, by0, bx1, by1, sm_mat))
+                            })();
+                            if let Some(oid) = sm.form_ref.id {
+                                self.active_form_ids.remove(&oid);
+                            }
+                            let (sm_buckets, bx0, by0, bx1, by1, sm_mat) = sm_res?;
                             let first_mask_el = sm_buckets
                                 .into_iter()
                                 .flat_map(|b| b.elements)
@@ -1501,21 +1547,19 @@ impl<'a> PdfSharedBuild<'a> {
                         .filter(|s| s.starts_with('/'))
                         .map(|s| s.trim_start_matches('/').to_owned());
                     if let Some(ref name) = xobj_name
-                        && scope.cyclic_forms.contains(name)
+                        && let Some(form_ref) = scope.forms.get(name)
                     {
-                        return Err(ImportError::Container(
-                            "Cyclic PDF Form XObject reference detected.".into(),
-                        ));
-                    } else if let Some(ref name) = xobj_name
-                        && let Some(form) = scope.forms.get(name)
-                    {
-                        let sym_id =
-                            self.build_or_reuse_form_symbol(form, stream_label, form_depth)?;
-                        let [bx0, _by0, _bx1, by1] = form.bbox;
+                        let (sym_id, [bx0, _by0, _bx1, by1], form_matrix) = self
+                            .build_or_reuse_form_symbol(
+                                scope,
+                                form_ref,
+                                stream_label,
+                                form_depth,
+                            )?;
                         // Undo internal symbol Y-flip `[1, 0, 0, -1, -bx0, by1]` -> `[1, 0, 0, -1, bx0, by1]`
                         let inv_internal = [1.0, 0.0, 0.0, -1.0, bx0, by1];
                         let inst_mat =
-                            affine_multiply(affine_multiply(gstate.ctm, form.matrix), inv_internal);
+                            affine_multiply(affine_multiply(gstate.ctm, form_matrix), inv_internal);
                         if let Some(mut tf) = Transform::from_matrix(inst_mat) {
                             tf.alpha = gstate.fill_alpha.clamp(0.0, 1.0);
                             current_bucket.elements.push(Element {
@@ -1684,6 +1728,7 @@ pub(super) fn import_pdf_ai_with_bounds(
             options,
             report: &mut report,
             form_symbol_cache: HashMap::new(),
+            active_form_ids: HashSet::new(),
             png_resource_cache: HashMap::new(),
             total_ops: 0,
         };

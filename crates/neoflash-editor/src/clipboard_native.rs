@@ -1384,6 +1384,11 @@ mod tests {
             // =========================================================================
             {
                 let pdf_bytes = bundle.pdf_bytes.as_ref().unwrap();
+                let pdf_ascii = String::from_utf8_lossy(pdf_bytes);
+                assert!(
+                    !pdf_ascii.contains("-4096"),
+                    "Form XObject /BBox must be tight, never a [-4096 -4096 ...] phantom box"
+                );
                 let gen_pdf = u64::try_from(board.clearContents()).unwrap();
                 assert!(board.setData_forType(Some(&NSData::with_bytes(pdf_bytes)), pdf_type));
                 assert!(
@@ -1435,6 +1440,18 @@ mod tests {
                 assert!(
                     inst_count >= 2,
                     "expected both Clipped Group mask instance and /Fm0 BadgeSym Form instance, got {inst_count}"
+                );
+                let form_inst = els
+                    .iter()
+                    .find(|e| {
+                        e.name.contains("Fm0") && matches!(e.kind, ElementKind::Instance { .. })
+                    })
+                    .expect("expected /Fm0 BadgeSym Form Instance");
+                assert!(
+                    (form_inst.transform.x - 332.0).abs() < 4.0
+                        && (form_inst.transform.y - 204.0).abs() < 4.0,
+                    "Form XObject Instance must sit at tight Stage bounds ~(332, 204), got {:?}",
+                    form_inst.transform
                 );
                 let bmp_el = els
                     .iter()
@@ -1517,6 +1534,16 @@ mod tests {
                         ..
                     }
                 )));
+                let eps_bmp = els
+                    .iter()
+                    .find(|e| matches!(e.kind, ElementKind::Bitmap { .. }))
+                    .expect("EPS colorimage hex stream must round-trip as ElementKind::Bitmap");
+                assert!(
+                    (eps_bmp.transform.x - 385.0).abs() < 2.0
+                        && (eps_bmp.transform.y - 205.0).abs() < 2.0,
+                    "EPS Paste in Place must preserve Bitmap at (385, 205), got {:?}",
+                    eps_bmp.transform
+                );
                 dst_eps.undo();
                 assert_eq!(dst_eps.project, baseline);
             }

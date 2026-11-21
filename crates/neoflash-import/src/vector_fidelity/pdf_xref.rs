@@ -864,6 +864,7 @@ fn read_be_u64(slice: &[u8]) -> u64 {
 fn decode_xref_stream_entries(
     stream: &Stream,
     slots: &mut BTreeMap<u32, XrefSlot>,
+    decoded_used: &mut usize,
 ) -> Result<(), String> {
     let dict = &stream.dict;
     let size = dict
@@ -902,7 +903,12 @@ fn decode_xref_stream_entries(
         vec![0, size]
     };
 
-    let (raw, _) = decode_pdf_stream_pipeline(stream, None, MAX_PDF_STREAM_DECODE_BYTES, false)?;
+    let remaining = MAX_PDF_STREAM_DECODE_BYTES.saturating_sub(*decoded_used);
+    if remaining == 0 {
+        return Err("PDF /XRef stream exceeds cumulative 64 MiB decoding budget".into());
+    }
+    let (raw, _) = decode_pdf_stream_pipeline(stream, None, remaining, false)?;
+    *decoded_used = decoded_used.saturating_add(raw.len());
     let mut pos = 0usize;
     for pair in indices.as_chunks::<2>().0 {
         let (start_id, count) = (pair[0], pair[1]);
@@ -989,6 +995,7 @@ fn unpack_object_stream(
     container_id: u32,
     out_objects: &mut BTreeMap<ObjectId, Object>,
     visited_streams: &mut HashSet<u32>,
+    decoded_used: &mut usize,
 ) -> Result<(), String> {
     if !visited_streams.insert(container_id) || visited_streams.len() > 4096 {
         return Ok(());
@@ -1013,8 +1020,12 @@ fn unpack_object_stream(
         return Err("invalid /N or /First in /ObjStm".into());
     }
     let (n, first) = (n as usize, first as usize);
-    let (raw, _) =
-        decode_pdf_stream_pipeline(stream, Some(doc), MAX_PDF_STREAM_DECODE_BYTES, false)?;
+    let remaining = MAX_PDF_STREAM_DECODE_BYTES.saturating_sub(*decoded_used);
+    if remaining == 0 {
+        return Err("PDF /ObjStm streams exceed cumulative 64 MiB decoding budget".into());
+    }
+    let (raw, _) = decode_pdf_stream_pipeline(stream, Some(doc), remaining, false)?;
+    *decoded_used = decoded_used.saturating_add(raw.len());
     if first > raw.len() {
         return Err("/First exceeds /ObjStm length".into());
     }
@@ -1035,6 +1046,9 @@ fn unpack_object_stream(
     }
 
     for (id_num, rel_off) in pairs {
+        if doc.objects.len().saturating_add(out_objects.len()) >= MAX_PDF_OBJECTS {
+            return Err("PDF object table exceeds safety budget".into());
+        }
         let abs_off = first.saturating_add(rel_off);
         if abs_off >= raw.len() {
             continue;
@@ -1046,12 +1060,12 @@ fn unpack_object_stream(
     }
 
     if let Ok(ext_ref) = stream.dict.get(b"Extends").and_then(Object::as_reference) {
-        unpack_object_stream(doc, ext_ref.0, out_objects, visited_streams)?;
+        unpack_object_stream(doc, ext_ref.0, out_objects, visited_streams, decoded_used)?;
     }
     Ok(())
 }
 
-fn parse_pdf_17_bounded(pdf_bytes: &[u8]) -> Result<Document, String> {
+fn parse_pdf_17_bounded(pdf_bytes: &[u8]) -> Result<(Document, usize), String> {
     let header_end = pdf_bytes
         .iter()
         .position(|&b| b == b'\r' || b == b'\n')
@@ -1070,6 +1084,7 @@ fn parse_pdf_17_bounded(pdf_bytes: &[u8]) -> Result<Document, String> {
     let mut slots: BTreeMap<u32, XrefSlot> = BTreeMap::new();
     let mut queue = VecDeque::from([start_xref]);
     let mut visited_xrefs = HashSet::new();
+    let mut decoded_used = 0usize;
 
     while let Some(xref_off) = queue.pop_front() {
         if xref_off >= pdf_bytes.len()
@@ -1094,7 +1109,7 @@ fn parse_pdf_17_bounded(pdf_bytes: &[u8]) -> Result<Document, String> {
             if xref_stream.dict.get(b"Type").and_then(Object::as_name).ok() != Some(b"XRef") {
                 return Err("stream at startxref is not /Type /XRef".into());
             }
-            decode_xref_stream_entries(&xref_stream, &mut slots)?;
+            decode_xref_stream_entries(&xref_stream, &mut slots, &mut decoded_used)?;
             xref_stream.dict
         };
 
@@ -1160,7 +1175,7 @@ fn parse_pdf_17_bounded(pdf_bytes: &[u8]) -> Result<Document, String> {
         }
     }
 
-    // Pass 2: unpack compressed objects from `/Type /ObjStm` containers.
+    // Pass 2: unpack compressed objects from `/Type /ObjStm` containers against the shared 64 MiB budget.
     let mut containers: Vec<u32> = slots
         .values()
         .filter_map(|slot| match *slot {
@@ -1181,34 +1196,30 @@ fn parse_pdf_17_bounded(pdf_bytes: &[u8]) -> Result<Document, String> {
     let mut unpacked = BTreeMap::new();
     let mut visited_streams = HashSet::new();
     for cid in containers {
-        unpack_object_stream(&doc, cid, &mut unpacked, &mut visited_streams)?;
+        unpack_object_stream(
+            &doc,
+            cid,
+            &mut unpacked,
+            &mut visited_streams,
+            &mut decoded_used,
+        )?;
     }
     for (oid, obj) in unpacked {
         max_id = max_id.max(oid.0);
         doc.objects.entry(oid).or_insert(obj);
     }
     doc.max_id = max_id;
-    Ok(doc)
+    Ok((doc, decoded_used))
 }
 
-pub(super) fn load_pdf_document_bounded(raw_bytes: &[u8]) -> Result<Document, ImportError> {
+pub(super) fn load_pdf_document_bounded(
+    raw_bytes: &[u8],
+) -> Result<(Document, usize), ImportError> {
     let error = |msg: &str| ImportError::Container(format!("PDF page import: {msg}"));
     let head_window = &raw_bytes[..raw_bytes.len().min(1024)];
     let Some(hdr_pos) = head_window.windows(5).position(|w| w == b"%PDF-") else {
         return Err(error("missing %PDF- header within first 1024 bytes"));
     };
     let pdf_bytes = &raw_bytes[hdr_pos..];
-    match parse_pdf_17_bounded(pdf_bytes) {
-        Ok(doc) => Ok(doc),
-        Err(primary_err) => {
-            if primary_err.contains("unencrypted") {
-                return Err(error(&primary_err));
-            }
-            let doc = Document::load_mem(pdf_bytes).map_err(|_| error(&primary_err))?;
-            if doc.is_encrypted() {
-                return Err(error("Unlock the document and save an unencrypted PDF."));
-            }
-            Ok(doc)
-        }
-    }
+    parse_pdf_17_bounded(pdf_bytes).map_err(|e| error(&e))
 }

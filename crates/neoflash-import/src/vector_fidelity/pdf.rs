@@ -16,18 +16,25 @@ use super::*;
 use image::{ImageEncoder, Limits, RgbaImage};
 use lopdf::{Dictionary, Document, Object, ObjectId};
 use neoflash_core::BlendMode;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::Cursor;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 pub(super) const MAX_PDF_FORM_DEPTH: usize = 32;
 pub(super) const MAX_PDF_IMAGE_DIM: u32 = 4096;
 pub(super) const MAX_PDF_IMAGE_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
+pub(super) struct PdfFormRef {
+    pub id: Option<ObjectId>,
+    pub name: String,
+    pub stream: lopdf::Stream,
+}
+
+#[derive(Clone, Debug)]
 pub(super) struct PdfSoftMask {
     pub mode: MaskMode,
-    pub form: Box<PdfFormXObject>,
+    pub form_ref: PdfFormRef,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -65,13 +72,13 @@ pub(super) struct PdfImageXObject {
 #[derive(Clone, Debug)]
 pub(super) struct PdfResourceScope {
     pub doc: Arc<Document>,
+    pub(super) caches: Arc<Mutex<PdfParseCaches>>,
     pub color_spaces: BTreeMap<String, PdfColorSpace>,
     pub shadings: BTreeMap<String, GradientPaint>,
     pub patterns: BTreeMap<String, GradientPaint>,
     pub ext_gstates: BTreeMap<String, PdfExtGState>,
     pub fonts: BTreeMap<String, PdfFontResource>,
-    pub forms: BTreeMap<String, PdfFormXObject>,
-    pub cyclic_forms: HashSet<String>,
+    pub forms: BTreeMap<String, PdfFormRef>,
     pub images: BTreeMap<String, PdfImageXObject>,
     pub unsupported_xobjects: BTreeMap<String, String>,
     pub warnings: Vec<(String, String)>,
@@ -81,17 +88,94 @@ impl PdfResourceScope {
     pub fn empty() -> Self {
         Self {
             doc: Arc::new(Document::new()),
+            caches: Arc::new(Mutex::new(PdfParseCaches::new(0))),
             color_spaces: BTreeMap::new(),
             shadings: BTreeMap::new(),
             patterns: BTreeMap::new(),
             ext_gstates: BTreeMap::new(),
             fonts: BTreeMap::new(),
             forms: BTreeMap::new(),
-            cyclic_forms: HashSet::new(),
             images: BTreeMap::new(),
             unsupported_xobjects: BTreeMap::new(),
             warnings: Vec::new(),
         }
+    }
+
+    pub fn resolve_form(&self, form_ref: &PdfFormRef) -> Result<Arc<PdfFormXObject>, ImportError> {
+        if let Some(oid) = form_ref.id
+            && let Ok(guard) = self.caches.lock()
+            && let Some(existing) = guard.parsed_forms.get(&oid)
+        {
+            return Ok(Arc::clone(existing));
+        }
+
+        let dict = &form_ref.stream.dict;
+        let bbox = dict
+            .get(b"BBox")
+            .ok()
+            .and_then(|o| self.doc.dereference(o).ok().map(|(_, r)| r).or(Some(o)))
+            .and_then(numbers)
+            .and_then(|v| <[f64; 4]>::try_from(v).ok())
+            .filter(|b| b.iter().all(|v| v.is_finite()))
+            .unwrap_or([0.0, 0.0, 100.0, 100.0]);
+        let matrix = dict
+            .get(b"Matrix")
+            .ok()
+            .and_then(|o| self.doc.dereference(o).ok().map(|(_, r)| r).or(Some(o)))
+            .and_then(numbers)
+            .and_then(|v| <[f64; 6]>::try_from(v).ok())
+            .filter(|m| m.iter().all(|v| v.is_finite()))
+            .unwrap_or([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+
+        let remaining = self
+            .caches
+            .lock()
+            .map(|g| MAX_PDF_DECODED_STREAM_BYTES.saturating_sub(g.total_decoded_bytes))
+            .unwrap_or(0);
+        if remaining == 0 {
+            return Err(ImportError::Container(
+                "PDF Form XObject streams exceed the cumulative 64 MiB decoding budget.".into(),
+            ));
+        }
+        let raw = decode_pdf_stream_bounded(&form_ref.stream, remaining.min(16 * 1024 * 1024))?;
+        if let Ok(mut guard) = self.caches.lock() {
+            if guard.total_decoded_bytes.saturating_add(raw.len()) > MAX_PDF_DECODED_STREAM_BYTES {
+                return Err(ImportError::Container(
+                    "PDF Form XObject streams exceed the cumulative 64 MiB decoding budget.".into(),
+                ));
+            }
+            guard.total_decoded_bytes += raw.len();
+        }
+
+        let (res_oid, res_dict) = match dict.get(b"Resources") {
+            Ok(o) => {
+                let oid = o.as_reference().ok();
+                (oid, function_dict(&self.doc, o))
+            }
+            Err(_) => (None, None),
+        };
+        let scope = parse_resource_scope_with_cache(
+            &self.doc,
+            res_oid,
+            res_dict,
+            Some(self),
+            &self.caches,
+        )?;
+
+        let built = Arc::new(PdfFormXObject {
+            id: form_ref.id,
+            name: form_ref.name.clone(),
+            bbox,
+            matrix,
+            content: String::from_utf8_lossy(&raw).into_owned(),
+            scope: Box::new(scope),
+        });
+        if let Some(oid) = form_ref.id
+            && let Ok(mut guard) = self.caches.lock()
+        {
+            guard.parsed_forms.insert(oid, Arc::clone(&built));
+        }
+        Ok(built)
     }
 }
 
@@ -118,19 +202,31 @@ impl Page {
         }
     }
 
-    /// Stage-space `[min_x, min_y, max_x, max_y]` (Y-down relative to `/MediaBox` top-left).
+    /// Stage-space `[min_x, min_y, max_x, max_y]` (Y-down relative to `/MediaBox` top-left,
+    /// accounting for `/Rotate` `0 | 90 | 180 | 270`).
     pub fn stage_bounds(&self) -> [f64; 4] {
         let [bx0, by0, bx1, by1] = self.bounds;
-        let bw = (bx1 - bx0).max(0.0);
-        let bh = (by1 - by0).max(0.0);
-        if let Some([mx0, _my0, _mx1, my1]) = self.media_box
-            && self.media_box != Some(self.bounds)
-        {
-            let sx0 = bx0 - mx0;
-            let sy0 = my1 - by1;
-            return [sx0, sy0, sx0 + bw, sy0 + bh];
+        let [mx0, my0, mx1, my1] = self.media_box.unwrap_or(self.bounds);
+        let media_to_stage = match self.rotation.rem_euclid(360) {
+            90 => [0.0, 1.0, 1.0, 0.0, -my0, -mx0],
+            180 => [-1.0, 0.0, 0.0, 1.0, mx1, -my0],
+            270 => [0.0, -1.0, -1.0, 0.0, my1, mx1],
+            _ => [1.0, 0.0, 0.0, -1.0, -mx0, my1],
+        };
+        let corners = [(bx0, by0), (bx1, by0), (bx1, by1), (bx0, by1)];
+        let mut sx0 = f64::INFINITY;
+        let mut sy0 = f64::INFINITY;
+        let mut sx1 = f64::NEG_INFINITY;
+        let mut sy1 = f64::NEG_INFINITY;
+        for (px, py) in corners {
+            let tx = media_to_stage[0] * px + media_to_stage[2] * py + media_to_stage[4];
+            let ty = media_to_stage[1] * px + media_to_stage[3] * py + media_to_stage[5];
+            sx0 = sx0.min(tx);
+            sy0 = sy0.min(ty);
+            sx1 = sx1.max(tx);
+            sy1 = sy1.max(ty);
         }
-        [0.0, 0.0, bw, bh]
+        [sx0, sy0, sx1, sy1]
     }
 }
 
@@ -190,9 +286,23 @@ fn map_pdf_blend_mode_name(name: &[u8]) -> Option<(BlendMode, Option<String>)> {
     }
 }
 
-struct PdfParseCaches {
+#[derive(Debug)]
+pub(super) struct PdfParseCaches {
     decoded_images: HashMap<ObjectId, PdfImageXObject>,
+    parsed_forms: HashMap<ObjectId, Arc<PdfFormXObject>>,
+    parsed_scopes: HashMap<ObjectId, PdfResourceScope>,
     total_decoded_bytes: usize,
+}
+
+impl PdfParseCaches {
+    fn new(initial_decoded_bytes: usize) -> Self {
+        Self {
+            decoded_images: HashMap::new(),
+            parsed_forms: HashMap::new(),
+            parsed_scopes: HashMap::new(),
+            total_decoded_bytes: initial_decoded_bytes,
+        }
+    }
 }
 
 fn decode_image_raw_to_rgba(
@@ -421,94 +531,9 @@ fn decode_pdf_image_rgba(
     Ok(Some(base_img))
 }
 
-#[allow(clippy::too_many_arguments)]
-fn parse_form_xobject(
-    doc: &Arc<Document>,
-    obj_id: Option<ObjectId>,
-    name: &str,
-    stream: &lopdf::Stream,
-    parent_scope: Option<&PdfResourceScope>,
-    caches: &mut PdfParseCaches,
-    active_forms: &mut HashSet<ObjectId>,
-    form_depth: usize,
-) -> Result<PdfFormXObject, ImportError> {
-    if form_depth >= MAX_PDF_FORM_DEPTH {
-        return Err(ImportError::Container(format!(
-            "PDF Form XObject nesting exceeds maximum depth of {MAX_PDF_FORM_DEPTH}."
-        )));
-    }
-    if let Some(id) = obj_id
-        && !active_forms.insert(id)
-    {
-        return Err(ImportError::Container(
-            "Cyclic PDF Form XObject reference detected.".into(),
-        ));
-    }
-
-    let result = (|| {
-        let dict = &stream.dict;
-        let bbox = dict
-            .get(b"BBox")
-            .ok()
-            .and_then(|o| doc.dereference(o).ok().map(|(_, r)| r).or(Some(o)))
-            .and_then(numbers)
-            .and_then(|v| <[f64; 4]>::try_from(v).ok())
-            .filter(|b| b.iter().all(|v| v.is_finite()))
-            .unwrap_or([0.0, 0.0, 100.0, 100.0]);
-        let matrix = dict
-            .get(b"Matrix")
-            .ok()
-            .and_then(|o| doc.dereference(o).ok().map(|(_, r)| r).or(Some(o)))
-            .and_then(numbers)
-            .and_then(|v| <[f64; 6]>::try_from(v).ok())
-            .filter(|m| m.iter().all(|v| v.is_finite()))
-            .unwrap_or([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
-
-        let remaining = MAX_PDF_DECODED_STREAM_BYTES.saturating_sub(caches.total_decoded_bytes);
-        if remaining == 0 {
-            return Err(ImportError::Container(
-                "PDF Form XObject streams exceed the 64 MiB decoding budget.".into(),
-            ));
-        }
-        let raw = decode_pdf_stream_bounded(stream, remaining.min(16 * 1024 * 1024))?;
-        caches.total_decoded_bytes = caches.total_decoded_bytes.saturating_add(raw.len());
-
-        let res_dict = dict
-            .get(b"Resources")
-            .ok()
-            .and_then(|o| function_dict(doc, o));
-        let scope = parse_resource_scope(
-            doc,
-            res_dict,
-            parent_scope,
-            caches,
-            active_forms,
-            form_depth + 1,
-        )?;
-
-        Ok(PdfFormXObject {
-            id: obj_id,
-            name: name.to_owned(),
-            bbox,
-            matrix,
-            content: String::from_utf8_lossy(&raw).into_owned(),
-            scope: Box::new(scope),
-        })
-    })();
-
-    if let Some(id) = obj_id {
-        active_forms.remove(&id);
-    }
-    result
-}
-
 fn parse_ext_gstate(
     doc: &Arc<Document>,
     obj: &Object,
-    parent_scope: Option<&PdfResourceScope>,
-    caches: &mut PdfParseCaches,
-    active_forms: &mut HashSet<ObjectId>,
-    form_depth: usize,
 ) -> Result<Option<PdfExtGState>, ImportError> {
     let Some(dict) = function_dict(doc, obj) else {
         return Ok(None);
@@ -586,19 +611,13 @@ fn parse_ext_gstate(
                 Err(_) => (None, g_ref),
             };
             if let Object::Stream(g_stream) = resolved_g {
-                let form = parse_form_xobject(
-                    doc,
-                    form_oid,
-                    "SMask",
-                    g_stream,
-                    parent_scope,
-                    caches,
-                    active_forms,
-                    form_depth,
-                )?;
                 gs.smask = Some(PdfSoftMask {
                     mode,
-                    form: Box::new(form),
+                    form_ref: PdfFormRef {
+                        id: form_oid,
+                        name: "SMask".to_owned(),
+                        stream: g_stream.clone(),
+                    },
                 });
             }
         }
@@ -607,13 +626,44 @@ fn parse_ext_gstate(
     Ok(Some(gs))
 }
 
-fn parse_resource_scope(
+fn merge_scope_overlay(base: &mut PdfResourceScope, overlay: &PdfResourceScope) {
+    base.color_spaces.extend(
+        overlay
+            .color_spaces
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone())),
+    );
+    base.shadings
+        .extend(overlay.shadings.iter().map(|(k, v)| (k.clone(), v.clone())));
+    base.patterns
+        .extend(overlay.patterns.iter().map(|(k, v)| (k.clone(), v.clone())));
+    base.ext_gstates.extend(
+        overlay
+            .ext_gstates
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone())),
+    );
+    base.fonts
+        .extend(overlay.fonts.iter().map(|(k, v)| (k.clone(), v.clone())));
+    base.forms
+        .extend(overlay.forms.iter().map(|(k, v)| (k.clone(), v.clone())));
+    base.images
+        .extend(overlay.images.iter().map(|(k, v)| (k.clone(), v.clone())));
+    base.unsupported_xobjects.extend(
+        overlay
+            .unsupported_xobjects
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone())),
+    );
+    base.warnings.extend(overlay.warnings.iter().cloned());
+}
+
+fn parse_resource_scope_with_cache(
     doc: &Arc<Document>,
+    res_oid: Option<ObjectId>,
     resources: Option<&Dictionary>,
     parent_scope: Option<&PdfResourceScope>,
-    caches: &mut PdfParseCaches,
-    active_forms: &mut HashSet<ObjectId>,
-    form_depth: usize,
+    caches: &Arc<Mutex<PdfParseCaches>>,
 ) -> Result<PdfResourceScope, ImportError> {
     let mut scope = if let Some(parent) = parent_scope {
         let mut inherited_scope = parent.clone();
@@ -622,12 +672,25 @@ fn parse_resource_scope(
     } else {
         let mut s = PdfResourceScope::empty();
         s.doc = Arc::clone(doc);
+        s.caches = Arc::clone(caches);
         s
     };
 
     let Some(res) = resources else {
         return Ok(scope);
     };
+
+    if let Some(oid) = res_oid
+        && let Ok(guard) = caches.lock()
+        && let Some(cached_overlay) = guard.parsed_scopes.get(&oid)
+    {
+        merge_scope_overlay(&mut scope, cached_overlay);
+        return Ok(scope);
+    }
+
+    let mut local_overlay = PdfResourceScope::empty();
+    local_overlay.doc = Arc::clone(doc);
+    local_overlay.caches = Arc::clone(caches);
 
     let cs_dict = res
         .get(b"ColorSpace")
@@ -637,7 +700,7 @@ fn parse_resource_scope(
     if let Some(dict) = cs_dict {
         for (name, value) in dict.iter() {
             if let Some(cs) = parse_pdf_color_space(doc, value, Some(dict), 0) {
-                scope
+                local_overlay
                     .color_spaces
                     .insert(String::from_utf8_lossy(name).into_owned(), cs);
             }
@@ -653,9 +716,9 @@ fn parse_resource_scope(
             if let Some((paint, warn)) = parse_shading_with_cs(doc, value, cs_dict) {
                 let key = String::from_utf8_lossy(name).into_owned();
                 if let Some(msg) = warn {
-                    scope.warnings.push((key.clone(), msg));
+                    local_overlay.warnings.push((key.clone(), msg));
                 }
-                scope.shadings.insert(key, paint);
+                local_overlay.shadings.insert(key, paint);
             }
         }
     }
@@ -669,9 +732,9 @@ fn parse_resource_scope(
             if let Some((paint, warn)) = parse_shading_pattern_with_cs(doc, value, cs_dict) {
                 let key = String::from_utf8_lossy(name).into_owned();
                 if let Some(msg) = warn {
-                    scope.warnings.push((key.clone(), msg));
+                    local_overlay.warnings.push((key.clone(), msg));
                 }
-                scope.patterns.insert(key, paint);
+                local_overlay.patterns.insert(key, paint);
             }
         }
     }
@@ -683,7 +746,7 @@ fn parse_resource_scope(
     {
         for (name, value) in dict.iter() {
             if let Some(font) = parse_pdf_font_resource(doc, value) {
-                scope
+                local_overlay
                     .fonts
                     .insert(String::from_utf8_lossy(name).into_owned(), font);
             }
@@ -696,10 +759,8 @@ fn parse_resource_scope(
         .and_then(|obj| function_dict(doc, obj))
     {
         for (name, value) in dict.iter() {
-            if let Some(gs) =
-                parse_ext_gstate(doc, value, Some(&scope), caches, active_forms, form_depth)?
-            {
-                scope
+            if let Some(gs) = parse_ext_gstate(doc, value)? {
+                local_overlay
                     .ext_gstates
                     .insert(String::from_utf8_lossy(name).into_owned(), gs);
             }
@@ -728,37 +789,39 @@ fn parse_resource_scope(
                 .unwrap_or(b"");
             match subtype {
                 b"Form" => {
-                    if let Some(id) = oid
-                        && active_forms.contains(&id)
-                    {
-                        // Shared `/Resources` dictionaries often list ancestor `/Form` XObjects;
-                        // record in `cyclic_forms` so only an actual recursive `Do` invocation errors!
-                        scope.forms.remove(&key);
-                        scope.cyclic_forms.insert(key);
-                        continue;
-                    }
-                    let form = parse_form_xobject(
-                        doc,
-                        oid,
-                        &key,
-                        stream,
-                        Some(&scope),
-                        caches,
-                        active_forms,
-                        form_depth,
-                    )?;
-                    scope.forms.insert(key, form);
+                    // Lazy reference: resolved & memoized on actual `Do` execution!
+                    local_overlay.forms.insert(
+                        key.clone(),
+                        PdfFormRef {
+                            id: oid,
+                            name: key,
+                            stream: stream.clone(),
+                        },
+                    );
                 }
                 b"Image" => {
                     if let Some(id) = oid
-                        && let Some(cached) = caches.decoded_images.get(&id)
+                        && let Ok(guard) = caches.lock()
+                        && let Some(cached) = guard.decoded_images.get(&id)
                     {
-                        scope.images.insert(key, cached.clone());
+                        local_overlay.images.insert(key, cached.clone());
                         continue;
                     }
                     if let Some(rgba) = decode_pdf_image_rgba(doc, stream, cs_dict, 0)? {
                         let w = rgba.width();
                         let h = rgba.height();
+                        let raw_rgba_len = rgba.as_raw().len();
+                        if let Ok(mut guard) = caches.lock() {
+                            if guard.total_decoded_bytes.saturating_add(raw_rgba_len)
+                                > MAX_PDF_DECODED_STREAM_BYTES
+                            {
+                                return Err(ImportError::Container(
+                                    "PDF Image XObjects exceed cumulative 64 MiB decoding budget."
+                                        .into(),
+                                ));
+                            }
+                            guard.total_decoded_bytes += raw_rgba_len;
+                        }
                         let mut png = Vec::new();
                         image::codecs::png::PngEncoder::new(&mut png)
                             .write_image(rgba.as_raw(), w, h, image::ExtendedColorType::Rgba8)
@@ -772,18 +835,20 @@ fn parse_resource_scope(
                             height: h,
                             png_bytes: png,
                         };
-                        if let Some(id) = oid {
-                            caches.decoded_images.insert(id, img_xobj.clone());
+                        if let Some(id) = oid
+                            && let Ok(mut guard) = caches.lock()
+                        {
+                            guard.decoded_images.insert(id, img_xobj.clone());
                         }
-                        scope.images.insert(key, img_xobj);
+                        local_overlay.images.insert(key, img_xobj);
                     } else {
-                        scope
+                        local_overlay
                             .unsupported_xobjects
                             .insert(key, "Unsupported PDF Image XObject encoding".into());
                     }
                 }
                 other => {
-                    scope.unsupported_xobjects.insert(
+                    local_overlay.unsupported_xobjects.insert(
                         key,
                         format!(
                             "Unsupported PDF XObject subtype '/{}'",
@@ -795,20 +860,25 @@ fn parse_resource_scope(
         }
     }
 
+    merge_scope_overlay(&mut scope, &local_overlay);
+    if let Some(oid) = res_oid
+        && let Ok(mut guard) = caches.lock()
+    {
+        guard.parsed_scopes.insert(oid, local_overlay);
+    }
+
     Ok(scope)
 }
 
 pub(super) fn pages(bytes: &[u8]) -> Result<Vec<Page>, ImportError> {
     let error = |msg: &str| ImportError::Container(format!("PDF page import: {msg}"));
-    let doc = Arc::new(load_pdf_document_bounded(bytes)?);
+    let (loaded_doc, initial_decoded_bytes) = load_pdf_document_bounded(bytes)?;
+    let doc = Arc::new(loaded_doc);
     if doc.is_encrypted() {
         return Err(error("Unlock the document and save an unencrypted PDF."));
     }
     let mut result = Vec::new();
-    let mut caches = PdfParseCaches {
-        decoded_images: HashMap::new(),
-        total_decoded_bytes: 0,
-    };
+    let caches = Arc::new(Mutex::new(PdfParseCaches::new(initial_decoded_bytes)));
 
     for id in doc.page_iter() {
         if result.len() >= 256 {
@@ -830,8 +900,9 @@ pub(super) fn pages(bytes: &[u8]) -> Result<Vec<Page>, ImportError> {
             .unwrap_or(0);
 
         let mut content = Vec::new();
-        let page_limit = (MAX_PDF_DECODED_STREAM_BYTES.saturating_sub(caches.total_decoded_bytes))
-            .min(16 * 1024 * 1024);
+        let cur_used = caches.lock().map(|g| g.total_decoded_bytes).unwrap_or(0);
+        let page_limit =
+            (MAX_PDF_DECODED_STREAM_BYTES.saturating_sub(cur_used)).min(16 * 1024 * 1024);
         for stream_id in doc.get_page_contents(id) {
             let stream = doc
                 .get_object(stream_id)
@@ -848,11 +919,19 @@ pub(super) fn pages(bytes: &[u8]) -> Result<Vec<Page>, ImportError> {
                 return Err(error("page instructions exceed the decoding budget"));
             }
         }
-        caches.total_decoded_bytes = caches.total_decoded_bytes.saturating_add(content.len());
+        if let Ok(mut guard) = caches.lock() {
+            if guard.total_decoded_bytes.saturating_add(content.len())
+                > MAX_PDF_DECODED_STREAM_BYTES
+            {
+                return Err(error(
+                    "page instructions exceed cumulative 64 MiB decoding budget",
+                ));
+            }
+            guard.total_decoded_bytes += content.len();
+        }
 
         let res_dict = inherited(&doc, id, b"Resources").and_then(|v| function_dict(&doc, v));
-        let mut active_forms = HashSet::new();
-        let scope = parse_resource_scope(&doc, res_dict, None, &mut caches, &mut active_forms, 0)?;
+        let scope = parse_resource_scope_with_cache(&doc, None, res_dict, None, &caches)?;
 
         result.push(Page {
             content: String::from_utf8_lossy(&content).into_owned(),

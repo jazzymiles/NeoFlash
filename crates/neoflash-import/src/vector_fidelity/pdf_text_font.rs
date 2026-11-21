@@ -1315,7 +1315,7 @@ impl PdfTextBlockBuilder {
                     let fs = prev.font_size_local.max(1.0);
                     let expected_end_x = prev.advance_local;
                     let gap_x = rel_x - expected_end_x;
-                    // Same baseline continuation
+                    // Same baseline continuation (preserve separate Td/Tm baselines as distinct elements!)
                     if rel_y.abs() <= fs * 0.18 && gap_x >= -fs * 0.45 && gap_x <= fs * 1.8 {
                         let mut adjusted = span.clone();
                         if gap_x >= fs * 0.22
@@ -1325,13 +1325,6 @@ impl PdfTextBlockBuilder {
                             adjusted.text.insert(0, ' ');
                         }
                         last_group.spans.push((adjusted, false));
-                        merged = true;
-                    } else if (-fs * 2.4..=-fs * 0.65).contains(&rel_y)
-                        && rel_x >= -prev.advance_local - fs * 2.0
-                        && rel_x <= fs * 2.0
-                    {
-                        // Sequential paragraph line inside the same `BT..ET` text frame
-                        last_group.spans.push((span.clone(), true));
                         merged = true;
                     }
                 }
