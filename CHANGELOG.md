@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Scripting Reference entries now place the concise call syntax (**Usage**) at the top followed by the formal typed declaration (**Signature**) and a runnable test snippet with `trace(...)` and expected `// Output:` in **Example** across all ActionScript 2, ActionScript 3 and JavaScript / TypeScript declarations. Every code block across Help and Scripting Reference has a one-click **Copy** button, and all prose, parameter tables, status notes, reference tables and code blocks are selectable and copyable with `⌘C` / **Edit ▸ Copy**.
+
 - Tab and Shift+Tab stay inside F1 search. Timeline layers and Swatches colours show which item has keyboard focus. Helper text in Mid Neutral Gray has at least 4.5:1 contrast on panels, fields and dialogs.
 
 - Drag a panel to the edge of another docked group to split that group horizontally or vertically. Nested dividers resize their own panels, and saved workspaces restore the layout.

@@ -228,7 +228,7 @@
         },
         {
           "id": "stable-help-manual",
-          "title": "Resizable illustrated Help window and resizable Scripting Reference API browser (one language at a time, members with support status, signatures, examples, Insert at cursor, Guides) with portable browser edition",
+          "title": "Resizable illustrated Help window and Scripting Reference API browser (top Usage and Signature blocks, runnable Examples with trace Output, Copy on every code block, full text selection, Insert at cursor, Guides) with portable browser edition",
           "status": "working"
         },
         {
@@ -345,6 +345,8 @@
         "crates/neoflash-editor/src/native_windows.rs",
         "crates/neoflash-editor/src/stage_cursor.rs",
         "crates/neoflash-editor/src/panels/help_as_reference.rs",
+        "crates/neoflash-editor/src/panels/help_as_reference/api_examples.rs",
+        "crates/neoflash-editor/src/panels/help_as_reference/api_browser_ui.rs",
         "crates/neoflash-editor/src/timeline_panels_tests.rs",
         "web/preview.js",
         "web/tests/preview-trace-bridge.test.cjs"
