@@ -878,6 +878,53 @@ test('SWF loader blocks constructor/__proto__/prototype sandbox escapes, escapes
       assert.equal(functionsMap.size, 0, `cycle ${cycle}: Loader.unload() deletes child functions entries`);
       assert.equal(baseProj.resources.length, 0, `cycle ${cycle}: Loader.unload() retires child resources`);
     }
+
+    // Reparenting loader.content to stage or another container before loader.unload() must keep
+    // child frame scripts & resources alive until the reparented clip is finally removed.
+    const repSymPayload = new BitWriter();
+    repSymPayload.writeU16(1);
+    repSymPayload.writeU16(0);
+    repSymPayload.writeCString('MainDoc');
+    const reparentSwf = wrapSwf('FWS', 13, 80, 60, 30, 2, [
+      makeSwfTag(69, Buffer.from([0x08, 0, 0, 0])),
+      makeSolidRectShapeTag(1, 12, 12, 0x2288cc),
+      makePlaceObject2({ depth: 1, charId: 1, txPx: 4, tyPx: 4 }),
+      makeAvm2DoAbc2Tag(),
+      makeSwfTag(76, repSymPayload.toBuffer()),
+      makeSwfTag(1, Buffer.alloc(0)), // frame 1
+      makePlaceObject2({ depth: 1, txPx: 20, tyPx: 4, move: true }),
+      makeSwfTag(1, Buffer.alloc(0)), // frame 2
+    ]);
+
+    const Sprite = prog.type('flash.display.Sprite');
+    const holderSprite = new Sprite();
+    rootClip.addChild(holderSprite);
+
+    for (const targetParent of [rootClip, holderSprite]) {
+      const l3 = new Loader();
+      l3.contentLoaderInfo.addEventListener('ioError', e => { throw new Error('L3 ioError: ' + e.text); });
+      rootClip.addChild(l3);
+      l3.loadBytes(toBa(reparentSwf));
+      await new Promise(r => setTimeout(r, 15));
+
+      const reparented = l3.content;
+      assert.equal(reparented.avm2Count, 7, 'reparented AVM2 SWF initialized on frame 1');
+      targetParent.addChild(reparented);
+      l3.unload();
+      rootClip.removeChild(l3);
+
+      assert.equal(l3.content, null);
+      assert.ok(functionsMap.size > 0, 'reparented content retains compiled scripts after loader.unload()');
+
+      reparented.gotoAndStop(2);
+      host.dispatchScripts();
+      assert.equal(reparented.currentFrame, 2);
+      assert.equal(reparented.avm2Count, 202, 'reparented content executes frame 2 script after loader.unload()');
+
+      targetParent.removeChild(reparented);
+      assert.equal(functionsMap.size, 0, 'detaching reparented unloaded content releases child functions');
+      assert.equal(baseProj.resources.length, 0, 'detaching reparented unloaded content releases child resources');
+    }
   } finally {
     delete ({}).polluted;
     host.disposeFamily();

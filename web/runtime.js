@@ -483,7 +483,7 @@
           sctx.setTransform(tm.a,tm.b,tm.c,tm.d,tm.e-dx0,tm.f-dy0);
           sctx.drawImage(surface,bounds.left,bounds.top);
           const rawFg=sctx.getImageData(0,0,dw,dh).data;
-          let maskData=null,rx0=0,ry0=0,rx1=dw,ry1=dh;
+          let maskData=null;
           if(clip_ids.length){
             const mc=maskScratch||(maskScratch=typeof OffscreenCanvas==='function'?new OffscreenCanvas(1,1):global.document.createElement('canvas'));
             if(mc.width!==dw||mc.height!==dh){mc.width=1;mc.height=dh;mc.width=dw;}
@@ -493,19 +493,19 @@
             const drawMaskFill=canvas=>{canvas.save();canvas.setTransform(1,0,0,1,0,0);canvas.fillStyle='#ffffff';canvas.fillRect(0,0,dw,dh);canvas.restore();};
             clippings.draw(mctx,{clip_ids},clips,paths,drawMaskFill,{bounds,bitmaps:bitmapHost?.cache});
             maskData=mctx.getImageData(0,0,dw,dh).data;
-            let minX=dw,minY=dh,maxX=-1,maxY=-1;
-            for(let y=0;y<dh;y++){
-              const row=y*dw*4;
-              for(let x=0;x<dw;x++){
-                if(maskData[row+x*4+3]>0&&rawFg[row+x*4+3]>0){
-                  if(x<minX)minX=x;if(x>maxX)maxX=x;
-                  if(y<minY)minY=y;if(y>maxY)maxY=y;
-                }
+          }
+          let minX=dw,minY=dh,maxX=-1,maxY=-1;
+          for(let y=0;y<dh;y++){
+            const row=y*dw*4;
+            for(let x=0;x<dw;x++){
+              if(rawFg[row+x*4+3]>0&&(!maskData||maskData[row+x*4+3]>0)){
+                if(x<minX)minX=x;if(x>maxX)maxX=x;
+                if(y<minY)minY=y;if(y>maxY)maxY=y;
               }
             }
-            if(maxX<minX||maxY<minY)return;
-            rx0=minX;ry0=minY;rx1=maxX+1;ry1=maxY+1;
           }
+          if(maxX<minX||maxY<minY)return;
+          const rx0=minX,ry0=minY,rx1=maxX+1,ry1=maxY+1;
           const rw=rx1-rx0,rh=ry1-ry0;
           if(!(rw>0&&rh>0))return;
           const dstImg=target.getImageData(dx0+rx0,dy0+ry0,rw,rh),bgSub=dstImg.data;
@@ -521,11 +521,16 @@
           }
           const outBytes=evalBlend(bgSub,fgSub,rw,rh,spec);
           if(!maskData){
-            bgSub.set(outBytes);
+            for(let si=0;si<bgSub.length;si+=4){
+              if(fgSub[si+3]===0)continue;
+              bgSub[si]=outBytes[si];bgSub[si+1]=outBytes[si+1];bgSub[si+2]=outBytes[si+2];bgSub[si+3]=outBytes[si+3];
+            }
           }else{
             for(let y=0;y<rh;y++){
               for(let x=0;x<rw;x++){
-                const si=(y*rw+x)*4,ca=maskData[((ry0+y)*dw+(rx0+x))*4+3];
+                const si=(y*rw+x)*4;
+                if(fgSub[si+3]===0)continue;
+                const ca=maskData[((ry0+y)*dw+(rx0+x))*4+3];
                 if(ca===0)continue;
                 if(ca>=255){
                   bgSub[si]=outBytes[si];bgSub[si+1]=outBytes[si+1];bgSub[si+2]=outBytes[si+2];bgSub[si+3]=outBytes[si+3];
@@ -2033,6 +2038,7 @@
     let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, filterHost = null, audioHost = null, videoHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, externalHost = null, program = null, as2PlatformHost = null, as2ObjectHost = null, as2TextHost = null, as2DataHost = null, as2BindingHost = null, as2NetworkHost = null, as2FilesHost = null, as2LocaleHost = null, as2MediaHost = null, as2ServicesHost = null, as2TransitionsHost = null, as2DepthManagerHost = null, as2StageHost = null, as2CaptureHost = null, as2ConnectionsHost = null, as2BoxingHost = null, as2PrintHost = null;
     let geometryHost = null, geometry3dHost = null, easingHost = null, broadcasterHost = null, airHost = null, as3NetSysHost = null, fte3dHost = null, as3MediaEventsHost = null, domStageHost = null, currentBuiltins = null;
     let frameLabelType = null, sceneValueFactory = null;
+    let drainRetiredPublishedHook = () => {}, releaseAllMountedPublished = () => {};
     const consoleFormatHook = args => ({
       message: formatTraceArgs(args, { program }),
       location: sourceFrames(new Error())[0] || null,
@@ -2780,11 +2786,24 @@
             if(clean){mountedByPrefix.delete(pfx);releaseCleanEntry(clean);}
           }
         };
+        drainRetiredPublishedHook=()=>{if(mountedByPrefix.size)drainRetiredPublished();};
+        releaseAllMountedPublished=()=>{
+          for(const clean of mountedByPrefix.values())releaseCleanEntry(clean);
+          mountedByPrefix.clear();
+          mountedTargetUrl.clear();
+        };
         const cleanupPublishedResources=record=>{
           const clean=record?.publishedCleanup;if(!clean)return;
           record.publishedCleanup=null;
           if(clean.prefix)mountedByPrefix.delete(clean.prefix);
           releaseCleanEntry(clean);
+        };
+        const detachOrCleanupRecord=record=>{
+          const clean=record?.publishedCleanup;if(!clean)return;
+          record.publishedCleanup=null;
+          if(!clean.prefix||typeof player.drain_retired_published_prefixes!=='function'||!mountedByPrefix.has(clean.prefix)){
+            releaseCleanEntry(clean);
+          }
         };
         const resolveChildAssetUrl=(relUrl,bundleUrl)=>{
           const raw=String(relUrl||'').trim();
@@ -2827,7 +2846,7 @@
               }
             }
             if (needsTimelineConstruction(childBundle)) observeTimelineEvents();
-            cleanupPublishedResources(record);
+            detachOrCleanupRecord(record);
             const mounted=JSON.parse(player.loader_mount_project(JSON.stringify(record.ref),JSON.stringify(childBundle.project),Boolean(record.as2)));
             drainRetiredPublished();
             const resMap=mounted.resource_id_map||mounted.resource_map||{};
@@ -2926,7 +2945,7 @@
             }
             const out=JSON.parse(player.loader_unload_published(JSON.stringify(record.ref),Boolean(record.as2),Boolean(stopDetached)));
             drainRetiredPublished();
-            cleanupPublishedResources(record);
+            detachOrCleanupRecord(record);
             drainSounds();drainVideos();
             return out;
           },
@@ -3308,6 +3327,7 @@
       frameLabelDispatchedScopes.clear(); boundTextVariables.clear(); registeredClasses.clear();
       executedInitClips.clear(); clipFrameLabels.clear(); callFrameDepth = 0;
       activeLegacyCaller = null; loopTimeline = hostPlayerConfig.loop_timeline !== false; clearRedrawRegions();
+      releaseAllMountedPublished();
       if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0;
     }
     function clearPainters() {
@@ -3440,6 +3460,7 @@
       for (const [key,entry] of proxies) if (!player.object_alive(key)&&!pendingRetirementRefs.has(key)&&!retiringTargets.has(entry.proxy)) proxies.delete(key);
       display?.prune();
       if(!pendingRetirementRefs.size)eventHub?.prune();
+      drainRetiredPublishedHook();
     }
     function directChildrenOf(node, nodes, byKey) {
       if (graphMode && Array.isArray(node.children)) {
@@ -3712,7 +3733,7 @@
       if(graphMode)for(const[key,entry]of proxies)if(!player.object_alive(key)&&!pendingRetirementRefs.has(key)&&!retiringTargets.has(entry.proxy))proxies.delete(key);
     }
     function deliverDisplayEvents(events, options = null) {
-      if(!eventHub||!events?.length)return;
+      if(!eventHub||!events?.length){drainRetiredPublishedHook();return;}
       const rootRef=JSON.parse(player.object_ref('[]')),rootKey=JSON.stringify(rootRef);
       const types={added:'added',removed:'removed',added_to_stage:'addedToStage',removed_from_stage:'removedFromStage'};
       const timelineRetired=Boolean(options?.timelineRetired);
@@ -3776,6 +3797,7 @@
           const count=pendingRetirementRefs.get(key)||0;
           if(count>1)pendingRetirementRefs.set(key,count-1);else pendingRetirementRefs.delete(key);
         }
+        drainRetiredPublishedHook();
       }
     }
     function drainDisplayEvents() {

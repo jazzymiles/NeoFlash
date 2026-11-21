@@ -53,25 +53,28 @@ impl RuntimeGraph {
         &self,
         mutation: &DisplayMutation,
     ) -> Result<(), DisplayError> {
-        let (parent, first, second) = match mutation {
-            DisplayMutation::Add { parent, child, .. }
-            | DisplayMutation::Remove { parent, child }
-            | DisplayMutation::SetIndex { parent, child, .. } => (parent, child, None),
+        let (parent, first, second, allow_adopt) = match mutation {
+            DisplayMutation::Add { parent, child, .. } => (parent, child, None, true),
+            DisplayMutation::Remove { parent, child }
+            | DisplayMutation::SetIndex { parent, child, .. } => (parent, child, None, false),
             DisplayMutation::Swap {
                 parent,
                 first,
                 second,
-            } => (parent, first, Some(second)),
+            } => (parent, first, Some(second), false),
         };
         if self
             .dynamic
             .get(parent)
             .is_some_and(|n| n.kind == DynamicKind::Loader)
-            || self.loaders.iter().any(|(loader_ref, s)| {
-                s.content
-                    .as_ref()
-                    .is_some_and(|id| id != loader_ref && (id == first || Some(id) == second))
-            })
+            || (!allow_adopt
+                && self.loaders.iter().any(|(loader_ref, s)| {
+                    s.content.as_ref().is_some_and(|id| {
+                        id != loader_ref
+                            && self.parent(id).as_ref() == Some(loader_ref)
+                            && (id == first || Some(id) == second)
+                    })
+                }))
         {
             return Err(error(
                 "Loader owns its content child; use load/unload instead of child-list mutation",
@@ -280,6 +283,7 @@ impl Player {
                 .loaders
                 .get(target)
                 .and_then(|s| s.content.clone())
+                .filter(|cid| self.graph.parent(cid).as_ref() == Some(target))
                 .into_iter()
                 .collect()
         };
@@ -638,6 +642,33 @@ impl Player {
     /// timeline navigation, `Loader.unload` / `Loader.unloadAndStop`, or `removeMovieClip` / `removeChild`,
     /// returning every prefix whose resources were removed.
     pub fn drain_retired_published_prefixes(&mut self, project: &mut Project) -> Vec<String> {
+        let orphan_roots: Vec<ObjectRef> = self
+            .graph
+            .namespaces
+            .iter()
+            .filter_map(|(ns_root, ns)| {
+                let pfx = ns.mounted_prefix.as_deref()?;
+                let owned_by_loader = self
+                    .graph
+                    .loaders
+                    .values()
+                    .any(|s| s.mounted_prefix.as_deref() == Some(pfx));
+                if !owned_by_loader
+                    && !self.graph.on_stage(ns_root)
+                    && self.graph.parent(ns_root).is_none()
+                {
+                    Some(ns_root.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for root_ref in orphan_roots {
+            let subtree: BTreeSet<_> = self.graph.subtree(&root_ref).into_iter().collect();
+            let stopped_sounds = self.graph.retire_objects(&subtree);
+            self.sound.extend(stopped_sounds);
+        }
+
         let prefixes: Vec<String> = std::mem::take(&mut self.graph.retired_published_prefixes)
             .into_iter()
             .collect();
@@ -730,7 +761,15 @@ impl Player {
         child_project: Project,
         as2_replace: bool,
     ) -> Result<MountedPublishResult, DisplayError> {
-        self.drain_retired_published_prefixes(project);
+        let pending: Vec<String> = self
+            .graph
+            .retired_published_prefixes
+            .iter()
+            .cloned()
+            .collect();
+        for p in pending {
+            let _ = self.prune_unused_published_prefix(project, &p);
+        }
         child_project
             .validate_published_bundle()
             .map_err(|e| error(&format!("Invalid published NeoFlash bundle: {e}")))?;

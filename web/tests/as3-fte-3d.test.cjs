@@ -572,6 +572,158 @@ test('Pixel Bender Shaders, ShaderJob, ShaderFilter, GraphicsShaderFill, 3D Disp
       assert.equal(maskedBmp.getPixel32(6, 1) >>> 0, 0xff204080, 'unmasked (ca == 0) pixel must remain 0x204080');
       maskedBmp.dispose();
 
+      // Unmasked invert blendShader on disjoint foreground shapes: fg_alpha == 0 pixels inside AABB
+      // must NOT be overwritten, and outCoord() origin must tighten to fg_alpha > 0 bounds.
+      const unmaskedHolder = new Sprite();
+      const unmaskedBg = new Sprite();
+      unmaskedBg.graphics.beginFill(0x204080, 1);
+      unmaskedBg.graphics.drawRect(0, 0, 12, 12);
+      unmaskedBg.graphics.endFill();
+      const disjointFg = new Sprite();
+      disjointFg.graphics.beginFill(0xffffff, 1);
+      disjointFg.graphics.drawRect(3, 3, 2, 2); // (3..5, 3..5)
+      disjointFg.graphics.drawRect(7, 7, 2, 2); // (7..9, 7..9); (6,6) is inside AABB with fg_alpha == 0
+      disjointFg.graphics.endFill();
+      disjointFg.blendShader = invertShader;
+      disjointFg.blendMode = BlendMode.SHADER;
+      unmaskedHolder.addChild(unmaskedBg);
+      unmaskedHolder.addChild(disjointFg);
+
+      const unmaskedBmp = new BitmapData(12, 12, true, 0x00000000);
+      unmaskedBmp.draw(unmaskedHolder);
+      assert.equal(unmaskedBmp.getPixel32(3, 3) >>> 0, 0xffdfbf7f, 'first disjoint rect inverts bg');
+      assert.equal(unmaskedBmp.getPixel32(8, 8) >>> 0, 0xffdfbf7f, 'second disjoint rect inverts bg');
+      assert.equal(unmaskedBmp.getPixel32(6, 6) >>> 0, 0xff204080, 'unmasked fg_alpha == 0 pixel inside AABB preserves bg');
+      unmaskedBmp.dispose();
+
+      // Verify web/runtime.js createScenePainter BlendMode.SHADER path directly (tight rx0/ry0 + fg_alpha == 0 skip)
+      const { createScenePainter } = require('../runtime.js');
+      const NeoFlashPaths = require('../path.js');
+      const makeRgbaCanvas = (cw, ch, fillRgba = [0, 0, 0, 0]) => {
+        const state = { w: cw, h: ch, buf: new Uint8ClampedArray(cw * ch * 4), tx: 0, ty: 0 };
+        for (let i = 0; i < state.buf.length; i += 4) {
+          state.buf[i] = fillRgba[0]; state.buf[i + 1] = fillRgba[1];
+          state.buf[i + 2] = fillRgba[2]; state.buf[i + 3] = fillRgba[3];
+        }
+        const saved = [];
+        const ctx2d = {
+          canvas: null,
+          globalAlpha: 1,
+          globalCompositeOperation: 'source-over',
+          save() { saved.push([state.tx, state.ty, this.globalAlpha, this.globalCompositeOperation]); },
+          restore() { const s = saved.pop(); if (s) { [state.tx, state.ty, this.globalAlpha, this.globalCompositeOperation] = s; } },
+          setTransform(_a, _b, _c, _d, e, f) { state.tx = e; state.ty = f; },
+          getTransform() { return { a: 1, b: 0, c: 0, d: 1, e: state.tx, f: state.ty }; },
+          clearRect(x, y, rw, rh) {
+            for (let py = Math.max(0, y); py < Math.min(state.h, y + rh); py++) {
+              for (let px = Math.max(0, x); px < Math.min(state.w, x + rw); px++) {
+                const o = (py * state.w + px) * 4;
+                state.buf[o] = state.buf[o + 1] = state.buf[o + 2] = state.buf[o + 3] = 0;
+              }
+            }
+          },
+          drawImage(srcCanvas, dx, dy) {
+            const ox = Math.round(dx + state.tx), oy = Math.round(dy + state.ty);
+            for (let sy = 0; sy < srcCanvas._state.h; sy++) {
+              const ty = oy + sy;
+              if (ty < 0 || ty >= state.h) continue;
+              for (let sx = 0; sx < srcCanvas._state.w; sx++) {
+                const tx = ox + sx;
+                if (tx < 0 || tx >= state.w) continue;
+                const so = (sy * srcCanvas._state.w + sx) * 4, to = (ty * state.w + tx) * 4;
+                state.buf[to] = srcCanvas._state.buf[so];
+                state.buf[to + 1] = srcCanvas._state.buf[so + 1];
+                state.buf[to + 2] = srcCanvas._state.buf[so + 2];
+                state.buf[to + 3] = srcCanvas._state.buf[so + 3];
+              }
+            }
+          },
+          getImageData(x, y, rw, rh) {
+            const data = new Uint8ClampedArray(rw * rh * 4);
+            for (let py = 0; py < rh; py++) {
+              for (let px = 0; px < rw; px++) {
+                const so = ((y + py) * state.w + (x + px)) * 4, doff = (py * rw + px) * 4;
+                data[doff] = state.buf[so]; data[doff + 1] = state.buf[so + 1];
+                data[doff + 2] = state.buf[so + 2]; data[doff + 3] = state.buf[so + 3];
+              }
+            }
+            return { width: rw, height: rh, data };
+          },
+          putImageData(img, x, y) {
+            for (let py = 0; py < img.height; py++) {
+              for (let px = 0; px < img.width; px++) {
+                const so = (py * img.width + px) * 4, doff = ((y + py) * state.w + (x + px)) * 4;
+                state.buf[doff] = img.data[so]; state.buf[doff + 1] = img.data[so + 1];
+                state.buf[doff + 2] = img.data[so + 2]; state.buf[doff + 3] = img.data[so + 3];
+              }
+            }
+          },
+        };
+        const canvasObj = {
+          _state: state,
+          get width() { return state.w; },
+          set width(v) { state.w = v; state.buf = new Uint8ClampedArray(state.w * state.h * 4); },
+          get height() { return state.h; },
+          set height(v) { state.h = v; state.buf = new Uint8ClampedArray(state.w * state.h * 4); },
+          getContext: () => ctx2d,
+        };
+        ctx2d.canvas = canvasObj;
+        return canvasObj;
+      };
+
+      const targetCanvas = makeRgbaCanvas(12, 12, [0x20, 0x40, 0x80, 0xff]);
+      // Surface represents oversized filter bounds (2..10, 2..10) = 8x8, with transparent 1px padding
+      // at row/col 0 and 7 AND a transparent interior hole at surface (4,4) -> target (6,6).
+      const fgSurface = makeRgbaCanvas(8, 8, [0, 0, 0, 0]);
+      for (const [rx, ry] of [[1, 1], [2, 1], [1, 2], [2, 2], [5, 5], [6, 5], [5, 6], [6, 6]]) {
+        const o = (ry * 8 + rx) * 4;
+        fgSurface._state.buf[o] = 255; fgSurface._state.buf[o + 1] = 255;
+        fgSurface._state.buf[o + 2] = 255; fgSurface._state.buf[o + 3] = 255;
+      }
+      const invSpec = require('../as3-fte-3d.js').inspectShaderForFilter(invertShader);
+      const evalCalls = [];
+      const painter = createScenePainter({
+        global: {
+          NeoFlashPaths,
+          document: { createElement: () => makeRgbaCanvas(1, 1) },
+        },
+        paths: new NeoFlashPaths.PathCache(),
+        gradients: { clear() {}, draw() {} },
+        clippings: { beginFrame() {}, clear() {}, draw() {} },
+        fte3dHost: {
+          evaluateBlendShaderRgba(bgSub, fgSub, rw, rh, spec) {
+            evalCalls.push([rw, rh]);
+            const out = new Uint8ClampedArray(rw * rh * 4);
+            for (let i = 0; i < out.length; i += 4) {
+              out[i] = 255 - bgSub[i];
+              out[i + 1] = 255 - bgSub[i + 1];
+              out[i + 2] = 255 - bgSub[i + 2];
+              out[i + 3] = 255;
+            }
+            return out;
+          },
+        },
+        filterHost: {
+          renderer: {
+            clear() {},
+            draw(ctx2d, _snap, hooks) {
+              hooks.composite(ctx2d, fgSurface, { left: 2, top: 2, right: 10, bottom: 10 }, [], 'shader:' + JSON.stringify(invSpec));
+            },
+          },
+        },
+        context: targetCanvas.getContext('2d'),
+      });
+      painter.draw(targetCanvas.getContext('2d'), { draws: [], filter_groups: [{ id: 'g1' }] }, { semantic: false });
+      assert.deepEqual(evalCalls, [[6, 6]], 'createScenePainter tightens unmasked shader evaluation to fg_alpha > 0 bounds (6x6)');
+      const pxAt = (x, y) => {
+        const o = (y * 12 + x) * 4, b = targetCanvas._state.buf;
+        return (((b[o + 3] << 24) | (b[o] << 16) | (b[o + 1] << 8) | b[o + 2]) >>> 0);
+      };
+      assert.equal(pxAt(3, 3), 0xffdfbf7f, 'createScenePainter inverts opaque fg pixel (3,3)');
+      assert.equal(pxAt(8, 8), 0xffdfbf7f, 'createScenePainter inverts opaque fg pixel (8,8)');
+      assert.equal(pxAt(2, 2), 0xff204080, 'createScenePainter skips padded transparent AABB border (2,2)');
+      assert.equal(pxAt(6, 6), 0xff204080, 'createScenePainter preserves bg where fg_alpha == 0 inside tight bounds (6,6)');
+
       // Verify inspectShaderForFilter attaches per-shader __kernel and dispose() clears kernel without dangling global
       const specBefore = require('../as3-fte-3d.js').inspectShaderForFilter(invertShader);
       assert.ok(specBefore.__kernel, 'inspectShaderForFilter attaches non-enumerable per-shader kernel');

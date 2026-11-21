@@ -267,10 +267,10 @@ pub(super) fn compile_avm1_actions(ctx: &mut SwfDecodeCtx, bytes: &[u8]) -> Opti
                 let reg = p[0];
                 js.push_str(&format!("      __regs[{reg}] = __st[__st.length - 1];\n"));
             }
-            0x42 => js.push_str("      { const __n = Math.max(0, Number(__st.pop()) | 0), __arr = []; for (let __i = 0; __i < __n; __i++) __arr.push(__st.pop()); __st.push(__arr); }\n"),
-            0x43 => js.push_str("      { const __n = Math.max(0, Number(__st.pop()) | 0), __obj = {}; for (let __i = 0; __i < __n; __i++) { const __v = __st.pop(), __k = String(__st.pop() ?? ''); __nfSwfSet(__obj, __k, __v); } __st.push(__obj); }\n"),
-            0x3D => js.push_str("      { const __fnName = String(__st.pop() ?? ''), __argc = Math.max(0, Number(__st.pop()) | 0), __args = []; for (let __i = 0; __i < __argc; __i++) __args.push(__st.pop()); const __fn = __fnName === 'stop' ? stop : __fnName === 'play' ? play : __fnName === 'gotoAndStop' ? gotoAndStop : __fnName === 'gotoAndPlay' ? gotoAndPlay : __fnName === 'nextFrame' ? nextFrame : __fnName === 'prevFrame' ? prevFrame : __fnName === 'trace' ? trace : __readVar(__fnName); __st.push(__nfSwfApply(__fn, this, __args)); }\n"),
-            0x52 => js.push_str("      { const __mName = String(__st.pop() ?? ''), __obj = __st.pop() ?? this, __argc = Math.max(0, Number(__st.pop()) | 0), __args = []; for (let __i = 0; __i < __argc; __i++) __args.push(__st.pop()); __st.push(__nfSwfCall(__obj, __mName, __args)); }\n"),
+            0x42 => js.push_str("      { const __n = Math.min(4096, Math.max(0, Number(__st.pop()) | 0)), __arr = []; for (let __i = 0; __i < __n; __i++) __arr.push(__st.pop()); __st.push(__arr); }\n"),
+            0x43 => js.push_str("      { const __n = Math.min(4096, Math.max(0, Number(__st.pop()) | 0)), __obj = {}; for (let __i = 0; __i < __n; __i++) { const __v = __st.pop(), __k = String(__st.pop() ?? ''); __nfSwfSet(__obj, __k, __v); } __st.push(__obj); }\n"),
+            0x3D => js.push_str("      { const __fnName = String(__st.pop() ?? ''), __argc = Math.min(4096, Math.max(0, Number(__st.pop()) | 0)), __args = []; for (let __i = 0; __i < __argc; __i++) __args.push(__st.pop()); const __fn = __fnName === 'stop' ? stop : __fnName === 'play' ? play : __fnName === 'gotoAndStop' ? gotoAndStop : __fnName === 'gotoAndPlay' ? gotoAndPlay : __fnName === 'nextFrame' ? nextFrame : __fnName === 'prevFrame' ? prevFrame : __fnName === 'trace' ? trace : __readVar(__fnName); __st.push(__nfSwfApply(__fn, this, __args)); }\n"),
+            0x52 => js.push_str("      { const __mName = String(__st.pop() ?? ''), __obj = __st.pop() ?? this, __argc = Math.min(4096, Math.max(0, Number(__st.pop()) | 0)), __args = []; for (let __i = 0; __i < __argc; __i++) __args.push(__st.pop()); __st.push(__nfSwfCall(__obj, __mName, __args)); }\n"),
             0x99 if p.len() >= 2 => {
                 let rel = i16::from_le_bytes([p[0], p[1]]) as isize;
                 let base = (inst.offset + 3 + p.len()) as isize;
@@ -867,8 +867,9 @@ fn compile_avm2_method_body(
     }
     offset_to_idx.insert(code.len(), insts.len());
 
+    const MAX_SWF_OPCODE_ARITY: i64 = 4096;
     let mut js = String::from(
-        "const __st = [], __sc = [this], __loc = [this];\nlet __pc = 0, __steps = 0;\nconst __callGlobal = (n, a) => n === 'stop' ? stop() : n === 'play' ? play() : n === 'gotoAndStop' ? gotoAndStop(...a) : n === 'gotoAndPlay' ? gotoAndPlay(...a) : n === 'nextFrame' ? nextFrame() : n === 'prevFrame' ? prevFrame() : n === 'trace' ? trace(...a) : __nfSwfCall(this, n, a);\nwhile (__pc < ",
+        "const __st = [], __sc = [this], __loc = Object.create(null); __loc[0] = this;\nlet __pc = 0, __steps = 0;\nconst __callGlobal = (n, a) => n === 'stop' ? stop() : n === 'play' ? play() : n === 'gotoAndStop' ? gotoAndStop(...a) : n === 'gotoAndPlay' ? gotoAndPlay(...a) : n === 'nextFrame' ? nextFrame() : n === 'prevFrame' ? prevFrame() : n === 'trace' ? trace(...a) : __nfSwfCall(this, n, a);\nwhile (__pc < ",
     );
     js.push_str(&insts.len().to_string());
     js.push_str(") {\n  if (++__steps > 10000) break;\n  switch (__pc) {\n");
@@ -943,17 +944,22 @@ fn compile_avm2_method_body(
                 js.push_str("      __st.push(__nfSwfStubFn());\n");
             }
             0x41 => {
-                let argc = inst.args.first().copied().unwrap_or(0).max(0);
+                let argc = inst
+                    .args
+                    .first()
+                    .copied()
+                    .unwrap_or(0)
+                    .clamp(0, MAX_SWF_OPCODE_ARITY);
                 js.push_str(&format!(
                     "      {{ const __args = new Array({argc}); for (let __i = {argc} - 1; __i >= 0; __i--) __args[__i] = __st.pop(); const __recv = __st.pop(), __fn = __st.pop(); __st.push(__nfSwfApply(__fn, __recv, __args)); }}\n"
                 ));
             }
             0x55 => {
-                let cnt = inst.args[0].max(0);
+                let cnt = inst.args[0].clamp(0, MAX_SWF_OPCODE_ARITY);
                 js.push_str(&format!("      {{ const __o = {{}}; for (let __i = 0; __i < {cnt}; __i++) {{ const __v = __st.pop(), __k = String(__st.pop() ?? ''); __nfSwfSet(__o, __k, __v); }} __st.push(__o); }}\n"));
             }
             0x56 => {
-                let cnt = inst.args[0].max(0);
+                let cnt = inst.args[0].clamp(0, MAX_SWF_OPCODE_ARITY);
                 js.push_str(&format!("      {{ const __a = new Array({cnt}); for (let __i = {cnt} - 1; __i >= 0; __i--) __a[__i] = __st.pop(); __st.push(__a); }}\n"));
             }
             0x5D | 0x5E => {
@@ -992,7 +998,7 @@ fn compile_avm2_method_body(
             }
             0x46 | 0x4C | 0x4F => {
                 let (name, rt) = mn(0);
-                let argc = inst.args[1].max(0);
+                let argc = inst.args[1].clamp(0, MAX_SWF_OPCODE_ARITY);
                 let push_ret = inst.op != 0x4F;
                 js.push_str(&format!("      {{ const __args = new Array({argc}); for (let __i = {argc} - 1; __i >= 0; __i--) __args[__i] = __st.pop();\n"));
                 if rt {
@@ -1012,7 +1018,7 @@ fn compile_avm2_method_body(
             }
             0x49 => {
                 ctx.warn("SWF AVM2 opcode constructsuper (0x49) superclass constructor chaining is not supported in the bounded SWF loader and was skipped.");
-                let argc = inst.args[0].max(0);
+                let argc = inst.args[0].clamp(0, MAX_SWF_OPCODE_ARITY);
                 js.push_str(&format!(
                     "      for (let __i = 0; __i < {argc}; __i++) __st.pop(); __st.pop();\n"
                 ));

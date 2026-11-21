@@ -187,3 +187,109 @@ fn swf_loader_emits_deduplicated_warnings_and_never_emits_unguarded_js_member_ac
         assert!(unit.code.contains("__nfSwfGet"));
     }
 }
+
+fn push_u30(out: &mut Vec<u8>, mut val: u32) {
+    loop {
+        let mut b = (val & 0x7F) as u8;
+        val >>= 7;
+        if val != 0 {
+            b |= 0x80;
+        }
+        out.push(b);
+        if val == 0 {
+            break;
+        }
+    }
+}
+
+#[test]
+fn swf_loader_clamps_avm1_and_avm2_inner_opcode_arity_and_uses_null_proto_locals() {
+    // 1. AVM1 DoAction with InitArray (0x42), InitObject (0x43), CallFunction (0x3D), CallMethod (0x52)
+    let mut avm1 = Vec::new();
+    avm1.extend_from_slice(&[0x96, 5, 0, 7, 0xFF, 0xFF, 0xFF, 0x7F]); // Push i32::MAX
+    avm1.push(0x42); // InitArray
+    avm1.push(0x43); // InitObject
+    avm1.push(0x3D); // CallFunction
+    avm1.push(0x52); // CallMethod
+    avm1.push(0x00);
+
+    // 2. AVM2 DoABC2 with 0x56 newarray(0x3FFF_FFFF), 0x55 newobject(0x3FFF_FFFF),
+    //    0x41 call(0x3FFF_FFFF), 0x4F callpropvoid(1, 0x3FFF_FFFF), 0x63 setlocal(0x3FFF_FFFF)
+    let mut abc = vec![16, 0, 46, 0];
+    push_u30(&mut abc, 1); // ints
+    push_u30(&mut abc, 1); // uints
+    push_u30(&mut abc, 1); // doubles
+    push_u30(&mut abc, 4); // strings: [0], "", "Doc", "Object"
+    abc.push(0); // str 1: ""
+    abc.extend_from_slice(&[3, b'D', b'o', b'c']); // str 2
+    abc.extend_from_slice(&[6, b'O', b'b', b'j', b'e', b'c', b't']); // str 3
+    push_u30(&mut abc, 2);
+    abc.extend_from_slice(&[0x16, 1]); // ns 1
+    push_u30(&mut abc, 1); // ns_sets
+    push_u30(&mut abc, 3);
+    abc.extend_from_slice(&[0x07, 1, 2, 0x07, 1, 3]); // mn 1=Doc, 2=Object
+    push_u30(&mut abc, 3);
+    for _ in 0..3 {
+        abc.extend_from_slice(&[0, 0, 0, 0]);
+    }
+    push_u30(&mut abc, 0); // metadata
+    push_u30(&mut abc, 1); // 1 class
+    abc.extend_from_slice(&[1, 2, 0, 0, 1, 0, 0, 0]); // instance + class
+    push_u30(&mut abc, 1);
+    abc.extend_from_slice(&[2, 0]); // script
+
+    let mut code = Vec::new();
+    code.push(0x56);
+    push_u30(&mut code, 0x3FFF_FFFF); // newarray(1B)
+    code.push(0x55);
+    push_u30(&mut code, 0x3FFF_FFFF); // newobject(1B)
+    code.push(0x41);
+    push_u30(&mut code, 0x3FFF_FFFF); // call(1B)
+    code.push(0x4F);
+    push_u30(&mut code, 1);
+    push_u30(&mut code, 0x3FFF_FFFF); // callpropvoid(1, 1B)
+    code.push(0x49);
+    push_u30(&mut code, 0x3FFF_FFFF); // constructsuper(1B)
+    code.push(0x63);
+    push_u30(&mut code, 0x3FFF_FFFF); // setlocal(1B)
+    code.push(0x47); // returnvoid
+
+    push_u30(&mut abc, 1); // 1 body (method 1 = iinit)
+    push_u30(&mut abc, 1);
+    abc.extend_from_slice(&[8, 4, 0, 4]);
+    push_u30(&mut abc, code.len() as u32);
+    abc.extend_from_slice(&code);
+    abc.extend_from_slice(&[0, 0]);
+
+    let mut do_abc2 = vec![1, 0, 0, 0, b't', 0];
+    do_abc2.extend_from_slice(&abc);
+    let sym_doc = make_tag(76, &[1, 0, 0, 0, b'D', b'o', b'c', 0]);
+
+    let swf_avm1 = wrap_fws(8, 1, &[make_tag(12, &avm1), make_tag(1, &[])]);
+    let b1 = decode_swf_bundle(&swf_avm1).expect("decode AVM1 arity clamp SWF");
+    let c1 = &b1.scripts[0].code;
+    assert_eq!(c1.matches("Math.min(4096,").count(), 4, "{c1}");
+
+    let swf_avm2 = wrap_fws(
+        13,
+        1,
+        &[
+            make_tag(69, &[0x08, 0, 0, 0]),
+            make_tag(82, &do_abc2),
+            sym_doc,
+            make_tag(1, &[]),
+        ],
+    );
+    let b2 = decode_swf_bundle(&swf_avm2).expect("decode AVM2 arity clamp SWF");
+    let c2 = &b2.scripts[0].code;
+    assert!(
+        !c2.contains("1073741823") || c2.contains("__loc[1073741823]"),
+        "{c2}"
+    );
+    assert!(!c2.contains("new Array(1073741823)"), "{c2}");
+    assert!(c2.contains("new Array(4096)"), "{c2}");
+    assert!(
+        c2.contains("__loc = Object.create(null); __loc[0] = this;"),
+        "{c2}"
+    );
+}
