@@ -1147,9 +1147,9 @@ fn large_document_vector_budgets_emit_located_placeholders_and_split_strokes_cle
 fn large_document_media_symbol_and_fxg_budgets_degrade_with_located_placeholders() {
     let dir = TempDir::new();
 
-    // 1. Media budget: 1 oversized bitmap (5000x1 > 4096 max dimension) + 257 distinct valid 2x2 bitmaps
+    // 1. Media budget: 1 oversized bitmap (1x20000 > 16384 max raw dimension) + 257 distinct valid 2x2 bitmaps
     //    all placed on stage (> 256 placed bitmap buffer budget).
-    let oversized_bmp = native_argb_bitmap(5000, 1, [200, 50, 50, 255]);
+    let oversized_bmp = native_argb_bitmap(1, 20_000, [200, 50, 50, 255]);
     let mut small_bitmaps = Vec::with_capacity(257);
     for i in 0..257_u16 {
         small_bitmaps.push((

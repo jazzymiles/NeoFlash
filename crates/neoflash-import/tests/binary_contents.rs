@@ -220,6 +220,11 @@ fn page_fields(out: &mut Vec<u8>, v: u8, name: &str, meta: Option<&[u8]>, props:
     if v >= 8 {
         u32b(out, 0);
     }
+    if v == 9 {
+        for _ in 0..4 {
+            u32b(out, 0);
+        }
+    }
     if v >= 10 {
         string(out, "");
         string(out, "");
@@ -839,21 +844,12 @@ fn document_page_revision_gates_and_unknown_schema_stop_exactly() {
         page(&mut body, revision, "Page 1");
         let (bytes, end) = one_scene(0x3f, &body);
         let prefix = archive.read(&bytes, &["Page 1"]);
-        if revision == 9 {
-            assert_eq!(
-                prefix.stop.as_ref().unwrap().code,
-                "fla_contents_record_unsupported"
-            );
-            assert!(prefix.settings.is_none());
-            assert!(prefix.descriptors.is_empty());
-        } else {
-            assert!(
-                prefix.settings.is_some(),
-                "revision={revision}: {:?}",
-                prefix.stop
-            );
-            assert_eq!(prefix.bytes_consumed, end);
-        }
+        assert!(
+            prefix.settings.is_some(),
+            "revision={revision}: {:?}",
+            prefix.stop
+        );
+        assert_eq!(prefix.bytes_consumed, end);
     }
     let mut bytes = header(0x14);
     let start = bytes.len();

@@ -172,6 +172,22 @@ impl Writer {
         if rev >= 16 {
             self.string("");
         }
+        if rev == 17 {
+            self.word(3);
+            for n in [65536_i32, 0, 0, 65536, 120, -40] {
+                self.dword(n as u32);
+            }
+            self.byte(1);
+            self.byte(1); // color_transform rev 1
+            for _ in 0..4 {
+                self.word(256);
+                self.word(0);
+            }
+            self.word(0);
+            self.word(0);
+            self.dword(0);
+            self.byte(2);
+        }
         if rev >= 20 {
             self.dword(0);
         }
@@ -517,18 +533,15 @@ fn empty_f3_actions_can_finish_but_nonempty_and_revision17_are_explicit_stops() 
             f.actions.as_ref().unwrap().presence,
             TimelineActionPresence::Empty
         );
-        assert_eq!(frame.complete, rev != 17);
+        assert!(frame.complete);
         if rev == 17 {
-            assert_eq!(
-                d.inspection
-                    .streams
-                    .iter()
-                    .find(|x| x.index == s.index)
-                    .unwrap()
-                    .stop_code
-                    .as_deref(),
-                Some("fla_historical_frame_extension_unsupported")
-            );
+            let ext = f.pose_extension.as_ref().unwrap();
+            assert_eq!(ext.flags_word, 3);
+            assert_eq!(ext.matrix_words, [65536, 0, 0, 65536, 120, -40]);
+            assert_eq!(ext.before_color_flag, 1);
+            assert_eq!(ext.color_transform.revision, Some(1));
+            assert_eq!(ext.color_transform.multipliers, [256; 4]);
+            assert_eq!(ext.after_color_flag, 2);
         }
         // One historical "stop" command (revision 4): kind, three empty
         // strings, frame word, no-wait sentinel, label, three operands, level
@@ -560,7 +573,7 @@ fn empty_f3_actions_can_finish_but_nonempty_and_revision17_are_explicit_stops() 
         let decoded = actions.decoded.as_ref().unwrap();
         assert_eq!(decoded.form, TimelineActionForm::HistoricalList);
         assert_eq!(decoded.source, "stop();\n");
-        assert_eq!(frame.complete, rev != 17);
+        assert!(frame.complete);
         // A truncated command is an explicit stop, never a guessed boundary.
         let d = a.read(&nonempty[..action_start + 4 + 20]);
         let frame = d.streams[0]
@@ -1330,7 +1343,16 @@ fn every_filter_kind_and_blend_mode_is_typed_and_parsing_continues() {
 fn unknown_filter_types_and_unproven_revisions_stop_explicitly() {
     let archive = Archive::new();
     for (filter, code) in [
-        (vec![5, 1], "fla_filter_type_unsupported"),
+        (vec![8, 1], "fla_filter_type_unsupported"),
+        (vec![5, 2], "fla_record_revision_unsupported"),
+        (vec![5, 1, 0, 0, 3], "fla_convolution_dimensions_invalid"),
+        (vec![5, 1, 0, 16, 1], "fla_convolution_dimensions_invalid"),
+        (
+            vec![
+                5, 1, 0, 1, 1, 0, 0, 0x80, 0x3f, 0, 0, 0, 0, 0, 0, 0x80, 0x3f, 0, 0, 0, 0xff, 0x04,
+            ],
+            "fla_convolution_flags_unsupported",
+        ),
         (vec![3, 1], "fla_record_revision_unsupported"),
         (vec![0, 5], "fla_record_revision_unsupported"),
         (vec![4, 1, 0, 16, 0, 0, 0], "fla_gradient_stop_limit"),

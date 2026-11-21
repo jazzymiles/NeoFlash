@@ -22,6 +22,10 @@ pub(super) struct BitmapAsset {
     pub height: f64,
     pub scale_x: f64,
     pub scale_y: f64,
+    pub origin_x: f64,
+    pub origin_y: f64,
+    pub bounds_scale_x: f64,
+    pub bounds_scale_y: f64,
     pub smoothing: bool,
     pub average_color: Color,
 }
@@ -1209,6 +1213,10 @@ pub(super) fn resources(
                         height: f64::from(decoded_icon.height),
                         scale_x: 1.0,
                         scale_y: 1.0,
+                        origin_x: 0.0,
+                        origin_y: 0.0,
+                        bounds_scale_x: 1.0,
+                        bounds_scale_y: 1.0,
                         smoothing: false,
                         average_color: avg,
                     },
@@ -1347,9 +1355,55 @@ pub(super) fn resources(
         };
         let (orig_w, orig_h) = (decoded.width, decoded.height);
         let mut downscaled = false;
-        if decoded.bounds_words[0] != 0 || decoded.bounds_words[2] != 0 {
-            report.warning("fla_bitmap_origin",&location,"The bitmap's stored bounds start away from 0,0; the image is placed at its instance origin.");
+        if decoded.width > neoflash_core::MAX_BITMAP_DIMENSION
+            || decoded.height > neoflash_core::MAX_BITMAP_DIMENSION
+        {
+            let Some((nw, nh, resized)) = resize_rgba_proportional(
+                &decoded.rgba,
+                decoded.width,
+                decoded.height,
+                neoflash_core::MAX_BITMAP_DIMENSION,
+            ) else {
+                report.warning(
+                    "fla_bitmap_skipped",
+                    &location,
+                    "Bitmap exceeds the 4096 px per-axis limit and could not be proportionally downscaled; it becomes an unresolved placeholder.",
+                );
+                skipped_bitmaps.insert(id);
+                continue;
+            };
+            decoded.width = nw;
+            decoded.height = nh;
+            decoded.rgba = resized;
+            downscaled = true;
         }
+        let [xmin, xmax, ymin, ymax] = decoded.bounds_words;
+        let (origin_x, origin_y, bounds_scale_x, bounds_scale_y) = if xmin != i32::MIN
+            && i64::from(xmax) > i64::from(xmin)
+            && i64::from(ymax) > i64::from(ymin)
+        {
+            let ox = f64::from(xmin) / 20.0;
+            let oy = f64::from(ymin) / 20.0;
+            let bw = (f64::from(xmax) - f64::from(xmin)) / 20.0;
+            let bh = (f64::from(ymax) - f64::from(ymin)) / 20.0;
+            let bsx = (bw / f64::from(orig_w)).clamp(1e-4, 1e4);
+            let bsy = (bh / f64::from(orig_h)).clamp(1e-4, 1e4);
+            (
+                ox,
+                oy,
+                if (bsx - 1.0).abs() <= 1e-6 { 1.0 } else { bsx },
+                if (bsy - 1.0).abs() <= 1e-6 { 1.0 } else { bsy },
+            )
+        } else {
+            if xmin != 0 || ymin != 0 {
+                report.warning(
+                    "fla_bitmap_origin",
+                    &location,
+                    "The bitmap's stored bounds are degenerate and start away from 0,0; the image is placed at its instance origin.",
+                );
+            }
+            (0.0, 0.0, 1.0, 1.0)
+        };
         let average_color = crate::average_bitmap_color(&decoded.rgba);
         let is_opaque = decoded
             .rgba
@@ -1486,6 +1540,10 @@ pub(super) fn resources(
                             height: f64::from(decoded.height),
                             scale_x: f64::from(orig_w) / f64::from(decoded.width),
                             scale_y: f64::from(orig_h) / f64::from(decoded.height),
+                            origin_x,
+                            origin_y,
+                            bounds_scale_x,
+                            bounds_scale_y,
                             smoothing: settings.smoothing,
                             average_color,
                         },
@@ -1711,6 +1769,10 @@ pub(super) fn resources(
                     height: f64::from(decoded.height),
                     scale_x: f64::from(orig_w) / f64::from(decoded.width),
                     scale_y: f64::from(orig_h) / f64::from(decoded.height),
+                    origin_x,
+                    origin_y,
+                    bounds_scale_x,
+                    bounds_scale_y,
                     smoothing: settings.smoothing,
                     average_color,
                 },

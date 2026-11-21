@@ -19,7 +19,7 @@ impl Reader<'_> {
         }
         Ok(color)
     }
-    fn color_transform(&mut self) -> Result<TimelineColorTransform> {
+    pub(super) fn color_transform(&mut self) -> Result<TimelineColorTransform> {
         let revision = self.byte()?;
         if revision != 1 {
             return stop(

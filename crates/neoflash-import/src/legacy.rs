@@ -323,9 +323,15 @@ fn read(
                 );
             }
             BinaryStreamRole::Other => {
-                stream.stop_code = Some("fla_stream_unsupported".into());
-                stream.stop_message =
-                    Some("Unrecognized stream; no content has been discarded or converted.".into());
+                if entry.depth == 1 && validate_ole_property_set_stream(&entry.name, &data) {
+                    stream.bytes_consumed = data.len();
+                    stream.structure_complete = true;
+                } else {
+                    stream.stop_code = Some("fla_stream_unsupported".into());
+                    stream.stop_message = Some(
+                        "Unrecognized stream; no content has been discarded or converted.".into(),
+                    );
+                }
             }
         }
         result.streams.push(stream);
@@ -418,4 +424,269 @@ fn version(revision: u8) -> Option<&'static str> {
         0x47 => "Flash CS4",
         _ => return None,
     })
+}
+
+const FMTID_SUMMARY_INFO: [u8; 16] = [
+    0xe0, 0x85, 0x9f, 0xf2, 0xf9, 0x4f, 0x68, 0x10, 0xab, 0x91, 0x08, 0x00, 0x2b, 0x27, 0xb3, 0xd9,
+];
+const FMTID_DOC_SUMMARY_INFO: [u8; 16] = [
+    0x02, 0xd5, 0xcd, 0xd5, 0x9c, 0x2e, 0x1b, 0x10, 0x93, 0x97, 0x08, 0x00, 0x2b, 0x2c, 0xf9, 0xae,
+];
+const FMTID_USER_DEFINED_PROPS: [u8; 16] = [
+    0x05, 0xd5, 0xcd, 0xd5, 0x9c, 0x2e, 0x1b, 0x10, 0x93, 0x97, 0x08, 0x00, 0x2b, 0x2c, 0xf9, 0xae,
+];
+
+/// Sequentially validate standard root `[MS-OLEPS]` `\x05SummaryInformation` and
+/// `\x05DocumentSummaryInformation` property set streams to exact EOF.
+fn validate_ole_property_set_stream(name: &str, data: &[u8]) -> bool {
+    let is_summary = name == "\u{0005}SummaryInformation";
+    let is_doc_summary = name == "\u{0005}DocumentSummaryInformation";
+    if (!is_summary && !is_doc_summary) || data.len() < 48 {
+        return false;
+    }
+    let u16_at = |buf: &[u8], off: usize| -> Option<u16> {
+        Some(u16::from_le_bytes(buf.get(off..off + 2)?.try_into().ok()?))
+    };
+    let u32_at = |buf: &[u8], off: usize| -> Option<u32> {
+        Some(u32::from_le_bytes(buf.get(off..off + 4)?.try_into().ok()?))
+    };
+    if u16_at(data, 0) != Some(0xfffe) || u16_at(data, 2).is_none_or(|v| v > 1) {
+        return false;
+    }
+    let Some(num_sets) = u32_at(data, 24).map(|n| n as usize) else {
+        return false;
+    };
+    if (is_summary && num_sets != 1) || (is_doc_summary && !(1..=2).contains(&num_sets)) {
+        return false;
+    }
+    let header_end = 28 + num_sets * 20;
+    if data.len() < header_end {
+        return false;
+    }
+    let expected_first_fmtid = if is_summary {
+        FMTID_SUMMARY_INFO
+    } else {
+        FMTID_DOC_SUMMARY_INFO
+    };
+    if data[28..44] != expected_first_fmtid {
+        return false;
+    }
+    if num_sets == 2 && data[48..64] != FMTID_USER_DEFINED_PROPS {
+        return false;
+    }
+
+    let mut expected_offset = header_end;
+    for s in 0..num_sets {
+        let Some(sec_off) = u32_at(data, 28 + s * 20 + 16).map(|n| n as usize) else {
+            return false;
+        };
+        if sec_off != expected_offset {
+            return false;
+        }
+        let Some(cb_section) = u32_at(data, sec_off).map(|n| n as usize) else {
+            return false;
+        };
+        let Some(c_props) = u32_at(data, sec_off + 4).map(|n| n as usize) else {
+            return false;
+        };
+        if cb_section < 8 || c_props > 4096 {
+            return false;
+        }
+        let Some(sec_end) = sec_off.checked_add(cb_section) else {
+            return false;
+        };
+        if sec_end > data.len() {
+            return false;
+        }
+        let sec = &data[sec_off..sec_end];
+        let table_end = 8usize.saturating_add(c_props.saturating_mul(8));
+        if table_end > sec.len() {
+            return false;
+        }
+        let mut codepage: i16 = 1252;
+        for p in 0..c_props {
+            let pid = u32_at(sec, 8 + p * 8).unwrap_or(0);
+            let poff = u32_at(sec, 8 + p * 8 + 4).unwrap_or(0) as usize;
+            if pid == 1
+                && poff >= table_end
+                && let Some(vt) = u32_at(sec, poff)
+                && (vt & 0xffff) == 0x0002
+                && let Some(cp) = u16_at(sec, poff + 4)
+            {
+                codepage = cp as i16;
+            }
+        }
+        for p in 0..c_props {
+            let Some(pid) = u32_at(sec, 8 + p * 8) else {
+                return false;
+            };
+            let Some(poff) = u32_at(sec, 8 + p * 8 + 4).map(|n| n as usize) else {
+                return false;
+            };
+            if poff < table_end || poff >= sec.len() {
+                return false;
+            }
+            if !validate_ole_property_entry(pid, &sec[poff..], codepage == 1200) {
+                return false;
+            }
+        }
+        expected_offset = sec_end;
+    }
+    expected_offset <= data.len()
+        && data.len() - expected_offset <= 3
+        && data[expected_offset..].iter().all(|&b| b == 0)
+}
+
+fn validate_ole_typed_value(buf: &[u8], depth: usize) -> Option<usize> {
+    if depth > 4 || buf.len() < 4 {
+        return None;
+    }
+    let vt_word = u32::from_le_bytes(buf[..4].try_into().ok()?);
+    if (vt_word >> 16) != 0 {
+        return None;
+    }
+    let vt = (vt_word & 0xffff) as u16;
+    let body = &buf[4..];
+    let align4 = |n: usize| -> Option<usize> { n.checked_add(3).map(|v| v & !3) };
+    let used_body = match vt {
+        0x0000 | 0x0001 => 0,
+        0x0002 | 0x0012 | 0x000b => {
+            if body.len() < 2 {
+                return None;
+            }
+            2
+        }
+        0x0003 | 0x0013 | 0x0004 | 0x000a | 0x0016 | 0x0017 => {
+            if body.len() < 4 {
+                return None;
+            }
+            4
+        }
+        0x0005 | 0x0006 | 0x0007 | 0x0014 | 0x0015 | 0x0040 => {
+            if body.len() < 8 {
+                return None;
+            }
+            8
+        }
+        0x0048 => {
+            if body.len() < 16 {
+                return None;
+            }
+            16
+        }
+        0x001e | 0x0041..=0x0047 => {
+            if body.len() < 4 {
+                return None;
+            }
+            let cb = u32::from_le_bytes(body[..4].try_into().ok()?) as usize;
+            let total = 4usize.checked_add(cb)?;
+            if total > body.len() {
+                return None;
+            }
+            total
+        }
+        0x001f => {
+            if body.len() < 4 {
+                return None;
+            }
+            let cch = u32::from_le_bytes(body[..4].try_into().ok()?) as usize;
+            let cb = cch.checked_mul(2)?;
+            let total = 4usize.checked_add(cb)?;
+            if total > body.len() {
+                return None;
+            }
+            total
+        }
+        0x101e => {
+            if body.len() < 4 {
+                return None;
+            }
+            let count = u32::from_le_bytes(body[..4].try_into().ok()?) as usize;
+            if count > 4096 {
+                return None;
+            }
+            let mut pos = 4usize;
+            for i in 0..count {
+                if pos + 4 > body.len() {
+                    return None;
+                }
+                let cb = u32::from_le_bytes(body[pos..pos + 4].try_into().ok()?) as usize;
+                let next = pos.checked_add(4)?.checked_add(cb)?;
+                if next > body.len() {
+                    return None;
+                }
+                pos = if i + 1 < count {
+                    align4(next)?.min(body.len())
+                } else {
+                    next
+                };
+            }
+            pos
+        }
+        0x100c => {
+            if body.len() < 4 {
+                return None;
+            }
+            let count = u32::from_le_bytes(body[..4].try_into().ok()?) as usize;
+            if count > 4096 {
+                return None;
+            }
+            let mut pos = 4usize;
+            for i in 0..count {
+                let consumed = validate_ole_typed_value(body.get(pos..)?, depth + 1)?;
+                let next = pos.checked_add(consumed)?;
+                if next > body.len() {
+                    return None;
+                }
+                pos = if i + 1 < count {
+                    align4(next)?.min(body.len())
+                } else {
+                    next
+                };
+            }
+            pos
+        }
+        _ => return None,
+    };
+    4usize.checked_add(used_body)
+}
+
+fn validate_ole_property_entry(pid: u32, buf: &[u8], unicode_dict: bool) -> bool {
+    if pid == 0 {
+        if buf.len() < 4 {
+            return false;
+        }
+        let count = u32::from_le_bytes(buf[..4].try_into().unwrap()) as usize;
+        if count > 4096 {
+            return false;
+        }
+        let mut pos = 4usize;
+        for _ in 0..count {
+            if pos + 8 > buf.len() {
+                return false;
+            }
+            let len = u32::from_le_bytes(buf[pos + 4..pos + 8].try_into().unwrap()) as usize;
+            if len > 65_536 {
+                return false;
+            }
+            let byte_len = if unicode_dict {
+                let Some(wbytes) = len.checked_mul(2) else {
+                    return false;
+                };
+                (wbytes + 3) & !3
+            } else {
+                len
+            };
+            let Some(next) = pos.checked_add(8).and_then(|v| v.checked_add(byte_len)) else {
+                return false;
+            };
+            if next > buf.len() {
+                return false;
+            }
+            pos = next;
+        }
+        true
+    } else {
+        validate_ole_typed_value(buf, 0).is_some()
+    }
 }

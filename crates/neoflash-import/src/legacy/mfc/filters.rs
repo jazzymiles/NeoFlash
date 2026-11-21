@@ -35,6 +35,7 @@ impl Reader<'_> {
                     2 => TimelineFilterKind::Glow,
                     3 => TimelineFilterKind::Bevel,
                     4 => TimelineFilterKind::GradientGlow,
+                    5 => TimelineFilterKind::Convolution,
                     6 => TimelineFilterKind::AdjustColor,
                     7 => TimelineFilterKind::GradientBevel,
                     _ => {
@@ -51,6 +52,7 @@ impl Reader<'_> {
                     TimelineFilterKind::Glow => self.glow(&mut params)?,
                     TimelineFilterKind::Bevel => self.bevel(&mut params)?,
                     TimelineFilterKind::GradientGlow => self.filter_gradient(&mut params)?,
+                    TimelineFilterKind::Convolution => self.convolution(&mut params)?,
                     TimelineFilterKind::AdjustColor => {
                         let revision = self.revision(1, "adjust-color filter")?;
                         if revision != 0 {
@@ -97,6 +99,45 @@ impl Reader<'_> {
             params.enabled_word = Some(self.dword()?);
         }
         Ok(())
+    }
+    fn convolution(&mut self, p: &mut TimelineFilterParams) -> Result<u8> {
+        let v = self.revision(1, "convolution filter")?;
+        if v != 0 {
+            self.filter_state(p)?;
+            let mx = self.byte()?;
+            let my = self.byte()?;
+            if mx == 0 || my == 0 || mx > 15 || my > 15 {
+                return stop(
+                    "fla_convolution_dimensions_invalid",
+                    format!("Convolution matrix dimensions {mx}x{my} are outside 1..=15."),
+                );
+            }
+            p.matrix_x = Some(mx);
+            p.matrix_y = Some(my);
+            p.divisor = Some(self.float()?);
+            p.bias = Some(self.float()?);
+            let cell_count = usize::from(mx) * usize::from(my);
+            if cell_count * 4 > self.data.len() - self.pos {
+                return stop(
+                    "fla_truncated_record",
+                    "Convolution matrix coefficients exceed remaining input.",
+                );
+            }
+            p.convolution_matrix.reserve(cell_count);
+            for _ in 0..cell_count {
+                p.convolution_matrix.push(self.float()?);
+            }
+            p.color_rgba = Some(self.dword()?);
+            let flags = self.byte()?;
+            if flags & !0x03 != 0 {
+                return stop(
+                    "fla_convolution_flags_unsupported",
+                    format!("Convolution filter flags 0x{flags:02x} contain unknown bits."),
+                );
+            }
+            p.convolution_flags = Some(flags);
+        }
+        Ok(v)
     }
     /// Shared drop-shadow settings block, also nested in later blur, glow,
     /// bevel and gradient records with its own revision.

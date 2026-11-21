@@ -4,17 +4,21 @@
 //! including separate contours meeting at a vertex; winding is preserved.
 use super::*;
 use crate::legacy::geometry::*;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 #[derive(Clone)]
 struct Edge {
+    source_index: usize,
+    reverse: bool,
     start: [i32; 2],
     end: [i32; 2],
     control: Option<[i32; 2]>,
 }
 impl Edge {
-    fn new(e: &BinaryEdge, reverse: bool) -> Self {
+    fn new(source_index: usize, e: &BinaryEdge, reverse: bool) -> Self {
         Self {
+            source_index,
+            reverse,
             start: if reverse { e.end } else { e.start },
             end: if reverse { e.start } else { e.end },
             control: e.control,
@@ -150,7 +154,515 @@ fn split_stroke_commands(commands: Vec<PathCommand>, max_commands: usize) -> Vec
     chunks
 }
 
-fn paths(edges: Vec<Edge>, closed: bool) -> Result<Vec<PathCommand>, String> {
+type CubicChainEntry = (Vec<(usize, bool)>, [f64; 2], [f64; 2]);
+
+#[derive(Default)]
+struct RecoveredCubics {
+    by_first_edge: BTreeMap<(usize, bool), CubicChainEntry>,
+    fully_recovered: bool,
+}
+
+fn eval_cubic_2d(c: &[[f64; 2]; 4], t: f64) -> [f64; 2] {
+    let u = 1.0 - t;
+    let b0 = u * u * u;
+    let b1 = 3.0 * u * u * t;
+    let b2 = 3.0 * u * t * t;
+    let b3 = t * t * t;
+    [
+        b0 * c[0][0] + b1 * c[1][0] + b2 * c[2][0] + b3 * c[3][0],
+        b0 * c[0][1] + b1 * c[1][1] + b2 * c[2][1] + b3 * c[3][1],
+    ]
+}
+
+fn split_cubic_left(c: &[[f64; 2]; 4], t: f64) -> [[f64; 2]; 4] {
+    let lerp =
+        |a: [f64; 2], b: [f64; 2], s: f64| [a[0] + (b[0] - a[0]) * s, a[1] + (b[1] - a[1]) * s];
+    let p01 = lerp(c[0], c[1], t);
+    let p12 = lerp(c[1], c[2], t);
+    let p23 = lerp(c[2], c[3], t);
+    let p012 = lerp(p01, p12, t);
+    let p123 = lerp(p12, p23, t);
+    let p0123 = lerp(p012, p123, t);
+    [c[0], p01, p012, p0123]
+}
+
+fn split_cubic_right(c: &[[f64; 2]; 4], t: f64) -> [[f64; 2]; 4] {
+    let rev = [c[3], c[2], c[1], c[0]];
+    let left = split_cubic_left(&rev, 1.0 - t);
+    [left[3], left[2], left[1], left[0]]
+}
+
+fn sub_cubic_2d(c: &[[f64; 2]; 4], t0: f64, t1: f64) -> [[f64; 2]; 4] {
+    if t1 <= 1e-12 {
+        return [c[0]; 4];
+    }
+    let left = split_cubic_left(c, t1.clamp(0.0, 1.0));
+    let u0 = (t0 / t1).clamp(0.0, 1.0);
+    split_cubic_right(&left, u0)
+}
+
+fn closest_cubic_param(c: &[[f64; 2]; 4], pt: [f64; 2]) -> (f64, f64) {
+    let dist_sq = |t: f64| -> f64 {
+        let q = eval_cubic_2d(c, t);
+        let dx = q[0] - pt[0];
+        let dy = q[1] - pt[1];
+        dx * dx + dy * dy
+    };
+    let mut best_t = 0.0;
+    let mut best_d2 = dist_sq(0.0);
+    const SAMPLES: usize = 48;
+    for i in 1..=SAMPLES {
+        let t = i as f64 / SAMPLES as f64;
+        let d2 = dist_sq(t);
+        if d2 < best_d2 {
+            best_d2 = d2;
+            best_t = t;
+        }
+    }
+    let mut step = 0.5 / SAMPLES as f64;
+    for _ in 0..18 {
+        for dir in [-1.0, 1.0] {
+            let cand = (best_t + dir * step).clamp(0.0, 1.0);
+            let d2 = dist_sq(cand);
+            if d2 < best_d2 {
+                best_d2 = d2;
+                best_t = cand;
+            }
+        }
+        step *= 0.5;
+    }
+    (best_t, best_d2.sqrt())
+}
+
+fn oriented_styles(e: &BinaryEdge, rev: bool) -> (u16, u16, u16) {
+    let f0 = e.styles.fill_0 & 0x7fff;
+    let f1 = e.styles.fill_1 & 0x7fff;
+    let st = e.styles.stroke & 0x7fff;
+    if rev { (f1, f0, st) } else { (f0, f1, st) }
+}
+
+fn directed_endpoints(e: &BinaryEdge, rev: bool) -> ([i32; 2], [i32; 2]) {
+    if rev {
+        (e.end, e.start)
+    } else {
+        (e.start, e.end)
+    }
+}
+
+type AuxStep = ([f64; 2], Option<[f64; 2]>, [f64; 2]);
+
+fn parse_auxiliary_steps(aux: &BinaryAuxiliaryCurve, b_start: [f64; 2]) -> Option<Vec<AuxStep>> {
+    let entries = aux.entries.as_ref()?;
+    if entries.is_empty() {
+        return None;
+    }
+    let to_sub = |p: [i32; 2]| [f64::from(p[0]) * 256.0, f64::from(p[1]) * 256.0];
+    let mut cur = b_start;
+    let mut i = 0usize;
+    if entries[0].control_flag == 0 {
+        let first = to_sub(entries[0].point);
+        if (first[0] - b_start[0]).hypot(first[1] - b_start[1]) <= 512.0 {
+            cur = first;
+            i = 1;
+        }
+    }
+    let mut steps = Vec::new();
+    while i < entries.len() {
+        if entries[i].control_flag != 0 {
+            let ctrl = to_sub(entries[i].point);
+            let end_entry = entries.get(i + 1)?;
+            if end_entry.control_flag != 0 {
+                return None;
+            }
+            let next = to_sub(end_entry.point);
+            steps.push((cur, Some(ctrl), next));
+            cur = next;
+            i += 2;
+        } else {
+            let next = to_sub(entries[i].point);
+            if (next[0] - cur[0]).hypot(next[1] - cur[1]) > 1.0 {
+                steps.push((cur, None, next));
+            }
+            cur = next;
+            i += 1;
+        }
+    }
+    (!steps.is_empty()).then_some(steps)
+}
+
+fn recover_authored_cubics(shape: &BinaryShapeRecord) -> RecoveredCubics {
+    if shape.auxiliary.is_empty()
+        || shape.edges.is_empty()
+        || shape.edges.len() > MAX_STROKE_EDGES
+        || shape.auxiliary.len() > MAX_STROKE_EDGES
+        || !shape.edges.iter().any(|e| e.control.is_some())
+    {
+        return RecoveredCubics::default();
+    }
+
+    const CELL: i32 = 512;
+    let cell_of = |x: f64, y: f64| -> (i32, i32) {
+        (
+            (x.round() as i64).div_euclid(i64::from(CELL)) as i32,
+            (y.round() as i64).div_euclid(i64::from(CELL)) as i32,
+        )
+    };
+
+    let mut vertex_degree: HashMap<[i32; 2], u32> = HashMap::with_capacity(shape.edges.len() * 2);
+    let mut exact_next: HashMap<[i32; 2], Vec<(usize, bool)>> =
+        HashMap::with_capacity(shape.edges.len() * 2);
+    let mut spatial_grid: HashMap<(i32, i32), Vec<(usize, bool)>> =
+        HashMap::with_capacity(shape.edges.len() * 2);
+
+    for (idx, e) in shape.edges.iter().enumerate() {
+        if e.start != e.end {
+            *vertex_degree.entry(e.start).or_default() += 1;
+            *vertex_degree.entry(e.end).or_default() += 1;
+        }
+        exact_next.entry(e.start).or_default().push((idx, false));
+        exact_next.entry(e.end).or_default().push((idx, true));
+        spatial_grid
+            .entry((e.start[0].div_euclid(CELL), e.start[1].div_euclid(CELL)))
+            .or_default()
+            .push((idx, false));
+        spatial_grid
+            .entry((e.end[0].div_euclid(CELL), e.end[1].div_euclid(CELL)))
+            .or_default()
+            .push((idx, true));
+    }
+
+    let candidates_near = |pt: [f64; 2], tol: f64| -> Vec<(usize, bool)> {
+        let (cx, cy) = cell_of(pt[0], pt[1]);
+        let r = (tol / f64::from(CELL)).ceil() as i32;
+        let mut out = Vec::new();
+        for dx in -r..=r {
+            for dy in -r..=r {
+                if let Some(list) = spatial_grid.get(&(cx + dx, cy + dy)) {
+                    for &(idx, rev) in list {
+                        let (st, _) = directed_endpoints(&shape.edges[idx], rev);
+                        let d = (f64::from(st[0]) - pt[0]).hypot(f64::from(st[1]) - pt[1]);
+                        if d <= tol {
+                            out.push((idx, rev));
+                        }
+                    }
+                }
+            }
+        }
+        out
+    };
+
+    let mut claimed = vec![false; shape.edges.len()];
+    let mut out = RecoveredCubics::default();
+    let mut all_ok = true;
+    let mut upgraded_count = 0usize;
+
+    let to_sub = |x: i32, y: i32| [f64::from(x) * 256.0, f64::from(y) * 256.0];
+    let hypot2 = |a: [f64; 2], b: [f64; 2]| (a[0] - b[0]).hypot(a[1] - b[1]);
+
+    for aux in &shape.auxiliary {
+        let pw = aux.point_words;
+        let p0 = to_sub(pw[0], pw[1]);
+        let c1 = to_sub(pw[2], pw[3]);
+        let c2 = to_sub(pw[4], pw[5]);
+        let p3 = to_sub(pw[6], pw[7]);
+        let b_start = aux.boundary_start.map_or(p0, |p| to_sub(p[0], p[1]));
+        let b_end = aux.boundary_end.map_or(p3, |p| to_sub(p[0], p[1]));
+
+        let full_len = hypot2(p0, p3);
+        let collinear_monotonic = if full_len <= 256.0 {
+            hypot2(c1, p0) <= 256.0 && hypot2(c2, p3) <= 256.0
+        } else {
+            let fdx = p3[0] - p0[0];
+            let fdy = p3[1] - p0[1];
+            let cross1 = ((c1[0] - p0[0]) * fdy - (c1[1] - p0[1]) * fdx).abs() / full_len;
+            let cross2 = ((c2[0] - p0[0]) * fdy - (c2[1] - p0[1]) * fdx).abs() / full_len;
+            let proj1 = ((c1[0] - p0[0]) * fdx + (c1[1] - p0[1]) * fdy) / (full_len * full_len);
+            let proj2 = ((c2[0] - p0[0]) * fdx + (c2[1] - p0[1]) * fdy) / (full_len * full_len);
+            cross1 <= 256.0
+                && cross2 <= 256.0
+                && (-0.02..=1.02).contains(&proj1)
+                && (-0.02..=1.02).contains(&proj2)
+        };
+        let entries_have_no_ctrl = aux
+            .entries
+            .as_ref()
+            .is_none_or(|ents| ents.iter().all(|pt| pt.control_flag == 0));
+
+        if collinear_monotonic && entries_have_no_ctrl {
+            if hypot2(b_start, b_end) <= 256.0 {
+                continue;
+            }
+            let seg_dx = b_end[0] - b_start[0];
+            let seg_dy = b_end[1] - b_start[1];
+            let seg_len = seg_dx.hypot(seg_dy);
+            let mut matched_straight = false;
+            for (first_idx, first_rev) in candidates_near(b_start, 512.0) {
+                if shape.edges[first_idx].control.is_some() {
+                    continue;
+                }
+                let mut cur_idx = first_idx;
+                let mut cur_rev = first_rev;
+                let mut steps = 0usize;
+                loop {
+                    steps += 1;
+                    let (_, end_i) = directed_endpoints(&shape.edges[cur_idx], cur_rev);
+                    let end_f = [f64::from(end_i[0]), f64::from(end_i[1])];
+                    let cross =
+                        ((end_f[0] - b_start[0]) * seg_dy - (end_f[1] - b_start[1]) * seg_dx).abs()
+                            / seg_len;
+                    if cross > 512.0 {
+                        break;
+                    }
+                    if hypot2(end_f, b_end) <= 512.0 {
+                        matched_straight = true;
+                        break;
+                    }
+                    if steps >= 16 {
+                        break;
+                    }
+                    let dot = ((end_f[0] - b_start[0]) * seg_dx + (end_f[1] - b_start[1]) * seg_dy)
+                        / (seg_len * seg_len);
+                    if !(0.0..1.0).contains(&dot) {
+                        break;
+                    }
+                    let Some(nexts) = exact_next.get(&end_i) else {
+                        break;
+                    };
+                    let Some(&(n_idx, n_rev)) = nexts
+                        .iter()
+                        .find(|&&(ni, _)| ni != cur_idx && shape.edges[ni].control.is_none())
+                    else {
+                        break;
+                    };
+                    cur_idx = n_idx;
+                    cur_rev = n_rev;
+                }
+                if matched_straight {
+                    break;
+                }
+            }
+            if !matched_straight {
+                all_ok = false;
+            }
+            continue;
+        }
+
+        let base_cubic = [p0, c1, c2, p3];
+        let target_cubic = if hypot2(b_start, p0) <= 256.0 && hypot2(b_end, p3) <= 256.0 {
+            base_cubic
+        } else {
+            let (t0, d0) = closest_cubic_param(&base_cubic, b_start);
+            let (t1, d1) = closest_cubic_param(&base_cubic, b_end);
+            if d0 > 512.0 || d1 > 512.0 || (t1 - t0).abs() < 0.02 {
+                all_ok = false;
+                continue;
+            }
+            if t0 < t1 {
+                sub_cubic_2d(&base_cubic, t0, t1)
+            } else {
+                let rev_base = [p3, c2, c1, p0];
+                sub_cubic_2d(&rev_base, 1.0 - t0, 1.0 - t1)
+            }
+        };
+
+        let mut matched_chains: Vec<(f64, Vec<(usize, bool)>)> = Vec::new();
+
+        if let Some(steps) = parse_auxiliary_steps(aux, target_cubic[0])
+            && hypot2(steps.last().unwrap().2, target_cubic[3]) <= 640.0
+        {
+            for (first_idx, first_rev) in candidates_near(steps[0].0, 512.0) {
+                if claimed[first_idx] {
+                    continue;
+                }
+                let want_styles = oriented_styles(&shape.edges[first_idx], first_rev);
+                let mut chain = Vec::with_capacity(steps.len());
+                let mut cur_idx = first_idx;
+                let mut cur_rev = first_rev;
+                let mut max_err = 0.0_f64;
+                let mut ok = true;
+                for (si, &(_, exp_ctrl, exp_end)) in steps.iter().enumerate() {
+                    if claimed[cur_idx]
+                        || chain.iter().any(|&(ci, _)| ci == cur_idx)
+                        || oriented_styles(&shape.edges[cur_idx], cur_rev) != want_styles
+                    {
+                        ok = false;
+                        break;
+                    }
+                    let e = &shape.edges[cur_idx];
+                    let (_, end_i) = directed_endpoints(e, cur_rev);
+                    let end_f = [f64::from(end_i[0]), f64::from(end_i[1])];
+                    let end_err = hypot2(end_f, exp_end);
+                    if end_err > 512.0 {
+                        ok = false;
+                        break;
+                    }
+                    max_err = max_err.max(end_err);
+                    if let (Some(ec), Some(xc)) = (e.control, exp_ctrl) {
+                        let ctrl_err = hypot2([f64::from(ec[0]), f64::from(ec[1])], xc);
+                        if ctrl_err > 768.0 {
+                            ok = false;
+                            break;
+                        }
+                        max_err = max_err.max(ctrl_err);
+                    }
+                    let (_, curve_err) = closest_cubic_param(&target_cubic, end_f);
+                    if curve_err > 768.0 {
+                        ok = false;
+                        break;
+                    }
+                    chain.push((cur_idx, cur_rev));
+                    if si + 1 < steps.len() {
+                        if vertex_degree.get(&end_i).copied().unwrap_or(0) != 2 {
+                            ok = false;
+                            break;
+                        }
+                        let Some(nexts) = exact_next.get(&end_i) else {
+                            ok = false;
+                            break;
+                        };
+                        let Some(&(n_idx, n_rev)) =
+                            nexts.iter().find(|&&(ni, _)| ni != cur_idx && !claimed[ni])
+                        else {
+                            ok = false;
+                            break;
+                        };
+                        cur_idx = n_idx;
+                        cur_rev = n_rev;
+                    }
+                }
+                if ok && !chain.is_empty() {
+                    matched_chains.push((max_err, chain));
+                }
+            }
+        }
+
+        if matched_chains.is_empty() {
+            for (first_idx, first_rev) in candidates_near(target_cubic[0], 512.0) {
+                if claimed[first_idx] {
+                    continue;
+                }
+                let want_styles = oriented_styles(&shape.edges[first_idx], first_rev);
+                let mut chain = Vec::new();
+                let mut cur_idx = first_idx;
+                let mut cur_rev = first_rev;
+                let mut prev_t = 0.0_f64;
+                let mut max_err = 0.0_f64;
+                for step in 0..16 {
+                    if claimed[cur_idx]
+                        || chain.iter().any(|&(ci, _)| ci == cur_idx)
+                        || oriented_styles(&shape.edges[cur_idx], cur_rev) != want_styles
+                    {
+                        break;
+                    }
+                    let e = &shape.edges[cur_idx];
+                    let (st_i, end_i) = directed_endpoints(e, cur_rev);
+                    let st_f = [f64::from(st_i[0]), f64::from(st_i[1])];
+                    let end_f = [f64::from(end_i[0]), f64::from(end_i[1])];
+                    let mid_f = if let Some(ctrl) = e.control {
+                        [
+                            0.25 * st_f[0] + 0.5 * f64::from(ctrl[0]) + 0.25 * end_f[0],
+                            0.25 * st_f[1] + 0.5 * f64::from(ctrl[1]) + 0.25 * end_f[1],
+                        ]
+                    } else {
+                        [0.5 * (st_f[0] + end_f[0]), 0.5 * (st_f[1] + end_f[1])]
+                    };
+                    let (t_mid, mid_err) = closest_cubic_param(&target_cubic, mid_f);
+                    let (t_end, end_err) = closest_cubic_param(&target_cubic, end_f);
+                    if mid_err > 640.0
+                        || end_err > 640.0
+                        || t_mid + 1e-3 < prev_t
+                        || t_end + 1e-3 < t_mid
+                    {
+                        break;
+                    }
+                    max_err = max_err.max(mid_err).max(end_err);
+                    prev_t = t_end;
+                    chain.push((cur_idx, cur_rev));
+                    let goal_err = hypot2(end_f, target_cubic[3]);
+                    if goal_err <= 512.0 && t_end >= 0.94 {
+                        if !chain.is_empty() {
+                            matched_chains.push((max_err.max(goal_err), chain.clone()));
+                        }
+                        break;
+                    }
+                    if step == 15 || vertex_degree.get(&end_i).copied().unwrap_or(0) != 2 {
+                        break;
+                    }
+                    let Some(nexts) = exact_next.get(&end_i) else {
+                        break;
+                    };
+                    let Some(&(n_idx, n_rev)) =
+                        nexts.iter().find(|&&(ni, _)| ni != cur_idx && !claimed[ni])
+                    else {
+                        break;
+                    };
+                    cur_idx = n_idx;
+                    cur_rev = n_rev;
+                }
+            }
+        }
+
+        matched_chains.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let unique_chain = match matched_chains.as_slice() {
+            [(_, chain)] => Some(chain.clone()),
+            [(e0, c0), (e1, _), ..] if *e0 + 128.0 < *e1 => Some(c0.clone()),
+            _ => None,
+        };
+        let Some(chain) = unique_chain else {
+            all_ok = false;
+            continue;
+        };
+
+        for &(ci, _) in &chain {
+            claimed[ci] = true;
+        }
+        let (actual_st_i, _) = directed_endpoints(&shape.edges[chain[0].0], chain[0].1);
+        let (_, actual_end_i) = directed_endpoints(
+            &shape.edges[chain.last().unwrap().0],
+            chain.last().unwrap().1,
+        );
+        let ds = [
+            f64::from(actual_st_i[0]) - target_cubic[0][0],
+            f64::from(actual_st_i[1]) - target_cubic[0][1],
+        ];
+        let de = [
+            f64::from(actual_end_i[0]) - target_cubic[3][0],
+            f64::from(actual_end_i[1]) - target_cubic[3][1],
+        ];
+        let c1_px = [
+            (target_cubic[1][0] + (2.0 * ds[0] + de[0]) / 3.0) / 5120.0,
+            (target_cubic[1][1] + (2.0 * ds[1] + de[1]) / 3.0) / 5120.0,
+        ];
+        let c2_px = [
+            (target_cubic[2][0] + (ds[0] + 2.0 * de[0]) / 3.0) / 5120.0,
+            (target_cubic[2][1] + (ds[1] + 2.0 * de[1]) / 3.0) / 5120.0,
+        ];
+        if !c1_px
+            .iter()
+            .chain(&c2_px)
+            .all(|v| v.is_finite() && v.abs() <= 1e9)
+        {
+            all_ok = false;
+            continue;
+        }
+
+        let rev_chain: Vec<(usize, bool)> = chain.iter().rev().map(|&(ci, cr)| (ci, !cr)).collect();
+        out.by_first_edge.insert(chain[0], (chain, c1_px, c2_px));
+        out.by_first_edge
+            .insert(rev_chain[0], (rev_chain, c2_px, c1_px));
+        upgraded_count += 1;
+    }
+
+    out.fully_recovered = all_ok && upgraded_count > 0;
+    out
+}
+
+fn paths(
+    edges: Vec<Edge>,
+    closed: bool,
+    cubics: &RecoveredCubics,
+    emitted_cubic: &mut bool,
+) -> Result<Vec<PathCommand>, String> {
     let limit = if closed {
         MAX_FILL_EDGES
     } else {
@@ -198,8 +710,9 @@ fn paths(edges: Vec<Edge>, closed: bool) -> Result<Vec<PathCommand>, String> {
         circuit.reverse();
         let mut current = None;
         let mut contour_start = None;
-        for id in circuit {
-            let e = &edges[id];
+        let mut idx = 0usize;
+        while idx < circuit.len() {
+            let e = &edges[circuit[idx]];
             if current != Some(e.start) {
                 if closed && current.is_some() && current != contour_start {
                     return Err("Cannot assemble closed fill graph".into());
@@ -208,8 +721,37 @@ fn paths(edges: Vec<Edge>, closed: bool) -> Result<Vec<PathCommand>, String> {
                 commands.push(PathCommand::MoveTo { x, y });
                 contour_start = Some(e.start);
             }
+            if let Some((expected_chain, c1_px, c2_px)) =
+                cubics.by_first_edge.get(&(e.source_index, e.reverse))
+                && idx + expected_chain.len() <= circuit.len()
+                && expected_chain
+                    .iter()
+                    .enumerate()
+                    .all(|(off, &(exp_src, exp_rev))| {
+                        let ce = &edges[circuit[idx + off]];
+                        ce.source_index == exp_src
+                            && ce.reverse == exp_rev
+                            && (off == 0 || edges[circuit[idx + off - 1]].end == ce.start)
+                    })
+            {
+                let last_e = &edges[circuit[idx + expected_chain.len() - 1]];
+                let [x, y] = point(last_e.end);
+                commands.push(PathCommand::CubicTo {
+                    cx1: c1_px[0],
+                    cy1: c1_px[1],
+                    cx2: c2_px[0],
+                    cy2: c2_px[1],
+                    x,
+                    y,
+                });
+                *emitted_cubic = true;
+                current = Some(last_e.end);
+                idx += expected_chain.len();
+                continue;
+            }
             e.append(&mut commands);
             current = Some(e.end);
+            idx += 1;
         }
         if closed {
             if current != contour_start {
@@ -965,6 +1507,8 @@ pub(super) fn convert_shape_with_effects_opts(
 ) -> Result<ConvertedShape, String> {
     let raw_matrix = matrix(shape.matrix_words);
     let transform = Transform::from_matrix(raw_matrix).ok_or("Invalid shape matrix")?;
+    let recovered_cubics = recover_authored_cubics(shape);
+    let mut emitted_cubic = false;
     let mut output = ConvertedShape::default();
     // Each paint converts independently; approximations are reported once per shape.
     let mut notes = Vec::new();
@@ -973,15 +1517,16 @@ pub(super) fn convert_shape_with_effects_opts(
         let edges: Vec<_> = shape
             .edges
             .iter()
-            .filter_map(|e| {
+            .enumerate()
+            .filter_map(|(edge_idx, e)| {
                 let a = e.styles.fill_0 & 0x7fff;
                 let b = e.styles.fill_1 & 0x7fff;
                 if a == b {
                     None
                 } else if b == index {
-                    Some(Edge::new(e, false))
+                    Some(Edge::new(edge_idx, e, false))
                 } else if a == index {
-                    Some(Edge::new(e, true))
+                    Some(Edge::new(edge_idx, e, true))
                 } else {
                     None
                 }
@@ -1017,7 +1562,7 @@ pub(super) fn convert_shape_with_effects_opts(
             continue;
         }
         let bounds_fallback = edges_bounding_rect(&edges, raw_matrix, transform);
-        let commands = match paths(edges, true) {
+        let commands = match paths(edges, true, &recovered_cubics, &mut emitted_cubic) {
             Ok(commands) => commands,
             Err(e) => {
                 notes.push(format!("fill {} skipped: {e}", i + 1));
@@ -1082,8 +1627,9 @@ pub(super) fn convert_shape_with_effects_opts(
         let edges: Vec<_> = shape
             .edges
             .iter()
-            .filter(|e| e.styles.stroke & 0x7fff == index)
-            .map(|e| Edge::new(e, false))
+            .enumerate()
+            .filter(|(_, e)| e.styles.stroke & 0x7fff == index)
+            .map(|(edge_idx, e)| Edge::new(edge_idx, e, false))
             .collect();
         if edges.is_empty() {
             continue;
@@ -1133,7 +1679,7 @@ pub(super) fn convert_shape_with_effects_opts(
             });
             continue;
         }
-        let commands = match paths(edges, false) {
+        let commands = match paths(edges, false, &recovered_cubics, &mut emitted_cubic) {
             Ok(commands) => commands,
             Err(e) => {
                 notes.push(format!("stroke {} skipped: {e}", i + 1));
@@ -1405,7 +1951,7 @@ pub(super) fn convert_shape_with_effects_opts(
             format!("Shape imported with approximations: {}. The original shape remains in the embedded source.", notes.join("; ")),
         );
     }
-    if !shape.auxiliary.is_empty() {
+    if !shape.auxiliary.is_empty() && !(recovered_cubics.fully_recovered && emitted_cubic) {
         report.warning("fla_cubic_editing_metadata",location,"Rendered quadratic edges are preserved; auxiliary cubic editing handles remain in source provenance.")
     }
     Ok(output)

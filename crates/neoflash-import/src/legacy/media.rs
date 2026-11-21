@@ -10,6 +10,7 @@ mod video;
 pub use video::{BinaryVideoPayload, decode_binary_video};
 
 const MAX_INPUT: usize = 64 * 1024 * 1024;
+const MAX_RAW_DIMENSION: u32 = 16_384;
 const MAX_PIXELS: usize = 4096 * 4096;
 const MAX_BYTES: usize = MAX_PIXELS * 4;
 
@@ -109,14 +110,23 @@ impl<'a> Reader<'a> {
     }
 }
 fn dimensions(width: u32, height: u32) -> Result<usize> {
-    if width == 0 || height == 0 || width > 4096 || height > 4096 {
+    if width == 0 || height == 0 || width > MAX_RAW_DIMENSION || height > MAX_RAW_DIMENSION {
         return Err(error(
             "fla_bitmap_limit",
             0,
-            "Bitmap dimensions must be in 1..=4096.",
+            "Bitmap dimensions must be in 1..=16384.",
         ));
     }
-    Ok(width as usize * height as usize)
+    (width as usize)
+        .checked_mul(height as usize)
+        .filter(|&pixels| pixels <= MAX_PIXELS)
+        .ok_or_else(|| {
+            error(
+                "fla_bitmap_limit",
+                0,
+                "Decoded bitmap exceeds 16777216 pixels (64 MiB RGBA).",
+            )
+        })
 }
 
 /// Strip SWF-style interior `FF D9` / `FF D8` table-glue markers before the
@@ -236,8 +246,8 @@ pub fn decode_binary_bitmap(bytes: &[u8], encoded_byte_count: i32) -> Result<Dec
             ));
         }
         let mut limits = Limits::default();
-        limits.max_image_width = Some(4096);
-        limits.max_image_height = Some(4096);
+        limits.max_image_width = Some(MAX_RAW_DIMENSION);
+        limits.max_image_height = Some(MAX_RAW_DIMENSION);
         limits.max_alloc = Some(MAX_BYTES as u64);
         let mut reader =
             ImageReader::with_format(Cursor::new(normalized_jpeg.as_ref()), ImageFormat::Jpeg);

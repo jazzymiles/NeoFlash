@@ -57,7 +57,9 @@ impl Reader<'_> {
                 self.take(4)?;
             }
             if revision == 9 {
-                return self.unsupported("Historical document-page action lists are unsupported.");
+                for _ in 0..4 {
+                    self.historical_action_list()?;
+                }
             }
             if revision >= 10 {
                 self.string()?;
@@ -562,6 +564,62 @@ impl Reader<'_> {
         if v >= 8 {
             let length = self.u32()? as usize;
             self.take(length)?;
+        }
+        Ok(())
+    }
+    fn historical_action_list(&mut self) -> Result<()> {
+        let count = self.count(7)?;
+        for _ in 0..count {
+            let cmd_rev = self.revision(10)?;
+            self.take(1)?;
+            self.string()?;
+            self.string()?;
+            self.string()?;
+            self.take(2)?;
+            if cmd_rev >= 1 {
+                self.take(2)?;
+            }
+            if cmd_rev >= 2 {
+                self.string()?;
+            }
+            if cmd_rev >= 3 {
+                self.string()?;
+                self.string()?;
+                self.string()?;
+                self.take(4)?;
+            }
+            if cmd_rev >= 4 {
+                self.take(28)?;
+            }
+            if cmd_rev >= 5 {
+                self.take(4)?;
+                self.string()?;
+                self.string()?;
+                self.string()?;
+                self.string()?;
+            }
+            if cmd_rev >= 6 {
+                self.string()?;
+                self.take(4)?;
+            }
+            if cmd_rev >= 7 {
+                self.string()?;
+                self.string()?;
+                self.take(48)?;
+            }
+            if cmd_rev >= 8 {
+                self.take(8)?;
+            }
+            if cmd_rev >= 9 {
+                let extra = self.u32()? as usize;
+                if extra > (1 << 20) {
+                    return Err(self.error(
+                        "fla_contents_budget",
+                        "Historical action extra data exceeds 1 MiB.",
+                    ));
+                }
+                self.take(extra)?;
+            }
         }
         Ok(())
     }

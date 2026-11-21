@@ -800,10 +800,23 @@ impl<'a> Reader<'a> {
                 frame.extension = Some(self.string()?);
             }
             if rev == 17 {
-                return stop(
-                    "fla_historical_frame_extension_unsupported",
-                    "Frame revision 17 historical extension is unsupported.",
-                );
+                let ext_start = self.pos;
+                let flags_word = self.word()?;
+                let matrix_words = self.signed_words()?;
+                let before_color_flag = self.byte()?;
+                let color_transform = self.color_transform()?;
+                let after_color_flag = self.byte()?;
+                frame.pose_extension = Some(TimelineFramePoseExtension {
+                    encoded: TimelineByteSpan {
+                        start: ext_start,
+                        end: self.pos,
+                    },
+                    flags_word,
+                    matrix_words,
+                    before_color_flag,
+                    color_transform,
+                    after_color_flag,
+                });
             }
             if rev >= 20 {
                 frame.reserved = Some(self.dword()?);

@@ -314,10 +314,23 @@ pub struct TimelineFrame {
     #[serde(default)]
     pub tween_instance_name: Option<TimelineString>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pose_extension: Option<TimelineFramePoseExtension>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pose_matrices: Option<TimelineByteSpan>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+/// CPicFrame revision-17 historical pose extension (flags, matrix, color transform).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TimelineFramePoseExtension {
+    pub encoded: TimelineByteSpan,
+    pub flags_word: u16,
+    pub matrix_words: [i32; 6],
+    pub before_color_flag: u8,
+    pub color_transform: TimelineColorTransform,
+    pub after_color_flag: u8,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimelineColorTransform {
     pub revision: Option<u8>,
     /// Signed archive multipliers, in RGBA order; divisor is 256.
@@ -564,7 +577,7 @@ impl TimelineInstance {
 }
 
 /// Authoring filter types. The archive type byte is retained in
-/// [`TimelineFilter::type_code`]; 5 (convolution) and unknown codes stop.
+/// [`TimelineFilter::type_code`]; unknown codes above 7 stop explicitly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TimelineFilterKind {
@@ -573,6 +586,7 @@ pub enum TimelineFilterKind {
     Glow,
     Bevel,
     GradientGlow,
+    Convolution,
     AdjustColor,
     GradientBevel,
 }
@@ -628,6 +642,20 @@ pub struct TimelineFilterParams {
     pub gradient_value: Option<u32>,
     #[serde(default)]
     pub gradient_stops: Vec<TimelineFilterGradientStop>,
+    /// Convolution filter dimensions (1..=15), divisor, bias, row-major kernel
+    /// floats, and bitflags (0x02 clamp, 0x01 preserve_alpha).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matrix_x: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matrix_y: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub divisor: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bias: Option<f32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub convolution_matrix: Vec<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub convolution_flags: Option<u8>,
 }
 
 /// One authored filter. A revision-0 record stores no settings at all.

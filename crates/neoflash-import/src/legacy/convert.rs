@@ -188,6 +188,7 @@ pub(super) fn convert_filters(
     let mut out = Vec::new();
     let mut empty_revision_count = 0usize;
     let mut truncated_count = 0usize;
+    let mut clamped_convolution_count = 0usize;
 
     for f in filters {
         if f.revision == 0
@@ -297,6 +298,67 @@ pub(super) fn convert_filters(
                     knockout,
                 }
             }
+            TimelineFilterKind::Convolution => {
+                let mx = p.matrix_x.unwrap_or(0);
+                let my = p.matrix_y.unwrap_or(0);
+                let mut clamped = false;
+                let mut matrix = Vec::with_capacity(p.convolution_matrix.len());
+                for &coeff in &p.convolution_matrix {
+                    let v = f64::from(coeff);
+                    if !v.is_finite() {
+                        clamped = true;
+                        matrix.push(0.0);
+                    } else if v.abs() > 65_536.0 {
+                        clamped = true;
+                        matrix.push(v.clamp(-65_536.0, 65_536.0));
+                    } else {
+                        matrix.push(v);
+                    }
+                }
+                let raw_div = f64::from(p.divisor.unwrap_or(1.0));
+                let divisor = if !raw_div.is_finite() {
+                    clamped = true;
+                    1.0
+                } else if raw_div == 0.0 {
+                    let sum: f64 = matrix.iter().sum();
+                    if sum.is_finite() && sum.abs() > 1e-9 && sum.abs() <= 65_536.0 {
+                        sum
+                    } else {
+                        1.0
+                    }
+                } else if raw_div.abs() > 65_536.0 {
+                    clamped = true;
+                    raw_div.clamp(-65_536.0, 65_536.0)
+                } else {
+                    raw_div
+                };
+                let raw_bias = f64::from(p.bias.unwrap_or(0.0));
+                let bias = if !raw_bias.is_finite() {
+                    clamped = true;
+                    0.0
+                } else if raw_bias.abs() > 65_536.0 {
+                    clamped = true;
+                    raw_bias.clamp(-65_536.0, 65_536.0)
+                } else {
+                    raw_bias
+                };
+                if clamped {
+                    clamped_convolution_count += 1;
+                }
+                let (color, alpha) = unpack_rgba(p.color_rgba.unwrap_or(0));
+                let flags = p.convolution_flags.unwrap_or(0x03);
+                FilterSpec::Convolution {
+                    matrix_x: mx,
+                    matrix_y: my,
+                    matrix,
+                    divisor,
+                    bias,
+                    preserve_alpha: (flags & 0x01) != 0,
+                    clamp: (flags & 0x02) != 0,
+                    color,
+                    alpha,
+                }
+            }
             TimelineFilterKind::AdjustColor => FilterSpec::ColorMatrix {
                 matrix: adjust_color_matrix(
                     finite_clamp(p.brightness, 0.0, -100.0, 100.0),
@@ -312,7 +374,7 @@ pub(super) fn convert_filters(
         }
     }
 
-    if empty_revision_count > 0 || truncated_count > 0 {
+    if empty_revision_count > 0 || truncated_count > 0 || clamped_convolution_count > 0 {
         let mut notes = Vec::new();
         if empty_revision_count > 0 {
             notes.push(format!(
@@ -322,6 +384,11 @@ pub(super) fn convert_filters(
         if truncated_count > 0 {
             notes.push(format!(
                 "{truncated_count} filter(s) beyond the {MAX_OBJECT_FILTERS}-filter limit omitted"
+            ));
+        }
+        if clamped_convolution_count > 0 {
+            notes.push(format!(
+                "{clamped_convolution_count} convolution filter(s) clamped to +/-65536"
             ));
         }
         report.warning(
@@ -1591,6 +1658,7 @@ impl Context<'_> {
                     });
             let mut cursor = 0u32;
             let mut pending_morphs: Vec<(usize, u32)> = Vec::new();
+            let mut pending_custom_eases: Vec<(usize, TimelineFrame, String)> = Vec::new();
             for frame_id in &o.children {
                 if cursor >= MAX_TIMELINE_FRAMES {
                     self.report.warning(
@@ -1731,6 +1799,18 @@ impl Context<'_> {
                         "IK pose matrices are retained in the embedded source; the keyframe uses its stored pose.",
                     );
                 }
+                if let Some(ext) = &f.pose_extension
+                    && (ext.matrix_words != [65536, 0, 0, 65536, 0, 0]
+                        || ext.color_transform.multipliers != [256; 4]
+                        || ext.color_transform.offsets != [0; 4]
+                        || ext.color_transform.effect_type.unwrap_or(0) != 0)
+                {
+                    self.report.warning(
+                        "fla_layer_animation",
+                        &at,
+                        "Historical frame pose extension is retained in the embedded source; the keyframe uses its stored pose.",
+                    );
+                }
                 let mut elements = Vec::new();
                 let mut bitmap_fills = Vec::new();
                 let mut appearances = Vec::new();
@@ -1782,7 +1862,7 @@ impl Context<'_> {
                         }
                     }
                 }
-                let (tween, tween_kind) = match ease(f) {
+                let (tween, tween_kind, defer_multi_segment_ease) = match ease_with_split_flag(f) {
                     Ok(value) => value,
                     Err(e) => {
                         self.report.warning(
@@ -1795,6 +1875,7 @@ impl Context<'_> {
                                 acceleration: f.acceleration.unwrap_or(0) as i16 as f64,
                             }),
                             TweenKind::Classic,
+                            false,
                         )
                     }
                 };
@@ -1828,7 +1909,24 @@ impl Context<'_> {
                     // generated group symbols (with member placement transforms hoisted onto
                     // the outer group instance), or primitive/bitmap/text/video elements.
                     // Empty, multi-element, or unresolved placeholder endpoints hold their
-                    // keyframe poses and emit `fla_tween_dropped`.
+                    // keyframe poses and emit `fla_tween_dropped` (unless the span is 1 frame
+                    // wide with zero in-between frames before/from a blank keyframe).
+                    if previous.tween.is_some()
+                        && previous.tween_kind == TweenKind::Classic
+                        && cursor > previous.frame + 1
+                    {
+                        try_wrap_tweened_frame_shapes_into_group(
+                            &mut self.generated,
+                            previous,
+                            &mut elements,
+                            &mut bitmap_fills,
+                            &mut appearances,
+                            &mut vector_effects,
+                            s.index,
+                            *id,
+                            *frame_id,
+                        );
+                    }
                     if previous.tween.is_some()
                         && previous.tween_kind == TweenKind::Classic
                         && previous.elements.len() == 1
@@ -1848,7 +1946,8 @@ impl Context<'_> {
                     }
                     let is_tweenable_symbol = |sym_id: &str| {
                         self.library.values().any(|id| id == sym_id)
-                            || (sym_id.ends_with("-group")
+                            || ((sym_id.ends_with("-group")
+                                || sym_id.starts_with("fla-compiled-clip-"))
                                 && self.generated.iter().any(|s| s.id == sym_id))
                     };
                     let classic_tween_pair = previous.tween.is_some()
@@ -1884,13 +1983,37 @@ impl Context<'_> {
                             || elements.len() != 1
                             || !elements.iter().any(|e| e.id == previous.elements[0].id))
                     {
+                        let span_frames = cursor.saturating_sub(previous.frame);
+                        let valid_single_or_blank = |els: &[Element]| match els {
+                            [] => true,
+                            [el] => match &el.kind {
+                                ElementKind::Instance { symbol_id, .. } => {
+                                    is_tweenable_symbol(symbol_id)
+                                }
+                                ElementKind::Rectangle { .. }
+                                | ElementKind::Ellipse { .. }
+                                | ElementKind::Bitmap { .. }
+                                | ElementKind::TextBox { .. }
+                                | ElementKind::Video { .. } => true,
+                                ElementKind::PaintedPath { commands, .. }
+                                | ElementKind::Path { commands, .. } => !commands.is_empty(),
+                                _ => false,
+                            },
+                            _ => false,
+                        };
+                        let noop_single_frame_boundary = span_frames <= 1
+                            && (previous.elements.is_empty() || elements.is_empty())
+                            && valid_single_or_blank(&previous.elements)
+                            && valid_single_or_blank(&elements);
                         previous.tween = None;
                         previous.orient_to_path = false;
                         previous.sync_symbols = false;
                         previous.snap_to_guide = false;
                         previous.classic_rotate_dir = ClassicRotateDirection::Auto;
                         previous.classic_rotate_turns = 0;
-                        self.report.warning("fla_tween_dropped",&at,"This classic motion tween has empty, multiple or unsupported placement endpoints, so the frames hold their keyframe poses.");
+                        if !noop_single_frame_boundary {
+                            self.report.warning("fla_tween_dropped",&at,"This classic motion tween has empty, multiple or unsupported placement endpoints, so the frames hold their keyframe poses.");
+                        }
                     }
                 }
                 if let Some(script) = self.actions(s, f.actions.as_ref())? {
@@ -1899,6 +2022,9 @@ impl Context<'_> {
                         frame: cursor,
                         script,
                     })
+                }
+                if defer_multi_segment_ease {
+                    pending_custom_eases.push((layer.keyframes.len(), f.clone(), at.clone()));
                 }
                 if let Some(morph_id) = f.morph_shape {
                     pending_morphs.push((layer.keyframes.len(), morph_id));
@@ -1983,9 +2109,31 @@ impl Context<'_> {
                     }
                 }
             }
+            for (key_idx, saved_frame, saved_at) in pending_custom_eases.into_iter().rev() {
+                if key_idx < layer.keyframes.len()
+                    && layer.keyframes[key_idx].tween.is_some()
+                    && let Err(reason) = try_split_multi_segment_custom_ease(
+                        &mut layer,
+                        key_idx,
+                        &saved_frame,
+                        &self.library,
+                        &self.library_kinds,
+                    )
+                {
+                    self.report.warning(
+                        "fla_tween_easing",
+                        &saved_at,
+                        format!("{reason}; the tween uses its classic acceleration instead."),
+                    );
+                }
+            }
             if layer.keyframes.is_empty() && layer.properties.role != LayerRole::Folder {
-                self.report.warning("fla_layer_skipped",format!("stream #{} layer {}",s.index,layer.name),"No complete frame could be read for this layer; it remains in the embedded source.");
-                continue;
+                if o.complete && o.children.is_empty() {
+                    layer.properties.end_frame = Some(0);
+                } else {
+                    self.report.warning("fla_layer_skipped",format!("stream #{} layer {}",s.index,layer.name),"No complete frame could be read for this layer; it remains in the embedded source.");
+                    continue;
+                }
             }
             if !editor_visible && self.include_hidden {
                 match layer.properties.role {
@@ -2031,7 +2179,10 @@ impl Context<'_> {
             }
         }
         for (layer, end) in timeline.layers.iter_mut().zip(sources) {
-            if end < timeline.frame_count && layer.properties.role != LayerRole::Folder {
+            if end < timeline.frame_count
+                && layer.properties.role != LayerRole::Folder
+                && layer.properties.end_frame.is_none()
+            {
                 layer.keyframes.push(Keyframe {
                     frame: end,
                     elements: vec![],
@@ -2336,10 +2487,18 @@ impl Context<'_> {
                 if let Some(media) = b.media_id {
                     if let Some(asset) = self.bitmaps.get(&media) {
                         let mut scaled_mat = raw_mat;
-                        scaled_mat[0] *= asset.scale_x;
-                        scaled_mat[1] *= asset.scale_x;
-                        scaled_mat[2] *= asset.scale_y;
-                        scaled_mat[3] *= asset.scale_y;
+                        let ox_shift = raw_mat[0] * asset.origin_x + raw_mat[2] * asset.origin_y;
+                        let oy_shift = raw_mat[1] * asset.origin_x + raw_mat[3] * asset.origin_y;
+                        if ox_shift.is_finite() && oy_shift.is_finite() {
+                            scaled_mat[4] += ox_shift;
+                            scaled_mat[5] += oy_shift;
+                        }
+                        let sx = asset.scale_x * asset.bounds_scale_x;
+                        let sy = asset.scale_y * asset.bounds_scale_y;
+                        scaled_mat[0] *= sx;
+                        scaled_mat[1] *= sx;
+                        scaled_mat[2] *= sy;
+                        scaled_mat[3] *= sy;
                         element.transform = Transform::from_matrix(scaled_mat)
                             .or_else(|| Transform::from_matrix(raw_mat))
                             .ok_or("Invalid bitmap matrix")?;
@@ -2383,12 +2542,66 @@ impl Context<'_> {
                     }
                 } else if let Some(span) = b.inline_raster
                     && let Some(raw) = s.original_bytes.get(span.start..span.end)
-                    && let Ok(decoded) = crate::legacy::media::decode_binary_bitmap(raw, 0)
-                    && let Ok(png) = decoded.png_bytes()
-                    && png.len() <= MAX_RESOURCE_BYTES
+                    && let Ok(mut decoded) = crate::legacy::media::decode_binary_bitmap(raw, 0)
                 {
-                    element.transform =
-                        Transform::from_matrix(raw_mat).ok_or("Invalid bitmap matrix")?;
+                    let (orig_w, orig_h) = (decoded.width, decoded.height);
+                    if decoded.width > MAX_BITMAP_DIMENSION || decoded.height > MAX_BITMAP_DIMENSION
+                    {
+                        let Some((nw, nh, resized)) =
+                            crate::legacy::media::resize_rgba_proportional(
+                                &decoded.rgba,
+                                decoded.width,
+                                decoded.height,
+                                MAX_BITMAP_DIMENSION,
+                            )
+                        else {
+                            return Err("Inline bitmap exceeds 4096 px per-axis limit".into());
+                        };
+                        decoded.width = nw;
+                        decoded.height = nh;
+                        decoded.rgba = resized;
+                        self.report.warning(
+                            "fla_bitmap_downscaled",
+                            &location,
+                            format!(
+                                "Inline bitmap was downscaled from {orig_w}x{orig_h} px to {nw}x{nh} px (preserving Stage dimensions via transform scale) to fit project bitmap limits."
+                            ),
+                        );
+                    }
+                    let Ok(png) = decoded.png_bytes() else {
+                        return Err("Inline bitmap PNG encoding failed".into());
+                    };
+                    if png.len() > MAX_RESOURCE_BYTES {
+                        return Err("Inline bitmap resource exceeded limits".into());
+                    }
+                    let [xmin, xmax, ymin, ymax] = decoded.bounds_words;
+                    let mut scaled_mat = raw_mat;
+                    let mut sx = f64::from(orig_w) / f64::from(decoded.width);
+                    let mut sy = f64::from(orig_h) / f64::from(decoded.height);
+                    if xmin != i32::MIN
+                        && i64::from(xmax) > i64::from(xmin)
+                        && i64::from(ymax) > i64::from(ymin)
+                    {
+                        let ox = f64::from(xmin) / 20.0;
+                        let oy = f64::from(ymin) / 20.0;
+                        let bw = (f64::from(xmax) - f64::from(xmin)) / 20.0;
+                        let bh = (f64::from(ymax) - f64::from(ymin)) / 20.0;
+                        let ox_shift = raw_mat[0] * ox + raw_mat[2] * oy;
+                        let oy_shift = raw_mat[1] * ox + raw_mat[3] * oy;
+                        if ox_shift.is_finite() && oy_shift.is_finite() {
+                            scaled_mat[4] += ox_shift;
+                            scaled_mat[5] += oy_shift;
+                        }
+                        sx *= (bw / f64::from(orig_w)).clamp(1e-4, 1e4);
+                        sy *= (bh / f64::from(orig_h)).clamp(1e-4, 1e4);
+                    }
+                    scaled_mat[0] *= sx;
+                    scaled_mat[1] *= sx;
+                    scaled_mat[2] *= sy;
+                    scaled_mat[3] *= sy;
+                    element.transform = Transform::from_matrix(scaled_mat)
+                        .or_else(|| Transform::from_matrix(raw_mat))
+                        .ok_or("Invalid bitmap matrix")?;
                     let res_id = format!("legacy-inline-bitmap-{}-{object_id}", s.index);
                     let res_path = format!("legacy/inline-bitmaps/{}-{object_id}.png", s.index);
                     if let Ok(unit) = ResourceUnit::from_bytes(&res_id, res_path, "image/png", &png)
@@ -3420,41 +3633,619 @@ fn color_transform(c: &TimelineColorTransform) -> Result<ColorTransform, String>
 /// Tween easing and interpolation kind from the frame key mode
 /// (low byte: 0 none, 1 classic motion, 2 shape, 3 motion object, 4 IK pose).
 fn ease(f: &TimelineFrame) -> Result<(Option<Easing>, TweenKind), String> {
+    let (tween, kind, defer) = ease_with_split_flag(f)?;
+    if defer {
+        return Err("Multi-segment custom easing is not supported".into());
+    }
+    Ok((tween, kind))
+}
+
+fn uniform_custom_ease_curve(f: &TimelineFrame) -> Result<&[[f64; 6]], String> {
+    if f.single_ease_curve == Some(1) {
+        let c = f
+            .custom_ease
+            .get(5)
+            .ok_or("Missing global custom-ease curve")?;
+        return Ok(c.as_slice());
+    }
+    if f.custom_ease.len() == 6
+        && !f.custom_ease[5].is_empty()
+        && f.custom_ease[0..5].iter().all(|ch| ch == &f.custom_ease[5])
+    {
+        return Ok(f.custom_ease[5].as_slice());
+    }
+    Err("Separate per-property easing curves are not supported".into())
+}
+
+fn ease_with_split_flag(f: &TimelineFrame) -> Result<(Option<Easing>, TweenKind, bool), String> {
     let classic = || Easing::Flash {
         acceleration: f.acceleration.unwrap_or(0) as i16 as f64,
     };
     match f.key_mode.unwrap_or(0) & 255 {
-        0 if f.morph_shape.is_some() => Ok((Some(classic()), TweenKind::Shape)),
-        0 => Ok((None, TweenKind::Classic)),
+        0 if f.morph_shape.is_some() => Ok((Some(classic()), TweenKind::Shape, false)),
+        0 => Ok((None, TweenKind::Classic, false)),
         1 => {
             if f.custom_ease_present.unwrap_or(0) != 0 {
-                if f.single_ease_curve != Some(1) {
-                    return Err("Separate per-property easing curves are not supported".into());
+                let c = uniform_custom_ease_curve(f)?;
+                if c.len() == 2 && c[0][2..4] == [0., 0.] && c[1][2..4] == [1., 1.] {
+                    let (x1, y1, x2, y2) = (c[0][4], c[0][5], c[1][0], c[1][1]);
+                    if !(0.0..=1.0).contains(&x1)
+                        || !(0.0..=1.0).contains(&x2)
+                        || !y1.is_finite()
+                        || !y2.is_finite()
+                        || y1.abs() > 100.0
+                        || y2.abs() > 100.0
+                    {
+                        return Err(
+                            "Custom-ease handle coordinates are outside representable bounds"
+                                .into(),
+                        );
+                    }
+                    Ok((
+                        Some(Easing::CubicBezier { x1, y1, x2, y2 }),
+                        TweenKind::Classic,
+                        false,
+                    ))
+                } else if c.len() >= 3 {
+                    Ok((Some(classic()), TweenKind::Classic, true))
+                } else {
+                    Err("Multi-segment custom easing is not supported".into())
                 }
-                let c = f
-                    .custom_ease
-                    .get(5)
-                    .ok_or("Missing global custom-ease curve")?;
-                if c.len() != 2 || c[0][2..4] != [0., 0.] || c[1][2..4] != [1., 1.] {
-                    return Err("Multi-segment custom easing is not supported".into());
-                }
-                Ok((
-                    Some(Easing::CubicBezier {
-                        x1: c[0][4],
-                        y1: c[0][5],
-                        x2: c[1][0],
-                        y2: c[1][1],
-                    }),
-                    TweenKind::Classic,
-                ))
             } else {
-                Ok((Some(classic()), TweenKind::Classic))
+                Ok((Some(classic()), TweenKind::Classic, false))
             }
         }
-        2 => Ok((Some(classic()), TweenKind::Shape)),
+        2 => Ok((Some(classic()), TweenKind::Shape, false)),
         // Motion-object and IK spans keep their stored keyframe poses.
-        _ => Ok((None, TweenKind::Classic)),
+        _ => Ok((None, TweenKind::Classic, false)),
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn try_wrap_tweened_frame_shapes_into_group(
+    generated: &mut Vec<Symbol>,
+    previous: &mut Keyframe,
+    elements: &mut Vec<Element>,
+    bitmap_fills: &mut Vec<AuthoredBitmapFill>,
+    appearances: &mut Vec<ElementAppearance>,
+    vector_effects: &mut Vec<ElementVectorEffects>,
+    stream_index: usize,
+    layer_obj_id: u32,
+    curr_frame_id: u32,
+) {
+    let prev_is_raw_vec =
+        !previous.elements.is_empty() && previous.elements.iter().all(is_vector_path);
+    let curr_is_raw_vec = !elements.is_empty() && elements.iter().all(is_vector_path);
+    if !prev_is_raw_vec && !curr_is_raw_vec {
+        return;
+    }
+    let is_gen_group = |els: &[Element], gens: &[Symbol]| -> bool {
+        els.len() == 1
+            && matches!(
+                &els[0].kind,
+                ElementKind::Instance { symbol_id, .. }
+                    if symbol_id.ends_with("-group") && gens.iter().any(|s| s.id == *symbol_id)
+            )
+    };
+    if !((prev_is_raw_vec || is_gen_group(&previous.elements, generated))
+        && (curr_is_raw_vec || is_gen_group(elements, generated)))
+    {
+        return;
+    }
+
+    let mut candidate_gens = generated.clone();
+    let mut cand_prev_els = previous.elements.clone();
+    let mut cand_prev_bf = previous.bitmap_fills.clone();
+    let mut cand_prev_app = previous.appearances.clone();
+    let mut cand_prev_fx = previous.vector_effects.clone();
+    if prev_is_raw_vec {
+        let gid = format!(
+            "fla-{stream_index}-{layer_obj_id}-fshape-{}-group",
+            previous.frame
+        );
+        let wrapper_id = format!(
+            "fla-{stream_index}-{layer_obj_id}-fshape-{}",
+            previous.frame
+        );
+        candidate_gens.push(group_symbol_with_effects(
+            &gid,
+            format!("Frame shape {}", previous.frame + 1),
+            std::mem::take(&mut cand_prev_els),
+            std::mem::take(&mut cand_prev_bf),
+            std::mem::take(&mut cand_prev_app),
+            std::mem::take(&mut cand_prev_fx),
+        ));
+        cand_prev_els.push(Element {
+            id: wrapper_id,
+            name: String::new(),
+            transform: Transform::default(),
+            kind: ElementKind::Instance {
+                symbol_id: gid,
+                playback: InstancePlayback::SingleFrame(0),
+            },
+            ..Element::default()
+        });
+    }
+
+    let mut cand_curr_els = elements.clone();
+    let mut cand_curr_bf = bitmap_fills.clone();
+    let mut cand_curr_app = appearances.clone();
+    let mut cand_curr_fx = vector_effects.clone();
+    if curr_is_raw_vec {
+        let gid = format!("fla-{stream_index}-{layer_obj_id}-fshape-f{curr_frame_id}-group");
+        let wrapper_id = format!("fla-{stream_index}-{layer_obj_id}-fshape-f{curr_frame_id}");
+        candidate_gens.push(group_symbol_with_effects(
+            &gid,
+            format!("Frame shape object {curr_frame_id}"),
+            std::mem::take(&mut cand_curr_els),
+            std::mem::take(&mut cand_curr_bf),
+            std::mem::take(&mut cand_curr_app),
+            std::mem::take(&mut cand_curr_fx),
+        ));
+        cand_curr_els.push(Element {
+            id: wrapper_id,
+            name: String::new(),
+            transform: Transform::default(),
+            kind: ElementKind::Instance {
+                symbol_id: gid,
+                playback: InstancePlayback::SingleFrame(0),
+            },
+            ..Element::default()
+        });
+    }
+
+    hoist_generated_group_transform(&mut candidate_gens, &mut cand_prev_els[0]);
+    hoist_generated_group_transform(&mut candidate_gens, &mut cand_curr_els[0]);
+
+    let (ElementKind::Instance { symbol_id: sa, .. }, ElementKind::Instance { symbol_id: sb, .. }) =
+        (&cand_prev_els[0].kind, &cand_curr_els[0].kind)
+    else {
+        return;
+    };
+    let Some(sym_a) = candidate_gens.iter().find(|s| s.id == *sa) else {
+        return;
+    };
+    let Some(sym_b) = candidate_gens.iter().find(|s| s.id == *sb) else {
+        return;
+    };
+    if sym_a.timeline.layers.len() == 1
+        && sym_b.timeline.layers.len() == 1
+        && sym_a.timeline.layers[0].keyframes.len() == 1
+        && sym_b.timeline.layers[0].keyframes.len() == 1
+        && group_keyframes_structurally_equal(
+            &sym_a.timeline.layers[0].keyframes[0],
+            &sym_b.timeline.layers[0].keyframes[0],
+        )
+    {
+        *generated = candidate_gens;
+        previous.elements = cand_prev_els;
+        previous.bitmap_fills = cand_prev_bf;
+        previous.appearances = cand_prev_app;
+        previous.vector_effects = cand_prev_fx;
+        *elements = cand_curr_els;
+        *bitmap_fills = cand_curr_bf;
+        *appearances = cand_curr_app;
+        *vector_effects = cand_curr_fx;
+    }
+}
+
+fn eval_cubic_scalar(p0: f64, p1: f64, p2: f64, p3: f64, s: f64) -> f64 {
+    let u = 1.0 - s;
+    u * u * u * p0 + 3.0 * u * u * s * p1 + 3.0 * u * s * s * p2 + s * s * s * p3
+}
+
+fn solve_monotonic_cubic_x(x0: f64, c1x: f64, c2x: f64, x3: f64, target_x: f64) -> f64 {
+    if target_x <= x0 {
+        return 0.0;
+    }
+    if target_x >= x3 {
+        return 1.0;
+    }
+    let (mut lo, mut hi) = (0.0, 1.0);
+    for _ in 0..60 {
+        let mid = 0.5 * (lo + hi);
+        if eval_cubic_scalar(x0, c1x, c2x, x3, mid) < target_x {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    0.5 * (lo + hi)
+}
+
+fn subdivide_cubic_2d_interval(seg: [[f64; 2]; 4], s0: f64, s1: f64) -> [[f64; 2]; 4] {
+    let lerp2 =
+        |a: [f64; 2], b: [f64; 2], t: f64| [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+    let split_left = |c: [[f64; 2]; 4], t: f64| -> [[f64; 2]; 4] {
+        let p01 = lerp2(c[0], c[1], t);
+        let p12 = lerp2(c[1], c[2], t);
+        let p23 = lerp2(c[2], c[3], t);
+        let p012 = lerp2(p01, p12, t);
+        let p123 = lerp2(p12, p23, t);
+        let p0123 = lerp2(p012, p123, t);
+        [c[0], p01, p012, p0123]
+    };
+    if s1 <= 1e-12 {
+        return [seg[0]; 4];
+    }
+    let left = split_left(seg, s1.clamp(0.0, 1.0));
+    let rev = [left[3], left[2], left[1], left[0]];
+    let right_rev = split_left(rev, (1.0 - (s0 / s1).clamp(0.0, 1.0)).clamp(0.0, 1.0));
+    [right_rev[3], right_rev[2], right_rev[1], right_rev[0]]
+}
+
+fn try_split_multi_segment_custom_ease(
+    layer: &mut Layer,
+    key_idx: usize,
+    f: &TimelineFrame,
+    library: &BTreeMap<u32, String>,
+    library_kinds: &BTreeMap<u32, SymbolKind>,
+) -> Result<(), String> {
+    if layer.properties.motion_guide.is_some() {
+        return Err("Guided multi-segment custom easing is not supported".into());
+    }
+    if key_idx + 1 >= layer.keyframes.len() {
+        return Ok(());
+    }
+    if layer.keyframes[key_idx].tween.is_none()
+        || layer.keyframes[key_idx].tween_kind != TweenKind::Classic
+        || layer.keyframes[key_idx].elements.len() != 1
+        || layer.keyframes[key_idx + 1].elements.len() != 1
+        || layer.keyframes[key_idx].elements[0].id != layer.keyframes[key_idx + 1].elements[0].id
+    {
+        return Err("Multi-segment custom easing is not supported".into());
+    }
+    let knots = uniform_custom_ease_curve(f)?;
+    if knots.len() < 3 || knots.len() > 64 {
+        return Err("Multi-segment custom easing is not supported".into());
+    }
+    if knots[0][2].abs() > 1e-7
+        || knots[0][3].abs() > 1e-7
+        || (knots.last().unwrap()[2] - 1.0).abs() > 1e-7
+        || (knots.last().unwrap()[3] - 1.0).abs() > 1e-7
+    {
+        return Err("Custom-ease endpoints must span (0,0) to (1,1)".into());
+    }
+    for m in 0..knots.len() - 1 {
+        let (x0, y0, c1x, c1y) = (knots[m][2], knots[m][3], knots[m][4], knots[m][5]);
+        let (c2x, c2y, x3, y3) = (
+            knots[m + 1][0],
+            knots[m + 1][1],
+            knots[m + 1][2],
+            knots[m + 1][3],
+        );
+        if ![x0, y0, c1x, c1y, c2x, c2y, x3, y3]
+            .iter()
+            .all(|v| v.is_finite())
+            || x3 <= x0 + 1e-7
+            || c1x < x0 - 1e-7
+            || c1x > x3 + 1e-7
+            || c2x < x0 - 1e-7
+            || c2x > x3 + 1e-7
+        {
+            return Err("Non-monotonic custom-ease curve is not supported".into());
+        }
+    }
+
+    let start_frame = layer.keyframes[key_idx].frame;
+    let end_frame = layer.keyframes[key_idx + 1].frame;
+    let dur = end_frame.saturating_sub(start_frame);
+    if dur <= 1 {
+        layer.keyframes[key_idx].tween = Some(Easing::Linear);
+        return Ok(());
+    }
+
+    let mut splits = vec![0u32, dur];
+    for &knot in &knots[1..knots.len() - 1] {
+        let xk = knot[2];
+        let raw_f = xk * f64::from(dur);
+        let k_lo = (raw_f.floor() as i64).clamp(0, i64::from(dur)) as u32;
+        let k_hi = (raw_f.ceil() as i64).clamp(0, i64::from(dur)) as u32;
+        splits.push(k_lo);
+        splits.push(k_hi);
+    }
+    splits.sort_unstable();
+    splits.dedup();
+
+    let seg_for_interval = |u_a: f64, u_b: f64| -> Option<usize> {
+        let mid = 0.5 * (u_a + u_b);
+        (0..knots.len() - 1).find(|&m| knots[m][2] - 1e-7 <= mid && mid <= knots[m + 1][2] + 1e-7)
+    };
+    let eval_curve_at_u = |u: f64| -> Result<f64, String> {
+        if u <= 0.0 {
+            return Ok(0.0);
+        }
+        if u >= 1.0 {
+            return Ok(1.0);
+        }
+        let m = (0..knots.len() - 1)
+            .find(|&m| knots[m][2] - 1e-9 <= u && u <= knots[m + 1][2] + 1e-9)
+            .ok_or("Custom-ease time lies outside knot segments")?;
+        let s = solve_monotonic_cubic_x(
+            knots[m][2],
+            knots[m][4],
+            knots[m + 1][0],
+            knots[m + 1][2],
+            u,
+        );
+        Ok(eval_cubic_scalar(
+            knots[m][3],
+            knots[m][5],
+            knots[m + 1][1],
+            knots[m + 1][3],
+            s,
+        ))
+    };
+
+    let mut split_v = Vec::with_capacity(splits.len());
+    for &k in &splits {
+        split_v.push(eval_curve_at_u(f64::from(k) / f64::from(dur))?);
+    }
+
+    let mut sub_eases = Vec::with_capacity(splits.len() - 1);
+    for pair in splits.windows(2) {
+        let (ka, kb) = (pair[0], pair[1]);
+        if kb <= ka + 1 {
+            sub_eases.push(Easing::Linear);
+            continue;
+        }
+        let ua = f64::from(ka) / f64::from(dur);
+        let ub = f64::from(kb) / f64::from(dur);
+        let m = seg_for_interval(ua, ub).ok_or("Missing custom-ease segment for sub-span")?;
+        if ua < knots[m][2] - 1e-7 || ub > knots[m + 1][2] + 1e-7 {
+            return Err("Custom-ease sub-span crosses a knot boundary".into());
+        }
+        let seg = [
+            [knots[m][2], knots[m][3]],
+            [knots[m][4], knots[m][5]],
+            [knots[m + 1][0], knots[m + 1][1]],
+            [knots[m + 1][2], knots[m + 1][3]],
+        ];
+        let sa = solve_monotonic_cubic_x(seg[0][0], seg[1][0], seg[2][0], seg[3][0], ua);
+        let sb = solve_monotonic_cubic_x(seg[0][0], seg[1][0], seg[2][0], seg[3][0], ub);
+        let sub = subdivide_cubic_2d_interval(seg, sa, sb);
+        let dx = sub[3][0] - sub[0][0];
+        let dy = sub[3][1] - sub[0][1];
+        if dx <= 1e-9 {
+            return Err("Zero-width custom-ease sub-span".into());
+        }
+        if dy.abs() <= 1e-7
+            && (sub[1][1] - sub[0][1]).abs() <= 1e-6
+            && (sub[2][1] - sub[0][1]).abs() <= 1e-6
+        {
+            sub_eases.push(Easing::Linear);
+            continue;
+        }
+        if dy.abs() <= 1e-6 {
+            return Err("Zero-delta inflected custom-ease sub-span cannot be normalized".into());
+        }
+        let x1 = ((sub[1][0] - sub[0][0]) / dx).clamp(0.0, 1.0);
+        let x2 = ((sub[2][0] - sub[0][0]) / dx).clamp(0.0, 1.0);
+        let y1 = (sub[1][1] - sub[0][1]) / dy;
+        let y2 = (sub[2][1] - sub[0][1]) / dy;
+        if !y1.is_finite() || !y2.is_finite() || y1.abs() > 100.0 || y2.abs() > 100.0 {
+            return Err("Custom-ease sub-segment exceeds +/-100 overshoot limit".into());
+        }
+        sub_eases.push(Easing::CubicBezier { x1, y1, x2, y2 });
+    }
+
+    let start_kf = layer.keyframes[key_idx].clone();
+    let end_kf = layer.keyframes[key_idx + 1].clone();
+    let a_el = &start_kf.elements[0];
+    let b_el = &end_kf.elements[0];
+
+    let turns_deg = (start_kf
+        .classic_rotate_turns
+        .min(Keyframe::MAX_ROTATE_TURNS) as f64)
+        * 360.0;
+    let total_rot_delta = match start_kf.classic_rotate_dir {
+        ClassicRotateDirection::Auto => {
+            let d = b_el.transform.rotation - a_el.transform.rotation;
+            if turns_deg == 0.0 {
+                d
+            } else {
+                d + (if d < 0.0 { -1.0 } else { 1.0 }) * turns_deg
+            }
+        }
+        ClassicRotateDirection::None => 0.0,
+        ClassicRotateDirection::Cw => {
+            (b_el.transform.rotation - a_el.transform.rotation).rem_euclid(360.0) + turns_deg
+        }
+        ClassicRotateDirection::Ccw => {
+            -((a_el.transform.rotation - b_el.transform.rotation).rem_euclid(360.0) + turns_deg)
+        }
+    };
+    let target_end_rot = a_el.transform.rotation + total_rot_delta;
+    if (target_end_rot - b_el.transform.rotation).abs() > 1e-6 && end_kf.tween.is_some() {
+        return Err("Directed multi-turn rotation continues into a subsequent tween".into());
+    }
+
+    let is_graphic_symbol = match &a_el.kind {
+        ElementKind::Instance { symbol_id, .. } => library
+            .iter()
+            .find(|(_, sid)| *sid == symbol_id)
+            .and_then(|(lid, _)| library_kinds.get(lid))
+            .is_some_and(|&k| k == SymbolKind::Graphic),
+        _ => false,
+    };
+
+    let lerp_f = |a: f64, b: f64, t: f64| a + (b - a) * t;
+    let mut inserted = Vec::with_capacity(splits.len().saturating_sub(2));
+    for idx in 1..splits.len() - 1 {
+        let k_off = splits[idx];
+        let v = split_v[idx];
+        let mut el = a_el.clone();
+        el.transform.x = lerp_f(a_el.transform.x, b_el.transform.x, v);
+        el.transform.y = lerp_f(a_el.transform.y, b_el.transform.y, v);
+        if start_kf.tween_scale {
+            el.transform.scale_x = lerp_f(a_el.transform.scale_x, b_el.transform.scale_x, v);
+            el.transform.scale_y = lerp_f(a_el.transform.scale_y, b_el.transform.scale_y, v);
+        }
+        el.transform.rotation = a_el.transform.rotation + total_rot_delta * v;
+        el.transform.skew = lerp_f(a_el.transform.skew, b_el.transform.skew, v);
+        el.transform.alpha = lerp_f(a_el.transform.alpha, b_el.transform.alpha, v).clamp(0.0, 1.0);
+        el.transform.color_transform = ColorTransform {
+            multipliers: std::array::from_fn(|c| {
+                lerp_f(
+                    a_el.transform.color_transform.multipliers[c],
+                    b_el.transform.color_transform.multipliers[c],
+                    v,
+                )
+            }),
+            offsets: std::array::from_fn(|c| {
+                lerp_f(
+                    a_el.transform.color_transform.offsets[c],
+                    b_el.transform.color_transform.offsets[c],
+                    v,
+                )
+            }),
+        };
+        el.filters = if a_el.filters == b_el.filters {
+            a_el.filters.clone()
+        } else {
+            let probe_frame = (v.clamp(0.0, 1.0) * 1_000_000.0).round() as u32;
+            let probe_layer = Layer {
+                id: "probe".into(),
+                name: String::new(),
+                visible: true,
+                locked: false,
+                keyframes: vec![
+                    Keyframe {
+                        frame: 0,
+                        elements: vec![a_el.clone()],
+                        tween: Some(Easing::Linear),
+                        tween_kind: TweenKind::Classic,
+                        ..Default::default()
+                    },
+                    Keyframe {
+                        frame: 1_000_000,
+                        elements: vec![b_el.clone()],
+                        ..Default::default()
+                    },
+                ],
+                properties: LayerProperties::default(),
+            };
+            sample_layer(&probe_layer, probe_frame)
+                .into_iter()
+                .next()
+                .map_or_else(|| a_el.filters.clone(), |sampled| sampled.filters)
+        };
+        if is_graphic_symbol && let ElementKind::Instance { playback, .. } = &mut el.kind {
+            *playback = match *playback {
+                InstancePlayback::Loop => InstancePlayback::LoopFrom(k_off),
+                InstancePlayback::LoopFrom(f0) => {
+                    InstancePlayback::LoopFrom(f0.saturating_add(k_off))
+                }
+                InstancePlayback::PlayOnce => InstancePlayback::PlayOnceFrom(k_off),
+                InstancePlayback::PlayOnceFrom(f0) => {
+                    InstancePlayback::PlayOnceFrom(f0.saturating_add(k_off))
+                }
+                other => other,
+            };
+        }
+        match (&a_el.kind, &b_el.kind, &mut el.kind) {
+            (
+                ElementKind::Rectangle {
+                    width: aw,
+                    height: ah,
+                    fill: af,
+                    stroke: ast,
+                    stroke_width: asw,
+                },
+                ElementKind::Rectangle {
+                    width: bw,
+                    height: bh,
+                    fill: bf,
+                    stroke: bst,
+                    stroke_width: bsw,
+                },
+                ElementKind::Rectangle {
+                    width,
+                    height,
+                    fill,
+                    stroke,
+                    stroke_width,
+                },
+            )
+            | (
+                ElementKind::Ellipse {
+                    width: aw,
+                    height: ah,
+                    fill: af,
+                    stroke: ast,
+                    stroke_width: asw,
+                },
+                ElementKind::Ellipse {
+                    width: bw,
+                    height: bh,
+                    fill: bf,
+                    stroke: bst,
+                    stroke_width: bsw,
+                },
+                ElementKind::Ellipse {
+                    width,
+                    height,
+                    fill,
+                    stroke,
+                    stroke_width,
+                },
+            ) => {
+                if start_kf.tween_scale {
+                    *width = lerp_f(*aw, *bw, v).max(0.0);
+                    *height = lerp_f(*ah, *bh, v).max(0.0);
+                }
+                *fill = std::array::from_fn(|c| {
+                    lerp_f(f64::from(af[c]), f64::from(bf[c]), v)
+                        .round()
+                        .clamp(0.0, 255.0) as u8
+                });
+                *stroke = std::array::from_fn(|c| {
+                    lerp_f(f64::from(ast[c]), f64::from(bst[c]), v)
+                        .round()
+                        .clamp(0.0, 255.0) as u8
+                });
+                *stroke_width = lerp_f(*asw, *bsw, v).max(0.0);
+            }
+            (
+                ElementKind::Video {
+                    width: aw,
+                    height: ah,
+                },
+                ElementKind::Video {
+                    width: bw,
+                    height: bh,
+                },
+                ElementKind::Video { width, height },
+            ) if start_kf.tween_scale => {
+                *width = lerp_f(*aw, *bw, v).max(1.0);
+                *height = lerp_f(*ah, *bh, v).max(1.0);
+            }
+            _ => {}
+        }
+
+        inserted.push(Keyframe {
+            frame: start_frame + k_off,
+            elements: vec![el],
+            tween: Some(sub_eases[idx]),
+            tween_kind: TweenKind::Classic,
+            tween_scale: start_kf.tween_scale,
+            orient_to_path: start_kf.orient_to_path,
+            sync_symbols: start_kf.sync_symbols,
+            snap_to_guide: start_kf.snap_to_guide,
+            classic_rotate_dir: ClassicRotateDirection::Auto,
+            classic_rotate_turns: 0,
+            ..Default::default()
+        });
+    }
+
+    layer.keyframes[key_idx].tween = Some(sub_eases[0]);
+    layer.keyframes[key_idx].classic_rotate_dir = ClassicRotateDirection::Auto;
+    layer.keyframes[key_idx].classic_rotate_turns = 0;
+    layer.keyframes[key_idx + 1].elements[0].transform.rotation = target_end_rot;
+    if !inserted.is_empty() {
+        layer.keyframes.splice(key_idx + 1..key_idx + 1, inserted);
+    }
+    Ok(())
 }
 
 fn apply_affine_point(m: [f64; 6], pt: [f64; 2]) -> [f64; 2] {
@@ -3838,6 +4629,280 @@ fn deduplicate_project_for_budget(
     !resource_remap.is_empty() || !group_remap.is_empty()
 }
 
+fn deduplicate_repeated_vector_paths_for_budget(
+    project: &mut Project,
+    provenance: &mut [serde_json::Value],
+    include_single_shapes: bool,
+) -> bool {
+    const MAX_SYMBOL_BUDGET: usize = 9_900;
+    const MAX_AUTHORED_ELEMENTS: usize = 100_000;
+    const MAX_EXPANDED_NODES: usize = 100_000;
+
+    if project.symbols.len() >= MAX_SYMBOL_BUDGET {
+        return false;
+    }
+
+    let mut changed = false;
+    let mut existing_ids: std::collections::HashSet<String> =
+        project.symbols.iter().map(|s| s.id.clone()).collect();
+    let mut next_seq = 1usize;
+    let mut alloc_sym_id = |prefix: &str| -> String {
+        loop {
+            let cand = format!("{prefix}-{next_seq}");
+            next_seq += 1;
+            if existing_ids.insert(cand.clone()) {
+                return cand;
+            }
+        }
+    };
+
+    // Part A: Under authored-element pressure (> 100,000 elements), collapse identical
+    // multi-element pure-vector static keyframes into shared 1-frame Graphic symbols.
+    let total_authored: usize = project
+        .symbols
+        .iter()
+        .flat_map(|s| &s.timeline.layers)
+        .flat_map(|l| &l.keyframes)
+        .map(|k| k.elements.len())
+        .sum();
+    if total_authored > MAX_AUTHORED_ELEMENTS {
+        let allowed_leaf = symbols_allowing_leaf_instance(&project.symbols);
+        let mut kf_buckets: std::collections::HashMap<String, Vec<(usize, usize, usize)>> =
+            std::collections::HashMap::new();
+        let mut kf_order: Vec<String> = Vec::new();
+        for (si, sym) in project.symbols.iter().enumerate() {
+            if !allowed_leaf.contains(&sym.id)
+                || sym.id == PLACEHOLDER
+                || sym.id.starts_with("fla-missing-bitmap-")
+                || sym.id.starts_with("fla-shared-")
+            {
+                continue;
+            }
+            for (li, layer) in sym.timeline.layers.iter().enumerate() {
+                if layer.properties.role != LayerRole::Normal {
+                    continue;
+                }
+                let max_key_len = layer
+                    .keyframes
+                    .iter()
+                    .map(|k| k.elements.len())
+                    .max()
+                    .unwrap_or(0);
+                if max_key_len + 2 >= MAX_EXPANDED_NODES {
+                    continue;
+                }
+                for (ki, key) in layer.keyframes.iter().enumerate() {
+                    let prev_tweened = ki > 0 && layer.keyframes[ki - 1].tween.is_some();
+                    if key.elements.len() < 2
+                        || key.tween.is_some()
+                        || prev_tweened
+                        || key.keyed_properties.is_some()
+                        || !key.shape_hints.is_empty()
+                        || !key.bitmap_fills.is_empty()
+                        || !key.appearances.is_empty()
+                        || !key.vector_effects.is_empty()
+                        || !key.asset_warps.is_empty()
+                        || !key.element_parents.is_empty()
+                        || !key.elements.iter().all(|e| {
+                            is_vector_path(e) && e.scripts.is_empty() && e.accessibility.is_none()
+                        })
+                    {
+                        continue;
+                    }
+                    let mut normalized = key.elements.clone();
+                    for el in &mut normalized {
+                        el.id.clear();
+                    }
+                    let Ok(sig) = serde_json::to_string(&normalized) else {
+                        continue;
+                    };
+                    let entry = kf_buckets.entry(sig.clone()).or_insert_with(|| {
+                        kf_order.push(sig);
+                        Vec::new()
+                    });
+                    entry.push((si, li, ki));
+                }
+            }
+        }
+
+        let mut target_remap: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        let mut new_symbols = Vec::new();
+        for sig in kf_order {
+            if project.symbols.len() + new_symbols.len() >= MAX_SYMBOL_BUDGET {
+                break;
+            }
+            let Some(locs) = kf_buckets.get(&sig) else {
+                continue;
+            };
+            if locs.len() < 2 {
+                continue;
+            }
+            let (si0, li0, ki0) = locs[0];
+            let k_len = project.symbols[si0].timeline.layers[li0].keyframes[ki0]
+                .elements
+                .len();
+            if locs.len() * k_len <= k_len + locs.len() + 2 {
+                continue;
+            }
+            let sym_id = alloc_sym_id("fla-shared-artwork");
+            let mut members = project.symbols[si0].timeline.layers[li0].keyframes[ki0]
+                .elements
+                .clone();
+            for (mi, member) in members.iter_mut().enumerate() {
+                member.id = format!("{sym_id}-el-{mi}");
+            }
+            new_symbols.push(group_symbol(
+                &sym_id,
+                format!("Shared artwork {}", new_symbols.len() + 1),
+                members,
+            ));
+            for &(si, li, ki) in locs {
+                let kf = &mut project.symbols[si].timeline.layers[li].keyframes[ki];
+                let outer_id = kf.elements[0].id.clone();
+                for dropped in &kf.elements[1..] {
+                    target_remap.insert(dropped.id.clone(), outer_id.clone());
+                }
+                kf.elements = vec![Element {
+                    id: outer_id,
+                    name: String::new(),
+                    transform: Transform::default(),
+                    kind: ElementKind::Instance {
+                        symbol_id: sym_id.clone(),
+                        playback: InstancePlayback::SingleFrame(0),
+                    },
+                    ..Element::default()
+                }];
+            }
+            changed = true;
+        }
+        if !new_symbols.is_empty() {
+            project.symbols.extend(new_symbols);
+        }
+        if !target_remap.is_empty() {
+            for entry in provenance.iter_mut() {
+                if let Some(cur) = entry.get("target").and_then(|v| v.as_str())
+                    && let Some(mapped) = target_remap.get(cur)
+                {
+                    entry["target"] = serde_json::Value::String(mapped.clone());
+                }
+            }
+        }
+    }
+
+    if !include_single_shapes {
+        return changed;
+    }
+
+    // Part B: Deduplicate repeated complex PaintedPath / Path shapes (>= 6 commands)
+    // across static normal-layer keyframes into shared 1-frame Graphic symbols.
+    let allowed_leaf = symbols_allowing_leaf_instance(&project.symbols);
+    let mut path_buckets: std::collections::HashMap<String, Vec<(usize, usize, usize, usize)>> =
+        std::collections::HashMap::new();
+    let mut path_order: Vec<String> = Vec::new();
+    for (si, sym) in project.symbols.iter().enumerate() {
+        if !allowed_leaf.contains(&sym.id)
+            || sym.id == PLACEHOLDER
+            || sym.id.starts_with("fla-missing-bitmap-")
+            || sym.id.starts_with("fla-shared-")
+        {
+            continue;
+        }
+        for (li, layer) in sym.timeline.layers.iter().enumerate() {
+            if layer.properties.role != LayerRole::Normal {
+                continue;
+            }
+            for (ki, key) in layer.keyframes.iter().enumerate() {
+                let prev_tweened = ki > 0 && layer.keyframes[ki - 1].tween.is_some();
+                if key.tween.is_some()
+                    || prev_tweened
+                    || key.keyed_properties.is_some()
+                    || !key.shape_hints.is_empty()
+                {
+                    continue;
+                }
+                let side_ids: std::collections::HashSet<&str> = key
+                    .bitmap_fills
+                    .iter()
+                    .map(|bf| bf.element_id.as_str())
+                    .chain(key.appearances.iter().map(|a| a.element_id.as_str()))
+                    .chain(key.vector_effects.iter().map(|fx| fx.element_id.as_str()))
+                    .chain(key.asset_warps.iter().map(|w| w.element_id.as_str()))
+                    .chain(
+                        key.element_parents
+                            .iter()
+                            .flat_map(|ep| [ep.child_id.as_str(), ep.parent_id.as_str()]),
+                    )
+                    .collect();
+                for (ei, elem) in key.elements.iter().enumerate() {
+                    let cmd_len = match &elem.kind {
+                        ElementKind::PaintedPath { commands, .. }
+                        | ElementKind::Path { commands, .. } => commands.len(),
+                        _ => continue,
+                    };
+                    if cmd_len < 6
+                        || !elem.scripts.is_empty()
+                        || side_ids.contains(elem.id.as_str())
+                    {
+                        continue;
+                    }
+                    let Ok(sig) = serde_json::to_string(&elem.kind) else {
+                        continue;
+                    };
+                    let entry = path_buckets.entry(sig.clone()).or_insert_with(|| {
+                        path_order.push(sig);
+                        Vec::new()
+                    });
+                    entry.push((si, li, ki, ei));
+                }
+            }
+        }
+    }
+
+    let mut new_shape_symbols = Vec::new();
+    for sig in path_order {
+        if project.symbols.len() + new_shape_symbols.len() >= MAX_SYMBOL_BUDGET {
+            break;
+        }
+        let Some(locs) = path_buckets.get(&sig) else {
+            continue;
+        };
+        if locs.len() < 2 || (locs.len() - 1) * sig.len() <= sig.len() + 800 {
+            continue;
+        }
+        let (si0, li0, ki0, ei0) = locs[0];
+        let template_kind = project.symbols[si0].timeline.layers[li0].keyframes[ki0].elements[ei0]
+            .kind
+            .clone();
+        let sym_id = alloc_sym_id("fla-shared-shape");
+        let inner_el = Element {
+            id: format!("{sym_id}-el"),
+            name: String::new(),
+            transform: Transform::default(),
+            kind: template_kind,
+            ..Element::default()
+        };
+        new_shape_symbols.push(group_symbol(
+            &sym_id,
+            format!("Shared shape {}", new_shape_symbols.len() + 1),
+            vec![inner_el],
+        ));
+        for &(si, li, ki, ei) in locs {
+            project.symbols[si].timeline.layers[li].keyframes[ki].elements[ei].kind =
+                ElementKind::Instance {
+                    symbol_id: sym_id.clone(),
+                    playback: InstancePlayback::SingleFrame(0),
+                };
+        }
+        changed = true;
+    }
+    if !new_shape_symbols.is_empty() {
+        project.symbols.extend(new_shape_symbols);
+    }
+
+    changed
+}
+
 #[allow(clippy::too_many_arguments)]
 fn fit_project_json_budget(
     project: &mut Project,
@@ -3932,6 +4997,15 @@ fn fit_project_json_budget(
             report,
             make_provenance,
         )?;
+        *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
+    }
+
+    // 2b. Deduplicate repeated PaintedPath/Path shapes into shared Graphic symbols before degrading.
+    if json.len() > MAX_PROJECT_JSON_BYTES
+        && deduplicate_repeated_vector_paths_for_budget(project, &mut [], true)
+    {
+        project.format_version = 5;
+        project.upgrade_format_for_features();
         *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
     }
 
@@ -5051,6 +6125,9 @@ fn enforce_project_structural_limits(
             .any(|&n| n > MAX_EXPANDED_NODES)
     {
         deduplicate_project_for_budget(project, provenance);
+        if authored_count(project) > MAX_AUTHORED_ELEMENTS {
+            deduplicate_repeated_vector_paths_for_budget(project, provenance, false);
+        }
     }
 
     // 3a. Cap symbol count at 10,000.
