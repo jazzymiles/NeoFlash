@@ -36,6 +36,8 @@ Pointer input continues to use Canvas geometry, including path holes and strokes
 
 ## Preview scale
 
+While a button or artwork is held down, automatic stage resizing waits until the pointer is released or the gesture is cancelled. This keeps the first click on target when unlocking audio changes the height of the preview controls.
+
 Preview viewing controls change only how the fixed authored stage is displayed. **Fit** shows the complete stage; **100%** displays one authored pixel per CSS pixel. At a larger scale, scrolling/panning reveals the rest of the stage while transport controls stay reachable. This is distinct from responsive authoring: choosing a preview zoom does not resize or rearrange source elements.
 
 The scale menu includes 25%, 50%, 75%, 100%, 150%, 200% and 400%. Enable **Pan** to drag the view, use the middle mouse button, or scroll with a trackpad/touch gesture. A keyboard-focused button scrolls into view. Canvas backing resolution is bounded separately from the viewing scale, so very large stages or high zoom levels can lose raster sharpness.

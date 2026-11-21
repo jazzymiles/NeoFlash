@@ -5196,31 +5196,40 @@
     // later events. Keep installing the animation loop after reporting them.
     try { initializeProgram(); dispatchScripts(); render(); } catch (error) { fail(error); }
     if (typeof ResizeObserver === 'function' && viewport) {
-      let lastObservedWidth = viewport.clientWidth;
-      let lastObservedHeight = viewport.clientHeight;
-      resizeObserver = new ResizeObserver(guardHostCallback(() => {
-        if (runtimeDisposed) return;
-        const nextWidth = viewport.clientWidth;
-        const nextHeight = viewport.clientHeight;
-        if (nextWidth === lastObservedWidth && nextHeight === lastObservedHeight) return;
-        lastObservedWidth = nextWidth;
-        lastObservedHeight = nextHeight;
+      // The status/footer can reflow on audio unlock. Keep a pressed stage target
+      // under the pointer through release and the browser's ensuing click.
+      let stagePointer = null;
+      let lastWidth = 0, lastHeight = 0;
+      const applyViewportResize = guardHostCallback(() => {
+        resizeRafId = 0;
+        if (runtimeDisposed || stagePointer !== null) return;
+        const width = viewport.clientWidth, height = viewport.clientHeight;
+        if (width === lastWidth && height === lastHeight) return;
+        lastWidth = width;
+        lastHeight = height;
+        resize();
+        render();
+      });
+      const queueViewportResize = () => {
+        if (runtimeDisposed || stagePointer !== null || resizeRafId) return;
         if (typeof global.requestAnimationFrame === 'function') {
-          if (resizeRafId) return;
-          resizeRafId = global.requestAnimationFrame(() => {
-            resizeRafId = 0;
-            guardHostCallback(() => { if (!runtimeDisposed) {
-              lastObservedWidth = viewport.clientWidth;
-              lastObservedHeight = viewport.clientHeight;
-              resize();
-              render();
-            } })();
-          });
+          resizeRafId = global.requestAnimationFrame(applyViewportResize);
         } else {
-          resize();
-          render();
+          applyViewportResize();
         }
-      }));
+      };
+      addOwnedListener(viewport, 'pointerdown', event => {
+        if (event.isPrimary && event.button === 0 && !preview.panMode) stagePointer = event.pointerId;
+      }, true);
+      const releaseStagePointer = event => {
+        if (stagePointer === null || (event.type !== 'blur' && event.pointerId !== stagePointer)) return;
+        stagePointer = null;
+        queueViewportResize();
+      };
+      addOwnedListener(global, 'pointerup', releaseStagePointer, true);
+      addOwnedListener(global, 'pointercancel', releaseStagePointer, true);
+      addOwnedListener(global, 'blur', releaseStagePointer);
+      resizeObserver = new ResizeObserver(queueViewportResize);
       resizeObserver.observe(viewport);
     }
     if (loadingElement?.style) loadingElement.style.display = 'none';

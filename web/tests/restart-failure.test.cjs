@@ -7,6 +7,10 @@ const vm = require('node:vm');
 test('the actual host keeps scheduling after a startup script failure so Restart can recover', async () => {
   const listeners = new Map(), animation = [], errors = [];
   const elements = new Map();
+  let observeResize, appliedWidth;
+  function removeListener(key, fn) {
+    if (listeners.get(key) === fn) listeners.delete(key);
+  }
   const cleanupError = new Error('secondary painter cleanup failure');
   const resizeError = new Error('original resize failure');
   let cleanupFails = true, resizeFails = false, clipClears = 0;
@@ -16,6 +20,7 @@ test('the actual host keeps scheduling after a startup script failure so Restart
     if (!elements.has(id)) elements.set(id, {
       style: {}, dataset: {}, title: '', textContent: '', getContext: () => context2d,
       addEventListener: (name, fn) => listeners.set(`${id}:${name}`, fn),
+      removeEventListener: (name, fn) => removeListener(`${id}:${name}`, fn),
       removeAttribute() {}, setAttribute() {},
     });
     return elements.get(id);
@@ -55,9 +60,20 @@ test('the actual host keeps scheduling after a startup script failure so Restart
       },
     },
     NeoFlashAccessibility: { SemanticLayer: class { update() { return 0; } } },
-    NeoFlashPreview: { Preview: class { constructor() { this.view = { scale: 1 }; } resize() { if(resizeFails)throw resizeError; } } },
-    ResizeObserver: class { observe() {} disconnect() { throw new Error('observer disposal failure'); } },
+    NeoFlashPreview: { Preview: class {
+      constructor() { this.view = { scale: 1 }; }
+      resize() {
+        if (resizeFails) throw resizeError;
+        appliedWidth = element('viewport').clientWidth;
+      }
+    } },
+    ResizeObserver: class {
+      constructor(callback) { observeResize = callback; }
+      observe() {}
+      disconnect() { throw new Error('observer disposal failure'); }
+    },
     addEventListener(name, fn) { listeners.set(`window:${name}`, fn); },
+    removeEventListener(name, fn) { removeListener(`window:${name}`, fn); },
     requestAnimationFrame: callback => animation.push(callback),
   });
   vm.runInContext(fs.readFileSync(resolve(__dirname, '../runtime.js'), 'utf8'), context);
@@ -83,6 +99,27 @@ test('the actual host keeps scheduling after a startup script failure so Restart
   assert.equal(context.NeoFlashPlayer.measuredFps, 0, 'Resume starts a fresh FPS window');
   assert.equal(errors.length, 2);
   assert.equal(animation.length, 1, 'recovery does not install a duplicate animation loop');
+  const viewport = element('viewport');
+  const animationTick = animation.shift();
+  const flushResizeFrame = () => animation.splice(0).forEach(callback => callback());
+  viewport.clientWidth = 320;
+  observeResize();
+  flushResizeFrame();
+  assert.equal(appliedWidth, 320, 'ordinary viewport changes apply at the next frame');
+  for (const type of ['pointercancel', 'blur', 'pointerup']) {
+    const oldWidth = viewport.clientWidth;
+    listeners.get('viewport:pointerdown')({ isPrimary: true, button: 0, pointerId: 7 });
+    viewport.clientWidth += 40;
+    observeResize();
+    listeners.get('window:pointerup')({ type: 'pointerup', pointerId: 8 });
+    flushResizeFrame();
+    assert.equal(appliedWidth, oldWidth, 'a different pointer cannot release the pressed stage');
+    const release = type === 'blur' ? { type } : { type, pointerId: 7, target: element('body') };
+    listeners.get(`window:${type}`)(release);
+    flushResizeFrame();
+    assert.equal(appliedWidth, viewport.clientWidth, `${type} releases the pending resize`);
+  }
+  animation.push(animationTick);
   resizeFails=true;
   assert.doesNotThrow(() => listeners.get('window:resize')());
   assert.equal(errors.at(-1), resizeError, 'browser callbacks use the same original-error boundary');
@@ -91,11 +128,15 @@ test('the actual host keeps scheduling after a startup script failure so Restart
   listeners.get('restart:click')();
   assert.equal(element('error').style.display, 'none');
   const clearsBeforeDispose=clipClears;
+  const staleRestart = listeners.get('restart:click');
   assert.doesNotThrow(() => listeners.get('window:pagehide')({persisted:false}));
   assert.match(errors.at(-1).message, /observer disposal failure/);
   assert.ok(clipClears>clearsBeforeDispose, 'disposal finishes despite an earlier observer failure');
+  for (const name of ['viewport:pointerdown', 'window:pointerup', 'window:pointercancel', 'window:blur']) {
+    assert.ok(!listeners.has(name), `disposed player detached ${name}`);
+  }
   const frame=player.frame;
   animation.shift()(250);
-  listeners.get('restart:click')();
+  staleRestart();
   assert.equal(player.frame,frame,'disposed callbacks cannot revive the publication');
 });

@@ -5,6 +5,7 @@
 - Redrew every interface icon (286 at 12 and 16 px, 131 at 20 px) from exact geometry: arrowheads have equal arms,
   circles are round, dashes and repeated bars are evenly spaced, mirrored pairs are true mirrors, and the paragraph,
   text and tool-modifier icons have clean, readable shapes (`T-426`).
+- Published HTML5 movies keep the pressed target in place until release when unlocking audio changes the height of the status panel. This preserves the first click on narrow Safari windows.
 - Save checks for further changes after **Keep editing**, including when another application recreates a deleted file while the conflict dialog is open. Opening an unpacked XFL by its folder, Adobe marker or `DOMDocument.xml` returns to the same edited tab.
 - Added a **Criteo · HTML5 ZIP** publish preset for compact, self-contained animated ads, with a final ZIP byte budget and a 300×250 Moon Tide example.
 - Custom HTML publish templates preserve literal tokens in project titles and content, including embedded JSON containing closing script tags. The export CLI and headless editor retain the custom wrapper when writing an assets folder or sprite sheet, and honor an explicit Canvas override on DOM projects.

@@ -17,9 +17,8 @@
  *   - Embedded AVI video timeline channel decoding & canvas rendering
  *
  * Executes real desktop Google Chrome via Chrome DevTools Protocol (CDP) across all 4 modes,
- * and probes desktop Safari / WebKit via /usr/bin/safaridriver (running live WebDriver sessions
- * when Safari "Allow Remote Automation" is enabled, or recording the honest host-configuration
- * gate plus static WebKit compatibility verification in target/beta1-browser-matrix/report.json).
+ * and repeats the same behavioral checks in Safari via /usr/bin/safaridriver when remote
+ * automation is available. Static WebKit checks and live Safari outcomes are reported separately.
  */
 
 import { spawn, spawnSync } from 'node:child_process';
@@ -199,8 +198,8 @@ function buildMinimalPngAviBytes(width, height, fps, pngFrames) {
 /** Build the interactive Beta 1 matrix .nflash project. */
 function buildMatrixProjectJson() {
   const wavBytes = buildToneWavBytes();
-  const frame0Png = buildSolidPngBytes(32, 24, [34, 166, 179, 255]);
-  const frame1Png = buildSolidPngBytes(32, 24, [106, 176, 76, 255]);
+  const frame0Png = buildSolidPngBytes(32, 24, [255, 0, 0, 255]);
+  const frame1Png = buildSolidPngBytes(32, 24, [0, 255, 0, 255]);
   const aviBytes = buildMinimalPngAviBytes(32, 24, 12, [
     frame0Png,
     frame1Png,
@@ -513,7 +512,7 @@ function buildMatrixProjectJson() {
               frame: 0,
               script: {
                 language: 'java_script',
-                source: 'this.stage.focus = this.getChildByName("inputField"); trace("boot:js_ok");',
+                source: 'trace("boot:js_ok");',
               },
             },
           ],
@@ -617,8 +616,24 @@ class CdpSession {
     });
   }
 
+  async navigate(url) {
+    const navigation = await this.send('Page.navigate', { url });
+    if (navigation.errorText) throw new Error(`Chrome navigation to ${url}: ${navigation.errorText}`);
+  }
+
+  async click(x, y) {
+    const point = { x, y, button: 'left', clickCount: 1 };
+    await this.send('Input.dispatchMouseEvent', { ...point, type: 'mousePressed', buttons: 1 });
+    await this.send('Input.dispatchMouseEvent', { ...point, type: 'mouseReleased', buttons: 0 });
+  }
+
+  insertText(text) {
+    return this.send('Input.insertText', { text });
+  }
+
   async evalJson(expression) {
     const res = await this.send('Runtime.evaluate', {
+      timeout: 15000,
       expression,
       awaitPromise: true,
       returnByValue: true,
@@ -674,59 +689,71 @@ async function launchChromeCdp() {
       '--no-first-run',
       '--no-default-browser-check',
       '--allow-file-access-from-files',
-      '--autoplay-policy=no-user-gesture-required',
       '--window-size=1280,800',
       'about:blank',
     ],
     { stdio: ['ignore', 'pipe', 'pipe'] },
   );
 
-  const browserWsUrl = await new Promise((resolve, reject) => {
-    let stderr = '';
-    const timer = setTimeout(() => {
-      reject(new Error(`Timed out waiting for Chrome DevTools WS URL. stderr:\n${stderr}`));
-    }, 15000);
-    proc.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
-      const match = stderr.match(/DevTools listening on (ws:\/\/127\.0\.0\.1:(\d+)\/[^\s]+)/);
-      if (match) {
-        clearTimeout(timer);
-        resolve({ wsUrl: match[1], port: Number(match[2]) });
-      }
-    });
-    proc.on('exit', (code) => {
-      clearTimeout(timer);
-      reject(new Error(`Chrome exited early with code ${code}: ${stderr}`));
-    });
-  });
-
-  const targets = await fetchJson(`http://127.0.0.1:${browserWsUrl.port}/json/list`);
-  const pageTarget = targets.find((t) => t.type === 'page') || targets[0];
-  if (!pageTarget?.webSocketDebuggerUrl) {
-    throw new Error(`No page target found in Chrome DevTools: ${JSON.stringify(targets)}`);
-  }
-  const cdp = new CdpSession(pageTarget.webSocketDebuggerUrl);
-  await cdp.connect();
-  await cdp.send('Page.enable');
-  await cdp.send('Runtime.enable');
-
-  return {
-    cdp,
-    close: async () => {
-      cdp.close();
+  let cdp;
+  async function close() {
+    cdp?.close();
+    if (proc.pid && proc.exitCode === null && proc.signalCode === null) {
+      const stopped = new Promise(resolve => proc.once('exit', resolve));
+      const timeout = setTimeout(() => proc.kill('SIGKILL'), 2000);
       proc.kill('SIGTERM');
-      await new Promise((r) => setTimeout(r, 150));
-      fs.rmSync(profileDir, { recursive: true, force: true });
-    },
-  };
+      await stopped;
+      clearTimeout(timeout);
+    }
+    fs.rmSync(profileDir, { recursive: true, force: true });
+  }
+
+  try {
+    const browserWsUrl = await new Promise((resolve, reject) => {
+      let stderr = '';
+      const timer = setTimeout(() => {
+        reject(new Error(`Timed out waiting for Chrome DevTools WS URL. stderr:\n${stderr}`));
+      }, 15000);
+      proc.stderr.on('data', (chunk) => {
+        stderr += chunk.toString();
+        const match = stderr.match(/DevTools listening on (ws:\/\/127\.0\.0\.1:(\d+)\/[^\s]+)/);
+        if (match) {
+          clearTimeout(timer);
+          resolve({ wsUrl: match[1], port: Number(match[2]) });
+        }
+      });
+      proc.once('error', (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+      proc.once('exit', (code) => {
+        clearTimeout(timer);
+        reject(new Error(`Chrome exited early with code ${code}: ${stderr}`));
+      });
+    });
+
+    const targets = await fetchJson(`http://127.0.0.1:${browserWsUrl.port}/json/list`);
+    const pageTarget = targets.find((t) => t.type === 'page') || targets[0];
+    if (!pageTarget?.webSocketDebuggerUrl) {
+      throw new Error(`No page target found in Chrome DevTools: ${JSON.stringify(targets)}`);
+    }
+    cdp = new CdpSession(pageTarget.webSocketDebuggerUrl);
+    await cdp.connect();
+    await cdp.send('Page.enable');
+    await cdp.send('Runtime.enable');
+    return { cdp, close };
+  } catch (err) {
+    await close();
+    throw err;
+  }
 }
 
-/** Verify a single published bundle URL inside Chrome via CDP. */
-async function verifyUrlInChrome(cdp, modeName, url, expectedProtocol) {
-  await cdp.send('Page.navigate', { url });
+/** Exercise the same published movie with each browser's trusted input driver. */
+async function verifyPublishedMovie(browser, modeName, url, expectedProtocol) {
+  await browser.navigate(url);
 
-  // Wait up to 8s for window.NeoFlashPlayer to mount and render at least 2 frames.
-  const readyState = await cdp.evalJson(`
+  // Wait for the player and its frame-rate status to mount.
+  const readyState = await browser.evalJson(`
     new Promise((resolve) => {
       const deadline = Date.now() + 8000;
       const poll = () => {
@@ -739,7 +766,7 @@ async function verifyUrlInChrome(cdp, modeName, url, expectedProtocol) {
         const player = window.NeoFlashPlayer;
         const traceEl = document.getElementById('trace');
         const statusEl = document.getElementById('status');
-        if (player && statusEl && statusEl.textContent && statusEl.textContent.includes('fps')) {
+        if (location.href === ${JSON.stringify(url)} && player && statusEl?.textContent.includes('fps')) {
           resolve({
             ok: true,
             protocol: window.location.protocol,
@@ -774,31 +801,41 @@ async function verifyUrlInChrome(cdp, modeName, url, expectedProtocol) {
     throw new Error(`[${modeName}] Expected NeoFlashWasmBase64 to be present for file:// fallback`);
   }
 
-  // Inspect rendering first, then use CDP input rather than synthetic DOM events. Trusted
+  // The footer shows only the last message. A six-frame looping movie can
+  // overwrite a click trace before a slower WebDriver command reads the DOM.
+  await browser.evalJson(`(() => {
+    window.matrixEvents = [];
+    window.addEventListener('neoflash-script-message', event => {
+      window.matrixEvents.push([event.detail.kind, event.detail.message]);
+    });
+    const audio = document.getElementById('audio-status');
+    window.matrixAudioPlaying = false;
+    new MutationObserver(() => {
+      if (audio.textContent.startsWith('Audio playing')) window.matrixAudioPlaying = true;
+    }).observe(audio, { childList: true, subtree: true, characterData: true });
+    window.NeoFlashPlayer.restart();
+  })()`);
+
+  // Inspect rendering first, then use native browser input rather than synthetic DOM events. Trusted
   // pointer/keyboard input is required to verify the browser's audio-gesture boundary and the
   // same editable-text route that an actual user exercises.
-  const renderReport = await cdp.evalJson(`
+  const renderReport = await browser.evalJson(`
     (async () => {
       const stage = document.getElementById('stage');
       const ctx = stage.getContext('2d');
 
-      // Wait up to 800ms for decoded video frame to present at (500, 230).
-      const vidDeadline = Date.now() + 800;
-      let vidSample = ctx.getImageData(Math.floor(500 * (stage.width / 640)), Math.floor(230 * (stage.height / 360)), 1, 1).data;
-      while (
-        Math.abs(vidSample[0] - 18) <= 8 &&
-        Math.abs(vidSample[1] - 22) <= 8 &&
-        Math.abs(vidSample[2] - 31) <= 8 &&
-        Date.now() < vidDeadline
-      ) {
-        await new Promise((r) => setTimeout(r, 30));
-        vidSample = ctx.getImageData(Math.floor(500 * (stage.width / 640)), Math.floor(230 * (stage.height / 360)), 1, 1).data;
+      // Read two actual positions from the nested classic tween before interacting.
+      const badgePositions = new Set();
+      const deadline = Date.now() + 2500;
+      while (badgePositions.size < 2 && Date.now() < deadline) {
+        const badge = window.NeoFlashPlayer.root.getChildByName('outerMc').getChildByName('innerMc');
+        badgePositions.add(badge.x);
+        await new Promise(resolve => setTimeout(resolve, 29));
       }
-      const videoPixelRgba = [vidSample[0], vidSample[1], vidSample[2], vidSample[3]];
 
       const img = ctx.getImageData(0, 0, stage.width, stage.height).data;
 
-      // Background is [18, 22, 31, 255]; count non-background pixels and check vector/video regions.
+      // Count artwork independently of canvas backing scale.
       let nonBgPixels = 0;
       for (let i = 0; i < img.length; i += 4) {
         if (Math.abs(img[i] - 18) > 8 || Math.abs(img[i + 1] - 22) > 8 || Math.abs(img[i + 2] - 31) > 8) {
@@ -808,7 +845,7 @@ async function verifyUrlInChrome(cdp, modeName, url, expectedProtocol) {
 
       const initialTrace = document.getElementById('trace')?.textContent || '';
 
-      // 1. Dispatch click on ctaBtn at stage coordinates (100, 235).
+      // Aim at the authored ctaBtn in stage coordinates.
       const rect = stage.getBoundingClientRect();
       const scaleX = rect.width / 640;
       const scaleY = rect.height / 360;
@@ -820,68 +857,61 @@ async function verifyUrlInChrome(cdp, modeName, url, expectedProtocol) {
         canvasHeight: stage.height,
         nonBgPixels,
         initialTrace,
-        videoPixelRgba,
+        badgePositions: [...badgePositions],
+        initiallyFocused: document.activeElement?.matches('[data-neoflash-text-input]'),
+        audioBeforeClick: document.getElementById('audio-status').textContent,
+        traceBeforeClick: window.matrixEvents.length,
         clickClientX,
         clickClientY,
       };
     })()
   `);
 
-  await cdp.send('Input.dispatchMouseEvent', {
-    type: 'mousePressed',
-    x: renderReport.clickClientX,
-    y: renderReport.clickClientY,
-    button: 'left',
-    buttons: 1,
-    clickCount: 1,
-  });
-  await cdp.send('Input.dispatchMouseEvent', {
-    type: 'mouseReleased',
-    x: renderReport.clickClientX,
-    y: renderReport.clickClientY,
-    button: 'left',
-    buttons: 0,
-    clickCount: 1,
-  });
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
-  const inputState = await cdp.evalJson(`
-    (() => {
-      const input = document.querySelector('[data-neoflash-text-input="true"]');
-      if (!input) return { mounted: false };
-      input.focus();
-      input.select();
-      return { mounted: true };
-    })()
-  `);
-  if (inputState?.mounted) {
-    await cdp.send('Input.insertText', { text: 'Beta1MatrixTyped' });
+  await browser.click(renderReport.clickClientX, renderReport.clickClientY);
+  const focused = await browser.evalJson(`(() => {
+    const input = document.querySelector('[data-neoflash-text-input="true"]');
+    if (!input || document.activeElement !== input) return false;
+    input.select();
+    return true;
+  })()`);
+  if (!focused || renderReport.initiallyFocused) {
+    throw new Error(`[${modeName}] CTA did not move focus into the editable field.`);
   }
+  await browser.insertText('Beta1MatrixTyped');
 
-  const interactionState = await cdp.evalJson(`
-    new Promise((resolve) => {
-      const deadline = Date.now() + 1500;
-      const poll = () => {
-        const audioStatus = document.getElementById('audio-status')?.textContent || '';
-        if ((!/waiting|loading/i.test(audioStatus) && audioStatus) || Date.now() > deadline) {
-          const input = document.querySelector('[data-neoflash-text-input="true"]');
-          const audioButton = document.getElementById('audio-toggle');
-          resolve({
-            traceAfterClick: document.getElementById('trace')?.textContent || '',
-            errorText: document.getElementById('error')?.textContent || '',
-            inputMounted: Boolean(input),
-            typedValue: input?.value ?? null,
-            audioStatus,
-            audioButtonText: audioButton?.textContent || '',
-            audioButtonHidden: Boolean(audioButton?.hidden),
-          });
-          return;
-        }
-        setTimeout(poll, 30);
-      };
-      poll();
-    })
-  `);
+  const interactionState = await browser.evalJson(`(async () => {
+    const stage = document.getElementById('stage');
+    const ctx = stage.getContext('2d');
+    const deadline = Date.now() + 4500;
+    const videoFrames = {};
+    let videoPixelRgba;
+    do {
+      videoPixelRgba = Array.from(ctx.getImageData(
+        Math.floor(500 * stage.width / 640), Math.floor(230 * stage.height / 360), 1, 1,
+      ).data);
+      // The H.264 decoder and its color profile can shift RGB values. Both distinct
+      // saturated primaries must appear inside the placement on the playing stage.
+      const [r, g, b, a] = videoPixelRgba;
+      if (a === 255 && r > 200 && g < 80 && b < 80) videoFrames.red = videoPixelRgba;
+      if (a === 255 && g > 200 && r < 80 && b < 80) videoFrames.green = videoPixelRgba;
+      if (videoFrames.red && videoFrames.green && window.matrixAudioPlaying) break;
+      await new Promise(resolve => setTimeout(resolve, 30));
+    } while (Date.now() < deadline);
+    const input = document.querySelector('[data-neoflash-text-input="true"]');
+    const audioButton = document.getElementById('audio-toggle');
+    const traceMessages = window.matrixEvents.filter(e => e[0] === 'trace').map(e => e[1]);
+    const clicks = window.matrixEvents.slice(${renderReport.traceBeforeClick}).filter(e =>
+      e[0] === 'trace' && e[1] === 'click:cta_ok');
+    return {
+      traceAfterClick: clicks.length === 1 ? clicks[0][1] : '',
+      traceMessages, videoFrames, videoPixelRgba, playedAudio: window.matrixAudioPlaying,
+      errorText: document.getElementById('error')?.textContent || '',
+      typedValue: input?.value ?? null,
+      committedText: window.NeoFlashPlayer.root.getChildByName('inputField').text,
+      audioStatus: document.getElementById('audio-status')?.textContent || '',
+      audioButtonText: audioButton?.textContent || '', audioButtonHidden: Boolean(audioButton?.hidden),
+    };
+  })()`);
   const interactionReport = { ...renderReport, ...interactionState };
 
   if (interactionReport.errorText) {
@@ -890,13 +920,20 @@ async function verifyUrlInChrome(cdp, modeName, url, expectedProtocol) {
   if (interactionReport.nonBgPixels < 500) {
     throw new Error(`[${modeName}] Canvas did not render expected vector/video artwork (${interactionReport.nonBgPixels} non-bg pixels)`);
   }
-  if (!interactionReport.traceAfterClick.startsWith('click:cta_ok')) {
-    throw new Error(`[${modeName}] Expected traceAfterClick to start with "click:cta_ok", got "${interactionReport.traceAfterClick}"`);
+  if (renderReport.badgePositions.length < 2 || !renderReport.badgePositions.every(Number.isFinite)) {
+    throw new Error(`[${modeName}] Nested clip did not tween: ${JSON.stringify(renderReport.badgePositions)}`);
   }
-  if (!interactionReport.inputMounted || interactionReport.typedValue !== 'Beta1MatrixTyped') {
+  if (!['boot:as2_ok', 'boot:js_ok'].every(trace => interactionReport.traceMessages.includes(trace))) {
+    throw new Error(`[${modeName}] Missing boot traces: ${JSON.stringify(interactionReport.traceMessages)}`);
+  }
+  if (interactionReport.traceAfterClick !== 'click:cta_ok') {
+    throw new Error(`[${modeName}] Expected exactly one click:cta_ok after the gesture; traces: ${JSON.stringify(interactionReport.traceMessages)}`);
+  }
+  if (interactionReport.typedValue !== 'Beta1MatrixTyped' || interactionReport.committedText !== 'Beta1MatrixTyped') {
     throw new Error(`[${modeName}] Text input verification failed: ${JSON.stringify(interactionReport)}`);
   }
-  if (!interactionReport.audioStatus.startsWith('Audio ') ||
+  if (!renderReport.audioBeforeClick.startsWith('Audio waiting for a gesture') || !interactionReport.playedAudio ||
+      !/^(Audio ready|Audio playing\b)/.test(interactionReport.audioStatus) ||
       interactionReport.audioButtonHidden || interactionReport.audioButtonText !== 'Mute audio') {
     throw new Error(`[${modeName}] Unexpected audio state: ${JSON.stringify({
       status: interactionReport.audioStatus,
@@ -904,9 +941,21 @@ async function verifyUrlInChrome(cdp, modeName, url, expectedProtocol) {
       hidden: interactionReport.audioButtonHidden,
     })}`);
   }
-  const [vr, vg, vb] = interactionReport.videoPixelRgba;
-  if (Math.abs(vr - 18) <= 8 && Math.abs(vg - 22) <= 8 && Math.abs(vb - 31) <= 8) {
-    throw new Error(`[${modeName}] Video viewport pixel did not render decoded video frame: ${JSON.stringify(interactionReport.videoPixelRgba)}`);
+  if (!interactionReport.videoFrames.red || !interactionReport.videoFrames.green) {
+    throw new Error(`[${modeName}] Expected both authored video frames, got ${JSON.stringify(interactionReport.videoFrames)}; last pixel ${JSON.stringify(interactionReport.videoPixelRgba)}`);
+  }
+  const restarted = await browser.evalJson(`(() => {
+    const offset = window.matrixEvents.length;
+    window.NeoFlashPlayer.restart();
+    return {
+      events: window.matrixEvents.slice(offset),
+      text: window.NeoFlashPlayer.root.getChildByName('inputField').text,
+    };
+  })()`);
+  if (restarted.text !== 'InitialText' ||
+      restarted.events[0]?.[0] !== 'restart' || !['boot:as2_ok', 'boot:js_ok'].every(
+        marker => restarted.events.some(([kind, text]) => kind === 'trace' && text === marker))) {
+    throw new Error(`[${modeName}] Restart failed to reset text and rerun boot scripts: ${JSON.stringify(restarted)}`);
   }
 
   return {
@@ -916,6 +965,7 @@ async function verifyUrlInChrome(cdp, modeName, url, expectedProtocol) {
     status: readyState.status,
     hasBase64Wasm: readyState.hasBase64Wasm,
     ...interactionReport,
+    restart: restarted,
     passed: true,
   };
 }
@@ -932,57 +982,60 @@ function findFreePort() {
   });
 }
 
-function httpPostJson(port, reqPath, payload) {
-  return new Promise((resolve, reject) => {
-    const body = Buffer.from(JSON.stringify(payload), 'utf8');
-    const req = http.request(
-      {
-        hostname: '127.0.0.1',
-        port,
-        path: reqPath,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Content-Length': body.length,
-        },
-      },
-      (res) => {
-        let data = '';
-        res.on('data', (c) => (data += c));
-        res.on('end', () => {
-          try {
-            resolve({ statusCode: res.statusCode, body: JSON.parse(data) });
-          } catch {
-            resolve({ statusCode: res.statusCode, body: data });
-          }
-        });
-      },
-    );
-    req.on('error', reject);
-    req.write(body);
-    req.end();
+async function safariRequest(endpoint, route, method, payload, timeout = 15000) {
+  const response = await fetch(endpoint + route, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: payload === undefined ? undefined : JSON.stringify(payload),
+    signal: AbortSignal.timeout(timeout),
   });
+  const { value } = await response.json();
+  if (!response.ok) throw new Error(value?.message || `SafariDriver ${method} ${route}: HTTP ${response.status}`);
+  return value;
 }
 
-function httpDelete(port, reqPath) {
-  return new Promise((resolve) => {
-    const req = http.request(
-      { hostname: '127.0.0.1', port, path: reqPath, method: 'DELETE' },
-      (res) => {
-        res.resume();
-        res.on('end', () => resolve());
-      },
-    );
-    req.on('error', () => resolve());
-    req.end();
-  });
+function safariBrowser(endpoint, sessionId) {
+  const base = `/session/${sessionId}`;
+  const post = (route, payload) => safariRequest(endpoint, base + route, 'POST', payload);
+  return {
+    navigate: url => post('/url', { url }),
+    evalJson(expression) {
+      // The shared page checks return plain values or promises; WebDriver's async
+      // endpoint must explicitly pass their resolved values to its final callback.
+      const script = `const done = arguments[arguments.length - 1];
+        Promise.resolve().then(() => (${expression.trim()}))
+          .then(value => done({ value }), err => done({ error: String(err) }));`;
+      return post('/execute/async', { script, args: [] }).then(result => {
+        if (result?.error) throw new Error(result.error);
+        return result?.value;
+      });
+    },
+    click(x, y) {
+      return post('/actions', { actions: [{
+        type: 'pointer', id: 'mouse', parameters: { pointerType: 'mouse' },
+        actions: [
+          { type: 'pointerMove', origin: 'viewport', x: Math.round(x), y: Math.round(y) },
+          { type: 'pointerDown', button: 0 }, { type: 'pause', duration: 125 },
+          { type: 'pointerUp', button: 0 },
+        ],
+      }] });
+    },
+    insertText(text) {
+      return post('/actions', { actions: [{
+        type: 'key', id: 'keyboard',
+        actions: Array.from(text).flatMap(value => [
+          { type: 'keyDown', value }, { type: 'keyUp', value },
+        ]),
+      }] });
+    },
+  };
 }
 
 /**
  * Probe Safari / WebKit via /usr/bin/safaridriver and verify WebKit compatibility invariants
  * in the emitted runtime bundles.
  */
-async function verifySafariWebKit(fullDir, balancedDir, sharedUrl) {
+async function verifySafariWebKit(fullDir, balancedDir, modes) {
   const safariApp = '/Applications/Safari.app';
   const safariDriverBin = '/usr/bin/safaridriver';
   const safariExists = fs.existsSync(safariApp) && fs.existsSync(safariDriverBin);
@@ -1027,79 +1080,58 @@ async function verifySafariWebKit(fullDir, balancedDir, sharedUrl) {
   const proc = spawn(safariDriverBin, ['-p', String(port)], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  await new Promise((r) => setTimeout(r, 600));
-
+  const endpoint = `http://127.0.0.1:${port}`;
+  let sessionId;
+  const runs = [];
   try {
-    const sessionRes = await httpPostJson(port, '/session', {
-      capabilities: {
-        alwaysMatch: {
-          browserName: 'safari',
-        },
-      },
-    });
-
-    if (sessionRes.statusCode === 200 && sessionRes.body?.value?.sessionId) {
-      const sessionId = sessionRes.body.value.sessionId;
+    const deadline = Date.now() + 8000;
+    while (true) {
       try {
-        const navigationRes = await httpPostJson(port, `/session/${sessionId}/url`, { url: sharedUrl });
-        if (navigationRes.statusCode !== 200) {
-          throw new Error(`Safari navigation failed: ${JSON.stringify(navigationRes.body)}`);
-        }
-        let liveResult = null;
-        const deadline = Date.now() + 8000;
-        while (Date.now() <= deadline) {
-          const evalRes = await httpPostJson(port, `/session/${sessionId}/execute/sync`, {
-            script: `return {
-              hasPlayer: Boolean(window.NeoFlashPlayer),
-              status: document.getElementById('status')?.textContent || '',
-              trace: document.getElementById('trace')?.textContent || '',
-              error: document.getElementById('error')?.style.display === 'block'
-                ? document.getElementById('error')?.textContent || ''
-                : '',
-            };`,
-            args: [],
-          });
-          if (evalRes.statusCode !== 200) {
-            throw new Error(`Safari runtime inspection failed: ${JSON.stringify(evalRes.body)}`);
-          }
-          liveResult = evalRes.body?.value || null;
-          if (liveResult?.error) throw new Error(`Safari runtime failed: ${liveResult.error}`);
-          if (liveResult?.hasPlayer && liveResult.status.includes('fps')) break;
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-        if (!liveResult?.hasPlayer || !liveResult.status.includes('fps')) {
-          throw new Error(`Safari runtime did not initialize: ${JSON.stringify(liveResult)}`);
-        }
-        return {
-          safariInstalled: true,
-          driverVersion,
-          automationStatus: 'live_webdriver_passed',
-          liveResult,
-          staticWebKitChecks: staticChecks,
-        };
-      } finally {
-        await httpDelete(port, `/session/${sessionId}`);
+        await safariRequest(endpoint, '/status', 'GET', undefined, 1000);
+        break;
+      } catch (err) {
+        if (proc.exitCode !== null || Date.now() > deadline) throw err;
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
-
-    const errMsg =
-      sessionRes.body?.value?.message ||
-      JSON.stringify(sessionRes.body);
+    const session = await safariRequest(endpoint, '/session', 'POST', {
+      capabilities: { alwaysMatch: { browserName: 'safari' } },
+    }, 30000);
+    sessionId = session.sessionId;
+    const browser = safariBrowser(endpoint, sessionId);
+    for (const mode of modes) {
+      try {
+        runs.push(await verifyPublishedMovie(browser, ...mode));
+      } catch (err) {
+        runs.push({ mode: mode[0], url: mode[1], passed: false, error: err.message });
+      }
+    }
     return {
-      safariInstalled: true,
-      driverVersion,
-      automationStatus: 'host_remote_automation_disabled',
-      hostBlocker: errMsg,
-      remediation:
-        "Enable 'Safari -> Settings -> Advanced -> Show features for web developers', then enable 'Develop -> Allow Remote Automation' and run 'safaridriver --enable'.",
-      staticWebKitChecks: staticChecks,
+      safariInstalled: true, driverVersion, browserVersion: session.capabilities.browserVersion,
+      automationStatus: runs.every(run => run.passed) ? 'live_webdriver_passed' : 'live_webdriver_failed',
+      runs, staticWebKitChecks: staticChecks,
+    };
+  } catch (err) {
+    if (!sessionId && err.message.toLowerCase().includes('allow remote automation')) {
+      return {
+        safariInstalled: true, driverVersion, automationStatus: 'host_remote_automation_disabled',
+        hostBlocker: err.message, staticWebKitChecks: staticChecks,
+      };
+    }
+    return {
+      safariInstalled: true, driverVersion, automationStatus: 'live_webdriver_failed',
+      error: err.message, runs, staticWebKitChecks: staticChecks,
     };
   } finally {
+    if (sessionId) await safariRequest(endpoint, `/session/${sessionId}`, 'DELETE', undefined, 3000).catch(() => {});
     proc.kill('SIGTERM');
   }
 }
 
 async function main() {
+  const args = process.argv.slice(2);
+  if (args.some(arg => arg !== '--require-safari')) throw new Error('Usage: verify-beta1-browser-matrix.mjs [--require-safari]');
+  const requireSafari = args.includes('--require-safari');
   ensureWebRuntime();
   fs.rmSync(OUT_ROOT, { recursive: true, force: true });
   fs.mkdirSync(OUT_ROOT, { recursive: true });
@@ -1132,25 +1164,24 @@ async function main() {
       sharedRuntimeUrl,
     ]);
 
-    const fullFileUrl = pathToFileURL(path.join(fullDir, 'index.html')).href;
-    const balancedFileUrl = pathToFileURL(path.join(balancedDir, 'index.html')).href;
-    const compactFileUrl = pathToFileURL(path.join(compactDir, 'index.html')).href;
-    const sharedHttpUrl = `http://127.0.0.1:${port}/shared/index.html`;
+    const modes = [
+      ['full', pathToFileURL(path.join(fullDir, 'index.html')).href, 'file:'],
+      ['balanced', pathToFileURL(path.join(balancedDir, 'index.html')).href, 'file:'],
+      ['compact', pathToFileURL(path.join(compactDir, 'index.html')).href, 'file:'],
+      ['shared', `http://127.0.0.1:${port}/shared/index.html`, 'http:'],
+    ];
 
     console.log('[T-237] Launching desktop Google Chrome (CDP) across all 4 deployment modes...');
     const chrome = await launchChromeCdp();
     const chromeResults = [];
     try {
-      chromeResults.push(await verifyUrlInChrome(chrome.cdp, 'full', fullFileUrl, 'file:'));
-      chromeResults.push(await verifyUrlInChrome(chrome.cdp, 'balanced', balancedFileUrl, 'file:'));
-      chromeResults.push(await verifyUrlInChrome(chrome.cdp, 'compact', compactFileUrl, 'file:'));
-      chromeResults.push(await verifyUrlInChrome(chrome.cdp, 'shared', sharedHttpUrl, 'http:'));
+      for (const mode of modes) chromeResults.push(await verifyPublishedMovie(chrome.cdp, ...mode));
     } finally {
       await chrome.close();
     }
 
     console.log('[T-237] Probing desktop Safari / WebKit...');
-    const safariReport = await verifySafariWebKit(fullDir, balancedDir, sharedHttpUrl);
+    const safariReport = await verifySafariWebKit(fullDir, balancedDir, modes);
 
     const report = {
       timestamp: new Date().toISOString(),
@@ -1165,7 +1196,11 @@ async function main() {
 
     const reportPath = path.join(OUT_ROOT, 'report.json');
     fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf8');
-    console.log(`[T-237] Browser matrix verification succeeded! Report written to ${reportPath}`);
+    if (safariReport.automationStatus === 'live_webdriver_failed' ||
+        (requireSafari && safariReport.automationStatus !== 'live_webdriver_passed')) {
+      throw new Error(`Safari verification failed. See ${reportPath}: ${JSON.stringify(safariReport)}`);
+    }
+    console.log(`[T-237] Browser matrix report written to ${reportPath}`);
     for (const r of chromeResults) {
       console.log(
         `  - Chrome [${r.mode}] (${r.protocol}): nonBgPixels=${r.nonBgPixels}, traceAfterClick="${r.traceAfterClick}", typed="${r.typedValue}", audio="${r.audioStatus}"`,
