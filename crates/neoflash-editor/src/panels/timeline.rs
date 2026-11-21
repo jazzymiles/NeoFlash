@@ -645,6 +645,7 @@ impl Editor {
             let mut measured_layer_list_height = 0.0_f32;
             let mut virtual_stats: Option<TimelineVirtualStats> = None;
             let a11y_active = crate::accessibility_bridge::is_accesskit_active(&ctx);
+            let mut a11y_layer_tree: Option<(egui::Id, Rect)> = None;
             let mut a11y_layer_rows: Vec<crate::accessibility_bridge::TimelineLayerRowA11y> =
                 Vec::new();
             let mut a11y_grid: Option<crate::accessibility_bridge::TimelineGridA11y> = None;
@@ -675,6 +676,9 @@ impl Editor {
                             Vec2::new(layer_column_width, content_height),
                             egui::Layout::top_down(egui::Align::Min),
                             |ui| {
+                                if a11y_active {
+                                    a11y_layer_tree = Some((ui.unique_id(), ui.clip_rect()));
+                                }
                                 ui.set_width(layer_column_width);
                                 ui.spacing_mut().item_spacing.y = 0.;
                                 let list_origin = ui.cursor().min;
@@ -2034,6 +2038,7 @@ impl Editor {
                 self.emit_timeline_accesskit_tree(
                     &ctx,
                     ui.unique_id(),
+                    a11y_layer_tree,
                     a11y_playhead,
                     &a11y_layer_rows,
                     a11y_grid,

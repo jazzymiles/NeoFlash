@@ -38,16 +38,27 @@ struct StageActionTarget {
 
 #[derive(Clone, Debug)]
 enum TimelineActionTarget {
-    Playhead,
-    LayerRow { layer_idx: usize },
-    KeyframeCell { layer_idx: usize, frame: u32 },
+    Playhead {
+        symbol: Id,
+    },
+    LayerRow {
+        symbol: Id,
+        layer_id: Id,
+        layer_idx: usize,
+    },
+    KeyframeCell {
+        symbol: Id,
+        layer_id: Id,
+        layer_idx: usize,
+        frame: u32,
+    },
 }
 
 #[derive(Clone, Debug)]
 enum LibraryActionTarget {
     Folder { path: String },
     FolderDisclosure { path: String },
-    Symbol { id: String, folder: String },
+    Symbol { id: String },
     Resource { id: String },
 }
 
@@ -1340,7 +1351,7 @@ impl Editor {
                         .cloned()
                 {
                     let supported = match target {
-                        TimelineActionTarget::Playhead => matches!(
+                        TimelineActionTarget::Playhead { .. } => matches!(
                             req.action,
                             accesskit::Action::Increment
                                 | accesskit::Action::Decrement
@@ -1366,55 +1377,102 @@ impl Editor {
 
         for (req, target) in matched {
             match target {
-                TimelineActionTarget::Playhead => match req.action {
-                    accesskit::Action::Increment => {
-                        self.seek_playhead_from_accesskit(ctx, self.frame.saturating_add(1));
+                TimelineActionTarget::Playhead { symbol } => {
+                    if symbol != self.symbol_id() {
+                        continue;
                     }
-                    accesskit::Action::Decrement => {
-                        self.seek_playhead_from_accesskit(ctx, self.frame.saturating_sub(1));
-                    }
-                    accesskit::Action::SetValue => {
-                        let parsed = match req.data.as_ref() {
-                            Some(accesskit::ActionData::NumericValue(v)) if v.is_finite() => {
-                                Some(*v)
-                            }
-                            Some(accesskit::ActionData::Value(s)) => {
-                                s.trim().parse::<f64>().ok().filter(|v| v.is_finite())
-                            }
-                            _ => None,
-                        };
-                        if let Some(val_1based) = parsed {
-                            let one_based = val_1based.round().clamp(1.0, 1_000_000.0) as u32;
-                            self.seek_playhead_from_accesskit(ctx, one_based - 1);
+                    match req.action {
+                        accesskit::Action::Increment => {
+                            self.seek_playhead_from_accesskit(ctx, self.frame.saturating_add(1));
                         }
+                        accesskit::Action::Decrement => {
+                            self.seek_playhead_from_accesskit(ctx, self.frame.saturating_sub(1));
+                        }
+                        accesskit::Action::SetValue => {
+                            let parsed = match req.data.as_ref() {
+                                Some(accesskit::ActionData::NumericValue(v)) if v.is_finite() => {
+                                    Some(*v)
+                                }
+                                Some(accesskit::ActionData::Value(s)) => {
+                                    s.trim().parse::<f64>().ok().filter(|v| v.is_finite())
+                                }
+                                _ => None,
+                            };
+                            if let Some(val_1based) = parsed {
+                                let one_based = val_1based.round().clamp(1.0, 1_000_000.0) as u32;
+                                self.seek_playhead_from_accesskit(ctx, one_based - 1);
+                            }
+                        }
+                        accesskit::Action::Focus => {
+                            self.timeline_edit.focused = true;
+                            ctx.request_repaint();
+                        }
+                        _ => {}
                     }
-                    accesskit::Action::Focus => {
-                        self.timeline_edit.focused = true;
-                        ctx.request_repaint();
+                }
+                TimelineActionTarget::LayerRow {
+                    symbol,
+                    layer_id,
+                    layer_idx,
+                } => {
+                    if symbol != self.symbol_id() {
+                        continue;
                     }
-                    _ => {}
-                },
-                TimelineActionTarget::LayerRow { layer_idx } => {
-                    if layer_idx < self.symbol().timeline.layers.len() {
+                    let resolved_idx = self
+                        .symbol()
+                        .timeline
+                        .layers
+                        .get(layer_idx)
+                        .filter(|l| l.id == layer_id)
+                        .map(|_| layer_idx)
+                        .or_else(|| {
+                            self.symbol()
+                                .timeline
+                                .layers
+                                .iter()
+                                .position(|l| l.id == layer_id)
+                        });
+                    if let Some(idx) = resolved_idx {
                         self.finish_edits();
                         self.timeline_key_drag = None;
-                        self.select_layer_row(layer_idx, false, false);
+                        self.select_layer_row(idx, false, false);
                         self.clear_selection();
                         self.timeline_edit.focused = true;
                         ctx.request_repaint();
                     }
                 }
-                TimelineActionTarget::KeyframeCell { layer_idx, frame } => {
-                    if layer_idx < self.symbol().timeline.layers.len() {
+                TimelineActionTarget::KeyframeCell {
+                    symbol,
+                    layer_id,
+                    layer_idx,
+                    frame,
+                } => {
+                    if symbol != self.symbol_id() {
+                        continue;
+                    }
+                    let resolved_idx = self
+                        .symbol()
+                        .timeline
+                        .layers
+                        .get(layer_idx)
+                        .filter(|l| l.id == layer_id)
+                        .map(|_| layer_idx)
+                        .or_else(|| {
+                            self.symbol()
+                                .timeline
+                                .layers
+                                .iter()
+                                .position(|l| l.id == layer_id)
+                        });
+                    if let Some(idx) = resolved_idx {
                         let max_frame = self.symbol().timeline.frame_count.saturating_sub(1);
                         let target_frame = frame.min(max_frame);
                         self.finish_edits();
                         self.timeline_key_drag = None;
                         self.set_playing(false);
                         self.reset_authored_preview();
-                        self.select_layer_row(layer_idx, false, false);
+                        self.select_layer_row(idx, false, false);
                         self.frame = target_frame;
-                        let layer_id = self.symbol().timeline.layers[layer_idx].id.clone();
                         self.select_frame_range(FrameRange {
                             layers: vec![layer_id],
                             start: target_frame,
@@ -1457,6 +1515,7 @@ impl Editor {
         &mut self,
         ctx: &egui::Context,
         timeline_scope_ui_id: egui::Id,
+        layer_tree: Option<(egui::Id, Rect)>,
         playhead: Option<(egui::Id, Rect)>,
         layer_rows: &[TimelineLayerRowA11y],
         grid: Option<TimelineGridA11y>,
@@ -1471,6 +1530,7 @@ impl Editor {
             .timeline_targets
             .retain(|(v, _), _| *v != vp);
 
+        let active_symbol_id = self.symbol_id().to_owned();
         let count = self.symbol().timeline.frame_count.max(1);
         let fps = self.project.fps.max(1);
 
@@ -1479,7 +1539,19 @@ impl Editor {
             node.set_label("Timeline");
         });
 
-        // 1. Playhead / scrubber (`Role::Slider` with 1-based numeric value & range).
+        if let Some((layer_tree_id, layer_tree_clip)) = layer_tree {
+            let total_rows = layer_indices.len();
+            let ak_bounds = to_ak_rect(layer_tree_clip);
+            ctx.accesskit_node_builder(layer_tree_id, |node| {
+                node.set_role(accesskit::Role::Tree);
+                node.set_label("Timeline layers");
+                node.set_size_of_set(total_rows);
+                node.set_bounds(ak_bounds);
+            });
+        }
+
+        // 1. Playhead / scrubber (`Role::Slider` with 1-based numeric value & range; no string `value`
+        //    so `accesskit_macos` exposes `numeric_value` as `NSNumber` on `NSAccessibilitySliderRole`).
         if let Some((playhead_id, playhead_rect)) = playhead {
             let current_1based = f64::from(self.frame + 1);
             let max_1based = f64::from(count);
@@ -1488,8 +1560,10 @@ impl Editor {
             ctx.accesskit_node_builder(playhead_id, |node| {
                 node.set_role(accesskit::Role::Slider);
                 node.set_label("Playhead");
-                node.set_value(format!("Frame {} of {count}", self.frame + 1));
-                node.set_description(format!("{secs:.2}s at {fps} fps"));
+                node.set_description(format!(
+                    "Frame {} of {count} · {secs:.2}s at {fps} fps",
+                    self.frame + 1
+                ));
                 node.set_numeric_value(current_1based);
                 node.set_min_numeric_value(1.0);
                 node.set_max_numeric_value(max_1based);
@@ -1500,9 +1574,12 @@ impl Editor {
                 node.add_action(accesskit::Action::Decrement);
                 node.add_action(accesskit::Action::SetValue);
             });
-            self.accessibility_bridge
-                .timeline_targets
-                .insert((vp, ak_id), TimelineActionTarget::Playhead);
+            self.accessibility_bridge.timeline_targets.insert(
+                (vp, ak_id),
+                TimelineActionTarget::Playhead {
+                    symbol: active_symbol_id.clone(),
+                },
+            );
         }
 
         // 2. Visible Timeline layer rows (`Role::TreeItem` with role badge + visibility/lock description).
@@ -1511,6 +1588,7 @@ impl Editor {
             let Some(layer) = self.symbol().timeline.layers.get(row.layer_idx) else {
                 continue;
             };
+            let layer_id = layer.id.clone();
             let badge = timeline_layer_role_badge(layer, row.kind);
             let vis_str = if layer.visible { "Visible" } else { "Hidden" };
             let lock_str = if layer.locked { "Locked" } else { "Unlocked" };
@@ -1546,6 +1624,8 @@ impl Editor {
             self.accessibility_bridge.timeline_targets.insert(
                 (vp, ak_id),
                 TimelineActionTarget::LayerRow {
+                    symbol: active_symbol_id.clone(),
+                    layer_id,
                     layer_idx: row.layer_idx,
                 },
             );
@@ -1754,6 +1834,8 @@ impl Editor {
                 self.accessibility_bridge.timeline_targets.insert(
                     (vp, ak_id),
                     TimelineActionTarget::KeyframeCell {
+                        symbol: active_symbol_id.clone(),
+                        layer_id: layer_id.clone(),
                         layer_idx,
                         frame: start,
                     },
@@ -1847,6 +1929,14 @@ impl Editor {
         for (action, target) in matched {
             match target {
                 LibraryActionTarget::Folder { path } => {
+                    let folder_exists = path.is_empty()
+                        || self
+                            .library_source_project()
+                            .library_folder_paths()
+                            .contains(&path);
+                    if !folder_exists {
+                        continue;
+                    }
                     let sym_selected = if source_active {
                         self.library_selected.is_some()
                     } else {
@@ -1884,25 +1974,45 @@ impl Editor {
                     ctx.request_repaint();
                 }
                 LibraryActionTarget::FolderDisclosure { path } => {
-                    if action == accesskit::Action::Click && !path.is_empty() {
+                    let folder_exists = !path.is_empty()
+                        && self
+                            .library_source_project()
+                            .library_folder_paths()
+                            .contains(&path);
+                    if action == accesskit::Action::Click && folder_exists {
                         if !self.library_panel.collapsed.remove(&path) {
                             self.library_panel.collapsed.insert(path);
                         }
                         ctx.request_repaint();
                     }
                 }
-                LibraryActionTarget::Symbol { id, folder } => {
+                LibraryActionTarget::Symbol { id } => {
+                    let live_folder = {
+                        let src = self.library_source_project();
+                        src.symbol(&id)
+                            .filter(|s| !src.is_scene(&s.id))
+                            .map(|s| s.folder.clone())
+                    };
+                    let Some(live_folder) = live_folder else {
+                        continue;
+                    };
                     if source_active {
                         self.library_selected = Some(id);
                         self.resource_panel.selected = None;
                     } else {
                         self.library_panel.source_selected = Some(id);
                     }
-                    self.library_panel.selected_folder = folder;
+                    self.library_panel.selected_folder = live_folder;
                     ctx.request_repaint();
                 }
                 LibraryActionTarget::Resource { id } => {
-                    if source_active {
+                    let resource_exists = source_active
+                        && self.project.resource(&id).is_some_and(|r| {
+                            !crate::panels::productivity_tools::is_internal_system_resource_path(
+                                &r.path,
+                            )
+                        });
+                    if resource_exists {
                         self.resource_panel.selected = Some(id);
                         self.resource_panel.baseline = None;
                         self.library_selected = None;
@@ -2061,13 +2171,9 @@ impl Editor {
                         node.add_action(accesskit::Action::Focus);
                         node.add_action(accesskit::Action::Click);
                     });
-                    self.accessibility_bridge.library_targets.insert(
-                        (vp, ak_id),
-                        LibraryActionTarget::Symbol {
-                            id: id.clone(),
-                            folder: folder.clone(),
-                        },
-                    );
+                    self.accessibility_bridge
+                        .library_targets
+                        .insert((vp, ak_id), LibraryActionTarget::Symbol { id: id.clone() });
                 }
             }
         }
@@ -2901,17 +3007,33 @@ mod tests {
         assert_valid_single_parent_tree(ak);
         let map = node_map(ak);
 
-        // 1. Playhead slider node
+        // 1. Playhead slider node (`value()` must remain `None` so `accesskit_macos` returns
+        //    `NSNumber(numeric_value)` on `NSAccessibilitySliderRole`).
         let (&playhead_nid, &playhead_node) = map
             .iter()
             .find(|(_, n)| n.label() == Some("Playhead") && n.role() == accesskit::Role::Slider)
             .expect("Playhead Slider node present");
+        assert_eq!(playhead_node.value(), None);
         assert_eq!(playhead_node.numeric_value(), Some(1.0));
         assert_eq!(playhead_node.min_numeric_value(), Some(1.0));
         assert_eq!(playhead_node.max_numeric_value(), Some(20.0));
+        assert!(
+            playhead_node
+                .description()
+                .is_some_and(|d| d.contains("Frame 1 of 20") && d.contains("fps")),
+            "Playhead desc={:?}",
+            playhead_node.description()
+        );
         assert_finite_positive_bounds(playhead_node, "Playhead");
 
-        // 2. Layer rows (`Role::TreeItem` with role badges & visibility/lock state)
+        // 2. Layer rows (`Role::TreeItem` parented under `"Timeline layers"` `Role::Tree`)
+        let (_, &layers_tree_node) = map
+            .iter()
+            .find(|(_, n)| {
+                n.label() == Some("Timeline layers") && n.role() == accesskit::Role::Tree
+            })
+            .expect("Timeline layers Role::Tree container present");
+        assert_finite_positive_bounds(layers_tree_node, "Timeline layers tree");
         let find_layer_row = |prefix: &str| -> (accesskit::NodeId, &accesskit::Node) {
             map.iter()
                 .find(|(_, n)| {
@@ -2921,7 +3043,7 @@ mod tests {
                 .map(|(id, n)| (*id, *n))
                 .unwrap_or_else(|| panic!("missing layer TreeItem {prefix}"))
         };
-        let (_, art_row) = find_layer_row("HeroArt (");
+        let (art_nid, art_row) = find_layer_row("HeroArt (");
         assert_eq!(art_row.is_selected(), Some(true));
         assert!(
             art_row.description().is_some_and(|d| d.contains("Normal")
@@ -2941,14 +3063,14 @@ mod tests {
             guide_row.description()
         );
 
-        let (_, mask_row) = find_layer_row("Vignette (");
+        let (mask_nid, mask_row) = find_layer_row("Vignette (");
         assert!(
             mask_row
                 .description()
                 .is_some_and(|d| d.contains("Mask") && d.contains("Hidden"))
         );
 
-        let (_, folder_row) = find_layer_row("Actors (");
+        let (folder_nid, folder_row) = find_layer_row("Actors (");
         assert!(
             folder_row
                 .description()
@@ -2956,8 +3078,15 @@ mod tests {
         );
         assert_eq!(folder_row.is_expanded(), Some(true));
 
-        let (_, audio_row) = find_layer_row("SFX (");
+        let (audio_nid, audio_row) = find_layer_row("SFX (");
         assert!(audio_row.description().is_some_and(|d| d.contains("Audio")));
+
+        for layer_nid in [art_nid, folder_nid, mask_nid, guide_nid, audio_nid] {
+            assert!(
+                layers_tree_node.children().contains(&layer_nid),
+                "Timeline layer TreeItem {layer_nid:?} must be parented under `Timeline layers` Role::Tree"
+            );
+        }
 
         // 3. Keyframe span cells under `Timeline frames` `Role::Grid`
         let (_, &grid_node) = map
@@ -3036,13 +3165,10 @@ mod tests {
             "1-based SetValue(7.0) seeks 0-based frame 6"
         );
         assert!(!editor.history.can_undo());
-        assert_eq!(
-            node_map(out_set.platform_output.accesskit_update.as_ref().unwrap())
-                .get(&playhead_nid)
-                .unwrap()
-                .numeric_value(),
-            Some(7.0)
-        );
+        let set_map = node_map(out_set.platform_output.accesskit_update.as_ref().unwrap());
+        let set_playhead = set_map.get(&playhead_nid).unwrap();
+        assert_eq!(set_playhead.value(), None);
+        assert_eq!(set_playhead.numeric_value(), Some(7.0));
 
         // 5. Execute LayerRow `Action::Click` -> switches `editor.layer` to `PathGuide` (index 1).
         let _ = run_tl(
@@ -3071,6 +3197,30 @@ mod tests {
         );
         assert_eq!(editor.layer, 4);
         assert_eq!(editor.frame, 9);
+        assert!(!editor.history.can_undo());
+
+        // 7. Switching to a new scene invalidates stale scene-1 Timeline action targets cleanly!
+        editor.new_scene();
+        editor.history.clear();
+        assert_eq!(editor.frame, 0);
+        assert_eq!(editor.layer, 0);
+        let _ = run_tl(
+            &mut editor,
+            vec![
+                egui::Event::AccessKitActionRequest(accesskit::ActionRequest {
+                    action: accesskit::Action::Click,
+                    target: hero_f10_nid,
+                    data: None,
+                }),
+                egui::Event::AccessKitActionRequest(accesskit::ActionRequest {
+                    action: accesskit::Action::SetValue,
+                    target: playhead_nid,
+                    data: Some(accesskit::ActionData::NumericValue(15.0)),
+                }),
+            ],
+        );
+        assert_eq!(editor.frame, 0);
+        assert_eq!(editor.layer, 0);
         assert!(!editor.history.can_undo());
     }
 
@@ -3250,6 +3400,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("missing Library TreeItem {lbl}"))
         }
 
+        let (root_item_nid, _) = find_tree_item(&map, "Library root");
         let (ui_folder_nid, ui_folder) = find_tree_item(&map, "UI");
         assert_eq!(ui_folder.is_expanded(), Some(true));
         assert!(ui_folder.description().unwrap_or("").contains("Folder"));
@@ -3265,15 +3416,23 @@ mod tests {
         );
         assert_finite_positive_bounds(hero_item, "HeroRunner");
 
-        let (_, pause_item) = find_tree_item(&map, "PauseButton");
+        let (pause_item_nid, pause_item) = find_tree_item(&map, "PauseButton");
         assert!(pause_item.description().unwrap_or("").contains("Button"));
 
         let (atlas_nid, atlas_item) = find_tree_item(&map, "sprites/atlas.png");
         assert!(atlas_item.description().unwrap_or("").contains("Bitmap"));
-        assert!(
-            tree_node.children().contains(&atlas_nid),
-            "resource TreeItem must be parented under Library Role::Tree"
-        );
+        for child_nid in [
+            root_item_nid,
+            ui_folder_nid,
+            hero_nid,
+            pause_item_nid,
+            atlas_nid,
+        ] {
+            assert!(
+                tree_node.children().contains(&child_nid),
+                "Library TreeItem {child_nid:?} must be parented under `Library` Role::Tree"
+            );
+        }
 
         // 1. `Action::Click` on `HeroRunner` selects the symbol!
         let out_sel_sym = run_lib(
@@ -3369,6 +3528,29 @@ mod tests {
         );
         assert_eq!(find_tree_item(&map_exp, "UI").1.is_expanded(), Some(true));
         assert!(!editor.history.can_undo());
+
+        // 5. Stale action requests targeting a deleted symbol or resource are safely ignored!
+        editor.project.symbols.retain(|s| s.id != "sym-hero-mc");
+        editor.project.resources.retain(|r| r.id != "res-atlas");
+        editor.library_selected = None;
+        editor.resource_panel.selected = None;
+        let _ = run_lib(
+            &mut editor,
+            vec![
+                egui::Event::AccessKitActionRequest(accesskit::ActionRequest {
+                    action: accesskit::Action::Click,
+                    target: hero_nid,
+                    data: None,
+                }),
+                egui::Event::AccessKitActionRequest(accesskit::ActionRequest {
+                    action: accesskit::Action::Click,
+                    target: atlas_nid,
+                    data: None,
+                }),
+            ],
+        );
+        assert!(editor.library_selected.is_none());
+        assert!(editor.resource_panel.selected.is_none());
     }
 
     #[test]
