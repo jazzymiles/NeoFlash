@@ -453,15 +453,25 @@ impl Editor {
             }
             diags
         } else {
+            let compile_script = Script {
+                language: unit.language,
+                source: hydrated
+                    .sources
+                    .first()
+                    .map(|s| s.source.clone())
+                    .unwrap_or_else(|| unit.source.clone()),
+            };
             let mut check_proj = hydrated.into_owned();
             check_proj.sources.clear();
             check_proj.document_class = None;
             check_proj.script_language = Some(unit.language);
             let mut diags = match neoflash_script::compile_project(&check_proj) {
-                Ok(program) => neoflash_script::compile_with_program(&script, &program)
+                Ok(program) => neoflash_script::compile_with_program(&compile_script, &program)
                     .err()
                     .unwrap_or_default(),
-                Err(_) => neoflash_script::compile(&script).err().unwrap_or_default(),
+                Err(_) => neoflash_script::compile(&compile_script)
+                    .err()
+                    .unwrap_or_default(),
             };
             diags.extend(
                 neoflash_script::check_warnings(&script)

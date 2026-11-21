@@ -2014,6 +2014,12 @@ mod t414_standalone_script_tests {
             hydrated_top.sources[0].source, "#include \"shared/consts.as\"\ntrace(MAX_SPEED);\n",
             "hydrated.sources[0].source must carry rewritten include path for non-class standalone .as"
         );
+        editor.check_standalone_script(true);
+        assert_eq!(
+            editor.status, "Code accepted for current language support.",
+            "top-level standalone Script.as with ../ include failed Check: {}",
+            editor.status
+        );
         editor.refresh_compiler_diagnostics();
         assert!(
             editor.compiler_errors.items.is_empty(),
