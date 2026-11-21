@@ -1857,11 +1857,15 @@ impl As3NetSysKernel {
                             .get("startSpanMarker")
                             .and_then(Value::as_f64)
                             .unwrap_or(0.0);
-                        let end = req
-                            .get("endSpanMarker")
-                            .and_then(Value::as_f64)
-                            .unwrap_or(start);
-                        let span_ms = (end - start).max(0.0);
+                        let span_ms = if let Some(end) =
+                            req.get("endSpanMarker").and_then(Value::as_f64)
+                        {
+                            (end - start).max(0.0)
+                        } else if let Some(dur) = req.get("durationMs").and_then(Value::as_f64) {
+                            dur.max(0.0)
+                        } else {
+                            0.0
+                        };
                         let val = req.get("value").cloned().unwrap_or(Value::Null);
                         let entry = json!({
                             "startSpanMarker": start,
@@ -1933,15 +1937,49 @@ impl As3NetSysKernel {
                             .get("requesterDomain")
                             .and_then(Value::as_str)
                             .unwrap_or("localhost");
+                        let target_host = req
+                            .get("targetDomain")
+                            .or_else(|| req.get("domain"))
+                            .and_then(Value::as_str)
+                            .map(|s| {
+                                let extracted = extract_policy_target_host(s);
+                                if !extracted.is_empty() {
+                                    extracted
+                                } else {
+                                    s.trim()
+                                        .trim_matches(|c| c == '[' || c == ']')
+                                        .to_ascii_lowercase()
+                                }
+                            })
+                            .unwrap_or_default();
                         let port = req
                             .get("port")
                             .and_then(Value::as_u64)
+                            .filter(|&p| p > 0)
                             .and_then(|p| u16::try_from(p).ok());
                         let is_secure = req.get("secure").and_then(Value::as_bool).unwrap_or(true);
-                        let allowed = self
-                            .policy_files
-                            .iter()
-                            .any(|(_, pf)| policy_allows_access(pf, requester, port, is_secure));
+                        let exact_settings = req
+                            .get("exactSettings")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(true);
+                        let allowed = self.policy_files.iter().any(|(pf_url, pf)| {
+                            let pf_host = extract_policy_target_host(pf_url);
+                            let host_matches = if target_host.is_empty() {
+                                true
+                            } else if !pf_host.is_empty() {
+                                pf_host == target_host
+                            } else {
+                                pf_url.trim().to_ascii_lowercase().starts_with("data:")
+                            };
+                            host_matches
+                                && policy_allows_access_with_settings(
+                                    pf,
+                                    requester,
+                                    port,
+                                    is_secure,
+                                    exact_settings,
+                                )
+                        });
                         Ok(json!({
                             "allowed": allowed,
                             "policyCount": self.policy_files.len(),

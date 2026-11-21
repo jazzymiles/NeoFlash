@@ -233,6 +233,37 @@ fn x509_chain_verification_cross_domain_policy_and_netgroup_replication() {
         true
     ));
     assert!(!policy_allows_access(&policy, "evil.org", Some(443), true));
+    assert_eq!(
+        extract_policy_target_host("http://127.0.0.1:8080/crossdomain.xml"),
+        "127.0.0.1"
+    );
+    assert_eq!(
+        extract_policy_target_host("xmlsocket://api.example.com:843"),
+        "api.example.com"
+    );
+    let exact_xml = r#"<cross-domain-policy><allow-access-from domain="example.org" to-ports="80,443" secure="false"/></cross-domain-policy>"#;
+    let exact_pol = parse_cross_domain_policy_xml(exact_xml).unwrap();
+    assert!(!policy_allows_access_with_settings(
+        &exact_pol,
+        "sub.example.org",
+        None,
+        false,
+        true
+    ));
+    assert!(policy_allows_access_with_settings(
+        &exact_pol,
+        "sub.example.org",
+        None,
+        false,
+        false
+    ));
+    assert!(!policy_allows_access_with_settings(
+        &exact_pol,
+        "localhost",
+        None,
+        false,
+        false
+    ));
 
     // 3. GroupSpecifier auth commitment + NetGroup posting auth & rarestFirst object replication
     let mut gs = GroupSpecifierState::new("replicated-room", 1).unwrap();

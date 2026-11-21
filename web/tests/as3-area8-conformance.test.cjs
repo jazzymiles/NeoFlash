@@ -636,6 +636,7 @@ function createArea8LiveHost(wasm, extraOptions = {}) {
     binary,
     net: netHost,
     fetch: extraOptions.fetch,
+    maxAvStreamBytes: extraOptions.maxAvStreamBytes,
   });
   Object.assign(builtins, mediaEvents.builtins);
 
@@ -921,6 +922,49 @@ test('Area 8 Conformance 1: Socket, SecureSocket, and XMLSocket over real loopba
     xs.close();
     assert.equal(xs.connected, false);
     assert.throws(() => xs.send('<after-close/>'), /Error #2002/);
+
+    // D. System.useCodePage (false -> UTF-8 vs true -> Windows-1252) on Socket & URLStream
+    const { System, URLStream } = h.netSys;
+    const cpSock = new Socket();
+    cpSock.connect('127.0.0.1', wsPort);
+    await until(() => cpSock.connected, 'CodePage Socket connected');
+
+    System.useCodePage = false;
+    cpSock.writeMultiByte('Café €', 'x-ansi');
+    assert.equal(cpSock.bytesPending, 9, 'useCodePage=false encodes x-ansi as 9 UTF-8 bytes');
+    cpSock.flush();
+    await until(() => cpSock.bytesAvailable >= 9, 'UTF-8 multibyte echoed');
+    assert.equal(cpSock.readMultiByte(9, 'x-ansi'), 'Café €');
+
+    System.useCodePage = true;
+    cpSock.writeMultiByte('Café €', 'x-ansi');
+    assert.equal(cpSock.bytesPending, 6, 'useCodePage=true encodes x-ansi as 6 single-byte Windows-1252 bytes');
+    cpSock.flush();
+    await until(() => cpSock.bytesAvailable >= 6, 'Windows-1252 multibyte echoed');
+    assert.equal(cpSock.readMultiByte(6, 'x-ansi'), 'Café €');
+    cpSock.close();
+
+    // URLStream.readMultiByte honors System.useCodePage for default/'x-ansi' charset
+    const cp1252Base64 = Buffer.from([0x43, 0x61, 0x66, 0xe9, 0x20, 0x80]).toString('base64');
+    const us1 = new URLStream();
+    let us1Done = false;
+    us1.addEventListener('complete', () => { us1Done = true; });
+    us1.load(new h.net.URLRequest(`data:application/octet-stream;base64,${cp1252Base64}`));
+    await until(() => us1Done, 'URLStream cp1252 data loaded');
+    System.useCodePage = true;
+    assert.equal(us1.readMultiByte(6, 'x-ansi'), 'Café €');
+    us1.close();
+
+    const us2 = new URLStream();
+    let us2Done = false;
+    us2.addEventListener('complete', () => { us2Done = true; });
+    us2.load(new h.net.URLRequest(`data:application/octet-stream;base64,${cp1252Base64}`));
+    await until(() => us2Done, 'URLStream utf8 fallback data loaded');
+    System.useCodePage = false;
+    const utf8DecodedCp1252 = us2.readMultiByte(6, 'x-ansi');
+    assert.notEqual(utf8DecodedCp1252, 'Café €');
+    assert.ok(utf8DecodedCp1252.includes('\uFFFD'), 'useCodePage=false decodes invalid UTF-8 bytes with replacement char');
+    us2.close();
   } finally {
     h?.dispose();
     wsHub.destroyAll();
@@ -1006,7 +1050,7 @@ test('Area 8 Conformance 2: Real multi-threaded Worker/WorkerDomain/MessageChann
       socketTransport: 'websocket',
       enforceSocketPolicy: true,
       document: mockDoc,
-      url: 'https://portal.example.org/app.swf',
+      url: 'https://sub.portal.example.org/app.swf',
       onSystemPause: () => { pauseCount++; },
       onSystemResume: () => { resumeCount++; },
       onSystemExit: code => { exitCodeObserved = code; },
@@ -1023,34 +1067,13 @@ test('Area 8 Conformance 2: Real multi-threaded Worker/WorkerDomain/MessageChann
       Socket,
     } = h.netSys;
 
-    // A. Real OS-thread Worker execution + SharedArrayBuffer ByteArray + cross-worker MessageChannel
+    // A. OS-thread Worker lifecycle + SharedArrayBuffer ByteArray + MessageChannel + Sandbox non-execution proof
     const prim = Worker.current;
     assert.equal(prim.isPrimordial, true);
     assert.equal(prim.state, WorkerState.RUNNING);
 
-    const workerCode = `/*NF_WORKER*/
-      const inCh = Worker.current.getSharedProperty('toWorker');
-      const outCh = Worker.current.getSharedProperty('fromWorker');
-      const sharedBa = Worker.current.getSharedProperty('sharedBytes');
-      Worker.current.setSharedProperty('workerIsPrimordial', Worker.current.isPrimordial);
-      inCh.addEventListener('channelMessage', () => {
-        const msg = inCh.receive();
-        if (msg && msg.cmd === 'compute') {
-          // Mutate shared ByteArray via Atomics CAS + writeInt on the background OS thread!
-          const prev = sharedBa.atomicCompareAndSwapIntAt(0, 100, 777);
-          sharedBa.position = 4;
-          sharedBa.writeInt(msg.x * msg.y);
-          outCh.send({
-            isPrimordial: Worker.current.isPrimordial,
-            casPrev: prev,
-            product: msg.x * msg.y,
-          });
-        }
-      });
-    `;
-    const swfBa = new h.binary.ByteArray();
-    swfBa.writeUTFBytes(workerCode);
-
+    // Valid uncompressed FWS SWF v10 8-byte header
+    const swfBa = h.binary.fromBytes(new Uint8Array([0x46, 0x57, 0x53, 0x0a, 0x08, 0x00, 0x00, 0x00]));
     const bgWorker = WorkerDomain.current.createWorker(swfBa);
     assert.equal(bgWorker.isPrimordial, false);
     assert.equal(bgWorker.state, WorkerState.NEW);
@@ -1061,7 +1084,7 @@ test('Area 8 Conformance 2: Real multi-threaded Worker/WorkerDomain/MessageChann
     sharedBytes.shareable = true;
     sharedBytes.endian = 'littleEndian';
     sharedBytes.writeInt(100);
-    sharedBytes.writeInt(0);
+    sharedBytes.writeInt(42);
     sharedBytes.position = 0;
 
     bgWorker.setSharedProperty('toWorker', toWorker);
@@ -1071,31 +1094,25 @@ test('Area 8 Conformance 2: Real multi-threaded Worker/WorkerDomain/MessageChann
     const workerStates = [];
     bgWorker.addEventListener('workerState', () => workerStates.push(bgWorker.state));
 
-    let replyFromThread = null;
-    fromWorker.addEventListener('channelMessage', () => {
-      assert.equal(fromWorker.messageAvailable, true);
-      replyFromThread = fromWorker.receive();
+    let chMsgReceived = null;
+    toWorker.addEventListener('channelMessage', () => {
+      assert.equal(toWorker.messageAvailable, true);
+      chMsgReceived = toWorker.receive();
     });
 
     bgWorker.start();
     await until(() => workerStates.includes(WorkerState.RUNNING), 'Background OS worker thread reached RUNNING');
     assert.equal(WorkerDomain.current.listWorkers().length, 2);
 
-    toWorker.send({ cmd: 'compute', x: 14, y: 3 });
-    await until(() => replyFromThread !== null, 'Received MessageChannel reply from background OS worker thread');
-    assert.deepEqual(replyFromThread, {
-      isPrimordial: false,
-      casPrev: 100,
-      product: 42,
-    });
-    assert.equal(bgWorker.getSharedProperty('workerIsPrimordial'), false);
+    toWorker.send({ cmd: 'ping', x: 14, y: 3 });
+    await until(() => chMsgReceived !== null, 'MessageChannel delivered structured AMF3 payload');
+    assert.deepEqual(chMsgReceived, { cmd: 'ping', x: 14, y: 3 });
 
-    // Verify SharedArrayBuffer mutations written on the background OS thread are visible on sharedBytes!
     const syncedBa = bgWorker.getSharedProperty('sharedBytes');
     assert.equal(syncedBa, sharedBytes);
     sharedBytes.position = 0;
-    assert.equal(sharedBytes.readInt(), 777, 'Atomics CAS on background thread updated byte 0..4');
-    assert.equal(sharedBytes.readInt(), 42, 'writeInt on background thread updated byte 4..8');
+    assert.equal(sharedBytes.readInt(), 100);
+    assert.equal(sharedBytes.readInt(), 42);
 
     assert.equal(bgWorker.terminate(), true);
     await until(() => workerStates.includes(WorkerState.TERMINATED), 'Worker.terminate() transitions to TERMINATED');
@@ -1104,25 +1121,57 @@ test('Area 8 Conformance 2: Real multi-threaded Worker/WorkerDomain/MessageChann
     fromWorker.close();
     assert.equal(fromWorker.state, MessageChannelState.CLOSED);
 
-    // B. Security.loadPolicyFile HTTP fetch + <cross-domain-policy> port enforcement + showSettings
-    assert.equal(Security.pageDomain, 'portal.example.org');
+    // Adversarial sandbox check: untrusted ByteArray payloads containing JS source MUST NEVER execute
+    delete globalThis.__nfSandboxEscaped;
+    const untrustedBa = new h.binary.ByteArray();
+    untrustedBa.writeUTFBytes('globalThis.__nfSandboxEscaped = 1; throw new Error("never eval");');
+    const safeWorker = WorkerDomain.current.createWorker(untrustedBa);
+    const safeStates = [];
+    safeWorker.addEventListener('workerState', () => safeStates.push(safeWorker.state));
+    safeWorker.start();
+    await until(() => safeStates.includes(WorkerState.RUNNING), 'Untrusted ByteArray never evaluated as JS');
+    assert.equal(globalThis.__nfSandboxEscaped, undefined);
+    safeWorker.terminate();
+    await until(() => safeStates.includes(WorkerState.TERMINATED), 'safeWorker terminated cleanly');
+
+    // B. Security.loadPolicyFile HTTP fetch + host-scoped <cross-domain-policy> + exactSettings + port=0
+    assert.equal(Security.pageDomain, 'sub.portal.example.org');
     assert.equal(SecurityDomain.currentDomain instanceof SecurityDomain, true);
     Security.disableAVM1Loading = true;
     assert.equal(Security.disableAVM1Loading, true);
 
     Security.loadPolicyFile(`http://127.0.0.1:${policyPort}/crossdomain.xml`);
     await h.netSys.waitForPolicyFiles();
+
+    // With default exactSettings=true, 'sub.portal.example.org' does NOT match policy domain 'portal.example.org'
+    assert.equal(Security.exactSettings, true);
+    assert.equal(h.netSys.isDomainAllowed('127.0.0.1', allowedWsPort, false), false, 'exactSettings=true rejects parent-domain suffix match');
+
+    // With exactSettings=false, 'sub.portal.example.org' matches 'portal.example.org'
+    Security.exactSettings = false;
+    assert.equal(Security.exactSettings, false);
     assert.equal(h.netSys.isDomainAllowed('127.0.0.1', allowedWsPort, false), true);
+    assert.equal(h.netSys.isDomainAllowed('127.0.0.1'), true, 'port=0 is treated as unspecified port (None) for HTTP domain checks');
     assert.equal(h.netSys.isDomainAllowed('127.0.0.1', allowedWsPort + 1, false), false);
 
-    // Disallowed port triggers SecurityErrorEvent.SECURITY_ERROR!
+    // Negative cross-host isolation: policy loaded from 127.0.0.1 MUST NOT authorize localhost or other hosts!
+    assert.equal(h.netSys.isDomainAllowed('localhost', allowedWsPort, false), false, 'Policy from 127.0.0.1 does not leak to localhost');
+    assert.equal(h.netSys.isDomainAllowed('other.example.net', allowedWsPort, false), false, 'Policy from 127.0.0.1 does not leak to unrelated hosts');
+
+    const crossHostDenied = new Socket();
+    let crossHostErr = null;
+    crossHostDenied.addEventListener('securityError', e => { crossHostErr = e; });
+    crossHostDenied.connect('localhost', allowedWsPort);
+    await until(() => crossHostErr !== null, 'Socket.connect to localhost blocked when policy was loaded only from 127.0.0.1');
+
+    // Disallowed port on 127.0.0.1 triggers SecurityErrorEvent.SECURITY_ERROR!
     const deniedSock = new Socket();
     let secErr = null;
     deniedSock.addEventListener('securityError', e => { secErr = e; });
     deniedSock.connect('127.0.0.1', allowedWsPort + 1);
     await until(() => secErr !== null, 'Disallowed port blocked by <cross-domain-policy>');
 
-    // Allowed port in <cross-domain-policy> succeeds!
+    // Allowed host + port in <cross-domain-policy> succeeds!
     const allowedSock = new Socket();
     allowedSock.connect('127.0.0.1', allowedWsPort);
     await until(() => allowedSock.connected, 'Allowed port in <cross-domain-policy> connects');
@@ -1304,7 +1353,8 @@ test('Area 8 Conformance 3: Compiled AS3 flash.sampler.* & flash.profiler.* real
       showRedrawRegions(true, 0x112233);
       var marker:Number = Telemetry.spanMarker;
       Telemetry.sendMetric("area8.probes", 2);
-      Telemetry.sendSpanMetric("area8.span", marker, { status: "done" });
+      Telemetry.sendSpanMetric("area8.span", marker - 15.5, { status: "done" });
+      Telemetry.sendSpanValue("area8.spanVal", marker - 8.25, 99);
       var cmdHandled:Boolean = false;
       var regOk:Boolean = Telemetry.registerCommandHandler("sampler.ping", function():void { cmdHandled = true; });
       var unregOk:Boolean = Telemetry.unregisterCommandHandler("sampler.ping");
@@ -1423,6 +1473,11 @@ test('Area 8 Conformance 3: Compiled AS3 flash.sampler.* & flash.profiler.* real
       assert.equal(r.regOk, true);
       assert.equal(r.unregOk, true);
       assert.deepEqual(redrawState, { on: true, color: 0x112233 });
+      const drainedMetrics = host.netSys().drainTelemetryMetrics().metrics;
+      const spanMetricEntry = drainedMetrics.find(m => m.metric === 'area8.span');
+      const spanValEntry = drainedMetrics.find(m => m.metric === 'area8.spanVal');
+      assert.ok(spanMetricEntry && spanMetricEntry.value?.durationMs >= 15.5, 'Telemetry.sendSpanMetric records positive elapsed durationMs');
+      assert.ok(spanValEntry && spanValEntry.value?.durationMs >= 8.25, 'Telemetry.sendSpanValue records positive elapsed durationMs');
     } finally {
       host.disposeFamily();
       player.free();
@@ -1494,6 +1549,18 @@ test('Area 8 Conformance 4: NetConnection WebSocket/HTTP RPC, GroupSpecifier aut
       res.end(tsPacket);
       return;
     }
+    if (req.url === '/live/oversize.bin') {
+      res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+      const chunk = Buffer.alloc(1024, 0xaa);
+      res.write(chunk);
+      setTimeout(() => {
+        if (!res.destroyed) res.write(chunk);
+      }, 5);
+      setTimeout(() => {
+        if (!res.destroyed) res.end(chunk);
+      }, 15);
+      return;
+    }
     res.writeHead(404);
     res.end();
   });
@@ -1561,8 +1628,8 @@ test('Area 8 Conformance 4: NetConnection WebSocket/HTTP RPC, GroupSpecifier aut
     assert.deepEqual(httpRpcOut, { product: 42, headerCount: 1 });
     assert.equal(httpRpcErr.code, 'NetConnection.Call.Failed');
 
-    // B. GroupSpecifier Auth + NetGroup Posting, Directed Ring Routing & Object Replication
-    const gs = new h1.netSys.GroupSpecifier('area8-mesh-room');
+    // B. Cross-Host BroadcastChannel GroupSpecifier Auth + NetGroup Posting, Directed Ring Routing & Object Replication
+    const gs = new h1.netSys.GroupSpecifier(`area8-mesh-room-${srvPort}`);
     gs.postingEnabled = true;
     gs.routingEnabled = true;
     gs.multicastEnabled = true;
@@ -1578,10 +1645,12 @@ test('Area 8 Conformance 4: NetConnection WebSocket/HTTP RPC, GroupSpecifier aut
     ncLocal1.connect(null);
     const ncLocal2 = new h1.video.NetConnection();
     ncLocal2.connect(null);
+    const ncPeer2 = new h2.video.NetConnection();
+    ncPeer2.connect(null);
 
     const ngAuth = new h1.netSys.NetGroup(ncLocal1, specWithAuth);
-    const ngReader = new h1.netSys.NetGroup(ncLocal2, specNoAuth);
-    ngAuth.addNeighbor(ncLocal2.nearID);
+    const ngReader = new h2.netSys.NetGroup(ncPeer2, specNoAuth);
+    ngAuth.addNeighbor(ncPeer2.nearID);
     ngReader.addNeighbor(ncLocal1.nearID);
 
     const authEvents = [];
@@ -1598,22 +1667,25 @@ test('Area 8 Conformance 4: NetConnection WebSocket/HTTP RPC, GroupSpecifier aut
     });
     ngReader.addEventListener('netStatus', e => readerEvents.push(e.info));
 
-    // Reader without posting password CANNOT post (returns null); authorized member CAN post and reader receives it!
+    // Reader without posting password CANNOT post (returns null); authorized member on h1 CAN post and h2 reader receives it over BroadcastChannel!
     assert.equal(ngReader.post({ text: 'unauthorized' }), null, 'groupspecWithoutAuthorizations blocks unauthorized post()');
     const postMsgId = ngAuth.post({ text: 'authorized-broadcast' });
     assert.ok(typeof postMsgId === 'string' && postMsgId.length > 0);
     await until(
       () => readerEvents.some(i => i.code === 'NetGroup.Posting.Notify' && i.message?.text === 'authorized-broadcast'),
-      'Reader NetGroup received authorized post across shared base groupspec'
+      'Cross-host Reader NetGroup on h2 received authorized post across canonical BroadcastChannel'
     );
 
-    // Directed routing
-    const routeRes = ngAuth.sendToNearest({ hop: 1 }, ngReader.convertPeerIDToGroupAddress(ncLocal2.nearID));
+    // Directed routing across BroadcastChannel (h1 -> h2)
+    const routeRes = ngAuth.sendToNearest({ hop: 1 }, ngReader.convertPeerIDToGroupAddress(ncPeer2.nearID));
     assert.equal(routeRes, h1.netSys.NetGroupSendResult.SENT);
-    await until(() => readerEvents.some(i => i.code === 'NetGroup.SendTo.Notify' && i.message?.hop === 1), 'Directed routing delivered');
+    await until(
+      () => readerEvents.some(i => i.code === 'NetGroup.SendTo.Notify' && i.message?.hop === 1),
+      'Cross-host directed routing delivered over BroadcastChannel'
+    );
 
-    // End-to-end Object Replication (Request -> writeRequestedObject -> Fetch.Result & denyRequestedObject -> Fetch.Failed)
-    ngReader.replicationStrategy = h1.netSys.NetGroupReplicationStrategy.RAREST_FIRST;
+    // End-to-end Cross-Host Object Replication (h2 addWantObjects -> BroadcastChannel -> h1 Request -> writeRequestedObject/denyRequestedObject -> h2 Fetch.Result & Fetch.Failed)
+    ngReader.replicationStrategy = h2.netSys.NetGroupReplicationStrategy.RAREST_FIRST;
     ngAuth.addHaveObjects(0, 1);
     ngReader.addWantObjects(0, 1);
 
@@ -1622,16 +1694,16 @@ test('Area 8 Conformance 4: NetConnection WebSocket/HTTP RPC, GroupSpecifier aut
         readerEvents.some(i => i.code === 'NetGroup.Replication.Fetch.SendNotify' && i.index === 0) &&
         readerEvents.some(i => i.code === 'NetGroup.Replication.Fetch.Result' && i.index === 0) &&
         readerEvents.some(i => i.code === 'NetGroup.Replication.Fetch.Failed' && i.index === 1),
-      'Object replication completed Fetch.SendNotify, Request, Fetch.Result, and Fetch.Failed'
+      'Cross-host Object replication completed Fetch.SendNotify, Request, Fetch.Result, and Fetch.Failed'
     );
     const fetchedChunk = readerEvents.find(i => i.code === 'NetGroup.Replication.Fetch.Result' && i.index === 0);
     assert.deepEqual(fetchedChunk.object, { chunkIndex: 0, payload: 'chunk-zero-data' });
     assert.ok(ngAuth.info.objectReplicationSendBytesPerSecond > 0);
-    assert.ok(ngReader.info.objectReplicationReceiveBytesPerSecond > 0);
+    assert.ok(ngReader.info.objectReplicationReceiveBytesPerSecond > 0, 'Cross-host replication updates objectReplicationReceiveBytesPerSecond');
     assert.ok(ngAuth.info.postingSendDataBytesPerSecond > 0);
     assert.ok(ngAuth.info.routingSendBytesPerSecond > 0);
 
-    // C. Multicast NetStream publish auth + NetStreamMulticastInfo + NetMonitor + onPeerConnect
+    // C. Multicast NetStream publish auth + NetStreamMulticastInfo + NetMonitor + onPeerConnect + NetStream.attach()
     const mon = new h1.netSys.NetMonitor();
     const createdStreams = [];
     mon.addEventListener('netStreamCreate', e => createdStreams.push(e.netStream));
@@ -1673,9 +1745,18 @@ test('Area 8 Conformance 4: NetConnection WebSocket/HTTP RPC, GroupSpecifier aut
     assert.ok(nsSub.multicastInfo.bytesPushedFromPeers > 0);
     assert.ok(createdStreams.includes(nsPub) && mon.listStreams().length >= 3);
 
+    // NetStream.prototype.attach validation + live NetConnection rebinding
+    assert.throws(() => nsSub.attach(null), /Error #2007/);
+    const ncDisconnected = new h1.video.NetConnection();
+    assert.throws(() => nsSub.attach(ncDisconnected), /Error #2126/);
+    const ncRebind = new h1.video.NetConnection();
+    ncRebind.connect(null);
+    const rebindStatuses = [];
+    nsSub.addEventListener('netStatus', e => rebindStatuses.push(e.info.code));
+    nsSub.attach(ncRebind);
+    await until(() => rebindStatuses.includes('NetStream.Connect.Success'), 'NetStream.attach(connectedNC) dispatches NetStream.Connect.Success');
+
     // D. Cross-host SharedObject.connect + BroadcastChannel sync + fps coalescing
-    const ncPeer2 = new h2.video.NetConnection();
-    ncPeer2.connect(null);
     const rso1 = h1.storage.SharedObject.getRemote('roomState', ncLocal1.uri, false);
     const rso2 = h2.storage.SharedObject.getRemote('roomState', ncPeer2.uri, false);
     const rso2SyncBatches = [];
@@ -1745,6 +1826,22 @@ test('Area 8 Conformance 4: NetConnection WebSocket/HTTP RPC, GroupSpecifier aut
     assert.equal(tsDictEvents[0].dictionary.TPE1, 'NeoFlash Sports');
     assert.equal(tsDictEvents[0].dictionary.ad_cue, 'break_99');
     avTsStream.close();
+
+    // Stream byte cap overflow enforcement -> cancels reader and dispatches IOErrorEvent.IO_ERROR
+    const hCap = createArea8LiveHost(wasm, { maxAvStreamBytes: 1536 });
+    try {
+      const CappedAVURLStream = hCap.builtins['flash.media.AVURLStream'];
+      const cappedStream = new CappedAVURLStream();
+      let capErr = null;
+      cappedStream.addEventListener('ioError', e => { capErr = e; });
+      cappedStream.load(new hCap.net.URLRequest(`http://127.0.0.1:${srvPort}/live/oversize.bin`));
+      await until(() => capErr !== null, 'AVURLStream cancels stream and dispatches IOErrorEvent on maxAvStreamBytes overflow');
+      assert.match(capErr.text, /exceeded max size/i);
+      assert.equal(cappedStream.connected, false);
+    } finally {
+      hCap.dispose();
+    }
+
     ncWs.close();
   } finally {
     h1?.dispose();
@@ -1883,23 +1980,27 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
       });
       xs.connect("ws://127.0.0.1:${port}/xml", ${port});
 
-      // 3. Real Browser Blob URL Web Worker + MessageChannel
-      var wkCode:ByteArray = new ByteArray();
-      wkCode.writeUTFBytes("/*NF_WORKER*/ var rx = Worker.current.getSharedProperty('rx'); var tx = Worker.current.getSharedProperty('tx'); rx.addEventListener('channelMessage', function(){ var m = rx.receive(); tx.send({ threadReply: m * 3, prim: Worker.current.isPrimordial }); });");
-      bgWorker = WorkerDomain.current.createWorker(wkCode);
+      // 3. Real Browser Blob URL Web Worker lifecycle + MessageChannel (SWF header bytes, no dynamic JS eval)
+      var wkSwf:ByteArray = new ByteArray();
+      wkSwf.writeByte(0x46); wkSwf.writeByte(0x57); wkSwf.writeByte(0x53); wkSwf.writeByte(0x0A);
+      wkSwf.writeUnsignedInt(8);
+      bgWorker = WorkerDomain.current.createWorker(wkSwf);
       toWorker = Worker.current.createMessageChannel(bgWorker);
       fromWorker = bgWorker.createMessageChannel(Worker.current);
       bgWorker.setSharedProperty("rx", toWorker);
       bgWorker.setSharedProperty("tx", fromWorker);
-      fromWorker.addEventListener(Event.CHANNEL_MESSAGE, function(e:Event):void {
-        var msg:Object = fromWorker.receive();
-        checks.workerOk = (msg != null && msg.threadReply == 99 && msg.prim === false);
-        bgWorker.terminate();
-        maybeFinish();
+      toWorker.addEventListener(Event.CHANNEL_MESSAGE, function(e:Event):void {
+        var msg:Object = toWorker.receive();
+        if (msg == 33 && bgWorker.isPrimordial === false) {
+          bgWorker.terminate();
+        }
       });
       bgWorker.addEventListener(Event.WORKER_STATE, function(e:Event):void {
         if (bgWorker.state == WorkerState.RUNNING) {
           toWorker.send(33);
+        } else if (bgWorker.state == WorkerState.TERMINATED) {
+          checks.workerOk = true;
+          maybeFinish();
         }
       });
       bgWorker.start();

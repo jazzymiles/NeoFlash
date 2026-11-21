@@ -1197,9 +1197,78 @@
       return true;
     }
 
+    const DEFAULT_MAX_AV_STREAM_BYTES = 64 * 1024 * 1024;
+
+    function createIncrementalAvTagScanner(targets, emittedTags) {
+      let carry = new Uint8Array(0);
+      let sawFirstChunk = false;
+      let isHls = false;
+      let hlsLineCarry = '';
+      let hlsCursorTime = 0;
+      const utf8StreamDec = new TextDecoder('utf-8', { fatal: false });
+      const utf8Enc = new TextEncoder();
+
+      return {
+        pushChunk(u8) {
+          if (!u8 || u8.byteLength === 0) return;
+          if (!sawFirstChunk) {
+            sawFirstChunk = true;
+            const probe = new TextDecoder('utf-8', { fatal: false })
+              .decode(u8.subarray(0, Math.min(u8.byteLength, 32)))
+              .replace(/^\uFEFF/, '')
+              .trimStart();
+            isHls = probe.startsWith('#EXTM3U');
+          }
+          if (isHls) {
+            const chunkStr = hlsLineCarry + utf8StreamDec.decode(u8, { stream: true });
+            const lastNl = chunkStr.lastIndexOf('\n');
+            if (lastNl < 0) {
+              hlsLineCarry = chunkStr;
+              return;
+            }
+            const completeLines = chunkStr.slice(0, lastNl + 1);
+            hlsLineCarry = chunkStr.slice(lastNl + 1);
+            const synthBytes = utf8Enc.encode(`#EXTM3U\n${completeLines}`);
+            dispatchAvExtractedTags(targets, synthBytes, emittedTags, hlsCursorTime);
+            for (const rawLine of completeLines.split('\n')) {
+              const trimmed = rawLine.trim();
+              if (trimmed.startsWith('#EXTINF:')) {
+                const rest = trimmed.slice(8);
+                const commaIdx = rest.indexOf(',');
+                const durStr = (commaIdx >= 0 ? rest.slice(0, commaIdx) : rest).trim();
+                const dur = Number.parseFloat(durStr);
+                if (Number.isFinite(dur) && dur >= 0) {
+                  hlsCursorTime += dur;
+                }
+              }
+            }
+            return;
+          }
+          let windowBytes = u8;
+          if (carry.byteLength > 0) {
+            windowBytes = new Uint8Array(carry.byteLength + u8.byteLength);
+            windowBytes.set(carry, 0);
+            windowBytes.set(u8, carry.byteLength);
+          }
+          dispatchAvExtractedTags(targets, windowBytes, emittedTags, 0);
+          carry =
+            windowBytes.byteLength > 1024
+              ? windowBytes.slice(windowBytes.byteLength - 1024)
+              : windowBytes.slice();
+        },
+        finish(merged) {
+          dispatchAvExtractedTags(targets, merged, emittedTags, 0);
+        },
+      };
+    }
+
     function runHttpAvStreamFetch(request, cookieHeader, handlers) {
       const fetchFn = options.fetch || global.fetch;
       if (typeof fetchFn !== 'function') return null;
+      const maxStreamBytes =
+        Number(options.maxAvStreamBytes) > 0
+          ? Number(options.maxAvStreamBytes)
+          : DEFAULT_MAX_AV_STREAM_BYTES;
       const url = String(request.url).trim();
       const abortCtl = typeof AbortController === 'function' ? new AbortController() : null;
       let cancelled = false;
@@ -1247,10 +1316,22 @@
           }
           const cl = Number(resp.headers?.get?.('content-length') || 0);
           const total = Number.isFinite(cl) && cl > 0 ? cl : 0;
+          if (total > maxStreamBytes) {
+            cancelled = true;
+            try { await resp.body?.cancel?.(); } catch (_) {}
+            try { abortCtl?.abort(); } catch (_) {}
+            handlers.onError?.(`AV stream exceeded max size (${total} > ${maxStreamBytes} bytes)`);
+            return;
+          }
           const reader = resp.body?.getReader?.();
           if (!reader) {
             const ab = await resp.arrayBuffer();
             if (cancelled || disposed) return;
+            if (ab.byteLength > maxStreamBytes) {
+              cancelled = true;
+              handlers.onError?.(`AV stream exceeded max size (${ab.byteLength} > ${maxStreamBytes} bytes)`);
+              return;
+            }
             const u8 = new Uint8Array(ab);
             handlers.onChunk?.(u8, u8.byteLength, total || u8.byteLength);
             handlers.onComplete?.(u8, total || u8.byteLength);
@@ -1267,6 +1348,13 @@
             if (done) break;
             if (value && value.byteLength > 0) {
               const u8 = value instanceof Uint8Array ? value : new Uint8Array(value);
+              if (loaded + u8.byteLength > maxStreamBytes) {
+                cancelled = true;
+                try { await reader.cancel(); } catch (_) {}
+                try { abortCtl?.abort(); } catch (_) {}
+                handlers.onError?.(`AV stream exceeded max size (${loaded + u8.byteLength} > ${maxStreamBytes} bytes)`);
+                return;
+              }
               chunks.push(u8);
               loaded += u8.byteLength;
               handlers.onChunk?.(u8, loaded, total);
@@ -1415,8 +1503,8 @@
           st.bytesTotal = 0;
           st.data = undefined;
           if (sSt?.buffer) sSt.buffer.clear();
-          const accumChunks = [];
           const emittedTags = new Set();
+          const tagScanner = createIncrementalAvTagScanner([st.stream, this], emittedTags);
           const handle = runHttpAvStreamFetch(request, st.cookieHeader, {
             onOpen: () => {
               if (sSt) sSt.connected = true;
@@ -1443,11 +1531,7 @@
               st.bytesLoaded = loaded;
               st.bytesTotal = total;
               if (sSt?.buffer) appendBytesPreservingPos(sSt.buffer, u8);
-              accumChunks.push(u8);
-              const joined = new Uint8Array(loaded);
-              let p = 0;
-              for (const c of accumChunks) { joined.set(c, p); p += c.byteLength; }
-              dispatchAvExtractedTags([st.stream, this], joined, emittedTags, 0);
+              tagScanner.pushChunk(u8);
               const progEv = makeAvProgressEvent(loaded, total);
               st.stream.dispatchEvent(progEv.clone());
               this.dispatchEvent(progEv);
@@ -1457,7 +1541,7 @@
               if (st.fetchHandle === handle) st.fetchHandle = null;
               st.bytesLoaded = merged.byteLength;
               st.bytesTotal = total;
-              dispatchAvExtractedTags([st.stream, this], merged, emittedTags, 0);
+              tagScanner.finish(merged);
               if (st.dataFormat === 'binary') {
                 st.data = binary?.fromBytes ? binary.fromBytes(merged) : merged;
               } else if (st.dataFormat === 'variables' && typeof net?.URLVariables === 'function') {
@@ -1609,8 +1693,8 @@
           st.useDirectHttp = true;
           st.connected = false;
           if (st.buffer) st.buffer.clear();
-          const accumChunks = [];
           const emittedTags = new Set();
+          const tagScanner = createIncrementalAvTagScanner([this], emittedTags);
           const handle = runHttpAvStreamFetch(request, st.cookieHeader, {
             onOpen: () => {
               st.connected = true;
@@ -1631,17 +1715,13 @@
             },
             onChunk: (u8, loaded, total) => {
               if (st.buffer) appendBytesPreservingPos(st.buffer, u8);
-              accumChunks.push(u8);
-              const joined = new Uint8Array(loaded);
-              let p = 0;
-              for (const c of accumChunks) { joined.set(c, p); p += c.byteLength; }
-              dispatchAvExtractedTags([this], joined, emittedTags, 0);
+              tagScanner.pushChunk(u8);
               this.dispatchEvent(makeAvProgressEvent(loaded, total));
             },
             onComplete: merged => {
               activeAvFetches.delete(handle);
               if (st.fetchHandle === handle) st.fetchHandle = null;
-              dispatchAvExtractedTags([this], merged, emittedTags, 0);
+              tagScanner.finish(merged);
               this.dispatchEvent(new BaseEvent('complete', false, false));
             },
             onError: message => {

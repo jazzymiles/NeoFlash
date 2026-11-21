@@ -1378,27 +1378,58 @@ pub fn build_custom_x509_der(
     asn1_wrap(0x30, &cert_body)
 }
 
-fn hostname_matches_pattern(host: &str, pattern: &str) -> bool {
+fn hostname_matches_pattern(host: &str, pattern: &str, exact_settings: bool) -> bool {
     let h = host
         .trim()
         .trim_matches(|c| c == '[' || c == ']')
         .to_ascii_lowercase();
-    let p = pattern.trim().to_ascii_lowercase();
+    let p = pattern
+        .trim()
+        .trim_matches(|c| c == '[' || c == ']')
+        .to_ascii_lowercase();
     if p.is_empty() || h.is_empty() {
         return false;
     }
     if p == "*" || p == h {
         return true;
     }
-    if matches!(h.as_str(), "localhost" | "127.0.0.1" | "::1")
-        && matches!(p.as_str(), "localhost" | "127.0.0.1" | "::1")
-    {
-        return true;
-    }
     if let Some(suffix) = p.strip_prefix("*.") {
-        return h.ends_with(&format!(".{suffix}")) && h.len() > suffix.len() + 1;
+        return h == suffix || (h.ends_with(&format!(".{suffix}")) && h.len() > suffix.len() + 1);
+    }
+    if !exact_settings {
+        return h.ends_with(&format!(".{p}")) || p.ends_with(&format!(".{h}"));
     }
     false
+}
+
+/// Extracts the normalized target hostname from a policy file URL (`http(s)://host:port/...` or `xmlsocket://host:port`).
+pub fn extract_policy_target_host(url: &str) -> String {
+    let trimmed = url.trim();
+    if trimmed.is_empty() || trimmed.to_ascii_lowercase().starts_with("data:") {
+        return String::new();
+    }
+    let after_scheme = match trimmed.find("://") {
+        Some(idx) => &trimmed[idx + 3..],
+        None => return String::new(),
+    };
+    let authority_end = after_scheme
+        .find(['/', '?', '#'])
+        .unwrap_or(after_scheme.len());
+    let authority = &after_scheme[..authority_end];
+    let host_port = match authority.rfind('@') {
+        Some(at) => &authority[at + 1..],
+        None => authority,
+    };
+    if let Some(rest) = host_port.strip_prefix('[')
+        && let Some(close) = rest.find(']')
+    {
+        return rest[..close].trim().to_ascii_lowercase();
+    }
+    let host = match host_port.split_once(':') {
+        Some((h, _)) => h,
+        None => host_port,
+    };
+    host.trim().to_ascii_lowercase()
 }
 
 fn x509_hostname_matches_cn(host: &str, cn: &str) -> bool {
@@ -1624,6 +1655,16 @@ pub fn policy_allows_access(
     port: Option<u16>,
     requester_is_secure: bool,
 ) -> bool {
+    policy_allows_access_with_settings(policy, requester_domain, port, requester_is_secure, true)
+}
+
+pub fn policy_allows_access_with_settings(
+    policy: &CrossDomainPolicyFile,
+    requester_domain: &str,
+    port: Option<u16>,
+    requester_is_secure: bool,
+    exact_settings: bool,
+) -> bool {
     if policy.site_control == "none" {
         return false;
     }
@@ -1631,7 +1672,7 @@ pub fn policy_allows_access(
         if rule.secure && !requester_is_secure {
             continue;
         }
-        if !hostname_matches_pattern(requester_domain, &rule.domain) {
+        if !hostname_matches_pattern(requester_domain, &rule.domain, exact_settings) {
             continue;
         }
         if let Some(p) = port

@@ -1731,13 +1731,14 @@
           id: created.id,
           connection,
           groupspec: specStr,
-          baseSpec: String(created.baseSpec || specStr).toLowerCase(),
+          baseSpec: String(created.canonicalBase || created.baseSpec || specStr).toLowerCase(),
           address: created.address,
           peerID: ncRec.nearID || created.address,
           replicatedObjects: new Map(),
           remoteHaveByPeer: new Map(),
           pendingRemoteRequests: new Map(),
           inFlightRemoteWants: new Set(),
+          localWantedIndices: new Set(),
           broadcastChannel: null,
         };
         netGroups.set(this, rec);
@@ -1852,7 +1853,10 @@
         dispatchNetGroupFetchTickets(res.fetchRequests);
         const localScheduled = new Set((res.fetchRequests || []).map(t => Number(t.index)));
         for (let idx = Math.trunc(s); idx <= Math.trunc(e); idx++) {
-          if (!localScheduled.has(idx)) scheduleRemoteNetGroupWants(this, rec, idx, idx);
+          if (!localScheduled.has(idx)) {
+            rec.localWantedIndices.add(idx);
+            scheduleRemoteNetGroupWants(this, rec, idx, idx);
+          }
         }
       }
       removeWantObjects(startIndex, endIndex) {
@@ -1861,6 +1865,7 @@
         const e = Number(endIndex);
         execKernel({ op: 'netgroup_op', id: rec.id, action: 'have_want', kind: 'removeWant', start: s, end: e });
         for (let idx = Math.trunc(s); idx <= Math.trunc(e); idx++) {
+          rec.localWantedIndices.delete(idx);
           rec.inFlightRemoteWants.delete(idx);
         }
       }
@@ -2145,8 +2150,14 @@
         const s = Math.trunc(Number(msg.start) || 0);
         const e = Math.trunc(Number(msg.end) || 0);
         for (let i = s; i <= e; i++) {
-          if (msg.add) set.add(i);
-          else set.delete(i);
+          if (msg.add) {
+            set.add(i);
+            if (rec.localWantedIndices.has(i)) {
+              scheduleRemoteNetGroupWants(instance, rec, i, i);
+            }
+          } else {
+            set.delete(i);
+          }
         }
         return;
       }
@@ -2166,6 +2177,7 @@
       }
       if (msg.type === 'rep_reply' && msg.targetToken === rec.peerID) {
         const idx = Math.trunc(Number(msg.index) || 0);
+        rec.localWantedIndices.delete(idx);
         rec.inFlightRemoteWants.delete(idx);
         if (msg.deny) {
           dispatchLater(instance, () =>
@@ -2180,7 +2192,8 @@
             op: 'netgroup_op',
             id: rec.id,
             action: 'ingest_remote',
-            kind: 'replication',
+            kind: 'replication_result',
+            index: idx,
             byteLength: Number(msg.byteLength) || 16,
           });
           const obj = decodeAmfOrJsonPayload(msg, null);
@@ -4008,8 +4021,28 @@
           writable: true,
           value: function attach(connection) {
             const r = nsRec(this);
-            const nc = vh.state(connection, vh.connections);
-            r.connection = nc;
+            if (!connection || !vh.connections.has(connection)) {
+              const err = new TypeError('TypeError: Error #2007: Parameter connection must be non-null.');
+              err.errorID = 2007;
+              throw err;
+            }
+            const nextNc = ncRec(connection);
+            if (!nextNc.connected && !nextNc.local) {
+              const err = new Error('ArgumentError: Error #2126: NetConnection object must be connected.');
+              err.name = 'ArgumentError';
+              err.errorID = 2126;
+              throw err;
+            }
+            if (r.connection !== nextNc) {
+              vh.unpublishRecord?.(r, true);
+              vh.unsubscribeRecord?.(r);
+              r.publishedName = null;
+              r.publishedType = null;
+              r.subscribedRemoteName = null;
+            }
+            r.connection = nextNc;
+            r.isGroupMulticast = typeof r.peerID === 'string' && /^G:/i.test(r.peerID.trim());
+            vh.later(r, () => vh.emit(r, 'NetStream.Connect.Success'));
           },
         },
         attachAudio: {
@@ -4801,6 +4834,7 @@
           const res = execKernel({
             op: 'security_op',
             action: 'check_access',
+            targetDomain: hostname,
             requesterDomain: resolvePageDomain(),
             port: Number(port) >>> 0,
             secure: Boolean(secure),
@@ -4808,7 +4842,7 @@
           });
           if (res && res.allowed) return true;
         } catch (_) {}
-        return isDomainAllowed(hostname, port, secure);
+        return isExplicitSecurityDomainAllowed(hostname);
       }
       return true;
     }
@@ -5182,7 +5216,7 @@
       readUnsignedInt() { return sockRx(this).readUnsignedInt(); }
       readFloat() { return sockRx(this).readFloat(); }
       readDouble() { return sockRx(this).readDouble(); }
-      readMultiByte(length, charSet) { return sockRx(this).readMultiByte(length, charSet); }
+      readMultiByte(length, charSet) { return readMultiByteWithCodePage(sockRx(this), length, charSet); }
       readUTF() { return sockRx(this).readUTF(); }
       readUTFBytes(length) { return sockRx(this).readUTFBytes(length); }
       readBytes(bytes, offset = 0, length = 0) { return sockRx(this).readBytes(bytes, offset, length); }
@@ -5195,7 +5229,7 @@
       writeUnsignedInt(value) { sockTx(this).writeUnsignedInt(value); }
       writeFloat(value) { sockTx(this).writeFloat(value); }
       writeDouble(value) { sockTx(this).writeDouble(value); }
-      writeMultiByte(value, charSet) { sockTx(this).writeMultiByte(value, charSet); }
+      writeMultiByte(value, charSet) { writeMultiByteWithCodePage(sockTx(this), value, charSet); }
       writeUTF(value) { sockTx(this).writeUTF(value); }
       writeUTFBytes(value) { sockTx(this).writeUTFBytes(value); }
       writeBytes(bytes, offset = 0, length = 0) { sockTx(this).writeBytes(bytes, offset, length); }
@@ -5433,7 +5467,7 @@
       readUnsignedInt() { return usRx(this).readUnsignedInt(); }
       readFloat() { return usRx(this).readFloat(); }
       readDouble() { return usRx(this).readDouble(); }
-      readMultiByte(length, charSet) { return usRx(this).readMultiByte(length, charSet); }
+      readMultiByte(length, charSet) { return readMultiByteWithCodePage(usRx(this), length, charSet); }
       readUTF() { return usRx(this).readUTF(); }
       readUTFBytes(length) { return usRx(this).readUTFBytes(length); }
       readBytes(bytes, offset = 0, length = 0) { return usRx(this).readBytes(bytes, offset, length); }
@@ -6279,6 +6313,7 @@
           action: 'span_metric',
           metric: String(metric),
           startSpanMarker: start,
+          endSpanMarker: now,
           durationMs,
           value: value ?? null,
         });
@@ -7609,11 +7644,9 @@
       return raw.toLowerCase();
     }
 
-    function isDomainAllowed(domainOrUrl, port = 0, secure = false) {
+    function isExplicitSecurityDomainAllowed(domainOrUrl) {
       const host = extractDomainHost(domainOrUrl);
-      if (!host) return true;
-      const pageHost = String(resolvePageDomain() || '').toLowerCase();
-      if (host === pageHost && port === 0) return true;
+      if (!host) return false;
       if (allowedSecurityDomains.has('*')) return true;
       for (const allowed of allowedSecurityDomains) {
         const norm = extractDomainHost(allowed);
@@ -7622,11 +7655,21 @@
         if (!securityExactSettings && (host.endsWith('.' + norm) || norm.endsWith('.' + host))) return true;
         if (norm.startsWith('*.') && (host === norm.slice(2) || host.endsWith(norm.slice(1)))) return true;
       }
+      return false;
+    }
+
+    function isDomainAllowed(domainOrUrl, port = 0, secure = false) {
+      const host = extractDomainHost(domainOrUrl);
+      if (!host) return true;
+      const pageHost = String(resolvePageDomain() || '').toLowerCase();
+      if (host === pageHost && port === 0) return true;
+      if (isExplicitSecurityDomainAllowed(host)) return true;
       if (loadedPolicyCount > 0 && !disposed && kernel) {
         try {
           const res = execKernel({
             op: 'security_op',
             action: 'check_access',
+            targetDomain: host,
             requesterDomain: resolvePageDomain(),
             port: Number(port) >>> 0,
             secure: Boolean(secure),
@@ -7860,6 +7903,75 @@
       const freeBytes = Math.max(512 * 1024, Math.trunc(Math.max(totalHeap - usedHeap, 4 * 1024 * 1024)));
       const privateBytes = Math.max(totalUsed + freeBytes, Math.trunc(rssBytes));
       return { totalUsed, freeBytes, privateBytes };
+    }
+
+    const CP1252_80_9F = [
+      0x20ac, 0x0081, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021,
+      0x02c6, 0x2030, 0x0160, 0x2039, 0x0152, 0x008d, 0x017d, 0x008f,
+      0x0090, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014,
+      0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x009d, 0x017e, 0x0178,
+    ];
+    const CP1252_ENCODE_MAP = new Map();
+    for (let i = 0; i < CP1252_80_9F.length; i++) {
+      CP1252_ENCODE_MAP.set(CP1252_80_9F[i], 0x80 + i);
+    }
+
+    function isSystemDefaultCharset(charSet) {
+      if (charSet === null || charSet === undefined) return true;
+      const cs = String(charSet).trim().toLowerCase();
+      return cs === '' || cs === 'x-ansi' || cs === 'system';
+    }
+
+    function readMultiByteWithCodePage(ba, length, charSet) {
+      if (!isSystemDefaultCharset(charSet)) {
+        return ba.readMultiByte(length, charSet);
+      }
+      const n = Number(length) >>> 0;
+      if (n === 0) return '';
+      if (ba.bytesAvailable < n) {
+        return ba.readMultiByte(n, 'utf-8');
+      }
+      const raw = new Uint8Array(n);
+      let end = n;
+      for (let i = 0; i < n; i++) {
+        const b = ba.readUnsignedByte();
+        raw[i] = b;
+        if (b === 0 && end === n) end = i;
+      }
+      const slice = raw.subarray(0, end);
+      if (!systemUseCodePage) {
+        return new TextDecoder('utf-8', { fatal: false }).decode(slice);
+      }
+      let out = '';
+      for (let i = 0; i < slice.length; i++) {
+        const b = slice[i];
+        const cp = b >= 0x80 && b <= 0x9f ? CP1252_80_9F[b - 0x80] : b;
+        out += String.fromCharCode(cp);
+      }
+      return out;
+    }
+
+    function writeMultiByteWithCodePage(ba, value, charSet) {
+      if (!isSystemDefaultCharset(charSet)) {
+        ba.writeMultiByte(value, charSet);
+        return;
+      }
+      const str = String(value ?? '');
+      if (!systemUseCodePage) {
+        const utf8 = new TextEncoder().encode(str);
+        for (let i = 0; i < utf8.length; i++) ba.writeByte(utf8[i]);
+        return;
+      }
+      for (const ch of str) {
+        const cp = ch.codePointAt(0);
+        let b = 0x3f;
+        if (cp <= 0x7f || (cp >= 0xa0 && cp <= 0xff)) {
+          b = cp;
+        } else if (CP1252_ENCODE_MAP.has(cp)) {
+          b = CP1252_ENCODE_MAP.get(cp);
+        }
+        ba.writeByte(b);
+      }
     }
 
     let systemUseCodePage = false;
@@ -8155,7 +8267,6 @@
       '    },',
       '    terminate: function() { state = "terminated"; postOut({ type: "worker_self_terminated" }); return true; }',
       '  };',
-      '  var WorkerAPI = { current: currentWorker, isSupported: true };',
       '  root.onmessage = function(ev) {',
       '    var msg = ev && ev.data;',
       '    if (!msg || typeof msg !== "object") return;',
@@ -8166,14 +8277,6 @@
       '        sharedProps.set(entries[i][0], deserializeVal(entries[i][1]));',
       '      }',
       '      postOut({ type: "worker_ready", workerId: workerId });',
-      '      if (typeof msg.userScript === "string" && msg.userScript.trim()) {',
-      '        try {',
-      '          var fn = new Function("Worker", "self", msg.userScript);',
-      '          fn(WorkerAPI, root);',
-      '        } catch (err) {',
-      '          postOut({ type: "worker_error", message: String(err && err.message || err) });',
-      '        }',
-      '      }',
       '    } else if (msg.type === "main_set_shared") {',
       '      sharedProps.set(String(msg.key), deserializeVal(msg.value));',
       '    } else if (msg.type === "main_channel_send") {',
@@ -8311,42 +8414,6 @@
       return cloneWorkerSharedValue(val);
     }
 
-    function extractWorkerScriptFromSwfBytes(rawBytes) {
-      if (!rawBytes || rawBytes.byteLength === 0) return '';
-      try {
-        const text = new TextDecoder('utf-8', { fatal: false }).decode(rawBytes);
-        const trimmed = text.trim();
-        if (trimmed.startsWith('//NF_WORKER') || trimmed.startsWith('/*NF_WORKER*/')) {
-          return text;
-        }
-        if (trimmed.startsWith('{')) {
-          const parsed = JSON.parse(trimmed);
-          if (typeof parsed?.__nfWorkerScript === 'string') return parsed.__nfWorkerScript;
-          if (typeof parsed?.workerScript === 'string') return parsed.workerScript;
-        }
-      } catch (_) {}
-      // Scan binary SWF bytes for embedded NFWK [0x4e, 0x46, 0x57, 0x4b, lenBE(4), utf8...]
-      for (let i = 0; i + 8 <= rawBytes.byteLength; i++) {
-        if (
-          rawBytes[i] === 0x4e &&
-          rawBytes[i + 1] === 0x46 &&
-          rawBytes[i + 2] === 0x57 &&
-          rawBytes[i + 3] === 0x4b
-        ) {
-          const len =
-            ((rawBytes[i + 4] << 24) |
-              (rawBytes[i + 5] << 16) |
-              (rawBytes[i + 6] << 8) |
-              rawBytes[i + 7]) >>>
-            0;
-          if (len > 0 && i + 8 + len <= rawBytes.byteLength) {
-            return new TextDecoder('utf-8').decode(rawBytes.subarray(i + 8, i + 8 + len));
-          }
-        }
-      }
-      return '';
-    }
-
     class MessageChannel extends events.EventDispatcher {
       constructor(id, senderWorker, receiverWorker) {
         super();
@@ -8478,7 +8545,6 @@
           state: initialState,
           sharedProps: new Map(),
           rawSwfBytes,
-          userScript: rawSwfBytes ? extractWorkerScriptFromSwfBytes(rawSwfBytes) : '',
           nativeWorker: null,
           blobUrl: null,
           threadReady: false,
@@ -8640,7 +8706,6 @@
               type: 'init',
               workerId: rec.id,
               sharedProps: serializedProps,
-              userScript: rec.userScript || '',
             });
             return;
           } catch (_) {
@@ -8934,6 +8999,10 @@
       showRedrawRegions,
       Telemetry,
       invokeTelemetryCommand,
+      drainTelemetryMetrics() {
+        ensureActive();
+        return execKernel({ op: 'telemetry_op', action: 'drain_metrics' });
+      },
       // flash.sampler
       StackFrame,
       Sample,
