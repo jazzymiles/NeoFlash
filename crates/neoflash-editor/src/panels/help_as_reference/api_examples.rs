@@ -7,6 +7,10 @@ use neoflash_core::ScriptLanguage;
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
+/// Maximum character width for a single line containing inline `<code> // Output: <val>` so
+/// `// Output:` never wraps mid-comment inside the ~300pt detail column.
+const MAX_INLINE_OUTPUT_COLS: usize = 36;
+
 /// Synthesizes a realistic, multi-line ActionScript 2.0 or 3.0 example with `trace(...)` and
 /// `// Output: ...` for a single member (method, constructor, property, constant, event,
 /// global/package function, or language element).
@@ -23,41 +27,41 @@ pub(super) fn synthesize_as_member_example(
     let as3 = language == ScriptLanguage::ActionScript3;
     let canonical_key = canonical_owner_key(class_key, member);
 
-    if canonical_key == API_LANGUAGE_KEY || is_language_member_kind(&member.kind) {
-        return language_element_example(as3, member);
-    }
-
-    if pseudo
+    let raw = if canonical_key == API_LANGUAGE_KEY || is_language_member_kind(&member.kind) {
+        language_element_example(as3, member)
+    } else if pseudo
         || canonical_key == API_GLOBAL_KEY
         || canonical_key.is_empty()
         || canonical_key == "Top Level"
         || class_kind == "package"
     {
-        return global_or_package_example(as3, &canonical_key, member);
-    }
-
-    let short = if class_name.is_empty() {
-        script_api::short_name(&canonical_key)
+        global_or_package_example(as3, &canonical_key, member)
     } else {
-        class_name
+        let short = if class_name.is_empty() {
+            script_api::short_name(&canonical_key)
+        } else {
+            class_name
+        };
+
+        if let Some(curated) = curated_member_example(as3, &canonical_key, short, member) {
+            curated
+        } else {
+            let inferred_ctor = constructor_params
+                .map(str::to_owned)
+                .or_else(|| lookup_constructor_params(language, &canonical_key));
+
+            synthesize_domain_member_example(
+                as3,
+                &canonical_key,
+                short,
+                class_kind,
+                inferred_ctor.as_deref(),
+                member,
+            )
+        }
     };
 
-    if let Some(curated) = curated_member_example(as3, &canonical_key, short, member) {
-        return curated;
-    }
-
-    let inferred_ctor = constructor_params
-        .map(str::to_owned)
-        .or_else(|| lookup_constructor_params(language, &canonical_key));
-
-    synthesize_domain_member_example(
-        as3,
-        &canonical_key,
-        short,
-        class_kind,
-        inferred_ctor.as_deref(),
-        member,
-    )
+    wrap_narrow_output_comments(&raw)
 }
 
 /// Synthesizes a realistic, multi-line ActionScript 2.0 or 3.0 overview example with `trace(...)`
@@ -79,41 +83,135 @@ pub(super) fn synthesize_as_class_example(
         class_name
     };
 
-    if canonical_key == API_GLOBAL_KEY {
-        return if as3 {
+    let raw = if canonical_key == API_GLOBAL_KEY {
+        if as3 {
             "var parsed:int = parseInt(\"42px\", 10);\ntrace(parsed, isNaN(parsed)); // Output: 42 false"
                 .to_owned()
         } else {
             "var parsed:Number = parseInt(\"42px\", 10);\ntrace(parsed); // Output: 42".to_owned()
-        };
-    }
-    if canonical_key == API_LANGUAGE_KEY {
-        return if as3 {
+        }
+    } else if canonical_key == API_LANGUAGE_KEY {
+        if as3 {
             "var total:int = 0;\nfor (var i:int = 1; i <= 4; i++) {\n    total += i;\n}\ntrace(total); // Output: 10"
                 .to_owned()
         } else {
             "var total:Number = 0;\nfor (var i:Number = 1; i <= 4; i++) {\n    total += i;\n}\ntrace(total); // Output: 10"
                 .to_owned()
-        };
+        }
+    } else if let Some(curated) = curated_class_example(as3, &canonical_key, short) {
+        curated
+    } else {
+        let inferred_ctor = constructor_params
+            .map(str::to_owned)
+            .or_else(|| lookup_constructor_params(language, &canonical_key));
+
+        synthesize_domain_class_example(
+            language,
+            as3,
+            &canonical_key,
+            short,
+            package,
+            class_kind,
+            inferred_ctor.as_deref(),
+        )
+    };
+
+    wrap_narrow_output_comments(&raw)
+}
+
+/// Normalizes `// Output:` spacing and moves inline `// Output:` onto its own indented line right
+/// below `trace(...)` whenever the combined line exceeds `MAX_INLINE_OUTPUT_COLS` (36 columns).
+fn wrap_narrow_output_comments(raw: &str) -> String {
+    let mut out_lines = Vec::new();
+    for line in raw.lines() {
+        if let Some((before, after)) = line.split_once("// Output:") {
+            let indent: String = before.chars().take_while(|c| c.is_whitespace()).collect();
+            let code = before.trim_end();
+            let val = after.trim();
+            if code.is_empty() {
+                out_lines.push(format!("{indent}// Output: {val}"));
+            } else {
+                let single_spaced = format!("{code} // Output: {val}");
+                if single_spaced.chars().count() <= MAX_INLINE_OUTPUT_COLS {
+                    out_lines.push(single_spaced);
+                } else {
+                    out_lines.push(code.to_owned());
+                    out_lines.push(format!("{indent}// Output: {val}"));
+                }
+            }
+        } else {
+            out_lines.push(line.to_owned());
+        }
     }
+    out_lines.join("\n")
+}
 
-    if let Some(curated) = curated_class_example(as3, &canonical_key, short) {
-        return curated;
+/// Truncates scraped ActionScript 2.0 multi-overload parameter tails at the first unquoted
+/// top-level `)` or `;`, while preserving quoted strings such as `MMExecute`'s
+/// `"\"Flash JavaScript API command;\":String"`.
+#[allow(dead_code)]
+pub(super) fn sanitize_raw_params(raw: &str) -> &str {
+    let mut depth = 0_i32;
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for (idx, ch) in raw.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match (quote, ch) {
+            (Some(_), '\\') => escaped = true,
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(ch),
+            (None, '(' | '[' | '<' | '{') => depth += 1,
+            (None, ')' | ';') if depth <= 0 => return raw[..idx].trim(),
+            (None, ')' | ']' | '>' | '}') => depth -= 1,
+            _ => {}
+        }
     }
+    raw.trim()
+}
 
-    let inferred_ctor = constructor_params
-        .map(str::to_owned)
-        .or_else(|| lookup_constructor_params(language, &canonical_key));
+fn as_var_type_suffix(as3: bool, raw_ty: &str) -> String {
+    let trimmed = raw_ty.trim();
+    if as3 {
+        if trimmed.is_empty() || trimmed == "*" {
+            ":*".to_owned()
+        } else {
+            format!(":{trimmed}")
+        }
+    } else if matches!(
+        trimmed,
+        "Number"
+            | "String"
+            | "Boolean"
+            | "Array"
+            | "Object"
+            | "MovieClip"
+            | "TextField"
+            | "Button"
+            | "Sound"
+            | "XML"
+            | "XMLNode"
+            | "Date"
+            | "Color"
+            | "TextFormat"
+            | "Point"
+            | "Rectangle"
+            | "Matrix"
+            | "ColorTransform"
+            | "BitmapData"
+    ) {
+        format!(":{trimmed}")
+    } else {
+        ":Object".to_owned()
+    }
+}
 
-    synthesize_domain_class_example(
-        language,
-        as3,
-        &canonical_key,
-        short,
-        package,
-        class_kind,
-        inferred_ctor.as_deref(),
-    )
+fn should_import_owner(as3: bool, package: &str) -> bool {
+    (as3 && !package.is_empty() && package != "Top level")
+        || (!as3 && (package.starts_with("flash.") || package.starts_with("mx.")))
 }
 
 fn canonical_class_key_str(raw: &str) -> String {
@@ -404,8 +502,10 @@ fn language_element_example(as3: bool, member: &Member) -> String {
             .to_owned(),
         "delete" => "var bag:Object = {key: 1, map: 1};\ndelete bag.key;\ntrace(bag.key === undefined); // Output: true"
             .to_owned(),
-        "void" => "var cleared:* = void(0);\ntrace(cleared === undefined); // Output: true"
-            .to_owned(),
+        "void" => {
+            let any_ty = as_var_type_suffix(as3, "*");
+            format!("var cleared{any_ty} = void(0);\ntrace(cleared === undefined); // Output: true")
+        }
         "if" => format!(
             "var score{int_ty} = 120;\nif (score >= 100) {{\n    trace(\"Bonus!\"); // Output: Bonus!\n}}"
         ),
@@ -451,7 +551,10 @@ fn language_element_example(as3: bool, member: &Member) -> String {
                 "function doubleVal(n{int_ty}){ret_ty} {{\n    return n * 2;\n}}\ntrace(doubleVal(21)); // Output: 42"
             )
         }
-        "function" => "function greet(name:String):String {\n    return \"Hi, \" + name;\n}\ntrace(greet(\"Player 1\")); // Output: Hi, Player 1".to_owned(),
+        "function" => {
+            "function greet(name:String):String {\n    return \"Hi, \" + name;\n}\ntrace(greet(\"Player 1\")); // Output: Hi, Player 1"
+                .to_owned()
+        }
         "var" => format!("var lives{int_ty} = 3;\nlives += 1;\ntrace(lives); // Output: 4"),
         "const" => "const MAX_LIVES:int = 5;\ntrace(MAX_LIVES); // Output: 5".to_owned(),
         "set variable" => {
@@ -533,10 +636,10 @@ fn global_or_package_example(as3: bool, class_key: &str, member: &Member) -> Str
                 .to_owned()
         }
         (_, "isNaN") => {
-            "trace(isNaN(NaN)); // Output: true\ntrace(isNaN(42));  // Output: false".to_owned()
+            "trace(isNaN(NaN)); // Output: true\ntrace(isNaN(42)); // Output: false".to_owned()
         }
         (_, "isFinite") => {
-            "trace(isFinite(250));      // Output: true\ntrace(isFinite(Infinity)); // Output: false"
+            "trace(isFinite(250)); // Output: true\ntrace(isFinite(Infinity)); // Output: false"
                 .to_owned()
         }
         (_, "escape") => {
@@ -562,7 +665,7 @@ fn global_or_package_example(as3: bool, class_key: &str, member: &Member) -> Str
                 .to_owned()
         }
         (true, "isXMLName") => {
-            "trace(isXMLName(\"spriteNode\")); // Output: true\ntrace(isXMLName(\"123bad\"));     // Output: false"
+            "trace(isXMLName(\"spriteNode\")); // Output: true\ntrace(isXMLName(\"123bad\")); // Output: false"
                 .to_owned()
         }
         (_, "int") => "var whole:Number = int(7.9);\ntrace(whole); // Output: 7".to_owned(),
@@ -608,7 +711,8 @@ fn global_or_package_example(as3: bool, class_key: &str, member: &Member) -> Str
         }
         (_, "NaN") => "var missing:Number = NaN;\ntrace(isNaN(missing)); // Output: true".to_owned(),
         (_, "undefined") => {
-            "var unset:* = undefined;\ntrace(unset === undefined); // Output: true".to_owned()
+            let any_ty = as_var_type_suffix(as3, "*");
+            format!("var unset{any_ty} = undefined;\ntrace(unset === undefined); // Output: true")
         }
         (_, "null") => "var empty:Object = null;\ntrace(empty === null); // Output: true".to_owned(),
         (_, "true") => "var flag:Boolean = true;\ntrace(flag); // Output: true".to_owned(),
@@ -706,6 +810,17 @@ fn global_or_package_example(as3: bool, class_key: &str, member: &Member) -> Str
             "var puck:MovieClip = this.createEmptyMovieClip(\"puck_mc\", 1);\nstartDrag(puck, false, 0, 0, 300, 200);\nstopDrag();\ntrace(puck._name); // Output: puck_mc"
                 .to_owned()
         }
+        (false, "MMExecute") => {
+            "var res:String = MMExecute(\"fl.trace('ready');\");\ntrace(res !== null); // Output: true"
+                .to_owned()
+        }
+        (false, "ifFrameLoaded") => {
+            "ifFrameLoaded (1) {\n    trace(\"Frame 1 ready\"); // Output: Frame 1 ready\n}"
+                .to_owned()
+        }
+        (false, "tellTarget") => {
+            "tellTarget (\"/\") {\n    trace(this._currentframe); // Output: 1\n}".to_owned()
+        }
         (false, "on") => {
             "// Attached to a Button or MovieClip instance on Stage:\n// on (release) { trace(\"Clicked!\"); }\nvar buttonReady:Boolean = true;\ntrace(buttonReady); // Output: true"
                 .to_owned()
@@ -793,7 +908,7 @@ fn global_or_package_example(as3: bool, class_key: &str, member: &Member) -> Str
             if as3 && class_key.contains('.') {
                 imports.insert(format!("import {class_key}.{name};"));
             }
-            let args = build_call_args(as3, member.params.as_deref(), &mut imports);
+            let args = build_call_args(as3, "", member.params.as_deref(), &mut imports);
             let mut header = String::new();
             for imp in &imports {
                 let _ = writeln!(header, "{imp}");
@@ -801,6 +916,7 @@ fn global_or_package_example(as3: bool, class_key: &str, member: &Member) -> Str
             if !header.is_empty() {
                 header.push('\n');
             }
+            let ty_suffix = as_var_type_suffix(as3, &member.ty);
             if member.params.is_some() {
                 if member.ty.is_empty() || member.ty.eq_ignore_ascii_case("void") {
                     format!(
@@ -808,10 +924,12 @@ fn global_or_package_example(as3: bool, class_key: &str, member: &Member) -> Str
                     )
                 } else {
                     let out = sample_output_for_type(&member.ty);
-                    format!("{header}var result:* = {name}({args});\ntrace(result); // Output: {out}")
+                    format!(
+                        "{header}var result{ty_suffix} = {name}({args});\ntrace(result); // Output: {out}"
+                    )
                 }
             } else {
-                format!("{header}var val:* = {name};\ntrace(val !== null); // Output: true")
+                format!("{header}var val{ty_suffix} = {name};\ntrace(val !== null); // Output: true")
             }
         }
     }
@@ -832,8 +950,8 @@ fn curated_member_example(
     if owner_key == "Array" {
         return Some(match mname {
             "Array" => "var items:Array = new Array(\"alpha\", \"beta\", \"gamma\");\ntrace(items.length, items[1]); // Output: 3 beta".to_owned(),
-            "lastIndexOf" => "var items:Array = [\"a\", \"b\", \"c\", \"b\", \"d\"];\ntrace(items.lastIndexOf(\"b\"));    // Output: 3\ntrace(items.lastIndexOf(\"b\", 2)); // Output: 1\ntrace(items.lastIndexOf(\"z\"));    // Output: -1".to_owned(),
-            "indexOf" => "var items:Array = [\"a\", \"b\", \"c\", \"b\"];\ntrace(items.indexOf(\"b\"));    // Output: 1\ntrace(items.indexOf(\"b\", 2)); // Output: 3\ntrace(items.indexOf(\"z\"));    // Output: -1".to_owned(),
+            "lastIndexOf" => "var items:Array = [\"a\", \"b\", \"c\", \"b\", \"d\"];\ntrace(items.lastIndexOf(\"b\")); // Output: 3\ntrace(items.lastIndexOf(\"b\", 2)); // Output: 1\ntrace(items.lastIndexOf(\"z\")); // Output: -1".to_owned(),
+            "indexOf" => "var items:Array = [\"a\", \"b\", \"c\", \"b\"];\ntrace(items.indexOf(\"b\")); // Output: 1\ntrace(items.indexOf(\"b\", 2)); // Output: 3\ntrace(items.indexOf(\"z\")); // Output: -1".to_owned(),
             "push" => "var stack:Array = [\"coin\"];\nvar newLen:Number = stack.push(\"gem\", \"key\");\ntrace(newLen, stack[2]); // Output: 3 key".to_owned(),
             "pop" => "var stack:Array = [10, 20, 30];\nvar top:Number = stack.pop();\ntrace(top, stack.length); // Output: 30 2".to_owned(),
             "shift" => "var queue:Array = [\"first\", \"second\", \"third\"];\nvar next:String = queue.shift();\ntrace(next, queue.length); // Output: first 2".to_owned(),
@@ -867,8 +985,8 @@ fn curated_member_example(
     if owner_key == "Vector" {
         return Some(match mname {
             "Vector" => "var scores:Vector.<int> = Vector.<int>([100, 250, 400]);\ntrace(scores.length, scores[1]); // Output: 3 250".to_owned(),
-            "lastIndexOf" => "var scores:Vector.<int> = Vector.<int>([10, 20, 30, 20, 40]);\ntrace(scores.lastIndexOf(20));    // Output: 3\ntrace(scores.lastIndexOf(20, 2)); // Output: 1\ntrace(scores.lastIndexOf(99));    // Output: -1".to_owned(),
-            "indexOf" => "var scores:Vector.<int> = Vector.<int>([10, 20, 30, 20]);\ntrace(scores.indexOf(20));    // Output: 1\ntrace(scores.indexOf(20, 2)); // Output: 3\ntrace(scores.indexOf(99));    // Output: -1".to_owned(),
+            "lastIndexOf" => "var scores:Vector.<int> = Vector.<int>([10, 20, 30, 20, 40]);\ntrace(scores.lastIndexOf(20)); // Output: 3\ntrace(scores.lastIndexOf(20, 2)); // Output: 1\ntrace(scores.lastIndexOf(99)); // Output: -1".to_owned(),
+            "indexOf" => "var scores:Vector.<int> = Vector.<int>([10, 20, 30, 20]);\ntrace(scores.indexOf(20)); // Output: 1\ntrace(scores.indexOf(20, 2)); // Output: 3\ntrace(scores.indexOf(99)); // Output: -1".to_owned(),
             "push" => "var vec:Vector.<String> = new Vector.<String>();\nvar count:uint = vec.push(\"hero\", \"boss\");\ntrace(count, vec[1]); // Output: 2 boss".to_owned(),
             "pop" => "var vec:Vector.<int> = Vector.<int>([5, 10, 15]);\nvar last:int = vec.pop();\ntrace(last, vec.length); // Output: 15 2".to_owned(),
             "shift" => "var vec:Vector.<int> = Vector.<int>([7, 8, 9]);\nvar head:int = vec.shift();\ntrace(head, vec.length); // Output: 7 2".to_owned(),
@@ -899,12 +1017,12 @@ fn curated_member_example(
             "String" => "var text:String = new String(\"NeoFlash\");\ntrace(text.length, text); // Output: 8 NeoFlash".to_owned(),
             "lastIndexOf" => {
                 if as3 {
-                    "var path:String = \"assets/sprites/hero.png\";\ntrace(path.lastIndexOf(\"/\"));     // Output: 14\ntrace(path.lastIndexOf(\"/\", 10)); // Output: 6\ntrace(path.lastIndexOf(\".swf\"));  // Output: -1".to_owned()
+                    "var path:String = \"assets/sprites/hero.png\";\ntrace(path.lastIndexOf(\"/\")); // Output: 14\ntrace(path.lastIndexOf(\"/\", 10)); // Output: 6\ntrace(path.lastIndexOf(\".swf\")); // Output: -1".to_owned()
                 } else {
-                    "var path:String = \"assets/sprites/hero.png\";\ntrace(path.lastIndexOf(\"/\"));    // Output: 14\ntrace(path.lastIndexOf(\".swf\")); // Output: -1".to_owned()
+                    "var path:String = \"assets/sprites/hero.png\";\ntrace(path.lastIndexOf(\"/\")); // Output: 14\ntrace(path.lastIndexOf(\".swf\")); // Output: -1".to_owned()
                 }
             }
-            "indexOf" => "var path:String = \"assets/sprites/hero.png\";\ntrace(path.indexOf(\"/\"));    // Output: 6\ntrace(path.indexOf(\"/\", 7)); // Output: 14\ntrace(path.indexOf(\".mp3\")); // Output: -1".to_owned(),
+            "indexOf" => "var path:String = \"assets/sprites/hero.png\";\ntrace(path.indexOf(\"/\")); // Output: 6\ntrace(path.indexOf(\"/\", 7)); // Output: 14\ntrace(path.indexOf(\".mp3\")); // Output: -1".to_owned(),
             "charAt" => "var word:String = \"Flash\";\ntrace(word.charAt(0), word.charAt(4)); // Output: F h".to_owned(),
             "charCodeAt" => "var word:String = \"ABC\";\ntrace(word.charCodeAt(0), word.charCodeAt(2)); // Output: 65 67".to_owned(),
             "fromCharCode" => "var text:String = String.fromCharCode(78, 70, 50);\ntrace(text); // Output: NF2".to_owned(),
@@ -928,15 +1046,15 @@ fn curated_member_example(
     // 4. Math (all 26 methods & constants in AS2 & AS3)
     if owner_key == "Math" {
         return Some(match mname {
-            "abs" => "trace(Math.abs(-42)); // Output: 42\ntrace(Math.abs(15));  // Output: 15".to_owned(),
+            "abs" => "trace(Math.abs(-42)); // Output: 42\ntrace(Math.abs(15)); // Output: 15".to_owned(),
             "acos" => "var rad:Number = Math.acos(1);\ntrace(rad); // Output: 0".to_owned(),
             "asin" => "var rad:Number = Math.asin(0);\ntrace(rad); // Output: 0".to_owned(),
             "atan" => "var rad:Number = Math.atan(0);\ntrace(rad); // Output: 0".to_owned(),
             "atan2" => "var deg:Number = Math.round(Math.atan2(1, 1) * 180 / Math.PI);\ntrace(deg); // Output: 45".to_owned(),
-            "ceil" => "trace(Math.ceil(4.1));  // Output: 5\ntrace(Math.ceil(-4.1)); // Output: -4".to_owned(),
+            "ceil" => "trace(Math.ceil(4.1)); // Output: 5\ntrace(Math.ceil(-4.1)); // Output: -4".to_owned(),
             "cos" => "var x:Number = Math.cos(0);\ntrace(x); // Output: 1".to_owned(),
             "exp" => "var e0:Number = Math.exp(0);\ntrace(e0); // Output: 1".to_owned(),
-            "floor" => "trace(Math.floor(4.9));  // Output: 4\ntrace(Math.floor(-4.1)); // Output: -5".to_owned(),
+            "floor" => "trace(Math.floor(4.9)); // Output: 4\ntrace(Math.floor(-4.1)); // Output: -5".to_owned(),
             "log" => "var ln1:Number = Math.log(1);\ntrace(ln1); // Output: 0".to_owned(),
             "max" => "var highest:Number = Math.max(12, 48);\ntrace(highest); // Output: 48".to_owned(),
             "min" => "var lowest:Number = Math.min(12, 48);\ntrace(lowest); // Output: 12".to_owned(),
@@ -1031,7 +1149,7 @@ fn curated_member_example(
         "Object" => {
             return Some(match mname {
                 "Object" => "var item:Object = new Object();\nitem.id = \"gem\";\ntrace(item.id); // Output: gem".to_owned(),
-                "hasOwnProperty" => "var bag:Object = {potion: 3};\ntrace(bag.hasOwnProperty(\"potion\")); // Output: true\ntrace(bag.hasOwnProperty(\"key\"));    // Output: false".to_owned(),
+                "hasOwnProperty" => "var bag:Object = {potion: 3};\ntrace(bag.hasOwnProperty(\"potion\")); // Output: true\ntrace(bag.hasOwnProperty(\"key\")); // Output: false".to_owned(),
                 "propertyIsEnumerable" | "isPropertyEnumerable" => format!("var bag:Object = {{coins: 50}};\ntrace(bag.{mname}(\"coins\")); // Output: true"),
                 "setPropertyIsEnumerable" => "var bag:Object = {secret: 1, visible: 2};\nbag.setPropertyIsEnumerable(\"secret\", false);\ntrace(bag.propertyIsEnumerable(\"secret\")); // Output: false".to_owned(),
                 "isPrototypeOf" => "var arr:Array = [1, 2];\ntrace(Object.prototype.isPrototypeOf(arr)); // Output: true".to_owned(),
@@ -1084,7 +1202,7 @@ fn curated_member_example(
         "RegExp" => {
             return Some(match mname {
                 "RegExp" => "var re:RegExp = new RegExp(\"hero_[0-9]+\", \"i\");\ntrace(re.test(\"HERO_07\")); // Output: true".to_owned(),
-                "test" => "var hexCode:RegExp = /^0x[0-9a-f]+$/i;\ntrace(hexCode.test(\"0xFF00\")); // Output: true\ntrace(hexCode.test(\"xyz\"));    // Output: false".to_owned(),
+                "test" => "var hexCode:RegExp = /^0x[0-9a-f]+$/i;\ntrace(hexCode.test(\"0xFF00\")); // Output: true\ntrace(hexCode.test(\"xyz\")); // Output: false".to_owned(),
                 "exec" => "var re:RegExp = /wave_([0-9]+)/;\nvar match:Object = re.exec(\"start wave_12 now\");\ntrace(match[0], match[1]); // Output: wave_12 12".to_owned(),
                 "source" => "var re:RegExp = /[a-z]+/gi;\ntrace(re.source); // Output: [a-z]+".to_owned(),
                 "global" => "var re:RegExp = /coin/g;\ntrace(re.global); // Output: true".to_owned(),
@@ -1223,7 +1341,7 @@ fn curated_member_example(
             "bytesAvailable" => format!("{hdr}\nbytes.writeInt(10);\nbytes.writeInt(20);\nbytes.position = 4;\ntrace({rd}.bytesAvailable); // Output: 4"),
             "endian" => format!("import flash.utils.Endian;\n{hdr}\n{wr}.endian = Endian.LITTLE_ENDIAN;\nbytes.writeShort(0x0102);\nbytes.position = 0;\ntrace({rd}.endian, bytes.readUnsignedByte()); // Output: littleEndian 2"),
             "objectEncoding" => format!("{hdr}\ntrace({wr}.objectEncoding); // Output: 3"),
-            "defaultObjectEncoding" => "import flash.utils.ByteArray;\n\ntrace(ByteArray.defaultObjectEncoding); // Output: 3".to_owned(),
+            "defaultObjectEncoding" => "import flash.utils.ByteArray;\n\nvar enc:uint = ByteArray.defaultObjectEncoding;\ntrace(enc); // Output: 3".to_owned(),
             "shareable" => "import flash.utils.ByteArray;\n\nvar bytes:ByteArray = new ByteArray();\ntrace(bytes.shareable); // Output: false".to_owned(),
             "toString" => "import flash.utils.ByteArray;\n\nvar bytes:ByteArray = new ByteArray();\nbytes.writeUTFBytes(\"Hello\");\ntrace(bytes.toString()); // Output: Hello".to_owned(),
             "toJSON" => "import flash.utils.ByteArray;\n\nvar bytes:ByteArray = new ByteArray();\ntrace(bytes.toJSON(\"buf\")); // Output: ByteArray".to_owned(),
@@ -1233,7 +1351,7 @@ fn curated_member_example(
         });
     }
 
-    // 7. Point, Rectangle, Matrix, Vector3D, Matrix3D, ColorTransform, PerspectiveProjection, Color
+    // 7. Point, Rectangle, Matrix, Vector3D, ColorTransform, Color
     match owner_key {
         "flash.geom.Point" => {
             return Some(match mname {
@@ -1261,14 +1379,14 @@ fn curated_member_example(
                 "intersects" => "import flash.geom.Rectangle;\n\nvar a:Rectangle = new Rectangle(0, 0, 50, 50);\nvar b:Rectangle = new Rectangle(25, 25, 50, 50);\ntrace(a.intersects(b)); // Output: true".to_owned(),
                 "intersection" => "import flash.geom.Rectangle;\n\nvar a:Rectangle = new Rectangle(0, 0, 50, 50);\nvar b:Rectangle = new Rectangle(20, 10, 50, 50);\nvar overlap:Rectangle = a.intersection(b);\ntrace(overlap.x, overlap.y, overlap.width, overlap.height); // Output: 20 10 30 40".to_owned(),
                 "union" => "import flash.geom.Rectangle;\n\nvar a:Rectangle = new Rectangle(0, 0, 20, 20);\nvar b:Rectangle = new Rectangle(20, 20, 30, 40);\nvar bounds:Rectangle = a.union(b);\ntrace(bounds.width, bounds.height); // Output: 50 60".to_owned(),
-                "contains" => "import flash.geom.Rectangle;\n\nvar box:Rectangle = new Rectangle(10, 10, 100, 80);\ntrace(box.contains(50, 40)); // Output: true\ntrace(box.contains(5, 5));   // Output: false".to_owned(),
+                "contains" => "import flash.geom.Rectangle;\n\nvar box:Rectangle = new Rectangle(10, 10, 100, 80);\ntrace(box.contains(50, 40)); // Output: true\ntrace(box.contains(5, 5)); // Output: false".to_owned(),
                 "containsPoint" => "import flash.geom.Point;\nimport flash.geom.Rectangle;\n\nvar box:Rectangle = new Rectangle(0, 0, 64, 64);\ntrace(box.containsPoint(new Point(32, 32))); // Output: true".to_owned(),
                 "containsRect" | "containsRectangle" => format!("import flash.geom.Rectangle;\n\nvar outer:Rectangle = new Rectangle(0, 0, 100, 100);\nvar inner:Rectangle = new Rectangle(10, 10, 40, 40);\ntrace(outer.{mname}(inner)); // Output: true"),
                 "inflate" => "import flash.geom.Rectangle;\n\nvar box:Rectangle = new Rectangle(10, 10, 20, 20);\nbox.inflate(5, 5);\ntrace(box.x, box.width); // Output: 5 30".to_owned(),
                 "inflatePoint" => "import flash.geom.Point;\nimport flash.geom.Rectangle;\n\nvar box:Rectangle = new Rectangle(10, 10, 20, 20);\nbox.inflatePoint(new Point(4, 6));\ntrace(box.width, box.height); // Output: 28 32".to_owned(),
                 "offset" => "import flash.geom.Rectangle;\n\nvar box:Rectangle = new Rectangle(10, 20, 50, 30);\nbox.offset(15, -5);\ntrace(box.x, box.y); // Output: 25 15".to_owned(),
                 "offsetPoint" => "import flash.geom.Point;\nimport flash.geom.Rectangle;\n\nvar box:Rectangle = new Rectangle(10, 20, 50, 30);\nbox.offsetPoint(new Point(5, 10));\ntrace(box.x, box.y); // Output: 15 30".to_owned(),
-                "isEmpty" => "import flash.geom.Rectangle;\n\ntrace(new Rectangle(0, 0, 0, 10).isEmpty());  // Output: true\ntrace(new Rectangle(0, 0, 20, 10).isEmpty()); // Output: false".to_owned(),
+                "isEmpty" => "import flash.geom.Rectangle;\n\ntrace(new Rectangle(0, 0, 0, 10).isEmpty()); // Output: true\ntrace(new Rectangle(0, 0, 20, 10).isEmpty()); // Output: false".to_owned(),
                 "setEmpty" => "import flash.geom.Rectangle;\n\nvar box:Rectangle = new Rectangle(5, 5, 40, 40);\nbox.setEmpty();\ntrace(box.isEmpty()); // Output: true".to_owned(),
                 "equals" => "import flash.geom.Rectangle;\n\nvar eq:Boolean = new Rectangle(0, 0, 32, 32).equals(new Rectangle(0, 0, 32, 32));\ntrace(eq); // Output: true".to_owned(),
                 "clone" => "import flash.geom.Rectangle;\n\nvar copy:Rectangle = new Rectangle(4, 8, 60, 40).clone();\ntrace(copy.width, copy.height); // Output: 60 40".to_owned(),
@@ -1338,17 +1456,17 @@ fn curated_member_example(
                 "scaleBy" => "import flash.geom.Vector3D;\n\nvar v:Vector3D = new Vector3D(2, -3, 4);\nv.scaleBy(3);\ntrace(v.x, v.y, v.z); // Output: 6 -9 12".to_owned(),
                 "negate" => "import flash.geom.Vector3D;\n\nvar v:Vector3D = new Vector3D(5, -2, 0);\nv.negate();\ntrace(v.x, v.y); // Output: -5 2".to_owned(),
                 "normalize" => "import flash.geom.Vector3D;\n\nvar v:Vector3D = new Vector3D(0, 3, 4);\nvar len:Number = v.normalize();\ntrace(len, v.y, v.z); // Output: 5 0.6 0.8".to_owned(),
-                "length" => "import flash.geom.Vector3D;\n\ntrace(new Vector3D(0, 6, 8).length); // Output: 10".to_owned(),
-                "lengthSquared" => "import flash.geom.Vector3D;\n\ntrace(new Vector3D(2, 3, 6).lengthSquared); // Output: 49".to_owned(),
-                "X_AXIS" => "import flash.geom.Vector3D;\n\ntrace(Vector3D.X_AXIS.x, Vector3D.X_AXIS.y, Vector3D.X_AXIS.z); // Output: 1 0 0".to_owned(),
-                "Y_AXIS" => "import flash.geom.Vector3D;\n\ntrace(Vector3D.Y_AXIS.x, Vector3D.Y_AXIS.y, Vector3D.Y_AXIS.z); // Output: 0 1 0".to_owned(),
-                "Z_AXIS" => "import flash.geom.Vector3D;\n\ntrace(Vector3D.Z_AXIS.x, Vector3D.Z_AXIS.y, Vector3D.Z_AXIS.z); // Output: 0 0 1".to_owned(),
+                "length" => "import flash.geom.Vector3D;\n\nvar v:Vector3D = new Vector3D(0, 6, 8);\ntrace(v.length); // Output: 10".to_owned(),
+                "lengthSquared" => "import flash.geom.Vector3D;\n\nvar v:Vector3D = new Vector3D(2, 3, 6);\ntrace(v.lengthSquared); // Output: 49".to_owned(),
+                "X_AXIS" => "import flash.geom.Vector3D;\n\nvar axis:Vector3D = Vector3D.X_AXIS;\ntrace(axis.x, axis.y, axis.z); // Output: 1 0 0".to_owned(),
+                "Y_AXIS" => "import flash.geom.Vector3D;\n\nvar axis:Vector3D = Vector3D.Y_AXIS;\ntrace(axis.x, axis.y, axis.z); // Output: 0 1 0".to_owned(),
+                "Z_AXIS" => "import flash.geom.Vector3D;\n\nvar axis:Vector3D = Vector3D.Z_AXIS;\ntrace(axis.x, axis.y, axis.z); // Output: 0 0 1".to_owned(),
                 _ => return None,
             });
         }
         "flash.geom.ColorTransform" => {
             return Some(match mname {
-                "ColorTransform" => "import flash.geom.ColorTransform;\n\nvar ct:ColorTransform = new ColorTransform(0.5, 1.0, 1.0, 0.8, 32, 0, 0, 0);\ntrace(ct.redMultiplier, ct.redOffset); // Output: 0.5 32".to_owned(),
+                "ColorTransform" => "import flash.geom.ColorTransform;\n\nvar ct:ColorTransform = new ColorTransform(0.5, 1, 1, 0.8, 32, 0, 0, 0);\ntrace(ct.redMultiplier, ct.redOffset); // Output: 0.5 32".to_owned(),
                 "color" | "rgb" => format!("import flash.geom.ColorTransform;\n\nvar ct:ColorTransform = new ColorTransform();\nct.{mname} = 0x3C6BF0;\ntrace(ct.redOffset, ct.greenOffset, ct.blueOffset); // Output: 60 107 240"),
                 "concat" => "import flash.geom.ColorTransform;\n\nvar a:ColorTransform = new ColorTransform(0.5, 1, 1, 1);\na.concat(new ColorTransform(0.5, 1, 1, 1));\ntrace(a.redMultiplier); // Output: 0.25".to_owned(),
                 _ => return None,
@@ -1412,70 +1530,25 @@ fn curated_member_example(
             }
             "createElement" => {
                 return Some(format!(
-                    "{imp}\nvar el = doc.createElement(\"badge\");\ntrace(el.nodeName); // Output: badge"
+                    "{imp}\nvar el:XMLNode = doc.createElement(\"badge\");\ntrace(el.nodeName); // Output: badge"
                 ));
             }
             "createTextNode" => {
                 return Some(format!(
-                    "{imp}\nvar txt = doc.createTextNode(\"Score 100\");\ntrace(txt.nodeValue); // Output: Score 100"
+                    "{imp}\nvar txt:XMLNode = doc.createTextNode(\"Score 100\");\ntrace(txt.nodeValue); // Output: Score 100"
                 ));
             }
             _ => {}
         }
     }
 
-    // 9. Core MovieClip, Sprite, DisplayObjectContainer, Graphics, BitmapData, TextField, Filters
-    match (as3, class_name, mname) {
-        (true, "MovieClip", "gotoAndPlay" | "gotoAndStop") => {
-            return Some(format!(
-                "import flash.display.MovieClip;\n\nvar clip:MovieClip = new MovieClip();\nclip.{mname}(1);\ntrace(clip.currentFrame); // Output: 1"
-            ));
-        }
-        (true, "MovieClip", "currentFrame" | "totalFrames" | "framesLoaded") => {
-            return Some(format!(
-                "import flash.display.MovieClip;\n\nvar clip:MovieClip = new MovieClip();\ntrace(clip.{mname}); // Output: 1"
-            ));
-        }
-        (false, "MovieClip", "createEmptyMovieClip") => {
-            return Some(
-                "var card:MovieClip = this.createEmptyMovieClip(\"card_mc\", this.getNextHighestDepth());\ncard._x = 48;\ntrace(card._name, card._x); // Output: card_mc 48".to_owned(),
-            );
-        }
-        (false, "MovieClip", "getNextHighestDepth") => {
-            return Some(
-                "var nextDepth:Number = this.getNextHighestDepth();\ntrace(nextDepth >= 0); // Output: true".to_owned(),
-            );
-        }
-        (true, "DisplayObjectContainer" | "Sprite" | "MovieClip", "addChild") => {
-            return Some(
-                "import flash.display.Shape;\nimport flash.display.Sprite;\n\nvar container:Sprite = new Sprite();\nvar dot:Shape = new Shape();\ncontainer.addChild(dot);\ntrace(container.numChildren); // Output: 1".to_owned(),
-            );
-        }
-        (true, "DisplayObjectContainer" | "Sprite" | "MovieClip", "removeChild") => {
-            return Some(
-                "import flash.display.Shape;\nimport flash.display.Sprite;\n\nvar container:Sprite = new Sprite();\nvar dot:Shape = new Shape();\ncontainer.addChild(dot);\ncontainer.removeChild(dot);\ntrace(container.numChildren); // Output: 0".to_owned(),
-            );
-        }
-        (true, "Graphics", "beginFill" | "drawRect" | "drawCircle" | "endFill") => {
-            return Some(
-                "import flash.display.Sprite;\n\nvar badge:Sprite = new Sprite();\nbadge.graphics.beginFill(0x3C6BF0, 1.0);\nbadge.graphics.drawRect(0, 0, 80, 40);\nbadge.graphics.endFill();\ntrace(badge.width, badge.height); // Output: 80 40".to_owned(),
-            );
-        }
-        (_, "BitmapData", "getPixel" | "setPixel") => {
-            return Some(
-                "import flash.display.BitmapData;\n\nvar bmp:BitmapData = new BitmapData(16, 16, false, 0x000000);\nbmp.setPixel(4, 4, 0x3C6BF0);\ntrace(bmp.getPixel(4, 4).toString(16)); // Output: 3c6bf0".to_owned(),
-            );
-        }
-        (true, "TextField", "appendText") => {
-            return Some(
-                "import flash.text.TextField;\n\nvar tf:TextField = new TextField();\ntf.text = \"Score: \";\ntf.appendText(\"250\");\ntrace(tf.text); // Output: Score: 250".to_owned(),
-            );
-        }
-        _ => {}
+    // 9. Core Timer, Event, MouseEvent, BitmapData, Sound, TextField, MovieClip, Sprite, DisplayObject, Graphics
+    if let Some(core_ex) = curated_display_event_media_member(as3, class_name, member) {
+        return Some(core_ex);
     }
 
-    // 10. Constants with known values across ANY class
-    if mkind == "constant" {
+    // 10. Static Constants (leaving non-static instance `const` properties to Layer 4!)
+    if mkind == "constant" && (member.is_static || owner_key == "mx.video.FLVPlayback") {
         return Some(synthesize_constant_example(
             as3, owner_key, class_name, member,
         ));
@@ -1484,14 +1557,227 @@ fn curated_member_example(
     None
 }
 
+fn curated_display_event_media_member(
+    as3: bool,
+    class_name: &str,
+    member: &Member,
+) -> Option<String> {
+    let mname = member.name.as_str();
+    match (as3, class_name, mname) {
+        // Timer
+        (true, "Timer", "Timer") => Some(
+            "import flash.utils.Timer;\n\nvar timer:Timer = new Timer(250, 4);\ntrace(timer.delay, timer.repeatCount); // Output: 250 4".to_owned(),
+        ),
+        (true, "Timer", "running") => Some(
+            "import flash.utils.Timer;\n\nvar timer:Timer = new Timer(250, 4);\ntrace(timer.running); // Output: false".to_owned(),
+        ),
+        (true, "Timer", "currentCount") => Some(
+            "import flash.utils.Timer;\n\nvar timer:Timer = new Timer(250, 4);\ntrace(timer.currentCount); // Output: 0".to_owned(),
+        ),
+        (true, "Timer", "delay") => Some(
+            "import flash.utils.Timer;\n\nvar timer:Timer = new Timer(250, 4);\ntimer.delay = 500;\ntrace(timer.delay); // Output: 500".to_owned(),
+        ),
+        (true, "Timer", "repeatCount") => Some(
+            "import flash.utils.Timer;\n\nvar timer:Timer = new Timer(250, 4);\ntrace(timer.repeatCount); // Output: 4".to_owned(),
+        ),
+        (true, "Timer", "start" | "stop" | "reset") => Some(
+            "import flash.utils.Timer;\n\nvar timer:Timer = new Timer(250, 4);\ntimer.start();\ntimer.reset();\ntrace(timer.running, timer.currentCount); // Output: false 0".to_owned(),
+        ),
+
+        // Event & MouseEvent & KeyboardEvent
+        (true, "Event", "Event") => Some(
+            "import flash.events.Event;\n\nvar ev:Event = new Event(Event.COMPLETE, true, false);\ntrace(ev.type, ev.bubbles, ev.cancelable); // Output: complete true false".to_owned(),
+        ),
+        (true, "Event", "type") => Some(
+            "import flash.events.Event;\n\nvar ev:Event = new Event(Event.COMPLETE);\ntrace(ev.type); // Output: complete".to_owned(),
+        ),
+        (true, "Event", "bubbles" | "cancelable" | "isDefaultPrevented") => Some(format!(
+            "import flash.events.Event;\n\nvar ev:Event = new Event(Event.COMPLETE);\ntrace(ev.{mname}); // Output: false"
+        )),
+        (true, "Event", "preventDefault") => Some(
+            "import flash.events.Event;\n\nvar ev:Event = new Event(Event.CHANGE, false, true);\nev.preventDefault();\ntrace(ev.isDefaultPrevented()); // Output: true".to_owned(),
+        ),
+        (true, "Event", "eventPhase") => Some(
+            "import flash.events.Event;\n\nvar ev:Event = new Event(Event.COMPLETE);\ntrace(ev.eventPhase); // Output: 2".to_owned(),
+        ),
+        (true, "Event", "target" | "currentTarget") => Some(format!(
+            "import flash.events.Event;\n\nvar ev:Event = new Event(Event.COMPLETE);\ntrace(ev.{mname}); // Output: null"
+        )),
+        (true, "Event", "clone") => Some(
+            "import flash.events.Event;\n\nvar copy:Event = new Event(Event.INIT).clone();\ntrace(copy.type); // Output: init".to_owned(),
+        ),
+        (true, "MouseEvent", "MouseEvent") => Some(
+            "import flash.events.MouseEvent;\n\nvar ev:MouseEvent = new MouseEvent(MouseEvent.CLICK, true, false, 32, 48);\ntrace(ev.type, ev.localX, ev.localY); // Output: click 32 48".to_owned(),
+        ),
+        (true, "MouseEvent", "localX" | "localY") => {
+            let expected = if mname == "localX" { 32 } else { 48 };
+            Some(format!(
+                "import flash.events.MouseEvent;\n\nvar ev:MouseEvent = new MouseEvent(MouseEvent.CLICK, true, false, 32, 48);\ntrace(ev.{mname}); // Output: {expected}"
+            ))
+        }
+        (true, "MouseEvent", "buttonDown" | "ctrlKey" | "altKey" | "shiftKey") => Some(format!(
+            "import flash.events.MouseEvent;\n\nvar ev:MouseEvent = new MouseEvent(MouseEvent.CLICK);\ntrace(ev.{mname}); // Output: false"
+        )),
+        (true, "KeyboardEvent", "keyCode" | "charCode") => Some(
+            "import flash.events.KeyboardEvent;\n\nvar ev:KeyboardEvent = new KeyboardEvent(KeyboardEvent.KEY_DOWN, true, false, 32, 32);\ntrace(ev.keyCode, ev.charCode); // Output: 32 32".to_owned(),
+        ),
+
+        // BitmapData (AS2 & AS3)
+        (_, "BitmapData", "width" | "height") => {
+            let expected = if mname == "width" { 128 } else { 64 };
+            Some(format!(
+                "import flash.display.BitmapData;\n\nvar bmp:BitmapData = new BitmapData(128, 64, true, 0x00000000);\ntrace(bmp.{mname}); // Output: {expected}"
+            ))
+        }
+        (_, "BitmapData", "transparent") => Some(
+            "import flash.display.BitmapData;\n\nvar bmp:BitmapData = new BitmapData(64, 64, true, 0x00000000);\ntrace(bmp.transparent); // Output: true".to_owned(),
+        ),
+        (_, "BitmapData", "rect" | "rectangle") => Some(format!(
+            "import flash.display.BitmapData;\n\nvar bmp:BitmapData = new BitmapData(128, 64, true, 0x00000000);\ntrace(bmp.{mname}.toString()); // Output: (x=0, y=0, w=128, h=64)"
+        )),
+        (_, "BitmapData", "getPixel" | "setPixel") => Some(
+            "import flash.display.BitmapData;\n\nvar bmp:BitmapData = new BitmapData(16, 16, false, 0x000000);\nbmp.setPixel(4, 4, 0x3C6BF0);\ntrace(bmp.getPixel(4, 4).toString(16)); // Output: 3c6bf0".to_owned(),
+        ),
+        (_, "BitmapData", "getPixel32" | "setPixel32") => Some(
+            "import flash.display.BitmapData;\n\nvar bmp:BitmapData = new BitmapData(16, 16, true, 0x00000000);\nbmp.setPixel32(2, 2, 0xFF3C6BF0);\ntrace(bmp.getPixel32(2, 2).toString(16)); // Output: ff3c6bf0".to_owned(),
+        ),
+
+        // Sound & SoundTransform
+        (true, "Sound", "url") => Some(
+            "import flash.media.Sound;\n\nvar sfx:Sound = new Sound();\ntrace(sfx.url); // Output: null".to_owned(),
+        ),
+        (true, "Sound", "isBuffering" | "isURLInaccessible") => Some(format!(
+            "import flash.media.Sound;\n\nvar sfx:Sound = new Sound();\ntrace(sfx.{mname}); // Output: false"
+        )),
+        (true, "Sound", "length" | "bytesLoaded" | "bytesTotal") => Some(format!(
+            "import flash.media.Sound;\n\nvar sfx:Sound = new Sound();\ntrace(sfx.{mname}); // Output: 0"
+        )),
+        (false, "Sound", "getVolume" | "setVolume") => Some(
+            "var sfx:Sound = new Sound(this);\nsfx.setVolume(75);\ntrace(sfx.getVolume()); // Output: 75".to_owned(),
+        ),
+        (false, "Sound", "getPan" | "setPan") => Some(
+            "var sfx:Sound = new Sound(this);\nsfx.setPan(-25);\ntrace(sfx.getPan()); // Output: -25".to_owned(),
+        ),
+        (true, "SoundTransform", "volume" | "pan") => Some(
+            "import flash.media.SoundTransform;\n\nvar st:SoundTransform = new SoundTransform(0.75, -0.25);\ntrace(st.volume, st.pan); // Output: 0.75 -0.25".to_owned(),
+        ),
+
+        // MovieClip, Sprite, DisplayObject, DisplayObjectContainer, Graphics, TextField
+        (true, "MovieClip", "gotoAndPlay" | "gotoAndStop") => Some(format!(
+            "import flash.display.MovieClip;\n\nvar clip:MovieClip = new MovieClip();\nclip.{mname}(1);\ntrace(clip.currentFrame); // Output: 1"
+        )),
+        (true, "MovieClip", "currentFrame" | "totalFrames" | "framesLoaded") => Some(format!(
+            "import flash.display.MovieClip;\n\nvar clip:MovieClip = new MovieClip();\ntrace(clip.{mname}); // Output: 1"
+        )),
+        (true, "MovieClip", "isPlaying") => Some(
+            "import flash.display.MovieClip;\n\nvar clip:MovieClip = new MovieClip();\nclip.stop();\ntrace(clip.isPlaying); // Output: false".to_owned(),
+        ),
+        (true, "MovieClip", "currentLabel" | "currentFrameLabel") => Some(format!(
+            "import flash.display.MovieClip;\n\nvar clip:MovieClip = new MovieClip();\ntrace(clip.{mname}); // Output: null"
+        )),
+        (true, "MovieClip", "currentLabels") => Some(
+            "import flash.display.MovieClip;\n\nvar clip:MovieClip = new MovieClip();\ntrace(clip.currentLabels.length); // Output: 0".to_owned(),
+        ),
+        (true, "MovieClip", "scenes") => Some(
+            "import flash.display.MovieClip;\n\nvar clip:MovieClip = new MovieClip();\ntrace(clip.scenes.length >= 1); // Output: true".to_owned(),
+        ),
+        (true, "MovieClip", "currentScene") => Some(
+            "import flash.display.MovieClip;\n\nvar clip:MovieClip = new MovieClip();\ntrace(clip.currentScene.numFrames); // Output: 1".to_owned(),
+        ),
+        (false, "MovieClip", "_currentframe" | "_totalframes" | "_framesloaded") => Some(format!(
+            "trace(this.{mname}); // Output: 1\ntrace(this.{mname} >= 1); // Output: true"
+        )),
+        (false, "MovieClip", "_target") => Some(
+            "var card:MovieClip = this.createEmptyMovieClip(\"card_mc\", 1);\ntrace(card._target); // Output: /card_mc".to_owned(),
+        ),
+        (false, "MovieClip", "_droptarget") => Some(
+            "var card:MovieClip = this.createEmptyMovieClip(\"card_mc\", 1);\ntrace(card._droptarget === \"\"); // Output: true".to_owned(),
+        ),
+        (false, "MovieClip", "_url") => Some(
+            "var urlValue:String = this._url;\ntrace(typeof urlValue); // Output: string".to_owned(),
+        ),
+        (false, "MovieClip", "createEmptyMovieClip") => Some(
+            "var card:MovieClip = this.createEmptyMovieClip(\"card_mc\", this.getNextHighestDepth());\ncard._x = 48;\ntrace(card._name, card._x); // Output: card_mc 48".to_owned(),
+        ),
+        (false, "MovieClip", "getNextHighestDepth") => Some(
+            "var nextDepth:Number = this.getNextHighestDepth();\ntrace(nextDepth >= 0); // Output: true".to_owned(),
+        ),
+        (false, "MovieClip", "hitTest") => Some(
+            "var box:MovieClip = this.createEmptyMovieClip(\"box_mc\", 1);\nvar hit:Boolean = box.hitTest(0, 0, false);\ntrace(typeof hit); // Output: boolean".to_owned(),
+        ),
+        (true, "DisplayObject", "loaderInfo" | "parent" | "root" | "stage") => Some(format!(
+            "import flash.display.Sprite;\n\nvar view:Sprite = new Sprite();\ntrace(view.{mname}); // Output: null"
+        )),
+        (true, "Sprite", "dropTarget") => Some(
+            "import flash.display.Sprite;\n\nvar view:Sprite = new Sprite();\ntrace(view.dropTarget); // Output: null".to_owned(),
+        ),
+        (true, "Sprite", "graphics") => Some(
+            "import flash.display.Sprite;\n\nvar view:Sprite = new Sprite();\nview.graphics.beginFill(0x3C6BF0, 1);\nview.graphics.drawRect(0, 0, 40, 20);\nview.graphics.endFill();\ntrace(view.width, view.height); // Output: 40 20".to_owned(),
+        ),
+        (true, "DisplayObject" | "Sprite" | "MovieClip", "blendMode") => Some(
+            "import flash.display.BlendMode;\nimport flash.display.Sprite;\n\nvar view:Sprite = new Sprite();\nview.blendMode = BlendMode.MULTIPLY;\ntrace(view.blendMode); // Output: multiply".to_owned(),
+        ),
+        (true, "DisplayObjectContainer" | "Sprite" | "MovieClip", "addChild") => Some(
+            "import flash.display.Shape;\nimport flash.display.Sprite;\n\nvar container:Sprite = new Sprite();\nvar dot:Shape = new Shape();\ncontainer.addChild(dot);\ntrace(container.numChildren); // Output: 1".to_owned(),
+        ),
+        (true, "DisplayObjectContainer" | "Sprite" | "MovieClip", "removeChild") => Some(
+            "import flash.display.Shape;\nimport flash.display.Sprite;\n\nvar container:Sprite = new Sprite();\nvar dot:Shape = new Shape();\ncontainer.addChild(dot);\ncontainer.removeChild(dot);\ntrace(container.numChildren); // Output: 0".to_owned(),
+        ),
+        (true, "DisplayObjectContainer" | "Sprite" | "MovieClip", "numChildren") => Some(
+            "import flash.display.Sprite;\n\nvar container:Sprite = new Sprite();\ntrace(container.numChildren); // Output: 0".to_owned(),
+        ),
+        (true, "Graphics", "beginFill" | "drawRect" | "drawCircle" | "endFill" | "clear" | "lineStyle") => Some(
+            "import flash.display.Sprite;\n\nvar badge:Sprite = new Sprite();\nbadge.graphics.beginFill(0x3C6BF0, 1);\nbadge.graphics.drawRect(0, 0, 80, 40);\nbadge.graphics.endFill();\ntrace(badge.width, badge.height); // Output: 80 40".to_owned(),
+        ),
+        (true, "TextField", "appendText") => Some(
+            "import flash.text.TextField;\n\nvar tf:TextField = new TextField();\ntf.text = \"Score: \";\ntf.appendText(\"250\");\ntrace(tf.text); // Output: Score: 250".to_owned(),
+        ),
+        (true, "TextField", "length") => Some(
+            "import flash.text.TextField;\n\nvar tf:TextField = new TextField();\ntf.text = \"READY\";\ntrace(tf.length); // Output: 5".to_owned(),
+        ),
+        (true, "TextField", "numLines" | "bottomScrollV" | "maxScrollV") => Some(format!(
+            "import flash.text.TextField;\n\nvar tf:TextField = new TextField();\ntf.text = \"READY\";\ntrace(tf.{mname}); // Output: 1"
+        )),
+        (true, "TextField", "textInteractionMode") => Some(
+            "import flash.text.TextField;\n\nvar tf:TextField = new TextField();\ntrace(tf.textInteractionMode); // Output: normal".to_owned(),
+        ),
+        (true, "TextField", "autoSize") => Some(
+            "import flash.text.TextField;\nimport flash.text.TextFieldAutoSize;\n\nvar tf:TextField = new TextField();\ntf.autoSize = TextFieldAutoSize.LEFT;\ntrace(tf.autoSize); // Output: left".to_owned(),
+        ),
+        (true, "TextField", "type") => Some(
+            "import flash.text.TextField;\nimport flash.text.TextFieldType;\n\nvar tf:TextField = new TextField();\ntf.type = TextFieldType.INPUT;\ntrace(tf.type); // Output: input".to_owned(),
+        ),
+        (false, "TextField", "length") => Some(
+            "this.createTextField(\"hud_txt\", 1, 0, 0, 160, 24);\nthis.hud_txt.text = \"READY\";\ntrace(this.hud_txt.length); // Output: 5".to_owned(),
+        ),
+        (false, "TextField", "bottomScroll" | "maxscroll") => Some(format!(
+            "this.createTextField(\"hud_txt\", 1, 0, 0, 160, 24);\nthis.hud_txt.text = \"READY\";\ntrace(this.hud_txt.{mname}); // Output: 1"
+        )),
+        (false, "TextField", "_target") => Some(
+            "this.createTextField(\"hud_txt\", 1, 0, 0, 160, 24);\ntrace(this.hud_txt._target); // Output: /hud_txt".to_owned(),
+        ),
+        (false, "TextField", "_url") => Some(
+            "this.createTextField(\"hud_txt\", 1, 0, 0, 160, 24);\ntrace(typeof this.hud_txt._url); // Output: string".to_owned(),
+        ),
+        _ => None,
+    }
+}
+
 fn synthesize_constant_example(
     as3: bool,
     owner_key: &str,
     class_name: &str,
     member: &Member,
 ) -> String {
+    if as3 && owner_key == "flash.display.NativeWindowResize" && member.name == "NONE" {
+        return "import flash.display.NativeWindowResize;\n\nvar mode:String = NativeWindowResize.NONE;\ntrace(mode === \"\"); // Output: true".to_owned();
+    }
+    if as3 && owner_key == "flash.ui.Keyboard" && member.name == "CharCodeStrings" {
+        return "import flash.ui.Keyboard;\n\nvar keys:Array = Keyboard.CharCodeStrings;\ntrace(keys.length > 0); // Output: true".to_owned();
+    }
+
     let package = script_api::package_of(owner_key);
-    let import_line = if !package.is_empty() && package != "Top level" && as3 {
+    let import_line = if should_import_owner(as3, package) {
         format!("import {owner_key};\n\n")
     } else {
         String::new()
@@ -1501,23 +1787,35 @@ fn synthesize_constant_example(
     } else {
         class_name
     };
-    let ty = if member.ty.is_empty() {
-        if as3 { "*" } else { "Object" }
-    } else {
-        member.ty.as_str()
-    };
+    let ty_suffix = as_var_type_suffix(as3, &member.ty);
     let expected = if let Some(val) = member.value.as_deref().filter(|s| !s.trim().is_empty()) {
         format_constant_trace_output(val)
     } else {
-        known_as2_constant_value(owner_key, &member.name)
+        known_constant_value(owner_key, &member.name)
     };
     format!(
-        "{import_line}var value:{ty} = {qualifier}.{};\ntrace(value); // Output: {expected}",
+        "{import_line}var value{ty_suffix} = {qualifier}.{};\ntrace(value); // Output: {expected}",
         member.name
     )
 }
 
-fn known_as2_constant_value(owner_key: &str, name: &str) -> String {
+fn screaming_snake_to_camel(raw: &str) -> String {
+    let parts: Vec<&str> = raw.split('_').filter(|p| !p.is_empty()).collect();
+    if parts.is_empty() {
+        return raw.to_ascii_lowercase();
+    }
+    let mut out = parts[0].to_ascii_lowercase();
+    for part in &parts[1..] {
+        let mut chars = part.chars();
+        if let Some(first) = chars.next() {
+            out.push(first.to_ascii_uppercase());
+            out.push_str(&chars.as_str().to_ascii_lowercase());
+        }
+    }
+    out
+}
+
+fn known_constant_value(owner_key: &str, name: &str) -> String {
     match (owner_key, name) {
         ("Key", "BACKSPACE") => "8",
         ("Key", "TAB") => "9",
@@ -1547,7 +1845,20 @@ fn known_as2_constant_value(owner_key: &str, name: &str) -> String {
         ("System.IME", "UNKNOWN") => "UNKNOWN",
         ("mx.transitions.Transition", "IN") => "0",
         ("mx.transitions.Transition", "OUT") => "1",
-        _ => return name.to_ascii_lowercase(),
+        ("mx.managers.DepthManager", "kCursor") => "101",
+        ("mx.managers.DepthManager", "kTooltip") => "102",
+        ("mx.managers.DepthManager", "kTop") => "201",
+        ("mx.managers.DepthManager", "kBottom") => "202",
+        ("mx.managers.DepthManager", "kTopmost") => "203",
+        ("mx.managers.DepthManager", "kNotopmost") => "204",
+        ("mx.services.SOAPCall", "SINGLE_CONCURRENCY") => "single",
+        ("mx.services.SOAPCall", "MULTIPLE_CONCURRENCY") => "multiple",
+        ("mx.services.SOAPCall", "LAST_CONCURRENCY") => "last",
+        ("flash.display3D.Context3DClearMask", "COLOR") => "1",
+        ("flash.display3D.Context3DClearMask", "DEPTH") => "2",
+        ("flash.display3D.Context3DClearMask", "STENCIL") => "4",
+        ("flash.display3D.Context3DClearMask", "ALL") => "7",
+        _ => return screaming_snake_to_camel(name),
     }
     .to_owned()
 }
@@ -1574,7 +1885,7 @@ fn curated_class_example(as3: bool, owner_key: &str, class_name: &str) -> Option
         (true, _, "RegExp") => "var pattern:RegExp = /item_([0-9]+)/;\nvar hit:Object = pattern.exec(\"pickup item_42\");\ntrace(hit[1]); // Output: 42".to_owned(),
         (_, _, "Date") => "var epoch:Date = new Date(0);\ntrace(epoch.getUTCFullYear(), epoch.getTime()); // Output: 1970 0".to_owned(),
         (true, _, "ByteArray") => "import flash.utils.ByteArray;\n\nvar bytes:ByteArray = new ByteArray();\nbytes.writeByte(0xFF);\nbytes.writeUTF(\"OK\");\nbytes.position = 0;\ntrace(bytes.readUnsignedByte(), bytes.readUTF()); // Output: 255 OK".to_owned(),
-        (true, _, "Endian") => "import flash.utils.Endian;\n\ntrace(Endian.BIG_ENDIAN, Endian.LITTLE_ENDIAN); // Output: bigEndian littleEndian".to_owned(),
+        (true, _, "Endian") => "import flash.utils.Endian;\n\nvar big:String = Endian.BIG_ENDIAN;\ntrace(big, Endian.LITTLE_ENDIAN); // Output: bigEndian littleEndian".to_owned(),
         (true, _, "Dictionary") => "import flash.utils.Dictionary;\n\nvar map:Dictionary = new Dictionary();\nvar actor:Object = {name: \"Hero\"};\nmap[actor] = 100;\ntrace(map[actor]); // Output: 100".to_owned(),
         (true, _, "XML") => "var level:XML = <level id=\"2\"><orb points=\"50\"/></level>;\ntrace(level.@id.toString(), level.orb.@points.toString()); // Output: 2 50".to_owned(),
         (true, _, "XMLList") => "var bag:XML = <bag><key>Red</key><key>Blue</key></bag>;\nvar keys:XMLList = bag.key;\ntrace(keys.length(), keys[1].toString()); // Output: 2 Blue".to_owned(),
@@ -1586,8 +1897,8 @@ fn curated_class_example(as3: bool, owner_key: &str, class_name: &str) -> Option
         (false, _, "Color") => "var swatch:MovieClip = this.createEmptyMovieClip(\"swatch_mc\", 1);\nvar tint:Color = new Color(swatch);\ntint.setRGB(0x3C6BF0);\ntrace(tint.getRGB().toString(16)); // Output: 3c6bf0".to_owned(),
         (false, _, "MovieClip") => "var box:MovieClip = this.createEmptyMovieClip(\"box_mc\", this.getNextHighestDepth());\nbox._x = 80;\nbox._y = 40;\ntrace(box._name, box._x, box._y); // Output: box_mc 80 40".to_owned(),
         (true, _, "MovieClip") => "import flash.display.MovieClip;\n\nvar clip:MovieClip = new MovieClip();\nclip.x = 120;\ntrace(clip.currentFrame, clip.x); // Output: 1 120".to_owned(),
-        (true, _, "Sprite") => "import flash.display.Sprite;\n\nvar badge:Sprite = new Sprite();\nbadge.graphics.beginFill(0x3C6BF0, 1.0);\nbadge.graphics.drawCircle(0, 0, 24);\nbadge.graphics.endFill();\ntrace(badge.width, badge.height); // Output: 48 48".to_owned(),
-        (true, _, "Shape") => "import flash.display.Shape;\n\nvar rect:Shape = new Shape();\nrect.graphics.beginFill(0x3C6BF0, 1.0);\nrect.graphics.drawRect(0, 0, 64, 32);\nrect.graphics.endFill();\ntrace(rect.width, rect.height); // Output: 64 32".to_owned(),
+        (true, _, "Sprite") => "import flash.display.Sprite;\n\nvar badge:Sprite = new Sprite();\nbadge.graphics.beginFill(0x3C6BF0, 1);\nbadge.graphics.drawCircle(0, 0, 24);\nbadge.graphics.endFill();\ntrace(badge.width, badge.height); // Output: 48 48".to_owned(),
+        (true, _, "Shape") => "import flash.display.Shape;\n\nvar rect:Shape = new Shape();\nrect.graphics.beginFill(0x3C6BF0, 1);\nrect.graphics.drawRect(0, 0, 64, 32);\nrect.graphics.endFill();\ntrace(rect.width, rect.height); // Output: 64 32".to_owned(),
         (_, _, "BitmapData") => format!("{f_imp}var bmp:BitmapData = new BitmapData(32, 32, true, 0x00000000);\nbmp.setPixel(2, 2, 0x3C6BF0);\ntrace(bmp.width, bmp.getPixel(2, 2).toString(16)); // Output: 32 3c6bf0"),
         (false, _, "TextField") => "this.createTextField(\"hud_txt\", this.getNextHighestDepth(), 16, 16, 180, 28);\nthis.hud_txt.text = \"SCORE: 100\";\ntrace(this.hud_txt.text); // Output: SCORE: 100".to_owned(),
         (true, _, "TextField") => "import flash.text.TextField;\n\nvar tf:TextField = new TextField();\ntf.text = \"READY\";\ntrace(tf.text, tf.length); // Output: READY 5".to_owned(),
@@ -1626,9 +1937,7 @@ fn build_receiver_plan(
     imports: &mut BTreeSet<String>,
 ) -> ReceiverPlan {
     let package = script_api::package_of(owner_key);
-    if (as3 && !package.is_empty() && package != "Top level")
-        || (!as3 && (package.starts_with("flash.") || package.starts_with("mx.")))
-    {
+    if should_import_owner(as3, package) {
         imports.insert(format!("import {owner_key};"));
     }
 
@@ -1847,15 +2156,6 @@ fn build_receiver_plan(
     }
 }
 
-fn sanitize_raw_params(raw: &str) -> &str {
-    let before_paren = raw.split(')').next().unwrap_or(raw);
-    before_paren
-        .split(';')
-        .next()
-        .unwrap_or(before_paren)
-        .trim()
-}
-
 fn build_ctor_args(
     as3: bool,
     class_name: &str,
@@ -1872,7 +2172,7 @@ fn build_ctor_args(
         "BitmapData" => return "128, 128, true, 0x00000000".to_owned(),
         "URLRequest" => return "\"https://example.com/data.json\"".to_owned(),
         "URLVariables" => return "\"level=3&score=1200\"".to_owned(),
-        "SoundTransform" => return "0.8, 0.0".to_owned(),
+        "SoundTransform" => return "0.75, 0".to_owned(),
         "TextFormat" => return "\"Inter\", 14, 0xFFFFFF".to_owned(),
         "ContextMenuItem" => return "\"Reset Level\"".to_owned(),
         "Timer" => return "250, 4".to_owned(),
@@ -1908,12 +2208,19 @@ fn build_ctor_args(
         }
         let (pname, pdesc) = describe_param(trimmed.trim_end_matches('['));
         let ptype = pdesc.split(',').next().unwrap_or("").trim();
-        args.push(concrete_arg_for_param(as3, &pname, ptype, imports));
+        args.push(concrete_arg_for_param(
+            as3, class_name, &pname, ptype, imports,
+        ));
     }
     args.join(", ")
 }
 
-fn build_call_args(as3: bool, raw_params: Option<&str>, imports: &mut BTreeSet<String>) -> String {
+fn build_call_args(
+    as3: bool,
+    class_name: &str,
+    raw_params: Option<&str>,
+    imports: &mut BTreeSet<String>,
+) -> String {
     let Some(raw) = raw_params else {
         return String::new();
     };
@@ -1938,21 +2245,91 @@ fn build_call_args(as3: bool, raw_params: Option<&str>, imports: &mut BTreeSet<S
         }
         let (pname, pdesc) = describe_param(trimmed.trim_end_matches('['));
         let ptype = pdesc.split(',').next().unwrap_or("").trim();
-        args.push(concrete_arg_for_param(as3, &pname, ptype, imports));
+        args.push(concrete_arg_for_param(
+            as3, class_name, &pname, ptype, imports,
+        ));
     }
     args.join(", ")
 }
 
+fn enum_string_for_property(class_name: &str, prop_name: &str) -> Option<&'static str> {
+    match (class_name, prop_name) {
+        (_, "blendMode") => Some("\"multiply\""),
+        ("Stage", "scaleMode") => Some("\"noScale\""),
+        ("Stage", "align") => Some("\"TL\""),
+        ("Stage", "quality") => Some("\"high\""),
+        ("Stage", "displayState") => Some("\"normal\""),
+        ("Stage", "colorCorrection") => Some("\"default\""),
+        ("Bitmap", "pixelSnapping") => Some("\"auto\""),
+        ("TextField", "autoSize") => Some("\"left\""),
+        ("TextField", "type") => Some("\"dynamic\""),
+        ("TextField", "antiAliasType") => Some("\"advanced\""),
+        ("TextField", "gridFitType") => Some("\"pixel\""),
+        ("TextFormat", "align") | ("StageText", "textAlign") => Some("\"center\""),
+        ("TextRenderer", "displayMode") => Some("\"default\""),
+        ("GraphicsGradientFill", "type") => Some("\"linear\""),
+        ("GraphicsGradientFill", "spreadMethod") => Some("\"pad\""),
+        ("GraphicsGradientFill", "interpolationMethod") => Some("\"rgb\""),
+        ("GraphicsPath", "winding") => Some("\"evenOdd\""),
+        ("GraphicsStroke", "caps") => Some("\"round\""),
+        ("GraphicsStroke", "joints") => Some("\"round\""),
+        ("GraphicsStroke", "scaleMode") => Some("\"normal\""),
+        ("GraphicsTrianglePath", "culling") => Some("\"none\""),
+        ("BevelFilter" | "GradientBevelFilter" | "GradientGlowFilter", "type") => Some("\"inner\""),
+        ("DisplacementMapFilter", "mode") => Some("\"clamp\""),
+        (_, "endian") => Some("\"littleEndian\""),
+        ("URLLoader", "dataFormat") => Some("\"text\""),
+        ("URLRequest", "method") => Some("\"GET\""),
+        ("Mouse", "cursor") => Some("\"button\""),
+        ("Multitouch", "inputMode") => Some("\"touchPoint\""),
+        ("IME", "conversionMode") => Some("\"ALPHANUMERIC_HALF\""),
+        ("ElementFormat", "alignmentBaseline" | "dominantBaseline")
+        | ("TextBlock", "baselineZero") => Some("\"roman\""),
+        ("ElementFormat", "kerning") => Some("\"on\""),
+        ("ElementFormat", "breakOpportunity") => Some("\"auto\""),
+        ("ElementFormat", "digitCase" | "digitWidth" | "typographicCase") => Some("\"default\""),
+        ("ElementFormat", "ligatureLevel") => Some("\"common\""),
+        ("ElementFormat" | "ContentElement", "textRotation") | ("TextBlock", "lineRotation") => {
+            Some("\"rotate0\"")
+        }
+        ("FontDescription", "cffHinting") => Some("\"horizontalStem\""),
+        ("FontDescription", "fontLookup") => Some("\"device\""),
+        ("FontDescription" | "StageText", "fontPosture" | "fontWeight") => Some("\"normal\""),
+        ("FontDescription", "renderingMode") => Some("\"cff\""),
+        ("TabStop", "alignment") => Some("\"start\""),
+        ("EastAsianJustifier", "justificationStyle") => Some("\"pushInKinsoku\""),
+        ("TextJustifier", "lineJustification") => Some("\"unjustified\""),
+        ("TextLine", "validity") => Some("\"valid\""),
+        ("Microphone", "codec") => Some("\"Nellymoser\""),
+        ("MicrophoneEnhancedOptions", "mode") => Some("\"fullDuplex\""),
+        ("SoundMixer", "audioPlaybackMode") => Some("\"media\""),
+        ("LoaderContext", "imageDecodingPolicy") => Some("\"onDemand\""),
+        ("PrintJobOptions", "printMethod") => Some("\"auto\""),
+        ("Shader", "precisionHint") => Some("\"full\""),
+        ("JPEGXREncoderOptions", "colorSpace") => Some("\"auto\""),
+        ("SQLConnection", "columnNameStyle") => Some("\"auto\""),
+        ("NativeApplication", "systemIdleMode") => Some("\"normal\""),
+        ("NativeWindowInitOptions", "systemChrome") => Some("\"standard\""),
+        ("NativeWindowInitOptions", "type") => Some("\"normal\""),
+        ("NativeWindowInitOptions", "renderMode") => Some("\"auto\""),
+        ("StageText", "autoCapitalize") => Some("\"none\""),
+        ("StageText", "clearButtonMode") => Some("\"never\""),
+        ("StageText", "returnKeyLabel" | "softKeyboardType") => Some("\"default\""),
+        _ => None,
+    }
+}
+
 fn concrete_arg_for_param(
     as3: bool,
+    class_name: &str,
     param_name: &str,
     param_type: &str,
     imports: &mut BTreeSet<String>,
 ) -> String {
-    let lname = param_name
+    let clean_name = param_name
         .trim_start_matches("...")
-        .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-        .to_ascii_lowercase();
+        .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_');
+    let lname = clean_name.to_ascii_lowercase();
     let short_ty = script_api::short_name(param_type.trim());
 
     match short_ty {
@@ -1964,10 +2341,17 @@ fn concrete_arg_for_param(
             }
         }
         "int" | "uint" | "Number" => {
+            let is_float = short_ty == "Number";
             if lname.contains("color") || lname.contains("rgb") {
                 "0x3C6BF0".to_owned()
             } else if lname.contains("alpha") {
-                if as3 { "0.85" } else { "85" }.to_owned()
+                if as3 && is_float { "0.85" } else { "85" }.to_owned()
+            } else if !as3 && (lname == "_xscale" || lname == "_yscale") {
+                "100".to_owned()
+            } else if lname.contains("volume") {
+                if as3 && is_float { "0.75" } else { "75" }.to_owned()
+            } else if lname.contains("scale") || lname.contains("ratio") {
+                if is_float { "1.5" } else { "2" }.to_owned()
             } else if lname.contains("width") || lname == "w" {
                 "120".to_owned()
             } else if lname.contains("height") || lname == "h" {
@@ -1985,15 +2369,14 @@ fn concrete_arg_for_param(
                 "250".to_owned()
             } else if lname.contains("rate") || lname.contains("fps") {
                 "24".to_owned()
-            } else if lname.contains("scale") || lname.contains("ratio") || lname.contains("volume")
-            {
-                "1.0".to_owned()
             } else {
                 "1".to_owned()
             }
         }
         "String" => {
-            if lname.contains("url") || lname.contains("uri") {
+            if let Some(enum_lit) = enum_string_for_property(class_name, clean_name) {
+                enum_lit.to_owned()
+            } else if lname.contains("url") || lname.contains("uri") {
                 "\"https://example.com/asset.json\"".to_owned()
             } else if lname.contains("locale") {
                 "\"en-US\"".to_owned()
@@ -2095,7 +2478,7 @@ fn concrete_arg_for_param(
         }
         "SoundTransform" => {
             imports.insert("import flash.media.SoundTransform;".to_owned());
-            "new SoundTransform(0.8, 0.0)".to_owned()
+            "new SoundTransform(0.75, 0)".to_owned()
         }
         "XML" => "<item id=\"1\"/>".to_owned(),
         "RegExp" => "/[a-z]+/i".to_owned(),
@@ -2103,7 +2486,9 @@ fn concrete_arg_for_param(
         "Class" => "Object".to_owned(),
         _ if param_type.starts_with("Vector.<") => format!("new {param_type}()"),
         "Object" | "*" | "" => {
-            if lname.contains("frame") {
+            if let Some(enum_lit) = enum_string_for_property(class_name, clean_name) {
+                enum_lit.to_owned()
+            } else if lname.contains("frame") {
                 "1".to_owned()
             } else if lname.contains("url") || lname.contains("name") || lname.contains("text") {
                 "\"sample\"".to_owned()
@@ -2130,6 +2515,18 @@ fn sample_output_for_type(ty: &str) -> &'static str {
     }
 }
 
+fn read_only_output_for_member(class_name: &str, mname: &str, ty: &str) -> &'static str {
+    match (class_name, mname) {
+        (
+            "VideoEvent" | "StageVideoEvent" | "StageVideoAvailabilityEvent",
+            "codecInfo" | "driver" | "reason",
+        ) => "null",
+        (_, "type") if class_name.ends_with("Event") => "change",
+        (_, "bubbles" | "cancelable") if class_name.ends_with("Event") => "false",
+        _ => sample_output_for_type(ty),
+    }
+}
+
 fn synthesize_domain_member_example(
     as3: bool,
     owner_key: &str,
@@ -2140,9 +2537,7 @@ fn synthesize_domain_member_example(
 ) -> String {
     let mut imports = BTreeSet::new();
     let package = script_api::package_of(owner_key);
-    if (as3 && !package.is_empty() && package != "Top level")
-        || (!as3 && (package.starts_with("flash.") || package.starts_with("mx.")))
-    {
+    if should_import_owner(as3, package) {
         imports.insert(format!("import {owner_key};"));
     }
 
@@ -2153,6 +2548,7 @@ fn synthesize_domain_member_example(
     };
     let mname = member.name.as_str();
     let kind = member.kind.as_str();
+    let ty_suffix = as_var_type_suffix(as3, &member.ty);
 
     // 1. Constructor
     if kind == "constructor" {
@@ -2218,7 +2614,7 @@ fn synthesize_domain_member_example(
     // 3. Static Method or Static Property
     if member.is_static {
         if member.params.is_some() {
-            let args = build_call_args(as3, member.params.as_deref(), &mut imports);
+            let args = build_call_args(as3, class_name, member.params.as_deref(), &mut imports);
             let header = format_imports(&imports);
             if member.ty.is_empty() || member.ty.eq_ignore_ascii_case("void") {
                 return format!(
@@ -2227,17 +2623,17 @@ fn synthesize_domain_member_example(
             }
             let out = sample_output_for_type(&member.ty);
             return format!(
-                "{header}var result:* = {qualifier}.{mname}({args});\ntrace(result); // Output: {out}"
+                "{header}var result{ty_suffix} = {qualifier}.{mname}({args});\ntrace(result); // Output: {out}"
             );
         }
         let header = format_imports(&imports);
         if member.read_only {
-            let out = sample_output_for_type(&member.ty);
+            let out = read_only_output_for_member(class_name, mname, &member.ty);
             return format!(
-                "{header}var val:* = {qualifier}.{mname};\ntrace(val); // Output: {out}"
+                "{header}var val{ty_suffix} = {qualifier}.{mname};\ntrace(val); // Output: {out}"
             );
         }
-        let val_expr = concrete_arg_for_param(as3, mname, &member.ty, &mut imports);
+        let val_expr = concrete_arg_for_param(as3, class_name, mname, &member.ty, &mut imports);
         let header = format_imports(&imports);
         let expected = format_constant_trace_output(&val_expr);
         return format!(
@@ -2245,7 +2641,7 @@ fn synthesize_domain_member_example(
         );
     }
 
-    // 4. Instance Method or Instance Property
+    // 4. Instance Method or Instance Property (including non-static `const` properties)
     let plan = build_receiver_plan(
         as3,
         owner_key,
@@ -2259,7 +2655,7 @@ fn synthesize_domain_member_example(
     let null_receiver = setup.ends_with("= null;");
 
     if member.params.is_some() {
-        let args = build_call_args(as3, member.params.as_deref(), &mut imports);
+        let args = build_call_args(as3, class_name, member.params.as_deref(), &mut imports);
         let header = format_imports(&imports);
         if null_receiver {
             return format!(
@@ -2273,7 +2669,7 @@ fn synthesize_domain_member_example(
         }
         let out = sample_output_for_type(&member.ty);
         return format!(
-            "{header}{setup}\nvar result:* = {recv}.{mname}({args});\ntrace(result); // Output: {out}"
+            "{header}{setup}\nvar result{ty_suffix} = {recv}.{mname}({args});\ntrace(result); // Output: {out}"
         );
     }
 
@@ -2283,12 +2679,12 @@ fn synthesize_domain_member_example(
             "{header}{setup}\nvar hasInstance:Boolean = ({recv} != null);\ntrace(\"{class_name}.{mname} target:\", hasInstance); // Output: {class_name}.{mname} target: false"
         );
     }
-    if member.read_only {
+    if member.read_only || kind == "constant" {
         let header = format_imports(&imports);
-        let out = sample_output_for_type(&member.ty);
+        let out = read_only_output_for_member(class_name, mname, &member.ty);
         return format!("{header}{setup}\ntrace({recv}.{mname}); // Output: {out}");
     }
-    let val_expr = concrete_arg_for_param(as3, mname, &member.ty, &mut imports);
+    let val_expr = concrete_arg_for_param(as3, class_name, mname, &member.ty, &mut imports);
     let header = format_imports(&imports);
     let expected = if val_expr.starts_with("new ") {
         "true".to_owned()
@@ -2324,7 +2720,10 @@ fn synthesize_domain_class_example(
             .filter(|m| canonical_class_key_str(&m.owner) == owner_key)
             .collect();
         owned.sort_by(|a, b| a.name.cmp(&b.name));
-        if let Some(first_const) = owned.iter().find(|m| m.kind == "constant") {
+        if let Some(first_const) = owned
+            .iter()
+            .find(|m| m.kind == "constant" && (m.is_static || owner_key == "mx.video.FLVPlayback"))
+        {
             return synthesize_constant_example(as3, owner_key, class_name, first_const);
         }
         if let Some(first_static) = owned.iter().find(|m| m.is_static) {
@@ -2345,9 +2744,7 @@ fn synthesize_domain_class_example(
     } else {
         package
     };
-    if (as3 && !pkg.is_empty() && pkg != "Top level")
-        || (!as3 && (pkg.starts_with("flash.") || pkg.starts_with("mx.")))
-    {
+    if should_import_owner(as3, pkg) {
         imports.insert(format!("import {owner_key};"));
     }
 
@@ -2392,7 +2789,7 @@ mod tests {
 
     const FORBIDDEN_GLYPHS: &[char] = &['⌘', '⌥', '⇧', '⌃', '↵', '⌤', '⌫', '⌦', '⇥'];
 
-    fn assert_example_quality(label: &str, example: &str) {
+    fn assert_example_quality(label: &str, example: &str, is_as2: bool) {
         let trimmed = example.trim();
         let line_count = trimmed.lines().count();
         assert!(
@@ -2411,6 +2808,27 @@ mod tests {
             !first_output.is_empty(),
             "{label} example has empty `// Output:` comment: {trimmed:?}"
         );
+        if is_as2 {
+            assert!(
+                !trimmed.contains(":*"),
+                "{label} AS2 example must never contain AS3 `:*` type annotation: {trimmed:?}"
+            );
+        }
+        for line in trimmed.lines() {
+            if let Some((before, _)) = line.split_once("// Output:")
+                && !before.trim().is_empty()
+            {
+                assert!(
+                    line.chars().count() <= MAX_INLINE_OUTPUT_COLS,
+                    "{label} inline `// Output:` exceeds {MAX_INLINE_OUTPUT_COLS} cols ({} cols) and would wrap mid-comment: {line:?}",
+                    line.chars().count()
+                );
+                assert!(
+                    !line.contains("  // Output:"),
+                    "{label} inline `// Output:` must use single-space separator: {line:?}"
+                );
+            }
+        }
         assert!(
             !trimmed.contains("lastIndexOf(searchElement"),
             "{label} example contains raw undeclared parameter stub: {trimmed:?}"
@@ -2435,10 +2853,28 @@ mod tests {
     }
 
     #[test]
+    fn t440_sanitize_raw_params_handles_as2_overload_tails_and_quoted_semicolons() {
+        assert_eq!(sanitize_raw_params("):Object; Color.setTransform("), "");
+        assert_eq!(
+            sanitize_raw_params("offset:Number):Void; Color.setTransform("),
+            "offset:Number"
+        );
+        assert_eq!(
+            sanitize_raw_params("cuePoint:Object) my_FLVplybk.addASCuePoint(time:Number"),
+            "cuePoint:Object"
+        );
+        assert_eq!(
+            sanitize_raw_params("\"Flash JavaScript API command;\":String"),
+            "\"Flash JavaScript API command;\":String"
+        );
+    }
+
+    #[test]
     fn t440_all_api_classes_and_members_have_runnable_multi_line_examples_with_output() {
         let mut total_checked = 0usize;
 
         for language in [ScriptLanguage::ActionScript2, ScriptLanguage::ActionScript3] {
+            let is_as2 = language == ScriptLanguage::ActionScript2;
             let api = script_api::api(language).expect("ActionScript API index");
             let mut ctor_by_owner = std::collections::HashMap::new();
             for m in api.members.iter().chain(api.missing.iter()) {
@@ -2459,7 +2895,7 @@ mod tests {
                 let ctor = ctor_by_owner.get(&canonical).map(String::as_str);
                 let ex =
                     synthesize_as_class_example(language, &canonical, short, pkg, &info.kind, ctor);
-                assert_example_quality(&format!("{language:?} class {canonical}"), &ex);
+                assert_example_quality(&format!("{language:?} class {canonical}"), &ex, is_as2);
                 total_checked += 1;
             }
 
@@ -2493,10 +2929,45 @@ mod tests {
                 assert_example_quality(
                     &format!("{language:?} member {ckey}.{} ({})", m.name, m.kind),
                     &ex,
+                    is_as2,
                 );
                 total_checked += 1;
             }
         }
+
+        // Verify AS2 packaged constants include `import` and instance `const` properties do not use Class.member
+        let as2_trans_in = find_as_member_example(
+            ScriptLanguage::ActionScript2,
+            "mx.transitions.Transition",
+            "IN",
+        );
+        assert!(as2_trans_in.contains("import mx.transitions.Transition;"));
+        assert!(as2_trans_in.contains("// Output: 0"));
+
+        let as3_clear_all = find_as_member_example(
+            ScriptLanguage::ActionScript3,
+            "flash.display3D.Context3DClearMask",
+            "ALL",
+        );
+        assert!(as3_clear_all.contains("// Output: 7"));
+
+        let as3_tween_ev = find_as_member_example(
+            ScriptLanguage::ActionScript3,
+            "fl.transitions.TweenEvent",
+            "MOTION_CHANGE",
+        );
+        assert!(as3_tween_ev.contains("// Output: motionChange"));
+
+        let as3_inst_const = find_as_member_example(
+            ScriptLanguage::ActionScript3,
+            "flash.events.VideoEvent",
+            "codecInfo",
+        );
+        assert!(
+            as3_inst_const.contains("new VideoEvent(")
+                && !as3_inst_const.contains("VideoEvent.codecInfo"),
+            "instance const property must read from an instance: {as3_inst_const}"
+        );
 
         // Verify all 45 JS/TS catalog entries (usage + example + compile check)
         assert_eq!(JS_TS_API_ENTRIES.len(), 45);
@@ -2527,7 +2998,7 @@ mod tests {
                 "JS/TS entry {} usage contains forbidden glyph",
                 entry.name
             );
-            assert_example_quality(&format!("JS/TS {}", entry.name), entry.example);
+            assert_example_quality(&format!("JS/TS {}", entry.name), entry.example, false);
 
             let lang = if entry.ts_only {
                 ScriptLanguage::TypeScript
@@ -2649,8 +3120,6 @@ mod tests {
         (lang, entry.example.to_owned())
     }
 
-    /// Resolves the checkout root that holds a built `target/web-runtime/neoflash_web_bg.wasm`
-    /// (either the current workspace or the main checkout behind a git worktree).
     fn locate_wasm_checkout_root(repo_root: &Path) -> Option<PathBuf> {
         if repo_root
             .join("target/web-runtime/neoflash_web_bg.wasm")
@@ -2728,11 +3197,14 @@ mod tests {
         ] {
             push_as(ScriptLanguage::ActionScript3, "String", m);
         }
-        // AS2 String & Array
+        // AS2 String, Array, MovieClip, undefined
         push_as(ScriptLanguage::ActionScript2, "String", "lastIndexOf");
         push_as(ScriptLanguage::ActionScript2, "String", "indexOf");
         push_as(ScriptLanguage::ActionScript2, "Array", "join");
         push_as(ScriptLanguage::ActionScript2, "Array", "slice");
+        push_as(ScriptLanguage::ActionScript2, "MovieClip", "_currentframe");
+        push_as(ScriptLanguage::ActionScript2, "MovieClip", "_xscale");
+        push_as(ScriptLanguage::ActionScript2, "", "undefined");
 
         // Math, Object, Function, JSON, RegExp, Date, XML, XMLList, Dictionary
         for m in [
@@ -2759,7 +3231,7 @@ mod tests {
             "Dictionary",
         );
 
-        // ByteArray (readUnsignedByte, readByte, readShort, readInt, readDouble, readUTF, compress)
+        // ByteArray
         for m in [
             "readUnsignedByte",
             "readByte",
@@ -2809,6 +3281,95 @@ mod tests {
             "crossProduct",
         );
 
+        // Timer, Event, MouseEvent, BitmapData, MovieClip, Sprite, TextField, ElementFormat (enum/read-only verification!)
+        push_as(
+            ScriptLanguage::ActionScript3,
+            "flash.utils.Timer",
+            "running",
+        );
+        push_as(
+            ScriptLanguage::ActionScript3,
+            "flash.utils.Timer",
+            "currentCount",
+        );
+        push_as(ScriptLanguage::ActionScript3, "flash.events.Event", "type");
+        push_as(
+            ScriptLanguage::ActionScript3,
+            "flash.events.Event",
+            "bubbles",
+        );
+        push_as(
+            ScriptLanguage::ActionScript3,
+            "flash.events.Event",
+            "cancelable",
+        );
+        push_as(
+            ScriptLanguage::ActionScript3,
+            "flash.events.Event",
+            "preventDefault",
+        );
+        push_as(
+            ScriptLanguage::ActionScript3,
+            "flash.events.MouseEvent",
+            "localX",
+        );
+        push_as(
+            ScriptLanguage::ActionScript3,
+            "flash.display.BitmapData",
+            "width",
+        );
+        push_as(
+            ScriptLanguage::ActionScript3,
+            "flash.display.BitmapData",
+            "rect",
+        );
+        push_as(
+            ScriptLanguage::ActionScript3,
+            "flash.display.MovieClip",
+            "currentFrame",
+        );
+        push_as(
+            ScriptLanguage::ActionScript3,
+            "flash.display.DisplayObject",
+            "blendMode",
+        );
+        push_as(
+            ScriptLanguage::ActionScript3,
+            "flash.display.DisplayObject",
+            "scaleX",
+        );
+        push_as(
+            ScriptLanguage::ActionScript3,
+            "flash.display.DisplayObject",
+            "parent",
+        );
+        push_as(ScriptLanguage::ActionScript3, "flash.media.Sound", "url");
+        push_as(
+            ScriptLanguage::ActionScript3,
+            "flash.media.Sound",
+            "isBuffering",
+        );
+        push_as(
+            ScriptLanguage::ActionScript3,
+            "flash.text.TextField",
+            "length",
+        );
+        push_as(
+            ScriptLanguage::ActionScript3,
+            "flash.text.TextField",
+            "autoSize",
+        );
+        push_as(
+            ScriptLanguage::ActionScript3,
+            "flash.text.engine.ElementFormat",
+            "kerning",
+        );
+        push_as(
+            ScriptLanguage::ActionScript3,
+            "flash.display3D.Context3DClearMask",
+            "ALL",
+        );
+
         // Globals
         push_as(ScriptLanguage::ActionScript3, "", "parseInt");
         push_as(ScriptLanguage::ActionScript3, "", "parseFloat");
@@ -2839,8 +3400,8 @@ mod tests {
         }
 
         assert!(
-            cases.len() >= 85,
-            "expected >= 85 pure runtime test examples, got {}",
+            cases.len() >= 105,
+            "expected >= 105 pure runtime test examples, got {}",
             cases.len()
         );
 
@@ -2900,7 +3461,7 @@ mod tests {
         }
         assert!(authored_ran >= 12);
 
-        // Step 3: Execute ALL 85+ examples through the full NeoFlash WASM `WebPlayer` + `web/runtime.js` host!
+        // Step 3: Execute ALL 105+ examples through the full NeoFlash WASM `WebPlayer` + `web/runtime.js` host!
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(Path::parent)
