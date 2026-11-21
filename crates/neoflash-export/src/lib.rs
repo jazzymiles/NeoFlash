@@ -895,6 +895,19 @@ pub fn export_project_with_config(
     options: &PublishOptions,
     config: &HtmlPublishConfig,
 ) -> Result<PathBuf, ExportError> {
+    export_project_with_config_and_wrapper(project, output_dir, runtime_dir, options, config, None)
+}
+
+/// Apply package settings while rendering an optional authored HTML wrapper with the
+/// final package's project JSON, font rules and ordered runtime script URLs.
+pub fn export_project_with_config_and_wrapper(
+    project: &Project,
+    output_dir: &Path,
+    runtime_dir: &Path,
+    options: &PublishOptions,
+    config: &HtmlPublishConfig,
+    wrapper: Option<&str>,
+) -> Result<PathBuf, ExportError> {
     let options = options.validated().map_err(ExportError::Options)?;
     let mut owned_cfg: Option<HtmlPublishConfig> = None;
     if config.render_mode == HtmlRenderMode::Canvas
@@ -922,7 +935,13 @@ pub fn export_project_with_config(
         options.audio,
         Some(effective_cfg),
     )?;
-    let package = assemble_with_config(project, &prepared, &options.size, Some(effective_cfg))?;
+    let package = assemble_with_config(
+        project,
+        &prepared,
+        &options.size,
+        Some(effective_cfg),
+        wrapper,
+    )?;
     write_package(output_dir, &package.files, &project.name, "project")
 }
 
@@ -981,7 +1000,7 @@ pub fn export_desktop_app(
         options.audio,
         Some(&app_config),
     )?;
-    let package = assemble_with_config(project, &prepared, &options.size, Some(&app_config))?;
+    let package = assemble_with_config(project, &prepared, &options.size, Some(&app_config), None)?;
     fs::create_dir_all(&macos_dir)?;
     fs::create_dir_all(&web_dir)?;
     write_package(&web_dir, &package.files, &project.name, "project")?;
@@ -1133,7 +1152,7 @@ pub fn estimate_publish_options_cancellable_with_config(
     } else {
         None
     };
-    let package = assemble_with_config(project, &prepared, &options.size, Some(config))?;
+    let package = assemble_with_config(project, &prepared, &options.size, Some(config), None)?;
     measure(
         options.size,
         &package,
@@ -1268,7 +1287,6 @@ pub(crate) struct Prepared {
 /// An assembled package: files in write order (index.html last) and what went into them.
 pub(crate) struct Package {
     pub(crate) files: Vec<(String, Vec<u8>)>,
-    pub(crate) script_srcs: Vec<String>,
     pub(crate) level: SizeLevel,
     pub(crate) omitted: Vec<&'static str>,
     pub(crate) wasm_bytes: usize,
@@ -1690,7 +1708,7 @@ pub(crate) fn assemble(
     prepared: &Prepared,
     level: &SizeLevel,
 ) -> Result<Package, ExportError> {
-    assemble_with_config(project, prepared, level, None)
+    assemble_with_config(project, prepared, level, None, None)
 }
 
 pub(crate) fn assemble_with_config(
@@ -1698,6 +1716,7 @@ pub(crate) fn assemble_with_config(
     prepared: &Prepared,
     level: &SizeLevel,
     config: Option<&HtmlPublishConfig>,
+    wrapper: Option<&str>,
 ) -> Result<Package, ExportError> {
     let shared_url = match level {
         SizeLevel::Shared(url) => {
@@ -2101,18 +2120,6 @@ pub(crate) fn assemble_with_config(
     scripts.push("bundle.js".to_owned());
     scripts.extend(modules.iter().map(|(file, _)| runtime_src(file)));
     scripts.push(runtime_src("runtime.js"));
-    let a11y_overlay_html = html::render_accessibility_overlay_nodes_html(
-        &html::collect_project_accessibility_items(&effective_published),
-    );
-    let html = html_document_with_config(
-        &title,
-        project.width,
-        project.height,
-        &prepared.fonts.css_rules,
-        &scripts,
-        a11y_overlay_html.trim(),
-        effective_config,
-    );
     let readme = format!(
         "{} — NeoFlash HTML5 export\n\n{}\nThe player and embedded project data need no plugins, SWF or build tools.\nExternal HTTP(S) requests, if used by your scripts, need reachable servers and browser CORS permission. Embedded resources work offline; local filesystem URLs are not a network fallback.\n\nPublishing notes:\n{}\n\nUse scripts in Actions only from authors you trust: JavaScript executes in the browser.\n",
         project.name,
@@ -2218,8 +2225,31 @@ pub(crate) fn assemble_with_config(
         &module_runtime_files,
         config.is_some_and(|c| !c.minify),
     )?;
+    let project_json = serde_json::to_string(&effective_published)?;
     let include_html = config.map(|c| c.include_html).unwrap_or(true);
     if include_html {
+        let html = if let Some(template) = wrapper {
+            render_custom_html_wrapper(
+                template,
+                project,
+                &scripts,
+                &project_json,
+                &prepared.fonts.css_rules,
+            )?
+        } else {
+            let a11y_overlay_html = html::render_accessibility_overlay_nodes_html(
+                &html::collect_project_accessibility_items(&effective_published),
+            );
+            html_document_with_config(
+                &title,
+                project.width,
+                project.height,
+                &prepared.fonts.css_rules,
+                &scripts,
+                a11y_overlay_html.trim(),
+                effective_config,
+            )
+        };
         files.push(("bundle.js".into(), bundle_js.into_bytes()));
         files.push((MODULE_FILE.into(), module_mjs.into_bytes()));
         files.push(("README.txt".into(), readme.into_bytes()));
@@ -2236,7 +2266,6 @@ pub(crate) fn assemble_with_config(
         .iter()
         .map(|resource| resource.data_base64.as_ref())
         .collect();
-    let project_json = serde_json::to_string(&effective_published)?;
     let content_bytes = project_json.len().saturating_sub(resources.len());
     let script_text: String = ships_program
         .then_some(effective_program_code.as_str())
@@ -2269,7 +2298,6 @@ pub(crate) fn assemble_with_config(
     ];
     Ok(Package {
         files,
-        script_srcs: scripts,
         level: level.clone(),
         omitted: omitted.keys().copied().collect(),
         wasm_bytes: if shared_url.is_some() {

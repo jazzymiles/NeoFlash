@@ -2982,13 +2982,11 @@ fn build_html_publish_config(
                 .map_err(|e| CliError::usage("invalid_argument", e))
         })
         .transpose()?;
-    let custom = spec.clean
+    let host_override = spec.clean
         || spec.scale_mode.is_some()
         || spec.stage_align.is_some()
         || spec.allow_fullscreen.is_some()
-        || parsed_render_mode.is_some()
-        || spec.sprite_sheets
-        || spec.assets_folder;
+        || parsed_render_mode.is_some();
     let mut cfg = if spec.clean || clean_base {
         HtmlPublishConfig::clean_publish_default()
     } else {
@@ -3012,7 +3010,7 @@ fn build_html_publish_config(
     if spec.assets_folder {
         cfg.assets_folder = true;
     }
-    Ok((cfg, custom))
+    Ok((cfg, host_override))
 }
 
 fn fla_report_json(report: &FlaCompatibilityReport) -> Value {
@@ -3335,7 +3333,7 @@ pub(crate) fn export_project_with_spec(
                 overridden_project = Some(cloned);
             }
             let effective_project = overridden_project.as_ref().unwrap_or(project);
-            let (mut cfg, custom_cfg) = build_html_publish_config(spec, false)?;
+            let (mut cfg, host_override) = build_html_publish_config(spec, false)?;
             if explicit_render_mode.is_none()
                 && cfg.render_mode == neoflash_core::HtmlRenderMode::Canvas
                 && profile.render_mode != neoflash_core::HtmlRenderMode::Canvas
@@ -3349,20 +3347,23 @@ pub(crate) fn export_project_with_spec(
             } else {
                 effective_project.html_render_mode()
             };
-            let use_custom_cfg = custom_cfg
+            let use_custom_cfg = (host_override || spec.sprite_sheets || spec.assets_folder)
                 && !(explicit_render_mode == Some(neoflash_core::HtmlRenderMode::Canvas)
                     && cfg == HtmlPublishConfig::default());
             let index = if use_custom_cfg {
-                neoflash_export::export_project_with_config(
+                let wrapper = profile.html_template.as_deref().filter(|_| !host_override);
+                neoflash_export::export_project_with_config_and_wrapper(
                     effective_project,
                     &spec.out,
                     &runtime_dir,
                     &profile.options,
                     &cfg,
+                    wrapper,
                 )
-            } else if spec.profile.is_some()
-                || profile.html_template.is_some()
-                || profile.render_mode != neoflash_core::HtmlRenderMode::Canvas
+            } else if !host_override
+                && (spec.profile.is_some()
+                    || profile.html_template.is_some()
+                    || profile.render_mode != neoflash_core::HtmlRenderMode::Canvas)
             {
                 export_project_with_profile(effective_project, &spec.out, &runtime_dir, &profile)
             } else {

@@ -2,6 +2,12 @@
 
 NeoFlash publishes an authored stage using the shared Rust/WASM timeline engine with Canvas or Web App · DOM rendering. Both modes expose placement metadata to browser accessibility APIs; DOM mode also provides native text and form controls. See the [compatibility matrix](COMPATIBILITY.md) for layout and rendering limits.
 
+## Custom HTML publish profiles
+
+A publish profile can supply an HTML wrapper. Place `$TITLE` in the title element and `$PROJECT_JSON` inside a `<script type="application/json">` element. NeoFlash expands tokens only where they appear in the template. The published title and decoded JSON preserve authored text, including literal `$WIDTH` and `</script>`.
+
+The export CLI and the headless editor retain the profile wrapper when you add an assets folder or pack a sprite sheet. Its script URLs and embedded project JSON follow the published files. Use `--clean` for the generated player page. An explicit `--render-mode canvas` also selects the generated Canvas page, including for projects saved in DOM mode.
+
 ## Describe an object
 
 Select an object or symbol instance and open the **Accessibility** panel. Enable **Expose this object to assistive technology**, then provide a short meaningful name, an optional description and a role:

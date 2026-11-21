@@ -171,6 +171,8 @@ fn document_sessions_preserve_selection_history_views_and_independent_recovery()
     let source_dir = dir.join("authored-import");
     std::fs::create_dir_all(&source_dir).unwrap();
     let source = source_dir.join("DOMDocument.xml");
+    let marker = source_dir.join("artwork.xfl");
+    std::fs::write(&marker, b"PROXY-CS5\n").unwrap();
     let xml = r#"<DOMDocument platform="Windows" width="120" height="80" frameRate="24"><timelines><DOMTimeline name="Scene 1"><layers><DOMLayer name="Artwork"><frames><DOMFrame index="0" duration="1"><elements><DOMRectangleObject objectWidth="10" objectHeight="10"/></elements></DOMFrame></frames></DOMLayer></layers></DOMTimeline></timelines></DOMDocument>"#;
     std::fs::write(&source, xml).unwrap();
     let previous_index = editor.active_session;
@@ -196,10 +198,15 @@ fn document_sessions_preserve_selection_history_views_and_independent_recovery()
     assert_eq!(editor.output, previous_output);
     assert!(editor.import_source.is_none());
     let source_alias = source_dir.join(".").join("DOMDocument.xml");
-    assert!(editor.try_open_path(source_alias.clone(), &ctx));
-    assert_eq!(editor.active_session, imported_index);
-    assert_eq!(editor.session_count(), imported_count);
-    assert_eq!(editor.project, edited_import);
+    for alias in [&marker, &source_dir, &source_alias] {
+        assert!(editor.try_open_path(alias.clone(), &ctx));
+        assert_eq!(editor.active_session, imported_index);
+        assert_eq!(editor.session_count(), imported_count);
+        assert_eq!(editor.project, edited_import);
+    }
+    let invalid_marker = source_dir.join("invalid.xfl");
+    std::fs::write(&invalid_marker, b"invalid").unwrap();
+    assert!(editor.session_for_open_path(&invalid_marker).is_none());
     editor.undo();
     assert_eq!(editor.project, imported);
     editor.redo();

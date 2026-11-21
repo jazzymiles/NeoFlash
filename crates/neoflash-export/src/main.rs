@@ -268,7 +268,7 @@ where
         .and_then(|p| p.parent())
         .filter(|p| !p.as_os_str().is_empty())
         .map(std::path::Path::to_path_buf);
-    let project = if demo {
+    let mut project = if demo {
         Project::demo()
     } else {
         let path = source.ok_or("Supply a project or --demo")?;
@@ -569,6 +569,10 @@ where
     }
     if let Some(rm) = render_mode {
         active_profile.render_mode = rm;
+        // Canvas is also the config default, which otherwise inherits a saved DOM mode.
+        if rm == HtmlRenderMode::Canvas && project.html_render_mode() != rm {
+            project.set_html_render_mode(rm);
+        }
     }
 
     let mut cli_out = CliRunOutput {
@@ -602,15 +606,13 @@ where
     }
 
     let options = active_profile.options.clone();
-    let has_custom_html_cfg = clean
+    let host_override = clean
         || preview
         || scale_mode.is_some()
         || stage_align.is_some()
         || allow_fullscreen.is_some()
-        || render_mode.is_some()
-        || pack_sprite_sheets
-        || assets_folder;
-    let index = if has_custom_html_cfg {
+        || render_mode.is_some();
+    let index = if host_override || pack_sprite_sheets || assets_folder {
         let mut cfg = if clean {
             HtmlPublishConfig::clean_publish_default()
         } else if preview {
@@ -638,7 +640,13 @@ where
         if assets_folder {
             cfg.assets_folder = true;
         }
-        neoflash_export::export_project_with_config(&project, &output, &runtime, &options, &cfg)?
+        let wrapper = active_profile
+            .html_template
+            .as_deref()
+            .filter(|_| !host_override);
+        neoflash_export::export_project_with_config_and_wrapper(
+            &project, &output, &runtime, &options, &cfg, wrapper,
+        )?
     } else if import_profile_path.is_some()
         || profile_selector.is_some()
         || active_profile.html_template.is_some()
@@ -787,6 +795,78 @@ mod tests {
             assert!(estimate.initial_html_js_wasm_bytes > 0);
             assert!(sub_out.join("network-simulation.json").is_file());
         }
+
+        // Asset layout changes the package without taking ownership of the profile's HTML.
+        custom_profile.options.audio = AudioExportPolicy::Original;
+        custom_profile.html_template = Some(
+            "<title>Profile:$TITLE</title>$RUNTIME_SCRIPT<canvas id='stage'></canvas><script type='application/json' id='published'>$PROJECT_JSON</script>".into(),
+        );
+        fs::write(
+            &exported_profile_json_path,
+            export_profile_json(&custom_profile).unwrap(),
+        )
+        .unwrap();
+        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/midnight-express.nflash");
+        let assets = tmp.join("profile-assets");
+        run_with_args([
+            source.to_str().unwrap(),
+            "--import-profile",
+            exported_profile_json_path.to_str().unwrap(),
+            "--size-level",
+            "shared",
+            "--runtime-url",
+            "../player",
+            "--assets-folder",
+            "--pack-sprite-sheet",
+            "--runtime",
+            rt_dir.to_str().unwrap(),
+            "--output",
+            assets.to_str().unwrap(),
+        ])
+        .unwrap();
+        let html = fs::read_to_string(assets.join("index.html")).unwrap();
+        assert!(html.contains("<title>Profile:"));
+        assert!(html.contains("src=\"../player/runtime.js\""));
+        assert!(html.contains("src=\"bundle.js\""));
+        let (_, block) = html.split_once("id='published'>").unwrap();
+        let (payload, _) = block.split_once("</script>").unwrap();
+        let embedded: serde_json::Value = serde_json::from_str(payload).unwrap();
+        let raw = fs::read_to_string(assets.join("bundle.js")).unwrap();
+        let json = raw
+            .strip_prefix("globalThis.NeoFlashBundle = ")
+            .unwrap()
+            .strip_suffix(";\n")
+            .unwrap();
+        let bundle: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert_eq!(embedded, bundle["project"]);
+        assert_eq!(
+            bundle["sprite_sheet"]["image_url"],
+            "assets/sprite_sheet.png"
+        );
+        assert!(assets.join("assets/sprite_sheet.png").is_file());
+        let audio_url = bundle["asset_urls"]["audio/whistle.wav"].as_str().unwrap();
+        assert!(audio_url.starts_with("assets/") && assets.join(audio_url).is_file());
+
+        project.set_html_render_mode(HtmlRenderMode::Dom);
+        fs::write(&proj_path, project.to_json().unwrap()).unwrap();
+        let canvas_out = tmp.join("canvas");
+        run_with_args([
+            proj_path.to_str().unwrap(),
+            "--render-mode",
+            "canvas",
+            "--size-level",
+            "full",
+            "--runtime",
+            rt_dir.to_str().unwrap(),
+            "--output",
+            canvas_out.to_str().unwrap(),
+        ])
+        .unwrap();
+        let html = fs::read_to_string(canvas_out.join("index.html")).unwrap();
+        assert!(html.contains("<canvas id=\"stage\""));
+        assert!(!html.contains("<title>Profile:"));
+        assert!(!html.contains("<neoflash-stage"));
 
         let _ = fs::remove_dir_all(tmp);
     }

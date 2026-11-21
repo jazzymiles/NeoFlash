@@ -257,10 +257,16 @@ fn render(
     )
 }
 
-fn labelled(output: &egui::FullOutput, label: &str) -> Option<egui::Pos2> {
+fn labelled(
+    output: &egui::FullOutput,
+    label: &str,
+    role: Option<egui::accesskit::Role>,
+) -> Option<egui::Pos2> {
     let update = output.platform_output.accesskit_update.as_ref()?;
     update.nodes.iter().find_map(|(_, node)| {
-        let bounds = node.bounds().filter(|_| node.label() == Some(label))?;
+        let bounds = node.bounds().filter(|_| {
+            node.label() == Some(label) && role.is_none_or(|role| node.role() == role)
+        })?;
         Some(egui::pos2(
             ((bounds.x0 + bounds.x1) / 2.) as f32,
             ((bounds.y0 + bounds.y1) / 2.) as f32,
@@ -271,6 +277,7 @@ fn labelled(output: &egui::FullOutput, label: &str) -> Option<egui::Pos2> {
 #[test]
 fn sound_button_menu_and_properties_section_are_wired() {
     use crate::tests::primary_button;
+    use egui::accesskit::Role;
     let ctx = egui::Context::default();
     ctx.enable_accesskit();
     let mut editor = editor_in(&ctx);
@@ -293,13 +300,15 @@ fn sound_button_menu_and_properties_section_are_wired() {
     };
     let out = step(&mut editor, vec![]);
     assert!(
-        labelled(&out, "Repeat count").is_none(),
+        labelled(&out, "Repeat count", None).is_none(),
         "no Sound section without a frame sound"
     );
-    let button = labelled(&out, "Sound").expect("timeline Sound button");
+    let button = labelled(&out, "Sound", Some(Role::Button)).expect("timeline Sound button");
     let out = click(&mut step, &mut editor, button);
-    assert!(labelled(&out, "Import sound…").is_some());
-    let item = labelled(&out, "audio/beep.wav").expect("library sound in the menu");
+    assert!(labelled(&out, "Import sound…", Some(Role::Button)).is_some());
+    // The Library tree item and the open menu button have the same accessible name.
+    let item =
+        labelled(&out, "audio/beep.wav", Some(Role::Button)).expect("library sound in the menu");
     click(&mut step, &mut editor, item);
     assert_eq!(editor.frame_sound(), Some((3, FrameSound::new("beep"))));
     let mut out = step(&mut editor, vec![]);
@@ -308,7 +317,7 @@ fn sound_button_menu_and_properties_section_are_wired() {
     }
     for label in ["Envelope…", "Repeat count", "Play", "Sound properties…"] {
         assert!(
-            labelled(&out, label).is_some(),
+            labelled(&out, label, None).is_some(),
             "Properties ▸ Sound shows {label}"
         );
     }

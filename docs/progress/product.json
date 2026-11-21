@@ -2000,7 +2000,7 @@
         },
         {
           "id": "publish-profiles-network-sim",
-          "title": "Publish profiles (duplicate, JSON import/export) and network startup simulator (Fast 3G, Slow 3G, Cable, Offline local) in Publish settings and CLI",
+          "title": "Duplicate and exchange publish profiles, preserve authored text in custom HTML wrappers and simulate network startup in Publish settings and CLI",
           "status": "working"
         },
         {
@@ -3725,7 +3725,7 @@
         },
         {
           "id": "file-change-detection",
-          "title": "Surface Modified, Replaced and Deleted file conflicts with safe Reload, Keep editing and Save As actions",
+          "title": "Resolve file conflicts, including recreation after an acknowledged deletion, with Reload, Keep editing or Save As",
           "status": "working"
         },
         {

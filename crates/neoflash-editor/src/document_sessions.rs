@@ -4,6 +4,7 @@ use eframe::egui::{self, Vec2};
 use neoflash_core::{History, ObjectEvent, Project};
 use std::cell::Cell;
 use std::hash::{Hash, Hasher};
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -214,8 +215,7 @@ macro_rules! document_state {
             }
             #[cfg_attr(not(test), allow(dead_code))]
             pub(crate) fn keep_editing_external_change(&mut self) {
-                let path = self.tracked_disk_path().map(Path::to_path_buf);
-                self.recovery.acknowledge_external_change(path.as_deref());
+                self.recovery.acknowledge_external_change();
                 self.saved_project = None;
             }
             #[cfg_attr(not(test), allow(dead_code))]
@@ -797,13 +797,21 @@ pub(crate) fn same_path(a: &Path, b: &Path) -> bool {
 
 fn canonical_open_identity(path: &Path) -> PathBuf {
     let canon = crate::recovery::canonical_or_normalized_path(path);
-    if canon
+    let is_dom = canon
         .file_name()
-        .and_then(|s| s.to_str())
-        .is_some_and(|name| name.eq_ignore_ascii_case("DOMDocument.xml"))
+        .is_some_and(|name| name.eq_ignore_ascii_case("DOMDocument.xml"));
+    let is_marker = canon
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("xfl"))
+        && canon.is_file()
+        && std::fs::File::open(&canon).is_ok_and(|mut file| {
+            let mut header = [0; 9];
+            file.read_exact(&mut header).is_ok() && &header == b"PROXY-CS5"
+        });
+    if (is_dom || is_marker)
         && let Some(parent) = canon.parent()
     {
-        return parent.to_path_buf();
+        return parent.to_owned();
     }
     canon
 }

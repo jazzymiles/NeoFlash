@@ -537,7 +537,7 @@ Publishing websites, apps, games and animation; JS/TS and the browser runtime.
 - Working: Configure publish-time audio compression in Publish settings, Preferences and per-resource Sound properties
 - Working: Export project, scene or symbol to MP4, WebM, MOV, GIF or PNG sequence and publish Video (MP4) in Publish settings
 - Working: Export frames as SVG (--svg) and animations/bitmaps as Texture Atlases (File ▸ Export ▸ Export Texture Atlas…, --atlas) in JSON-Hash, JSON-Array, Starling XML, EaselJS or CSS format with PNG/WebP/JPEG, POT, extrude, trim and multi-page packing
-- Working: Publish profiles (duplicate, JSON import/export) and network startup simulator (Fast 3G, Slow 3G, Cable, Offline local) in Publish settings and CLI
+- Working: Duplicate and exchange publish profiles, preserve authored text in custom HTML wrappers and simulate network startup in Publish settings and CLI
 - Working: Playable AS2 and AS3 Snake, Arkanoid and Tetris .nflash example games verified through script compilation, HTML5 export and WASM execution
 - Working: Export image dialog for single frames and manual/scripted frame sequences inside a project-named folder
 - Working: HTML5 Stage scaleMode, nine-anchor Stage.align, fullscreen toggle/API and high-DPI pointer hit-testing
@@ -1012,7 +1012,7 @@ Project format, macOS, verification, accessibility and application delivery.
 - Working: Save/Discard/Cancel with work preserved on cancellation or failure
 - Working: Autosave
 - Working: Crash recovery
-- Working: Surface Modified, Replaced and Deleted file conflicts with safe Reload, Keep editing and Save As actions
+- Working: Resolve file conflicts, including recreation after an acknowledged deletion, with Reload, Keep editing or Save As
 - Working: Restore the previous document tab set on relaunch
 
 **Scope:** Close, Close all and macOS Quit activate dirty documents in tab order for Save/Discard/Cancel; earlier discard decisions take effect only after the whole sequence is approved. Cancel and failed Save leave the prompted document active with all earlier work and recovery intact. New/Open/Import create accessible tabs and preserve existing work; opening the same native/imported source activates its current tab. When On launch is set to Previous session, NeoFlash validates and restores the saved multi-tab document set and active tab on relaunch without duplicating recovered documents or suppressing crash-recovery prompts. Periodic autosave writes dirty documents atomically to `<app_support>/Recovery` every configured N minutes, cleans recovery on save/discard/normal quit and offers Restore/Discard at launch. Each restored copy opens independently; a path conflict creates an unnamed durable copy, and unanswered candidates survive Quit. Failed loading and cancelled pickers preserve existing documents; failed save formatting rolls back and successful formatting is one Undo step. Throttled file fingerprints surface per-tab Modified, Replaced or Deleted conflicts for active and inactive documents. Reload validates before replacing memory, Keep editing preserves the document, Save As preserves both versions, and ordinary Save is guarded against overwriting a conflicting disk state.

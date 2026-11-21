@@ -335,8 +335,6 @@ pub(crate) struct RecoveryManager {
     dirty_anchor_secs: Option<f64>,
     /// Crash-recovery snapshots awaiting a user `Restore` / `Discard` decision.
     prompts: VecDeque<RecoveryCandidate>,
-    /// Last known on-disk modification timestamp (seconds) for the active document path.
-    last_disk_mtime_secs: Option<u64>,
     /// Monotonic editor time of the last automatic external-file fingerprint poll. Explicit Save
     /// guards and user-requested checks bypass this throttle.
     last_disk_poll_secs: Option<f64>,
@@ -349,14 +347,10 @@ pub(crate) struct RecoveryManager {
     conflict_stamp: Option<DiskFileStamp>,
     /// Metadata-only fingerprint corresponding to `conflict_stamp`.
     conflict_metadata_stamp: Option<DiskMetadataStamp>,
-    /// Whether the tracked path existed on disk when baselined (distinguishes deleted files from new paths).
-    had_disk_baseline: bool,
     /// Whether the user already chose `Keep editing` after the file was deleted on disk.
     acknowledged_deleted: bool,
     /// Current unacknowledged external change for this document session.
     external_change: Option<ExternalFileChange>,
-    /// Whether an external modification to the active file on disk has been detected.
-    external_change_detected: bool,
     /// Whether the modal external-change confirmation dialog is open for this session.
     external_prompt_open: bool,
 }
@@ -370,16 +364,13 @@ impl Default for RecoveryManager {
             active_id,
             dirty_anchor_secs: None,
             prompts: VecDeque::new(),
-            last_disk_mtime_secs: None,
             last_disk_poll_secs: None,
             disk_stamp: None,
             disk_metadata_stamp: None,
             conflict_stamp: None,
             conflict_metadata_stamp: None,
-            had_disk_baseline: false,
             acknowledged_deleted: false,
             external_change: None,
-            external_change_detected: false,
             external_prompt_open: false,
         }
     }
@@ -483,13 +474,14 @@ impl RecoveryManager {
     pub(crate) fn sync_disk_baseline(&mut self, path: Option<&Path>) {
         self.disk_stamp = path.and_then(DiskFileStamp::capture);
         self.disk_metadata_stamp = path.and_then(DiskMetadataStamp::capture);
+        self.acknowledged_deleted = false;
+        self.clear_external_conflict();
+    }
+
+    fn clear_external_conflict(&mut self) {
         self.conflict_stamp = None;
         self.conflict_metadata_stamp = None;
-        self.had_disk_baseline = self.disk_stamp.is_some();
-        self.acknowledged_deleted = false;
-        self.last_disk_mtime_secs = self.disk_stamp.as_ref().map(|s| s.mtime_secs);
         self.external_change = None;
-        self.external_change_detected = false;
         self.external_prompt_open = false;
     }
 
@@ -507,18 +499,16 @@ impl RecoveryManager {
         due
     }
 
-    /// Acknowledge the current external change (`Keep editing` / `Ignore`) and re-baseline to disk.
-    pub(crate) fn acknowledge_external_change(&mut self, path: Option<&Path>) {
-        self.disk_stamp = path.and_then(DiskFileStamp::capture);
-        self.disk_metadata_stamp = path.and_then(DiskMetadataStamp::capture);
-        self.conflict_stamp = None;
-        self.conflict_metadata_stamp = None;
-        self.had_disk_baseline = path.is_some();
-        self.acknowledged_deleted = path.is_some() && self.disk_stamp.is_none();
-        self.last_disk_mtime_secs = self.disk_stamp.as_ref().map(|s| s.mtime_secs);
-        self.external_change = None;
-        self.external_change_detected = false;
-        self.external_prompt_open = false;
+    /// Adopt the version reported to the user. A newer write while the prompt is open still
+    /// needs its own decision, even if it occurs before the next poll.
+    pub(crate) fn acknowledge_external_change(&mut self) {
+        let Some(change) = self.external_change else {
+            return;
+        };
+        self.disk_stamp = self.conflict_stamp.take();
+        self.disk_metadata_stamp = self.conflict_metadata_stamp.take();
+        self.acknowledged_deleted = change == ExternalFileChange::Deleted;
+        self.clear_external_conflict();
     }
 
     /// Inspect `path` on disk against the stored baseline.
@@ -556,67 +546,31 @@ impl RecoveryManager {
                 })
                 && full_reference_complete
             {
-                self.last_disk_mtime_secs = Some(current_metadata.mtime_secs);
                 return None;
             }
         }
 
-        match DiskFileStamp::capture(path) {
-            Some(current) => {
-                self.last_disk_mtime_secs = Some(current.mtime_secs);
-                let Some(baseline) = &self.disk_stamp else {
-                    if self.acknowledged_deleted {
-                        // A previously deleted file was recreated on disk.
-                        self.acknowledged_deleted = false;
-                        self.had_disk_baseline = true;
-                        let change = ExternalFileChange::Replaced;
-                        let is_new = self.external_change != Some(change)
-                            || self.conflict_stamp.as_ref() != Some(&current);
-                        self.conflict_stamp = Some(current);
-                        self.conflict_metadata_stamp = current_metadata;
-                        self.external_change = Some(change);
-                        self.external_change_detected = true;
-                        return is_new.then_some(change);
-                    }
-                    self.disk_stamp = Some(current);
-                    self.disk_metadata_stamp = current_metadata;
-                    self.had_disk_baseline = true;
-                    return None;
-                };
-                match baseline.classify_change(&current) {
-                    Some(change) => {
-                        let is_new = self.external_change != Some(change)
-                            || self.conflict_stamp.as_ref() != Some(&current);
-                        self.conflict_stamp = Some(current);
-                        self.conflict_metadata_stamp = current_metadata;
-                        self.external_change = Some(change);
-                        self.external_change_detected = true;
-                        is_new.then_some(change)
-                    }
-                    None => {
-                        self.disk_stamp = Some(current);
-                        self.disk_metadata_stamp = current_metadata;
-                        self.conflict_stamp = None;
-                        self.conflict_metadata_stamp = None;
-                        self.external_change = None;
-                        self.external_change_detected = false;
-                        self.external_prompt_open = false;
-                        None
-                    }
-                }
-            }
-            None => {
-                if !self.had_disk_baseline || self.acknowledged_deleted {
-                    return None;
-                }
-                let change = ExternalFileChange::Deleted;
-                let is_new = self.external_change != Some(change) || self.conflict_stamp.is_some();
-                self.conflict_stamp = None;
-                self.conflict_metadata_stamp = None;
-                self.external_change = Some(change);
-                self.external_change_detected = true;
-                is_new.then_some(change)
-            }
+        let current = DiskFileStamp::capture(path);
+        let change = match (&self.disk_stamp, &current) {
+            (Some(baseline), Some(current)) => baseline.classify_change(current),
+            (Some(_), None) => Some(ExternalFileChange::Deleted),
+            (None, Some(_)) if self.acknowledged_deleted => Some(ExternalFileChange::Replaced),
+            _ => None,
+        };
+
+        if let Some(change) = change {
+            // Remember the observation for notifications. Only an explicit decision may adopt
+            // a conflicting file as the baseline, even when the previous baseline was absent.
+            let is_new = self.external_change != Some(change) || self.conflict_stamp != current;
+            self.conflict_stamp = current;
+            self.conflict_metadata_stamp = current_metadata;
+            self.external_change = Some(change);
+            is_new.then_some(change)
+        } else {
+            self.disk_stamp = current;
+            self.disk_metadata_stamp = current_metadata;
+            self.clear_external_conflict();
+            None
         }
     }
 
@@ -1273,8 +1227,7 @@ impl Editor {
         if !self.has_document() {
             return false;
         }
-        let path = self.tracked_disk_path().map(Path::to_path_buf);
-        self.recovery.acknowledge_external_change(path.as_deref());
+        self.recovery.acknowledge_external_change();
         self.saved_project = None;
         self.message("Kept current edits in memory; external disk change ignored.");
         true
@@ -1354,8 +1307,9 @@ impl Editor {
             .as_deref()
             .is_some_and(|existing| crate::document_sessions::same_path(existing, &normalized))
         {
-            self.recovery
-                .acknowledge_external_change(tracked.as_deref());
+            // The user confirmed the current destination in Save As.
+            self.recovery.check_disk_change(tracked.as_deref());
+            self.recovery.acknowledge_external_change();
             self.saved_project = None;
         }
         self.save_to_path(normalized)
@@ -2751,6 +2705,40 @@ mod tests {
         assert!(editor.has_external_change_prompt());
         let (_, _, can_reload) = editor.external_change_prompt_summary().unwrap();
         assert!(!can_reload, "Deleted file cannot offer Reload");
+
+        editor.transact(|e| e.project.name = "LocalEdits".into());
+        ext_proj.name = "RecreatedExternally".into();
+        let recreated = ext_proj.to_json().unwrap();
+        // The deletion dialog still describes an absent file when the replacement arrives.
+        std::fs::write(&path, &recreated).unwrap();
+        assert!(editor.keep_editing_external_change());
+        assert!(!editor.save(false));
+        assert_eq!(
+            editor.external_file_change(),
+            Some(ExternalFileChange::Replaced)
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), recreated);
+
+        // A replacement that appears after acknowledgement also requires its own decision.
+        std::fs::remove_file(&path).unwrap();
+        assert!(!editor.check_external_modification());
+        std::fs::write(&path, &recreated).unwrap();
+        assert!(editor.check_external_modification());
+        for _ in 0..3 {
+            assert!(!editor.save(false));
+            assert_eq!(
+                editor.external_file_change(),
+                Some(ExternalFileChange::Replaced)
+            );
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), recreated);
+        }
+        assert!(editor.dirty());
+        // Removal of that replacement returns us to the already acknowledged absent baseline.
+        std::fs::remove_file(&path).unwrap();
+        assert!(!editor.check_external_modification());
+        assert!(editor.save(false));
+        let saved = Project::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(saved.name, "LocalEdits");
     }
 
     #[test]
@@ -2813,10 +2801,11 @@ mod tests {
             Some(ExternalFileChange::Modified)
         );
 
-        // A monotonic-clock rewind re-arms polling instead of suppressing it indefinitely.
-        assert!(editor.keep_editing_external_change());
+        // This revision lands while the earlier Modified prompt is visible. A monotonic-clock
+        // rewind re-arms polling and surfaces it after the first revision is acknowledged.
         external.name = "AfterClockRewind".into();
         std::fs::write(&path, external.to_json().unwrap()).unwrap();
+        assert!(editor.keep_editing_external_change());
         let _ = editor.tick_autosave(1.0, 1_700_000_011);
         assert_eq!(
             editor.external_file_change(),

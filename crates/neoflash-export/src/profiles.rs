@@ -441,16 +441,40 @@ pub fn render_custom_html_wrapper(
         )
     };
 
-    let out = template
-        .replace("$TITLE", &title)
-        .replace("$WIDTH", &width)
-        .replace("$HEIGHT", &height)
-        .replace("$BG", &bg)
-        .replace("$FPS", &fps)
-        .replace("$SCRIPT_BUNDLE", &bundle_tags)
-        .replace("$RUNTIME_SCRIPT", &runtime_tag)
-        .replace("$PROJECT_JSON", project_json)
-        .replace("$FONT_CSS", font_css);
+    // A JSON script block is raw text in HTML. Escaping '<' retains the JSON value and
+    // keeps authored markup inside that block, including a literal closing script tag.
+    let script_json = if template.contains("$PROJECT_JSON") && project_json.contains('<') {
+        std::borrow::Cow::Owned(project_json.replace('<', r"\u003c"))
+    } else {
+        std::borrow::Cow::Borrowed(project_json)
+    };
+    let replacements = [
+        ("TITLE", title.as_str()),
+        ("WIDTH", &width),
+        ("HEIGHT", &height),
+        ("BG", &bg),
+        ("FPS", &fps),
+        ("SCRIPT_BUNDLE", &bundle_tags),
+        ("RUNTIME_SCRIPT", &runtime_tag),
+        ("PROJECT_JSON", script_json.as_ref()),
+        ("FONT_CSS", font_css),
+    ];
+    // Only expand tokens from the template. Project names, scripts and resource text may
+    // themselves contain dollars or token names, which are authored data.
+    let mut pieces = template.split('$');
+    let mut out = String::from(pieces.next().unwrap_or_default());
+    for piece in pieces {
+        if let Some((value, tail)) = replacements
+            .iter()
+            .find_map(|(name, value)| piece.strip_prefix(name).map(|tail| (*value, tail)))
+        {
+            out.push_str(value);
+            out.push_str(tail);
+        } else {
+            out.push('$');
+            out.push_str(piece);
+        }
+    }
 
     Ok(out)
 }
@@ -483,27 +507,13 @@ pub fn export_project_with_profile(
         options.audio,
         dom_cfg.as_ref(),
     )?;
-    let mut package =
-        crate::assemble_with_config(project, &prepared, &options.size, dom_cfg.as_ref())?;
-
-    if let Some(template) = &profile.html_template {
-        let project_json = serde_json::to_string(&prepared.published)?;
-        let custom_html = render_custom_html_wrapper(
-            template,
-            project,
-            &package.script_srcs,
-            &project_json,
-            &prepared.fonts.css_rules,
-        )?;
-        if let Some((_, bytes)) = package
-            .files
-            .iter_mut()
-            .find(|(name, _)| name == "index.html")
-        {
-            *bytes = custom_html.into_bytes();
-        }
-    }
-
+    let package = crate::assemble_with_config(
+        project,
+        &prepared,
+        &options.size,
+        dom_cfg.as_ref(),
+        profile.html_template.as_deref(),
+    )?;
     write_package(output_dir, &package.files, &project.name, "project")
 }
 
@@ -924,7 +934,7 @@ mod tests {
     #[test]
     fn custom_html_wrapper_substitutes_tokens_and_validates_runtime_hooks() {
         let mut project = Project::blank();
-        project.name = "Arcade <Hero>".into();
+        project.name = "Arcade <Hero> $WIDTH $RUNTIME_SCRIPT".into();
         project.width = 800;
         project.height = 600;
         project.fps = 60;
@@ -945,7 +955,8 @@ mod tests {
         .unwrap_err();
         assert!(err.to_string().contains("$RUNTIME_SCRIPT"));
 
-        let good_template = "<!doctype html><html><head><title>$TITLE ($FPS fps)</title>$SCRIPT_BUNDLE\n$RUNTIME_SCRIPT</head><body data-bg=\"$BG\"><canvas id=\"stage\" width=\"$WIDTH\" height=\"$HEIGHT\"></canvas><script type=\"application/json\" id=\"nf-proj\">$PROJECT_JSON</script></body></html>";
+        let good_template = "<!doctype html><html><head><title>$TITLE ($FPS fps)</title>$SCRIPT_BUNDLE\n$RUNTIME_SCRIPT</head><body data-bg=\"$BG\"><canvas id=\"stage\" width=\"$WIDTH\" height=\"$HEIGHT\"></canvas><script type=\"application/json\" id=\"nf-proj\">$PROJECT_JSON</script><p>$5 $UNKNOWN</p></body></html>";
+        let authored = serde_json::json!({"text": "金 € $FONT_CSS </ScRiPt> <tag>"});
         let rendered = render_custom_html_wrapper(
             good_template,
             &project,
@@ -954,17 +965,24 @@ mod tests {
                 "bundle.js".into(),
                 "runtime.js".into(),
             ],
-            "{\"ok\":true}",
-            "",
+            &authored.to_string(),
+            "body { font-family: sans-serif; }",
         )
         .expect("valid template renders");
-        assert!(rendered.contains("Arcade &lt;Hero&gt; (60 fps)"));
+        assert!(rendered.contains("Arcade &lt;Hero&gt; $WIDTH $RUNTIME_SCRIPT (60 fps)"));
         assert!(rendered.contains("width=\"800\" height=\"600\""));
         assert!(rendered.contains("data-bg=\"#123456\""));
         assert!(rendered.contains("<script defer src=\"neoflash_web.js\"></script>"));
         assert!(rendered.contains("<script defer src=\"bundle.js\"></script>"));
         assert!(rendered.contains("<script defer src=\"runtime.js\"></script>"));
-        assert!(rendered.contains("{\"ok\":true}"));
+        assert!(rendered.contains("<p>$5 $UNKNOWN</p>"));
+        let (_, block) = rendered.split_once("id=\"nf-proj\">").unwrap();
+        let (body, _) = block.split_once("</script>").unwrap();
+        assert!(!body.contains('<'));
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(body).unwrap(),
+            authored
+        );
     }
 
     #[test]

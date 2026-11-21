@@ -2179,17 +2179,33 @@ fn import_and_export_targets_roundtrip() {
 
     // 5. Export HTML5 (auto-resolving target/web-runtime when built)
     if import_export::resolve_web_runtime(None).is_ok() {
+        let mut profiled = Project::from_json(&fs::read_to_string(&svg_proj).unwrap()).unwrap();
+        let profile = neoflash_export::PublishProfile {
+            html_template: Some(
+                "<title>Custom host</title>$RUNTIME_SCRIPT<canvas id='stage'></canvas>".into(),
+            ),
+            ..Default::default()
+        };
+        neoflash_export::store_profiles_in_project(
+            &mut profiled,
+            std::slice::from_ref(&profile),
+            Some(&profile.id),
+        )
+        .unwrap();
+        let profiled_path = tmp.path.join("with_wrapper.nflash");
+        fs::write(&profiled_path, profiled.to_json().unwrap()).unwrap();
         let html_out = tmp.path.join("html5");
         let (code, stdout, stderr) = run_args(
             &[
                 "--headless",
                 "export",
                 "--project",
-                svg_proj.to_str().unwrap(),
+                profiled_path.to_str().unwrap(),
                 "--target",
                 "html5",
                 "--size-level",
                 "full",
+                "--assets-folder",
                 "--out",
                 html_out.to_str().unwrap(),
             ],
@@ -2198,7 +2214,11 @@ fn import_and_export_targets_roundtrip() {
         assert_eq!(code, 0, "stderr: {stderr}");
         let res: Value = serde_json::from_str(&stdout).unwrap();
         assert_eq!(res["ok"], true);
-        assert!(html_out.join("index.html").is_file());
+        assert!(
+            fs::read_to_string(html_out.join("index.html"))
+                .unwrap()
+                .contains("<title>Custom host</title>")
+        );
 
         let desktop_out = tmp.path.join("desktop");
         let (code, stdout, stderr) = run_args(
@@ -2248,7 +2268,7 @@ fn import_and_export_targets_roundtrip() {
                 "--headless",
                 "export",
                 "--project",
-                svg_proj.to_str().unwrap(),
+                profiled_path.to_str().unwrap(),
                 "--target",
                 "html5",
                 "--render-mode",
@@ -2263,6 +2283,7 @@ fn import_and_export_targets_roundtrip() {
         assert_eq!(dom_res["ok"], true);
         assert_eq!(dom_res["render_mode"], "dom");
         let dom_cli_html = fs::read_to_string(dom_cli_out.join("index.html")).unwrap();
+        assert!(!dom_cli_html.contains("<title>Custom host</title>"));
         assert!(dom_cli_html.contains("data-render-mode=\"dom\""));
         assert!(
             dom_cli_html.contains("<neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\"")
@@ -2296,12 +2317,10 @@ fn import_and_export_targets_roundtrip() {
                 .contains("<neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\"")
         );
 
-        // Explicit --render-mode canvas overrides a persisted Dom project setting
-        let mut dom_persisted =
-            Project::from_json(&fs::read_to_string(&svg_proj).unwrap()).unwrap();
-        dom_persisted.set_html_render_mode(neoflash_core::HtmlRenderMode::Dom);
+        // Explicit Canvas overrides both the saved DOM renderer and the profile's host.
+        profiled.set_html_render_mode(neoflash_core::HtmlRenderMode::Dom);
         let dom_proj_path = tmp.path.join("dom_persisted.nflash");
-        fs::write(&dom_proj_path, dom_persisted.to_json().unwrap()).unwrap();
+        fs::write(&dom_proj_path, profiled.to_json().unwrap()).unwrap();
         let canvas_override_out = tmp.path.join("html5_canvas_override");
         let (code, stdout, stderr) = run_args(
             &[
@@ -2323,6 +2342,8 @@ fn import_and_export_targets_roundtrip() {
         assert_eq!(override_res["render_mode"], "canvas");
         let canvas_override_html =
             fs::read_to_string(canvas_override_out.join("index.html")).unwrap();
+        assert!(canvas_override_html.contains("<canvas id=\"stage\""));
+        assert!(!canvas_override_html.contains("<title>Custom host</title>"));
         assert!(!canvas_override_html.contains("data-render-mode=\"dom\""));
         assert!(!canvas_override_html.contains("<neoflash-stage"));
 
