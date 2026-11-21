@@ -1010,7 +1010,7 @@ impl SwfParser {
                     Ok(())
                 }
             },
-            SwfToken::PlusPlus | SwfToken::MinusMinus => {
+            SwfToken::PlusPlus | SwfToken::MinusMinus | SwfToken::LParen => {
                 let stmt = self.parse_simple_assign_or_expr_stmt()?;
                 self.consume_optional_semi();
                 out.push(stmt);

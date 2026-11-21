@@ -2,9 +2,10 @@
 //! for `Loader.load` / `Loader.loadBytes` in HTML5/WASM.
 
 use neoflash_core::{
-    BlendMode, Color, ColorTransform, Element, ElementKind, FillRule, FrameScript, GradientKind,
-    GradientPaint, GradientSpread, GradientStop, Keyframe, Layer, LayerProperties, PathCommand,
-    Project, ResourceUnit, Script, ScriptLanguage, Symbol, SymbolKind, Timeline, Transform,
+    BlendMode, Color, ColorTransform, Element, ElementKind, FillRule, FilterSpec, FrameScript,
+    GradientKind, GradientPaint, GradientSpread, GradientStop, Keyframe, Layer, LayerProperties,
+    PathCommand, Project, ResourceUnit, Script, ScriptLanguage, Symbol, SymbolKind, Timeline,
+    Transform,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -144,6 +145,26 @@ impl<'a> BitReader<'a> {
 
     fn read_fixed8(&mut self) -> Result<f64, String> {
         Ok(f64::from(self.read_i16()?) / 256.0)
+    }
+
+    fn read_u32(&mut self) -> Result<u32, String> {
+        let lo = u32::from(self.read_u16()?);
+        let hi = u32::from(self.read_u16()?);
+        Ok(lo | (hi << 16))
+    }
+
+    fn read_i32(&mut self) -> Result<i32, String> {
+        Ok(self.read_u32()? as i32)
+    }
+
+    fn read_fixed16(&mut self) -> Result<f64, String> {
+        Ok(f64::from(self.read_i32()?) / 65536.0)
+    }
+
+    fn read_f32(&mut self) -> Result<f64, String> {
+        let v = f32::from_bits(self.read_u32()?);
+        let d = f64::from(v);
+        Ok(if d.is_finite() { d } else { 0.0 })
     }
 
     fn read_c_string(&mut self) -> Result<String, String> {
@@ -325,6 +346,9 @@ struct ActivePlacement {
     name: String,
     clip_depth: u16,
     visible: bool,
+    cache_as_bitmap: bool,
+    blend_mode: BlendMode,
+    filters: Vec<FilterSpec>,
 }
 
 pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
@@ -490,10 +514,6 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
         attach_compiled_frame_script(&mut ctx, &mut root_timeline, 0, &combined, "swf-initaction");
     }
 
-    if !ctx.abc_blocks.is_empty() {
-        apply_abc_scripts(&mut ctx, &mut root_timeline);
-    }
-
     for (&cid, linkage) in &ctx.export_assets {
         if let Some(sym_id) = ctx.char_symbols.get(&cid)
             && let Some(sym) = ctx.symbols.iter_mut().find(|s| &s.id == sym_id)
@@ -502,27 +522,9 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
             sym.linkage_id = Some(linkage.clone());
         }
     }
-    let sym_classes: Vec<(u16, String)> = ctx
-        .symbol_classes
-        .iter()
-        .map(|(&cid, name)| (cid, name.clone()))
-        .collect();
-    for (cid, cls_name) in sym_classes {
-        if cid == 0 {
-            continue;
-        }
-        ctx.warn(format!(
-            "SWF AVM2 SymbolClass binding '{cls_name}' (character {cid}) is not executed in the bounded SWF loader."
-        ));
-        if let Some(sym_id) = ctx.char_symbols.get(&cid)
-            && let Some(sym) = ctx.symbols.iter_mut().find(|s| &s.id == sym_id)
-            && matches!(sym.kind, SymbolKind::MovieClip | SymbolKind::Button)
-        {
-            sym.class_name = Some(cls_name.clone());
-            if sym.linkage_id.is_none() {
-                sym.linkage_id = Some(cls_name);
-            }
-        }
+
+    if !ctx.abc_blocks.is_empty() || !ctx.symbol_classes.is_empty() {
+        apply_abc_scripts(&mut ctx, &mut root_timeline);
     }
 
     let root_id = format!("swf-{mount_seq}-root");
@@ -588,6 +590,9 @@ impl PartialEq for ActivePlacement {
             && self.name == other.name
             && self.clip_depth == other.clip_depth
             && self.visible == other.visible
+            && self.cache_as_bitmap == other.cache_as_bitmap
+            && self.blend_mode == other.blend_mode
+            && self.filters == other.filters
     }
 }
 

@@ -679,13 +679,13 @@ test('SWF loader blocks constructor/__proto__/prototype sandbox escapes, escapes
     // so we test "\x078" + "\u2028" in AVM1 and "\x001" + "\x008" + "\u2028" in AVM2 UTF-8 pool!
     avm1PushStr('lineSepVal'), avm1PushStr('ok\u2028after'), Buffer.from([0x1d]),
 
-    // Two GetURL opcodes -> must emit deduplicated warning
+    // GetURL opcode (now supported via hardened __nfSwfGetURL) + two unsupported 0x7f opcodes -> deduplicated warning
     getUrlOp,
-    getUrlOp,
+    Buffer.from([0x7f, 0x7f]),
     Buffer.from([0x00]),
   ]);
 
-  // Also test PlaceObject3 with blendMode=3 (multiply) for PlaceObject3 warning
+  // Also test PlaceObject3 with unsupported blendMode=99 for PlaceObject3 warning deduplication
   const po3 = new BitWriter();
   po3.writeU8(0x06); // flags1: HasMatrix | HasCharacter
   po3.writeU8(0x02); // flags2: HasBlendMode
@@ -693,7 +693,7 @@ test('SWF loader blocks constructor/__proto__/prototype sandbox escapes, escapes
   po3.writeU16(1);   // charId 1
   po3.writeU8(0);    // identity matrix (hasScale=0, hasRotate=0, nTranslateBits=0)
   po3.align();
-  po3.writeU8(3);    // blend_mode = 3 (unsupported in SWF loader -> warning)
+  po3.writeU8(99);   // invalid blend_mode = 99 (unsupported in SWF loader -> warning)
 
   const avm1Swf = wrapSwf('FWS', 8, 80, 60, 24, 1, [
     makeSwfTag(69, Buffer.from([0x00, 0, 0, 0])),
@@ -706,8 +706,8 @@ test('SWF loader blocks constructor/__proto__/prototype sandbox escapes, escapes
   // Verify decoded bundle warnings directly via decode_swf_bundle_json
   const decodedAvm1 = JSON.parse(runtimeWasm.decode_swf_bundle_json(avm1Swf));
   assert.ok(Array.isArray(decodedAvm1.warnings));
-  assert.equal(decodedAvm1.warnings.filter(w => w.includes('GetURL')).length, 1, 'duplicate GetURL warnings are deduplicated');
-  assert.ok(decodedAvm1.warnings.some(w => w.includes('PlaceObject3')), 'PlaceObject3 blendMode emits warning');
+  assert.equal(decodedAvm1.warnings.filter(w => w.includes('0x7F')).length, 1, 'duplicate unsupported opcode warnings are deduplicated');
+  assert.ok(decodedAvm1.warnings.some(w => w.includes('PlaceObject3 blendMode 99')), 'invalid PlaceObject3 blendMode emits warning');
 
   // 2. Build an AVM2 SWF attempting:
   //    - `[]["filter"]["constructor"]("globalThis.__avm2Escaped = 1; return 77;")()`
@@ -769,11 +769,14 @@ test('SWF loader blocks constructor/__proto__/prototype sandbox escapes, escapes
       0x66, 4, // getproperty("constructor") -> MUST be undefined
       0x61, 7, // setproperty("ctorResult")
 
-      // this.stubCtorResult = (newfunction 3)["constructor"]
+      // this.stubCtorResult = (newfunction 3)["constructor"] (method 3 has body -> hardened __nfSwfFn)
+      // plus bodiless newfunction(0) -> hardened stub warning
       0xd0, // getlocal_0
-      0x40, 3, // newfunction(3) -> __nfSwfStubFn()
+      0x40, 3, // newfunction(3) -> __nfSwfFn(...)
       0x66, 4, // getproperty("constructor") -> MUST be undefined
       0x61, 8, // setproperty("stubCtorResult")
+      0x40, 0, // newfunction(0) -> bodiless method triggers warning & __nfSwfStubFn()
+      0x29,    // pop
 
       // ({})["__proto__"]["polluted"] = 1
       0x55, 0, // newobject(0) -> {}
@@ -927,6 +930,348 @@ test('SWF loader blocks constructor/__proto__/prototype sandbox escapes, escapes
     }
   } finally {
     delete ({}).polluted;
+    host.disposeFamily();
+    player.free();
+  }
+});
+
+// Exact SWF bytes published by `neoflash-export` in `crates/neoflash-export/src/swf/tests_t414.rs`:
+// - `t416_avm1_function_expressions_nested_closures_try_fscommand_and_placeobject3`
+// - `t416_avm2_nested_closures_super_symbolclass_sprite_and_abc_verifier_metrics`
+const NEOFLASH_EXPORT_T416_AVM1_B64 =
+  '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';
+
+const NEOFLASH_EXPORT_T416_AVM2_B64 =
+  'RldTCkMFAABoABLAAAOEAAAYAQBEEQgAAABDAv///+oUAQBYAEYAAMgAWABGAADIAAABACig3P8AETQlzRgADiADIc7oAA4gBOAA0gkCAAIAhgYGAQABAABAAEAAAAC/FJQEAAABAAAAZnJhbWUxABAALgAAAAAqAAZPYmplY3QOYWRkRnJhbWVTY3JpcHQIQmFzZUNhcmQNZmxhc2guZGlzcGxheQlNb3ZpZUNsaXAMZmxhc2guZXZlbnRzD0V2ZW50RGlzcGF0Y2hlcg1EaXNwbGF5T2JqZWN0EUludGVyYWN0aXZlT2JqZWN0FkRpc3BsYXlPYmplY3RDb250YWluZXIGU3ByaXRlA3RhZwVsYWJlbAJCKAEpBnByZWZpeARpbml0CUNoaWxkQ2FyZA1mcmFtZTJWaXNpdGVkBmZyYW1lMgRzdG9wBitDaGlsZAZzcHJpdGUCPkMHTWFpbkRvYw5jbG9zdXJlU3VtbWFyeQ1zcHJpdGVTdW1tYXJ5DWV4cG9ydGVkQWRkZXIFb3V0ZXIBeAVib251cwF5C3J1bkNhbGxiYWNrAmNiAXYBbghzZWxmRmFjdAEsBGNhcmQFdHJhY2UEFgEWBRYHABsHAQIHAQMHAQQHAgYHAwgHAgkHAgoHAgsHAgwHAQ0HAQ4HARMHARQHARUHARYHARoHARsHARwHAR0HAR4HAR8HASAHASIHASYHASgHASkPAAAAAAAAAAABAAAAgBEAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAACCHwEAAACAIQIAAAAAgCMkAAAAAgEAAACAJQEAAACAJQAAAAAAAwMEAAACAgoAAAAACwEAAQwDAAAGAw0AAAAADgEABAsBAAUQBAAACwURAAAAABIAAAAAEwAAAAAUAQAIFwEACgAAAwAHAAEOAwMEAQAMBAIBEAQDAg8AAwEICQPQMEcAAAEEAQkKDdAwLA/QZgqgLBCgSEcAAAIEAgkKD9Aw0EkA0CwSYQrQ0WEKRwAAAwMBCQoD0DBHAAAEBAEKCw3QMNAlTWENXQ9PDwBHAAAFBAEKCwvQMNBFCwAsF6BIRwAABgUBCgsf0DDQLBhJAV0CJQFgDk8CAtAlAGEN0NBmCiwZoGEKRwAABwMBCAkD0DBHAAAJBQILDBrQMGcKZwpsAiUBoG0CZwpsAdGgZwpsAqBIRwAACAQDCQsV0DBXKtYwZQHRbQFlASUCbQJACUhHAAIVAAEAABYAAgAACgcDCQoS0DDR0NJBAdHQ0iUBoEEBoEhHAAAMBAILDAjQMNElA6JIRwAADQcCCwwc0DDRJQGuEgMAACUBSNFnCmwB0NElAaFBAaJIRwAACwcHCQt+0DBXKmMGMNBJANAsAWER0CwBYRJgFNAlCkEBgtXR0CUFQQGC1tHQJQVBAYLXYBfQQAwlBEECgmMEQA0qZQErbQGCYwXQ0WET0NIsJ6DToCwnoGIEoCwnoGIF0CUFQQGgYRHQZhkgq5YSCQAA0NBmGUYLAGESXRrQZhFPGgFHAAEYAAEAAA4EAQEKc9AwZQBgATBgBTBgBjBgBzBgCDBgCTBgBDBgBFgAHR0dHR0dHWgDZQBgATBgBTBgBjBgBzBgCDBgCTBgBDBgAzBgA1gBHR0dHR0dHR1oDGUAYAEwYAUwYAYwYAcwYAgwYAkwYAQwYARYAh0dHR0dHR1oEEcAABgTAgACAENoaWxkQ2FyZAAAAE1haW5Eb2MAqhEmBwEAAgAUyCgAY2FyZAABABEiM+YAAAUAAAAFABDJAAAAAAQAgAEhAwFAAAAA';
+
+test('T-416: Loader.loadBytes executes neoflash-export AVM1/AVM2 closures, DefineFunction/DefineFunction2 preload flags, With/Try/FSCommand, SymbolClass child sprites, PlaceObject3 filters/blends, and blocks Function constructor escapes', async () => {
+  const { runtimeWasm } = await import('../../crates/neoflash-script/tests/rust-runtime-host.mjs');
+  const { createRuntimeHost } = await import('../../crates/neoflash-script/tests/host-integration.mjs');
+
+  const avm1ExportedSwf = Buffer.from(NEOFLASH_EXPORT_T416_AVM1_B64, 'base64');
+  const avm2ExportedSwf = Buffer.from(NEOFLASH_EXPORT_T416_AVM2_B64, 'base64');
+
+  const avm1PushStr = str => {
+    const b = Buffer.from(str + '\0', 'utf8');
+    const out = Buffer.alloc(1 + 2 + 1 + b.length);
+    out[0] = 0x96;
+    out.writeUInt16LE(1 + b.length, 1);
+    out[3] = 0;
+    b.copy(out, 4);
+    return out;
+  };
+  const avm1PushInt = n => {
+    const out = Buffer.alloc(8);
+    out[0] = 0x96;
+    out.writeUInt16LE(5, 1);
+    out[3] = 7;
+    out.writeInt32LE(n | 0, 4);
+    return out;
+  };
+  const avm1PushReg = r => Buffer.from([0x96, 2, 0, 4, r & 0xff]);
+
+  // Hand-crafted AVM1 SWF exercising:
+  // - ActionDefineFunction (0x9B) named `v1Add(a, b)`
+  // - ActionDefineFunction2 (0x8E) `BaseCls` & `SubCls` + ActionExtends (0x69) + `preload_this(0x01) | preload_arguments(0x04) | preload_super(0x10) | preload_root(0x40) | preload_parent(0x80) | preload_global(0x100)`
+  // - ActionWith (0x94) reading & writing scope object + 20-deep nested ActionWith bounded at <= 16
+  // - ActionTry (0x8F) catch-in-register + finally
+  const buildAvm1LowLevelSwf = () => {
+    // 1. 0x9B `function v1Add(a, b) { return a + b; }`
+    const v1Body = Buffer.concat([
+      avm1PushStr('a'), Buffer.from([0x1c]),
+      avm1PushStr('b'), Buffer.from([0x1c]),
+      Buffer.from([0x47, 0x3e]),
+    ]);
+    const v1Hdr = new BitWriter();
+    v1Hdr.writeCString('v1Add');
+    v1Hdr.writeU16(2);
+    v1Hdr.writeCString('a');
+    v1Hdr.writeCString('b');
+    v1Hdr.writeU16(v1Body.length);
+    const v1HdrBuf = v1Hdr.toBuffer();
+    const defFn1 = Buffer.alloc(3 + v1HdrBuf.length + v1Body.length);
+    defFn1[0] = 0x9b;
+    defFn1.writeUInt16LE(v1HdrBuf.length, 1);
+    v1HdrBuf.copy(defFn1, 3);
+    v1Body.copy(defFn1, 3 + v1HdrBuf.length);
+
+    // 2. 0x8E `BaseCls(seed)`: preload_this (0x01) -> reg1 = this, param seed in reg2 -> this.baseSeed = reg2
+    const baseBody = Buffer.concat([
+      avm1PushReg(1), avm1PushStr('baseSeed'), avm1PushReg(2), Buffer.from([0x4f]),
+      Buffer.from([0x00]),
+    ]);
+    const baseHdr = new BitWriter();
+    baseHdr.writeCString('BaseCls');
+    baseHdr.writeU16(1);
+    baseHdr.writeU8(4);      // register_count = 4
+    baseHdr.writeU16(0x0001); // preload_this
+    baseHdr.writeU8(2);
+    baseHdr.writeCString('seed');
+    baseHdr.writeU16(baseBody.length);
+    const baseHdrBuf = baseHdr.toBuffer();
+    const defBase = Buffer.alloc(3 + baseHdrBuf.length + baseBody.length);
+    defBase[0] = 0x8e;
+    defBase.writeUInt16LE(baseHdrBuf.length, 1);
+    baseHdrBuf.copy(defBase, 3);
+    baseBody.copy(defBase, 3 + baseHdrBuf.length);
+
+    // 3. 0x8E `SubCls(x, y)` with preload_this(0x01) | preload_arguments(0x04) | preload_super(0x10) | preload_root(0x40) | preload_parent(0x80) | preload_global(0x100) = 0x01D5:
+    //    reg1=this, reg2=arguments, reg3=super, reg4=_root, reg5=_parent, reg6=_global, reg7=x, reg8=y
+    //    Calls `super(x + y)` -> stack: [x+y, 1, reg3, undefined] -> 0x52 CallMethod, Pop
+    //    Sets `this.argCount = reg2.length`, `this.hasGlobal = (reg6 != undefined)`, `this.sameRoot = (reg4 == this || reg4 != undefined)`
+    const subBody = Buffer.concat([
+      avm1PushReg(7), avm1PushReg(8), Buffer.from([0x47]), // x + y
+      avm1PushInt(1),
+      avm1PushReg(3), // super
+      Buffer.from([0x96, 1, 0, 3]), // undefined
+      Buffer.from([0x52, 0x17]), // ActionCallMethod + Pop
+      avm1PushReg(1), avm1PushStr('argCount'), avm1PushReg(2), avm1PushStr('length'), Buffer.from([0x4e, 0x4f]),
+      avm1PushReg(6), avm1PushStr('sharedFlag'), avm1PushInt(321), Buffer.from([0x4f]),
+      avm1PushReg(1), avm1PushStr('gotRoot'), avm1PushReg(4), Buffer.from([0x4f]),
+      avm1PushReg(1), avm1PushStr('gotParent'), avm1PushReg(5), Buffer.from([0x4f]),
+      Buffer.from([0x00]),
+    ]);
+    const subHdr = new BitWriter();
+    subHdr.writeCString('SubCls');
+    subHdr.writeU16(2);
+    subHdr.writeU8(10);
+    subHdr.writeU16(0x01d5);
+    subHdr.writeU8(7); subHdr.writeCString('x');
+    subHdr.writeU8(8); subHdr.writeCString('y');
+    subHdr.writeU16(subBody.length);
+    const subHdrBuf = subHdr.toBuffer();
+    const defSub = Buffer.alloc(3 + subHdrBuf.length + subBody.length);
+    defSub[0] = 0x8e;
+    defSub.writeUInt16LE(subHdrBuf.length, 1);
+    subHdrBuf.copy(defSub, 3);
+    subBody.copy(defSub, 3 + subHdrBuf.length);
+
+    // Extends: SubCls extends BaseCls (stack: SubCls, BaseCls -> 0x69)
+    const doExtends = Buffer.concat([
+      avm1PushStr('SubCls'), Buffer.from([0x1c]),
+      avm1PushStr('BaseCls'), Buffer.from([0x1c]),
+      Buffer.from([0x69]),
+    ]);
+
+    // ActionWith: obj = { score: 50 }; with (obj) { score = score + 25; } this.withScore = obj.score;
+    const withInner = Buffer.concat([
+      avm1PushStr('score'),
+      avm1PushStr('score'), Buffer.from([0x1c]),
+      avm1PushInt(25), Buffer.from([0x47]),
+      Buffer.from([0x1d]),
+    ]);
+    const withOp = Buffer.alloc(5 + withInner.length);
+    withOp[0] = 0x94;
+    withOp.writeUInt16LE(2, 1);
+    withOp.writeUInt16LE(withInner.length, 3);
+    withInner.copy(withOp, 5);
+
+    // 20 nested ActionWith blocks to verify <= 16 scope-stack cap (outermost i=19 `leaf` is at depth 0, innermost i=0 `k0` is at depth 19 >= 16!)
+    let deepWith = Buffer.concat([
+      avm1PushStr('deepOuter'), avm1PushStr('leaf'), Buffer.from([0x1c, 0x1d]),
+      avm1PushStr('deepHit'), avm1PushStr('k0'), Buffer.from([0x1c, 0x1d]),
+    ]);
+    for (let i = 0; i < 20; i++) {
+      const initObj = Buffer.concat([
+        avm1PushStr(i === 19 ? 'leaf' : `k${i}`), avm1PushInt(i + 100), avm1PushInt(1), Buffer.from([0x43]),
+      ]);
+      const w = Buffer.alloc(5 + deepWith.length);
+      w[0] = 0x94;
+      w.writeUInt16LE(2, 1);
+      w.writeUInt16LE(deepWith.length, 3);
+      deepWith.copy(w, 5);
+      deepWith = Buffer.concat([initObj, w]);
+    }
+
+    // ActionTry with catch_in_register (reg 3) + finally
+    const tryB = Buffer.concat([avm1PushStr('regBoom'), Buffer.from([0x2a])]);
+    const catchB = Buffer.concat([avm1PushStr('caughtReg'), avm1PushReg(3), Buffer.from([0x1d])]);
+    const finB = Buffer.concat([avm1PushStr('finRan'), avm1PushInt(1), Buffer.from([0x1d])]);
+    const tryHdr = Buffer.alloc(8);
+    tryHdr[0] = 0x07; // has_catch | has_finally | catch_in_reg
+    tryHdr.writeUInt16LE(tryB.length, 1);
+    tryHdr.writeUInt16LE(catchB.length, 3);
+    tryHdr.writeUInt16LE(finB.length, 5);
+    tryHdr[7] = 3;
+    const tryOp = Buffer.alloc(3 + tryHdr.length + tryB.length + catchB.length + finB.length);
+    tryOp[0] = 0x8f;
+    tryOp.writeUInt16LE(tryHdr.length, 1);
+    tryHdr.copy(tryOp, 3);
+    tryB.copy(tryOp, 3 + tryHdr.length);
+    catchB.copy(tryOp, 3 + tryHdr.length + tryB.length);
+    finB.copy(tryOp, 3 + tryHdr.length + tryB.length + catchB.length);
+
+    const actions = Buffer.concat([
+      defFn1,
+      defBase,
+      defSub,
+      doExtends,
+      // this.v1Res = v1Add(11, 22)
+      avm1PushStr('v1Res'), avm1PushInt(22), avm1PushInt(11), avm1PushInt(2), avm1PushStr('v1Add'), Buffer.from([0x3d, 0x1d]),
+      // this.subInst = new SubCls(10, 15, 99)
+      avm1PushStr('subInst'), avm1PushInt(99), avm1PushInt(15), avm1PushInt(10), avm1PushInt(3), avm1PushStr('SubCls'), Buffer.from([0x40, 0x1d]),
+      // this.globalCheck = _global.sharedFlag
+      avm1PushStr('globalCheck'), avm1PushStr('_global'), Buffer.from([0x1c]), avm1PushStr('sharedFlag'), Buffer.from([0x4e, 0x1d]),
+      // ActionWith
+      avm1PushStr('wObj'), avm1PushStr('score'), avm1PushInt(50), avm1PushInt(1), Buffer.from([0x43, 0x1d]),
+      avm1PushStr('wObj'), Buffer.from([0x1c]), withOp,
+      avm1PushStr('withScore'), avm1PushStr('wObj'), Buffer.from([0x1c]), avm1PushStr('score'), Buffer.from([0x4e, 0x1d]),
+      deepWith,
+      tryOp,
+      Buffer.from([0x00]),
+    ]);
+
+    return wrapSwf('FWS', 8, 80, 60, 24, 1, [
+      makeSwfTag(69, Buffer.from([0x00, 0, 0, 0])),
+      makeSwfTag(12, actions),
+      makeSwfTag(1, Buffer.alloc(0)),
+    ]);
+  };
+
+  const baseProj = {
+    format_version: 3,
+    name: 'T416 Host',
+    width: 160,
+    height: 120,
+    fps: 24,
+    background: [255, 255, 255, 255],
+    root: 'root',
+    resources: [],
+    symbols: [{
+      id: 'root', name: 'Main', kind: 'movie_clip',
+      timeline: { frame_count: 1, layers: [{ id: 'l0', name: 'L0', visible: true, locked: false, keyframes: [{ frame: 0, elements: [], label: '', tween: null }] }], scripts: [] },
+    }],
+  };
+
+  const fsCommands = [];
+  const player = new runtimeWasm.WebPlayer(JSON.stringify(baseProj));
+  const functionsMap = new Map();
+  const { host, traceCalls } = createRuntimeHost(root, player, [], {
+    project: baseProj,
+    bundle: { project: baseProj },
+    functions: functionsMap,
+    external: {
+      hostGlobal: {
+        DoFSCommand: (cmd, args) => {
+          fsCommands.push([cmd, args]);
+        },
+      },
+    },
+  });
+
+  try {
+    const prog = host.program();
+    const Loader = prog.type('flash.display.Loader');
+    const ByteArray = prog.type('flash.utils.ByteArray');
+    const BitmapData = prog.type('flash.display.BitmapData');
+    const rootClip = host.proxyFor([]);
+
+    const toBa = buf => {
+      const ba = new ByteArray();
+      for (const b of buf) ba.writeByte(b);
+      return ba;
+    };
+
+    const assertHardenedSwfCallable = (fn, label) => {
+      assert.equal(typeof fn, 'function', `${label}: must be callable`);
+      assert.equal(fn.constructor, undefined, `${label}: .constructor must be undefined`);
+      assert.equal(fn.prototype?.constructor, undefined, `${label}: .prototype.constructor must be undefined`);
+      const proto = Object.getPrototypeOf(fn);
+      assert.notEqual(proto, Function.prototype, `${label}: prototype must not be Function.prototype`);
+      assert.equal(proto?.constructor, undefined, `${label}: proto.constructor must be undefined`);
+      assert.equal(Object.getPrototypeOf(proto), null, `${label}: proto chain must terminate at null`);
+      assert.equal(fn.call?.constructor, undefined, `${label}: .call.constructor must be undefined`);
+      assert.equal(fn.apply?.constructor, undefined, `${label}: .apply.constructor must be undefined`);
+      assert.equal(fn.bind?.constructor, undefined, `${label}: .bind.constructor must be undefined`);
+    };
+
+    // 1. Load & execute exact `neoflash-export` AVM1 SWF (`NEOFLASH_EXPORT_T416_AVM1_B64`)
+    const loaderFsEvents = [];
+    const lAvm1 = new Loader();
+    lAvm1.contentLoaderInfo.addEventListener('ioError', e => { throw new Error('lAvm1 ioError: ' + e.text); });
+    lAvm1.addEventListener('fscommand', e => { loaderFsEvents.push([e.command, e.args]); });
+    rootClip.addChild(lAvm1);
+    lAvm1.loadBytes(toBa(avm1ExportedSwf));
+    await new Promise(r => setTimeout(r, 20));
+
+    assert.equal(lAvm1.content.summary, '7|120|14,20,900|41|16,12,15|T:err42:F');
+    assert.ok(traceCalls.some(row => row[0] === '7|120|14,20,900|41|16,12,15|T:err42:F'));
+    assert.deepEqual([...lAvm1.content.sortedNums], [9, 4, 2, 1], 'AVM1 Array.sort(callback) sorted descending');
+    assertHardenedSwfCallable(lAvm1.content.exportedClosure, 'AVM1 exportedClosure');
+    assert.equal(lAvm1.content.exportedClosure(5), 25, 'AVM1 lexical closure retains and updates captured state');
+    assert.deepEqual(fsCommands, [['avm1Status', 'ready']], 'ActionGetURL FSCommand routed to DoFSCommand');
+    assert.deepEqual(loaderFsEvents, [['avm1Status', 'ready']], 'ActionGetURL FSCommand dispatched on Loader');
+    assert.equal(globalThis.__nfXssAvm1, undefined, 'javascript: URL in ActionGetURL must NEVER execute');
+
+    // Verify PlaceObject3 GlowFilter + Screen blendMode + cacheAsBitmap on `badge` child sprite
+    const badgeClip = lAvm1.content.getChildByName('badge');
+    assert.ok(badgeClip, 'AVM1 nested DefineSprite `badge` placed via PlaceObject3');
+    assert.equal(badgeClip.blendMode, 'screen');
+    assert.equal(badgeClip.cacheAsBitmap, true);
+    assert.equal(badgeClip.filters.length, 1);
+
+    const bmp1 = new BitmapData(80, 60, true, 0xffffffff);
+    bmp1.draw(lAvm1);
+    assert.notEqual(bmp1.getPixel32(24, 20) >>> 0, 0xffffffff, 'AVM1 PlaceObject3 filtered sprite rendered');
+    bmp1.dispose();
+    lAvm1.unload();
+
+    // 2. Load & execute low-level AVM1 DefineFunction + DefineFunction2 preload flags + Extends/super + With (<= 16) + Try (catch in reg)
+    const lLow = new Loader();
+    lLow.contentLoaderInfo.addEventListener('ioError', e => { throw new Error('lLow ioError: ' + e.text); });
+    rootClip.addChild(lLow);
+    lLow.loadBytes(toBa(buildAvm1LowLevelSwf()));
+    await new Promise(r => setTimeout(r, 20));
+
+    assert.equal(lLow.content.v1Res, 33, 'ActionDefineFunction (0x9B) named function executed');
+    assert.equal(lLow.content.subInst.baseSeed, 25, 'ActionDefineFunction2 preload_super invoked BaseCls(x + y)');
+    assert.equal(lLow.content.subInst.argCount, 3, 'ActionDefineFunction2 preload_arguments captured arguments.length');
+    assert.equal(lLow.content.globalCheck, 321, 'ActionDefineFunction2 preload_global shared _global object');
+    assert.equal(lLow.content.subInst.gotRoot, rootClip, 'ActionDefineFunction2 preload_root bound _root');
+    assert.equal(lLow.content.withScore, 75, 'ActionWith (0x94) read and mutated scope object property');
+    assert.equal(lLow.content.deepOuter, 119, 'Outer ActionWith within <= 16 depth resolves');
+    assert.equal(lLow.content.deepHit, undefined, '20-deep nested ActionWith capped scope stack at <= 16');
+    assert.equal(lLow.content.caughtReg, 'regBoom', 'ActionTry (0x8F) catch-in-register captured thrown value');
+    assert.equal(lLow.content.finRan, 1, 'ActionTry (0x8F) finally block executed');
+    lLow.unload();
+
+    // 3. Load & execute exact `neoflash-export` AVM2 SWF (`NEOFLASH_EXPORT_T416_AVM2_B64`)
+    const lAvm2 = new Loader();
+    lAvm2.contentLoaderInfo.addEventListener('ioError', e => { throw new Error('lAvm2 ioError: ' + e.text); });
+    rootClip.addChild(lAvm2);
+    lAvm2.loadBytes(toBa(avm2ExportedSwf));
+    await new Promise(r => setTimeout(r, 20));
+
+    assert.equal(lAvm2.content.closureSummary, '18,19,27,120', 'AVM2 outer/inner activation closure + callback + self-named recursive closure');
+    assertHardenedSwfCallable(lAvm2.content.exportedAdder, 'AVM2 exportedAdder');
+    assert.equal(lAvm2.content.exportedAdder(5), 20, 'AVM2 closure mutates outer activation slot across invocations');
+
+    // Non-root SymbolClass child sprite (`ChildCard extends BaseCard`) + PlaceObject3 DropShadow & Multiply blend
+    assert.equal(lAvm2.content.spriteSummary, 'B(sprite>C)+Child', 'ChildCard SymbolClass attached before MainDoc ctor with constructsuper + callsuper');
+    const cardSprite = lAvm2.content.getChildByName('card');
+    assert.ok(cardSprite, 'ChildCard sprite instance `card` exists on child root');
+    assert.equal(cardSprite.label(), 'B(sprite>C)+Child');
+    assert.equal(cardSprite.blendMode, 'multiply');
+    assert.equal(cardSprite.cacheAsBitmap, true);
+    assert.equal(cardSprite.filters.length, 1);
+    assert.equal(cardSprite.frame2Visited, 0);
+
+    // Render PlaceObject3 DropShadow + Multiply sprite via BitmapData.draw
+    const bmp2 = new BitmapData(80, 60, true, 0xffffffff);
+    bmp2.draw(lAvm2);
+    assert.notEqual(bmp2.getPixel32(30, 24) >>> 0, 0xffffffff, 'AVM2 PlaceObject3 DropShadow + Multiply child sprite rendered');
+    bmp2.dispose();
+
+    // Advance ChildCard to frame 2 -> non-root SymbolClass `addFrameScript` hook executes!
+    cardSprite.gotoAndStop(2);
+    host.dispatchScripts();
+    assert.equal(cardSprite.currentFrame, 2);
+    assert.equal(cardSprite.frame2Visited, 77, 'Non-root SymbolClass DefineSprite executed frame 2 addFrameScript');
+
+    lAvm2.unload();
+    assert.equal(functionsMap.size, 0, 'Loader.unload() cleaned up all child SWF scripts');
+  } finally {
+    delete globalThis.__nfXssAvm1;
     host.disposeFamily();
     player.free();
   }

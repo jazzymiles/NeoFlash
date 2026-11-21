@@ -796,3 +796,395 @@ fn t414_swf_morph_transforms_gradient_guard_trimmed_sound_pos44_multilabel_and_t
         "DefineMorphShape end bounds must bake end_el.transform (150..200), got {end_b:?}"
     );
 }
+
+#[test]
+fn t416_avm1_function_expressions_nested_closures_try_fscommand_and_placeobject3() {
+    use base64::Engine as _;
+    use neoflash_core::{BlendMode, FilterSpec};
+
+    let mut project = Project::blank();
+    project.name = "T416 AVM1 Closures".into();
+    project.width = 120;
+    project.height = 90;
+    project.fps = 24;
+    let badge_sym = "sym_badge".to_owned();
+    project.symbols.push(Symbol {
+        id: badge_sym.clone(),
+        name: "BadgeSym".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 2,
+            layers: vec![Layer {
+                id: "lyr_badge".into(),
+                name: "Art".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: "el_badge_rect".into(),
+                        kind: ElementKind::Rectangle {
+                            width: 24.0,
+                            height: 24.0,
+                            fill: [220, 40, 60, 255],
+                            stroke: [0, 0, 0, 0],
+                            stroke_width: 0.0,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Default::default()
+                }],
+                properties: LayerProperties::default(),
+            }],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+    });
+
+    let root_id = project.root.clone();
+    let root = project.symbol_mut(&root_id).unwrap();
+    root.id = "root".into();
+    root.timeline.frame_count = 1;
+    root.timeline.layers[0].id = "lyr_root".into();
+    root.timeline.layers[0].keyframes[0].elements = vec![Element {
+        id: "el_badge_inst".into(),
+        name: "badge".into(),
+        cache_as_bitmap: true,
+        blend_mode: BlendMode::Screen,
+        filters: vec![FilterSpec::Glow {
+            color: 0x00CCFF,
+            alpha: 1.0,
+            blur_x: 6.0,
+            blur_y: 6.0,
+            strength: 2.0,
+            quality: 1,
+            inner: false,
+            knockout: false,
+        }],
+        transform: Transform {
+            x: 16.0,
+            y: 12.0,
+            ..Transform::default()
+        },
+        kind: ElementKind::Instance {
+            symbol_id: badge_sym,
+            playback: InstancePlayback::Independent,
+        },
+        ..Element::default()
+    }];
+    root.timeline.scripts = vec![FrameScript {
+        layer: None,
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: r#"
+var shadow = 900;
+var addOffset = function(a, b) {
+    return a + b;
+};
+var fact = function selfFact(n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * selfFact(n - 1);
+};
+function makeCounter(seed) {
+    var count = seed;
+    function stepBy(delta) {
+        var shadow = 1;
+        count = count + delta + shadow - 1;
+        return count;
+    }
+    return function(d) {
+        return stepBy(d);
+    };
+}
+var c1 = makeCounter(10);
+var r1 = c1(4);
+var r2 = c1(6);
+function mapReduce(items, fn) {
+    var acc = 0;
+    var idx = 0;
+    while (idx < items.length) {
+        acc = acc + fn(items[idx], idx);
+        idx = idx + 1;
+    }
+    return acc;
+}
+var cbSum = mapReduce([4, 1, 9, 2], function(v, idx) {
+    return v * (idx + 1);
+});
+var nums = [4, 1, 9, 2];
+nums.sort(function(a, b) {
+    return b - a;
+});
+var pkg = {
+    Widget: function(v) { this.val = v * 2; },
+    calc: function(x) { return x + 7; }
+};
+var w = new pkg.Widget(8);
+var iifeVal = (function(k) { return k * 3; })(5);
+var tryLog = "";
+try {
+    tryLog = tryLog + "T";
+    throw "err42";
+} catch (ex) {
+    tryLog = tryLog + ":" + ex;
+} finally {
+    tryLog = tryLog + ":F";
+}
+fscommand("avm1Status", "ready");
+getURL("javascript:globalThis.__nfXssAvm1=1", "_self");
+this.exportedClosure = c1;
+this.sortedNums = nums;
+this.summary = addOffset(3, 4) + "|" + fact(5) + "|" + r1 + "," + r2 + "," + shadow + "|" + cbSum + "|" + w.val + "," + pkg.calc(5) + "," + iifeVal + "|" + tryLog;
+trace(this.summary);
+stop();
+"#
+            .into(),
+        },
+    }];
+    project.root = "root".into();
+    project.upgrade_format_for_features();
+
+    let mut opts = SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer8Avm1);
+    opts.compression = SwfCompression::UncompressedFws;
+    let preflight = preflight_swf_publish(&project, &opts);
+    assert!(
+        !preflight.has_blocking(),
+        "AVM1 function expressions must pass preflight without blocking issues: {:?}",
+        preflight.items
+    );
+
+    let (swf_bytes, _) = publish_swf_bytes(&project, &opts).expect("publish T416 AVM1 SWF");
+    let playback = play_swf_bytes(&swf_bytes, 1).expect("play T416 AVM1 SWF");
+    assert_eq!(
+        playback.trace_output,
+        vec!["7|120|14,20,900|41|16,12,15|T:err42:F"]
+    );
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&swf_bytes);
+    assert_eq!(
+        b64,
+        "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"
+    );
+}
+
+#[test]
+fn t416_avm2_nested_closures_super_symbolclass_sprite_and_abc_verifier_metrics() {
+    use base64::Engine as _;
+    use neoflash_core::{BlendMode, FilterSpec};
+
+    let mut project = Project::blank();
+    project.name = "T416 AVM2 Closures".into();
+    project.width = 120;
+    project.height = 90;
+    project.fps = 24;
+    project.document_class = Some("MainDoc".into());
+
+    let child_sym = "sym_card".to_owned();
+    project.symbols.push(Symbol {
+        id: child_sym.clone(),
+        name: "ChildSprite".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        class_name: Some("ChildCard".into()),
+        linkage_id: Some("ChildCard".into()),
+        timeline: Timeline {
+            frame_count: 2,
+            layers: vec![Layer {
+                id: "lyr_card".into(),
+                name: "Art".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: "el_card_rect".into(),
+                        kind: ElementKind::Rectangle {
+                            width: 28.0,
+                            height: 20.0,
+                            fill: [40, 160, 220, 255],
+                            stroke: [0, 0, 0, 0],
+                            stroke_width: 0.0,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Default::default()
+                }],
+                properties: LayerProperties::default(),
+            }],
+            scripts: vec![FrameScript {
+                layer: None,
+                frame: 1,
+                script: Script {
+                    language: ScriptLanguage::ActionScript3,
+                    source: "this.frame2Visited = 77;\nstop();\n".into(),
+                },
+            }],
+            guides: Vec::new(),
+        },
+    });
+
+    project.sources.push(SourceUnit {
+        id: "u_base".into(),
+        path: "BaseCard.as".into(),
+        language: ScriptLanguage::ActionScript3,
+        source: r#"
+package {
+    import flash.display.MovieClip;
+    public class BaseCard extends MovieClip {
+        public var tag:String = "init";
+        public function BaseCard(prefix:String = "base") {
+            super();
+            this.tag = prefix;
+        }
+        public function label():String {
+            return "B(" + this.tag + ")";
+        }
+    }
+}
+"#
+        .into(),
+    });
+    project.sources.push(SourceUnit {
+        id: "u_child".into(),
+        path: "ChildCard.as".into(),
+        language: ScriptLanguage::ActionScript3,
+        source: r#"
+package {
+    public class ChildCard extends BaseCard {
+        public var frame2Visited:int = 0;
+        public function ChildCard() {
+            super("sprite");
+            this.tag = this.tag + ">C";
+        }
+        override public function label():String {
+            return super.label() + "+Child";
+        }
+    }
+}
+"#
+        .into(),
+    });
+    project.sources.push(SourceUnit {
+        id: "u_doc".into(),
+        path: "MainDoc.as".into(),
+        language: ScriptLanguage::ActionScript3,
+        source: r#"
+package {
+    import flash.display.MovieClip;
+    public class MainDoc extends MovieClip {
+        public var closureSummary:String = "";
+        public var spriteSummary:String = "";
+        public var exportedAdder:Function;
+        public function outer(x:int):Function {
+            var bonus:int = 2;
+            return function(y:int):int {
+                bonus = bonus + 1;
+                return x + y + bonus;
+            };
+        }
+        public function runCallback(cb:Function, v:int):int {
+            return cb(v) + cb(v + 1);
+        }
+        public function MainDoc() {
+            super();
+            var add10:Function = this.outer(10);
+            var a1:int = add10(5);
+            var a2:int = add10(5);
+            var mul:int = this.runCallback(function(n:int):int { return n * 3; }, 4);
+            var fact:Function = function selfFact(n:int):int {
+                if (n <= 1) { return 1; }
+                return n * selfFact(n - 1);
+            };
+            this.exportedAdder = add10;
+            this.closureSummary = a1 + "," + a2 + "," + mul + "," + fact(5);
+            if (this["card"] != null) {
+                this.spriteSummary = this["card"].label();
+            }
+            trace(this.closureSummary);
+        }
+    }
+}
+"#
+        .into(),
+    });
+
+    let root_id = project.root.clone();
+    let root = project.symbol_mut(&root_id).unwrap();
+    root.id = "root".into();
+    root.timeline.frame_count = 1;
+    root.timeline.layers[0].id = "lyr_root".into();
+    root.timeline.layers[0].keyframes[0].elements = vec![Element {
+        id: "el_card_inst".into(),
+        name: "card".into(),
+        cache_as_bitmap: true,
+        blend_mode: BlendMode::Multiply,
+        filters: vec![FilterSpec::DropShadow {
+            distance: 4.0,
+            angle: 45.0,
+            color: 0x112233,
+            alpha: 0.9,
+            blur_x: 5.0,
+            blur_y: 5.0,
+            strength: 1.5,
+            quality: 1,
+            inner: false,
+            knockout: false,
+            hide_object: false,
+        }],
+        transform: Transform {
+            x: 20.0,
+            y: 16.0,
+            ..Transform::default()
+        },
+        kind: ElementKind::Instance {
+            symbol_id: child_sym,
+            playback: InstancePlayback::Independent,
+        },
+        ..Element::default()
+    }];
+    project.root = "root".into();
+    project.upgrade_format_for_features();
+
+    let mut opts = SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer10Avm2);
+    opts.compression = SwfCompression::UncompressedFws;
+    let preflight = preflight_swf_publish(&project, &opts);
+    assert!(
+        !preflight.has_blocking(),
+        "AVM2 closures + SymbolClass child sprite must pass preflight: {:?}",
+        preflight.items
+    );
+
+    let (swf_bytes, _) = publish_swf_bytes(&project, &opts).expect("publish T416 AVM2 SWF");
+    let playback = play_swf_bytes(&swf_bytes, 1).expect("play T416 AVM2 SWF");
+    assert_eq!(playback.trace_output, vec!["18,19,27,120"]);
+
+    // Re-import round-trip must validate cleanly
+    let reimported = import_swf_bytes(&swf_bytes).expect("re-import T416 AVM2 SWF");
+    reimported.validate().unwrap();
+
+    // Verify ABC emission invariants: NEED_ACTIVATION(0x02), newactivation(0x57),
+    // getouterscope(0x67), getslot(0x6C), setslot(0x6D), newfunction(0x40), constructsuper(0x49), callsuper(0x45)
+    assert!(
+        swf_bytes
+            .windows(3)
+            .any(|w| w == [0x57, 0x2A, 0xD2] || w[0] == 0x57),
+        "expected newactivation (0x57) in emitted DoABC2"
+    );
+    assert!(swf_bytes.contains(&0x67), "expected getouterscope (0x67)");
+    assert!(swf_bytes.contains(&0x6C), "expected getslot (0x6C)");
+    assert!(swf_bytes.contains(&0x6D), "expected setslot (0x6D)");
+    assert!(swf_bytes.contains(&0x40), "expected newfunction (0x40)");
+    assert!(swf_bytes.contains(&0x49), "expected constructsuper (0x49)");
+    assert!(swf_bytes.contains(&0x45), "expected callsuper (0x45)");
+
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&swf_bytes);
+    assert_eq!(
+        b64,
+        "RldTCkMFAABoABLAAAOEAAAYAQBEEQgAAABDAv///+oUAQBYAEYAAMgAWABGAADIAAABACig3P8AETQlzRgADiADIc7oAA4gBOAA0gkCAAIAhgYGAQABAABAAEAAAAC/FJQEAAABAAAAZnJhbWUxABAALgAAAAAqAAZPYmplY3QOYWRkRnJhbWVTY3JpcHQIQmFzZUNhcmQNZmxhc2guZGlzcGxheQlNb3ZpZUNsaXAMZmxhc2guZXZlbnRzD0V2ZW50RGlzcGF0Y2hlcg1EaXNwbGF5T2JqZWN0EUludGVyYWN0aXZlT2JqZWN0FkRpc3BsYXlPYmplY3RDb250YWluZXIGU3ByaXRlA3RhZwVsYWJlbAJCKAEpBnByZWZpeARpbml0CUNoaWxkQ2FyZA1mcmFtZTJWaXNpdGVkBmZyYW1lMgRzdG9wBitDaGlsZAZzcHJpdGUCPkMHTWFpbkRvYw5jbG9zdXJlU3VtbWFyeQ1zcHJpdGVTdW1tYXJ5DWV4cG9ydGVkQWRkZXIFb3V0ZXIBeAVib251cwF5C3J1bkNhbGxiYWNrAmNiAXYBbghzZWxmRmFjdAEsBGNhcmQFdHJhY2UEFgEWBRYHABsHAQIHAQMHAQQHAgYHAwgHAgkHAgoHAgsHAgwHAQ0HAQ4HARMHARQHARUHARYHARoHARsHARwHAR0HAR4HAR8HASAHASIHASYHASgHASkPAAAAAAAAAAABAAAAgBEAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAACCHwEAAACAIQIAAAAAgCMkAAAAAgEAAACAJQEAAACAJQAAAAAAAwMEAAACAgoAAAAACwEAAQwDAAAGAw0AAAAADgEABAsBAAUQBAAACwURAAAAABIAAAAAEwAAAAAUAQAIFwEACgAAAwAHAAEOAwMEAQAMBAIBEAQDAg8AAwEICQPQMEcAAAEEAQkKDdAwLA/QZgqgLBCgSEcAAAIEAgkKD9Aw0EkA0CwSYQrQ0WEKRwAAAwMBCQoD0DBHAAAEBAEKCw3QMNAlTWENXQ9PDwBHAAAFBAEKCwvQMNBFCwAsF6BIRwAABgUBCgsf0DDQLBhJAV0CJQFgDk8CAtAlAGEN0NBmCiwZoGEKRwAABwMBCAkD0DBHAAAJBQILDBrQMGcKZwpsAiUBoG0CZwpsAdGgZwpsAqBIRwAACAQDCQsV0DBXKtYwZQHRbQFlASUCbQJACUhHAAIVAAEAABYAAgAACgcDCQoS0DDR0NJBAdHQ0iUBoEEBoEhHAAAMBAILDAjQMNElA6JIRwAADQcCCwwc0DDRJQGuEgMAACUBSNFnCmwB0NElAaFBAaJIRwAACwcHCQt+0DBXKmMGMNBJANAsAWER0CwBYRJgFNAlCkEBgtXR0CUFQQGC1tHQJQVBAYLXYBfQQAwlBEECgmMEQA0qZQErbQGCYwXQ0WET0NIsJ6DToCwnoGIEoCwnoGIF0CUFQQGgYRHQZhkgq5YSCQAA0NBmGUYLAGESXRrQZhFPGgFHAAEYAAEAAA4EAQEKc9AwZQBgATBgBTBgBjBgBzBgCDBgCTBgBDBgBFgAHR0dHR0dHWgDZQBgATBgBTBgBjBgBzBgCDBgCTBgBDBgAzBgA1gBHR0dHR0dHR1oDGUAYAEwYAUwYAYwYAcwYAgwYAkwYAQwYARYAh0dHR0dHR1oEEcAABgTAgACAENoaWxkQ2FyZAAAAE1haW5Eb2MAqhEmBwEAAgAUyCgAY2FyZAABABEiM+YAAAUAAAAFABDJAAAAAAQAgAEhAwFAAAAA"
+    );
+}

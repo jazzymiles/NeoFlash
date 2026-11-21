@@ -897,13 +897,26 @@ pub(super) fn expr_has_direct_self_named_fn(expr: &SwfExpr) -> bool {
     }
 }
 
+fn lvalue_has_direct_self_named_fn(target: &SwfLValue) -> bool {
+    match target {
+        SwfLValue::Ident(_) => false,
+        SwfLValue::Member(obj, _) => expr_has_direct_self_named_fn(obj),
+        SwfLValue::Index(obj, idx) => {
+            expr_has_direct_self_named_fn(obj) || expr_has_direct_self_named_fn(idx)
+        }
+    }
+}
+
 pub(super) fn stmts_have_direct_self_named_fn(stmts: &[SwfStmt]) -> bool {
     stmts.iter().any(|stmt| match stmt {
         SwfStmt::VarDecl { init: Some(e), .. }
-        | SwfStmt::Assign { value: e, .. }
         | SwfStmt::Expr(e)
         | SwfStmt::Throw(e)
         | SwfStmt::Return(Some(e)) => expr_has_direct_self_named_fn(e),
+        SwfStmt::Assign { target, value, .. } => {
+            lvalue_has_direct_self_named_fn(target) || expr_has_direct_self_named_fn(value)
+        }
+        SwfStmt::IncDec { target, .. } => lvalue_has_direct_self_named_fn(target),
         SwfStmt::Block(inner) => stmts_have_direct_self_named_fn(inner),
         SwfStmt::While { cond, body } => {
             expr_has_direct_self_named_fn(cond) || stmts_have_direct_self_named_fn(body)
@@ -1081,7 +1094,7 @@ where
     code.u8(0x47); // returnvoid
 
     let (max_stack, computed_locals) =
-        compute_avm2_method_metrics(&code.buf, params.len() as u32, pool);
+        compute_avm2_method_metrics(&code.buf, params.len() as u32, pool, &env.exceptions);
     let local_count = computed_locals.max(env.next_temp_reg).max(1);
     let pushed_scopes = if env.needs_activation { 2 } else { 1 };
     if let Some(mspec) = state.methods.get_mut(method_idx as usize) {
@@ -1256,13 +1269,19 @@ pub(super) fn compute_avm2_method_metrics(
     code: &[u8],
     param_count: u32,
     pool: &AbcPoolBuilder,
+    exceptions: &[AbcExceptionSpec],
 ) -> (u32, u32) {
     let mut cur_stack = 0i32;
     let mut max_stack = 1i32;
     let mut max_local = param_count;
     let mut pos = 0usize;
+    let catch_targets: HashSet<usize> = exceptions.iter().map(|e| e.target as usize).collect();
     let is_mn_l = |mn: u32| -> i32 { i32::from(pool.multiname_l == Some(mn)) };
     while pos < code.len() {
+        if catch_targets.contains(&pos) {
+            cur_stack = cur_stack.max(1);
+            max_stack = max_stack.max(cur_stack);
+        }
         let op = code[pos];
         pos += 1;
         match op {
@@ -1303,8 +1322,8 @@ pub(super) fn compute_avm2_method_metrics(
                 cur_stack = (cur_stack - 1).max(1);
                 max_stack = max_stack.max(cur_stack);
             }
-            0x20 | 0x21 | 0x26 | 0x27 | 0x2A | 0x57 => {
-                // pushnull / pushundefined / pushtrue / pushfalse / dup / newactivation
+            0x20 | 0x21 | 0x26 | 0x27 | 0x28 | 0x2A | 0x57 => {
+                // pushnull / pushundefined / pushtrue / pushfalse / pushnan / dup / newactivation
                 cur_stack += 1;
                 max_stack = max_stack.max(cur_stack);
             }
@@ -1347,8 +1366,14 @@ pub(super) fn compute_avm2_method_metrics(
                     cur_stack = (cur_stack - argc - 1).max(0);
                 }
             }
-            0x45 | 0x46 | 0x4A => {
-                // callsuper / callproperty / constructprop (u30 mn, u30 argc)
+            0x42 => {
+                // construct (u30 argc)
+                let argc = read_abc_u30(code, &mut pos) as i32;
+                cur_stack = (cur_stack - argc).max(1);
+                max_stack = max_stack.max(cur_stack);
+            }
+            0x45 | 0x46 | 0x4A | 0x4C => {
+                // callsuper / callproperty / constructprop / callproplex (u30 mn, u30 argc)
                 let mn = read_abc_u30(code, &mut pos);
                 let argc = read_abc_u30(code, &mut pos) as i32;
                 cur_stack = (cur_stack - argc - is_mn_l(mn)).max(1);
@@ -1405,8 +1430,8 @@ pub(super) fn compute_avm2_method_metrics(
                 max_local = max_local.max(reg);
                 cur_stack = (cur_stack - 1).max(0);
             }
-            0x73..=0x76 | 0x82 | 0x85 | 0x90 | 0x91 | 0x93 | 0x95 | 0x96 | 0x97 => {
-                // unary in-place (incl. coerce_a, coerce_s, typeof, bitnot)
+            0x70 | 0x73..=0x76 | 0x82 | 0x85 | 0x90 | 0x91 | 0x93 | 0x95 | 0x96 | 0x97 => {
+                // unary in-place (incl. convert_s, coerce_a, coerce_s, typeof, bitnot)
                 max_stack = max_stack.max(cur_stack.max(1));
             }
             0x80 | 0x86 | 0xB2 => {

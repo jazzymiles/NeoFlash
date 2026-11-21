@@ -123,21 +123,20 @@ fn js_string_literal_escapes_nul_digits_and_line_separators_for_strict_mode() {
 
 #[test]
 fn swf_loader_emits_deduplicated_warnings_and_never_emits_unguarded_js_member_access() {
-    // DoAction with GetMember (0x4E), SetMember (0x4F), GetURL (0x83), Try (0x8F), and unknown 0x7F
+    // DoAction with GetMember (0x4E), GetURL (0x83), and duplicate unsupported 0x7F opcodes
     let mut do_action = Vec::new();
     // Push "obj", "prop" -> GetMember
     do_action.extend_from_slice(&[0x96, 10, 0, 0, b'o', b'b', b'j', 0, 0, b'p', b'r', b'o', 0]);
     do_action.push(0x4E);
-    // GetURL("https://example.com", "_blank") -> 0x83
+    // GetURL("https://example.com", "_blank") -> 0x83 (now supported via __nfSwfGetURL!)
     do_action.extend_from_slice(&[0x83, 4, 0, b'a', 0, b'b', 0]);
-    // Duplicate GetURL to verify warning deduplication
-    do_action.extend_from_slice(&[0x83, 4, 0, b'a', 0, b'b', 0]);
-    // Unknown opcode 0x7F
+    // Duplicate unsupported opcode 0x7F to verify warning deduplication
+    do_action.push(0x7F);
     do_action.push(0x7F);
     do_action.push(0x00);
 
-    // PlaceObject3 with blendMode = 3 (multiply)
-    let place3 = make_tag(70, &[0x02, 0x02, 1, 0, 1, 0, 3]);
+    // PlaceObject3 with unsupported blendMode = 99
+    let place3 = make_tag(70, &[0x02, 0x02, 1, 0, 1, 0, 99]);
     let sym_class = make_tag(76, &[1, 0, 1, 0, b'C', b'h', b'i', b'l', b'd', 0]);
 
     let swf = wrap_fws(
@@ -153,31 +152,35 @@ fn swf_loader_emits_deduplicated_warnings_and_never_emits_unguarded_js_member_ac
     );
     let bundle = decode_swf_bundle(&swf).expect("decode SWF with unsupported opcodes/features");
     assert!(
-        bundle.warnings.iter().any(|w| w.contains("GetURL (0x83)")),
-        "expected GetURL warning, got {:?}",
+        !bundle.warnings.iter().any(|w| w.contains("GetURL")),
+        "GetURL (0x83) is supported and must not warn: {:?}",
         bundle.warnings
     );
     assert_eq!(
         bundle
             .warnings
             .iter()
-            .filter(|w| w.contains("GetURL (0x83)"))
+            .filter(|w| w.contains("0x7F"))
             .count(),
         1,
-        "warnings must be deduplicated"
-    );
-    assert!(bundle.warnings.iter().any(|w| w.contains("0x7F")));
-    assert!(
-        bundle
-            .warnings
-            .iter()
-            .any(|w| w.contains("PlaceObject3 blendMode"))
+        "unsupported opcode warnings must be deduplicated: {:?}",
+        bundle.warnings
     );
     assert!(
         bundle
             .warnings
             .iter()
-            .any(|w| w.contains("SymbolClass binding 'Child'"))
+            .any(|w| w.contains("PlaceObject3 blendMode 99")),
+        "expected invalid blendMode warning, got {:?}",
+        bundle.warnings
+    );
+    assert!(
+        bundle
+            .warnings
+            .iter()
+            .any(|w| w.contains("SymbolClass binding 'Child'")),
+        "unbound SymbolClass on shape must warn, got {:?}",
+        bundle.warnings
     );
 
     for unit in &bundle.scripts {
@@ -185,6 +188,7 @@ fn swf_loader_emits_deduplicated_warnings_and_never_emits_unguarded_js_member_ac
         assert!(!unit.code.contains(".apply("));
         assert!(!unit.code.contains("function(){}"));
         assert!(unit.code.contains("__nfSwfGet"));
+        assert!(unit.code.contains("__nfSwfGetURL"));
     }
 }
 
@@ -292,4 +296,301 @@ fn swf_loader_clamps_avm1_and_avm2_inner_opcode_arity_and_uses_null_proto_locals
         c2.contains("__loc = Object.create(null); __loc[0] = this;"),
         "{c2}"
     );
+}
+
+#[test]
+fn swf_loader_decodes_avm1_define_function2_preload_flags_with_try_and_geturl() {
+    let push_str = |s: &str| -> Vec<u8> {
+        let len = (1 + s.len() + 1) as u16;
+        let mut out = vec![0x96];
+        out.extend_from_slice(&len.to_le_bytes());
+        out.push(0);
+        out.extend_from_slice(s.as_bytes());
+        out.push(0);
+        out
+    };
+
+    let mut actions = Vec::new();
+    // 1. Named ActionDefineFunction (0x9B): function legacyAdd(a, b) { return a + b; }
+    let mut fn1_body = Vec::new();
+    fn1_body.extend_from_slice(&push_str("a"));
+    fn1_body.push(0x1C); // GetVariable("a")
+    fn1_body.extend_from_slice(&push_str("b"));
+    fn1_body.push(0x1C); // GetVariable("b")
+    fn1_body.push(0x47); // ActionAdd2
+    fn1_body.push(0x3E); // ActionReturn
+    let mut fn1_hdr = Vec::new();
+    fn1_hdr.extend_from_slice(b"legacyAdd\0");
+    fn1_hdr.extend_from_slice(&2u16.to_le_bytes());
+    fn1_hdr.extend_from_slice(b"a\0b\0");
+    fn1_hdr.extend_from_slice(&(fn1_body.len() as u16).to_le_bytes());
+    actions.push(0x9B);
+    actions.extend_from_slice(&(fn1_hdr.len() as u16).to_le_bytes());
+    actions.extend_from_slice(&fn1_hdr);
+    actions.extend_from_slice(&fn1_body);
+
+    // 2. Anonymous ActionDefineFunction2 (0x8E) with preload_this(0x01) | preload_arguments(0x04)
+    //    | preload_super(0x10) | preload_root(0x40) | preload_parent(0x80) | preload_global(0x100) = 0x01D5
+    let fn2_body = vec![0x96, 2, 0, 4, 7, 0x3E]; // Push reg[7], Return
+    let mut fn2_hdr = Vec::new();
+    fn2_hdr.push(0); // anonymous ""
+    fn2_hdr.extend_from_slice(&1u16.to_le_bytes()); // 1 param
+    fn2_hdr.push(10); // register_count = 10
+    fn2_hdr.extend_from_slice(&0x01D5u16.to_le_bytes()); // all 6 preload flags
+    fn2_hdr.push(7); // param in reg 7
+    fn2_hdr.extend_from_slice(b"x\0");
+    fn2_hdr.extend_from_slice(&(fn2_body.len() as u16).to_le_bytes());
+    actions.push(0x8E);
+    actions.extend_from_slice(&(fn2_hdr.len() as u16).to_le_bytes());
+    actions.extend_from_slice(&fn2_hdr);
+    actions.extend_from_slice(&fn2_body);
+    actions.push(0x17); // Pop
+
+    // 3. ActionWith (0x94) + ActionTry (0x8F catch in register 2 + finally) + ActionGetURL2 (0x9A)
+    actions.extend_from_slice(&[0x96, 5, 0, 7, 0, 0, 0, 0, 0x43]); // {}
+    let mut with_inner = push_str("k");
+    with_inner.extend_from_slice(&[0x1C, 0x17]);
+    actions.push(0x94);
+    actions.extend_from_slice(&2u16.to_le_bytes());
+    actions.extend_from_slice(&(with_inner.len() as u16).to_le_bytes());
+    actions.extend_from_slice(&with_inner);
+
+    let mut try_b = push_str("e!");
+    try_b.push(0x2A); // Throw "e!"
+    let catch_b = vec![0x96, 2, 0, 4, 2, 0x17]; // Push reg[2], Pop
+    let mut fin_b = push_str("f");
+    fin_b.push(0x17);
+    let mut try_hdr = vec![0x07]; // has_catch | has_finally | catch_in_register
+    try_hdr.extend_from_slice(&(try_b.len() as u16).to_le_bytes());
+    try_hdr.extend_from_slice(&(catch_b.len() as u16).to_le_bytes());
+    try_hdr.extend_from_slice(&(fin_b.len() as u16).to_le_bytes());
+    try_hdr.push(2); // catch register 2
+    actions.push(0x8F);
+    actions.extend_from_slice(&(try_hdr.len() as u16).to_le_bytes());
+    actions.extend_from_slice(&try_hdr);
+    actions.extend_from_slice(&try_b);
+    actions.extend_from_slice(&catch_b);
+    actions.extend_from_slice(&fin_b);
+
+    // Push "FSCommand:ping", "ok" -> GetURL2(0)
+    actions.extend_from_slice(&push_str("FSCommand:ping"));
+    actions.extend_from_slice(&push_str("ok"));
+    actions.extend_from_slice(&[0x9A, 1, 0, 0]);
+    actions.push(0x00);
+
+    let swf = wrap_fws(8, 1, &[make_tag(12, &actions), make_tag(1, &[])]);
+    let bundle = decode_swf_bundle(&swf).expect("decode AVM1 functions/with/try/geturl");
+    assert!(
+        bundle.warnings.is_empty(),
+        "unexpected warnings: {:?}",
+        bundle.warnings
+    );
+    let code = &bundle.scripts[0].code;
+    assert!(code.contains("__nfSwfFn(function(...__callArgs)"), "{code}");
+    assert!(code.contains("__regs[1] = __curThis;"), "{code}");
+    assert!(code.contains("__regs[2] = __argsObj;"), "{code}");
+    assert!(code.contains("__regs[3] = __superCtor;"), "{code}");
+    assert!(code.contains("__regs[4] = _root;"), "{code}");
+    assert!(code.contains("__regs[5] = "), "{code}");
+    assert!(code.contains("__regs[6] = __global;"), "{code}");
+    assert!(code.contains("__regs[7] = __callArgs[0];"), "{code}");
+    assert!(code.contains("__withStack.length < 16"), "{code}");
+    assert!(code.contains("catchReg: 2"), "{code}");
+    assert!(code.contains("__nfSwfGetURL("), "{code}");
+    assert!(!code.contains("Function("), "{code}");
+}
+
+#[test]
+fn swf_loader_decodes_place_object3_filters_blend_modes_and_cache_as_bitmap() {
+    use neoflash_core::{BlendMode, FilterSpec};
+
+    let mut po3 = Vec::new();
+    po3.push(0x02); // flags1: HasCharacter
+    po3.push(0x07); // flags2: HasFilterList(0x01) | HasBlendMode(0x02) | HasCacheAsBitmap(0x04)
+    po3.extend_from_slice(&1u16.to_le_bytes()); // depth 1
+    po3.extend_from_slice(&1u16.to_le_bytes()); // char_id 1
+
+    // FilterList: 3 filters (Blur=1, Glow=2, ColorMatrix=6)
+    po3.push(3);
+    // 1) BlurFilter (id = 1): blur_x = 4.0 (FIXED 16.16), blur_y = 6.0, flags = 2 << 3 (passes = 2)
+    po3.push(1);
+    po3.extend_from_slice(&(4i32 << 16).to_le_bytes());
+    po3.extend_from_slice(&(6i32 << 16).to_le_bytes());
+    po3.push(2 << 3);
+    // 2) GlowFilter (id = 2): rgba(255, 64, 32, 255), blur_x = 8.0, blur_y = 8.0, strength = 2.0 (FIXED8 8.8 = 512), flags = inner(0x80) | knockout(0x40) | passes=1(0x01)
+    po3.push(2);
+    po3.extend_from_slice(&[255, 64, 32, 255]);
+    po3.extend_from_slice(&(8i32 << 16).to_le_bytes());
+    po3.extend_from_slice(&(8i32 << 16).to_le_bytes());
+    po3.extend_from_slice(&(2i16 << 8).to_le_bytes());
+    po3.push(0x80 | 0x40 | 0x01);
+    // 3) ColorMatrixFilter (id = 6): 20 * f32 identity
+    po3.push(6);
+    let mut ident = [0.0f32; 20];
+    ident[0] = 1.0;
+    ident[6] = 1.0;
+    ident[12] = 1.0;
+    ident[18] = 1.0;
+    for v in ident {
+        po3.extend_from_slice(&v.to_le_bytes());
+    }
+
+    // BlendMode = 8 (Add), bitmap_cache = 1
+    po3.push(8);
+    po3.push(1);
+
+    let swf = wrap_fws(
+        10,
+        1,
+        &[
+            minimal_define_shape_tag(1),
+            make_tag(70, &po3),
+            make_tag(1, &[]),
+        ],
+    );
+    let bundle = decode_swf_bundle(&swf).expect("decode PlaceObject3 filters/blend/cache");
+    assert!(
+        bundle.warnings.is_empty(),
+        "unexpected warnings: {:?}",
+        bundle.warnings
+    );
+    bundle.project.validate().expect("project must validate");
+    let root_sym = bundle
+        .project
+        .symbols
+        .iter()
+        .find(|s| s.id == bundle.project.root)
+        .unwrap();
+    let el = &root_sym.timeline.layers[0].keyframes[0].elements[0];
+    assert!(el.cache_as_bitmap);
+    assert_eq!(el.blend_mode, BlendMode::Add);
+    assert_eq!(el.filters.len(), 3);
+    assert!(
+        matches!(el.filters[0], FilterSpec::Blur { blur_x, blur_y, quality: 2, .. } if (blur_x - 4.0).abs() < 1e-3 && (blur_y - 6.0).abs() < 1e-3)
+    );
+    assert!(matches!(
+        el.filters[1],
+        FilterSpec::Glow {
+            color: 0xFF4020,
+            inner: true,
+            knockout: true,
+            ..
+        }
+    ));
+    assert!(matches!(el.filters[2], FilterSpec::ColorMatrix { .. }));
+}
+
+#[test]
+fn swf_loader_binds_non_root_symbol_class_sprites_and_avm2_closures() {
+    // DefineSprite(char_id=2, frames=2): frame 1 ShowFrame, frame 2 ShowFrame, End
+    let mut sprite_payload = Vec::new();
+    sprite_payload.extend_from_slice(&2u16.to_le_bytes());
+    sprite_payload.extend_from_slice(&2u16.to_le_bytes());
+    sprite_payload.extend_from_slice(&make_tag(1, &[]));
+    sprite_payload.extend_from_slice(&make_tag(1, &[]));
+    sprite_payload.extend_from_slice(&[0, 0]);
+    let define_sprite = make_tag(39, &sprite_payload);
+
+    // DoABC2 with 2 classes: ChildSprite (0) and DocMain (1), where ChildSprite iinit registers addFrameScript(1, newfunction 4)
+    let mut abc = vec![16, 0, 46, 0];
+    push_u30(&mut abc, 1);
+    push_u30(&mut abc, 1);
+    push_u30(&mut abc, 1);
+    let strs = [
+        "",
+        "ChildSprite",
+        "DocMain",
+        "MovieClip",
+        "addFrameScript",
+        "hit",
+    ];
+    push_u30(&mut abc, (strs.len() + 1) as u32);
+    for s in strs {
+        push_u30(&mut abc, s.len() as u32);
+        abc.extend_from_slice(s.as_bytes());
+    }
+    push_u30(&mut abc, 2);
+    abc.extend_from_slice(&[0x16, 1]); // ns 1 = ""
+    push_u30(&mut abc, 1);
+    // mn: 1=ChildSprite, 2=DocMain, 3=MovieClip, 4=addFrameScript, 5=hit
+    push_u30(&mut abc, 6);
+    for sid in 2..=6u8 {
+        abc.extend_from_slice(&[0x07, 1, sid]);
+    }
+    // methods: 0=Child.cinit, 1=Child.iinit, 2=Doc.cinit, 3=Doc.iinit, 4=Child.frame2Closure, 5=script_init
+    push_u30(&mut abc, 6);
+    for _ in 0..6 {
+        abc.extend_from_slice(&[0, 0, 0, 0]);
+    }
+    push_u30(&mut abc, 0); // metadata
+    push_u30(&mut abc, 2); // 2 classes
+    // instance 0: ChildSprite extends MovieClip, iinit=1
+    abc.extend_from_slice(&[1, 3, 0, 0, 1, 0]);
+    // instance 1: DocMain extends MovieClip, iinit=3
+    abc.extend_from_slice(&[2, 3, 0, 0, 3, 0]);
+    // class 0 cinit=0, class 1 cinit=2
+    abc.extend_from_slice(&[0, 0, 2, 0]);
+    // script 0 init=5
+    push_u30(&mut abc, 1);
+    abc.extend_from_slice(&[5, 0]);
+
+    // Bodies for 1 (Child.iinit), 3 (Doc.iinit), 4 (frame2Closure)
+    let child_iinit = vec![
+        0xD0, 0x30, // getlocal_0, pushscope
+        0xD0, 0x49, 0, // constructsuper 0
+        0x5D, 4, 0x24, 1, 0x40, 4, 0x4F, 4, 2, // addFrameScript(1, newfunction 4)
+        0x47,
+    ];
+    let doc_iinit = vec![0xD0, 0x30, 0xD0, 0x49, 0, 0x47];
+    let frame2_fn = vec![0xD0, 0x24, 99, 0x61, 5, 0x47]; // this.hit = 99
+    push_u30(&mut abc, 3);
+    for (mid, code) in [(1u32, child_iinit), (3, doc_iinit), (4, frame2_fn)] {
+        push_u30(&mut abc, mid);
+        abc.extend_from_slice(&[6, 4, 4, 6]);
+        push_u30(&mut abc, code.len() as u32);
+        abc.extend_from_slice(&code);
+        abc.extend_from_slice(&[0, 0]);
+    }
+    let mut do_abc2 = vec![1, 0, 0, 0, b'm', 0];
+    do_abc2.extend_from_slice(&abc);
+
+    // SymbolClass: cid 0 -> DocMain, cid 2 -> ChildSprite
+    let mut sym_cls = Vec::new();
+    sym_cls.extend_from_slice(&2u16.to_le_bytes());
+    sym_cls.extend_from_slice(&0u16.to_le_bytes());
+    sym_cls.extend_from_slice(b"DocMain\0");
+    sym_cls.extend_from_slice(&2u16.to_le_bytes());
+    sym_cls.extend_from_slice(b"ChildSprite\0");
+
+    let swf = wrap_fws(
+        13,
+        1,
+        &[
+            make_tag(69, &[0x08, 0, 0, 0]),
+            define_sprite,
+            minimal_place_object2_tag(1, 2),
+            make_tag(82, &do_abc2),
+            make_tag(76, &sym_cls),
+            make_tag(1, &[]),
+        ],
+    );
+    let bundle = decode_swf_bundle(&swf).expect("decode SymbolClass child sprite SWF");
+    assert!(
+        bundle.warnings.is_empty(),
+        "non-root SymbolClass sprite must bind without warnings: {:?}",
+        bundle.warnings
+    );
+    let child_sym = bundle
+        .project
+        .symbols
+        .iter()
+        .find(|s| s.class_name.as_deref() == Some("ChildSprite"))
+        .expect("DefineSprite symbol bound to ChildSprite");
+    assert_eq!(child_sym.linkage_id.as_deref(), Some("ChildSprite"));
+    assert_eq!(child_sym.timeline.scripts.len(), 1);
+    assert_eq!(child_sym.timeline.scripts[0].frame, 1);
+    assert!(bundle.scripts.iter().any(|u| u.location == "avm2-abc-init"));
+    assert!(bundle.scripts.iter().any(|u| {
+        u.location == "avm2-sprite-frame:frame-2" && u.code.contains("\"ChildSprite\"")
+    }));
 }

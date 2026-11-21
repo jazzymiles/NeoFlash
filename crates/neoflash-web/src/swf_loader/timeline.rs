@@ -7,8 +7,9 @@ use super::{
     parse_tag_slice,
 };
 use neoflash_core::{
-    Color, ColorTransform, Element, ElementKind, InstancePlayback, Keyframe, Layer,
-    LayerProperties, LayerRole, Symbol, SymbolKind, TextFormat, Timeline, Transform,
+    BlendMode, Color, ColorTransform, Element, ElementKind, FilterSpec, InstancePlayback, Keyframe,
+    Layer, LayerProperties, LayerRole, MAX_OBJECT_FILTERS, Symbol, SymbolKind, TextFormat,
+    Timeline, Transform,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -464,6 +465,9 @@ fn placement_to_element(
     el.name = p.name.clone();
     el.transform = tf;
     el.visible = p.visible;
+    el.cache_as_bitmap = p.cache_as_bitmap;
+    el.blend_mode = p.blend_mode;
+    el.filters.clone_from(&p.filters);
     Some(el)
 }
 
@@ -750,6 +754,9 @@ fn apply_place_object1(
             name: String::new(),
             clip_depth: 0,
             visible: true,
+            cache_as_bitmap: false,
+            blend_mode: BlendMode::Normal,
+            filters: Vec::new(),
         },
     );
     Ok(Some(depth))
@@ -817,22 +824,22 @@ fn apply_place_object2_or_3(
     } else {
         None
     };
-    if has_filter_list {
-        ctx.warn("SWF PlaceObject3 filters are not supported in the bounded SWF loader and were skipped.");
-        skip_swf_filter_list(&mut r)?;
-    }
-    if has_blend_mode {
+    let filters = if has_filter_list {
+        Some(decode_swf_filter_list(ctx, &mut r)?)
+    } else {
+        None
+    };
+    let blend_mode = if has_blend_mode {
         let mode_byte = r.read_u8()?;
-        if mode_byte > 1 {
-            ctx.warn("SWF PlaceObject3 blendMode is not supported in the bounded SWF loader and was skipped.");
-        }
-    }
-    if has_cache_bitmap {
-        let cache_byte = r.read_u8()?;
-        if cache_byte != 0 {
-            ctx.warn("SWF PlaceObject3 cacheAsBitmap is not supported in the bounded SWF loader and was skipped.");
-        }
-    }
+        Some(decode_swf_blend_mode(ctx, mode_byte))
+    } else {
+        None
+    };
+    let cache_as_bitmap = if has_cache_bitmap {
+        Some(r.read_u8()? != 0)
+    } else {
+        None
+    };
     let visible = if has_visible {
         Some(r.read_u8()? != 0)
     } else {
@@ -862,6 +869,15 @@ fn apply_place_object2_or_3(
         if let Some(v) = visible {
             existing.visible = v;
         }
+        if let Some(cab) = cache_as_bitmap {
+            existing.cache_as_bitmap = cab;
+        }
+        if let Some(bm) = blend_mode {
+            existing.blend_mode = bm;
+        }
+        if let Some(fl) = filters {
+            existing.filters = fl;
+        }
         return Ok(Some(depth));
     } else if let Some(cid) = char_id {
         ctx.total_placements += 1;
@@ -874,6 +890,9 @@ fn apply_place_object2_or_3(
                 name: name.unwrap_or_default(),
                 clip_depth: clip_depth.unwrap_or(0),
                 visible: visible.unwrap_or(true),
+                cache_as_bitmap: cache_as_bitmap.unwrap_or(false),
+                blend_mode: blend_mode.unwrap_or(BlendMode::Normal),
+                filters: filters.unwrap_or_default(),
             },
         );
         return Ok(Some(depth));
@@ -881,30 +900,280 @@ fn apply_place_object2_or_3(
     Ok(None)
 }
 
-fn skip_swf_filter_list(r: &mut BitReader<'_>) -> Result<(), String> {
-    let count = usize::from(r.read_u8()?);
-    for _ in 0..count {
-        let filter_id = r.read_u8()?;
-        let skip_bytes = match filter_id {
-            0 => 23, // DropShadow
-            1 => 9,  // Blur
-            2 => 15, // Glow
-            3 => 27, // Bevel
-            4 | 7 => {
-                let n = usize::from(r.read_u8()?);
-                n * 5 + 19
-            }
-            5 => {
-                let mx = usize::from(r.read_u8()?);
-                let my = usize::from(r.read_u8()?);
-                mx * my * 4 + 13
-            }
-            6 => 80, // ColorMatrix
-            _ => return Ok(()),
-        };
-        for _ in 0..skip_bytes {
-            let _ = r.read_u8()?;
+fn rgba_to_rgb_alpha(rgba: Color) -> (u32, f64) {
+    let rgb = (u32::from(rgba[0]) << 16) | (u32::from(rgba[1]) << 8) | u32::from(rgba[2]);
+    let alpha = (f64::from(rgba[3]) / 255.0).clamp(0.0, 1.0);
+    (rgb, alpha)
+}
+
+fn sanitize_finite(v: f64, lo: f64, hi: f64) -> f64 {
+    if v.is_finite() { v.clamp(lo, hi) } else { 0.0 }
+}
+
+fn decode_swf_blend_mode(ctx: &mut SwfDecodeCtx, mode_byte: u8) -> BlendMode {
+    match mode_byte {
+        0 | 1 => BlendMode::Normal,
+        2 => BlendMode::Layer,
+        3 => BlendMode::Multiply,
+        4 => BlendMode::Screen,
+        5 => BlendMode::Lighten,
+        6 => BlendMode::Darken,
+        7 => BlendMode::Difference,
+        8 => BlendMode::Add,
+        9 => BlendMode::Subtract,
+        10 => BlendMode::Invert,
+        11 => BlendMode::Alpha,
+        12 => BlendMode::Erase,
+        13 => BlendMode::Overlay,
+        14 => BlendMode::Hardlight,
+        other => {
+            ctx.warn(format!(
+                "SWF PlaceObject3 blendMode {other} is not supported in the bounded SWF loader; defaulted to Normal."
+            ));
+            BlendMode::Normal
         }
     }
-    Ok(())
+}
+
+fn decode_swf_filter_list(
+    ctx: &mut SwfDecodeCtx,
+    r: &mut BitReader<'_>,
+) -> Result<Vec<FilterSpec>, String> {
+    let count = usize::from(r.read_u8()?);
+    let mut out = Vec::with_capacity(count.min(MAX_OBJECT_FILTERS));
+    let mut warned_cap = false;
+
+    for _ in 0..count {
+        let filter_id = r.read_u8()?;
+        let spec_opt = match filter_id {
+            0 => {
+                // DropShadowFilter (23 bytes)
+                let (color, alpha) = rgba_to_rgb_alpha(r.read_rgba()?);
+                let blur_x = sanitize_finite(r.read_fixed16()?, 0.0, 255.0);
+                let blur_y = sanitize_finite(r.read_fixed16()?, 0.0, 255.0);
+                let angle = sanitize_finite(r.read_fixed16()?.to_degrees(), -1.0e9, 1.0e9);
+                let distance = sanitize_finite(r.read_fixed16()?, -8192.0, 8192.0);
+                let strength = sanitize_finite(r.read_fixed8()?, 0.0, 255.0);
+                let flags = r.read_u8()?;
+                let inner = (flags & 0x80) != 0;
+                let knockout = (flags & 0x40) != 0;
+                let hide_object = (flags & 0x20) == 0;
+                let quality = (flags & 0x1F).clamp(1, 15);
+                Some(FilterSpec::DropShadow {
+                    distance,
+                    angle,
+                    color,
+                    alpha,
+                    blur_x,
+                    blur_y,
+                    strength,
+                    quality,
+                    inner,
+                    knockout,
+                    hide_object,
+                })
+            }
+            1 => {
+                // BlurFilter (9 bytes)
+                let blur_x = sanitize_finite(r.read_fixed16()?, 0.0, 255.0);
+                let blur_y = sanitize_finite(r.read_fixed16()?, 0.0, 255.0);
+                let flags = r.read_u8()?;
+                let quality = ((flags >> 3) & 0x1F).clamp(1, 15);
+                Some(FilterSpec::Blur {
+                    blur_x,
+                    blur_y,
+                    quality,
+                })
+            }
+            2 => {
+                // GlowFilter (15 bytes)
+                let (color, alpha) = rgba_to_rgb_alpha(r.read_rgba()?);
+                let blur_x = sanitize_finite(r.read_fixed16()?, 0.0, 255.0);
+                let blur_y = sanitize_finite(r.read_fixed16()?, 0.0, 255.0);
+                let strength = sanitize_finite(r.read_fixed8()?, 0.0, 255.0);
+                let flags = r.read_u8()?;
+                let inner = (flags & 0x80) != 0;
+                let knockout = (flags & 0x40) != 0;
+                let quality = (flags & 0x1F).clamp(1, 15);
+                Some(FilterSpec::Glow {
+                    color,
+                    alpha,
+                    blur_x,
+                    blur_y,
+                    strength,
+                    quality,
+                    inner,
+                    knockout,
+                })
+            }
+            3 => {
+                // BevelFilter (27 bytes: ShadowColor first, HighlightColor second)
+                let (shadow_color, shadow_alpha) = rgba_to_rgb_alpha(r.read_rgba()?);
+                let (highlight_color, highlight_alpha) = rgba_to_rgb_alpha(r.read_rgba()?);
+                let blur_x = sanitize_finite(r.read_fixed16()?, 0.0, 255.0);
+                let blur_y = sanitize_finite(r.read_fixed16()?, 0.0, 255.0);
+                let angle = sanitize_finite(r.read_fixed16()?.to_degrees(), -1.0e9, 1.0e9);
+                let distance = sanitize_finite(r.read_fixed16()?, -8192.0, 8192.0);
+                let strength = sanitize_finite(r.read_fixed8()?, 0.0, 255.0);
+                let flags = r.read_u8()?;
+                let inner_shadow = (flags & 0x80) != 0;
+                let knockout = (flags & 0x40) != 0;
+                let on_top = (flags & 0x10) != 0;
+                let placement = if on_top {
+                    "full".to_owned()
+                } else if inner_shadow {
+                    "inner".to_owned()
+                } else {
+                    "outer".to_owned()
+                };
+                let quality = (flags & 0x0F).clamp(1, 15);
+                Some(FilterSpec::Bevel {
+                    distance,
+                    angle,
+                    highlight_color,
+                    highlight_alpha,
+                    shadow_color,
+                    shadow_alpha,
+                    blur_x,
+                    blur_y,
+                    strength,
+                    quality,
+                    placement,
+                    knockout,
+                })
+            }
+            4 | 7 => {
+                // GradientGlowFilter (4) / GradientBevelFilter (7)
+                let num_colors = usize::from(r.read_u8()?);
+                let mut raw_rgba = Vec::with_capacity(num_colors.min(256));
+                for _ in 0..num_colors {
+                    raw_rgba.push(rgba_to_rgb_alpha(r.read_rgba()?));
+                }
+                let mut raw_ratios = Vec::with_capacity(num_colors.min(256));
+                for _ in 0..num_colors {
+                    raw_ratios.push(r.read_u8()?);
+                }
+                let blur_x = sanitize_finite(r.read_fixed16()?, 0.0, 255.0);
+                let blur_y = sanitize_finite(r.read_fixed16()?, 0.0, 255.0);
+                let angle = sanitize_finite(r.read_fixed16()?.to_degrees(), -1.0e9, 1.0e9);
+                let distance = sanitize_finite(r.read_fixed16()?, -8192.0, 8192.0);
+                let strength = sanitize_finite(r.read_fixed8()?, 0.0, 255.0);
+                let flags = r.read_u8()?;
+                let inner_shadow = (flags & 0x80) != 0;
+                let knockout = (flags & 0x40) != 0;
+                let on_top = (flags & 0x10) != 0;
+                let placement = if on_top {
+                    "full".to_owned()
+                } else if inner_shadow {
+                    "inner".to_owned()
+                } else {
+                    "outer".to_owned()
+                };
+                let quality = (flags & 0x0F).clamp(1, 15);
+
+                let take_n = num_colors.min(16);
+                let mut stops: Vec<(u8, u32, f64)> = (0..take_n)
+                    .map(|i| (raw_ratios[i], raw_rgba[i].0, raw_rgba[i].1))
+                    .collect();
+                stops.sort_by_key(|(rat, _, _)| *rat);
+                let ratios: Vec<u8> = stops.iter().map(|(rat, _, _)| *rat).collect();
+                let colors: Vec<u32> = stops.iter().map(|(_, c, _)| *c).collect();
+                let alphas: Vec<f64> = stops.iter().map(|(_, _, a)| *a).collect();
+                if filter_id == 4 {
+                    Some(FilterSpec::GradientGlow {
+                        distance,
+                        angle,
+                        colors,
+                        alphas,
+                        ratios,
+                        blur_x,
+                        blur_y,
+                        strength,
+                        quality,
+                        placement,
+                        knockout,
+                    })
+                } else {
+                    Some(FilterSpec::GradientBevel {
+                        distance,
+                        angle,
+                        colors,
+                        alphas,
+                        ratios,
+                        blur_x,
+                        blur_y,
+                        strength,
+                        quality,
+                        placement,
+                        knockout,
+                    })
+                }
+            }
+            5 => {
+                // ConvolutionFilter
+                let mx = r.read_u8()?;
+                let my = r.read_u8()?;
+                let divisor = sanitize_finite(r.read_f32()?, -65536.0, 65536.0);
+                let bias = sanitize_finite(r.read_f32()?, -65536.0, 65536.0);
+                let total = usize::from(mx).saturating_mul(usize::from(my));
+                let mut matrix = Vec::with_capacity(total.min(225));
+                for i in 0..total {
+                    let coeff = sanitize_finite(r.read_f32()?, -65536.0, 65536.0);
+                    if i < 225 {
+                        matrix.push(coeff);
+                    }
+                }
+                let (color, alpha) = rgba_to_rgb_alpha(r.read_rgba()?);
+                let flags = r.read_u8()?;
+                let clamp = (flags & 0x02) != 0;
+                let preserve_alpha = (flags & 0x01) != 0;
+                if mx <= 15 && my <= 15 && total <= 225 {
+                    Some(FilterSpec::Convolution {
+                        matrix_x: mx,
+                        matrix_y: my,
+                        matrix,
+                        divisor,
+                        bias,
+                        preserve_alpha,
+                        clamp,
+                        color,
+                        alpha,
+                    })
+                } else {
+                    ctx.warn(
+                        "SWF PlaceObject3 ConvolutionFilter exceeds 15x15 matrix limit and was skipped.",
+                    );
+                    None
+                }
+            }
+            6 => {
+                // ColorMatrixFilter (80 bytes = 20 f32s)
+                let mut matrix = [0.0f64; 20];
+                for slot in &mut matrix {
+                    *slot = sanitize_finite(r.read_f32()?, -65536.0, 65536.0);
+                }
+                Some(FilterSpec::ColorMatrix { matrix })
+            }
+            other => {
+                ctx.warn(format!(
+                    "SWF PlaceObject3 filter ID {other} is not supported in the bounded SWF loader and was skipped."
+                ));
+                return Ok(out);
+            }
+        };
+
+        if let Some(spec) = spec_opt
+            && spec.validate().is_ok()
+        {
+            if out.len() < MAX_OBJECT_FILTERS {
+                out.push(spec);
+            } else if !warned_cap {
+                warned_cap = true;
+                ctx.warn(
+                    "SWF PlaceObject3 filter list exceeds the 8-filter display limit; excess filters were clamped.",
+                );
+            }
+        }
+    }
+    Ok(out)
 }

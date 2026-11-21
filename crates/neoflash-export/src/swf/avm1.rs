@@ -634,11 +634,21 @@ pub(super) fn avm1_compile_expr(
                         return Ok(());
                     }
                     avm1_push_string(out, name)?;
+                    out.push(0x40); // ActionNewObject
                 }
-                SwfExpr::Member(_, prop) => avm1_push_string(out, prop)?,
-                _ => return Err("unsupported 'new' constructor expression in AVM1".to_owned()),
+                SwfExpr::Member(obj, prop) => {
+                    avm1_compile_expr(out, obj, reg_map)?;
+                    avm1_push_string(out, prop)?;
+                    out.push(0x53); // ActionNewMethod
+                }
+                other => {
+                    avm1_compile_expr(out, other, reg_map)?;
+                    out.push(0x96);
+                    out.extend_from_slice(&1u16.to_le_bytes());
+                    out.push(0x03); // Undefined method name
+                    out.push(0x53); // ActionNewMethod
+                }
             }
-            out.push(0x40); // ActionNewObject
         }
     }
     Ok(())
@@ -805,6 +815,95 @@ pub(super) fn avm1_compile_call(
                     avm1_push_string(out, "")?;
                 }
                 out.push(0x26); // ActionTrace
+                return Ok(());
+            }
+            "fscommand" if discard_result && !args.is_empty() => {
+                if let SwfExpr::Str(cmd) = &args[0] {
+                    let param_str = match args.get(1) {
+                        None => Some(""),
+                        Some(SwfExpr::Str(s)) => Some(s.as_str()),
+                        _ => None,
+                    };
+                    if let Some(p_str) = param_str {
+                        let url_bytes: Vec<u8> = format!("FSCommand:{cmd}")
+                            .bytes()
+                            .filter(|&b| b != 0)
+                            .collect();
+                        let tgt_bytes: Vec<u8> = p_str.bytes().filter(|&b| b != 0).collect();
+                        let len = url_bytes
+                            .len()
+                            .checked_add(1)
+                            .and_then(|n| n.checked_add(tgt_bytes.len()))
+                            .and_then(|n| n.checked_add(1))
+                            .and_then(|n| u16::try_from(n).ok())
+                            .ok_or_else(|| {
+                                "AVM1 ActionGetURL FSCommand exceeds 65535 bytes".to_owned()
+                            })?;
+                        out.push(0x83); // ActionGetURL
+                        out.extend_from_slice(&len.to_le_bytes());
+                        out.extend_from_slice(&url_bytes);
+                        out.push(0);
+                        out.extend_from_slice(&tgt_bytes);
+                        out.push(0);
+                        return Ok(());
+                    }
+                }
+                avm1_push_string(out, "FSCommand:")?;
+                avm1_compile_expr(out, &args[0], reg_map)?;
+                out.push(0x47); // ActionAdd2 -> "FSCommand:" + cmd
+                if let Some(param_expr) = args.get(1) {
+                    avm1_compile_expr(out, param_expr, reg_map)?;
+                } else {
+                    avm1_push_string(out, "")?;
+                }
+                out.push(0x9a); // ActionGetURL2
+                out.extend_from_slice(&1u16.to_le_bytes());
+                out.push(0x00);
+                return Ok(());
+            }
+            "getURL" if discard_result && !args.is_empty() => {
+                let send_method = match args.get(2) {
+                    Some(SwfExpr::Str(m)) if m.eq_ignore_ascii_case("GET") => 1u8,
+                    Some(SwfExpr::Str(m)) if m.eq_ignore_ascii_case("POST") => 2u8,
+                    _ => 0u8,
+                };
+                if send_method == 0
+                    && args.len() <= 2
+                    && let SwfExpr::Str(url_s) = &args[0]
+                {
+                    let tgt_opt = match args.get(1) {
+                        None => Some(""),
+                        Some(SwfExpr::Str(t)) => Some(t.as_str()),
+                        _ => None,
+                    };
+                    if let Some(tgt_s) = tgt_opt {
+                        let url_bytes: Vec<u8> = url_s.bytes().filter(|&b| b != 0).collect();
+                        let tgt_bytes: Vec<u8> = tgt_s.bytes().filter(|&b| b != 0).collect();
+                        let len = url_bytes
+                            .len()
+                            .checked_add(1)
+                            .and_then(|n| n.checked_add(tgt_bytes.len()))
+                            .and_then(|n| n.checked_add(1))
+                            .and_then(|n| u16::try_from(n).ok())
+                            .ok_or_else(|| "AVM1 ActionGetURL exceeds 65535 bytes".to_owned())?;
+                        out.push(0x83); // ActionGetURL
+                        out.extend_from_slice(&len.to_le_bytes());
+                        out.extend_from_slice(&url_bytes);
+                        out.push(0);
+                        out.extend_from_slice(&tgt_bytes);
+                        out.push(0);
+                        return Ok(());
+                    }
+                }
+                avm1_compile_expr(out, &args[0], reg_map)?;
+                if let Some(tgt_expr) = args.get(1) {
+                    avm1_compile_expr(out, tgt_expr, reg_map)?;
+                } else {
+                    avm1_push_string(out, "")?;
+                }
+                out.push(0x9a); // ActionGetURL2
+                out.extend_from_slice(&1u16.to_le_bytes());
+                out.push(send_method);
                 return Ok(());
             }
             _ => {
@@ -1089,7 +1188,13 @@ fn avm1_compile_stmt_list_with_flow(
 ) -> Result<(), String> {
     for stmt in stmts {
         if let SwfStmt::FunctionDecl { name, params, body } = stmt {
-            avm1_compile_function(out, name, None, params, body)?;
+            if in_function {
+                avm1_push_string(out, name)?;
+                avm1_compile_function(out, "", Some(name), params, body)?;
+                out.push(0x3c); // ActionDefineLocal on enclosing activation scope
+            } else {
+                avm1_compile_function(out, name, None, params, body)?;
+            }
         }
     }
     for stmt in stmts {
