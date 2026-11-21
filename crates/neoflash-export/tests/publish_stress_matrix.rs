@@ -1,6 +1,7 @@
 //! Multi-pass publish stress & matrix test suite (`T-198`).
 //!
-//! Exercises exhaustive combinations of `PublishOptions`, `HtmlPublishConfig`, `SizeLevel`,
+//! Exercises representative combinations by default and the full permutation matrices
+//! under `./scripts/check.sh --release`. Covers `PublishOptions`, `HtmlPublishConfig`, `SizeLevel`,
 //! `FontExportPolicy`, `AudioExportPolicy`, `HtmlTemplate`, `HtmlScaleMode`, `PlayerChromeConfig`,
 //! `VideoDeploymentMode` (`Embedded`, `External`, `Progressive`), and all publish targets
 //! (`HTML5`, `DesktopApp`, `ImageSequence`, `SpriteSheet` / `Atlas`, `Svg`, `Lottie`, `VideoMp4`, `SWF`, and `FLA`/`XFL`).
@@ -104,6 +105,7 @@ fn valid_mp4_header_bytes() -> Vec<u8> {
 
 #[test]
 fn pass1_size_levels_fonts_and_audio_policies_across_real_projects() {
+    let exhaustive = std::env::var("NEOFLASH_CHECK_TIER").as_deref() == Ok("release");
     let dir = temp_dir("pass1");
     let rt = dir.join("runtime");
     create_mock_runtime(&rt);
@@ -158,13 +160,24 @@ fn pass1_size_levels_fonts_and_audio_policies_across_real_projects() {
             } else {
                 &[FontExportPolicy::Embed, FontExportPolicy::Device]
             };
-        for level in [
+        for (level_index, level) in [
             SizeLevel::Full,
             SizeLevel::Balanced,
             SizeLevel::Compact,
             SizeLevel::Shared("https://cdn.example.com/neoflash-rt/".into()),
-        ] {
-            for &font_policy in font_policies {
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            for (font_index, &font_policy) in font_policies.iter().enumerate() {
+                // The demo covers every level and font policy. Other projects
+                // add one representative pairing each, including imported FLA.
+                if !exhaustive
+                    && (font_index != level_index % font_policies.len()
+                        || (p_idx != 0 && level_index != p_idx % 4))
+                {
+                    continue;
+                }
                 let options = PublishOptions {
                     fonts: font_policy,
                     size: level.clone(),
@@ -268,6 +281,7 @@ fn pass1_size_levels_fonts_and_audio_policies_across_real_projects() {
 
 #[test]
 fn pass2_templates_scale_modes_accelerations_and_hud_permutations() {
+    let exhaustive = std::env::var("NEOFLASH_CHECK_TIER").as_deref() == Ok("release");
     let dir = temp_dir("pass2");
     let rt = dir.join("runtime");
     create_mock_runtime(&rt);
@@ -279,10 +293,17 @@ fn pass2_templates_scale_modes_accelerations_and_hud_permutations() {
         audio: AudioExportPolicy::Original,
     };
 
-    // 1. All 4 HtmlTemplate × 4 HtmlScaleMode × 3 HtmlAcceleration combinations
-    for template in HtmlTemplate::ALL {
-        for scale_mode in HtmlScaleMode::ALL {
-            for acceleration in HtmlAcceleration::ALL {
+    // Exercise every setting in the ordinary tier, and all 48 combinations before release.
+    for (template_index, template) in HtmlTemplate::ALL.into_iter().enumerate() {
+        for (scale_index, scale_mode) in HtmlScaleMode::ALL.into_iter().enumerate() {
+            for (acceleration_index, acceleration) in HtmlAcceleration::ALL.into_iter().enumerate()
+            {
+                if !exhaustive
+                    && (scale_index != template_index
+                        || acceleration_index != template_index % HtmlAcceleration::ALL.len())
+                {
+                    continue;
+                }
                 let cfg = HtmlPublishConfig {
                     template,
                     scale_mode,
@@ -314,8 +335,11 @@ fn pass2_templates_scale_modes_accelerations_and_hud_permutations() {
         }
     }
 
-    // 2. All 32 permutations of the 5 preview HUD toggles
+    // Test each toggle independently and together. The release tier adds every mixed mask.
     for mask in 0..32u8 {
+        if !exhaustive && mask != 0 && mask != 31 && !mask.is_power_of_two() {
+            continue;
+        }
         let chrome = PlayerChromeConfig {
             clean: false,
             show_fps: (mask & 1) != 0,

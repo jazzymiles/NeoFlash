@@ -1401,23 +1401,7 @@ fn binary_fla_exceeding_128_mib_json_sheds_largest_pcm_wav_and_validates() {
 }
 
 #[test]
-fn public_corpus_all_21_cases_and_real_world_xfl_features_import_cleanly() {
-    let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/fla-corpus");
-    for rel in [
-        "upstream/ruffle/avm1-clip-events/test.fla",
-        "upstream/ruffle/avm2-button-frame-scripts/test.fla",
-        "upstream/ruffle/avm2-nested-construction/test.fla",
-        "upstream/flump/rotate_test2/rotate_test2.fla",
-        "upstream/flump/potion_simple/potion_simple.fla",
-        "upstream/flump/flump/flump.fla",
-    ] {
-        let path = corpus.join(rel);
-        let report = inspect(&path).unwrap();
-        assert!(report.can_import, "{rel}: {:?}", report.diagnostics);
-        let project = import_project(&path).unwrap();
-        project.validate().unwrap();
-    }
-
+fn real_world_xfl_features_import_cleanly() {
     // Real-world XFL CS5/CS6/Animate CC feature coverage (DOMDynamicText, DOMInputText,
     // DOMTLFText, DOMGroup, DOMVideoItem/DOMVideoInstance, DOMCompiledClipItem/Instance,
     // DOMComponentItem/Instance, DOMFontItem, filters, color tint, persistentData <PD/>,

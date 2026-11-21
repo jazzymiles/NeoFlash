@@ -22,7 +22,6 @@ use neoflash_import::{
     resolve_swc_dependencies,
 };
 use std::{
-    collections::BTreeSet,
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -994,54 +993,11 @@ fn corpus_structural_visual_and_behavioral_comparison_harness() {
         let id = case["id"].as_str().unwrap();
         let rel_path = case["path"].as_str().unwrap();
         let source_path = corpus_dir.join(rel_path);
-        let expected = &case["expected"];
-
-        let report = inspect(&source_path).unwrap();
-        assert_eq!(
-            report.can_import,
-            expected["can_import"].as_bool().unwrap(),
-            "case {id}"
-        );
-        let diag_codes: BTreeSet<&str> =
-            report.diagnostics.iter().map(|d| d.code.as_str()).collect();
-        for req in expected["required_diagnostics"].as_array().unwrap() {
-            let req_code = req.as_str().unwrap();
-            assert!(
-                diag_codes.contains(req_code),
-                "case {id} missing required diagnostic {req_code}; got {diag_codes:?}"
-            );
-        }
-
-        let project = import_project(&source_path).unwrap();
+        // check-fla-corpus.py owns manifest statistics and diagnostics at the CLI boundary.
+        // Here one import drives evaluation and the FLA round-trip checks.
+        let project =
+            import_project(&source_path).unwrap_or_else(|error| panic!("case {id}: {error}"));
         project.validate().unwrap();
-
-        // Check statistics match manifest expectations:
-        let exp_stats = &expected["statistics"];
-        assert_eq!(
-            report.statistics.symbols,
-            exp_stats["symbols"].as_u64().unwrap() as usize,
-            "case {id} symbols"
-        );
-        assert_eq!(
-            report.statistics.layers,
-            exp_stats["layers"].as_u64().unwrap() as usize,
-            "case {id} layers"
-        );
-        assert_eq!(
-            report.statistics.keyframes,
-            exp_stats["keyframes"].as_u64().unwrap() as usize,
-            "case {id} keyframes"
-        );
-        assert_eq!(
-            report.statistics.elements,
-            exp_stats["elements"].as_u64().unwrap() as usize,
-            "case {id} elements"
-        );
-        assert_eq!(
-            report.statistics.scripts,
-            exp_stats["scripts"].as_u64().unwrap() as usize,
-            "case {id} scripts"
-        );
 
         // Visual evaluation check across frames 0..min(frame_count, 10):
         let root_sym = project.symbol(&project.root).unwrap();

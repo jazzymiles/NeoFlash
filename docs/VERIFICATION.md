@@ -13,7 +13,15 @@ This page keeps tested behavior and meaningful limits. Raw logs, artifact finger
 
 The recorded shared checks ran on Apple Silicon, macOS 15.8 and Rust 1.99.1. They cover formatting and Clippy, native Rust behavior, the macOS paste adapter, actual WASM and browser-host execution in Node, emitted-script fixtures, project workflows, public FLA corpus integrity/refusals, export preparation and demo export. Earlier failed gates and their affected reruns do not constitute an uninterrupted all-green pass.
 
-Use `./scripts/check.sh` for a complete delivery check. It runs, in order:
+Use `./scripts/check.sh` for ordinary verification. It runs every HTML5 publish scenario with a representative size
+profile and covers Full, Balanced, Compact and Shared across AS2 and AS3. It also checks estimate accuracy with
+representative settings and every audio policy. Use `./scripts/check.sh --release` before releasing a candidate.
+It adds every HTML5 scenario × size profile combination and the complete font, template, scaling, acceleration and
+preview HUD permutations. The release command includes the ordinary regression checks.
+
+Both commands generate the browser fixtures during the Rust suite in a fresh directory under `target/artifacts/`.
+Chrome consumes that same directory and writes its report there. Firefox retains its separate engine and
+protocol checks. The commands run the following stages in order:
 
 ```sh
 python3 scripts/design-lock.py                       # NF2 design lock
@@ -21,7 +29,7 @@ python3 scripts/editor-api-index.py --check          # Actions toolbox / code-hi
 cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
 ./scripts/build-web.sh                               # WASM runtime
-cargo test --locked --workspace                      # core, editor, script, import, export, web crates
+NEOFLASH_PUBLISH_GATE_DIR="$publish_gate_dir" cargo test --locked --workspace # Rust and fresh publish fixtures
 cargo test --locked -p egui-winit --lib neoflash_paste_tests
 python3 scripts/check-fla-corpus.py                  # public FLA corpus imports and refusals
 node --test web/tests/*.test.cjs scripts/check-fla-examples.cjs scripts/tests/*.test.cjs
@@ -29,10 +37,16 @@ node crates/neoflash-script/tests/execute.mjs        # emitted-script fixtures
 node crates/neoflash-script/tests/project-execute.mjs  # every project workflow family, incl. sound-playback and media-netstream
 python3 -B -m unittest discover -s scripts/tests -p 'test_browser_batch.py'
 cargo run --locked -p neoflash-export -- --demo --output target/artifacts/demo
-node scripts/verify-as-publish-gate.mjs              # Chrome HTML5 publish gate (Firefox gate runs via web/tests/firefox-html5-gate.test.cjs)
+node scripts/verify-as-publish-gate.mjs --input-dir="$publish_gate_dir" # Chrome with this run’s Rust output
 ```
 
 Deliveries that change ActionScript or product status also run `python3 scripts/progress.py --write-reports`, `python3 scripts/progress.py --check` and `python3 -m unittest discover -s scripts/tests -p 'test_progress*.py'`. After a concrete project-family failure, `NEOFLASH_WORKFLOWS=id1,id2 node crates/neoflash-script/tests/project-execute.mjs` selects affected families (for example `NEOFLASH_WORKFLOWS=sound-playback`); that selection is not a complete delivery check. Browser and native UI behavior still require direct observation. The Metal dependency's `block 0.1.6` future-compatibility notice was not a current compilation error.
+
+Outside `check.sh`, a direct `cargo test` typechecks all authored AS examples and exports a smaller sample.
+`node scripts/verify-as-publish-gate.mjs` can still generate and run the full Chrome matrix on its own.
+The opt-in `as2_and_as3_example_suites_validate_compile_and_publish_cleanly` test in
+`packet7_examples_and_express5` remains available through `--ignored --exact` for deliberate example generation
+or artifact export. Normal validation checks the checked-in examples in the shared publish gate.
 
 The full check defaults `CARGO_INCREMENTAL=0` so delivery runs do not retain large incremental compiler caches;
 set `CARGO_INCREMENTAL=1` explicitly when repeated local edits justify them. Direct Cargo commands keep their
@@ -397,6 +411,8 @@ Local corpus inspection recognized FLA/SWF signatures, accepted a bounded set of
 
 <a id="beta-1-release-acceptance-and-tablet-boundary"></a>
 ## Beta 1 (`0.1.0-beta.1`) release acceptance, golden examples, tablet event pipeline and accessibility smoke
+
+Run [`./scripts/check.sh --release`](#automated-checks) on the candidate before distribution packaging.
 
 Ordinary local macOS packaging is intentionally narrower than release acceptance: `./scripts/package-macos.sh`
 creates and verifies only the self-contained Apple Silicon `dist/NeoFlash.app`. ZIP, DMG, corresponding-source and

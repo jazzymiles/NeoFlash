@@ -2,14 +2,14 @@
 /**
  * Permanent executable HTML5 AS2/AS3 publish-correctness gate.
  *
- * Exports all 18 authored AS2/AS3 examples + focused feature/diagnostic projects
+ * By default exports all 18 authored AS2/AS3 examples + focused feature/diagnostic projects
  * across Full, Balanced, Compact, and Shared runtime size levels via the real
  * neoflash-export pipeline, executes them inside headless Chromium (CDP) over both
  * HTTP and file:// (excluding origin-restricted SharedObject & parent-relative
  * cross-origin Shared checks on file://, while explicitly verifying the HTTP(S)
  * origin error for SharedObject on file://), drives real UI interactions and
  * Restart resets, checks SafariDriver availability cleanly without hanging, and
- * writes a structured JSON report to target/publish-gate/report.json.
+ * writes a structured JSON report. check.sh passes its fresh Rust fixtures via --input-dir.
  */
 
 import { execFileSync, spawn } from 'node:child_process';
@@ -23,9 +23,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..');
-const GATE_DIR = path.join(REPO_ROOT, 'target', 'publish-gate');
-const MANIFEST_PATH = path.join(GATE_DIR, 'manifest.json');
-const REPORT_PATH = path.join(GATE_DIR, 'report.json');
+const DEFAULT_GATE_DIR = path.join(REPO_ROOT, 'target', 'publish-gate');
 const WEB_RUNTIME_DIR = path.join(REPO_ROOT, 'target', 'web-runtime');
 
 const MIME_TYPES = new Map([
@@ -57,6 +55,7 @@ const MIME_TYPES = new Map([
 function parseArgs(argv) {
   const opts = {
     skipExport: false,
+    inputDir: null,
     filter: null,
     httpOnly: false,
     fileOnly: false,
@@ -64,6 +63,11 @@ function parseArgs(argv) {
   };
   for (const arg of argv) {
     if (arg === '--skip-export') {
+      opts.skipExport = true;
+    } else if (arg.startsWith('--input-dir=')) {
+      const dir = arg.slice('--input-dir='.length);
+      if (!dir) throw new Error('--input-dir requires a directory');
+      opts.inputDir = path.resolve(dir);
       opts.skipExport = true;
     } else if (arg === '--http-only') {
       opts.httpOnly = true;
@@ -1015,6 +1019,9 @@ async function probeAndRunSafari(baseUrl, smokeCases) {
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const startMs = Date.now();
+  const gateDir = opts.inputDir ?? DEFAULT_GATE_DIR;
+  const manifestPath = path.join(gateDir, 'manifest.json');
+  const reportPath = path.join(gateDir, 'report.json');
 
   if (!fs.existsSync(path.join(WEB_RUNTIME_DIR, 'neoflash_web.js'))) {
     throw new Error(`Missing built WASM web runtime at ${WEB_RUNTIME_DIR}. Run ./scripts/build-web.sh first.`);
@@ -1022,11 +1029,12 @@ async function main() {
 
   if (!opts.skipExport) {
     console.log('[gate] Exporting HTML5 publish matrix via cargo test publish_gate_exports_and_runtime_contracts...');
-    fs.rmSync(GATE_DIR, { recursive: true, force: true });
-    fs.mkdirSync(GATE_DIR, { recursive: true });
+    fs.rmSync(gateDir, { recursive: true, force: true });
+    fs.mkdirSync(gateDir, { recursive: true });
     const env = {
       ...process.env,
-      NEOFLASH_PUBLISH_GATE_DIR: GATE_DIR,
+      NEOFLASH_PUBLISH_GATE_DIR: gateDir,
+      NEOFLASH_CHECK_TIER: 'release',
       PATH: `${path.join(os.homedir(), '.cargo', 'bin')}:${process.env.PATH || ''}`,
     };
     execFileSync(
@@ -1047,10 +1055,11 @@ async function main() {
     );
   }
 
-  if (!fs.existsSync(MANIFEST_PATH)) {
-    throw new Error(`Missing gate manifest at ${MANIFEST_PATH}`);
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error(`Missing gate manifest at ${manifestPath}`);
   }
-  const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  console.log(`[gate] Running ${manifest.tier ?? 'existing'} matrix from ${manifestPath}`);
   const chromeBin = findChromeBinary();
 
   const filteredCases = opts.filter
@@ -1060,7 +1069,7 @@ async function main() {
     throw new Error(`No cases matched filter ${JSON.stringify(opts.filter)}`);
   }
 
-  const httpSrv = await startStaticServer(GATE_DIR);
+  const httpSrv = await startStaticServer(gateDir);
   const chrome = await launchChrome(chromeBin);
   const results = [];
   let passedRuns = 0;
@@ -1090,7 +1099,7 @@ async function main() {
           level !== 'shared' &&
           (c.allowFileProtocol || c.id.includes('02-oop-xml-collections'));
         if (shouldTestFile) {
-          const indexFile = path.join(GATE_DIR, c.group, c.id, level, 'index.html');
+          const indexFile = path.join(gateDir, c.group, c.id, level, 'index.html');
           const expectOriginError = !c.allowFileProtocol
             ? 'SharedObject persistence requires an HTTP(S) origin'
             : '';
@@ -1168,6 +1177,7 @@ async function main() {
 
     const report = {
       generatedAt: new Date().toISOString(),
+    tier: manifest.tier,
       durationMs: Date.now() - startMs,
       chrome: {
         binary: chromeBin,
@@ -1181,8 +1191,8 @@ async function main() {
       },
       results,
     };
-    fs.writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2));
-    console.log(`[gate] Summary: ${passedRuns} passed, ${failedRuns} failed in ${((Date.now() - startMs) / 1000).toFixed(1)}s -> ${REPORT_PATH}`);
+    fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+    console.log(`[gate] Summary: ${passedRuns} passed, ${failedRuns} failed in ${((Date.now() - startMs) / 1000).toFixed(1)}s -> ${reportPath}`);
 
     if (failedRuns > 0) {
       process.exitCode = 1;

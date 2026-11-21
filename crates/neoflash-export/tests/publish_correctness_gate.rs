@@ -12,7 +12,7 @@ use neoflash_export::{
     export_project_with_options, export_project_with_profile, export_shared_runtime,
 };
 use neoflash_import::{SwcConflictPolicy, import_swc_bytes, link_swc_into_project};
-use neoflash_script::{Diagnostic, check_project};
+use neoflash_script::{Diagnostic, check_project, check_project_warnings};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -2278,6 +2278,7 @@ struct GateManifestCase {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GateManifest {
+    tier: &'static str,
     shared_runtime_dir: String,
     cases: Vec<GateManifestCase>,
 }
@@ -2301,6 +2302,23 @@ fn export_case_to_dir(case: &CaseSpec, base_dir: &Path, rt: &Path, levels: &[&st
         let opts = full_options(size);
         export_project_with_config(&case.project, &out_dir, rt, &opts, &html_cfg)
             .unwrap_or_else(|e| panic!("export {} [{lvl}] failed: {e}", case.id));
+        assert!(
+            out_dir.join("index.html").is_file(),
+            "{} [{lvl}] index",
+            case.id
+        );
+        assert!(
+            out_dir.join("bundle.js").is_file(),
+            "{} [{lvl}] bundle",
+            case.id
+        );
+        if lvl != "shared" {
+            assert!(
+                out_dir.join("runtime.js").is_file(),
+                "{} [{lvl}] runtime",
+                case.id
+            );
+        }
         if let Some(child) = &case.child_project {
             let child_dir = out_dir.join("child");
             export_project_with_config(
@@ -2652,7 +2670,12 @@ fn publish_gate_exports_and_runtime_contracts() {
     });
     let temp = TempDir::new("matrix");
     let out_root = export_dir_env.as_deref().unwrap_or(temp.0.as_path());
-    let full_matrix = export_dir_env.is_some();
+    let tier = match std::env::var("NEOFLASH_CHECK_TIER").as_deref() {
+        Ok("release") => "release",
+        Ok("standard") if export_dir_env.is_some() => "standard",
+        Ok("standard") | Err(_) => "workspace",
+        Ok(other) => panic!("unknown check tier {other:?}"),
+    };
 
     let shared_dir = out_root.join("_shared_runtime");
     export_shared_runtime(&shared_dir, &rt).expect("export shared runtime");
@@ -2663,26 +2686,29 @@ fn publish_gate_exports_and_runtime_contracts() {
     let focused_and_diag = build_all_focused_and_diag_cases();
     let mut manifest_cases = Vec::new();
 
-    let all_levels = ["full", "balanced", "compact", "shared"];
     let mut all_cases = examples;
     all_cases.extend(focused_and_diag);
 
+    // Run every behaviour in the standard browser gate. Rotate representative
+    // projects through the four levels and reserve the cross-product for release.
+    // Safari's smoke cases, if available, use Full.
     let case_levels: Vec<&[&str]> = all_cases
         .iter()
-        .map(|case| {
-            if full_matrix {
-                &all_levels[..]
-            } else if case.group == "example" {
-                &["full"][..]
-            } else if case.id == "focus-as2-object-handlers"
-                || case.id == "focus-as3-doc-and-symbol-class"
-                || case.id == "focus-t304-display-graphics"
-            {
-                &all_levels[..]
-            } else if case.group == "focused" {
-                &["full", "shared"][..]
-            } else {
-                &["full"][..]
+        .map(|case| -> &[&str] {
+            if tier == "release" {
+                return &["full", "balanced", "compact", "shared"];
+            }
+            match case.id {
+                "focus-as2-frame-scripts" | "focus-as3-frame-scripts" => &["balanced"],
+                "focus-as2-include-initclip" | "focus-as3-include-swc" => &["compact"],
+                "focus-as2-restart-reset" | "focus-as3-restart-reset" => &["shared"],
+                "focus-as2-scenes"
+                | "focus-as3-scenes"
+                | "focus-as3-clean-chrome"
+                | "as2-07-sound-video-loadpublish"
+                | "as3-07-sound-video-loadpublish" => &["full"],
+                _ if tier == "standard" => &["full"],
+                _ => &[],
             }
         })
         .collect();
@@ -2692,12 +2718,28 @@ fn publish_gate_exports_and_runtime_contracts() {
         case.project
             .validate()
             .unwrap_or_else(|e| panic!("{} validate failed: {e}", case.id));
-        check_project(&case.project)
+        let program = check_project(&case.project)
             .unwrap_or_else(|e| panic!("{} check_project failed: {e:?}", case.id));
+        if case.group == "example" {
+            assert!(
+                !program.code.is_empty() || !program.class_names.is_empty(),
+                "{} produced an empty script program",
+                case.id
+            );
+            let warnings = check_project_warnings(&case.project);
+            let unsupported: Vec<_> = warnings
+                .iter()
+                .filter(|w| w.code == "unsupported-feature")
+                .collect();
+            assert!(unsupported.is_empty(), "{}: {unsupported:?}", case.id);
+        }
     }
 
     let mut export_jobs: Vec<(&CaseSpec, &str)> = Vec::new();
     for (case, levels) in all_cases.iter().zip(case_levels.iter()) {
+        if levels.is_empty() {
+            continue;
+        }
         for &lvl in *levels {
             export_jobs.push((case, lvl));
         }
@@ -2781,6 +2823,7 @@ fn publish_gate_exports_and_runtime_contracts() {
     }
 
     let manifest = GateManifest {
+        tier,
         shared_runtime_dir: "_shared_runtime".into(),
         cases: manifest_cases,
     };

@@ -135,6 +135,7 @@ fn generate_and_write_suites(root: &Path, runtime_dir: &Path, scratch: &Path) {
 }
 
 #[test]
+#[ignore = "explicit example generation/export; publish_correctness_gate checks these examples in CI"]
 fn as2_and_as3_example_suites_validate_compile_and_publish_cleanly() {
     let root = workspace_root();
     let scratch = temp_dir("as-suites");

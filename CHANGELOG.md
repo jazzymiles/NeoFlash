@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Streamlined the verification workflow by sharing freshly exported HTML5 fixtures between Rust and Chrome.
+  Ordinary checks cover representative settings. `./scripts/check.sh --release` runs the complete publish matrix.
 - Made ordinary macOS packaging intentionally fast and unambiguous: `./scripts/package-macos.sh` now produces only
   an ad-hoc-signed Apple Silicon `dist/NeoFlash.app`, verifies that its executable is `arm64`, and leaves ZIP, DMG,
   corresponding-source and checksum generation behind the explicit `release --beta-release` release mode (`T-422`).
