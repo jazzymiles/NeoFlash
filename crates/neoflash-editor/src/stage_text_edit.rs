@@ -1851,6 +1851,8 @@ impl Editor {
             return;
         };
         let matrix = transform_matrix(sampled.transform);
+        let reflected =
+            (matrix[0] * matrix[3] - matrix[1] * matrix[2]) * mapping.determinant() < 0.0;
         let zoom = self.zoom;
         let to_screen = |local_pt: Pos2| {
             let stage_pt = crate::stage::affine(matrix, local_pt);
@@ -1880,12 +1882,15 @@ impl Editor {
         let (sel_start, sel_end) = self.stage_text_edit.selection_range_utf16();
         let fill_color = neoflash_ui::Palette::tint(palette.accent_default, 0.3);
         for local_rect in geom.selection_rects_local(sel_start, sel_end) {
-            let corners = [
+            let mut corners = [
                 to_screen(local_rect.left_top()),
                 to_screen(local_rect.right_top()),
                 to_screen(local_rect.right_bottom()),
                 to_screen(local_rect.left_bottom()),
             ];
+            if reflected {
+                corners.reverse();
+            }
             painter.add(Shape::convex_polygon(
                 corners.to_vec(),
                 fill_color,
@@ -1953,7 +1958,7 @@ impl Editor {
             );
         }
 
-        let screen_box_rect = Rect::from_two_pos(frame_pts[0], frame_pts[2]).union(cursor_rect);
+        let screen_box_rect = Rect::from_points(&frame_pts[..4]).union(cursor_rect);
         painter.ctx().output_mut(|o| {
             o.ime = Some(egui::output::IMEOutput {
                 rect: screen_box_rect,

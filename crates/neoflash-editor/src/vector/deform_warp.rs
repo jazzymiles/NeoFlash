@@ -105,6 +105,7 @@ impl Editor {
     }
 
     /// Hit-test a Stage-space point against the active `WarpPin` handles (`T-271`).
+    #[allow(dead_code)]
     pub fn hit_test_asset_warp_pin(&self, stage_pt: [f64; 2], tolerance: f64) -> Option<Id> {
         let tol_sq = tolerance.max(1.5).powi(2);
         self.asset_warp_stage_pins()
@@ -120,6 +121,9 @@ impl Editor {
     /// Re-evaluate the mesh deformation of `element_id` from its undeformed base shape and
     /// active `WarpPin`s (`T-271`).
     pub fn deform_shape_with_warp_pins(&mut self, element_id: &str) -> bool {
+        if !self.layer_editable() {
+            return false;
+        }
         let symbol_id = self.symbol_id().to_owned();
         let layer_idx = self.layer;
         let frame = self.frame;
@@ -166,6 +170,7 @@ impl Editor {
             el
         };
 
+        self.ensure_key(false);
         let symbol = self.symbol_mut();
         let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
             return false;
@@ -182,13 +187,24 @@ impl Editor {
     }
 
     pub(crate) fn add_asset_warp_pin_in_place(&mut self, stage_pt: [f64; 2]) -> Option<Id> {
-        if !stage_pt[0].is_finite() || !stage_pt[1].is_finite() {
+        if !stage_pt[0].is_finite() || !stage_pt[1].is_finite() || !self.layer_editable() {
             return None;
         }
         let target_id = self.active_asset_warp_element_id()?;
         let symbol_id = self.symbol_id().to_owned();
         let layer_idx = self.layer;
         let frame = self.frame;
+        if let Some(rig) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+            .and_then(|k| k.asset_warp(&target_id))
+            && rig.pins.len() >= WarpPin::MAX_PINS
+        {
+            return None;
+        }
         if let Some(el) = self
             .symbol()
             .timeline
@@ -227,6 +243,7 @@ impl Editor {
             rotation: 0.0,
             stiffness: 1.0,
         };
+        self.ensure_key(false);
         let symbol = self.symbol_mut();
         let layer = symbol.timeline.layers.get_mut(layer_idx)?;
         let key_frame = layer.key_at(frame).map(|k| k.frame).unwrap_or(frame);
@@ -251,7 +268,10 @@ impl Editor {
     #[allow(dead_code)]
     pub fn add_asset_warp_pin(&mut self, stage_pt: [f64; 2]) -> Option<Id> {
         self.history.begin(&self.project);
-        let pin_id = self.add_asset_warp_pin_in_place(stage_pt)?;
+        let Some(pin_id) = self.add_asset_warp_pin_in_place(stage_pt) else {
+            self.history.cancel(&mut self.project);
+            return None;
+        };
         self.commit_history();
         Some(pin_id)
     }
@@ -261,12 +281,29 @@ impl Editor {
         pin_id: &str,
         stage_pt: [f64; 2],
     ) -> bool {
-        if !stage_pt[0].is_finite() || !stage_pt[1].is_finite() {
+        if !stage_pt[0].is_finite() || !stage_pt[1].is_finite() || !self.layer_editable() {
             return false;
         }
         let symbol_id = self.symbol_id().to_owned();
         let layer_idx = self.layer;
         let frame = self.frame;
+        let will_move = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+            .is_some_and(|key| {
+                key.asset_warps.iter().any(|rig| {
+                    rig.pins.iter().any(|p| {
+                        p.id == pin_id
+                            && (p.pos[0] - stage_pt[0]).hypot(p.pos[1] - stage_pt[1]) > 1e-6
+                    })
+                })
+            });
+        if !will_move {
+            return false;
+        }
         let mut target_element_id: Option<Id> = None;
 
         if let Some(el_id) = self
@@ -296,6 +333,7 @@ impl Editor {
                 .or_insert(el);
         }
 
+        self.ensure_key(false);
         let mut moved = false;
         {
             let symbol = self.symbol_mut();
@@ -329,6 +367,7 @@ impl Editor {
     pub fn move_asset_warp_pin(&mut self, pin_id: &str, stage_pt: [f64; 2]) -> bool {
         self.history.begin(&self.project);
         if !self.apply_asset_warp_pin_in_place(pin_id, stage_pt) {
+            self.history.cancel(&mut self.project);
             return false;
         }
         self.commit_history();
@@ -337,7 +376,25 @@ impl Editor {
 
     /// Remove `pin_id` from the active `AssetWarpRig` and update the shape mesh in 1 Undo step (`T-271`).
     pub fn remove_asset_warp_pin(&mut self, pin_id: &str) -> bool {
+        if !self.layer_editable() {
+            return false;
+        }
+        let has_pin = self
+            .symbol()
+            .timeline
+            .layers
+            .get(self.layer)
+            .and_then(|l| l.key_at(self.frame))
+            .is_some_and(|k| {
+                k.asset_warps
+                    .iter()
+                    .any(|r| r.pins.iter().any(|p| p.id == pin_id))
+            });
+        if !has_pin {
+            return false;
+        }
         self.history.begin(&self.project);
+        self.ensure_key(false);
         let layer_idx = self.layer;
         let frame = self.frame;
         let mut target_element_id: Option<Id> = None;
@@ -360,6 +417,7 @@ impl Editor {
             }
         }
         if !removed {
+            self.history.cancel(&mut self.project);
             return false;
         }
         if self.vector.selected_warp_pin.as_deref() == Some(pin_id) {
@@ -393,6 +451,7 @@ impl Editor {
 
     /// Hit-test a Stage-space point against `IkBone` gizmos, returning
     /// `Some((armature_id, bone_id, is_tail_effector))` (`T-271`).
+    #[allow(dead_code)]
     pub fn hit_test_ik_bone_gizmo(
         &self,
         stage_pt: [f64; 2],
@@ -454,6 +513,7 @@ impl Editor {
             || !start_stage[1].is_finite()
             || !end_stage[0].is_finite()
             || !end_stage[1].is_finite()
+            || !self.layer_editable()
         {
             return None;
         }
@@ -463,6 +523,7 @@ impl Editor {
         let world_angle = dy.atan2(dx).to_degrees();
 
         self.history.begin(&self.project);
+        self.ensure_key(false);
         let parent_hit = self
             .ik_bone_stage_poses()
             .into_iter()
@@ -479,9 +540,15 @@ impl Editor {
 
         let arm_id = {
             let symbol = self.symbol_mut();
-            let layer = symbol.timeline.layers.get_mut(layer_idx)?;
+            let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
+                self.history.cancel(&mut self.project);
+                return None;
+            };
             let key_frame = layer.key_at(frame).map(|k| k.frame).unwrap_or(frame);
-            let key = layer.keyframes.iter_mut().find(|k| k.frame == key_frame)?;
+            let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) else {
+                self.history.cancel(&mut self.project);
+                return None;
+            };
 
             key.elements.push(Element {
                 id: bone_el_id.clone(),
@@ -786,7 +853,18 @@ impl Editor {
         bone_id: &str,
         target_stage: [f64; 2],
     ) -> bool {
-        if !target_stage[0].is_finite() || !target_stage[1].is_finite() {
+        if !target_stage[0].is_finite() || !target_stage[1].is_finite() || !self.layer_editable() {
+            return false;
+        }
+        let has_bone = self
+            .symbol()
+            .timeline
+            .layers
+            .get(self.layer)
+            .and_then(|l| l.key_at(self.frame))
+            .and_then(|k| k.ik_armatures.iter().find(|a| a.id == armature_id))
+            .is_some_and(|a| a.bones.iter().any(|b| b.id == bone_id));
+        if !has_bone {
             return false;
         }
         let initial_poses: Vec<(Id, [f64; 2], [f64; 2], f64)> = self
@@ -805,6 +883,7 @@ impl Editor {
                 .or_insert_with(|| (el, initial_poses.clone()));
         }
 
+        self.ensure_key(false);
         let solved = {
             let symbol = self.symbol_mut();
             let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
@@ -845,6 +924,7 @@ impl Editor {
     ) -> bool {
         self.history.begin(&self.project);
         if !self.apply_ik_bone_effector_in_place(armature_id, bone_id, target_stage) {
+            self.history.cancel(&mut self.project);
             return false;
         }
         self.commit_history();
@@ -891,7 +971,7 @@ impl Editor {
         stage_pt: [f64; 2],
         unbind: bool,
     ) -> bool {
-        if !stage_pt[0].is_finite() || !stage_pt[1].is_finite() {
+        if !stage_pt[0].is_finite() || !stage_pt[1].is_finite() || !self.layer_editable() {
             return false;
         }
         let poses = self.ik_bone_stage_poses();
@@ -987,6 +1067,7 @@ impl Editor {
         let rest_offset_x = rel_x * c + rel_y * s;
         let rest_offset_y = -rel_x * s + rel_y * c;
 
+        self.ensure_key(false);
         let symbol = self.symbol_mut();
         let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
             return false;
@@ -1028,6 +1109,7 @@ impl Editor {
     pub fn bind_stage_point_to_bone(&mut self, stage_pt: [f64; 2], unbind: bool) -> bool {
         self.history.begin(&self.project);
         if !self.apply_bind_stage_point_in_place(stage_pt, unbind) {
+            self.history.cancel(&mut self.project);
             return false;
         }
         self.commit_history();

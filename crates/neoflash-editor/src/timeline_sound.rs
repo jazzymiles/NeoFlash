@@ -107,10 +107,16 @@ impl VoiceSource {
             .map(|t| (t.max(0.0) * rate).round() as usize)
             .unwrap_or(0)
             .min(total_frames);
-        let out_frame = out_point
+        let mut out_frame = out_point
             .map(|t| (t.max(0.0) * rate).round() as usize)
             .unwrap_or(total_frames)
             .min(total_frames);
+        if out_point.is_none_or(|o| o > in_point.unwrap_or(0.0))
+            && in_frame < total_frames
+            && out_frame <= in_frame
+        {
+            out_frame = (in_frame + 1).min(total_frames);
+        }
         let seg_frames = out_frame.saturating_sub(in_frame);
         let end = (!loop_forever).then(|| seg_frames.saturating_mul(loops.max(1) as usize));
         let frame = (offset.max(0.) * rate) as usize;

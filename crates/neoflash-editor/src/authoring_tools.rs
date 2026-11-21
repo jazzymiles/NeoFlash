@@ -1511,13 +1511,14 @@ impl Editor {
                         + (pos.x - start.x)
                             / (self.zoom.max(0.001) * mapping.scale_bounds().1.max(1e-6) as f32))
                         .clamp(1., 200.);
-                    neoflash_ui::components::brush_cursor(
+                    paint_mapped_brush_cursor(
                         p,
+                        origin,
+                        self.zoom,
+                        mapping,
                         pos,
                         self.authoring_tools.brush_shape,
-                        self.authoring_tools.brush_size
-                            * self.zoom
-                            * mapping.scale_bounds().1 as f32,
+                        self.authoring_tools.brush_size,
                         neoflash_ui::components::BrushCursorState::Resize,
                         Some(&format!("{} px", self.authoring_tools.brush_size.round())),
                     );
@@ -1813,37 +1814,37 @@ impl Editor {
                 ),
             });
             if matches!(tool, Tool::Brush | Tool::Eraser) {
-                let (size, shape, state) = if tool == Tool::Brush {
-                    (
+                let chip = format!(
+                    "{} px",
+                    if tool == Tool::Brush {
                         self.authoring_tools.brush_size
-                            * self.zoom
-                            * mapping.scale_bounds().1 as f32,
-                        self.authoring_tools.brush_shape,
-                        neoflash_ui::components::BrushCursorState::Idle,
-                    )
-                } else {
-                    (
-                        self.authoring_tools.eraser_size,
-                        self.authoring_tools.eraser_shape.brush_shape(),
-                        neoflash_ui::components::BrushCursorState::Eraser,
-                    )
-                };
-                neoflash_ui::components::brush_cursor(
-                    p,
-                    pos,
-                    shape,
-                    size,
-                    state,
-                    Some(&format!(
-                        "{} px",
-                        if tool == Tool::Brush {
-                            self.authoring_tools.brush_size
-                        } else {
-                            self.authoring_tools.eraser_size
-                        }
-                        .round()
-                    )),
+                    } else {
+                        self.authoring_tools.eraser_size
+                    }
+                    .round()
                 );
+                if tool == Tool::Brush {
+                    paint_mapped_brush_cursor(
+                        p,
+                        origin,
+                        self.zoom,
+                        mapping,
+                        pos,
+                        self.authoring_tools.brush_shape,
+                        self.authoring_tools.brush_size,
+                        neoflash_ui::components::BrushCursorState::Idle,
+                        Some(&chip),
+                    );
+                } else {
+                    neoflash_ui::components::brush_cursor(
+                        p,
+                        pos,
+                        self.authoring_tools.eraser_shape.brush_shape(),
+                        self.authoring_tools.eraser_size,
+                        neoflash_ui::components::BrushCursorState::Eraser,
+                        Some(&chip),
+                    );
+                }
             }
         }
         owned
@@ -1864,10 +1865,12 @@ impl Editor {
         }
         if matches!(g.tool, Tool::Line | Tool::PolyStar | Tool::Bucket) && g.shift {
             self.stage_view.snap_ring = None;
-            let vector = point - g.points[0];
-            let angle = (vector.angle() / std::f32::consts::FRAC_PI_4).round()
+            let start_screen = g.mapping.edit_to_screen(g.origin, g.zoom, g.points[0]);
+            let screen_vec = pos - start_screen;
+            let angle = (screen_vec.angle() / std::f32::consts::FRAC_PI_4).round()
                 * std::f32::consts::FRAC_PI_4;
-            point = g.points[0] + Vec2::angled(angle) * vector.length();
+            let snapped_screen = start_screen + Vec2::angled(angle) * screen_vec.length();
+            point = g.local(snapped_screen);
         }
         match g.tool {
             Tool::Hand => {
@@ -2205,6 +2208,11 @@ impl Editor {
                 return;
             }
         }
+        let mapping = self.stage_mapping();
+        let context_points: Vec<Pos2> = points
+            .iter()
+            .map(|&pt| mapping.edit_to_stage_pos(pt))
+            .collect();
         let editable = self.editable_targets();
         let eligible: HashMap<_, _> = editable
             .iter()
@@ -2216,7 +2224,7 @@ impl Editor {
             if let Some(id) = item.instance_path.first()
                 && eligible.contains_key(id)
             {
-                let bounds = crate::stage::world_bounds(item, p);
+                let bounds = crate::stage_selection::mapped_world_bounds(item, p, mapping);
                 if bounds.is_finite() {
                     boxes
                         .entry(id.clone())
@@ -2230,7 +2238,10 @@ impl Editor {
                 && empty_el.transform.x.is_finite()
                 && empty_el.transform.y.is_finite()
             {
-                let pt = Pos2::new(empty_el.transform.x as f32, empty_el.transform.y as f32);
+                let pt = mapping.edit_to_stage_pos(Pos2::new(
+                    empty_el.transform.x as f32,
+                    empty_el.transform.y as f32,
+                ));
                 boxes
                     .entry(empty_target.element)
                     .or_insert_with(|| Rect::from_min_max(pt, pt));
@@ -2243,7 +2254,7 @@ impl Editor {
         };
         targets.extend(editable.into_iter().filter(|target| {
             boxes.get(&target.element).is_some_and(|bounds| {
-                lasso_rect(points, *bounds, self.authoring_tools.lasso_contact)
+                lasso_rect(&context_points, *bounds, self.authoring_tools.lasso_contact)
             })
         }));
         if !targets.is_empty()
@@ -2316,6 +2327,11 @@ impl Editor {
                                 mesh.colored_vertex(screen(Pos2::new(point.x, point.y)), color);
                             }
                             mesh.indices.clone_from(&geometry.indices);
+                            if g.mapping.determinant() < 0.0 {
+                                for tri in mesh.indices.as_chunks_mut::<3>().0 {
+                                    tri.swap(1, 2);
+                                }
+                            }
                             p.add(Shape::mesh(mesh));
                         }
                         return;
@@ -2342,6 +2358,11 @@ impl Editor {
                             mesh.colored_vertex(screen(Pos2::new(point.x, point.y)), color);
                         }
                         mesh.indices.clone_from(&geometry.indices);
+                        if g.mapping.determinant() < 0.0 {
+                            for tri in mesh.indices.as_chunks_mut::<3>().0 {
+                                tri.swap(1, 2);
+                            }
+                        }
                         p.add(Shape::mesh(mesh));
                     }
                 }
@@ -2459,6 +2480,11 @@ impl Editor {
                                 );
                             }
                             mesh.indices.clone_from(&geometry.indices);
+                            if g.mapping.determinant() < 0.0 {
+                                for tri in mesh.indices.as_chunks_mut::<3>().0 {
+                                    tri.swap(1, 2);
+                                }
+                            }
                             p.add(Shape::mesh(mesh));
                         } else {
                             let pts: Vec<Pos2> = commands
@@ -3985,6 +4011,12 @@ impl Editor {
     pub(crate) fn set_free_transform_mode(&mut self, mode: FreeTransformMode) {
         self.set_tool(Tool::Transform);
         self.authoring_tools.transform_mode = mode;
+        if mode != FreeTransformMode::Envelope {
+            self.vector.free_transform_submode = match mode {
+                FreeTransformMode::Distort => crate::vector::FreeTransformSubmode::Distort,
+                _ => crate::vector::FreeTransformSubmode::ScaleRotateSkew,
+            };
+        }
         self.status = match mode {
             FreeTransformMode::FreeTransform => "Free Transform".to_owned(),
             FreeTransformMode::RotateAndSkew => "Free Transform: Rotate and Skew".to_owned(),
@@ -4673,6 +4705,121 @@ pub(crate) fn shaped_brush_outline(
     shape: neoflash_ui::components::BrushShapeKind,
 ) -> Vec<PathCommand> {
     shaped_brush_outline_with_position_tolerance(points, pressures, size, shape, 0.22)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn mapped_brush_cursor_screen_outline(
+    origin: Pos2,
+    zoom: f32,
+    mapping: StageMapping,
+    centre: Pos2,
+    shape: neoflash_ui::components::BrushShapeKind,
+    local_size: f32,
+) -> Vec<Pos2> {
+    let local_centre = mapping.screen_to_edit(origin, zoom, centre);
+    let foot = shape.footprint(local_size.max(0.25));
+    foot.outline(local_centre)
+        .into_iter()
+        .map(|pt| mapping.edit_to_screen(origin, zoom, pt))
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_mapped_brush_cursor(
+    painter: &egui::Painter,
+    origin: Pos2,
+    zoom: f32,
+    mapping: StageMapping,
+    centre: Pos2,
+    shape: neoflash_ui::components::BrushShapeKind,
+    local_size: f32,
+    state: neoflash_ui::components::BrushCursorState,
+    value: Option<&str>,
+) {
+    use neoflash_ui::components::brushes::{BRUSH_CURSOR_MAX, BRUSH_CURSOR_MIN};
+    if mapping.matrix() == [1.0, 0.0, 0.0, 1.0, 0.0, 0.0] {
+        neoflash_ui::components::brush_cursor(
+            painter,
+            centre,
+            shape,
+            local_size * zoom,
+            state,
+            value,
+        );
+        return;
+    }
+    let mut pts =
+        mapped_brush_cursor_screen_outline(origin, zoom, mapping, centre, shape, local_size);
+    let bounds = Rect::from_points(&pts);
+    let screen_diam = bounds.width().max(bounds.height());
+    if !screen_diam.is_finite() || screen_diam > BRUSH_CURSOR_MAX {
+        neoflash_ui::components::brush_cursor(
+            painter,
+            centre,
+            shape,
+            BRUSH_CURSOR_MAX + 1.0,
+            state,
+            value,
+        );
+        return;
+    }
+    if screen_diam < BRUSH_CURSOR_MIN {
+        let scale = BRUSH_CURSOR_MIN / screen_diam.max(1e-4);
+        pts = mapped_brush_cursor_screen_outline(
+            origin,
+            zoom,
+            mapping,
+            centre,
+            shape,
+            local_size * scale,
+        );
+    }
+    let dark = Color32::from_black_alpha(217);
+    let light = Color32::from_white_alpha(230);
+    let dashed = state == neoflash_ui::components::BrushCursorState::Resize;
+    for (grow, col) in [(0.5_f32, dark), (-0.5_f32, light)] {
+        let mut ring: Vec<Pos2> = pts
+            .iter()
+            .map(|&p| {
+                let v = p - centre;
+                let len = v.length();
+                if len > 1e-4 {
+                    centre + v * ((len + grow).max(0.25) / len)
+                } else {
+                    p
+                }
+            })
+            .collect();
+        let stroke = Stroke::new(1.0_f32, col);
+        if dashed && !ring.is_empty() {
+            ring.push(ring[0]);
+            painter.extend(Shape::dashed_line(&ring, stroke, 3.0, 2.0));
+        } else {
+            painter.add(Shape::closed_line(ring, stroke));
+        }
+    }
+    painter.circle(
+        centre,
+        0.75,
+        Color32::WHITE,
+        Stroke::new(0.5_f32, Color32::BLACK),
+    );
+    if let Some(v) = value {
+        let bottom = Rect::from_points(&pts).bottom() + 0.5;
+        let p = neoflash_ui::palette(painter.ctx());
+        let g = painter.layout_no_wrap(
+            v.to_owned(),
+            neoflash_ui::typography::font(neoflash_ui::tokens::TextStyle::MonoSmall),
+            p.text_inverse,
+        );
+        let pad_x = neoflash_ui::tokens::space::s1() * 1.5;
+        let pad_y = neoflash_ui::tokens::space::s1() * 0.5;
+        let size = g.size() + Vec2::new(pad_x * 2.0, pad_y * 2.0);
+        let top_y = bottom + neoflash_ui::tokens::space::s1();
+        let rect = Rect::from_min_size(Pos2::new(centre.x - size.x * 0.5, top_y), size);
+        painter.rect_filled(rect, neoflash_ui::tokens::radius::sm(), p.tooltip_bg);
+        painter.galley(rect.min + Vec2::new(pad_x, pad_y), g, p.text_inverse);
+    }
 }
 
 fn shaped_brush_outline_with_position_tolerance(

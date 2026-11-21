@@ -87,13 +87,19 @@ pub(crate) enum DebugCommand {
     SelectFrame(usize),
     InspectObject {
         object_id: String,
+        subtype: Option<String>,
+        ancestor_object_ids: Vec<String>,
     },
     SetVariableValue {
+        pause_generation: u64,
+        frame: usize,
         scope_number: usize,
         variable_name: String,
         new_value: String,
     },
     SetPropertyValue {
+        pause_generation: u64,
+        frame: usize,
         object_id: String,
         property_name: String,
         new_value: String,
@@ -155,6 +161,61 @@ pub(crate) struct DebugSnapshot {
     pub command_pending: bool,
 }
 
+pub(crate) const MAX_INLINE_EDIT_STRING_CHARS: usize = MAX_TEXT;
+
+const INSPECT_INDEXED_SLICE_JS: &str = "function(limit) { \
+const out = Object.create(null); \
+let count = 0; \
+if (ArrayBuffer.isView(this) && !(this instanceof DataView) && typeof this.length === \"number\") { \
+const n = Math.min(this.length, limit); \
+for (let i = 0; i < n; i++) { out[i] = this[i]; count++; } \
+out.length = this.length; \
+out.byteLength = this.byteLength; \
+out.byteOffset = this.byteOffset; \
+return out; \
+} \
+if (Array.isArray(this)) { \
+const len = this.length >>> 0; \
+const maxProbe = Math.min(len, 4096); \
+for (let i = 0; i < maxProbe && count < limit; i++) { \
+if (Object.prototype.hasOwnProperty.call(this, i)) { \
+const d = Object.getOwnPropertyDescriptor(this, i); \
+if (d) { Object.defineProperty(out, i, d); count++; } \
+} \
+} \
+if (count < limit && len > 4096) { \
+for (let step = 4096; step < len && step <= 65536 && count < limit; step *= 2) { \
+if (Object.prototype.hasOwnProperty.call(this, step)) { \
+for (let i = step; i < len && count < limit && i < step + limit; i++) { \
+if (Object.prototype.hasOwnProperty.call(this, i)) { \
+const d = Object.getOwnPropertyDescriptor(this, i); \
+if (d) { Object.defineProperty(out, i, d); count++; } \
+} \
+} \
+} \
+} \
+} \
+if (count < limit && len <= 65536) { \
+const names = Object.getOwnPropertyNames(this); \
+for (let j = 0; j < names.length && count < limit; j++) { \
+const k = names[j]; \
+if (k === \"length\" || Object.prototype.hasOwnProperty.call(out, k)) continue; \
+const d = Object.getOwnPropertyDescriptor(this, k); \
+if (d) { Object.defineProperty(out, k, d); count++; } \
+} \
+} \
+if (count < limit) { \
+Object.defineProperty(out, \"length\", { value: len, writable: true, enumerable: false, configurable: false }); \
+} \
+return out; \
+} \
+return this; \
+}";
+
+const SET_OWN_DATA_PROPERTY_JS: &str = "function(k, v) { const d = Object.getOwnPropertyDescriptor(this, k); if (!d || !('value' in d) || !d.writable) { throw new TypeError('Not a writable own data property'); } Object.defineProperty(this, k, { value: v }); }";
+
+const DETECT_CIRCULAR_CHILDREN_JS: &str = "function(ancCount, ...objs) { const ancs = objs.slice(0, ancCount); const kids = objs.slice(ancCount); const out = []; for (let i = 0; i < kids.length; i++) { const c = kids[i]; for (let j = 0; j < ancs.length; j++) { if (c === ancs[j]) { out.push(i); break; } } } return out; }";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DebugInspectableLocal {
     pub scope_number: usize,
@@ -172,6 +233,7 @@ pub(crate) struct DebugInspectableLocal {
 pub(crate) struct DebugInspectableWatch {
     pub index: usize,
     pub expression: String,
+    pub subtype: Option<String>,
     pub object_id: Option<String>,
 }
 
@@ -190,10 +252,16 @@ pub(crate) struct DebugObjectProperty {
 pub(crate) struct DebugInspection {
     pub pause_epoch: u64,
     pub pause_generation: u64,
+    pub vm_pause_generation: u64,
+    pub pending_scope_requests: usize,
     pub locals: Vec<DebugInspectableLocal>,
     pub watches: Vec<DebugInspectableWatch>,
     pub object_properties: BTreeMap<String, Vec<DebugObjectProperty>>,
+    pub circular_children: BTreeSet<(String, String)>,
+    pub preview_properties: BTreeMap<String, Vec<(String, String, String)>>,
 }
+
+type InspectedObjectSpec = (Option<String>, Vec<String>);
 
 #[derive(Clone, Debug)]
 struct ParsedScript {
@@ -233,10 +301,24 @@ enum Pending {
         scope_number: usize,
         scope: String,
     },
+    SliceObject {
+        pause: u64,
+        frame: usize,
+        object_id: String,
+        ancestor_object_ids: Vec<String>,
+    },
     ObjectProperties {
         pause: u64,
         frame: usize,
         object_id: String,
+        ancestor_object_ids: Vec<String>,
+        release_object_id: Option<String>,
+    },
+    CycleCheck {
+        pause: u64,
+        frame: usize,
+        parent_object_id: String,
+        candidate_object_ids: Vec<String>,
     },
     Watch {
         pause: u64,
@@ -261,7 +343,7 @@ pub(crate) struct DebugProtocol {
     watches: Vec<WatchRequest>,
     watch_results: Vec<DebugWatchResult>,
     inspection: DebugInspection,
-    inspected_object_ids: BTreeSet<String>,
+    inspected_objects: BTreeMap<String, InspectedObjectSpec>,
     snapshot: DebugSnapshot,
     target: Option<String>,
     session: Option<String>,
@@ -277,6 +359,7 @@ pub(crate) struct DebugProtocol {
     breakpoint_generation: u64,
     pause_epoch: u64,
     pause_generation: u64,
+    vm_pause_generation: u64,
     watch_generation: u64,
     gate: Option<String>,
     pause_on_start: bool,
@@ -298,7 +381,7 @@ impl DebugProtocol {
             watches: Vec::new(),
             watch_results: Vec::new(),
             inspection: DebugInspection::default(),
-            inspected_object_ids: BTreeSet::new(),
+            inspected_objects: BTreeMap::new(),
             snapshot: DebugSnapshot {
                 epoch: 1,
                 state: DebugState::Disconnected,
@@ -327,6 +410,7 @@ impl DebugProtocol {
             breakpoint_generation: 1,
             pause_epoch: 0,
             pause_generation: 0,
+            vm_pause_generation: 0,
             watch_generation: 0,
             gate: None,
             pause_on_start: false,
@@ -347,7 +431,83 @@ impl DebugProtocol {
     }
 
     pub fn inspection(&self) -> DebugInspection {
-        self.inspection.clone()
+        let mut insp = self.inspection.clone();
+        insp.pending_scope_requests = self.pending_scope_requests_count();
+        insp
+    }
+
+    #[cfg(test)]
+    pub fn pause_generation(&self) -> u64 {
+        self.pause_generation
+    }
+
+    fn pending_scope_requests_count(&self) -> usize {
+        if self.snapshot.state != DebugState::Paused {
+            return 0;
+        }
+        let pause = self.pause_generation;
+        let selected = self.snapshot.selected_frame;
+        self.pending
+            .values()
+            .filter(|pending| {
+                matches!(
+                    pending,
+                    Pending::Properties {
+                        pause: p_gen,
+                        frame,
+                        ..
+                    } if *p_gen == pause && Some(*frame) == selected
+                )
+            })
+            .count()
+    }
+
+    fn queue_inspect_object(
+        &mut self,
+        pause: u64,
+        frame: usize,
+        object_id: String,
+        subtype: Option<String>,
+        ancestor_object_ids: Vec<String>,
+    ) -> bool {
+        if matches!(subtype.as_deref(), Some("array" | "typedarray")) {
+            self.queue(
+                "Runtime.callFunctionOn",
+                json!({
+                    "objectId": object_id,
+                    "functionDeclaration": INSPECT_INDEXED_SLICE_JS,
+                    "arguments": [{ "value": MAX_OBJECT_PROPERTIES }],
+                    "silent": true,
+                    "returnByValue": false,
+                    "generatePreview": false
+                }),
+                Pending::SliceObject {
+                    pause,
+                    frame,
+                    object_id,
+                    ancestor_object_ids,
+                },
+                true,
+            )
+        } else {
+            self.queue(
+                "Runtime.getProperties",
+                json!({
+                    "objectId": object_id,
+                    "ownProperties": true,
+                    "accessorPropertiesOnly": false,
+                    "generatePreview": true
+                }),
+                Pending::ObjectProperties {
+                    pause,
+                    frame,
+                    object_id,
+                    ancestor_object_ids,
+                    release_object_id: None,
+                },
+                true,
+            )
+        }
     }
 
     pub fn epoch(&self) -> u64 {
@@ -483,13 +643,18 @@ impl DebugProtocol {
                 }
                 self.snapshot.selected_frame = Some(index);
                 self.pause_epoch = self.pause_epoch.saturating_add(1);
-                self.inspected_object_ids.clear();
+                self.inspected_objects.clear();
                 self.inspection.object_properties.clear();
+                self.inspection.circular_children.clear();
                 self.request_locals(index);
                 self.request_watches(index);
                 return Ok(());
             }
-            DebugCommand::InspectObject { object_id } => {
+            DebugCommand::InspectObject {
+                object_id,
+                subtype,
+                ancestor_object_ids,
+            } => {
                 if self.snapshot.state != DebugState::Paused || self.snapshot.command_pending {
                     return Err("Pause Test Movie before expanding object properties.".into());
                 }
@@ -499,32 +664,32 @@ impl DebugProtocol {
                 let Some(object_id) = id_string(Some(&Value::String(object_id))) else {
                     return Err("Invalid remote object identifier.".into());
                 };
-                if self.inspected_object_ids.len() >= MAX_INSPECTED_OBJECTS
-                    && !self.inspected_object_ids.contains(&object_id)
+                let clean_ancestors: Vec<String> = ancestor_object_ids
+                    .into_iter()
+                    .filter_map(|id| id_string(Some(&Value::String(id))))
+                    .take(16)
+                    .collect();
+                if self.inspected_objects.len() >= MAX_INSPECTED_OBJECTS
+                    && !self.inspected_objects.contains_key(&object_id)
                 {
                     return Err("Expanded object limit reached for this pause.".into());
                 }
-                self.inspected_object_ids.insert(object_id.clone());
-                if !self.queue(
-                    "Runtime.getProperties",
-                    json!({
-                        "objectId": object_id,
-                        "ownProperties": true,
-                        "accessorPropertiesOnly": false,
-                        "generatePreview": true
-                    }),
-                    Pending::ObjectProperties {
-                        pause: self.pause_generation,
-                        frame,
-                        object_id,
-                    },
-                    true,
+                if !self.queue_inspect_object(
+                    self.pause_generation,
+                    frame,
+                    object_id.clone(),
+                    subtype.clone(),
+                    clean_ancestors.clone(),
                 ) {
                     return Err("Debugger request limit reached.".into());
                 }
+                self.inspected_objects
+                    .insert(object_id, (subtype, clean_ancestors));
                 return Ok(());
             }
             DebugCommand::SetVariableValue {
+                pause_generation,
+                frame: requested_frame,
                 scope_number,
                 variable_name,
                 new_value,
@@ -535,6 +700,11 @@ impl DebugProtocol {
                 let Some(frame) = self.snapshot.selected_frame else {
                     return Err("Select a call frame while the debugger is paused.".into());
                 };
+                if pause_generation != self.pause_generation || requested_frame != frame {
+                    return Err(
+                        "Active pause or call frame changed before editing finished.".into(),
+                    );
+                }
                 let call_frame_id = self
                     .call_frame_ids
                     .get(frame)
@@ -545,13 +715,13 @@ impl DebugProtocol {
                 if variable_name.is_empty() {
                     return Err("Variable name cannot be empty.".into());
                 }
-                let parsed = parse_debug_scalar_value(&new_value)?;
+                let new_arg = parse_debug_call_argument(&new_value)?;
                 if !self.queue(
                     "Debugger.setVariableValue",
                     json!({
                         "scopeNumber": scope_number,
                         "variableName": variable_name,
-                        "newValue": { "value": parsed },
+                        "newValue": new_arg,
                         "callFrameId": call_frame_id
                     }),
                     Pending::EditVariable {
@@ -565,6 +735,8 @@ impl DebugProtocol {
                 return Ok(());
             }
             DebugCommand::SetPropertyValue {
+                pause_generation,
+                frame: requested_frame,
                 object_id,
                 property_name,
                 new_value,
@@ -575,20 +747,24 @@ impl DebugProtocol {
                 let Some(frame) = self.snapshot.selected_frame else {
                     return Err("Select a call frame while the debugger is paused.".into());
                 };
+                if pause_generation != self.pause_generation || requested_frame != frame {
+                    return Err(
+                        "Active pause or call frame changed before editing finished.".into(),
+                    );
+                }
                 let Some(object_id) = id_string(Some(&Value::String(object_id))) else {
                     return Err("Invalid remote object identifier.".into());
                 };
-                let property_name = bounded(&property_name, MAX_TEXT);
-                let prop_literal = serde_json::to_string(&property_name)
-                    .map_err(|_| "Invalid property name.".to_owned())?;
-                let parsed = parse_debug_scalar_value(&new_value)?;
-                let declaration = format!("function(v) {{ this[{prop_literal}] = v; }}");
+                if property_name.len() > 1_048_576 {
+                    return Err("Property name is too long.".into());
+                }
+                let new_arg = parse_debug_call_argument(&new_value)?;
                 if !self.queue(
                     "Runtime.callFunctionOn",
                     json!({
                         "objectId": object_id,
-                        "functionDeclaration": declaration,
-                        "arguments": [{ "value": parsed }],
+                        "functionDeclaration": SET_OWN_DATA_PROPERTY_JS,
+                        "arguments": [{ "value": property_name }, new_arg],
                         "silent": true,
                         "returnByValue": true
                     }),
@@ -630,12 +806,14 @@ impl DebugProtocol {
         self.pause_epoch = self.pause_epoch.saturating_add(1);
         self.pause_generation += 1;
         self.snapshot.locals.clear();
-        self.inspected_object_ids.clear();
+        self.inspected_objects.clear();
         self.inspection.pause_epoch = self.pause_epoch;
         self.inspection.pause_generation = self.pause_generation;
         self.inspection.locals.clear();
         self.inspection.watches.clear();
         self.inspection.object_properties.clear();
+        self.inspection.circular_children.clear();
+        self.inspection.preview_properties.clear();
         if !self.queue(method, json!({}), Pending::Control, true) {
             return Err("Debugger request limit reached.".into());
         }
@@ -904,6 +1082,15 @@ impl DebugProtocol {
                         let Some(decoded) = decode_cdp_property(property) else {
                             continue;
                         };
+                        if let Some(preview_fields) = property
+                            .get("value")
+                            .and_then(extract_preview_scalar_fields)
+                            && !preview_fields.is_empty()
+                        {
+                            self.inspection
+                                .preview_properties
+                                .insert(decoded.name.clone(), preview_fields);
+                        }
                         self.snapshot.locals.push(DebugLocal {
                             scope: scope.clone(),
                             name: decoded.name.clone(),
@@ -925,11 +1112,90 @@ impl DebugProtocol {
                     }
                 }
             }
+            Pending::SliceObject {
+                pause,
+                frame,
+                object_id,
+                ancestor_object_ids,
+            } => {
+                let slice_oid = id_string(result.get("result").and_then(|r| r.get("objectId")));
+                if self.snapshot.state != DebugState::Paused
+                    || pause != self.pause_generation
+                    || self.snapshot.selected_frame != Some(frame)
+                {
+                    if let Some(sid) = slice_oid
+                        && sid != object_id
+                    {
+                        self.queue(
+                            "Runtime.releaseObject",
+                            json!({"objectId": sid}),
+                            Pending::Remove,
+                            true,
+                        );
+                    }
+                    return;
+                }
+                if result.get("exceptionDetails").is_some() {
+                    self.inspection
+                        .object_properties
+                        .insert(object_id, Vec::new());
+                    self.note("Chrome could not read paused collection properties.");
+                    return;
+                }
+                let Some(slice_oid) = slice_oid else {
+                    self.inspection
+                        .object_properties
+                        .insert(object_id, Vec::new());
+                    return;
+                };
+                let release_object_id = (slice_oid != object_id).then(|| slice_oid.clone());
+                if !self.queue(
+                    "Runtime.getProperties",
+                    json!({
+                        "objectId": slice_oid,
+                        "ownProperties": true,
+                        "accessorPropertiesOnly": false,
+                        "generatePreview": true
+                    }),
+                    Pending::ObjectProperties {
+                        pause,
+                        frame,
+                        object_id: object_id.clone(),
+                        ancestor_object_ids,
+                        release_object_id: release_object_id.clone(),
+                    },
+                    true,
+                ) {
+                    if let Some(sid) = release_object_id {
+                        self.queue(
+                            "Runtime.releaseObject",
+                            json!({"objectId": sid}),
+                            Pending::Remove,
+                            true,
+                        );
+                    }
+                    self.inspection
+                        .object_properties
+                        .insert(object_id, Vec::new());
+                }
+            }
             Pending::ObjectProperties {
                 pause,
                 frame,
                 object_id,
+                ancestor_object_ids,
+                release_object_id,
             } => {
+                if let Some(sid) = release_object_id
+                    && sid != object_id
+                {
+                    self.queue(
+                        "Runtime.releaseObject",
+                        json!({"objectId": sid}),
+                        Pending::Remove,
+                        true,
+                    );
+                }
                 if self.snapshot.state != DebugState::Paused
                     || pause != self.pause_generation
                     || self.snapshot.selected_frame != Some(frame)
@@ -954,7 +1220,78 @@ impl DebugProtocol {
                         }
                     }
                 }
+                let mut candidates = Vec::new();
+                for prop in &entries {
+                    let Some(child_oid) = prop.object_id.as_ref() else {
+                        continue;
+                    };
+                    if child_oid == &object_id
+                        || ancestor_object_ids.iter().any(|anc| anc == child_oid)
+                    {
+                        self.inspection
+                            .circular_children
+                            .insert((object_id.clone(), child_oid.clone()));
+                    } else if !ancestor_object_ids.is_empty() && !candidates.contains(child_oid) {
+                        candidates.push(child_oid.clone());
+                    }
+                }
+                if !candidates.is_empty() && !ancestor_object_ids.is_empty() {
+                    let mut args =
+                        Vec::with_capacity(1 + ancestor_object_ids.len() + candidates.len());
+                    args.push(json!({"value": ancestor_object_ids.len()}));
+                    for anc in &ancestor_object_ids {
+                        args.push(json!({"objectId": anc}));
+                    }
+                    for cand in &candidates {
+                        args.push(json!({"objectId": cand}));
+                    }
+                    self.queue(
+                        "Runtime.callFunctionOn",
+                        json!({
+                            "objectId": ancestor_object_ids[0],
+                            "functionDeclaration": DETECT_CIRCULAR_CHILDREN_JS,
+                            "arguments": args,
+                            "silent": true,
+                            "returnByValue": true
+                        }),
+                        Pending::CycleCheck {
+                            pause,
+                            frame,
+                            parent_object_id: object_id.clone(),
+                            candidate_object_ids: candidates,
+                        },
+                        true,
+                    );
+                }
                 self.inspection.object_properties.insert(object_id, entries);
+            }
+            Pending::CycleCheck {
+                pause,
+                frame,
+                parent_object_id,
+                candidate_object_ids,
+            } => {
+                if self.snapshot.state != DebugState::Paused
+                    || pause != self.pause_generation
+                    || self.snapshot.selected_frame != Some(frame)
+                {
+                    return;
+                }
+                if let Some(indices) = result
+                    .get("result")
+                    .and_then(|r| r.get("value"))
+                    .and_then(Value::as_array)
+                {
+                    for idx_val in indices {
+                        if let Some(idx) = idx_val.as_u64().and_then(|v| usize::try_from(v).ok())
+                            && let Some(child_oid) = candidate_object_ids.get(idx)
+                        {
+                            self.inspection
+                                .circular_children
+                                .insert((parent_object_id.clone(), child_oid.clone()));
+                        }
+                    }
+                }
             }
             Pending::Watch {
                 pause,
@@ -976,6 +1313,7 @@ impl DebugProtocol {
                     slot.value = format_watch_exception(details, result.get("result"));
                     slot.is_error = true;
                     if let Some(insp) = self.inspection.watches.get_mut(index) {
+                        insp.subtype = None;
                         insp.object_id = None;
                     }
                     return;
@@ -985,12 +1323,17 @@ impl DebugProtocol {
                     slot.value = "<unavailable>".into();
                     slot.is_error = true;
                     if let Some(insp) = self.inspection.watches.get_mut(index) {
+                        insp.subtype = None;
                         insp.object_id = None;
                     }
                 } else {
                     slot.value = remote_summary(remote);
                     slot.is_error = false;
                     if let Some(insp) = self.inspection.watches.get_mut(index) {
+                        insp.subtype = remote
+                            .get("subtype")
+                            .and_then(Value::as_str)
+                            .map(|s| bounded(s, 80));
                         insp.object_id = remote_inspectable_object_id(remote, false);
                     }
                 }
@@ -1300,6 +1643,8 @@ impl DebugProtocol {
             }
         }
         self.generated_steps = None;
+        self.vm_pause_generation = self.vm_pause_generation.saturating_add(1);
+        self.inspection.vm_pause_generation = self.vm_pause_generation;
         let selected = self
             .snapshot
             .frames
@@ -1380,6 +1725,8 @@ impl DebugProtocol {
         self.inspection.pause_generation = self.pause_generation;
         self.inspection.locals.clear();
         self.inspection.object_properties.clear();
+        self.inspection.circular_children.clear();
+        self.inspection.preview_properties.clear();
         let scopes = self.scopes.get(frame).cloned().unwrap_or_default();
         for scope in scopes {
             self.queue(
@@ -1402,26 +1749,24 @@ impl DebugProtocol {
     }
 
     fn refresh_paused_inspection(&mut self, frame: usize) {
-        let expanded: Vec<String> = self.inspected_object_ids.iter().cloned().collect();
+        let expanded: Vec<(String, InspectedObjectSpec)> =
+            std::mem::take(&mut self.inspected_objects)
+                .into_iter()
+                .collect();
         self.request_locals(frame);
         self.request_watches(frame);
         let pause = self.pause_generation;
-        for object_id in expanded {
-            self.queue(
-                "Runtime.getProperties",
-                json!({
-                    "objectId": object_id,
-                    "ownProperties": true,
-                    "accessorPropertiesOnly": false,
-                    "generatePreview": true
-                }),
-                Pending::ObjectProperties {
-                    pause,
-                    frame,
-                    object_id,
-                },
-                true,
-            );
+        for (object_id, (subtype, ancestors)) in expanded {
+            if self.queue_inspect_object(
+                pause,
+                frame,
+                object_id.clone(),
+                subtype.clone(),
+                ancestors.clone(),
+            ) {
+                self.inspected_objects
+                    .insert(object_id, (subtype, ancestors));
+            }
         }
     }
 
@@ -1453,6 +1798,7 @@ impl DebugProtocol {
             .map(|(index, watch)| DebugInspectableWatch {
                 index,
                 expression: watch.expression.clone(),
+                subtype: None,
                 object_id: None,
             })
             .collect();
@@ -1529,6 +1875,7 @@ impl DebugProtocol {
             .map(|(index, watch)| DebugInspectableWatch {
                 index,
                 expression: watch.expression.clone(),
+                subtype: None,
                 object_id: None,
             })
             .collect();
@@ -1563,11 +1910,13 @@ impl DebugProtocol {
         self.scopes.clear();
         self.call_frame_ids.clear();
         self.snapshot.selected_frame = None;
-        self.inspected_object_ids.clear();
+        self.inspected_objects.clear();
         self.inspection.pause_epoch = self.pause_epoch;
         self.inspection.pause_generation = self.pause_generation;
         self.inspection.locals.clear();
         self.inspection.object_properties.clear();
+        self.inspection.circular_children.clear();
+        self.inspection.preview_properties.clear();
         self.refresh_watches();
     }
     fn clear_session(&mut self) {
@@ -1776,10 +2125,11 @@ impl DebugProtocol {
                 self.generated_steps = None;
                 self.note(message);
             }
-            Pending::ObjectProperties {
+            Pending::SliceObject {
                 pause,
                 frame,
                 object_id,
+                ..
             } => {
                 if self.snapshot.state == DebugState::Paused
                     && pause == self.pause_generation
@@ -1791,6 +2141,34 @@ impl DebugProtocol {
                 }
                 self.note(message);
             }
+            Pending::ObjectProperties {
+                pause,
+                frame,
+                object_id,
+                release_object_id,
+                ..
+            } => {
+                if let Some(sid) = release_object_id
+                    && sid != object_id
+                {
+                    self.queue(
+                        "Runtime.releaseObject",
+                        json!({"objectId": sid}),
+                        Pending::Remove,
+                        true,
+                    );
+                }
+                if self.snapshot.state == DebugState::Paused
+                    && pause == self.pause_generation
+                    && self.snapshot.selected_frame == Some(frame)
+                {
+                    self.inspection
+                        .object_properties
+                        .insert(object_id, Vec::new());
+                }
+                self.note(message);
+            }
+            Pending::CycleCheck { .. } => {}
             Pending::Watch {
                 pause,
                 watch_gen,
@@ -1811,6 +2189,7 @@ impl DebugProtocol {
                     };
                     slot.is_error = true;
                     if let Some(insp) = self.inspection.watches.get_mut(index) {
+                        insp.subtype = None;
                         insp.object_id = None;
                     }
                 }
@@ -1818,6 +2197,21 @@ impl DebugProtocol {
             _ => self.note(message),
         }
     }
+}
+
+/// Parse a scalar CDP `CallArgument` (`{"value": ...}` or `{"unserializableValue": ...}`)
+/// supporting JSON scalars (`Number`, `Boolean`, `String`, `null`), single-quoted strings,
+/// and IEEE-754 special numbers (`NaN`, `Infinity`, `-Infinity`, `-0`).
+pub(crate) fn parse_debug_call_argument(input: &str) -> Result<Value, String> {
+    let trimmed = input.trim();
+    match trimmed {
+        "NaN" => return Ok(json!({ "unserializableValue": "NaN" })),
+        "Infinity" | "+Infinity" => return Ok(json!({ "unserializableValue": "Infinity" })),
+        "-Infinity" => return Ok(json!({ "unserializableValue": "-Infinity" })),
+        "-0" | "-0.0" => return Ok(json!({ "unserializableValue": "-0" })),
+        _ => {}
+    }
+    parse_debug_scalar_value(trimmed).map(|value| json!({ "value": value }))
 }
 
 /// Parse a scalar JSON value (`Number`, `Boolean`, `String`, or `null`) for paused variable/property editing.
@@ -1876,6 +2270,41 @@ fn remote_inspectable_object_id(remote: &Value, accessor: bool) -> Option<String
     id_string(remote.get("objectId"))
 }
 
+fn extract_preview_scalar_fields(remote: &Value) -> Option<Vec<(String, String, String)>> {
+    if remote.get("subtype").and_then(Value::as_str) == Some("proxy") {
+        return None;
+    }
+    let props = remote
+        .get("preview")
+        .and_then(|p| p.get("properties"))
+        .and_then(Value::as_array)?;
+    let mut fields = Vec::new();
+    for prop in props.iter().take(64) {
+        let Some(name) = prop.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let kind = prop.get("type").and_then(Value::as_str).unwrap_or("");
+        if kind == "accessor" {
+            continue;
+        }
+        let subtype = prop.get("subtype").and_then(Value::as_str);
+        if subtype == Some("null") {
+            fields.push((bounded(name, 256), "null".into(), "Null".into()));
+            continue;
+        }
+        if kind == "undefined" {
+            fields.push((bounded(name, 256), "undefined".into(), "Undefined".into()));
+            continue;
+        }
+        if let Some(val) = prop.get("value").and_then(Value::as_str)
+            && matches!(kind, "number" | "boolean" | "string")
+        {
+            fields.push((bounded(name, 256), bounded(val, MAX_TEXT), kind.to_owned()));
+        }
+    }
+    Some(fields)
+}
+
 fn decode_cdp_property(property: &Value) -> Option<DebugObjectProperty> {
     let name = property.get("name").and_then(Value::as_str)?;
     let was_thrown = property.get("wasThrown").and_then(Value::as_bool) == Some(true);
@@ -1890,6 +2319,10 @@ fn decode_cdp_property(property: &Value) -> Option<DebugObjectProperty> {
         .get("writable")
         .and_then(Value::as_bool)
         .unwrap_or(true);
+    let value_truncated = remote
+        .get("value")
+        .and_then(Value::as_str)
+        .is_some_and(|s| s.chars().count() > MAX_INLINE_EDIT_STRING_CHARS);
     let value = if was_thrown {
         "<unavailable>".into()
     } else if accessor {
@@ -1908,9 +2341,10 @@ fn decode_cdp_property(property: &Value) -> Option<DebugObjectProperty> {
         .get("subtype")
         .and_then(Value::as_str)
         .map(|s| bounded(s, 80));
-    let writable = !was_thrown && !accessor && prop_writable && object_id.is_none();
+    let writable =
+        !was_thrown && !accessor && prop_writable && object_id.is_none() && !value_truncated;
     Some(DebugObjectProperty {
-        name: bounded(name, MAX_TEXT),
+        name: bounded(name, 65_536),
         value,
         kind,
         subtype,
@@ -2684,7 +3118,11 @@ fn format_cdp_property_preview(prop: &Value, depth: usize, multiline: bool) -> (
     }
     if let Some(val) = prop.get("value").and_then(Value::as_str) {
         if kind == "string" {
-            return (format!("{:?}", bounded(val, 256)), false);
+            let s = bounded(val, 256);
+            return (
+                serde_json::to_string(&s).unwrap_or_else(|_| format!("{s:?}")),
+                false,
+            );
         }
         return (bounded(val, 256), false);
     }
@@ -2728,11 +3166,25 @@ fn format_cdp_object_preview(preview: &Value, depth: usize, multiline: bool) -> 
             .strip_prefix("Array(")
             .and_then(|s| s.strip_suffix(')'))
             .and_then(|s| s.parse::<usize>().ok());
-        let max_idx = indexed.keys().next_back().map(|k| k + 1).unwrap_or(0);
+        let max_idx = indexed
+            .keys()
+            .next_back()
+            .map(|k| k.saturating_add(1))
+            .unwrap_or(0);
+        let dense_max_idx = indexed
+            .range(..128)
+            .next_back()
+            .map(|(k, _)| k + 1)
+            .unwrap_or(0);
+        let has_sparse_high_idx = indexed.range(128..).next().is_some();
         let len = declared_len.unwrap_or(max_idx).min(max_idx.max(128));
         let mut items: Vec<String> = Vec::new();
         let mut has_nested = false;
-        let render_len = if overflow { max_idx } else { len.min(128) };
+        let render_len = if overflow || has_sparse_high_idx {
+            dense_max_idx.min(128)
+        } else {
+            len.min(128)
+        };
         for idx in 0..render_len {
             if let Some((val_s, nested)) = indexed.remove(&idx) {
                 has_nested |= nested;
@@ -2741,9 +3193,9 @@ fn format_cdp_object_preview(preview: &Value, depth: usize, multiline: bool) -> 
                 items.push("<empty>".into());
             }
         }
-        for (_, (val_s, nested)) in indexed {
+        for (idx, (val_s, nested)) in indexed {
             has_nested |= nested;
-            items.push(val_s);
+            items.push(format!("{idx}: {val_s}"));
         }
         for (pair, nested) in extra {
             has_nested |= nested;
@@ -2871,7 +3323,10 @@ fn format_cdp_object_preview(preview: &Value, depth: usize, multiline: bool) -> 
 fn remote_summary_inner(value: &Value, multiline: bool) -> String {
     if let Some(value) = value.get("value") {
         return match value {
-            Value::String(value) => format!("{:?}", bounded(value, MAX_TEXT)),
+            Value::String(value) => {
+                let s = bounded(value, MAX_TEXT);
+                serde_json::to_string(&s).unwrap_or_else(|_| format!("{s:?}"))
+            }
             Value::Bool(_) | Value::Number(_) | Value::Null => value.to_string(),
             _ => "<object>".into(),
         };
@@ -3822,6 +4277,8 @@ pausedCallFrame(5);
         protocol
             .command(DebugCommand::InspectObject {
                 object_id: "obj-hero".into(),
+                subtype: None,
+                ancestor_object_ids: Vec::new(),
             })
             .unwrap();
         let expand_cmds = protocol.drain_commands();
@@ -3852,8 +4309,11 @@ pausedCallFrame(5);
         );
 
         // Edit top-level local via Debugger.setVariableValue with exact scopeNumber 1.
+        let pause_gen = protocol.pause_generation();
         protocol
             .command(DebugCommand::SetVariableValue {
+                pause_generation: pause_gen,
+                frame: 0,
                 scope_number: 1,
                 variable_name: "score".into(),
                 new_value: "99".into(),
@@ -3881,8 +4341,11 @@ pausedCallFrame(5);
         assert_eq!(refresh_cmds[2]["params"]["objectId"], "obj-hero");
 
         // Edit nested object property via Runtime.callFunctionOn.
+        let pause_gen2 = protocol.pause_generation();
         protocol
             .command(DebugCommand::SetPropertyValue {
+                pause_generation: pause_gen2,
+                frame: 0,
                 object_id: "obj-hero".into(),
                 property_name: "x".into(),
                 new_value: "128.5".into(),
@@ -3895,8 +4358,8 @@ pausedCallFrame(5);
             prop_cmds[0]["params"],
             json!({
                 "objectId": "obj-hero",
-                "functionDeclaration": "function(v) { this[\"x\"] = v; }",
-                "arguments": [{"value": 128.5}],
+                "functionDeclaration": SET_OWN_DATA_PROPERTY_JS,
+                "arguments": [{"value": "x"}, {"value": 128.5}],
                 "silent": true,
                 "returnByValue": true
             })
@@ -3923,5 +4386,364 @@ pausedCallFrame(5);
         );
         protocol.command(DebugCommand::SelectFrame(1)).unwrap();
         assert!(protocol.inspection().object_properties.is_empty());
+    }
+
+    #[test]
+    fn t414_sparse_array_preview_clamps_render_len_without_dense_oom() {
+        // Sparse array `a[0] = 10; a[2] = 30; a[2_000_000_000] = 1;` with `overflow: true`
+        let preview = json!({
+            "type": "object",
+            "subtype": "array",
+            "description": "Array(2000000001)",
+            "overflow": true,
+            "properties": [
+                {"name": "0", "type": "number", "value": "10"},
+                {"name": "2", "type": "number", "value": "30"},
+                {"name": "2000000000", "type": "number", "value": "1"}
+            ]
+        });
+        let formatted = format_cdp_object_preview(&preview, 0, false).unwrap();
+        assert_eq!(formatted, "[10, <empty>, 30, 2000000000: 1, …]");
+
+        // Pure high-index sparse array `a[2_000_000_000] = 1` (`overflow: true` and `false`)
+        let single_sparse_overflow = json!({
+            "type": "object",
+            "subtype": "array",
+            "description": "Array(2000000001)",
+            "overflow": true,
+            "properties": [
+                {"name": "2000000000", "type": "number", "value": "1"}
+            ]
+        });
+        assert_eq!(
+            format_cdp_object_preview(&single_sparse_overflow, 0, false).unwrap(),
+            "[2000000000: 1, …]"
+        );
+
+        let single_sparse_exact = json!({
+            "type": "object",
+            "subtype": "array",
+            "description": "Array(2000000001)",
+            "overflow": false,
+            "properties": [
+                {"name": "2000000000", "type": "number", "value": "1"}
+            ]
+        });
+        assert_eq!(
+            format_cdp_object_preview(&single_sparse_exact, 0, false).unwrap(),
+            "[2000000000: 1]"
+        );
+    }
+
+    #[test]
+    fn t414_bounded_slice_inspection_for_16mb_uint8array_and_large_array() {
+        let mut protocol = connect();
+        protocol.set_watches(vec![WatchRequest::new("buf16m", "buf16m")]);
+        event(&mut protocol, "Debugger.paused", paused_frame(5));
+        let init_cmds = protocol.drain_commands();
+        assert_eq!(init_cmds.len(), 2);
+        reply(
+            &mut protocol,
+            &init_cmds[0],
+            json!({
+                "result": [
+                    {
+                        "name": "bigArr",
+                        "writable": true,
+                        "value": {
+                            "type": "object",
+                            "subtype": "array",
+                            "objectId": "obj-arr-100k",
+                            "description": "Array(100000)"
+                        }
+                    }
+                ]
+            }),
+        );
+        reply(
+            &mut protocol,
+            &init_cmds[1],
+            json!({
+                "result": {
+                    "type": "object",
+                    "subtype": "typedarray",
+                    "objectId": "obj-u8-16m",
+                    "description": "Uint8Array(16777216)"
+                }
+            }),
+        );
+
+        let insp = protocol.inspection();
+        assert_eq!(insp.locals[0].subtype.as_deref(), Some("array"));
+        assert_eq!(insp.watches[0].subtype.as_deref(), Some("typedarray"));
+        assert_eq!(insp.pending_scope_requests, 0);
+
+        // Inspecting 16 MB Uint8Array must NEVER call unbounded Runtime.getProperties on obj-u8-16m;
+        // it uses Runtime.callFunctionOn(INSPECT_INDEXED_SLICE_JS, 256) then releases the temp slice.
+        protocol
+            .command(DebugCommand::InspectObject {
+                object_id: "obj-u8-16m".into(),
+                subtype: Some("typedarray".into()),
+                ancestor_object_ids: vec!["obj-u8-16m".into()],
+            })
+            .unwrap();
+        let slice_cmds = protocol.drain_commands();
+        assert_eq!(slice_cmds.len(), 1);
+        assert_eq!(slice_cmds[0]["method"], "Runtime.callFunctionOn");
+        assert_eq!(slice_cmds[0]["params"]["objectId"], "obj-u8-16m");
+        assert_eq!(
+            slice_cmds[0]["params"]["arguments"],
+            json!([{"value": MAX_OBJECT_PROPERTIES}])
+        );
+        reply(
+            &mut protocol,
+            &slice_cmds[0],
+            json!({"result": {"type": "object", "objectId": "slice-u8-temp"}}),
+        );
+        let get_slice_cmds = protocol.drain_commands();
+        assert_eq!(get_slice_cmds.len(), 1);
+        assert_eq!(get_slice_cmds[0]["method"], "Runtime.getProperties");
+        assert_eq!(get_slice_cmds[0]["params"]["objectId"], "slice-u8-temp");
+
+        let slice_entries: Vec<Value> = (0..MAX_OBJECT_PROPERTIES)
+            .map(|i| json!({"name": i.to_string(), "writable": true, "value": {"type": "number", "value": i % 256}}))
+            .collect();
+        reply(
+            &mut protocol,
+            &get_slice_cmds[0],
+            json!({"result": slice_entries}),
+        );
+        let release_cmds = protocol.drain_commands();
+        assert_eq!(release_cmds.len(), 1);
+        assert_eq!(release_cmds[0]["method"], "Runtime.releaseObject");
+        assert_eq!(release_cmds[0]["params"]["objectId"], "slice-u8-temp");
+        assert_eq!(
+            protocol.inspection().object_properties["obj-u8-16m"].len(),
+            MAX_OBJECT_PROPERTIES
+        );
+
+        // Inspecting Array(100_000) also routes through the bounded slice helper.
+        protocol
+            .command(DebugCommand::InspectObject {
+                object_id: "obj-arr-100k".into(),
+                subtype: Some("array".into()),
+                ancestor_object_ids: vec!["obj-arr-100k".into()],
+            })
+            .unwrap();
+        let arr_cmds = protocol.drain_commands();
+        assert_eq!(arr_cmds.len(), 1);
+        assert_eq!(arr_cmds[0]["method"], "Runtime.callFunctionOn");
+        assert_eq!(arr_cmds[0]["params"]["objectId"], "obj-arr-100k");
+
+        // Verify the JS slice helper directly in Node on a real 16 MB Uint8Array and Array(100_000)!
+        if let Ok(output) = std::process::Command::new("node")
+            .arg("-e")
+            .arg(format!(
+                r#"
+const sliceFn = {slice_js};
+const setPropFn = {set_js};
+const u8 = new Uint8Array(16 * 1024 * 1024);
+u8[0] = 7; u8[255] = 99;
+const u8Slice = sliceFn.call(u8, 256);
+const arr = new Array(100000).fill(3);
+const arrSlice = sliceFn.call(arr, 256);
+const target = {{ safe: 1 }};
+let blockedProto = false;
+try {{ setPropFn.call(target, "__proto__", null); }} catch (_) {{ blockedProto = true; }}
+const setterObj = {{ get trap() {{ return 1; }}, set trap(_) {{ throw new Error("setter ran"); }} }};
+let blockedSetter = false;
+try {{ setPropFn.call(setterObj, "trap", 2); }} catch (_) {{ blockedSetter = true; }}
+const longKey = "k".repeat(2000);
+target[longKey] = 10;
+setPropFn.call(target, longKey, 42);
+console.log(JSON.stringify([
+  Object.getOwnPropertyNames(u8Slice).length,
+  u8Slice[0],
+  u8Slice[255],
+  u8Slice.byteLength,
+  Object.getOwnPropertyNames(arrSlice).length,
+  arrSlice[0],
+  blockedProto,
+  Object.getPrototypeOf(target) === Object.prototype,
+  blockedSetter,
+  target[longKey]
+]));
+"#,
+                slice_js = INSPECT_INDEXED_SLICE_JS,
+                set_js = SET_OWN_DATA_PROPERTY_JS,
+            ))
+            .output()
+            && output.status.success()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert_eq!(
+                stdout.trim(),
+                "[259,7,99,16777216,256,3,true,true,true,42]"
+            );
+        }
+    }
+
+    #[test]
+    fn t414_stale_edit_rejection_unserializable_scalars_json_strings_and_fresh_oid_cycles() {
+        assert_eq!(
+            parse_debug_call_argument("NaN").unwrap(),
+            json!({"unserializableValue": "NaN"})
+        );
+        assert_eq!(
+            parse_debug_call_argument("Infinity").unwrap(),
+            json!({"unserializableValue": "Infinity"})
+        );
+        assert_eq!(
+            parse_debug_call_argument("-Infinity").unwrap(),
+            json!({"unserializableValue": "-Infinity"})
+        );
+
+        let mut protocol = connect();
+        event(
+            &mut protocol,
+            "Debugger.paused",
+            json!({
+                "reason": "other",
+                "callFrames": [
+                    {
+                        "callFrameId": "cf-0",
+                        "functionName": "inner",
+                        "location": {"scriptId": "script-1", "lineNumber": 5, "columnNumber": 0},
+                        "scopeChain": [{"type": "local", "object": {"type": "object", "objectId": "scope-0"}}]
+                    },
+                    {
+                        "callFrameId": "cf-1",
+                        "functionName": "outer",
+                        "location": {"scriptId": "script-1", "lineNumber": 6, "columnNumber": 0},
+                        "scopeChain": [{"type": "local", "object": {"type": "object", "objectId": "scope-1"}}]
+                    }
+                ]
+            }),
+        );
+        assert_eq!(protocol.inspection().pending_scope_requests, 1);
+        let init_cmd = protocol.drain_commands().pop().unwrap();
+        let long_str = "a".repeat(MAX_TEXT + 50);
+        reply(
+            &mut protocol,
+            &init_cmd,
+            json!({
+                "result": [
+                    {"name": "escaped", "writable": true, "value": {"type": "string", "value": "a\0b'c\x1b"}},
+                    {"name": "huge", "writable": true, "value": {"type": "string", "value": long_str}},
+                    {"name": "node", "writable": true, "value": {"type": "object", "objectId": "oid-root-1"}}
+                ]
+            }),
+        );
+        let insp = protocol.inspection();
+        assert_eq!(insp.pending_scope_requests, 0);
+        // JSON string summary uses \u0000 and unescaped `'`, so parse_debug_scalar_value round-trips cleanly!
+        assert_eq!(insp.locals[0].value, "\"a\\u0000b'c\\u001b\"");
+        assert!(insp.locals[0].writable);
+        assert!(parse_debug_scalar_value(&insp.locals[0].value).is_ok());
+        // Truncated > MAX_TEXT strings disable inline editing so lost_focus / Enter cannot truncate live V8 strings!
+        assert!(!insp.locals[1].writable);
+
+        let frame0_gen = protocol.pause_generation();
+        protocol.command(DebugCommand::SelectFrame(1)).unwrap();
+        let _ = protocol.drain_commands();
+        // Stale frame-0 edit after switching to frame 1 MUST be rejected!
+        assert!(
+            protocol
+                .command(DebugCommand::SetVariableValue {
+                    pause_generation: frame0_gen,
+                    frame: 0,
+                    scope_number: 0,
+                    variable_name: "x".into(),
+                    new_value: "1".into(),
+                })
+                .is_err()
+        );
+        assert!(
+            protocol
+                .command(DebugCommand::SetPropertyValue {
+                    pause_generation: frame0_gen,
+                    frame: 0,
+                    object_id: "oid-root-1".into(),
+                    property_name: "k".into(),
+                    new_value: "1".into(),
+                })
+                .is_err()
+        );
+
+        // Untruncated >1024-char property key + NaN unserializableValue on current frame 1:
+        let frame1_gen = protocol.pause_generation();
+        let long_prop_key = "p".repeat(1_500);
+        protocol
+            .command(DebugCommand::SetPropertyValue {
+                pause_generation: frame1_gen,
+                frame: 1,
+                object_id: "oid-root-1".into(),
+                property_name: long_prop_key.clone(),
+                new_value: "NaN".into(),
+            })
+            .unwrap();
+        let prop_cmd = protocol.drain_commands().pop().unwrap();
+        assert_eq!(
+            prop_cmd["params"]["arguments"][0]["value"].as_str(),
+            Some(long_prop_key.as_str())
+        );
+        assert_eq!(
+            prop_cmd["params"]["arguments"][1],
+            json!({"unserializableValue": "NaN"})
+        );
+        reply(
+            &mut protocol,
+            &prop_cmd,
+            json!({"result": {"type": "undefined"}}),
+        );
+        let _ = protocol.drain_commands();
+
+        // Real Chrome fresh objectId cycle detection (`oid-fresh-2 === oid-root-1`):
+        protocol
+            .command(DebugCommand::InspectObject {
+                object_id: "oid-root-1".into(),
+                subtype: None,
+                ancestor_object_ids: vec!["oid-root-1".into()],
+            })
+            .unwrap();
+        let get_props = protocol.drain_commands().pop().unwrap();
+        reply(
+            &mut protocol,
+            &get_props,
+            json!({
+                "result": [
+                    {"name": "self", "writable": true, "value": {"type": "object", "objectId": "oid-fresh-2"}},
+                    {"name": "child", "writable": true, "value": {"type": "object", "objectId": "oid-child-3"}}
+                ]
+            }),
+        );
+        let cycle_cmd = protocol.drain_commands().pop().unwrap();
+        assert_eq!(cycle_cmd["method"], "Runtime.callFunctionOn");
+        assert_eq!(
+            cycle_cmd["params"]["arguments"],
+            json!([
+                {"value": 1},
+                {"objectId": "oid-root-1"},
+                {"objectId": "oid-fresh-2"},
+                {"objectId": "oid-child-3"}
+            ])
+        );
+        reply(
+            &mut protocol,
+            &cycle_cmd,
+            json!({"result": {"type": "object", "value": [0]}}),
+        );
+        assert!(
+            protocol
+                .inspection()
+                .circular_children
+                .contains(&("oid-root-1".into(), "oid-fresh-2".into()))
+        );
+        assert!(
+            !protocol
+                .inspection()
+                .circular_children
+                .contains(&("oid-root-1".into(), "oid-child-3".into()))
+        );
     }
 }

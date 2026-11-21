@@ -444,6 +444,17 @@ impl Editor {
         }
     }
 
+    pub(crate) fn matches_timeline_frame_clipboard_marker(&self, text: &str) -> bool {
+        let trimmed = text.trim_end_matches(['\r', '\n']);
+        trimmed.starts_with("NeoFlash Timeline frames:")
+            && (self.timeline_edit.clipboard_marker.as_deref() == Some(trimmed)
+                || self
+                    .shared_frame_clipboard
+                    .as_ref()
+                    .and_then(|s| s.marker.as_deref())
+                    == Some(trimmed))
+    }
+
     pub(crate) fn paste_frames_from_system_clipboard(&mut self, payload: Option<String>) {
         if !self.has_document() {
             return;
@@ -459,13 +470,7 @@ impl Editor {
                 return;
             }
         };
-        let local_matches = self.timeline_edit.clipboard_marker.as_deref() == Some(text.as_str());
-        let shared_matches = self
-            .shared_frame_clipboard
-            .as_ref()
-            .and_then(|s| s.marker.as_deref())
-            == Some(text.as_str());
-        if !local_matches && !shared_matches {
+        if !self.matches_timeline_frame_clipboard_marker(&text) {
             self.timeline_edit.clipboard = None;
             self.timeline_edit.clipboard_marker = None;
             self.shared_frame_clipboard = None;
@@ -1224,6 +1229,7 @@ impl Editor {
         let mut copy = false;
         let mut cut = false;
         let mut paste = false;
+        let mut saw_non_timeline_paste_event = false;
         let mut paste_payload = None;
         ctx.input_mut(|input| {
             input.events.retain(|event| match event {
@@ -1236,16 +1242,46 @@ impl Editor {
                     false
                 }
                 egui::Event::Paste(text) => {
-                    paste = true;
-                    paste_payload = Some(text.clone());
-                    false
+                    if self.matches_timeline_frame_clipboard_marker(text) {
+                        paste = true;
+                        paste_payload = Some(text.clone());
+                        false
+                    } else {
+                        saw_non_timeline_paste_event = true;
+                        true
+                    }
                 }
                 _ => true,
             })
         });
         copy |= self.take_command_shortcut(ctx, CommandId::EditCopy);
         cut |= self.take_command_shortcut(ctx, CommandId::EditCut);
-        paste |= self.take_command_shortcut(ctx, CommandId::EditPaste);
+        if paste {
+            let _ = self.take_command_shortcut(ctx, CommandId::EditPaste);
+        } else if !saw_non_timeline_paste_event
+            && (self.timeline_edit.clipboard_marker.is_some()
+                || self
+                    .shared_frame_clipboard
+                    .as_ref()
+                    .is_some_and(|s| s.marker.is_some()))
+        {
+            let has_paste_trigger = ctx.input(|i| {
+                i.events
+                    .iter()
+                    .any(|ev| self.command_matches_event(CommandId::EditPaste, ev))
+            }) || ctx.data(|d| {
+                d.get_temp::<Vec<CommandId>>(egui::Id::new("nf2-queued-editor-commands"))
+                    .is_some_and(|cmds| cmds.contains(&CommandId::EditPaste))
+            });
+            if has_paste_trigger
+                && arboard::Clipboard::new()
+                    .and_then(|mut clipboard| clipboard.get_text())
+                    .ok()
+                    .is_some_and(|t| self.matches_timeline_frame_clipboard_marker(&t))
+            {
+                paste |= self.take_command_shortcut(ctx, CommandId::EditPaste);
+            }
+        }
         if cut {
             self.copy_frames_to_system_clipboard(ctx, true);
         } else if copy {
@@ -1410,30 +1446,21 @@ impl Editor {
                 && ui.ctx().layer_id_at(*pos) == Some(ui.layer_id())
         }) {
             let hit = timeline_cell_at(pos, rect.min, cell, grid_count, rows.len(), row_height);
-            let end_hit = rows
-                .iter()
-                .enumerate()
-                .find(|(row, index)| {
-                    let layer = &self.symbol().timeline.layers[**index];
-                    layer.properties.role != LayerRole::Folder
-                        && end_handle(
-                            rect,
-                            *row,
-                            cell,
-                            layer.properties.end_frame.unwrap_or(count),
-                            row_height,
-                        )
-                        .contains(pos)
-                })
-                .map(|(_, &i)| {
-                    (
-                        self.symbol().timeline.layers[i].id.clone(),
-                        self.symbol().timeline.layers[i]
-                            .properties
-                            .end_frame
-                            .unwrap_or(count),
-                    )
-                });
+            let approx_row = (((pos.y - rect.top()) / row_height).floor().max(0.0) as usize)
+                .min(rows.len().saturating_sub(1));
+            let candidate_rows = [
+                approx_row,
+                approx_row.saturating_sub(1),
+                (approx_row + 1).min(rows.len().saturating_sub(1)),
+            ];
+            let end_hit = candidate_rows.into_iter().find_map(|row| {
+                let &layer_idx = rows.get(row)?;
+                let layer = &self.symbol().timeline.layers[layer_idx];
+                let end = layer.properties.end_frame.unwrap_or(count);
+                (layer.properties.role != LayerRole::Folder
+                    && end_handle(rect, row, cell, end, row_height).contains(pos))
+                .then(|| (layer.id.clone(), end))
+            });
             if hit.is_some() || end_hit.is_some() {
                 self.finish_edits();
                 self.set_playing(false);
@@ -1574,9 +1601,15 @@ impl Editor {
         if let Some(pos) = position
             && let Some(gesture) = self.timeline_edit.gesture.clone()
         {
+            let clamped_y = if clip.bottom() > clip.top() {
+                pos.y
+                    .clamp(clip.top(), (clip.bottom() - 0.5).max(clip.top()))
+            } else {
+                pos.y
+            };
             let frame = frame_at_x(pos.x, rect.left(), cell, grid_count);
             let key_frame = frame_at_x(pos.x, rect.left(), cell, grid_count);
-            let row = (((pos.y - rect.top()) / row_height).max(0.) as usize)
+            let row = (((clamped_y - rect.top()) / row_height).max(0.) as usize)
                 .min(rows.len().saturating_sub(1));
             let dragging = ui.input(|i| i.pointer.is_decidedly_dragging()) || response.dragged();
             if dragging || released.is_some() {
@@ -1634,17 +1667,9 @@ impl Editor {
                 }
             }
         }
-        if let Some((pos, modifiers)) = released {
+        if let Some((_pos, modifiers)) = released {
             let gesture = self.timeline_edit.gesture.take();
             self.timeline_key_drag = None;
-            if pos.y < clip.top()
-                || pos.y
-                    >= clip
-                        .bottom()
-                        .min(rect.top() + rows.len() as f32 * row_height)
-            {
-                return;
-            }
             match gesture {
                 Some(Gesture::Key { layer, frame }) if frame != self.frame => {
                     self.move_key(layer, frame, self.frame, modifiers.alt);
@@ -1730,16 +1755,30 @@ impl Editor {
         &self,
         ui: &egui::Ui,
         rect: Rect,
+        clip: Rect,
         cell: f32,
         rows: &[usize],
     ) {
         let row_height = self.workspace.timeline.row_height();
+        let count = self.symbol().timeline.frame_count;
+        let window = crate::panels::timeline::TimelineVirtualWindow::with_default_overscan(
+            clip,
+            rect.min,
+            row_height,
+            cell,
+            rows.len(),
+            count.max(1),
+        );
+        let row_range = window.row_range(rows.len());
         // Selected frames are painted per row as `NF2/TL Span` Type=Selected (panels/timeline.rs)
         // so markers on top can switch to Tone=On Selection. Here: cursor feedback only.
         let palette = crate::theme::UiPalette::current(ui.ctx());
         if let Some(range) = self.frame_range() {
-            for (row, &i) in rows.iter().enumerate() {
-                if range.layers.contains(&self.symbol().timeline.layers[i].id) {
+            let range_layers: std::collections::HashSet<&str> =
+                range.layers.iter().map(String::as_str).collect();
+            for row in row_range.clone() {
+                let i = rows[row];
+                if range_layers.contains(self.symbol().timeline.layers[i].id.as_str()) {
                     let selected = Rect::from_min_size(
                         Pos2::new(
                             rect.left() + range.start as f32 * cell,
@@ -1777,6 +1816,9 @@ impl Editor {
                 })
                 .take(range.layers.len())
             {
+                if !row_range.contains(&row) {
+                    continue;
+                }
                 let preview = Rect::from_min_size(
                     Pos2::new(
                         rect.left() + start as f32 * cell,
@@ -1793,17 +1835,25 @@ impl Editor {
             }
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         }
-        for (row, &i) in rows.iter().enumerate() {
+        let mut handle_rows: Vec<usize> = row_range.collect();
+        if let Some(Gesture::End { layer: drag_id, .. }) = &self.timeline_edit.gesture
+            && let Some(drag_row) = rows
+                .iter()
+                .position(|&i| &self.symbol().timeline.layers[i].id == drag_id)
+            && !handle_rows.contains(&drag_row)
+        {
+            handle_rows.push(drag_row);
+            handle_rows.sort_unstable();
+        }
+        for row in handle_rows {
+            let i = rows[row];
             let layer = &self.symbol().timeline.layers[i];
             if layer.properties.role == LayerRole::Folder {
                 continue;
             }
             let end = match &self.timeline_edit.gesture {
                 Some(Gesture::End { layer: id, end }) if id == &layer.id => *end,
-                _ => layer
-                    .properties
-                    .end_frame
-                    .unwrap_or(self.symbol().timeline.frame_count),
+                _ => layer.properties.end_frame.unwrap_or(count),
             };
             let handle = end_handle(rect, row, cell, end, row_height);
             // The span end ▯ marks the layer end; the drag handle shows as an accent edge
@@ -2089,5 +2139,103 @@ fn build_shared_frame_clipboard(
             Vec::new()
         },
         layer_groups,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::CommandId;
+
+    #[test]
+    fn t414_timeline_shortcuts_only_consume_paste_when_clipboard_has_timeline_marker() {
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, neoflash_core::Project::blank());
+        let layer_id = editor.symbol().timeline.layers[0].id.clone();
+        editor.select_frame_range(FrameRange {
+            layers: vec![layer_id],
+            start: 0,
+            end: 0,
+        });
+        editor.timeline_edit.focused = true;
+        editor.timeline_edit.viewport = Some(ctx.viewport_id());
+
+        // Copy timeline frames first so `timeline_edit.clipboard_marker` is populated, then
+        // simulate the user copying SVG/Figma artwork externally (`Event::Paste("<svg...>")`).
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            editor.copy_frames_to_system_clipboard(ctx, false);
+        });
+        let valid_marker = editor
+            .timeline_edit
+            .clipboard_marker
+            .clone()
+            .expect("marker recorded");
+
+        let svg_payload =
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"10\" height=\"10\"/></svg>"
+                .to_owned();
+        let mut raw = egui::RawInput::default();
+        raw.events.push(egui::Event::Key {
+            key: egui::Key::V,
+            physical_key: Some(egui::Key::V),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        });
+        raw.events.push(egui::Event::Paste(svg_payload.clone()));
+
+        let mut remaining_paste = None;
+        let mut remaining_cmd_v = false;
+        let _ = ctx.run(raw, |ctx| {
+            editor.timeline_shortcuts(ctx);
+            ctx.input(|i| {
+                for ev in &i.events {
+                    if let egui::Event::Paste(t) = ev {
+                        remaining_paste = Some(t.clone());
+                    }
+                    if editor.command_matches_event(CommandId::EditPaste, ev) {
+                        remaining_cmd_v = true;
+                    }
+                }
+            });
+        });
+        assert_eq!(
+            remaining_paste.as_deref(),
+            Some(svg_payload.as_str()),
+            "non-Timeline Paste payload must remain unconsumed for Stage SVG/Figma/Object paste"
+        );
+        assert!(
+            remaining_cmd_v,
+            "EditPaste key event must remain unconsumed alongside non-Timeline Paste payload"
+        );
+
+        // Conversely, pasting the matching `"NeoFlash Timeline frames: ..."` marker IS consumed by Timeline.
+        let mut raw_tl = egui::RawInput::default();
+        raw_tl.events.push(egui::Event::Key {
+            key: egui::Key::V,
+            physical_key: Some(egui::Key::V),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        });
+        raw_tl.events.push(egui::Event::Paste(valid_marker));
+        let mut tl_paste_leftover = false;
+        let mut tl_key_leftover = false;
+        let _ = ctx.run(raw_tl, |ctx| {
+            editor.timeline_shortcuts(ctx);
+            ctx.input(|i| {
+                for ev in &i.events {
+                    if matches!(ev, egui::Event::Paste(_)) {
+                        tl_paste_leftover = true;
+                    }
+                    if editor.command_matches_event(CommandId::EditPaste, ev) {
+                        tl_key_leftover = true;
+                    }
+                }
+            });
+        });
+        assert!(!tl_paste_leftover);
+        assert!(!tl_key_leftover);
+        assert!(editor.history.can_undo(), "Timeline frame paste committed");
     }
 }

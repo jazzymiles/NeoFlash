@@ -313,6 +313,10 @@ impl Editor {
         self.edit_session.current_matrix(&self.project)
     }
 
+    pub(crate) fn stage_mapping(&self) -> crate::stage_mapping::StageMapping {
+        self.edit_stage_mapping().unwrap_or_default()
+    }
+
     pub(crate) fn edit_stage_mapping(
         &self,
     ) -> Result<crate::stage_mapping::StageMapping, SymbolEditError> {
@@ -518,7 +522,9 @@ impl Editor {
         let mut targets = Vec::new();
         let timeline = &self.symbol().timeline;
         for layer in &timeline.layers {
-            if !neoflash_core::layer_effectively_visible(timeline, layer) {
+            if !neoflash_core::layer_effectively_visible(timeline, layer)
+                || !self.is_layer_id_effectively_soloed(&layer.id)
+            {
                 continue;
             }
             for element in

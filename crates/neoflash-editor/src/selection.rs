@@ -264,16 +264,32 @@ impl Editor {
             self.vector.selected_anchors = None;
             return;
         }
-        if let Some((ref anchor_el, _)) = self.vector.selected_anchors
-            && self
+        if let Some((ref anchor_el, _)) = self.vector.selected_anchors {
+            let owner_layer = self
                 .symbol()
                 .timeline
                 .layers
                 .iter()
-                .find(|layer| self.element_in_edit_scope(layer, anchor_el).is_some())
-                .is_some_and(|layer| !self.layer_is_selectable(layer))
-        {
-            self.vector.selected_anchors = None;
+                .find(|layer| self.element_in_edit_scope(layer, anchor_el).is_some());
+            let should_clear = match owner_layer {
+                Some(layer) => {
+                    !self.layer_is_selectable(layer)
+                        || !sample_layer_at_fps(layer, self.frame, f64::from(self.project.fps))
+                            .iter()
+                            .any(|el| &el.id == anchor_el)
+                }
+                None => {
+                    self.tool == crate::app::Tool::Subselect
+                        || self
+                            .selection
+                            .targets
+                            .iter()
+                            .any(|t| &t.element == anchor_el)
+                }
+            };
+            if should_clear {
+                self.vector.selected_anchors = None;
+            }
         }
         if self.selection.is_empty() {
             return;
@@ -801,6 +817,10 @@ impl Editor {
 
     /// Nudge all editable selected placements by `(dx, dy)` in stage coordinates as one Undo step.
     pub(crate) fn nudge_selection(&mut self, dx: f64, dy: f64) -> bool {
+        if (dx == 0.0 && dy == 0.0) || !dx.is_finite() || !dy.is_finite() {
+            return false;
+        }
+        let [dx, dy] = self.stage_mapping().stage_delta_to_local([dx, dy]);
         if (dx == 0.0 && dy == 0.0) || !dx.is_finite() || !dy.is_finite() {
             return false;
         }

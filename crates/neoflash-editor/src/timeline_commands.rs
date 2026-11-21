@@ -1443,12 +1443,16 @@ impl Editor {
     /// Edit multiple frames: frames of keyframes inside the onion range on the given layers.
     pub(crate) fn edit_multiple_key_frames(&self) -> Vec<u32> {
         let (start, end) = self.onion_range();
-        let mut frames: Vec<u32> = self
-            .symbol()
-            .timeline
+        let timeline = &self.symbol().timeline;
+        let mut frames: Vec<u32> = timeline
             .layers
             .iter()
-            .filter(|layer| layer.visible)
+            .filter(|layer| {
+                layer.properties.role != LayerRole::Folder
+                    && neoflash_core::layer_effectively_visible(timeline, layer)
+                    && !neoflash_core::layer_effectively_locked(timeline, layer)
+                    && self.is_layer_id_effectively_soloed(&layer.id)
+            })
             .flat_map(|layer| &layer.keyframes)
             .map(|key| key.frame)
             .filter(|frame| (start..=end).contains(frame))

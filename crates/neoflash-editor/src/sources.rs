@@ -4200,15 +4200,21 @@ impl EvalValue {
         } else if let Ok(n) = trimmed.parse::<f64>() {
             Self::Number(n)
         } else {
-            let unquoted = trimmed
-                .strip_prefix('"')
-                .and_then(|s| s.strip_suffix('"'))
-                .or_else(|| {
-                    trimmed
-                        .strip_prefix('\'')
-                        .and_then(|s| s.strip_suffix('\''))
-                })
-                .unwrap_or(trimmed);
+            let unquoted = if trimmed.starts_with('"')
+                && let Ok(parsed) = serde_json::from_str::<String>(trimmed)
+            {
+                return Self::Str(parsed);
+            } else {
+                trimmed
+                    .strip_prefix('"')
+                    .and_then(|s| s.strip_suffix('"'))
+                    .or_else(|| {
+                        trimmed
+                            .strip_prefix('\'')
+                            .and_then(|s| s.strip_suffix('\''))
+                    })
+                    .unwrap_or(trimmed)
+            };
             Self::Str(unquoted.to_owned())
         }
     }
@@ -4603,6 +4609,21 @@ impl Editor {
         f(state)
     }
 
+    pub(crate) fn remove_debugger_authoring_state(&self, session_key: &str) {
+        let mut guard = DEBUGGER_AUTHORING_STATES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        guard.remove(session_key);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn has_authoring_state_for_session_key(&self, key: &str) -> bool {
+        let guard = DEBUGGER_AUTHORING_STATES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        guard.contains_key(key)
+    }
+
     pub(crate) fn current_source_tab_key(&self, fallback_tab: &str) -> String {
         if let Some(crate::panels::actions_sidebar::ScriptLocation::Source(id)) =
             self.effective_actions_location()
@@ -4946,13 +4967,45 @@ impl Editor {
             return authored;
         }
         if let Some(snapshot) = self.debugger.snapshot() {
-            vec![DebuggerScope {
-                name: "Local".to_owned(),
-                variables: snapshot
+            let inspection = self.debugger.inspection();
+            let variables = if !inspection.locals.is_empty() {
+                inspection
+                    .locals
+                    .iter()
+                    .map(|v| {
+                        let children = if let Some(oid) = v.object_id.as_deref()
+                            && let Some(props) = inspection.object_properties.get(oid)
+                        {
+                            props
+                                .iter()
+                                .map(|p| DebuggerVariable::scalar(&p.name, &p.value, &p.kind))
+                                .collect()
+                        } else if let Some(preview) = inspection.preview_properties.get(&v.name) {
+                            preview
+                                .iter()
+                                .map(|(name, val, kind)| DebuggerVariable::scalar(name, val, kind))
+                                .collect()
+                        } else {
+                            Vec::new()
+                        };
+                        DebuggerVariable {
+                            name: v.name.clone(),
+                            value: v.value.clone(),
+                            kind: v.kind.clone(),
+                            children,
+                        }
+                    })
+                    .collect()
+            } else {
+                snapshot
                     .locals
                     .iter()
                     .map(|v| DebuggerVariable::scalar(&v.name, &v.value, &v.kind))
-                    .collect(),
+                    .collect()
+            };
+            vec![DebuggerScope {
+                name: "Local".to_owned(),
+                variables,
             }]
         } else {
             Vec::new()

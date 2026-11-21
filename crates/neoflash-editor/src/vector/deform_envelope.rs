@@ -816,6 +816,7 @@ impl Editor {
     }
 
     /// Hit-test a Stage-space point against the 16 (`4x4`) `Envelope` lattice handles (`T-271`).
+    #[allow(dead_code)]
     pub fn hit_test_envelope_warp_handle(
         &self,
         stage_pt: [f64; 2],
@@ -838,7 +839,12 @@ impl Editor {
         col: usize,
         target_stage: [f64; 2],
     ) -> bool {
-        if row >= 4 || col >= 4 || !target_stage[0].is_finite() || !target_stage[1].is_finite() {
+        if row >= 4
+            || col >= 4
+            || !target_stage[0].is_finite()
+            || !target_stage[1].is_finite()
+            || !self.layer_editable()
+        {
             return false;
         }
         let els = self.selected_vector_elements_on_active_key();
@@ -908,6 +914,7 @@ impl Editor {
             })
             .collect();
 
+        self.ensure_key(false);
         let symbol = self.symbol_mut();
         let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
             return false;
@@ -963,6 +970,7 @@ impl Editor {
     ) -> bool {
         self.history.begin(&self.project);
         if !self.apply_envelope_warp_handle_in_place(row, col, target_stage) {
+            self.history.cancel(&mut self.project);
             return false;
         }
         self.commit_history();
@@ -992,6 +1000,7 @@ impl Editor {
     }
 
     /// Hit-test a Stage-space point against the 4 (`2x2`) `Perspective` corner handles (`0..4`) (`T-271`).
+    #[allow(dead_code)]
     pub fn hit_test_perspective_corner(&self, stage_pt: [f64; 2], tolerance: f64) -> Option<usize> {
         let corners = self.perspective_corners()?;
         let tol_sq = tolerance.max(1.5).powi(2);
@@ -1012,7 +1021,11 @@ impl Editor {
         target_stage: [f64; 2],
         symmetric_taper: bool,
     ) -> bool {
-        if corner >= 4 || !target_stage[0].is_finite() || !target_stage[1].is_finite() {
+        if corner >= 4
+            || !target_stage[0].is_finite()
+            || !target_stage[1].is_finite()
+            || !self.layer_editable()
+        {
             return false;
         }
         let els = self.selected_vector_elements_on_active_key();
@@ -1095,6 +1108,7 @@ impl Editor {
             }
         }
 
+        self.ensure_key(false);
         let symbol = self.symbol_mut();
         let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
             return false;
@@ -1131,6 +1145,7 @@ impl Editor {
     pub fn move_perspective_corner(&mut self, corner: usize, target_stage: [f64; 2]) -> bool {
         self.history.begin(&self.project);
         if !self.apply_perspective_corner_in_place(corner, target_stage, false) {
+            self.history.cancel(&mut self.project);
             return false;
         }
         self.commit_history();

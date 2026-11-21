@@ -537,7 +537,8 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle, retain_solid_
             .map(screen);
             if outlines {
                 p.add(Shape::closed_line(points.to_vec(), Stroke::new(1.0_f32, c)));
-            } else if let Err(error) = crate::text_boxes::paint(p, &item.kind, c, screen) {
+            } else if let Err(error) = crate::text_boxes::paint(p, &item.kind, c, reflected, screen)
+            {
                 p.add(Shape::closed_line(
                     points.to_vec(),
                     Stroke::new(1.0_f32, neoflash_ui::palette(p.ctx()).danger_default),
@@ -3011,8 +3012,8 @@ impl Editor {
         let last = tl.frame_count.saturating_sub(1);
         let fa = frame_a.min(last);
         let fb = frame_b.min(last);
-        let snap_a = capture_snapshot_at_frame(tl, fa, fps, format!("A (F{})", fa + 1));
-        let snap_b = capture_snapshot_at_frame(tl, fb, fps, format!("B (F{})", fb + 1));
+        let snap_a = capture_snapshot_at_frame(self, tl, fa, fps, format!("A (F{})", fa + 1));
+        let snap_b = capture_snapshot_at_frame(self, tl, fb, fps, format!("B (F{})", fb + 1));
         let mut sessions = STAGE_AB_SESSIONS.lock().unwrap();
         let state = sessions.entry(self.clipboard.session.clone()).or_default();
         state.snapshot_a = Some(snap_a);
@@ -3340,8 +3341,30 @@ impl Editor {
             let local = mapping.screen_to_edit(origin, zoom, pos);
             [f64::from(local.x), f64::from(local.y)]
         };
-        let min_map_scale = mapping.scale_bounds().0.max(1e-3);
-        let hit_tol_stage = f64::from(10.0 / zoom) / min_map_scale;
+        if ui.input(|i| i.key_pressed(egui::Key::Escape))
+            && let Some(drag) = self.vector.live_deform_drag.take()
+        {
+            if !matches!(drag.kind, StageLiveDeformKind::IkBoneCreate { .. }) {
+                self.history.cancel(&mut self.project);
+            }
+            return true;
+        }
+        let selection_editable = self.selection.is_empty()
+            || (self.selection.symbol == self.symbol_id()
+                && self
+                    .selection
+                    .targets
+                    .iter()
+                    .all(|t| self.target_editable(t)));
+        if !self.layer_editable() || !selection_editable {
+            if let Some(drag) = self.vector.live_deform_drag.take()
+                && !matches!(drag.kind, StageLiveDeformKind::IkBoneCreate { .. })
+            {
+                self.history.cancel(&mut self.project);
+            }
+            return matches!(self.tool, Tool::AssetWarp | Tool::Bone | Tool::Bind);
+        }
+        let hit_radius_px = 10.0_f32;
         let events = ui.input(|i| i.events.clone());
 
         // 1. Free Transform (`Tool::Transform` / `Tool::FreeTransform`) Envelope (4x4) & Perspective (2x2)
@@ -3371,8 +3394,15 @@ impl Editor {
                         } if canvas_rect.contains(pos) => {
                             let stage_pt = to_stage(pos);
                             if envelope_active {
-                                let hit =
-                                    self.hit_test_envelope_warp_handle(stage_pt, hit_tol_stage);
+                                let hit = self
+                                    .envelope_warp_handles()
+                                    .into_iter()
+                                    .filter_map(|(r, c, pt)| {
+                                        let d = to_screen(pt).distance(pos);
+                                        (d <= hit_radius_px).then_some((r, c, d))
+                                    })
+                                    .min_by(|a, b| a.2.total_cmp(&b.2))
+                                    .map(|(r, c, _)| (r, c));
                                 let accept_hit = match hit {
                                     Some((r, c)) => {
                                         submode == FreeTransformSubmode::Envelope
@@ -3395,8 +3425,16 @@ impl Editor {
                                     consumed = true;
                                 }
                             } else if perspective_active
-                                && let Some(corner) =
-                                    self.hit_test_perspective_corner(stage_pt, hit_tol_stage)
+                                && let Some(corner) = self
+                                    .perspective_corners()
+                                    .into_iter()
+                                    .flat_map(|cs| cs.into_iter().enumerate())
+                                    .filter_map(|(i, pt)| {
+                                        let d = to_screen(pt).distance(pos);
+                                        (d <= hit_radius_px).then_some((i, d))
+                                    })
+                                    .min_by(|a, b| a.1.total_cmp(&b.1))
+                                    .map(|(i, _)| i)
                             {
                                 self.history.begin(&self.project);
                                 self.vector.live_deform_drag = Some(StageLiveDeformDrag {
@@ -3412,31 +3450,37 @@ impl Editor {
                         egui::Event::PointerMoved(pos) => {
                             let stage_pt = to_stage(pos);
                             let shift = ui.input(|i| i.modifiers.shift);
-                            let active_kind = self
+                            let active_drag = self
                                 .vector
                                 .live_deform_drag
                                 .as_ref()
-                                .map(|d| d.kind.clone());
-                            match active_kind {
-                                Some(StageLiveDeformKind::EnvelopeHandle { row, col }) => {
-                                    let did_change = self
-                                        .apply_envelope_warp_handle_in_place(row, col, stage_pt);
-                                    if let Some(drag) = self.vector.live_deform_drag.as_mut() {
-                                        drag.last_stage = stage_pt;
-                                        drag.changed |= did_change;
+                                .map(|d| (d.kind.clone(), d.press_stage));
+                            if let Some((active_kind, press_stage)) = active_drag
+                                && to_screen(stage_pt).distance(to_screen(press_stage)) > 1.0
+                            {
+                                match active_kind {
+                                    StageLiveDeformKind::EnvelopeHandle { row, col } => {
+                                        let did_change = self.apply_envelope_warp_handle_in_place(
+                                            row, col, stage_pt,
+                                        );
+                                        if let Some(drag) = self.vector.live_deform_drag.as_mut() {
+                                            drag.last_stage = stage_pt;
+                                            drag.changed |= did_change;
+                                        }
+                                        consumed = true;
                                     }
-                                    consumed = true;
-                                }
-                                Some(StageLiveDeformKind::PerspectiveCorner { corner }) => {
-                                    let did_change = self
-                                        .apply_perspective_corner_in_place(corner, stage_pt, shift);
-                                    if let Some(drag) = self.vector.live_deform_drag.as_mut() {
-                                        drag.last_stage = stage_pt;
-                                        drag.changed |= did_change;
+                                    StageLiveDeformKind::PerspectiveCorner { corner } => {
+                                        let did_change = self.apply_perspective_corner_in_place(
+                                            corner, stage_pt, shift,
+                                        );
+                                        if let Some(drag) = self.vector.live_deform_drag.as_mut() {
+                                            drag.last_stage = stage_pt;
+                                            drag.changed |= did_change;
+                                        }
+                                        consumed = true;
                                     }
-                                    consumed = true;
+                                    _ => {}
                                 }
-                                _ => {}
                             }
                         }
                         egui::Event::PointerButton {
@@ -3470,6 +3514,8 @@ impl Editor {
                                         }
                                         if drag.changed {
                                             self.commit_history();
+                                        } else {
+                                            self.history.cancel(&mut self.project);
                                         }
                                     }
                                     StageLiveDeformKind::PerspectiveCorner { corner } => {
@@ -3485,6 +3531,8 @@ impl Editor {
                                         }
                                         if drag.changed {
                                             self.commit_history();
+                                        } else {
+                                            self.history.cancel(&mut self.project);
                                         }
                                     }
                                     _ => {}
@@ -3536,9 +3584,16 @@ impl Editor {
                         modifiers,
                     } if canvas_rect.contains(pos) => {
                         let stage_pt = to_stage(pos);
-                        if let Some(hit_pin_id) =
-                            self.hit_test_asset_warp_pin(stage_pt, hit_tol_stage)
-                        {
+                        let screen_hit_pin = self
+                            .asset_warp_stage_pins()
+                            .into_iter()
+                            .filter_map(|(id, pt, _)| {
+                                let d = to_screen(pt).distance(pos);
+                                (d <= hit_radius_px).then_some((id, d))
+                            })
+                            .min_by(|a, b| a.1.total_cmp(&b.1))
+                            .map(|(id, _)| id);
+                        if let Some(hit_pin_id) = screen_hit_pin {
                             if modifiers.alt {
                                 let _ = self.remove_asset_warp_pin(&hit_pin_id);
                             } else {
@@ -3579,6 +3634,8 @@ impl Editor {
                                     last_stage: stage_pt,
                                     changed: true,
                                 });
+                            } else {
+                                self.history.cancel(&mut self.project);
                             }
                         }
                     }
@@ -3595,8 +3652,7 @@ impl Editor {
                             _ => None,
                         });
                         if let Some((pin_id, created_on_press, press_stage)) = pin_drag {
-                            let moved_dist =
-                                (stage_pt[0] - press_stage[0]).hypot(stage_pt[1] - press_stage[1]);
+                            let moved_dist = to_screen(stage_pt).distance(to_screen(press_stage));
                             if !created_on_press || moved_dist > 2.0 {
                                 let did_move =
                                     self.apply_asset_warp_pin_in_place(&pin_id, stage_pt);
@@ -3625,8 +3681,8 @@ impl Editor {
                             } = drag.kind
                         {
                             let stage_pt = to_stage(pos);
-                            let moved_dist = (stage_pt[0] - drag.press_stage[0])
-                                .hypot(stage_pt[1] - drag.press_stage[1]);
+                            let moved_dist =
+                                to_screen(stage_pt).distance(to_screen(drag.press_stage));
                             if (!created_on_press || moved_dist > 2.0)
                                 && (stage_pt[0] - drag.last_stage[0])
                                     .hypot(stage_pt[1] - drag.last_stage[1])
@@ -3637,6 +3693,8 @@ impl Editor {
                             }
                             if drag.changed {
                                 self.commit_history();
+                            } else {
+                                self.history.cancel(&mut self.project);
                             }
                         }
                     }
@@ -3659,9 +3717,50 @@ impl Editor {
                     } if canvas_rect.contains(pos) => {
                         let stage_pt = to_stage(pos);
                         if self.tool == Tool::Bone {
-                            if let Some((arm_id, bone_id, _)) =
-                                self.hit_test_ik_bone_gizmo(stage_pt, hit_tol_stage * 1.4)
-                            {
+                            let poses = self.ik_bone_stage_poses();
+                            let screen_bone_hit = poses
+                                .iter()
+                                .filter_map(|(arm_id, bone_id, _, tail, _)| {
+                                    let d = to_screen(*tail).distance(pos);
+                                    (d <= hit_radius_px).then_some((
+                                        arm_id.clone(),
+                                        bone_id.clone(),
+                                        d,
+                                    ))
+                                })
+                                .min_by(|a, b| a.2.total_cmp(&b.2))
+                                .or_else(|| {
+                                    poses
+                                        .iter()
+                                        .filter_map(|(arm_id, bone_id, head, _, _)| {
+                                            let d = to_screen(*head).distance(pos);
+                                            (d <= hit_radius_px).then_some((
+                                                arm_id.clone(),
+                                                bone_id.clone(),
+                                                d,
+                                            ))
+                                        })
+                                        .min_by(|a, b| a.2.total_cmp(&b.2))
+                                })
+                                .or_else(|| {
+                                    poses
+                                        .into_iter()
+                                        .filter_map(|(arm_id, bone_id, head, tail, _)| {
+                                            let hs = to_screen(head);
+                                            let ts = to_screen(tail);
+                                            let v = ts - hs;
+                                            let len_sq = v.length_sq();
+                                            let t = if len_sq > 1e-6 {
+                                                ((pos - hs).dot(v) / len_sq).clamp(0.0, 1.0)
+                                            } else {
+                                                0.0
+                                            };
+                                            let d = (hs + v * t).distance(pos);
+                                            (d <= hit_radius_px).then_some((arm_id, bone_id, d))
+                                        })
+                                        .min_by(|a, b| a.2.total_cmp(&b.2))
+                                });
+                            if let Some((arm_id, bone_id, _)) = screen_bone_hit {
                                 self.history.begin(&self.project);
                                 self.vector.selected_ik_bone = Some(bone_id.clone());
                                 self.vector.live_deform_drag = Some(StageLiveDeformDrag {
@@ -3705,16 +3804,19 @@ impl Editor {
                     }
                     egui::Event::PointerMoved(pos) => {
                         let stage_pt = to_stage(pos);
-                        let active_kind = self
+                        let active_drag = self
                             .vector
                             .live_deform_drag
                             .as_ref()
-                            .map(|d| d.kind.clone());
-                        match active_kind {
-                            Some(StageLiveDeformKind::IkBoneEffector {
-                                armature_id,
-                                bone_id,
-                            }) => {
+                            .map(|d| (d.kind.clone(), d.press_stage));
+                        match active_drag {
+                            Some((
+                                StageLiveDeformKind::IkBoneEffector {
+                                    armature_id,
+                                    bone_id,
+                                },
+                                press_stage,
+                            )) if to_screen(stage_pt).distance(to_screen(press_stage)) > 1.0 => {
                                 let did_pose = self.apply_ik_bone_effector_in_place(
                                     &armature_id,
                                     &bone_id,
@@ -3725,7 +3827,7 @@ impl Editor {
                                     drag.changed |= did_pose;
                                 }
                             }
-                            Some(StageLiveDeformKind::IkBoneCreate { start_stage, .. }) => {
+                            Some((StageLiveDeformKind::IkBoneCreate { start_stage, .. }, _)) => {
                                 if let Some(drag) = self.vector.live_deform_drag.as_mut() {
                                     drag.kind = StageLiveDeformKind::IkBoneCreate {
                                         start_stage,
@@ -3734,7 +3836,7 @@ impl Editor {
                                     drag.last_stage = stage_pt;
                                 }
                             }
-                            Some(StageLiveDeformKind::IkBindSweep { unbind }) => {
+                            Some((StageLiveDeformKind::IkBindSweep { unbind }, _)) => {
                                 let did_bind =
                                     self.apply_bind_stage_point_in_place(stage_pt, unbind);
                                 if let Some(drag) = self.vector.live_deform_drag.as_mut() {
@@ -3778,6 +3880,8 @@ impl Editor {
                                     }
                                     if drag.changed {
                                         self.commit_history();
+                                    } else {
+                                        self.history.cancel(&mut self.project);
                                     }
                                 }
                                 StageLiveDeformKind::IkBoneCreate { start_stage, .. } => {
@@ -3785,8 +3889,12 @@ impl Editor {
                                         let _ = self.create_ik_bone_on_stage(start_stage, stage_pt);
                                     }
                                 }
-                                StageLiveDeformKind::IkBindSweep { .. } if drag.changed => {
-                                    self.commit_history();
+                                StageLiveDeformKind::IkBindSweep { .. } => {
+                                    if drag.changed {
+                                        self.commit_history();
+                                    } else {
+                                        self.history.cancel(&mut self.project);
+                                    }
                                 }
                                 _ => {}
                             }
@@ -4039,6 +4147,7 @@ impl Editor {
 
 #[allow(dead_code)]
 fn capture_snapshot_at_frame(
+    editor: &Editor,
     tl: &Timeline,
     frame: u32,
     fps: f64,
@@ -4046,7 +4155,11 @@ fn capture_snapshot_at_frame(
 ) -> StageSnapshotAB {
     let mut elements = Vec::new();
     for layer in &tl.layers {
-        if layer.visible {
+        if layer.properties.role != neoflash_core::LayerRole::Folder
+            && layer.properties.role != neoflash_core::LayerRole::Guide
+            && neoflash_core::layer_effectively_visible(tl, layer)
+            && editor.is_layer_id_effectively_soloed(&layer.id)
+        {
             elements.extend(sample_layer_in_at_fps(tl, layer, frame, fps));
         }
     }
@@ -5079,6 +5192,7 @@ mod stage_tools_and_context_menu_tests {
         use crate::vector::FreeTransformSubmode;
 
         let mut editor = make_test_editor();
+        editor.stage_view.prefs.rulers = false;
         editor.stage_view.prefs.objects_snap = false;
         editor.stage_view.prefs.grid_snap = false;
         editor.stage_view.prefs.guides_snap = false;
@@ -5378,5 +5492,322 @@ mod stage_tools_and_context_menu_tests {
         let poses_undone = editor.ik_bone_stage_poses();
         assert!((poses_undone[0].4 - angle_before).abs() < 1e-4);
         assert!(editor.project.validate().is_ok());
+    }
+
+    #[test]
+    fn t414_deform_ensure_key_lock_guards_set_tool_state_and_history_cancel() {
+        use crate::vector::FreeTransformSubmode;
+        let mut editor = make_test_editor();
+        editor.stage_view.prefs.rulers = false;
+        editor.stage_view.prefs.objects_snap = false;
+        editor.stage_view.prefs.grid_snap = false;
+        editor.stage_view.prefs.guides_snap = false;
+        editor.stage_view.prefs.pixels_snap = false;
+        let root_id = editor.project.root.clone();
+        {
+            let sym = editor.project.symbol_mut(&root_id).unwrap();
+            sym.timeline.frame_count = 10;
+            sym.timeline.layers[0].keyframes[0].elements.clear();
+            sym.timeline.layers[0].keyframes[0]
+                .elements
+                .push(make_test_element(
+                    "hero-rect",
+                    "Hero",
+                    100.0,
+                    100.0,
+                    ElementKind::Rectangle {
+                        width: 100.0,
+                        height: 80.0,
+                        fill: [200, 80, 60, 255],
+                        stroke: [0, 0, 0, 255],
+                        stroke_width: 1.0,
+                    },
+                ));
+        }
+        let ctx = egui::Context::default();
+        ctx.set_fonts(neoflash_ui::typography::font_definitions());
+        let target = sel_target(&editor, "hero-rect");
+        editor.set_selection(vec![target]);
+
+        // 1. Locked layer rejects deform mutations and click-without-move cancels history cleanly.
+        editor.symbol_mut().timeline.layers[0].locked = true;
+        assert!(!editor.move_envelope_warp_handle(0, 0, [80.0, 80.0]));
+        assert!(editor.add_asset_warp_pin([150.0, 140.0]).is_none());
+        editor.symbol_mut().timeline.layers[0].locked = false;
+
+        // 2. Deforming at frame 5 inside a tween span (or with auto_keyframe) creates a keyframe at
+        //    frame 5 without mutating frame 0!
+        editor.workspace.timeline_prefs.auto_keyframe = true;
+        editor.frame = 5;
+        editor.set_tool(Tool::Transform);
+        editor.set_free_transform_submode(FreeTransformSubmode::Envelope);
+        let h11 = editor
+            .envelope_warp_handles()
+            .into_iter()
+            .find(|&(r, c, _)| r == 1 && c == 1)
+            .unwrap()
+            .2;
+        // Click-without-move on handle (1,1) must NOT commit or leave pending history open.
+        run_stage_pointer_click(&ctx, &mut editor, h11, egui::Modifiers::NONE);
+        assert_eq!(editor.history.undo_len(), 0);
+        // Drag handle (0,0) at frame 5 -> splits keyframe at frame 5 while frame 0 stays `Rectangle`!
+        assert!(editor.move_envelope_warp_handle(0, 0, [75.0, 70.0]));
+        assert_eq!(editor.history.undo_len(), 1);
+        let layer = &editor.symbol().timeline.layers[0];
+        assert!(
+            matches!(
+                layer.keyframes[0].elements[0].kind,
+                ElementKind::Rectangle { .. }
+            ),
+            "frame 0 keyframe must remain untouched when deforming on held frame 5"
+        );
+        assert!(
+            layer.keyframes.iter().any(|k| k.frame == 5),
+            "ensure_key(false) must insert keyframe at frame 5"
+        );
+
+        // 3. `Editor::set_tool` preserves `free_transform_submode`, `asset_warp_base_elements`, and `ik_base_elements`.
+        let pin_id = editor.add_asset_warp_pin([140.0, 130.0]).unwrap();
+        assert!(!editor.vector.asset_warp_base_elements.is_empty());
+        editor.set_tool(Tool::Bone);
+        editor.set_tool(Tool::Transform);
+        assert_eq!(
+            editor.free_transform_submode(),
+            FreeTransformSubmode::Envelope
+        );
+        assert!(
+            !editor.vector.asset_warp_base_elements.is_empty(),
+            "asset_warp_base_elements must survive tool switches"
+        );
+        let _ = pin_id;
+        editor.project.validate().unwrap();
+    }
+
+    #[test]
+    fn t414_reflected_textbox_winding_edit_in_place_nudge_lasso_and_solo_guards() {
+        let ctx = egui::Context::default();
+        let mut project = Project::blank();
+        project.format_version = 6;
+
+        // Child MovieClip with a shape at (10, 20) and a Subselect path.
+        let mut child = project.symbols[0].clone();
+        child.id = "mc_flip".into();
+        child.name = "FlipClip".into();
+        child.kind = SymbolKind::MovieClip;
+        child.timeline.layers[0].id = "mc-layer-0".into();
+        child.timeline.layers[0].keyframes[0].elements.clear();
+        child.timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: "inner-box".into(),
+                name: "Inner".into(),
+                transform: Transform {
+                    x: 10.0,
+                    y: 20.0,
+                    ..Transform::default()
+                },
+                kind: ElementKind::Path {
+                    commands: vec![
+                        PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                        PathCommand::LineTo { x: 30.0, y: 0.0 },
+                        PathCommand::LineTo { x: 30.0, y: 30.0 },
+                        PathCommand::LineTo { x: 0.0, y: 30.0 },
+                        PathCommand::Close,
+                    ],
+                    fill_rule: FillRule::NonZero,
+                    fill: [50, 120, 220, 255],
+                    stroke: [0, 0, 0, 255],
+                    stroke_width: 1.0,
+                },
+                ..Element::default()
+            });
+        project.symbols.push(child);
+
+        // Place reflected instance (`scale_x = -2.0`, `x = 300.0`, `y = 200.0`) on root layer 0,
+        // and add a second layer 1 so we can test Solo guards!
+        project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: "inst-flip".into(),
+                name: "inst".into(),
+                transform: Transform {
+                    x: 300.0,
+                    y: 200.0,
+                    scale_x: -2.0,
+                    scale_y: 1.0,
+                    ..Transform::default()
+                },
+                kind: ElementKind::Instance {
+                    symbol_id: "mc_flip".into(),
+                    playback: InstancePlayback::Loop,
+                },
+                ..Element::default()
+            });
+        let mut bg_layer = Layer {
+            id: "solo-other".into(),
+            name: "Solo Other".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe::default()],
+            properties: LayerProperties::default(),
+        };
+        bg_layer.keyframes[0].elements.push(Element {
+            id: "bg-dot".into(),
+            name: "Dot".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Ellipse {
+                width: 10.0,
+                height: 10.0,
+                fill: [255, 255, 255, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        });
+        project.symbols[0].timeline.layers.push(bg_layer);
+        project.validate().unwrap();
+
+        let mut editor = Editor::from_project(&ctx, project);
+
+        // 1. Solo guard on `enter_symbol_in_place_by_id` and `set_stage_ab_reference_frames`:
+        // Soloing layer 1 hides layer 0's `inst-flip` from both `enter_symbol_in_place_by_id` and A/B snapshots!
+        editor.toggle_layer_solo(1, false);
+        assert!(
+            !editor.enter_symbol_in_place_by_id("mc_flip"),
+            "non-solo layer instance must not enter Edit in Place"
+        );
+        editor.set_stage_ab_reference_frames(0, 0);
+        {
+            let sessions = STAGE_AB_SESSIONS.lock().unwrap();
+            let snap = sessions
+                .get(&editor.clipboard.session)
+                .and_then(|s| s.snapshot_a.as_ref())
+                .unwrap();
+            assert_eq!(snap.elements.len(), 1);
+            assert_eq!(snap.elements[0].id, "bg-dot");
+        }
+        editor.clear_all_solo_layers();
+
+        // 2. Enter `mc_flip` (`scale_x = -2.0`) in Edit in Place:
+        assert!(editor.enter_symbol_in_place_by_id("mc_flip"));
+        let child_lid = editor.symbol().timeline.layers[0].id.clone();
+        editor.set_selection(vec![crate::selection::SelectionTarget {
+            layer: child_lid.clone(),
+            element: "inner-box".into(),
+        }]);
+        // Stage nudge `+10.0` X (Right Arrow) under `scale_x = -2.0` moves local `x` by `-5.0`!
+        assert!(editor.nudge_selection(10.0, 0.0));
+        let nudged_x = editor.selected_element().unwrap().transform.x;
+        assert!(
+            (nudged_x - 5.0).abs() < 1e-6,
+            "Right-arrow Stage nudge +10 under scale_x=-2 must move local x from 10 to 5: {nudged_x}"
+        );
+
+        // Subselect anchor nudge `+10.0` X also maps through `stage_mapping()`:
+        editor.set_tool(Tool::Subselect);
+        editor.vector.selected_anchors = Some(("inner-box".into(), vec![0]));
+        assert!(editor.nudge_selected_vector_points(10.0, 0.0));
+        if let ElementKind::Path { ref commands, .. } = editor.selected_element().unwrap().kind {
+            assert!(
+                matches!(commands[0], PathCommand::MoveTo { x, .. } if (x - (-5.0)).abs() < 1e-4),
+                "Subselect nudge under scale_x=-2 must map through StageMapping: {:?}",
+                commands[0]
+            );
+        } else {
+            panic!("expected Path");
+        }
+
+        // `normalize_targets` clears stale `vector.selected_anchors` when the element is deleted!
+        editor.vector.selected_anchors = Some(("missing-ghost".into(), vec![0]));
+        editor.normalize_targets();
+        assert!(
+            editor.vector.selected_anchors.is_none(),
+            "normalize_targets must clear selected_anchors for deleted/absent elements"
+        );
+
+        // Whole-object `Lasso` under `Edit in Place` selects `inner-box` using local lasso points!
+        editor.clear_selection();
+        let scene: Vec<DrawItem> = editor
+            .current_authored_scene(false)
+            .draws
+            .into_iter()
+            .map(|d| d.item)
+            .collect();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let p = ui.painter();
+                let poly = vec![
+                    Pos2::new(-20.0, 0.0),
+                    Pos2::new(60.0, 0.0),
+                    Pos2::new(60.0, 70.0),
+                    Pos2::new(-20.0, 70.0),
+                ];
+                editor.finish_lasso_points(&poly, false, false, &scene, p);
+
+                // Reflected `text_boxes::paint` (`reflected = true`, `x -> -x`) emits non-culled CCW triangles/polygons!
+                let mut fmt = TextFormat::default();
+                let opts = AuthoredTextFieldOptions {
+                    background: true,
+                    background_color: 0x224466,
+                    ..Default::default()
+                };
+                fmt.set_field_options(Some(opts));
+                let tb = ElementKind::TextBox {
+                    text: "Flip".into(),
+                    width: 80.0,
+                    height: 30.0,
+                    multiline: false,
+                    word_wrap: true,
+                    format: fmt,
+                };
+                let scratch = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("tb-ref"));
+                let sp = p.clone().with_layer_id(scratch);
+                crate::text_boxes::paint(&sp, &tb, Color32::WHITE, true, |pt| {
+                    Pos2::new(200.0 - pt.x, 100.0 + pt.y)
+                })
+                .unwrap();
+                ctx.graphics_mut(|g| {
+                    let entries: Vec<_> = g.entry(scratch).all_entries().cloned().collect();
+                    let mut checked_poly = 0usize;
+                    let mut checked_mesh = 0usize;
+                    for e in entries {
+                        match e.shape {
+                            Shape::Path(poly)
+                                if poly.closed
+                                    && poly.fill != Color32::TRANSPARENT
+                                    && poly.points.len() >= 3 =>
+                            {
+                                let a = poly.points[0];
+                                let b = poly.points[1];
+                                let c = poly.points[2];
+                                let cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+                                assert!(
+                                    cross <= 0.0 || cross >= 0.0,
+                                    "finite screen winding: {cross}"
+                                );
+                                // Standard non-reflected [LT, RT, RB, LB] = [(0,0),(80,0),(80,30),(0,30)] has
+                                // (b-a)x(c-a) = (80)*(30) - 0 = +2400 > 0; reflected reversed corners keep > 0!
+                                assert!(
+                                    cross > 0.0,
+                                    "reflected TextBox quad must preserve positive screen winding: {cross}"
+                                );
+                                checked_poly += 1;
+                            }
+                            Shape::Mesh(mesh) => {
+                                checked_mesh += mesh.indices.len() / 3;
+                            }
+                            _ => {}
+                        }
+                    }
+                    assert!(checked_poly >= 1, "expected reflected TextBox background quad");
+                    assert!(checked_mesh >= 1, "expected reflected TextBox glyph mesh");
+                });
+            });
+        });
+        assert_eq!(
+            editor.selection.targets.len(),
+            1,
+            "Lasso under Edit in Place must select inner-box"
+        );
     }
 }

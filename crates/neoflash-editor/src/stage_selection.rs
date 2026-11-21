@@ -2423,8 +2423,12 @@ impl Editor {
                     .filter(|scene| !scene.clips.is_empty())
                     .map(|scene| crate::stage_clipping::ClipMeshes::new(&scene.clips, origin, zoom))
                     .transpose();
+                let needs_items_by_root = any_merge
+                    || g.boxes
+                        .iter()
+                        .any(|(_, _, _, kind, _)| *kind == cv::SelectionKind::TextDynamic);
                 let mut items_by_root: HashMap<&Id, Vec<&DrawItem>> = HashMap::new();
-                if any_merge {
+                if needs_items_by_root {
                     for item in scene {
                         if let Some(root_id) = item.instance_path.first() {
                             items_by_root.entry(root_id).or_default().push(item);
@@ -2486,7 +2490,10 @@ impl Editor {
                             && let Some(items) = items_by_root.get(id)
                             && let Some(item) = items.first()
                         {
-                            crate::text_boxes::paint_container_guides(p, &item.kind, rect, zoom);
+                            crate::text_boxes::paint_container_guides(p, &item.kind, |local_pt| {
+                                let edit_pt = crate::stage::affine(item.transform, local_pt);
+                                mapping.edit_to_screen(origin, zoom, edit_pt)
+                            });
                         }
                     }
                 }
@@ -2960,12 +2967,13 @@ impl Editor {
                 || draft.scope.zoom != self.zoom
                 || draft.scope.mapping != mapping
                 || draft.tool != self.tool
+                || !self.layer_editable()
                 || self
                     .symbol()
                     .timeline
                     .layers
                     .get(self.layer)
-                    .is_none_or(|layer| layer.id != draft.layer || layer.locked || !layer.visible)
+                    .is_none_or(|layer| layer.id != draft.layer)
         });
         if stale {
             self.shape_draft = None;
@@ -3147,9 +3155,23 @@ fn shape_draft_bounds(draft: &ShapeDraft, pos: Pos2, modifiers: egui::Modifiers)
     let end = position(draft.scope.local(pos));
     let mut delta = end - start;
     if modifiers.shift {
-        let side = delta.x.abs().max(delta.y.abs());
-        delta.x = if delta.x < 0. { -side } else { side };
-        delta.y = if delta.y < 0. { -side } else { side };
+        let ux = draft
+            .scope
+            .mapping
+            .local_delta_to_screen(draft.scope.zoom, [1.0, 0.0])
+            .length()
+            .max(1e-6);
+        let uy = draft
+            .scope
+            .mapping
+            .local_delta_to_screen(draft.scope.zoom, [0.0, 1.0])
+            .length()
+            .max(1e-6);
+        let screen_side = (delta.x.abs() * ux).max(delta.y.abs() * uy);
+        let side_x = screen_side / ux;
+        let side_y = screen_side / uy;
+        delta.x = if delta.x < 0. { -side_x } else { side_x };
+        delta.y = if delta.y < 0. { -side_y } else { side_y };
     }
     if modifiers.alt {
         Rect::from_center_size(start, egui::vec2(2.0 * delta.x.abs(), 2.0 * delta.y.abs()))

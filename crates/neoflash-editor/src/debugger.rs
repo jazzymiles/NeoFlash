@@ -3,7 +3,7 @@ use crate::app::{Editor, ScriptTarget};
 use crate::debugger_protocol::{
     AuthoredBreakpoint, AuthoredLocation, DebugCommand, DebugInspection, DebugOutputKind,
     DebugProtocol, DebugSnapshot, DebugSource, DebugState, DebugWatchResult, WatchRequest,
-    compile_watch_expression, parse_debug_scalar_value,
+    compile_watch_expression, parse_debug_call_argument,
 };
 use crate::debugger_sources::{ScriptOrigin, read_export_sources};
 use crate::debugger_transport::{BrowserPipe, browser_executable, file_url, private_directory};
@@ -25,10 +25,14 @@ use std::time::{Duration, Instant};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum DebugEditTarget {
     ScopeVariable {
+        pause_generation: u64,
+        frame: usize,
         scope_number: usize,
         variable_name: String,
     },
     ObjectProperty {
+        pause_generation: u64,
+        frame: usize,
         object_id: String,
         property_name: String,
     },
@@ -38,6 +42,7 @@ pub(crate) enum DebugEditTarget {
 pub(crate) struct DebugInlineEdit {
     pub row_key: String,
     pub target: DebugEditTarget,
+    pub initial: String,
     pub draft: String,
     pub focus: bool,
 }
@@ -53,7 +58,8 @@ pub(crate) struct Debugger {
     last_message_seq: u64,
     last_output_events: Vec<String>,
     last_output_seq: u64,
-    last_navigated_pause: Option<(u64, Option<usize>, Option<AuthoredLocation>)>,
+    last_navigated_pause: Option<(u64, u64, Option<usize>, Option<AuthoredLocation>)>,
+    last_evaluated_pause: Option<(u64, u64)>,
     export_directory: Option<PathBuf>,
     pub(crate) startup_status: Option<DebuggerStartupStatus>,
     expanded_paths: BTreeSet<String>,
@@ -256,11 +262,12 @@ impl Debugger {
     }
     pub(crate) fn toggle_tree_expanded(&mut self, row_key: &str) -> bool {
         if self.expanded_paths.remove(row_key) {
-            if self
-                .inline_edit
-                .as_ref()
-                .is_some_and(|e| e.row_key.starts_with(row_key))
-            {
+            if self.inline_edit.as_ref().is_some_and(|e| {
+                e.row_key == row_key
+                    || e.row_key
+                        .strip_prefix(row_key)
+                        .is_some_and(|rest| rest.starts_with('.') || rest.starts_with(':'))
+            }) {
                 self.inline_edit = None;
             }
             false
@@ -286,6 +293,11 @@ impl Debugger {
         }
         self.requested_object_ids
             .retain(|(generation, _)| *generation == pause_generation);
+    }
+    pub(crate) fn is_object_requested(&self, pause_generation: u64, object_id: &str) -> bool {
+        self.requested_object_ids
+            .iter()
+            .any(|(generation, id)| *generation == pause_generation && id == object_id)
     }
     pub(crate) fn mark_object_requested(&mut self, pause_generation: u64, object_id: &str) -> bool {
         self.requested_object_ids
@@ -346,6 +358,7 @@ impl Debugger {
         self.last_output_events.clear();
         self.last_output_seq = 0;
         self.last_navigated_pause = None;
+        self.last_evaluated_pause = None;
         self.startup_status = None;
         self.expanded_paths.clear();
         self.requested_object_ids.clear();
@@ -379,6 +392,9 @@ impl Drop for Debugger {
 
 impl Editor {
     pub(crate) fn open_debug_options(&mut self, ctx: &egui::Context) {
+        if self.is_standalone_script_session() {
+            return;
+        }
         match self.debugger.snapshot().map(|snapshot| snapshot.state) {
             Some(DebugState::Running) => {
                 self.debug_command(DebugCommand::Pause);
@@ -392,6 +408,9 @@ impl Editor {
     }
 
     pub(crate) fn start_debug_movie(&mut self, ctx: &egui::Context) {
+        if self.is_standalone_script_session() {
+            return;
+        }
         self.finish_edits();
         if self
             .debugger
@@ -473,6 +492,18 @@ impl Editor {
     }
 
     pub(crate) fn debug_command(&mut self, command: DebugCommand) -> bool {
+        if matches!(
+            command,
+            DebugCommand::SelectFrame(_)
+                | DebugCommand::StepInto
+                | DebugCommand::StepOver
+                | DebugCommand::StepOut
+                | DebugCommand::Resume
+                | DebugCommand::Restart
+                | DebugCommand::Pause
+        ) {
+            self.debugger.inline_edit = None;
+        }
         if self
             .debugger
             .project
@@ -583,6 +614,8 @@ impl Editor {
         if let Some(snapshot) = self.debugger.snapshot() {
             let status = format!("{:?}", snapshot.state);
             let mut auto_resumed = false;
+            let mut waiting_for_breakpoint_scopes = false;
+            let mut pause_eval_seq = 0u64;
             if status != self.debugger.last_status {
                 self.debugger.last_status = status.clone();
                 let state_severity = if snapshot.state == DebugState::Failed {
@@ -605,27 +638,43 @@ impl Editor {
                     );
                 }
                 if snapshot.state == DebugState::Paused {
-                    self.refresh_debugger_watches_local();
                     let raw_watches = self.raw_debugger_watch_expressions();
                     let cdp_watches = self.debugger.watch_results();
                     if !raw_watches.is_empty() && cdp_watches.len() != raw_watches.len() {
                         self.sync_debug_watches();
                     }
-                    if !snapshot.command_pending
-                        && let Some(loc) = snapshot
-                            .selected_frame
-                            .and_then(|idx| snapshot.frames.get(idx))
-                            .or_else(|| snapshot.frames.first())
-                            .and_then(|f| f.location.as_ref())
-                        && self.has_breakpoint(&loc.source, loc.line)
-                        && !self.should_pause_at_breakpoint(&loc.source, loc.line)
-                    {
-                        self.debug_command(DebugCommand::Resume);
-                        auto_resumed = true;
-                    }
                 }
             }
             if snapshot.state == DebugState::Paused {
+                let inspection = self.debugger.inspection();
+                pause_eval_seq = if inspection.vm_pause_generation != 0 {
+                    inspection.vm_pause_generation
+                } else {
+                    inspection.pause_generation.max(1)
+                };
+                let pause_eval_key = (snapshot.epoch, pause_eval_seq);
+                if self.debugger.last_evaluated_pause != Some(pause_eval_key) {
+                    let paused_loc = snapshot
+                        .selected_frame
+                        .and_then(|idx| snapshot.frames.get(idx))
+                        .or_else(|| snapshot.frames.first())
+                        .and_then(|f| f.location.as_ref());
+                    let at_breakpoint =
+                        paused_loc.is_some_and(|loc| self.has_breakpoint(&loc.source, loc.line));
+                    if inspection.pending_scope_requests > 0 {
+                        waiting_for_breakpoint_scopes = at_breakpoint;
+                    } else if !snapshot.command_pending {
+                        self.debugger.last_evaluated_pause = Some(pause_eval_key);
+                        self.refresh_debugger_watches_local();
+                        if let Some(loc) = paused_loc
+                            && at_breakpoint
+                            && !self.should_pause_at_breakpoint(&loc.source, loc.line)
+                        {
+                            self.debug_command(DebugCommand::Resume);
+                            auto_resumed = true;
+                        }
+                    }
+                }
                 let cdp_watches = self.debugger.watch_results();
                 self.sync_watch_values_from_cdp(&cdp_watches);
             }
@@ -702,7 +751,8 @@ impl Editor {
 
             if snapshot.state != DebugState::Paused {
                 self.debugger.last_navigated_pause = None;
-            } else if !auto_resumed && !snapshot.command_pending {
+                self.debugger.last_evaluated_pause = None;
+            } else if !auto_resumed && !waiting_for_breakpoint_scopes && !snapshot.command_pending {
                 let paused_location = snapshot
                     .selected_frame
                     .and_then(|idx| snapshot.frames.get(idx))
@@ -710,6 +760,7 @@ impl Editor {
                     .and_then(|f| f.location.clone());
                 let pause_key = (
                     snapshot.epoch,
+                    pause_eval_seq,
                     snapshot.selected_frame,
                     paused_location.clone(),
                 );
@@ -858,37 +909,51 @@ impl Editor {
         &mut self,
         pause_generation: u64,
         object_id: &str,
+        subtype: Option<&str>,
+        ancestor_object_ids: &[String],
         already_loaded: bool,
     ) {
         if !already_loaded
-            && self
+            && !self
                 .debugger
-                .mark_object_requested(pause_generation, object_id)
-        {
-            let _ = self.debug_command(DebugCommand::InspectObject {
+                .is_object_requested(pause_generation, object_id)
+            && self.debug_command(DebugCommand::InspectObject {
                 object_id: object_id.to_owned(),
-            });
+                subtype: subtype.map(str::to_owned),
+                ancestor_object_ids: ancestor_object_ids.to_vec(),
+            })
+        {
+            self.debugger
+                .mark_object_requested(pause_generation, object_id);
         }
     }
 
     pub(crate) fn commit_debug_inline_edit(&mut self, edit: DebugInlineEdit) -> bool {
-        if let Err(reason) = parse_debug_scalar_value(&edit.draft) {
+        if let Err(reason) = parse_debug_call_argument(&edit.draft) {
             self.message_event(OutputSeverity::Error, OutputSource::Debugger, reason, None);
             return false;
         }
         match edit.target {
             DebugEditTarget::ScopeVariable {
+                pause_generation,
+                frame,
                 scope_number,
                 variable_name,
             } => self.debug_command(DebugCommand::SetVariableValue {
+                pause_generation,
+                frame,
                 scope_number,
                 variable_name,
                 new_value: edit.draft,
             }),
             DebugEditTarget::ObjectProperty {
+                pause_generation,
+                frame,
                 object_id,
                 property_name,
             } => self.debug_command(DebugCommand::SetPropertyValue {
+                pause_generation,
+                frame,
                 object_id,
                 property_name,
                 new_value: edit.draft,
@@ -1028,6 +1093,8 @@ impl Editor {
         let inspection = DebugInspection {
             pause_epoch: 1,
             pause_generation: 1,
+            vm_pause_generation: 1,
+            pending_scope_requests: 0,
             locals: vec![
                 DebugInspectableLocal {
                     scope_number: 0,
@@ -1055,9 +1122,12 @@ impl Editor {
             watches: vec![DebugInspectableWatch {
                 index: 0,
                 expression: "waypoints".into(),
+                subtype: Some("array".into()),
                 object_id: Some("obj-waypoints".into()),
             }],
             object_properties,
+            circular_children: BTreeSet::new(),
+            preview_properties: std::collections::BTreeMap::new(),
         };
         if self.debugger_watches().is_empty() {
             self.add_debugger_watch("waypoints");
@@ -2519,11 +2589,18 @@ while True:
             log_cmd({"method": method, "params": params})
             oid = params.get("objectId", "")
             decl = params.get("functionDeclaration", "")
-            m = re.search(r'this\[("(?:\\.|[^"])*")\]\s*=\s*v;', decl)
-            if m and oid in state["objects"]:
-                prop_name = json.loads(m.group(1))
-                state["objects"][oid][prop_name] = params["arguments"][0]["value"]
-            send({"id": mid, "result": {"result": {"type": "undefined"}}})
+            args = params.get("arguments") or []
+            if "Object.create(null)" in decl:
+                send({"id": mid, "result": {"result": {"type": "object", "objectId": oid}}})
+            elif "Object.defineProperty(this, k" in decl and len(args) >= 2 and oid in state["objects"]:
+                prop_name = args[0].get("value")
+                if prop_name is not None:
+                    state["objects"][oid][prop_name] = args[1].get("value")
+                send({"id": mid, "result": {"result": {"type": "undefined"}}})
+            elif "ancs = objs.slice" in decl:
+                send({"id": mid, "result": {"result": {"type": "object", "value": []}}})
+            else:
+                send({"id": mid, "result": {"result": {"type": "undefined"}}})
         elif method == "Debugger.stepOver":
             send({"id": mid, "result": {}})
             send({"method": "Debugger.resumed", "sessionId": "sess-1", "params": {}})
@@ -2848,7 +2925,7 @@ while True:
         assert!(log_raw.contains("\"generatePreview\": true"));
         assert!(log_raw.contains("\"Debugger.setVariableValue\""));
         assert!(log_raw.contains("\"Runtime.callFunctionOn\""));
-        assert!(log_raw.contains("function(v) { this[\\\"x\\\"] = v; }"));
+        assert!(log_raw.contains("Object.defineProperty(this, k, { value: v })"));
 
         // 6. StepOver clears pause-1 `obj-hero` and cleanly re-fetches `obj-hero-step2` (`x = 500`)!
         assert!(editor.debug_command(DebugCommand::StepOver));
@@ -2907,5 +2984,156 @@ while True:
             "Resume clears paused inspection",
         );
         editor.debugger.stop();
+    }
+
+    #[test]
+    fn t414_cdp_conditional_breakpoint_waits_for_pending_scopes_and_re_evaluates_across_pauses() {
+        use crate::debugger_protocol::{DebugFrame, DebugLocal};
+        use crate::sources::BreakpointSpec;
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        let src = "Scene 1 / frame 1";
+        let mut spec = BreakpointSpec::new(4);
+        spec.condition = Some("score >= 10".into());
+        spec.hit_count_target = Some(2);
+        editor.set_breakpoint_spec(src, spec);
+
+        let mut snapshot =
+            DebugProtocol::new("file:///fixture.html".into(), vec![], vec![]).snapshot();
+        snapshot.state = DebugState::Paused;
+        snapshot.epoch = 1;
+        snapshot.frames.push(DebugFrame {
+            function_name: "tick".into(),
+            location: Some(AuthoredLocation {
+                source: src.into(),
+                line: 4,
+                column: 1,
+            }),
+            generated_url: "bundle.js".into(),
+            generated_line: 10,
+            generated_column: 1,
+        });
+        snapshot.selected_frame = Some(0);
+        let shared_snap = Arc::new(Mutex::new(snapshot));
+        let shared_insp = Arc::new(Mutex::new(DebugInspection {
+            pause_epoch: 1,
+            pause_generation: 1,
+            vm_pause_generation: 1,
+            pending_scope_requests: 1,
+            ..Default::default()
+        }));
+        let (commands, rx) = mpsc::sync_channel(8);
+        editor.debugger.project = Some(editor.project.clone());
+        editor.debugger.session = Some(DebugSession {
+            snapshot: shared_snap.clone(),
+            watch_results: Arc::new(Mutex::new(vec![])),
+            inspection: shared_insp.clone(),
+            commands,
+            stop: Arc::new(AtomicBool::new(false)),
+            worker: None,
+            errors: Arc::new(Mutex::new(vec![])),
+        });
+
+        // 1. While pending_scope_requests == 1 (locals still empty!), poll_debugger MUST NOT auto-resume!
+        editor.poll_debugger(&ctx);
+        assert!(rx.try_recv().is_err());
+
+        // 2. Scope arrives with score == 12 (condition true, hit 1 < target 2 -> auto-resumes once!).
+        shared_snap.lock().unwrap().locals = vec![DebugLocal {
+            scope: "local".into(),
+            name: "score".into(),
+            value: "12".into(),
+            kind: "number".into(),
+            accessor: false,
+        }];
+        shared_insp.lock().unwrap().pending_scope_requests = 0;
+        editor.poll_debugger(&ctx);
+        assert!(matches!(rx.try_recv(), Ok(DebugCommand::Resume)));
+
+        // 3. Second fast pause (`vm_pause_generation = 2`) without observing `Running` in between:
+        //    hit 2 >= target 2 -> stays paused!
+        shared_insp.lock().unwrap().vm_pause_generation = 2;
+        editor.poll_debugger(&ctx);
+        assert!(
+            rx.try_recv().is_err(),
+            "hit 2 meets hit_count_target=2 and stays paused"
+        );
+        assert_eq!(editor.breakpoint_spec(src, 4).unwrap().hit_count, 2);
+    }
+
+    #[test]
+    fn t414_standalone_script_guard_delimiter_collapse_and_per_tab_debugger_isolation() {
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+
+        // 1. Standalone `.as` session never launches Test Movie debugger.
+        editor.standalone_script = true;
+        editor.start_debug_movie(&ctx);
+        assert!(!editor.debugger.active());
+        assert!(editor.debugger.startup_status.is_none());
+        editor.standalone_script = false;
+
+        // 2. toggle_tree_expanded requires `.` or `:` boundary so collapsing `:a` never cancels `:ab`.
+        editor
+            .debugger
+            .expanded_paths
+            .insert("frame:0:local:0:a".into());
+        editor.debugger.inline_edit = Some(DebugInlineEdit {
+            row_key: "frame:0:local:0:ab".into(),
+            target: DebugEditTarget::ScopeVariable {
+                pause_generation: 1,
+                frame: 0,
+                scope_number: 0,
+                variable_name: "ab".into(),
+            },
+            initial: "1".into(),
+            draft: "2".into(),
+            focus: false,
+        });
+        assert!(!editor.debugger.toggle_tree_expanded("frame:0:local:0:a"));
+        assert!(
+            editor.debugger.inline_edit.is_some(),
+            "collapsing `:a` must not cancel sibling `:ab`"
+        );
+
+        // 3. Multi-tab Debugger isolation: switching tabs preserves Tab A's live debug session,
+        //    and closing a tab prunes DEBUGGER_AUTHORING_STATES without leaks.
+        let tab_a = editor.active_session;
+        editor.toggle_breakpoint("Scene 1 / frame 1", 3);
+        let tab_a_session_key = editor.clipboard.session.clone();
+        let mut snap_a = DebugProtocol::new("file:///tab_a.html".into(), vec![], vec![]).snapshot();
+        snap_a.state = DebugState::Running;
+        let (tx_a, _rx_a) = mpsc::sync_channel(4);
+        editor.debugger.install_test_session(
+            editor.project.clone(),
+            Arc::new(Mutex::new(snap_a)),
+            tx_a,
+            vec![],
+        );
+        assert!(editor.debugger.active());
+
+        let tab_b = editor.new_document_session(&ctx);
+        assert_ne!(tab_b, tab_a);
+        let tab_b_session_key = editor.clipboard.session.clone();
+        editor.toggle_breakpoint("Scene 1 / frame 1", 9);
+        assert!(
+            !editor.debugger.active(),
+            "Tab B starts with its own idle debugger"
+        );
+
+        // Switch back to Tab A: Tab A's active debug session is STILL alive!
+        assert!(editor.switch_session_tab(&ctx, tab_a));
+        assert!(
+            editor.debugger.active(),
+            "switching tabs must not reset or kill Tab A's active debug session"
+        );
+        assert!(editor.has_breakpoint("Scene 1 / frame 1", 3));
+
+        // Close Tab B and verify its DEBUGGER_AUTHORING_STATES entry is pruned while Tab A remains.
+        assert!(editor.close_session_tab(&ctx, tab_b));
+        assert!(editor.debugger.active());
+        assert!(!editor.has_authoring_state_for_session_key(&tab_b_session_key));
+        assert!(editor.has_authoring_state_for_session_key(&tab_a_session_key));
     }
 }

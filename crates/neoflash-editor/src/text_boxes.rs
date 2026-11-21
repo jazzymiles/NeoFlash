@@ -2280,12 +2280,25 @@ fn tracked_galley(
     p.layout_job(job)
 }
 
+fn reverse_mesh_indices(mesh: &mut egui::Mesh) {
+    for tri in mesh.indices.as_chunks_mut::<3>().0 {
+        tri.swap(1, 2);
+    }
+}
+
 pub(crate) fn paint(
     p: &egui::Painter,
     kind: &ElementKind,
     color: Color32,
+    reflected: bool,
     screen: impl Fn(Pos2) -> Pos2,
 ) -> Result<(), String> {
+    let orient_quad = |mut pts: [Pos2; 4]| -> Vec<Pos2> {
+        if reflected {
+            pts.reverse();
+        }
+        pts.to_vec()
+    };
     let ElementKind::TextBox {
         format,
         width,
@@ -2330,7 +2343,7 @@ pub(crate) fn paint(
             screen(Pos2::new(0.0, *height as f32)),
         ];
         p.add(Shape::convex_polygon(
-            corners.to_vec(),
+            orient_quad(corners),
             bg_col,
             egui::Stroke::NONE,
         ));
@@ -2362,7 +2375,7 @@ pub(crate) fn paint(
                 screen(hl_rect.left_bottom()),
             ];
             p.add(Shape::convex_polygon(
-                corners.to_vec(),
+                orient_quad(corners),
                 hl_col,
                 egui::Stroke::NONE,
             ));
@@ -2419,6 +2432,9 @@ pub(crate) fn paint(
                     for vertex in &mut mesh.vertices {
                         vertex.pos = screen(vertex.pos);
                     }
+                    if reflected {
+                        reverse_mesh_indices(&mut mesh);
+                    }
                     p.add(Shape::mesh(mesh));
                 }
             }
@@ -2446,6 +2462,9 @@ pub(crate) fn paint(
                     for vertex in &mut mesh.vertices {
                         vertex.pos = screen(vertex.pos);
                     }
+                    if reflected {
+                        reverse_mesh_indices(&mut mesh);
+                    }
                     p.add(Shape::mesh(mesh));
                 }
             }
@@ -2466,7 +2485,7 @@ pub(crate) fn paint(
                 screen(dec_rect.left_bottom()),
             ];
             p.add(Shape::convex_polygon(
-                corners.to_vec(),
+                orient_quad(corners),
                 dec_col,
                 egui::Stroke::NONE,
             ));
@@ -2480,8 +2499,7 @@ pub(crate) fn paint(
 pub(crate) fn paint_container_guides(
     p: &egui::Painter,
     kind: &ElementKind,
-    screen_rect: Rect,
-    zoom: f32,
+    local_to_screen: impl Fn(Pos2) -> Pos2,
 ) {
     let ElementKind::TextBox {
         format,
@@ -2499,51 +2517,55 @@ pub(crate) fn paint_container_guides(
     if cols <= 1 || *width <= 0.0 || *height <= 0.0 {
         return;
     }
+    let w = *width as f32;
+    let h = *height as f32;
     let palette = neoflash_ui::palette(p.ctx());
     let guide_stroke = egui::Stroke::new(1.0_f32, palette.accent_default.gamma_multiply(0.55));
-    let pad_l = opts.padding_left.max(0.0) as f32 * zoom;
-    let pad_r = opts.padding_right.max(0.0) as f32 * zoom;
-    let pad_t = opts.padding_top.max(0.0) as f32 * zoom;
-    let pad_b = opts.padding_bottom.max(0.0) as f32 * zoom;
-    let gutter = opts.column_gutter.max(0.0) as f32 * zoom;
-    let inner_w = (screen_rect.width() - pad_l - pad_r).max(0.0);
+    let pad_l = opts.padding_left.max(0.0) as f32;
+    let pad_r = opts.padding_right.max(0.0) as f32;
+    let pad_t = opts.padding_top.max(0.0) as f32;
+    let pad_b = opts.padding_bottom.max(0.0) as f32;
+    let gutter = opts.column_gutter.max(0.0) as f32;
+    let inner_w = (w - pad_l - pad_r).max(0.0);
     let col_w = ((inner_w - gutter * (cols - 1) as f32) / cols as f32).max(0.0);
-    let top_y = (screen_rect.top() + pad_t).min(screen_rect.bottom());
-    let bot_y = (screen_rect.bottom() - pad_b).max(top_y);
+    let top_y = pad_t.min(h);
+    let bot_y = (h - pad_b).max(top_y);
 
     for c in 0..(cols - 1) {
-        let right_edge = screen_rect.left() + pad_l + (c + 1) as f32 * col_w + c as f32 * gutter;
+        let right_edge = pad_l + (c + 1) as f32 * col_w + c as f32 * gutter;
         let next_left_edge = right_edge + gutter;
-        if right_edge > screen_rect.left() && right_edge < screen_rect.right() {
-            p.line_segment(
-                [Pos2::new(right_edge, top_y), Pos2::new(right_edge, bot_y)],
-                guide_stroke,
-            );
+        let top_right = local_to_screen(Pos2::new(right_edge, top_y));
+        let bot_right = local_to_screen(Pos2::new(right_edge, bot_y));
+        if right_edge > 0.0 && right_edge < w {
+            p.line_segment([top_right, bot_right], guide_stroke);
         }
-        if gutter > 0.5
-            && next_left_edge > screen_rect.left()
-            && next_left_edge < screen_rect.right()
-        {
-            p.line_segment(
-                [
-                    Pos2::new(next_left_edge, top_y),
-                    Pos2::new(next_left_edge, bot_y),
-                ],
-                guide_stroke,
-            );
+        let top_next = local_to_screen(Pos2::new(next_left_edge, top_y));
+        let bot_next = local_to_screen(Pos2::new(next_left_edge, bot_y));
+        if top_next.distance(top_right) > 0.5 && next_left_edge > 0.0 && next_left_edge < w {
+            p.line_segment([top_next, bot_next], guide_stroke);
         }
     }
 
     // Flash CS5 TLF In-port (top-left) and Out-port (bottom-right) squares.
     let port_size = Vec2::splat(7.0);
-    let in_port = Rect::from_center_size(
-        Pos2::new(screen_rect.left(), screen_rect.top() + 10.0),
-        port_size,
-    );
-    let out_port = Rect::from_center_size(
-        Pos2::new(screen_rect.right(), screen_rect.bottom() - 10.0),
-        port_size,
-    );
+    let tl = local_to_screen(Pos2::new(0.0, 0.0));
+    let bl = local_to_screen(Pos2::new(0.0, h));
+    let tr = local_to_screen(Pos2::new(w, 0.0));
+    let br = local_to_screen(Pos2::new(w, h));
+    let left_vec = bl - tl;
+    let right_vec = br - tr;
+    let in_offset = if left_vec.length_sq() > 1e-6 {
+        left_vec.normalized() * 10.0_f32.min(left_vec.length() * 0.5)
+    } else {
+        Vec2::new(0.0, 10.0)
+    };
+    let out_offset = if right_vec.length_sq() > 1e-6 {
+        right_vec.normalized() * 10.0_f32.min(right_vec.length() * 0.5)
+    } else {
+        Vec2::new(0.0, 10.0)
+    };
+    let in_port = Rect::from_center_size(tl + in_offset, port_size);
+    let out_port = Rect::from_center_size(br - out_offset, port_size);
     for port in [in_port, out_port] {
         p.rect_filled(port, 0.0, palette.bg_panel);
         p.rect_stroke(

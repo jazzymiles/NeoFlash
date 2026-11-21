@@ -563,20 +563,7 @@ impl Editor {
             }
             let layer_indices = visible_layer_indices(&self.symbol().timeline);
             if !layer_indices.contains(&self.layer) {
-                let previous_layer = self.layer;
-                let was_deselected = self.are_layers_deselected();
-                self.layer = layer_indices
-                    .iter()
-                    .copied()
-                    .rfind(|index| *index < self.layer)
-                    .unwrap_or(0);
-                if was_deselected {
-                    self.sync_deselected_layer_index();
-                }
-                if self.layer != previous_layer {
-                    self.clear_timeline_frame_selection();
-                }
-                self.clear_selection();
+                self.sync_active_layer_to_visible(&layer_indices);
             }
             let total_rows = layer_indices.len();
             let timeline_layers_focused = ctx
@@ -1170,8 +1157,13 @@ impl Editor {
                             .show(ui, |ui| {
                                 let width =
                                     ((count + 1) as f32 * cell_width).max(ui.available_width());
+                                let hscroll_strip = ui.spacing().scroll.bar_width
+                                    + ui.spacing().scroll.bar_inner_margin
+                                    + ui.spacing().scroll.bar_outer_margin;
+                                let grid_min_height =
+                                    (height - hscroll_strip).max(neoflash_ui::metrics::row());
                                 let (rect, response) = ui.allocate_exact_size(
-                                    Vec2::new(width, (content_height + 8.).max(height - 18.)),
+                                    Vec2::new(width, content_height.max(grid_min_height)),
                                     Sense::click_and_drag(),
                                 );
                                 let grid_count = if button_states {
@@ -1216,7 +1208,13 @@ impl Editor {
                                 stats.drawn_layer_rows = drawn_layer_rows;
                                 stats.layer_list_height = measured_layer_list_height;
                                 virtual_stats = Some(stats);
-                                self.paint_frame_selection(ui, rect, cell_width, &layer_indices);
+                                self.paint_frame_selection(
+                                    ui,
+                                    rect,
+                                    grid_clip,
+                                    cell_width,
+                                    &layer_indices,
+                                );
                                 let selected_cell = Rect::from_min_size(
                                     Pos2::new(
                                         rect.left() + self.frame as f32 * cell_width,
@@ -1367,10 +1365,8 @@ impl Editor {
                                 i.pointer.primary_down() && i.pointer.is_decidedly_dragging()
                             })
                             && let Some(pos) = ui.input(|i| i.pointer.latest_pos())
-                            && pos.y >= frames.inner_rect.top()
-                            && pos.y < frames.inner_rect.bottom()
                         {
-                            let margin = 24.;
+                            let margin = space::s5();
                             let direction = if pos.x < frames.inner_rect.left() + margin {
                                 -1.
                             } else if pos.x > frames.inner_rect.right() - margin {
@@ -1472,10 +1468,8 @@ impl Editor {
             if self.timeline_edit.dragging()
                 && ui.input(|i| i.pointer.primary_down() && i.pointer.is_decidedly_dragging())
                 && let Some(pos) = pointer
-                && pos.x >= grid_clip.left()
-                && pos.x <= grid_clip.right()
             {
-                let margin = 24.;
+                let margin = space::s5();
                 let direction = if pos.y < rows.inner_rect.top() + margin {
                     -1.
                 } else if pos.y > rows.inner_rect.bottom() - margin {
@@ -1529,15 +1523,21 @@ impl Editor {
                             Pos2::new(header.left(), rows.inner_rect.top()),
                             Pos2::new(header.left() + layer_column_width, rows.inner_rect.bottom()),
                         );
-                        let within = names_view.contains(position);
+                        let x_tolerance = space::s5();
+                        let within = position.x >= names_view.left() - x_tolerance
+                            && position.x <= names_view.right() + x_tolerance;
                         ctx.set_cursor_icon(if within {
                             egui::CursorIcon::Grabbing
                         } else {
                             egui::CursorIcon::NotAllowed
                         });
                         if within {
+                            let clamped_y = position.y.clamp(
+                                names_view.top(),
+                                (names_view.bottom() - 0.5).max(names_view.top()),
+                            );
                             let timeline = &self.symbol().timeline;
-                            let rel_y = (position.y - grid_rect.top()) / row_height;
+                            let rel_y = (clamped_y - grid_rect.top()) / row_height;
                             let hover_row = rel_y.floor().max(0.) as usize;
                             let row_frac = rel_y - hover_row as f32;
                             let folder_target = layer_row_at(timeline, &layer_indices, hover_row)
@@ -1583,6 +1583,8 @@ impl Editor {
                                     .iter()
                                     .find(|l| l.id == drag.layer)
                                     .and_then(|l| l.properties.parent.clone());
+                                let outdent_threshold = neoflash_ui::metrics::LAYER_INDENT
+                                    + neoflash_ui::metrics::control();
                                 let new_parent = if let Some(a) = above
                                     && a.properties.role == LayerRole::Folder
                                     && !a.properties.collapsed
@@ -1601,7 +1603,7 @@ impl Editor {
                                         .is_none_or(|b| b.properties.parent != a.properties.parent)
                                 {
                                     if dragged_parent == a.properties.parent
-                                        || position.x < names_view.left() + 44.0
+                                        || position.x < names_view.left() + outdent_threshold
                                     {
                                         Some(below.and_then(|b| b.properties.parent.clone()))
                                     } else {
@@ -1620,7 +1622,7 @@ impl Editor {
                                 };
                                 let indicator_left =
                                     if new_parent.as_ref().is_some_and(|p| p.is_some()) {
-                                        names_view.left() + 20.0
+                                        names_view.left() + neoflash_ui::metrics::toggle_row()
                                     } else {
                                         names_view.left()
                                     };
@@ -1639,10 +1641,7 @@ impl Editor {
                                 }
                             }
                         }
-                        if down
-                            && position.x >= names_view.left()
-                            && position.x <= names_view.right()
-                        {
+                        if down && within {
                             let wheel_dy = ui.input(|input| {
                                 input
                                     .events
@@ -1660,9 +1659,10 @@ impl Editor {
                                     })
                                     .sum::<f32>()
                             });
-                            let direction = if position.y < names_view.top() + 18. {
+                            let scroll_edge = space::s4();
+                            let direction = if position.y < names_view.top() + scroll_edge {
                                 -1.
-                            } else if position.y > names_view.bottom() - 18. {
+                            } else if position.y > names_view.bottom() - scroll_edge {
                                 1.
                             } else {
                                 0.
@@ -3091,6 +3091,108 @@ mod tests {
         editor.project.validate().unwrap();
         editor.undo();
         assert_eq!(editor.symbol().timeline.layers[999].id, "layer_999");
+        editor.project.validate().unwrap();
+    }
+
+    #[test]
+    fn t414_folder_collapse_selects_parent_folder_reparent_is_contiguous_and_multi_layer_make_key()
+    {
+        let ctx = egui::Context::default();
+        let mut project = Project::blank();
+        project.format_version = 6;
+        let mut layers = Vec::with_capacity(1_002);
+        for i in 0..999 {
+            layers.push(Layer {
+                id: format!("bg_{i}"),
+                name: format!("BG {i}"),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe::default()],
+                properties: LayerProperties::default(),
+            });
+        }
+        layers.push(Layer {
+            id: "child_top".into(),
+            name: "Child Top".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe::default()],
+            properties: LayerProperties {
+                parent: Some("folder_top".into()),
+                ..LayerProperties::default()
+            },
+        });
+        layers.push(Layer {
+            id: "folder_top".into(),
+            name: "Folder Top".into(),
+            visible: true,
+            locked: false,
+            keyframes: Vec::new(),
+            properties: LayerProperties {
+                role: LayerRole::Folder,
+                collapsed: false,
+                ..LayerProperties::default()
+            },
+        });
+        project.symbols[0].timeline.layers = layers;
+        project.symbols[0].timeline.frame_count = 10;
+        project.validate().unwrap();
+
+        let mut editor = Editor::from_project(&ctx, project);
+        // Active layer is `child_top` (index 999) inside `folder_top` (index 1000).
+        editor.layer = 999;
+        editor.toggle_layer_folder(1000);
+        assert_eq!(
+            editor.layer, 1000,
+            "collapsing a Folder containing active self.layer must select the collapsed Folder instead of jumping to index 0"
+        );
+
+        // Reparenting `bg_0` (at bottom index 0) into `folder_top` moves `bg_0` contiguous with `folder_top`
+        // so visual row order and Stage painter z-order agree!
+        editor.reparent_timeline_layer_to_folder("bg_0", Some("folder_top"));
+        let folder_pos = editor
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .position(|l| l.id == "folder_top")
+            .unwrap();
+        let bg0_pos = editor
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .position(|l| l.id == "bg_0")
+            .unwrap();
+        assert!(
+            bg0_pos + 2 >= folder_pos,
+            "reparented layer must be moved contiguous with folder_top: bg0={bg0_pos}, folder={folder_pos}"
+        );
+        editor.project.validate().unwrap();
+
+        // Multi-layer `make_key` (F6 / F7) keys all editable layers in `frame_range()` in 1 Undo step.
+        let undo_before = editor.history.undo_len();
+        editor.frame = 4;
+        editor.select_frame_range(FrameRange {
+            layers: vec!["bg_1".into(), "bg_2".into(), "folder_top".into()],
+            start: 4,
+            end: 4,
+        });
+        editor.make_key(false);
+        assert_eq!(editor.history.undo_len(), undo_before + 1);
+        for lid in ["bg_1", "bg_2"] {
+            let l = editor
+                .symbol()
+                .timeline
+                .layers
+                .iter()
+                .find(|l| l.id == lid)
+                .unwrap();
+            assert!(
+                l.keyframes.iter().any(|k| k.frame == 4),
+                "layer {lid} must receive keyframe at frame 4"
+            );
+        }
         editor.project.validate().unwrap();
     }
 }

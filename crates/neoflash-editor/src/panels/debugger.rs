@@ -84,7 +84,8 @@ impl Editor {
     pub(crate) fn debugger_contents(&mut self, ui: &mut Ui) -> bool {
         let snapshot = self.debugger.snapshot();
         let startup = self.debugger.startup_status.clone();
-        let idle_ready = snapshot.is_none() && startup.is_none();
+        let idle_ready =
+            snapshot.is_none() && startup.is_none() && !self.is_standalone_script_session();
         let nf = neoflash_ui::palette(ui.ctx());
         let paused = snapshot.as_ref().is_some_and(|snapshot| {
             snapshot.state == DebugState::Paused && !snapshot.command_pending
@@ -174,6 +175,7 @@ impl Editor {
                 )
                 .clicked()
             {
+                self.debugger.inline_edit = None;
                 if snapshot.is_some() {
                     self.debug_command(DebugCommand::Resume);
                 } else {
@@ -184,6 +186,7 @@ impl Editor {
                 .add_enabled_semantic(!idle_ready, c::IconButton::new(i16::STOP, "Stop debugging"))
                 .clicked()
             {
+                self.debugger.inline_edit = None;
                 self.debugger.stop();
             }
             c::divider(ui, true);
@@ -199,6 +202,7 @@ impl Editor {
                     )
                     .clicked()
                 {
+                    self.debugger.inline_edit = None;
                     self.debug_command(command);
                 }
             }
@@ -344,6 +348,7 @@ impl Editor {
                         .row
                         .clicked()
                     {
+                        self.debugger.inline_edit = None;
                         let frame_location = frame.location.clone();
                         self.debug_command(DebugCommand::SelectFrame(index));
                         if let Some(location) = frame_location {
@@ -390,12 +395,18 @@ impl Editor {
                         } else {
                             local.name.clone()
                         };
-                        let edit_target = (paused && local.writable && !expandable).then(|| {
-                            DebugEditTarget::ScopeVariable {
-                                scope_number: local.scope_number,
-                                variable_name: local.name.clone(),
-                            }
-                        });
+                        let truncated_str = local.kind == "string"
+                            && local.value.chars().count()
+                                > crate::debugger_protocol::MAX_INLINE_EDIT_STRING_CHARS;
+                        let edit_target =
+                            (paused && local.writable && !expandable && !truncated_str).then(
+                                || DebugEditTarget::ScopeVariable {
+                                    pause_generation: inspection.pause_generation,
+                                    frame: selected_frame,
+                                    scope_number: local.scope_number,
+                                    variable_name: local.name.clone(),
+                                },
+                            );
                         self.render_debugger_value_row(
                             ui,
                             &row_key,
@@ -409,12 +420,14 @@ impl Editor {
                             && self.debugger.is_tree_expanded(&row_key)
                             && let Some(oid) = local.object_id.as_deref()
                         {
+                            let mut ancestors = vec![oid.to_owned()];
                             self.ensure_debug_object_inspected(
                                 inspection.pause_generation,
                                 oid,
+                                local.subtype.as_deref(),
+                                &ancestors,
                                 inspection.object_properties.contains_key(oid),
                             );
-                            let mut ancestors = vec![oid.to_owned()];
                             self.render_debugger_object_children(
                                 ui,
                                 &row_key,
@@ -423,6 +436,7 @@ impl Editor {
                                 &mut ancestors,
                                 actionscript,
                                 paused,
+                                selected_frame,
                                 &inspection,
                                 cols,
                                 None,
@@ -518,15 +532,16 @@ impl Editor {
                     } else {
                         watch.last_value.as_str()
                     };
-                    let watch_oid = has_paused_frame
+                    let watch_meta = has_paused_frame
                         .then(|| {
                             inspection
                                 .watches
                                 .iter()
                                 .find(|w| w.index == idx && w.expression == watch.expression)
-                                .and_then(|w| w.object_id.as_deref())
                         })
                         .flatten();
+                    let watch_oid = watch_meta.and_then(|w| w.object_id.as_deref());
+                    let watch_subtype = watch_meta.and_then(|w| w.subtype.as_deref());
                     let expandable = watch_oid.is_some();
                     let row_key = format!("watch:{idx}:{}", watch.expression);
                     let expanded = expandable && self.debugger.is_tree_expanded(&row_key);
@@ -572,12 +587,14 @@ impl Editor {
                         && self.debugger.is_tree_expanded(&row_key)
                         && let Some(oid) = watch_oid
                     {
+                        let mut ancestors = vec![oid.to_owned()];
                         self.ensure_debug_object_inspected(
                             inspection.pause_generation,
                             oid,
+                            watch_subtype,
+                            &ancestors,
                             inspection.object_properties.contains_key(oid),
                         );
-                        let mut ancestors = vec![oid.to_owned()];
                         self.render_debugger_object_children(
                             ui,
                             &row_key,
@@ -586,6 +603,7 @@ impl Editor {
                             &mut ancestors,
                             actionscript,
                             paused,
+                            selected_frame,
                             &inspection,
                             &row_cols,
                             Some(table_w),
@@ -701,12 +719,15 @@ impl Editor {
                 {
                     cancel_now = true;
                     field.surrender_focus();
-                } else if field.lost_focus()
-                    || ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
-                {
-                    let _ =
-                        ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+                } else if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
                     commit_now = true;
+                    field.surrender_focus();
+                } else if field.lost_focus() {
+                    if draft.draft == draft.initial {
+                        cancel_now = true;
+                    } else {
+                        commit_now = true;
+                    }
                     field.surrender_focus();
                 }
             }
@@ -735,6 +756,7 @@ impl Editor {
                 self.debugger.inline_edit = Some(DebugInlineEdit {
                     row_key: row_key.to_owned(),
                     target,
+                    initial: initial.clone(),
                     draft: initial,
                     focus: true,
                 });
@@ -752,6 +774,7 @@ impl Editor {
         ancestor_ids: &mut Vec<String>,
         actionscript: bool,
         paused: bool,
+        selected_frame: usize,
         inspection: &DebugInspection,
         columns: &[f32],
         constrained_width: Option<f32>,
@@ -794,10 +817,12 @@ impl Editor {
             if actionscript && prop.name.starts_with("__nf") {
                 continue;
             }
-            let is_cycle = prop
-                .object_id
-                .as_ref()
-                .is_some_and(|oid| ancestor_ids.iter().any(|seen| seen == oid));
+            let is_cycle = prop.object_id.as_ref().is_some_and(|oid| {
+                ancestor_ids.iter().any(|seen| seen == oid)
+                    || inspection
+                        .circular_children
+                        .contains(&(parent_object_id.to_owned(), oid.clone()))
+            });
             let can_expand =
                 prop.object_id.is_some() && !is_cycle && depth < MAX_DEBUGGER_TREE_DEPTH;
             let child_key = format!("{parent_key}.{}", prop.name);
@@ -813,12 +838,18 @@ impl Editor {
             } else {
                 prop.value.clone()
             };
-            let edit_target = (paused && prop.writable && prop.object_id.is_none()).then(|| {
-                DebugEditTarget::ObjectProperty {
-                    object_id: parent_object_id.to_owned(),
-                    property_name: prop.name.clone(),
-                }
-            });
+            let truncated_str = prop.kind == "string"
+                && prop.value.chars().count()
+                    > crate::debugger_protocol::MAX_INLINE_EDIT_STRING_CHARS;
+            let edit_target =
+                (paused && prop.writable && prop.object_id.is_none() && !truncated_str).then(
+                    || DebugEditTarget::ObjectProperty {
+                        pause_generation: inspection.pause_generation,
+                        frame: selected_frame,
+                        object_id: parent_object_id.to_owned(),
+                        property_name: prop.name.clone(),
+                    },
+                );
             if let Some(table_w) = constrained_width {
                 ui.horizontal(|ui| {
                     ui.set_height(row_h);
@@ -855,12 +886,14 @@ impl Editor {
                 && self.debugger.is_tree_expanded(&child_key)
                 && let Some(child_oid) = prop.object_id.as_deref()
             {
+                ancestor_ids.push(child_oid.to_owned());
                 self.ensure_debug_object_inspected(
                     inspection.pause_generation,
                     child_oid,
+                    prop.subtype.as_deref(),
+                    ancestor_ids,
                     inspection.object_properties.contains_key(child_oid),
                 );
-                ancestor_ids.push(child_oid.to_owned());
                 self.render_debugger_object_children(
                     ui,
                     &child_key,
@@ -869,6 +902,7 @@ impl Editor {
                     ancestor_ids,
                     actionscript,
                     paused,
+                    selected_frame,
                     inspection,
                     columns,
                     constrained_width,

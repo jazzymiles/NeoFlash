@@ -80,17 +80,215 @@ impl EditEnvelopeDraft {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn preview_sound(&self, base: Option<&FrameSound>) -> FrameSound {
+        let mut fallback = 1.0_f64;
+        if let Some(inp) = self.in_point.filter(|v| v.is_finite()) {
+            fallback = fallback.max(inp + MIN_TRIM_GAP_SECS);
+        }
+        if let Some(outp) = self.out_point.filter(|v| v.is_finite()) {
+            fallback = fallback.max(outp);
+        }
+        self.preview_sound_with_duration(base, fallback)
+    }
+
+    pub(crate) fn preview_sound_with_duration(
+        &self,
+        base: Option<&FrameSound>,
+        duration_secs: f64,
+    ) -> FrameSound {
         let mut sound = base
             .cloned()
             .unwrap_or_else(|| FrameSound::new(self.resource.clone()));
+        let (norm_in, norm_out, _, _) = normalize_trim_bounds(
+            self.in_point,
+            self.out_point,
+            duration_secs,
+            self.had_explicit_out,
+        );
         sound.resource = self.resource.clone();
         sound.effect = self.effect;
         sound.envelope = (self.effect == SoundEffect::Custom)
             .then(|| merge_stereo_envelope(&self.left, &self.right));
-        sound.in_point = self.in_point;
-        sound.out_point = self.out_point;
+        sound.in_point = norm_in;
+        sound.out_point = norm_out;
         sound
+    }
+}
+
+pub(crate) fn effective_trim_gap(duration_secs: f64) -> f64 {
+    MIN_TRIM_GAP_SECS
+        .min(duration_secs.max(1e-3) * 0.25)
+        .max(1e-5)
+}
+
+pub(crate) fn normalize_trim_bounds(
+    in_point: Option<f64>,
+    out_point: Option<f64>,
+    duration_secs: f64,
+    had_explicit_out: bool,
+) -> (Option<f64>, Option<f64>, f64, f64) {
+    let cap = duration_secs.clamp(1e-3, FrameSound::MAX_SOUND_TRIM_SECONDS);
+    let min_gap = effective_trim_gap(cap);
+    let max_in = (cap - min_gap).max(0.0);
+    let eff_in = in_point
+        .filter(|v| v.is_finite())
+        .unwrap_or(0.0)
+        .clamp(0.0, max_in);
+    let min_out = (eff_in + min_gap).min(cap);
+    let eff_out = out_point
+        .filter(|v| v.is_finite())
+        .unwrap_or(cap)
+        .clamp(min_out, cap);
+    let mut norm_in = if eff_in <= 1e-5 { None } else { Some(eff_in) };
+    let mut norm_out = if (cap - eff_out) <= 1e-5 && !had_explicit_out {
+        None
+    } else {
+        Some(eff_out)
+    };
+    if let (Some(i), Some(o)) = (norm_in, norm_out)
+        && o <= i
+    {
+        if i + min_gap <= FrameSound::MAX_SOUND_TRIM_SECONDS {
+            norm_out = Some(i + min_gap);
+        } else {
+            let clamped_i = (o - min_gap).max(0.0);
+            norm_in = (clamped_i > 1e-5).then_some(clamped_i);
+        }
+    }
+    (norm_in, norm_out, eff_in, eff_out)
+}
+
+pub(crate) fn project_envelope_to_view(
+    canonical: &[(f32, f32)],
+    eff_in: f64,
+    eff_out: f64,
+    visible_secs: f64,
+) -> (Vec<(f32, f32)>, Vec<usize>) {
+    let seg_secs = (eff_out - eff_in).max(1e-6);
+    let vis = visible_secs.max(1e-6);
+    let mut view_points = Vec::with_capacity(canonical.len());
+    let mut origins = Vec::with_capacity(canonical.len());
+    for (idx, &(t_seg, gain)) in canonical.iter().enumerate() {
+        let sec = eff_in + f64::from(t_seg.clamp(0.0, 1.0)) * seg_secs;
+        let t_view = sec / vis;
+        if (-1e-5..=1.0 + 1e-5).contains(&t_view) {
+            view_points.push((t_view.clamp(0.0, 1.0) as f32, gain.clamp(0.0, 1.0)));
+            origins.push(idx);
+        }
+    }
+    (view_points, origins)
+}
+
+pub(crate) fn apply_view_envelope_edits(
+    canonical: &[(f32, f32)],
+    view_before: &[(f32, f32)],
+    origins: &[usize],
+    view_after: &[(f32, f32)],
+    eff_in: f64,
+    eff_out: f64,
+    visible_secs: f64,
+) -> (Vec<(f32, f32)>, Option<usize>) {
+    let seg_secs = (eff_out - eff_in).max(1e-6);
+    let vis = visible_secs.max(1e-6);
+    let mut next = canonical.to_vec();
+    if view_after.len() == view_before.len() {
+        if let Some(k) = changed_point_index(view_before, view_after)
+            && let Some(&orig_idx) = origins.get(k)
+            && orig_idx < next.len()
+        {
+            let (t_view, gain) = view_after[k];
+            let raw_t_seg = ((f64::from(t_view) * vis - eff_in) / seg_secs) as f32;
+            let lo = if orig_idx == 0 {
+                0.0
+            } else {
+                next[orig_idx - 1].0
+            };
+            let hi = if orig_idx + 1 == next.len() {
+                1.0
+            } else {
+                next[orig_idx + 1].0
+            };
+            next[orig_idx] = (raw_t_seg.clamp(lo, hi), gain.clamp(0.0, 1.0));
+            return (next, Some(orig_idx));
+        }
+        return (next, None);
+    }
+    if view_after.len() > view_before.len() {
+        let ins_k = (0..view_after.len())
+            .find(|&k| view_before.get(k) != Some(&view_after[k]))
+            .unwrap_or(view_after.len() - 1);
+        let (t_view, gain) = view_after[ins_k];
+        let t_seg = (((f64::from(t_view) * vis - eff_in) / seg_secs).clamp(0.0, 1.0)) as f32;
+        let orig_ins = next.partition_point(|q| q.0 < t_seg);
+        next.insert(orig_ins, (t_seg, gain.clamp(0.0, 1.0)));
+        return (next, Some(orig_ins));
+    }
+    (next, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_envelope_continuation_segments(
+    painter: &egui::Painter,
+    lane_rect: egui::Rect,
+    canonical: &[(f32, f32)],
+    view_points: &[(f32, f32)],
+    origins: &[usize],
+    eff_in: f64,
+    eff_out: f64,
+    visible_secs: f64,
+    color: egui::Color32,
+) {
+    if canonical.is_empty() || visible_secs <= 0.0 {
+        return;
+    }
+    let vis_start = eff_in.clamp(0.0, visible_secs);
+    let vis_end = eff_out.clamp(0.0, visible_secs);
+    if vis_end <= vis_start {
+        return;
+    }
+    let seg_secs = (eff_out - eff_in).max(1e-6);
+    let inner = lane_rect.shrink(c::envelope::ANCHOR_POINT / 2.0);
+    let at = |t_view: f32, v: f32| -> egui::Pos2 {
+        egui::pos2(
+            inner.left() + t_view.clamp(0.0, 1.0) * inner.width(),
+            inner.bottom() - v.clamp(0.0, 1.0) * inner.height(),
+        )
+    };
+    let stroke = egui::Stroke::new(1.5_f32, color);
+    if view_points.is_empty() {
+        let t0 = ((vis_start - eff_in) / seg_secs).clamp(0.0, 1.0);
+        let t1 = ((vis_end - eff_in) / seg_secs).clamp(0.0, 1.0);
+        let v0 = sample_channel(canonical, t0) as f32;
+        let v1 = sample_channel(canonical, t1) as f32;
+        painter.line_segment(
+            [
+                at((vis_start / visible_secs) as f32, v0),
+                at((vis_end / visible_secs) as f32, v1),
+            ],
+            stroke,
+        );
+        return;
+    }
+    let (tv0, v0) = view_points[0];
+    let orig0 = origins[0];
+    let tv_start = (vis_start / visible_secs) as f32;
+    if orig0 > 0 {
+        let t_edge = ((vis_start - eff_in) / seg_secs).clamp(0.0, 1.0);
+        let v_edge = sample_channel(canonical, t_edge) as f32;
+        painter.line_segment([at(tv_start, v_edge), at(tv0, v0)], stroke);
+    } else if tv0 > tv_start + 1e-4 {
+        painter.line_segment([at(tv_start, v0), at(tv0, v0)], stroke);
+    }
+    let (tvn, vn) = *view_points.last().unwrap();
+    let orign = *origins.last().unwrap();
+    let tv_end = (vis_end / visible_secs) as f32;
+    if orign + 1 < canonical.len() {
+        let t_edge = ((vis_end - eff_in) / seg_secs).clamp(0.0, 1.0);
+        let v_edge = sample_channel(canonical, t_edge) as f32;
+        painter.line_segment([at(tvn, vn), at(tv_end, v_edge)], stroke);
+    } else if tvn + 1e-4 < tv_end {
+        painter.line_segment([at(tvn, vn), at(tv_end, vn)], stroke);
     }
 }
 
@@ -315,7 +513,10 @@ fn changed_point_index(before: &[(f32, f32)], after: &[(f32, f32)]) -> Option<us
 }
 
 fn choose_second_step(visible_secs: f64) -> f64 {
-    for step in [0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 5.0, 10.0, 15.0, 30.0, 60.0] {
+    for step in [
+        0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 5.0, 10.0,
+        15.0, 30.0, 60.0,
+    ] {
         if visible_secs / step <= 9.0 {
             return step;
         }
@@ -365,8 +566,33 @@ impl Editor {
         }
     }
 
+    fn edit_envelope_duration_secs(&mut self, draft: &EditEnvelopeDraft) -> f64 {
+        self.timeline_audio
+            .decoded(&self.project, &draft.resource)
+            .map(|d| d.duration().max(1e-3))
+            .unwrap_or_else(|_| {
+                let frames = self.symbol().timeline.frame_count.max(1) as f64;
+                let fps = self.project.fps.max(1) as f64;
+                let mut fallback = (frames / fps).max(1.0);
+                if let Some(inp) = draft.in_point.filter(|v| v.is_finite()) {
+                    fallback = fallback.max(inp + MIN_TRIM_GAP_SECS);
+                }
+                if let Some(outp) = draft.out_point.filter(|v| v.is_finite()) {
+                    fallback = fallback.max(outp);
+                }
+                fallback.clamp(1e-3, FrameSound::MAX_SOUND_TRIM_SECONDS)
+            })
+    }
+
     pub(crate) fn commit_edit_envelope(&mut self, draft: EditEnvelopeDraft) {
         self.timeline_audio.stop_audition();
+        let duration_secs = self.edit_envelope_duration_secs(&draft);
+        let (norm_in, norm_out, _, _) = normalize_trim_bounds(
+            draft.in_point,
+            draft.out_point,
+            duration_secs,
+            draft.had_explicit_out,
+        );
         let new_envelope = (draft.effect == SoundEffect::Custom)
             .then(|| merge_stereo_envelope(&draft.left, &draft.right));
         let unchanged = self
@@ -378,8 +604,8 @@ impl Editor {
             .is_some_and(|s| {
                 s.effect == draft.effect
                     && s.envelope == new_envelope
-                    && s.in_point == draft.in_point
-                    && s.out_point == draft.out_point
+                    && s.in_point == norm_in
+                    && s.out_point == norm_out
             });
         if unchanged {
             return;
@@ -399,8 +625,8 @@ impl Editor {
             {
                 sound.effect = draft.effect;
                 sound.envelope = new_envelope;
-                sound.in_point = draft.in_point;
-                sound.out_point = draft.out_point;
+                sound.in_point = norm_in;
+                sound.out_point = norm_out;
             }
         });
     }
@@ -410,15 +636,7 @@ impl Editor {
             return;
         };
         let nf = neoflash_ui::palette(ctx);
-        let duration_secs = self
-            .timeline_audio
-            .decoded(&self.project, &draft.resource)
-            .map(|d| d.duration().max(0.1))
-            .unwrap_or_else(|_| {
-                let frames = self.symbol().timeline.frame_count.max(1) as f64;
-                let fps = self.project.fps.max(1) as f64;
-                (frames / fps).max(1.0)
-            });
+        let duration_secs = self.edit_envelope_duration_secs(&draft);
         let fps = self.project.fps.max(1) as f64;
 
         let mut close_cancel = false;
@@ -476,31 +694,64 @@ impl Editor {
                         });
                     });
 
+                    let visible_secs = (duration_secs / draft.zoom.max(1.0)).max(1e-4);
+                    let min_gap = effective_trim_gap(duration_secs);
+                    let (_, _, mut eff_in, mut eff_out) = normalize_trim_bounds(
+                        draft.in_point,
+                        draft.out_point,
+                        duration_secs,
+                        draft.had_explicit_out,
+                    );
+
                     let layer_id = ui.layer_id();
                     let before_l = ui
                         .ctx()
                         .graphics_mut(|g| g.entry(layer_id).all_entries().count());
-                    let prev_left = draft.left.clone();
+                    let (mut view_left, origins_left) =
+                        project_envelope_to_view(&draft.left, eff_in, eff_out, visible_secs);
+                    let view_left_before = view_left.clone();
+                    let view_selected_left = draft
+                        .selected_left
+                        .and_then(|orig| origins_left.iter().position(|&o| o == orig));
                     let resp_l = ui.add(c::EnvelopeLane {
                         channel: "L",
-                        points: &mut draft.left,
-                        selected: draft.selected_left,
+                        points: &mut view_left,
+                        selected: view_selected_left,
                         height: lane_height,
                     });
-                    let rendered_points_l = draft.left.len();
+                    paint_envelope_continuation_segments(
+                        ui.painter(),
+                        resp_l.rect,
+                        &draft.left,
+                        &view_left,
+                        &origins_left,
+                        eff_in,
+                        eff_out,
+                        visible_secs,
+                        nf.accent_default,
+                    );
+                    let rendered_points_l = view_left.len();
                     let after_l = ui
                         .ctx()
                         .graphics_mut(|g| g.entry(layer_id).all_entries().count());
                     if resp_l.changed() {
-                        if draft.left.len() > prev_left.len()
-                            && unique_time_count(&draft.left, &draft.right)
+                        let (candidate_left, changed_orig) = apply_view_envelope_edits(
+                            &draft.left,
+                            &view_left_before,
+                            &origins_left,
+                            &view_left,
+                            eff_in,
+                            eff_out,
+                            visible_secs,
+                        );
+                        if candidate_left.len() > draft.left.len()
+                            && unique_time_count(&candidate_left, &draft.right)
                                 > FrameSound::MAX_ENVELOPE_POINTS
                         {
-                            draft.left = prev_left;
                             over_limit = true;
                         } else {
-                            draft.selected_left = changed_point_index(&prev_left, &draft.left)
-                                .or(draft.selected_left);
+                            draft.left = candidate_left;
+                            draft.selected_left = changed_orig.or(draft.selected_left);
                             draft.selected_right = None;
                             draft.effect = SoundEffect::Custom;
                         }
@@ -510,7 +761,6 @@ impl Editor {
                         egui::vec2(ui.available_width(), metrics::toggle_row()),
                         egui::Sense::hover(),
                     );
-                    let visible_secs = (duration_secs / draft.zoom).max(0.1);
                     if draft.unit == 1 {
                         let visible_frames = ((visible_secs * fps).round() as u32).max(1);
                         let major = (visible_frames / 8).max(1).div_ceil(5) * 5;
@@ -530,15 +780,19 @@ impl Editor {
                                 + (s / visible_secs).clamp(0.0, 1.0) as f32 * ruler.width();
                             let align = if i == 0 {
                                 egui::Align2::LEFT_CENTER
-                            } else if (s - visible_secs).abs() < 1e-3 {
+                            } else if (s - visible_secs).abs() < step * 0.05 {
                                 egui::Align2::RIGHT_CENTER
                             } else {
                                 egui::Align2::CENTER_CENTER
                             };
                             let label = if step >= 1.0 {
                                 format!("{:.0}s", s)
-                            } else {
+                            } else if step >= 0.1 {
                                 format!("{:.1}s", s)
+                            } else if step >= 0.01 {
+                                format!("{:.2}s", s)
+                            } else {
+                                format!("{:.3}s", s)
                             };
                             ui.painter().text(
                                 egui::pos2(x, ruler.center().y),
@@ -550,51 +804,56 @@ impl Editor {
                         }
                     }
 
-                    let max_in = (duration_secs - MIN_TRIM_GAP_SECS).max(0.0);
-                    let mut eff_in = draft.in_point.unwrap_or(0.0).clamp(0.0, max_in);
-                    let mut eff_out = draft.out_point.unwrap_or(duration_secs).clamp(
-                        (eff_in + MIN_TRIM_GAP_SECS).min(duration_secs),
-                        duration_secs,
-                    );
                     let x_for_sec = |sec: f64| -> f32 {
                         ruler.left() + (sec / visible_secs).clamp(0.0, 1.0) as f32 * ruler.width()
                     };
                     let handle_half = space::s2();
+                    let out_drag_id = egui::Id::new("edit-envelope-trim-out");
+                    let out_handle_active =
+                        eff_out <= visible_secs + 1e-9 || ui.ctx().is_being_dragged(out_drag_id);
                     let in_x_initial = x_for_sec(eff_in);
                     let out_x_initial = x_for_sec(eff_out);
-                    let in_hit = egui::Rect::from_min_max(
-                        egui::pos2((in_x_initial - handle_half).max(ruler.left()), ruler.top()),
-                        egui::pos2(
-                            (in_x_initial + handle_half)
-                                .min((in_x_initial + out_x_initial) * 0.5)
-                                .max(in_x_initial + space::s1())
-                                .min(ruler.right()),
-                            ruler.bottom(),
-                        ),
-                    );
-                    let out_hit = egui::Rect::from_min_max(
-                        egui::pos2(
-                            (out_x_initial - handle_half)
-                                .max((in_x_initial + out_x_initial) * 0.5)
-                                .min(out_x_initial - space::s1())
-                                .max(ruler.left()),
-                            ruler.top(),
-                        ),
-                        egui::pos2(
-                            (out_x_initial + handle_half).min(ruler.right()),
-                            ruler.bottom(),
-                        ),
-                    );
+                    let mid_x = if out_handle_active {
+                        (in_x_initial + out_x_initial) * 0.5
+                    } else {
+                        ruler.right()
+                    };
+                    let in_hit = if eff_in <= visible_secs + 1e-9
+                        || ui
+                            .ctx()
+                            .is_being_dragged(egui::Id::new("edit-envelope-trim-in"))
+                    {
+                        let left = (in_x_initial - handle_half).max(ruler.left());
+                        let right = (in_x_initial + handle_half)
+                            .min(mid_x)
+                            .min(ruler.right())
+                            .max(left);
+                        egui::Rect::from_min_max(
+                            egui::pos2(left, ruler.top()),
+                            egui::pos2(right, ruler.bottom()),
+                        )
+                    } else {
+                        egui::Rect::NOTHING
+                    };
+                    let out_hit = if out_handle_active {
+                        let right = (out_x_initial + handle_half).min(ruler.right());
+                        let left = (out_x_initial - handle_half)
+                            .max(mid_x)
+                            .max(ruler.left())
+                            .min(right);
+                        egui::Rect::from_min_max(
+                            egui::pos2(left, ruler.top()),
+                            egui::pos2(right, ruler.bottom()),
+                        )
+                    } else {
+                        egui::Rect::NOTHING
+                    };
                     let in_resp = ui.interact(
                         in_hit,
                         egui::Id::new("edit-envelope-trim-in"),
                         egui::Sense::click_and_drag(),
                     );
-                    let out_resp = ui.interact(
-                        out_hit,
-                        egui::Id::new("edit-envelope-trim-out"),
-                        egui::Sense::click_and_drag(),
-                    );
+                    let out_resp = ui.interact(out_hit, out_drag_id, egui::Sense::click_and_drag());
                     if in_resp.hovered()
                         || in_resp.dragged()
                         || out_resp.hovered()
@@ -612,16 +871,20 @@ impl Editor {
                                     / f64::from(ruler.width().max(1.0)))
                                     * visible_secs
                         }
-                        .clamp(0.0, (eff_out - MIN_TRIM_GAP_SECS).max(0.0));
-                        eff_in = next_in;
-                        draft.in_point = if next_in <= 1e-4 {
-                            None
-                        } else {
-                            Some(next_in.min(FrameSound::MAX_SOUND_TRIM_SECONDS))
-                        };
+                        .clamp(0.0, (eff_out - min_gap).max(0.0));
+                        let (norm_in, norm_out, new_in, new_out) = normalize_trim_bounds(
+                            Some(next_in),
+                            Some(eff_out),
+                            duration_secs,
+                            draft.had_explicit_out,
+                        );
+                        eff_in = new_in;
+                        eff_out = new_out;
+                        draft.in_point = norm_in;
+                        draft.out_point = norm_out;
                     }
                     if out_resp.dragged() {
-                        let min_out = (eff_in + MIN_TRIM_GAP_SECS).min(duration_secs);
+                        let min_out = (eff_in + min_gap).min(duration_secs);
                         let next_out = if let Some(pos) = out_resp.interact_pointer_pos() {
                             (f64::from(pos.x - ruler.left()) / f64::from(ruler.width().max(1.0)))
                                 * visible_secs
@@ -632,13 +895,16 @@ impl Editor {
                                     * visible_secs
                         }
                         .clamp(min_out, duration_secs);
-                        eff_out = next_out;
-                        draft.out_point =
-                            if (duration_secs - next_out) <= 1e-4 && !draft.had_explicit_out {
-                                None
-                            } else {
-                                Some(next_out.min(FrameSound::MAX_SOUND_TRIM_SECONDS))
-                            };
+                        let (norm_in, norm_out, new_in, new_out) = normalize_trim_bounds(
+                            Some(eff_in),
+                            Some(next_out),
+                            duration_secs,
+                            draft.had_explicit_out,
+                        );
+                        eff_in = new_in;
+                        eff_out = new_out;
+                        draft.in_point = norm_in;
+                        draft.out_point = norm_out;
                     }
                     let in_x = x_for_sec(eff_in);
                     let out_x = x_for_sec(eff_out);
@@ -687,27 +953,51 @@ impl Editor {
                     let before_r = ui
                         .ctx()
                         .graphics_mut(|g| g.entry(layer_id).all_entries().count());
-                    let prev_right = draft.right.clone();
+                    let (mut view_right, origins_right) =
+                        project_envelope_to_view(&draft.right, eff_in, eff_out, visible_secs);
+                    let view_right_before = view_right.clone();
+                    let view_selected_right = draft
+                        .selected_right
+                        .and_then(|orig| origins_right.iter().position(|&o| o == orig));
                     let resp_r = ui.add(c::EnvelopeLane {
                         channel: "R",
-                        points: &mut draft.right,
-                        selected: draft.selected_right,
+                        points: &mut view_right,
+                        selected: view_selected_right,
                         height: lane_height,
                     });
-                    let rendered_points_r = draft.right.len();
+                    paint_envelope_continuation_segments(
+                        ui.painter(),
+                        resp_r.rect,
+                        &draft.right,
+                        &view_right,
+                        &origins_right,
+                        eff_in,
+                        eff_out,
+                        visible_secs,
+                        nf.accent_default,
+                    );
+                    let rendered_points_r = view_right.len();
                     let after_r = ui
                         .ctx()
                         .graphics_mut(|g| g.entry(layer_id).all_entries().count());
                     if resp_r.changed() {
-                        if draft.right.len() > prev_right.len()
-                            && unique_time_count(&draft.left, &draft.right)
+                        let (candidate_right, changed_orig) = apply_view_envelope_edits(
+                            &draft.right,
+                            &view_right_before,
+                            &origins_right,
+                            &view_right,
+                            eff_in,
+                            eff_out,
+                            visible_secs,
+                        );
+                        if candidate_right.len() > draft.right.len()
+                            && unique_time_count(&draft.left, &candidate_right)
                                 > FrameSound::MAX_ENVELOPE_POINTS
                         {
-                            draft.right = prev_right;
                             over_limit = true;
                         } else {
-                            draft.selected_right = changed_point_index(&prev_right, &draft.right)
-                                .or(draft.selected_right);
+                            draft.right = candidate_right;
+                            draft.selected_right = changed_orig.or(draft.selected_right);
                             draft.selected_left = None;
                             draft.effect = SoundEffect::Custom;
                         }
@@ -852,7 +1142,7 @@ impl Editor {
         }
         if play_preview {
             let base = self.frame_sound().map(|(_, s)| s);
-            let preview = draft.preview_sound(base.as_ref());
+            let preview = draft.preview_sound_with_duration(base.as_ref(), duration_secs);
             self.timeline_audio.audition(&self.project, &preview);
         }
         if stop_preview {
@@ -900,5 +1190,131 @@ impl Editor {
         } else {
             self.edit_envelope = Some(draft);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use neoflash_core::{Keyframe, Project, ResourceUnit};
+
+    fn tiny_wav_bytes(sample_rate: u32, num_frames: usize) -> Vec<u8> {
+        let channels: u16 = 1;
+        let bits_per_sample: u16 = 16;
+        let data_bytes = (num_frames * usize::from(channels) * 2) as u32;
+        let mut wav = Vec::with_capacity(44 + data_bytes as usize);
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + data_bytes).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&channels.to_le_bytes());
+        wav.extend_from_slice(&sample_rate.to_le_bytes());
+        wav.extend_from_slice(&(sample_rate * u32::from(channels) * 2).to_le_bytes());
+        wav.extend_from_slice(&(channels * (bits_per_sample / 8)).to_le_bytes());
+        wav.extend_from_slice(&bits_per_sample.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&data_bytes.to_le_bytes());
+        for i in 0..num_frames {
+            let sample = ((i as f32 * 0.25).sin() * 16_000.0) as i16;
+            wav.extend_from_slice(&sample.to_le_bytes());
+        }
+        wav
+    }
+
+    #[test]
+    fn t414_edit_envelope_short_sfx_trim_validation_and_zoom_lane_mapping() {
+        let ctx = egui::Context::default();
+        let mut project = Project::blank();
+        project.format_version = 6;
+        // 20 ms WAV SFX (882 samples @ 44.1 kHz < 100 ms).
+        let res_id = "sfx-20ms".to_owned();
+        project.resources.push(
+            ResourceUnit::from_bytes(
+                &res_id,
+                "audio/click.wav",
+                "audio/wav",
+                &tiny_wav_bytes(44_100, 882),
+            )
+            .unwrap(),
+        );
+        project.symbols[0].timeline.layers[0].keyframes = vec![Keyframe {
+            frame: 0,
+            sound: Some(FrameSound::new(res_id.clone())),
+            ..Keyframe::default()
+        }];
+        project.validate().unwrap();
+
+        let mut editor = Editor::from_project(&ctx, project);
+        editor.open_edit_envelope();
+        let mut draft = editor.edit_envelope.clone().expect("dialog opened");
+
+        // 1. Duration is preserved at ~20 ms (not inflated to 100 ms), with min_gap <= 5 ms.
+        let dur = editor.edit_envelope_duration_secs(&draft);
+        assert!(
+            (dur - 0.02).abs() < 0.002,
+            "20 ms WAV duration must not inflate to 0.1s: {dur}"
+        );
+        let gap = effective_trim_gap(dur);
+        assert!((1e-5..=0.005 + 1e-6).contains(&gap));
+
+        // 2. Inverted / colliding (in_point >= out_point) drafts normalize cleanly on commit
+        //    so `project.validate()` never fails!
+        draft.in_point = Some(0.015);
+        draft.out_point = Some(0.010);
+        draft.had_explicit_out = true;
+        editor.edit_envelope = None;
+        editor.commit_edit_envelope(draft.clone());
+        editor
+            .project
+            .validate()
+            .expect("normalized trim bounds must pass project.validate()");
+        let (_, committed) = editor.frame_sound().unwrap();
+        assert!(committed.out_point.unwrap() > committed.in_point.unwrap());
+
+        // VoiceSource plays the short <20 ms trimmed window without rounding seg_frames to 0.
+        let decoded = editor
+            .timeline_audio
+            .decoded(&editor.project, &res_id)
+            .unwrap();
+        let mut voice = crate::timeline_sound::VoiceSource::new(
+            decoded,
+            0.0,
+            1,
+            false,
+            (committed.in_point, committed.out_point),
+            committed.envelope_points(),
+        )
+        .expect("short trimmed SFX must produce playable VoiceSource");
+        assert!(voice.next().is_some());
+
+        // 3. Zoomed/trimmed EnvelopeLane coordinate projection & back-mapping:
+        //    On a 2.0s sound trimmed to [0.4s..1.6s] (seg_secs = 1.2s) at 2x zoom (visible = 1.0s):
+        let canonical = vec![(0.0_f32, 0.2_f32), (0.5_f32, 0.8_f32), (1.0_f32, 1.0_f32)];
+        let (view_pts, origins) = project_envelope_to_view(&canonical, 0.4, 1.6, 1.0);
+        // Handle 0 (0.4s -> t_view = 0.4) and Handle 1 (1.0s -> t_view = 1.0) are visible;
+        // Handle 2 (1.6s -> t_view = 1.6) is offscreen and NOT clamped onto 1.0s!
+        assert_eq!(origins, vec![0, 1]);
+        assert!((view_pts[0].0 - 0.4).abs() < 1e-5);
+        assert!((view_pts[1].0 - 1.0).abs() < 1e-5);
+
+        // Dragging Handle 0 from t_view = 0.4 (0.4s) to t_view = 0.7 (0.7s -> t_seg = 0.3/1.2 = 0.25):
+        let mut dragged = view_pts.clone();
+        dragged[0] = (0.7, 0.5);
+        let (updated, sel) =
+            apply_view_envelope_edits(&canonical, &view_pts, &origins, &dragged, 0.4, 1.6, 1.0);
+        assert_eq!(sel, Some(0));
+        assert!((updated[0].0 - 0.25).abs() < 1e-5);
+        assert!((updated[0].1 - 0.5).abs() < 1e-5);
+        assert_eq!(updated[2], (1.0, 1.0));
+
+        // Render dialog at 4x zoom (eff_out > visible_secs) to ensure offscreen out_hit doesn't panic or overlap.
+        draft.zoom = 4.0;
+        draft.in_point = Some(0.002);
+        draft.out_point = Some(0.018);
+        editor.edit_envelope = Some(draft);
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            editor.edit_envelope_dialog(ctx);
+        });
     }
 }

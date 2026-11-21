@@ -20,6 +20,15 @@ static SELECTED_LAYER_ROWS: LazyLock<Mutex<SelectedLayerRows>> =
 static DESELECTED_LAYER_SYMBOLS: LazyLock<Mutex<HashMap<(Id, Id), DeselectedLayerState>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+pub(crate) fn prune_closed_session_layer_state(closed_session_key: &str) {
+    if let Ok(mut guard) = SELECTED_LAYER_ROWS.lock() {
+        guard.retain(|(sess, _), _| sess != closed_session_key);
+    }
+    if let Ok(mut guard) = DESELECTED_LAYER_SYMBOLS.lock() {
+        guard.retain(|(sess, _), _| sess != closed_session_key);
+    }
+}
+
 #[derive(Clone)]
 struct LayerClipboard {
     layers: Vec<Layer>,
@@ -628,6 +637,7 @@ impl Editor {
         {
             return;
         }
+        let active_id = layers.get(self.layer).map(|l| l.id.clone());
         let targets = self.target_layer_indices(primary_idx);
         let target_ids: Vec<Id> = targets
             .into_iter()
@@ -647,6 +657,7 @@ impl Editor {
                 }
             }
             let target_set: HashSet<Id> = target_ids.into_iter().collect();
+            let mut reparented_ids: HashSet<Id> = HashSet::new();
             for layer in layers.iter_mut() {
                 let linked_to_target = layer
                     .properties
@@ -660,6 +671,7 @@ impl Editor {
                         .is_some_and(|g| target_set.contains(g));
                 if target_set.contains(&layer.id) || linked_to_target {
                     layer.properties.parent = new_parent.clone();
+                    reparented_ids.insert(layer.id.clone());
                     if layer
                         .properties
                         .mask
@@ -678,7 +690,46 @@ impl Editor {
                     }
                 }
             }
+            if let Some(fid) = new_parent.as_deref()
+                && !reparented_ids.is_empty()
+            {
+                let moved_indices: HashSet<usize> = layers
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, l)| reparented_ids.contains(&l.id))
+                    .flat_map(|(i, _)| group_indices(layers, i))
+                    .collect();
+                let mut moving = Vec::with_capacity(moved_indices.len());
+                let mut remaining = Vec::with_capacity(layers.len() - moved_indices.len());
+                for (i, layer) in std::mem::take(layers).into_iter().enumerate() {
+                    if moved_indices.contains(&i) {
+                        moving.push(layer);
+                    } else {
+                        remaining.push(layer);
+                    }
+                }
+                let insert_at = if let Some(folder_pos) = remaining.iter().position(|l| l.id == fid)
+                {
+                    let existing_group = group_indices(&remaining, folder_pos);
+                    let max_above = existing_group.into_iter().filter(|&i| i > folder_pos).max();
+                    max_above.map_or(folder_pos, |top| top + 1)
+                } else {
+                    remaining.len()
+                };
+                remaining.splice(insert_at..insert_at, moving);
+                *layers = remaining;
+            }
         });
+        if let Some(aid) = active_id
+            && let Some(pos) = self
+                .symbol()
+                .timeline
+                .layers
+                .iter()
+                .position(|l| l.id == aid)
+        {
+            self.layer = pos;
+        }
     }
 
     /// Reorder `layer_id` in visual row order and optionally reparent it to `new_parent` in one
@@ -871,6 +922,87 @@ impl Editor {
     pub(crate) fn layer_outline_draft(&self, ctx: &egui::Context) -> Option<LayerOutlineDraft> {
         ctx.data(|data| data.get_temp::<LayerOutlineDraft>(self.outline_draft_id()))
     }
+    pub(crate) fn resolve_visible_active_layer(&self, layer_indices: &[usize]) -> usize {
+        if layer_indices.contains(&self.layer) {
+            return self.layer;
+        }
+        let timeline = &self.symbol().timeline;
+        let visible_set: HashSet<usize> = layer_indices.iter().copied().collect();
+        let mut cur = timeline.layers.get(self.layer);
+        let mut visited = HashSet::new();
+        while let Some(layer) = cur {
+            if !visited.insert(layer.id.as_str()) {
+                break;
+            }
+            let next_id = layer
+                .properties
+                .parent
+                .as_deref()
+                .or(layer.properties.mask.as_deref())
+                .or(layer.properties.motion_guide.as_deref());
+            let Some(pid) = next_id else {
+                break;
+            };
+            if let Some((pidx, player)) = timeline
+                .layers
+                .iter()
+                .enumerate()
+                .find(|(_, l)| l.id == pid)
+            {
+                if visible_set.contains(&pidx) {
+                    return pidx;
+                }
+                cur = Some(player);
+            } else {
+                break;
+            }
+        }
+        layer_indices
+            .iter()
+            .copied()
+            .filter(|&index| index > self.layer)
+            .min()
+            .or_else(|| {
+                layer_indices
+                    .iter()
+                    .copied()
+                    .filter(|&index| index < self.layer)
+                    .max()
+            })
+            .or_else(|| layer_indices.first().copied())
+            .unwrap_or(0)
+    }
+
+    pub(crate) fn sync_active_layer_to_visible(&mut self, layer_indices: &[usize]) {
+        if layer_indices.contains(&self.layer) {
+            return;
+        }
+        let previous_layer = self.layer;
+        let was_deselected = self.are_layers_deselected();
+        self.layer = self.resolve_visible_active_layer(layer_indices);
+        if was_deselected {
+            self.sync_deselected_layer_index();
+        } else {
+            let visible_ids: HashSet<&str> = layer_indices
+                .iter()
+                .filter_map(|&i| self.symbol().timeline.layers.get(i).map(|l| l.id.as_str()))
+                .collect();
+            let key = self.selected_layers_key();
+            if let Ok(mut guard) = SELECTED_LAYER_ROWS.lock()
+                && let Some(set) = guard.get_mut(&key)
+            {
+                set.retain(|id| visible_ids.contains(id.as_str()));
+                if set.is_empty() {
+                    guard.remove(&key);
+                }
+            }
+        }
+        if self.layer != previous_layer {
+            self.clear_timeline_frame_selection();
+        }
+        self.clear_selection();
+    }
+
     pub(crate) fn toggle_layer_folder(&mut self, index: usize) {
         self.layer_change(|project, symbol| {
             let layer = &mut project.symbol_mut(symbol).unwrap().timeline.layers[index];
@@ -878,6 +1010,8 @@ impl Editor {
                 layer.properties.collapsed = !layer.properties.collapsed;
             }
         });
+        let visible = visible_layer_indices(&self.symbol().timeline);
+        self.sync_active_layer_to_visible(&visible);
     }
     fn apply_layer_outline(
         &mut self,

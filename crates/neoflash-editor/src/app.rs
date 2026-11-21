@@ -946,32 +946,62 @@ impl Editor {
     }
     pub fn make_key(&mut self, blank: bool) {
         self.finish_edits();
-        if !self.layer_editable() {
+        let target_layer_ids: Vec<Id> = {
+            let timeline = &self.symbol().timeline;
+            let candidates: Vec<Id> = match self.frame_range() {
+                Some(r) if r.layers.len() > 1 => r.layers,
+                _ => timeline
+                    .layers
+                    .get(self.layer)
+                    .map(|l| vec![l.id.clone()])
+                    .unwrap_or_default(),
+            };
+            candidates
+                .into_iter()
+                .filter(|id| {
+                    timeline.layers.iter().any(|layer| {
+                        &layer.id == id
+                            && !layer_effectively_locked(timeline, layer)
+                            && layer.properties.role != LayerRole::Folder
+                            && layer_effectively_visible(timeline, layer)
+                            && self.is_layer_id_effectively_soloed(&layer.id)
+                    })
+                })
+                .collect()
+        };
+        if target_layer_ids.is_empty() {
             return;
         }
         let label = if blank { "Blank keyframe" } else { "Keyframe" };
         self.transact_named(label, |s| {
-            let id = s.symbol().timeline.layers[s.layer].id.clone();
-            s.ensure_key_at(&id, s.frame, blank);
-            // F6 inside a motion tween keys every property at this frame (◆).
-            let (l, f) = (s.layer, s.frame);
-            if let Some(key) = s.symbol_mut().timeline.layers[l]
-                .keyframes
-                .iter_mut()
-                .find(|key| key.frame == f && key.keyed_properties.is_some())
-                && !blank
-            {
-                key.motion_keys = Some(
-                    key.elements
-                        .iter()
-                        .map(|element| MotionPropertyKey {
-                            element_id: element.id.clone(),
-                            properties: TweenProperty::ALL.to_vec(),
-                            roving: false,
-                        })
-                        .collect(),
-                );
-                key.sync_motion_key_union();
+            let f = s.frame;
+            for id in &target_layer_ids {
+                s.ensure_key_at(id, f, blank);
+                // F6 inside a motion tween keys every property at this frame (◆).
+                if !blank
+                    && let Some(layer) = s
+                        .symbol_mut()
+                        .timeline
+                        .layers
+                        .iter_mut()
+                        .find(|l| &l.id == id)
+                    && let Some(key) = layer
+                        .keyframes
+                        .iter_mut()
+                        .find(|key| key.frame == f && key.keyed_properties.is_some())
+                {
+                    key.motion_keys = Some(
+                        key.elements
+                            .iter()
+                            .map(|element| MotionPropertyKey {
+                                element_id: element.id.clone(),
+                                properties: TweenProperty::ALL.to_vec(),
+                                roving: false,
+                            })
+                            .collect(),
+                    );
+                    key.sync_motion_key_union();
+                }
             }
         });
     }

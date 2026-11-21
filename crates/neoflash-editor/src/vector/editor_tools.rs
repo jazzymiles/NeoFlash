@@ -54,10 +54,25 @@ impl Editor {
             }
         }
     }
+    pub(crate) fn finish_live_deform_drag(&mut self) {
+        if let Some(drag) = self.vector.live_deform_drag.take()
+            && !matches!(
+                drag.kind,
+                crate::vector::StageLiveDeformKind::IkBoneCreate { .. }
+            )
+        {
+            if drag.changed {
+                self.commit_history();
+            } else {
+                self.history.cancel(&mut self.project);
+            }
+        }
+    }
     pub(crate) fn finish_edits(&mut self) {
         self.finish_shape_hint_drag(false);
         self.finish_motion_curve_drag();
         self.finish_motion_key_drag();
+        self.finish_live_deform_drag();
         self.authoring_tools.cancel();
         self.finish_property_edit();
         self.finish_selection_gesture();
@@ -77,7 +92,27 @@ impl Editor {
         {
             self.history.cancel(&mut self.project);
         }
-        self.vector = Default::default();
+        if let Some(drag) = self.vector.live_deform_drag.take()
+            && !matches!(
+                drag.kind,
+                crate::vector::StageLiveDeformKind::IkBoneCreate { .. }
+            )
+        {
+            self.history.cancel(&mut self.project);
+        }
+        let ik_base_elements = std::mem::take(&mut self.vector.ik_base_elements);
+        let asset_warp_base_elements = std::mem::take(&mut self.vector.asset_warp_base_elements);
+        let free_transform_submode = self.vector.free_transform_submode;
+        let envelope_lattice_session = self.vector.envelope_lattice_session.take();
+        let perspective_quad_session = self.vector.perspective_quad_session.take();
+        self.vector = crate::vector::VectorState {
+            ik_base_elements,
+            asset_warp_base_elements,
+            free_transform_submode,
+            envelope_lattice_session,
+            perspective_quad_session,
+            ..Default::default()
+        };
     }
     pub(crate) fn cancel_edits(&mut self) {
         self.cancel_shape_hint_drag();
@@ -121,7 +156,24 @@ impl Editor {
                 self.exit_stage_text_edit();
             }
             self.timeline_key_drag = None;
-            self.vector = Default::default();
+            let ik_base_elements = std::mem::take(&mut self.vector.ik_base_elements);
+            let asset_warp_base_elements =
+                std::mem::take(&mut self.vector.asset_warp_base_elements);
+            let free_transform_submode = self.vector.free_transform_submode;
+            let envelope_lattice_session = self.vector.envelope_lattice_session.take();
+            let perspective_quad_session = self.vector.perspective_quad_session.take();
+            let selected_warp_pin = self.vector.selected_warp_pin.take();
+            let selected_ik_bone = self.vector.selected_ik_bone.take();
+            self.vector = crate::vector::VectorState {
+                ik_base_elements,
+                asset_warp_base_elements,
+                free_transform_submode,
+                envelope_lattice_session,
+                perspective_quad_session,
+                selected_warp_pin,
+                selected_ik_bone,
+                ..Default::default()
+            };
             if self.authoring_tools.primitive_drawn_selection && tool != Tool::Select {
                 self.clear_selection();
             }
@@ -320,7 +372,12 @@ impl Editor {
             (draft.frame < symbol.timeline.frame_count)
                 .then(|| {
                     symbol.timeline.layers.iter().position(|layer| {
-                        layer.id == draft.layer_id && layer.visible && !layer.locked
+                        layer.id == draft.layer_id
+                            && layer.properties.role != LayerRole::Folder
+                            && neoflash_core::layer_effectively_visible(&symbol.timeline, layer)
+                            && !neoflash_core::layer_effectively_locked(&symbol.timeline, layer)
+                            && (draft.symbol != self.symbol_id()
+                                || self.is_layer_id_effectively_soloed(&layer.id))
                     })
                 })
                 .flatten()
@@ -1382,6 +1439,7 @@ impl Editor {
         if selected_id != element.id || indices.is_empty() {
             return false;
         }
+        let [dx, dy] = self.stage_mapping().stage_delta_to_local([dx, dy]);
         let m = transform_matrix(element.transform);
         let (Some(p0), Some(p1)) = (
             crate::stage::inverse(m, Pos2::ZERO),

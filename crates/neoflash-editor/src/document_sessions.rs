@@ -275,6 +275,7 @@ document_state! { project, path, undo_levels, recovery, saved_project, root;
     script_event: ObjectEvent = ObjectEvent::Click,
     selected_source: Option<String> = None,
     code_feedback: Option<crate::sources::CodeFeedback> = None,
+    debugger: crate::debugger::Debugger = Default::default(),
     actions_ui: crate::panels::actions_sidebar::ActionsUi = Default::default(),
     output: crate::output_pipeline::OutputPipeline = Default::default(),
     test_movie_preview_open: bool = false,
@@ -304,6 +305,7 @@ impl Editor {
         path: Option<PathBuf>,
         saved: bool,
     ) {
+        let replaced_session_key = self.clipboard.session.clone();
         self.cancel_edits();
         self.prepare_session_switch(ctx);
         self.clear_active_recovery();
@@ -321,6 +323,9 @@ impl Editor {
             self.active_session = 0;
         }
         self.session_installed(ctx);
+        if replaced_session_key != self.clipboard.session {
+            self.remove_closed_session_aux_state(&replaced_session_key);
+        }
         self.sync_session_tabs_to_prefs();
     }
 
@@ -380,7 +385,7 @@ impl Editor {
         }
         self.export_video = None;
         self.last_video_report = None;
-        self.debugger.reset_document();
+        self.debugger.inline_edit = None;
         self.finish_edits();
         self.authoring_tools.reset_document_transient();
         self.exit_stage_text_edit();
@@ -636,6 +641,7 @@ impl Editor {
         if index != self.active_session {
             return;
         }
+        let closed_session_key = self.clipboard.session.clone();
         self.ai_session.cancel_and_clear();
         self.clear_active_recovery();
         let origin = self.close_origin.take().unwrap_or(index);
@@ -644,6 +650,7 @@ impl Editor {
             self.install_document(ctx, Project::blank(), None, true);
             self.sessions.clear();
             self.active_session = 0;
+            self.remove_closed_session_aux_state(&closed_session_key);
             self.sync_session_tabs_to_prefs();
             self.message("Document closed.");
             return;
@@ -665,9 +672,16 @@ impl Editor {
             .expect("inactive document owns its state");
         self.prepare_session_switch(ctx);
         incoming.exchange(self);
+        drop(incoming);
         self.active_session = next;
         self.session_installed(ctx);
+        self.remove_closed_session_aux_state(&closed_session_key);
         self.sync_session_tabs_to_prefs();
+    }
+
+    pub(crate) fn remove_closed_session_aux_state(&self, closed_session_key: &str) {
+        self.remove_debugger_authoring_state(closed_session_key);
+        crate::layer_controls::prune_closed_session_layer_state(closed_session_key);
     }
 
     pub(crate) fn cycle_document(&mut self, ctx: &egui::Context, previous: bool) {
