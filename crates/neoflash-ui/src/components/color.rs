@@ -220,7 +220,8 @@ impl Widget for SwatchCell {
         let p = palette(ui.ctx());
         let side = crate::metrics::swatch();
         let (rect, response) = ui.allocate_exact_size(egui::vec2(side, side), Sense::click());
-        paint_swatch(ui, rect, self.color, 3.0);
+        let focus = super::swatches::focused_swatch_sample(ui, &response);
+        paint_swatch(ui, focus.unwrap_or(rect), self.color, 3.0);
         if self.selected {
             ui.painter().rect_stroke(
                 rect.expand(1.0),
@@ -235,6 +236,9 @@ impl Widget for SwatchCell {
                 Stroke::new(1.0_f32, p.text_primary),
                 StrokeKind::Outside,
             );
+        }
+        if let Some(sample) = focus {
+            crate::theme::focus_ring(ui, sample, radius::sm());
         }
         let [r, g, b, _] = self.color.to_srgba_unmultiplied();
         let name = format!("#{r:02X}{g:02X}{b:02X}");

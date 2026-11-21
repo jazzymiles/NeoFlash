@@ -263,6 +263,7 @@ impl LayerRow<'_> {
                 icon,
                 p.text_secondary,
             );
+            crate::theme::focus_ring_inside(ui, &c, radius::sm());
             a11y(
                 &c,
                 egui::WidgetType::Button,
@@ -399,6 +400,7 @@ impl LayerRow<'_> {
                     &format!("Blend mode: {name}"),
                     None,
                 );
+                crate::theme::focus_ring_inside(ui, &resp, radius::sm());
                 mode = super::display::tooltip(resp, MODE_TOOLTIP, None).clicked();
             }
         }
@@ -414,6 +416,7 @@ impl LayerRow<'_> {
             let resp = ui.interact(r, row.id.with("solo"), Sense::click());
             paint_solo_toggle(ui.painter(), ui.ctx(), r, on, resp.hovered());
             a11y(&resp, egui::WidgetType::Checkbox, "Solo layer", Some(on));
+            crate::theme::focus_ring_inside(ui, &resp, radius::sm());
             solo = super::display::tooltip(resp, solo_tooltip(), None).clicked();
         }
         let solo_slot = columns.solo.is_some();
@@ -438,11 +441,13 @@ impl LayerRow<'_> {
             );
             let (name, key) = kind.describe(on);
             a11y(&resp, egui::WidgetType::Checkbox, name, Some(on));
+            crate::theme::focus_ring_inside(ui, &resp, radius::sm());
             super::display::tooltip(resp, name, key).clicked()
         };
         let visibility = toggle(ui, ToggleKind::Visibility, !self.visible);
         let lock = toggle(ui, ToggleKind::Lock, self.locked);
         let outline = toggle(ui, ToggleKind::Outline, self.outline);
+        crate::theme::focus_ring_inside(ui, &row, radius::sm());
         a11y(
             &row,
             egui::WidgetType::SelectableLabel,
@@ -657,6 +662,7 @@ pub fn layers_header_with(
             .circle_stroke(r.center(), 3.25, Stroke::new(1.5_f32, ring));
         let name = "Clear solo on all layers";
         a11y(&resp, egui::WidgetType::Button, name, None);
+        crate::theme::focus_ring_inside(ui, &resp, radius::sm());
         out.clear_solo = super::display::tooltip(resp, name, None).clicked();
     }
     for (i, (icon, name)) in [
@@ -688,6 +694,7 @@ pub fn layers_header_with(
             },
         );
         a11y(&resp, egui::WidgetType::Button, name, None);
+        crate::theme::focus_ring_inside(ui, &resp, radius::sm());
         if super::display::tooltip(resp, name, None).clicked() {
             match i {
                 0 => out.all_visibility = true,

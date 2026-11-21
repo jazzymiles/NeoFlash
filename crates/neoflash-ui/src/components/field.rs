@@ -784,12 +784,11 @@ impl<'a> ColorField<'a> {
         let inset = ((rect.height() - side) / 2.0).round();
         let sw = Rect::from_min_size(rect.min + egui::vec2(inset, inset), egui::vec2(side, side));
         super::display::paint_swatch(ui, sw, *self.color, radius::sm());
-        let swatch_clicked = super::display::tooltip(
-            ui.interact(sw, id.with("swatch"), Sense::click()),
-            "Open colour picker",
-            None,
-        )
-        .clicked();
+        let chip = ui.interact(sw, id.with("swatch"), Sense::click());
+        if chip.has_focus() && crate::theme::keyboard_focus(ui, &chip) {
+            crate::theme::focus_ring(ui, sw, radius::sm());
+        }
+        let swatch_clicked = super::display::tooltip(chip, "Open colour picker", None).clicked();
         let alpha_w = crate::metrics::field_num();
         let hex_rect = Rect::from_min_max(
             egui::pos2(sw.right() + space::s2(), rect.top()),

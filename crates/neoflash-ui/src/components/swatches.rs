@@ -19,6 +19,20 @@ fn cell() -> f32 {
     crate::metrics::swatch()
 }
 
+/// Leave the NF2 offset clear around the colour sample, even when a swatch matches the ring
+/// colour or already has the separate selected border. Cell size and hit area stay fixed.
+pub(super) fn focused_swatch_sample(ui: &Ui, response: &Response) -> Option<Rect> {
+    if !response.has_focus() || !crate::theme::keyboard_focus(ui, response) {
+        return None;
+    }
+    crate::theme::reveal_focus_vertically(ui, response);
+    Some(
+        response
+            .rect
+            .shrink(crate::metrics::FOCUS_RING + crate::metrics::FOCUS_OFFSET),
+    )
+}
+
 /// The classic 12 × 9 palette: one grey ramp, then 8 lightness steps of 12 hues (light → dark).
 pub fn default_palette() -> Vec<Color32> {
     let mut out = Vec::with_capacity(PALETTE_COLUMNS * 9);
@@ -56,18 +70,23 @@ impl Widget for GradientSwatch {
     fn ui(self, ui: &mut Ui) -> Response {
         let p = palette(ui.ctx());
         let (rect, response) = ui.allocate_exact_size(egui::vec2(cell(), cell()), Sense::click());
-        paint_gradient(ui.painter(), rect, self);
+        let focus = focused_swatch_sample(ui, &response);
+        let sample = focus.unwrap_or(rect);
+        paint_gradient(ui.painter(), sample, self);
         let border = if response.hovered() {
             p.text_primary
         } else {
             p.border_default
         };
         ui.painter().rect_stroke(
-            rect,
+            sample,
             cr(3.0),
             Stroke::new(1.0_f32, border),
             StrokeKind::Inside,
         );
+        if let Some(sample) = focus {
+            crate::theme::focus_ring(ui, sample, crate::tokens::radius::sm());
+        }
         super::a11y(
             &response,
             egui::WidgetType::ColorButton,
@@ -327,6 +346,7 @@ fn caption(ui: &mut Ui, label: &str, open: Option<bool>) -> bool {
                 p.text_secondary
             },
         );
+        crate::theme::focus_ring_inside(ui, &response, crate::tokens::radius::sm());
         response.widget_info(|| {
             let mut info = egui::WidgetInfo::labeled(
                 egui::WidgetType::CollapsingHeader,

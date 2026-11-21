@@ -641,6 +641,7 @@ impl Editor {
                 | egui::scroll_area::ScrollSource::MOUSE_WHEEL;
             let mut grid_rect = Rect::NOTHING;
             let mut grid_clip = Rect::NOTHING;
+            let mut focused_grid = None;
             let mut drawn_layer_rows = 0usize;
             let mut measured_layer_list_height = 0.0_f32;
             let mut virtual_stats: Option<TimelineVirtualStats> = None;
@@ -1200,6 +1201,9 @@ impl Editor {
                                         .max(count)
                                         .min(1_000_000)
                                 };
+                                if response.has_focus() {
+                                    focused_grid = Some(response.clone());
+                                }
                                 grid_rect = rect;
                                 grid_clip = ui.clip_rect().intersect(rect);
                                 if response.clicked() || response.secondary_clicked() {
@@ -1497,6 +1501,11 @@ impl Editor {
                     self.deselect_all_layers();
                     ui.ctx().request_repaint();
                 }
+                neoflash_ui::theme::focus_ring_inside(
+                    ui,
+                    &response,
+                    neoflash_ui::tokens::radius::sm(),
+                );
                 response.context_menu(|ui| {
                     self.timeline_blank_layers_menu(ui);
                 });
@@ -1844,6 +1853,11 @@ impl Editor {
                 }
                 let response =
                     ui.interact(ruler, ui.id().with("ruler_seek"), Sense::click_and_drag());
+                neoflash_ui::theme::focus_ring_inside(
+                    ui,
+                    &response,
+                    neoflash_ui::tokens::radius::sm(),
+                );
                 if a11y_active {
                     a11y_playhead = Some((response.id, ruler.intersect(ui.clip_rect())));
                 }
@@ -1864,6 +1878,11 @@ impl Editor {
                         let hit_rect = r.intersect(ruler);
                         let handle_id = ui.id().with(("onion", is_start));
                         let handle = ui.interact(hit_rect, handle_id, Sense::click_and_drag());
+                        neoflash_ui::theme::focus_ring_inside(
+                            ui,
+                            &handle,
+                            neoflash_ui::tokens::radius::sm(),
+                        );
                         let press_key = handle_id.with("press_origin_x");
                         let released_drag_pos = if ctx.input(|i| i.pointer.primary_down()) {
                             if let Some(origin) = ctx.input(|i| i.pointer.press_origin())
@@ -2034,6 +2053,16 @@ impl Editor {
                     }
                 }
             }
+            // The playhead is painted over the grid and layer divider. Their keyboard rings
+            // belong above it, within the actual visible parts of these controls.
+            if let Some(response) = focused_grid {
+                neoflash_ui::theme::focus_ring_inside(
+                    ui,
+                    &response,
+                    neoflash_ui::tokens::radius::sm(),
+                );
+            }
+            neoflash_ui::theme::focus_ring_inside(ui, &divider, neoflash_ui::tokens::radius::sm());
             if a11y_active {
                 self.emit_timeline_accesskit_tree(
                     &ctx,
@@ -2857,6 +2886,8 @@ impl Editor {
             invert_fg,
         );
 
+        neoflash_ui::theme::focus_ring_inside(ui, &channel_resp, neoflash_ui::tokens::radius::sm());
+        neoflash_ui::theme::focus_ring_inside(ui, &invert_resp, neoflash_ui::tokens::radius::sm());
         if channel_resp.clicked() {
             let next_mode = match mask_mode {
                 MaskMode::Geometry => MaskMode::Alpha,

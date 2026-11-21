@@ -189,7 +189,7 @@ else changes. Mid Neutral Gray starts at `color/bg/app = #505050`; Dark Graphite
 |---|---|---|---|---|
 | `color/text/primary` | `#e7eaf2` | `#171b26` | `#f4f4f4` | `#d0d0d0` |
 | `color/text/secondary` | `#9aa3b6` | `#5b6477` | `#e8e8e8` | `#adadad` |
-| `color/text/tertiary` | `#8790a4` | `#636d82` | `#cacaca` | `#909090` |
+| `color/text/tertiary` | `#8790a4` | `#636d82` | `#f2f2f2` | `#909090` |
 | `color/text/disabled` | `#566073` | `#a2a9b8` | `#a2a2a2` | `#626262` |
 | `color/text/on-accent` | `#0b1020` | `#ffffff` | `#1f1f1f` | `#171717` |
 | `color/text/inverse` | `#0d1016` | `#f6f7fa` | `#f2f2f2` | `#1f1f1f` |

@@ -50,6 +50,11 @@ impl Editor {
             crate::commands::clear_queued_commands(ctx);
             return;
         }
+        if !self.has_open_popup(ctx) && self.take_command_shortcut(ctx, C::HelpSearchFunctions) {
+            self.open_function_search(ctx);
+            crate::commands::clear_queued_commands(ctx);
+            return;
+        }
         if self.document_shortcuts(ctx) {
             crate::commands::clear_queued_commands(ctx);
             return;
@@ -724,7 +729,6 @@ impl Editor {
             C::FileExportSwfFp9,
             C::FileExportSwfFp10,
             C::FileExportSwfFp10Scriptless,
-            C::HelpSearchFunctions,
             C::HelpManual,
             C::HelpScriptingReference,
             C::HelpOpenExample,

@@ -2369,3 +2369,165 @@ fn t383_motion_rotate_reset_to_auto_or_none_and_motion_track_flags_sync() {
     editor.undo();
     assert_eq!(editor.project, before_snap);
 }
+
+#[test]
+fn timeline_keyboard_focus_follows_rows_toggles_grid_and_ruler() {
+    check_panel_keyboard_rings(
+        PanelId::Timeline,
+        egui::vec2(920., 124.),
+        &[
+            "Orbit instances (Layer)",
+            "Solo layer",
+            "Typography (Layer)",
+            "Show or hide all layers",
+            "Timeline frames",
+            "Playhead",
+        ],
+    );
+}
+
+#[test]
+fn swatches_keyboard_focus_follows_selected_recent_document_palette_edges_and_gradients() {
+    check_panel_keyboard_rings(
+        PanelId::Swatches,
+        egui::vec2(340., 340.),
+        &[
+            "#010203",
+            "#8B9AB1",
+            "Palette",
+            "#000000",
+            "#FFFFFF",
+            "Linear gradient",
+        ],
+    );
+}
+
+fn check_panel_keyboard_rings(panel: PanelId, size: egui::Vec2, expected: &[&str]) {
+    use crate::theme::ThemeMode;
+    use egui::{Event, Key, Pos2, Rect};
+
+    for mode in [ThemeMode::Dark, ThemeMode::Light] {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut editor = Editor::from_project(&ctx, Project::demo());
+        editor.fill = [1, 2, 3, 255];
+        editor.workspace.recent_colors = vec![editor.fill];
+        mode.apply(&ctx);
+        let mut render = |events| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .show(ctx, |ui| editor.dock_panel_contents(ui, panel));
+                },
+            )
+        };
+        render(vec![]);
+        let first = render(vec![]);
+        let mut pending: std::collections::HashMap<_, _> = expected
+            .iter()
+            .map(|&name| {
+                let id = first
+                    .platform_output
+                    .accesskit_update
+                    .as_ref()
+                    .unwrap()
+                    .nodes
+                    .iter()
+                    .find(|(_, n)| n.label() == Some(name))
+                    .unwrap_or_else(|| panic!("missing {name}"))
+                    .0;
+                (id, name)
+            })
+            .collect();
+        // Node names locate targets once. Painting must also work when the system reader is idle.
+        if mode == ThemeMode::Light {
+            ctx.disable_accesskit();
+        }
+        let has_ring = |output: &egui::FullOutput, bounds: Rect| {
+            output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Rect(r)
+                if r.stroke.color == neoflash_ui::palette(&ctx).border_focus
+                    && r.stroke.width == neoflash_ui::metrics::FOCUS_RING
+                    && r.rect.expand(r.stroke.width) == bounds && shape.clip_rect.contains_rect(bounds)))
+        };
+        let mut last_bounds = Rect::NOTHING;
+        let tab = |pressed| Event::Key {
+            key: Key::Tab,
+            physical_key: Some(Key::Tab),
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        for _ in 0..160 {
+            render(vec![tab(true)]);
+            let mut output = render(vec![tab(false)]);
+            let Some(focused) = ctx.memory(|m| m.focused()) else {
+                continue;
+            };
+            let Some(label) = pending.remove(&egui::accesskit::NodeId(focused.value())) else {
+                continue;
+            };
+            let response = ctx.read_response(focused).unwrap();
+            let require_full_height = label.ends_with("(Layer)") || panel == PanelId::Swatches;
+            let mut bounds = response.interact_rect;
+            // The lower palette rows scroll into view in a short panel.
+            for _ in 0..30 {
+                if bounds.is_positive()
+                    && (!require_full_height || bounds.height() >= response.rect.height() - 0.1)
+                    && has_ring(&output, bounds)
+                {
+                    break;
+                }
+                output = render(vec![]);
+                bounds = ctx.read_response(focused).unwrap().interact_rect;
+            }
+            assert!(
+                has_ring(&output, bounds)
+                    && (!require_full_height || bounds.height() >= response.rect.height() - 0.1),
+                "{mode:?} {label} has keyboard focus but no complete visible ring in {bounds:?}"
+            );
+            if label == "#010203" {
+                // Keeping focus on the recent colour must not pull the viewport back when a
+                // trackpad scrolls down to the palette.
+                render(vec![
+                    Event::PointerMoved(size.to_pos2() * 0.5),
+                    Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0., -size.y),
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ]);
+                for _ in 0..40 {
+                    render(vec![]);
+                }
+                assert_eq!(ctx.memory(|m| m.focused()), Some(focused));
+                assert!(
+                    !ctx.read_response(focused)
+                        .unwrap()
+                        .interact_rect
+                        .is_positive(),
+                    "a focused swatch prevented scrolling it out of view"
+                );
+            }
+            last_bounds = bounds;
+            if pending.is_empty() {
+                break;
+            }
+        }
+        assert!(pending.is_empty(), "Tab missed {pending:?}");
+        let pointer = last_bounds.center();
+        render(vec![
+            Event::PointerMoved(pointer),
+            crate::tests::primary_button(pointer, true),
+        ]);
+        let clicked = render(vec![crate::tests::primary_button(pointer, false)]);
+        assert!(
+            !has_ring(&clicked, last_bounds),
+            "pointer activation painted keyboard focus in {panel:?}"
+        );
+    }
+}

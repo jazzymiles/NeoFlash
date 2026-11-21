@@ -2365,7 +2365,7 @@ impl CommandId {
                 title: "Help ▸ Search functions…",
                 keywords: "command palette quick open find menu action",
                 defaults: S_F1,
-                allow_when_typing: false,
+                allow_when_typing: true,
             },
             Self::HelpManual => CommandMeta {
                 id: "help.manual",

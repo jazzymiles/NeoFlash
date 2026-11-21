@@ -261,6 +261,39 @@ pub fn focus_ring(ui: &egui::Ui, rect: egui::Rect, control_radius: f32) {
     );
 }
 
+/// Reveal a newly focused row or chip without changing a timeline's horizontal position.
+pub(crate) fn reveal_focus_vertically(ui: &egui::Ui, response: &egui::Response) {
+    let clip = ui.clip_rect();
+    if response.gained_focus()
+        && response.rect.height() <= clip.height()
+        && (response.rect.top() < clip.top() || response.rect.bottom() > clip.bottom())
+    {
+        let x = clip.center().x;
+        ui.scroll_to_rect(
+            egui::Rect::from_x_y_ranges(x..=x, response.rect.y_range()),
+            None,
+        );
+    }
+}
+
+/// Paint the standard keyboard ring inside a control that touches neighbours or a scroll clip.
+pub fn focus_ring_inside(ui: &egui::Ui, response: &egui::Response, radius: f32) {
+    if !response.has_focus() || !keyboard_focus(ui, response) {
+        return;
+    }
+    reveal_focus_vertically(ui, response);
+    let visible = response.interact_rect.intersect(ui.clip_rect());
+    if visible.is_positive() {
+        let inset = 2.0 * (metrics::FOCUS_OFFSET + metrics::FOCUS_RING);
+        let size = (visible.size() - egui::Vec2::splat(inset)).max(egui::Vec2::ZERO);
+        focus_ring(
+            ui,
+            egui::Rect::from_center_size(visible.center(), size),
+            radius,
+        );
+    }
+}
+
 /// `true` when focus should be drawn: the widget has focus and the user navigates by keyboard.
 /// Keyboard mode starts with Tab / arrow navigation and ends with any pointer press.
 pub fn keyboard_focus(ui: &egui::Ui, response: &egui::Response) -> bool {

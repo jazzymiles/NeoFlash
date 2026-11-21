@@ -11282,6 +11282,65 @@ impl T300Driver {
 }
 
 #[test]
+fn function_search_traps_tab_and_shift_tab_over_the_authoring_panels() {
+    use crate::panels::{function_search::function_search_state, help_manual::is_help_manual_open};
+    use egui::{Key, Modifiers, accesskit::Role};
+
+    let mut d = T300Driver::new(Project::demo());
+    let tool = d.inner.editor.tool;
+    let project = d.inner.editor.project.clone();
+    d.tab_until("Brush (B)", 250);
+    d.key_tap(Key::F1, Modifiers::NONE);
+    assert_eq!(d.focused().unwrap().1, Role::TextInput);
+    let field = d.focused_id;
+
+    // Empty query, long result list. Arrows own the results and Tab owns the controls.
+    for direction in [Modifiers::SHIFT, Modifiers::NONE] {
+        d.key_tap(Key::Tab, direction);
+        assert_eq!(d.focused(), Some((Some("Help & Reference…"), Role::Button)));
+        d.key_tap(Key::Tab, direction);
+        assert_eq!(d.focused_id, field);
+    }
+    d.key_tap(Key::ArrowDown, Modifiers::NONE);
+    assert_eq!(function_search_state(&d.inner.ctx).active, 1);
+    assert_eq!(d.focused_id, field);
+
+    for query in ["select all", "zzzzzzzzzz"] {
+        d.step(vec![Event::Text(query.to_owned())]);
+        assert_eq!(function_search_state(&d.inner.ctx).query, query);
+        for (direction, first, second) in [
+            (Modifiers::NONE, "Clear search", "Help & Reference…"),
+            (Modifiers::SHIFT, "Help & Reference…", "Clear search"),
+        ] {
+            d.key_tap(Key::Tab, direction);
+            assert_eq!(d.focused(), Some((Some(first), Role::Button)));
+            d.key_tap(Key::Tab, direction);
+            assert_eq!(d.focused(), Some((Some(second), Role::Button)));
+            d.key_tap(Key::Tab, direction);
+            assert_eq!(d.focused_id, field);
+        }
+        d.key_tap(Key::Tab, Modifiers::NONE);
+        d.key_tap(Key::Enter, Modifiers::NONE);
+        assert!(function_search_state(&d.inner.ctx).open);
+        assert!(function_search_state(&d.inner.ctx).query.is_empty());
+        assert_eq!(d.focused_id, field);
+        assert!(d.inner.editor.selection.is_empty());
+    }
+    d.key_tap(Key::F6, Modifiers::NONE);
+    assert_eq!(d.inner.editor.tool, tool);
+    assert_eq!(d.inner.editor.project, project);
+    d.key_tap(Key::Tab, Modifiers::SHIFT);
+    d.key_tap(Key::Escape, Modifiers::NONE);
+    assert!(!function_search_state(&d.inner.ctx).open);
+
+    d.key_tap(Key::F1, Modifiers::NONE);
+    d.key_tap(Key::Tab, Modifiers::SHIFT);
+    d.key_tap(Key::Enter, Modifiers::NONE);
+    assert!(!function_search_state(&d.inner.ctx).open);
+    assert!(is_help_manual_open(&d.inner.ctx));
+}
+
+#[test]
 fn t300_tab_focused_buttons_activate_on_enter_and_space_without_global_shortcuts() {
     use crate::app::Tool;
 

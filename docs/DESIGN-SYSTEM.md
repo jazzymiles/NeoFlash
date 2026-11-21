@@ -339,13 +339,13 @@ the black/white-pair rule):
 
 ### Contrast contract and open design findings
 
-Text contrast, measured from `tokens.json` (14 November 2026, after the Light and Dark Graphite corrections and the
-state-colour correction of R-101):
+Text contrast measured from the current `tokens.json`:
 
 | Text colour | Dark, Light, Dark Graphite | Mid Neutral Gray |
 | --- | --- | --- |
 | `text/primary`, `text/secondary` | ≥ 4.5:1 on app, panel, raised, field, hover and selected | `text/primary` ≥ 4.5:1 everywhere; `text/secondary` 4.16 on raised |
-| `text/tertiary`, `accent/default`, `danger/default`, `warning/default`, `success/default` | ≥ 4.5:1 on app, panel, raised and field; ≥ 3:1 on hover and selected | not guaranteed (`success/default` 1.9–3.1, tertiary 3.0–4.9) |
+| `text/tertiary` | ≥ 4.5:1 on app, panel, raised and field; ≥ 3:1 on hover and selected | ≥ 4.5:1 on all six surfaces (4.98 on panel, 4.55 on raised) |
+| `accent/default`, `danger/default`, `warning/default`, `success/default` | ≥ 4.5:1 on app, panel, raised and field; ≥ 3:1 on hover and selected | not guaranteed (`success/default` 1.9–3.1) |
 
 These colours never carry meaning alone: an error, warning or success state always has an icon and text.
 

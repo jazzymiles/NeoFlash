@@ -17,9 +17,6 @@ const RESULTS_VISIBLE_ROWS: f32 = 16.0;
 pub(crate) struct FunctionSearchState {
     pub(crate) open: bool,
     pub(crate) just_opened: bool,
-    /// Native menu dismissal can reclaim focus in the opening frame. Retry for a few
-    /// frames so the first typed character always lands in the Search field.
-    pub(crate) focus_attempts: u8,
     pub(crate) query: String,
     pub(crate) active: usize,
     pub(crate) trigger_rect: Option<Rect>,
@@ -192,7 +189,6 @@ impl Editor {
             FunctionSearchState {
                 open: true,
                 just_opened: true,
-                focus_attempts: 3,
                 query: String::new(),
                 active: 0,
                 trigger_rect,
@@ -205,7 +201,6 @@ impl Editor {
         let mut state = function_search_state(ctx);
         state.open = false;
         state.just_opened = false;
-        state.focus_attempts = 0;
         store_state(ctx, state);
     }
 
@@ -232,9 +227,14 @@ impl Editor {
         );
         let mut activated = None;
         let mut open_manual = false;
+        let mut run_selected = false;
         let mut search_edit_id = None;
         let mut results_id = None;
         let mut result_rows = Vec::new();
+        let mut tab_stops = Vec::new();
+        // egui already interpreted Tab and the arrows at the start of this pass.
+        // The popover owns navigation until dismissal, including reverse Tab.
+        ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
 
         let area = egui::Area::new(egui::Id::new("nf2-function-search-area"))
             .order(egui::Order::Foreground)
@@ -244,18 +244,37 @@ impl Editor {
                 c::popover_frame(ctx).show(ui, |ui| {
                     ui.set_width(width);
                     ui.spacing_mut().item_spacing.y = 0.0;
+                    let edit_id = ui.next_auto_id().with("edit");
+                    if state.just_opened {
+                        ui.memory_mut(|memory| memory.request_focus(edit_id));
+                    }
+                    if ui.memory(|memory| memory.has_focus(edit_id)) {
+                        run_selected = ui.input_mut(|input| {
+                            input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                        });
+                    }
                     let search = ui.add(
                         c::Search::new(&mut state.query, "Search menu items and functions")
                             .width(width),
                     );
-                    let edit_id = search.id.with("edit");
                     search_edit_id = Some(edit_id);
-                    if ui.memory(|memory| memory.has_focus(edit_id)) {
-                        state.focus_attempts = 0;
-                    } else if state.focus_attempts > 0 {
-                        ui.memory_mut(|memory| memory.request_focus(edit_id));
-                        state.focus_attempts -= 1;
-                        ctx.request_repaint();
+                    tab_stops.push(edit_id);
+                    if !state.query.is_empty() {
+                        let clear_id = search.id.with("clear");
+                        tab_stops.push(clear_id);
+                        ctx.accesskit_node_builder(clear_id, |node| {
+                            node.set_role(egui::accesskit::Role::Button);
+                            node.set_label("Clear search");
+                        });
+                        if let Some(clear) = ctx.read_response(clear_id)
+                            && neoflash_ui::theme::keyboard_focus(ui, &clear)
+                        {
+                            neoflash_ui::theme::focus_ring(
+                                ui,
+                                clear.rect,
+                                neoflash_ui::tokens::radius::sm(),
+                            );
+                        }
                     }
                     if search.changed() {
                         state.active = 0;
@@ -299,7 +318,9 @@ impl Editor {
                                 if index == state.active {
                                     row.scroll_to_me(Some(egui::Align::Center));
                                 }
-                                if row.hovered() {
+                                if row.hovered()
+                                    && ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO)
+                                {
                                     state.active = index;
                                 }
                                 if row.clicked() {
@@ -329,9 +350,9 @@ impl Editor {
                                 .color(neoflash_ui::palette(ctx).text_secondary),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.add(c::Button::ghost("Help & Reference…")).clicked() {
-                                open_manual = true;
-                            }
+                            let help = ui.add(c::Button::ghost("Help & Reference…"));
+                            tab_stops.push(help.id);
+                            open_manual = help.clicked();
                         });
                     });
                 });
@@ -352,13 +373,18 @@ impl Editor {
                 state.active = (state.active + visible - 1) % visible;
                 ctx.request_repaint();
             }
-        } else if ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
-        {
+        } else if run_selected {
             activated = results.get(state.active).copied();
         } else if ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
         {
             close = true;
         }
+        // egui's buttons read Enter/Space without consuming them. In particular,
+        // opening the manual must not also send the activation key to that dialog.
+        ctx.input_mut(|input| {
+            input.consume_key(egui::Modifiers::NONE, egui::Key::Enter);
+            input.consume_key(egui::Modifiers::NONE, egui::Key::Space);
+        });
 
         if !state.just_opened
             && ctx.memory(|memory| memory.areas().visible_last_frame(&area.response.layer_id))
@@ -369,6 +395,36 @@ impl Editor {
         state.just_opened = false;
         if activated.is_some() || open_manual || close {
             state.open = false;
+            ctx.memory_mut(|memory| {
+                if let Some(id) = memory.focused()
+                    && (tab_stops.contains(&id) || result_rows.contains(&id))
+                {
+                    memory.surrender_focus(id);
+                }
+            });
+        } else if !tab_stops.is_empty() {
+            let tab_steps = ctx.input_mut(|input| {
+                let back = input.count_and_consume_key(egui::Modifiers::SHIFT, egui::Key::Tab);
+                let forward = input.count_and_consume_key(egui::Modifiers::NONE, egui::Key::Tab);
+                forward as isize - back as isize
+            });
+            let moved = ctx.memory_mut(|memory| {
+                memory.set_modal_layer(area.response.layer_id);
+                let current = tab_stops.iter().position(|id| memory.has_focus(*id));
+                let next = match current {
+                    Some(index) => {
+                        (index as isize + tab_steps).rem_euclid(tab_stops.len() as isize) as usize
+                    }
+                    None => 0,
+                };
+                if current != Some(next) {
+                    memory.request_focus(tab_stops[next]);
+                }
+                current != Some(next)
+            });
+            if moved {
+                ctx.request_repaint();
+            }
         }
         // Keep the native TextEdit role, value and caret intact. Its active
         // descendant identifies the same result that Enter would execute while
@@ -433,7 +489,6 @@ mod tests {
         let ctx = egui::Context::default();
         let mut editor = Editor::from_project(&ctx, Project::demo());
         editor.open_function_search(&ctx);
-        assert_eq!(function_search_state(&ctx).focus_attempts, 3);
 
         let input = |events| egui::RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1280.0, 900.0))),
@@ -446,7 +501,6 @@ mod tests {
             editor.function_search_popover(ctx)
         });
         assert_eq!(function_search_state(&ctx).query, "gradient");
-        assert_eq!(function_search_state(&ctx).focus_attempts, 0);
     }
 
     #[test]
@@ -461,8 +515,6 @@ mod tests {
             ..Default::default()
         };
         let _ = ctx.run(input(Vec::new()), |ctx| editor.function_search_popover(ctx));
-        // Opening requests focus after Search paints. Let its native TextEdit
-        // register the arrow-key focus filter before sending navigation input.
         let _ = ctx.run(input(Vec::new()), |ctx| editor.function_search_popover(ctx));
         let focus = ctx
             .memory(|memory| memory.focused())

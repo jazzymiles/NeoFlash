@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Tab and Shift+Tab stay inside F1 search. Timeline layers and Swatches colours show which item has keyboard focus. Helper text in Mid Neutral Gray has at least 4.5:1 contrast on panels, fields and dialogs.
+
 - Drag a panel to the edge of another docked group to split that group horizontally or vertically. Nested dividers resize their own panels, and saved workspaces restore the layout.
 
 - Brush and Pencil use the compact tool header in Properties and Tool Options. Its single row follows the selected interface density.
