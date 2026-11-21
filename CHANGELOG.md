@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- Completed a 6-domain adversarial audit and security/fidelity hardening pass across all `T-390`..`T-413` subsystems (`T-414`):
+  hardened HTML5 `swf_loader` against sandbox escape, `Object.prototype` pollution, strict-mode JS string escapes and per-frame
+  timeline OOM while preserving reparented `Loader.content` scripts across `unload()`; aligned AS3 `new Function(...)` with Adobe
+  `EvalError #1066`, fixed `flash.utils.Proxy` `QName`/`isAttribute`/host-probe handling, tightened masked and unmasked
+  `BlendMode.SHADER` coverage bounds, mapped AS2/AS3 class `#include` diagnostics back to included files, and recalibrated
+  `BitmapData.encode` (`JPEGXREncoderOptions` / `BitmapEncodingColorSpace`) and `Loader.load` / `loadBytes` to `Partial`;
+  enforced canonical non-symlink containment on disk `#include` hydration, click-to-jump navigation and `.fla` companion includes,
+  eliminated the `Publish settings` size-estimate livelock on hydrated includes, guarded authoring menus and `Find & Replace` on
+  standalone `.as` tabs, and supported parent-relative `../` includes; bounded Figma `fig-kiwi` `PathCommand` and PNG/SVG clipboard
+  decompression, fixed UTF-8 HTML clipboard boundary parsing, prevented `Timeline` frame-focus `⌘V` hijacking and whole-card
+  `fallback_png` misbinding, fixed `TILE`/`FIT`/`FILL` bitmap fills, filled `strokeGeometry` outlines, anisotropic 2×3 gradients,
+  root-mask symbol wrapping and repeated-paste asset deduplication; bounded CDP `Debugger` sparse-array previews and `Uint8Array` /
+  `Array` slice inspection, guarded paused variable/property edits by `(pause_generation, frame)` and `Object.defineProperty`,
+  isolated `Debugger` sessions per document tab, virtualized `Timeline` frame-selection painting, and fixed `Edit Envelope` short
+  SFX/zoom mapping and reflected/anisotropic `Edit in Place` Stage deform/text/nudge tools; fixed `23/23` binary FLA On2 VP6/VP6A
+  FLV packet muxing (`ffmpeg` Stage decode + HTML5 MP4/VP9-alpha WebM publish transcoding), reconstructed `CSwfPage` compiled clips
+  via the native SWF importer, added XFL `<DOMVideoItem>` / `<DOMSoundItem>` linkage round-trip and restored honest FLA
+  approximation warnings (`fla_text_metrics`, `fla_tween_dropped`, `fla_graphic_first_frame`, `fla_bitmap_reencoded`); and fixed
+  SWF AVM1 `this.<method>()` / `ActionTry` / `finally`, AVM2 verifier outer-scope chains / `coerce_a` merges / post-`super()`
+  `addFrameScript` / package `import` resolution, Lottie `.ttc` face indexing / `TextBox` wrapping & alignment / `source_fps` audio
+  envelopes, `.lottie` ZIP-bomb caps, and PDF/AI/SVG shading and hex/octal text fidelity.
 - Added native 1:1 **Figma** and **SVG** clipboard paste (`T-413`): copying frames, groups, vectors, text, cropped bitmap fills,
   masks, blurs/drop shadows or nested component instances in Figma Desktop or Figma Web (`⌘C` / `Copy as SVG`) and pasting onto
   the NeoFlash Stage (`⌘V` centered on Stage, `⌘⇧V` **Paste in Place** at document coordinates or normalized onto Stage for

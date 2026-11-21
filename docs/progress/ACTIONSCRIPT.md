@@ -16,12 +16,12 @@ Both languages are counted against the same eight Flash Player areas. Areas 1–
 | 2. Objects, language and collections | 582 | 582 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 3. MovieClip and timeline | 37 | 37 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 4. Display, events and basic input | 678 | 678 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 5. Graphics, bitmaps and filters | 313 | 313 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 5. Graphics, bitmaps and filters | 313 | 302 | 11 | 0 | 0 | 96.5% | 100.0% |
 | 6. Text and fonts | 174 | 174 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 7. File audio and video playback | 91 | 91 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 8. Services and advanced Player APIs | 2,134 | 1,693 | 441 | 0 | 0 | 79.3% | 100.0% |
-| **Now: areas 1–6** | 1,939 | 1,939 | 0 | 0 | 0 | 100.0% | 100.0% |
-| **All Flash Player areas** | 4,164 | 3,723 | 441 | 0 | 0 | 89.4% | 100.0% |
+| 8. Services and advanced Player APIs | 2,134 | 1,691 | 443 | 0 | 0 | 79.2% | 100.0% |
+| **Now: areas 1–6** | 1,939 | 1,928 | 11 | 0 | 0 | 99.4% | 100.0% |
+| **All Flash Player areas** | 4,164 | 3,710 | 454 | 0 | 0 | 89.1% | 100.0% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
@@ -59,7 +59,7 @@ Every documented declaration, including AIR, Flex and components, for provenance
 | AS3 | framework | 35,790 | 0 | 0 | 35,790 | 0 |
 | AS3 | language | 124 | 124 | 0 | 0 | 0 |
 | AS3 | platform_extension | 161 | 0 | 0 | 161 | 0 |
-| AS3 | runtime | 5,250 | 4,096 | 1,028 | 126 | 0 |
+| AS3 | runtime | 5,250 | 4,083 | 1,041 | 126 | 0 |
 
 Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:00, baseline `f05cd2e35a34`) set the starting statuses; later reviews below change them.
 
@@ -67,6 +67,7 @@ Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:0
 
 | Review | Date | Commit | Changed entries |
 | --- | --- | --- | --- |
+| `AS3-AUDIT-RECALIBRATION-20261121` | 2026-11-21 | `f709a977c6b2` | 13 → partial |
 | `AS3-AREAS2TO8-20261121` | 2026-11-21 | `ac651dd45d53` | 6 → working |
 | `AS2-AREA7-20261121` | 2026-11-21 | `ac651dd45d53` | 4 → working |
 | `AS3-AREAS2TO7-20261120` | 2026-11-20 | `9c04b667c695` | 48 → working |
@@ -13062,3 +13063,25 @@ Partial entries name their missing behavior; working entries are covered by the 
 - `AS3:method:flash/display/Loader.html#loadBytes()` — **working**: Decodes in-memory PNG/JPEG/GIF/WebP ByteArrays and raw FWS/CWS/ZWS SWF ByteArrays into live Bitmap or multi-frame AVM1/AVM2 MovieClip content with contentLoaderInfo metadata, frame navigation, and unloadAndStop cleanup.
 
 Evidence: [crates/neoflash-core/src/pixels/pipeline.rs](../../crates/neoflash-core/src/pixels/pipeline.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [crates/neoflash-script/tests/interfaces-accessors.mjs](../../crates/neoflash-script/tests/interfaces-accessors.mjs), [crates/neoflash-script/tests/function-workflow.mjs](../../crates/neoflash-script/tests/function-workflow.mjs), [crates/neoflash-script/tests/bitmap-pixels.mjs](../../crates/neoflash-script/tests/bitmap-pixels.mjs), [crates/neoflash-script/tests/clipped-scene.mjs](../../crates/neoflash-script/tests/clipped-scene.mjs), [crates/neoflash-script/tests/loader-gallery.mjs](../../crates/neoflash-script/tests/loader-gallery.mjs), [crates/neoflash-script/tests/core-surface.mjs](../../crates/neoflash-script/tests/core-surface.mjs), [web/tests/as3-fte-3d.test.cjs](../../web/tests/as3-fte-3d.test.cjs), [web/tests/display-family.test.cjs](../../web/tests/display-family.test.cjs), [web/tests/swf-loader.test.cjs](../../web/tests/swf-loader.test.cjs)
+
+### AS3-AUDIT-RECALIBRATION-20261121 — Recalibrate JPEG-XR BitmapData.encode and raw SWF Loader status after audit
+
+Updates Function note for Adobe AS3 EvalError #1066 on new Function(body), demotes BitmapData.encode, JPEGXREncoderOptions, and BitmapEncodingColorSpace to partial after replacing non-standard zlib .jxr containers with an explicit profile error, and demotes Loader.load/loadBytes to partial for bounded SWF bytecode.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `AS3:method:flash/display/BitmapData.html#encode()` — **partial**: Encodes bounded sub-rectangles into RFC-2083 PNG and JFIF JPEG ByteArrays via PNGEncoderOptions and JPEGEncoderOptions; JPEGXREncoderOptions validates options and throws an explicit HTML5/WASM profile error because ITU-T T.832 .jxr bitstream encoding is not implemented.
+- `AS3:class:flash/display/JPEGXREncoderOptions.html#` — **partial**: Options descriptor class holding quantization, colorSpace, and trimFlexBits properties; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented in the HTML5/WASM profile.
+- `AS3:constructor:flash/display/JPEGXREncoderOptions.html#JPEGXREncoderOptions()` — **partial**: Constructs JPEGXREncoderOptions with defaults quantization = 20, colorSpace = BitmapEncodingColorSpace.COLORSPACE_AUTO, and trimFlexBits = 0; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented.
+- `AS3:property:flash/display/JPEGXREncoderOptions.html#colorSpace` — **partial**: Stores and validates BitmapEncodingColorSpace ('auto', '4:4:4', '4:2:2', '4:2:0'); ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented.
+- `AS3:property:flash/display/JPEGXREncoderOptions.html#quantization` — **partial**: Stores and validates JPEG-XR quantization parameter (0..100); ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented.
+- `AS3:property:flash/display/JPEGXREncoderOptions.html#trimFlexBits` — **partial**: Stores and validates JPEG-XR trimFlexBits parameter (0..15); ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented.
+- `AS3:class:flash/display/BitmapEncodingColorSpace.html#` — **partial**: Enumeration class defining chroma subsampling constants for JPEGXREncoderOptions; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented.
+- `AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_0` — **partial**: Constant '4:2:0' consumed by JPEGXREncoderOptions validation; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented.
+- `AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_2` — **partial**: Constant '4:2:2' consumed by JPEGXREncoderOptions validation; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented.
+- `AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_4_4` — **partial**: Constant '4:4:4' consumed by JPEGXREncoderOptions validation; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented.
+- `AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_AUTO` — **partial**: Constant 'auto' consumed by JPEGXREncoderOptions validation; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented.
+- `AS3:method:flash/display/Loader.html#load()` — **partial**: Loads PNG/JPEG/GIF/WebP images, NeoFlash HTML5 child bundles, and bounded FWS/CWS/ZWS SWF movies (shapes, sprites, bitmaps, text, timelines, and sandboxed subset AVM1/AVM2 frame/document-class bytecode with unload/reparenting cleanup); unsupported SWF opcodes, closures, non-root SymbolClass bindings, and PlaceObject3 filters emit explicit warnings.
+- `AS3:method:flash/display/Loader.html#loadBytes()` — **partial**: Decodes in-memory PNG/JPEG/GIF/WebP ByteArrays and bounded FWS/CWS/ZWS SWF ByteArrays into live Bitmap or MovieClip content with sandboxed subset AVM1/AVM2 bytecode and unload/reparenting cleanup; unsupported SWF opcodes, closures, non-root SymbolClass bindings, and PlaceObject3 filters emit explicit warnings.
+
+Evidence: [crates/neoflash-core/src/pixels/pipeline.rs](../../crates/neoflash-core/src/pixels/pipeline.rs), [crates/neoflash-core/src/runtime_graph/loader.rs](../../crates/neoflash-core/src/runtime_graph/loader.rs), [crates/neoflash-web/src/swf_loader/tests.rs](../../crates/neoflash-web/src/swf_loader/tests.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [crates/neoflash-script/tests/function-workflow.mjs](../../crates/neoflash-script/tests/function-workflow.mjs), [crates/neoflash-script/tests/interfaces-accessors.mjs](../../crates/neoflash-script/tests/interfaces-accessors.mjs), [crates/neoflash-script/tests/bitmap-pixels.mjs](../../crates/neoflash-script/tests/bitmap-pixels.mjs), [crates/neoflash-script/tests/loader-gallery.mjs](../../crates/neoflash-script/tests/loader-gallery.mjs), [web/tests/as3-fte-3d.test.cjs](../../web/tests/as3-fte-3d.test.cjs), [web/tests/swf-loader.test.cjs](../../web/tests/swf-loader.test.cjs)

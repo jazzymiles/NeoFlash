@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "af2639fa48ca805926e59e9cb00f600e89bc69aa85e4889f2b0b399ad2fb78ce",
+  "reviews": [
+    {
+      "id": "AS3-AUDIT-RECALIBRATION-20261121",
+      "date": "2026-11-21",
+      "commit": "f709a977c6b2f701776091b6f2a4166fa6594c83",
+      "title": "Recalibrate JPEG-XR BitmapData.encode and raw SWF Loader status after audit",
+      "summary": "Updates Function note for Adobe AS3 EvalError #1066 on new Function(body), demotes BitmapData.encode, JPEGXREncoderOptions, and BitmapEncodingColorSpace to partial after replacing non-standard zlib .jxr containers with an explicit profile error, and demotes Loader.load/loadBytes to partial for bounded SWF bytecode.",
+      "tests": [
+        "crates/neoflash-core/src/pixels/pipeline.rs",
+        "crates/neoflash-core/src/runtime_graph/loader.rs",
+        "crates/neoflash-web/src/swf_loader/tests.rs",
+        "crates/neoflash-script/tests/execute.mjs",
+        "crates/neoflash-script/tests/function-workflow.mjs",
+        "crates/neoflash-script/tests/interfaces-accessors.mjs",
+        "crates/neoflash-script/tests/bitmap-pixels.mjs",
+        "crates/neoflash-script/tests/loader-gallery.mjs",
+        "web/tests/as3-fte-3d.test.cjs",
+        "web/tests/swf-loader.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#encode()",
+          "status": "partial",
+          "note": "Encodes bounded sub-rectangles into RFC-2083 PNG and JFIF JPEG ByteArrays via PNGEncoderOptions and JPEGEncoderOptions; JPEGXREncoderOptions validates options and throws an explicit HTML5/WASM profile error because ITU-T T.832 .jxr bitstream encoding is not implemented."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/JPEGXREncoderOptions.html#",
+          "status": "partial",
+          "note": "Options descriptor class holding quantization, colorSpace, and trimFlexBits properties; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented in the HTML5/WASM profile."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/JPEGXREncoderOptions.html#JPEGXREncoderOptions()",
+          "status": "partial",
+          "note": "Constructs JPEGXREncoderOptions with defaults quantization = 20, colorSpace = BitmapEncodingColorSpace.COLORSPACE_AUTO, and trimFlexBits = 0; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#colorSpace",
+          "status": "partial",
+          "note": "Stores and validates BitmapEncodingColorSpace ('auto', '4:4:4', '4:2:2', '4:2:0'); ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#quantization",
+          "status": "partial",
+          "note": "Stores and validates JPEG-XR quantization parameter (0..100); ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#trimFlexBits",
+          "status": "partial",
+          "note": "Stores and validates JPEG-XR trimFlexBits parameter (0..15); ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/BitmapEncodingColorSpace.html#",
+          "status": "partial",
+          "note": "Enumeration class defining chroma subsampling constants for JPEGXREncoderOptions; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_0",
+          "status": "partial",
+          "note": "Constant '4:2:0' consumed by JPEGXREncoderOptions validation; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_2",
+          "status": "partial",
+          "note": "Constant '4:2:2' consumed by JPEGXREncoderOptions validation; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_4_4",
+          "status": "partial",
+          "note": "Constant '4:4:4' consumed by JPEGXREncoderOptions validation; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_AUTO",
+          "status": "partial",
+          "note": "Constant 'auto' consumed by JPEGXREncoderOptions validation; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#load()",
+          "status": "partial",
+          "note": "Loads PNG/JPEG/GIF/WebP images, NeoFlash HTML5 child bundles, and bounded FWS/CWS/ZWS SWF movies (shapes, sprites, bitmaps, text, timelines, and sandboxed subset AVM1/AVM2 frame/document-class bytecode with unload/reparenting cleanup); unsupported SWF opcodes, closures, non-root SymbolClass bindings, and PlaceObject3 filters emit explicit warnings."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
+          "status": "partial",
+          "note": "Decodes in-memory PNG/JPEG/GIF/WebP ByteArrays and bounded FWS/CWS/ZWS SWF ByteArrays into live Bitmap or MovieClip content with sandboxed subset AVM1/AVM2 bytecode and unload/reparenting cleanup; unsupported SWF opcodes, closures, non-root SymbolClass bindings, and PlaceObject3 filters emit explicit warnings."
+        }
+      ]
+    }
+  ]
+}

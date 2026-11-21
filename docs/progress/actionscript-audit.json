@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "af2639fa48ca805926e59e9cb00f600e89bc69aa85e4889f2b0b399ad2fb78ce",
+  "catalogSha256": "d7bdc1c0a6e73b1c8d207fb28d53fd7537ec59f518dca8fd790ef507eb5b9375",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -37483,6 +37483,14 @@
         "reviewIds": [
           "AS3-AREAS2TO8-20261121"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-21-as3-audit-recalibration.json",
+        "sha256": "2049c4c8fb9510a1c93566d10db30bdc639478936962a1b64b10c0a352975bf4",
+        "baseCatalogSha256": "af2639fa48ca805926e59e9cb00f600e89bc69aa85e4889f2b0b399ad2fb78ce",
+        "reviewIds": [
+          "AS3-AUDIT-RECALIBRATION-20261121"
+        ]
       }
     ],
     "statusReviews": [
@@ -37923,13 +37931,22 @@
         "changes": {
           "working": 6
         }
+      },
+      {
+        "id": "AS3-AUDIT-RECALIBRATION-20261121",
+        "date": "2026-11-21",
+        "commit": "f709a977c6b2f701776091b6f2a4166fa6594c83",
+        "path": "docs/progress/reviews/2026-11-21-as3-audit-recalibration.json",
+        "changes": {
+          "partial": 13
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 5800,
-      "partial": 1617,
+      "implemented_subset": 5787,
+      "partial": 1630,
       "missing": 38630,
       "needs_review": 0,
       "total": 46047
@@ -37943,8 +37960,8 @@
         "total": 2307
       },
       "AS3": {
-        "implemented_subset": 4596,
-        "partial": 1152,
+        "implemented_subset": 4583,
+        "partial": 1165,
         "missing": 37992,
         "needs_review": 0,
         "total": 43740
@@ -37987,8 +38004,8 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 4971,
-        "partial": 1061,
+        "implemented_subset": 4958,
+        "partial": 1074,
         "missing": 126,
         "needs_review": 0,
         "total": 6158
@@ -38076,8 +38093,8 @@
           "total": 161
         },
         "runtime": {
-          "implemented_subset": 4096,
-          "partial": 1028,
+          "implemented_subset": 4083,
+          "partial": 1041,
           "missing": 126,
           "needs_review": 0,
           "total": 5250
@@ -177599,6 +177616,201 @@
           "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
           "status": "partial",
           "ruleId": "AS3-LOADER-RECOVERY-20261115",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS3-AUDIT-RECALIBRATION-20261121",
+      "title": "Recalibrate JPEG-XR BitmapData.encode and raw SWF Loader status after audit",
+      "reason": "Updates Function note for Adobe AS3 EvalError #1066 on new Function(body), demotes BitmapData.encode, JPEGXREncoderOptions, and BitmapEncodingColorSpace to partial after replacing non-standard zlib .jxr containers with an explicit profile error, and demotes Loader.load/loadBytes to partial for bounded SWF bytecode.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/pixels/pipeline.rs",
+          "sha256": "4de15e8ef2f7dd419ee3c8b16a17221c4ce829873ef3796aca739bdbc5be33d7"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/loader.rs",
+          "sha256": "526d256b852e97b9ca17ea54eafb4dd92ac02f57443a2bd3da517efcc334bfd9"
+        },
+        {
+          "path": "crates/neoflash-web/src/swf_loader/tests.rs",
+          "sha256": "e6506f13426b816e52db183ae0ab485c5101c03708679eb11830a9a9f5b1bd8d"
+        },
+        {
+          "path": "crates/neoflash-script/tests/execute.mjs",
+          "sha256": "e0716f307ff469737819cf1692eb75a6293e30da8d707e2e31e9c228e85ff502"
+        },
+        {
+          "path": "crates/neoflash-script/tests/function-workflow.mjs",
+          "sha256": "6b7b5a85a602eb7e7d9a40112d3deab6972521786ce3f035c71f04716f511009"
+        },
+        {
+          "path": "crates/neoflash-script/tests/interfaces-accessors.mjs",
+          "sha256": "796755451fdac630ba1a9cf7f56cc56db4e7f33ad855706a8632fb94aa9d119b"
+        },
+        {
+          "path": "crates/neoflash-script/tests/bitmap-pixels.mjs",
+          "sha256": "ac9d023ad4d7aebe824c072519c334481f408ebab1e442540db39e06d982c73c"
+        },
+        {
+          "path": "crates/neoflash-script/tests/loader-gallery.mjs",
+          "sha256": "b3701656548ac0063567800af71efdd9b9363de741c9936199bdd8d6e545176d"
+        },
+        {
+          "path": "web/tests/as3-fte-3d.test.cjs",
+          "sha256": "8c739170295b372464484f3edf80fc260d500e717805e559f52b60db8fcbd63f"
+        },
+        {
+          "path": "web/tests/swf-loader.test.cjs",
+          "sha256": "91702fb770051ca853e3655e7e24b44c128732b9b1f99d30932cace31e600864"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#encode()",
+          "status": "partial",
+          "scopeNote": "Encodes bounded sub-rectangles into RFC-2083 PNG and JFIF JPEG ByteArrays via PNGEncoderOptions and JPEGEncoderOptions; JPEGXREncoderOptions validates options and throws an explicit HTML5/WASM profile error because ITU-T T.832 .jxr bitstream encoding is not implemented."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/JPEGXREncoderOptions.html#",
+          "status": "partial",
+          "scopeNote": "Options descriptor class holding quantization, colorSpace, and trimFlexBits properties; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented in the HTML5/WASM profile."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/JPEGXREncoderOptions.html#JPEGXREncoderOptions()",
+          "status": "partial",
+          "scopeNote": "Constructs JPEGXREncoderOptions with defaults quantization = 20, colorSpace = BitmapEncodingColorSpace.COLORSPACE_AUTO, and trimFlexBits = 0; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#colorSpace",
+          "status": "partial",
+          "scopeNote": "Stores and validates BitmapEncodingColorSpace ('auto', '4:4:4', '4:2:2', '4:2:0'); ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#quantization",
+          "status": "partial",
+          "scopeNote": "Stores and validates JPEG-XR quantization parameter (0..100); ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#trimFlexBits",
+          "status": "partial",
+          "scopeNote": "Stores and validates JPEG-XR trimFlexBits parameter (0..15); ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/BitmapEncodingColorSpace.html#",
+          "status": "partial",
+          "scopeNote": "Enumeration class defining chroma subsampling constants for JPEGXREncoderOptions; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_0",
+          "status": "partial",
+          "scopeNote": "Constant '4:2:0' consumed by JPEGXREncoderOptions validation; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_2",
+          "status": "partial",
+          "scopeNote": "Constant '4:2:2' consumed by JPEGXREncoderOptions validation; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_4_4",
+          "status": "partial",
+          "scopeNote": "Constant '4:4:4' consumed by JPEGXREncoderOptions validation; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_AUTO",
+          "status": "partial",
+          "scopeNote": "Constant 'auto' consumed by JPEGXREncoderOptions validation; ITU-T T.832 .jxr bitstream encoding in BitmapData.encode is not implemented."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#load()",
+          "status": "partial",
+          "scopeNote": "Loads PNG/JPEG/GIF/WebP images, NeoFlash HTML5 child bundles, and bounded FWS/CWS/ZWS SWF movies (shapes, sprites, bitmaps, text, timelines, and sandboxed subset AVM1/AVM2 frame/document-class bytecode with unload/reparenting cleanup); unsupported SWF opcodes, closures, non-root SymbolClass bindings, and PlaceObject3 filters emit explicit warnings."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
+          "status": "partial",
+          "scopeNote": "Decodes in-memory PNG/JPEG/GIF/WebP ByteArrays and bounded FWS/CWS/ZWS SWF ByteArrays into live Bitmap or MovieClip content with sandboxed subset AVM1/AVM2 bytecode and unload/reparenting cleanup; unsupported SWF opcodes, closures, non-root SymbolClass bindings, and PlaceObject3 filters emit explicit warnings."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#encode()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS2TO7-20261120",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/JPEGXREncoderOptions.html#",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS2TO7-20261120",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/JPEGXREncoderOptions.html#JPEGXREncoderOptions()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS2TO7-20261120",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#colorSpace",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS2TO7-20261120",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#quantization",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS2TO7-20261120",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#trimFlexBits",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS2TO7-20261120",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/BitmapEncodingColorSpace.html#",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS2TO7-20261120",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_0",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS2TO7-20261120",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_2",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS2TO7-20261120",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_4_4",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS2TO7-20261120",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_AUTO",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS2TO7-20261120",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#load()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS2TO8-20261121",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS2TO8-20261121",
           "evidenceKind": "test_backed_review"
         }
       ]
