@@ -241,14 +241,17 @@ test('AS2 XMLSocket end-to-end over real loopback RFC 6455 WebSocket server (con
     // 1) Primary XMLSocket using default prototype onData -> XML parse -> onXML + remote close
     var s1:XMLSocket = new XMLSocket();
     events.push("defaultTimeout:" + s1.timeout);
+    var sendBeforeConnect:Boolean = s1.send("before-open");
+    events.push("sendBeforeConnect:" + sendBeforeConnect);
     var lowPort:Boolean = s1.connect("127.0.0.1", 80);
     events.push("lowPort:" + lowPort);
     s1.onConnect = function(ok:Boolean):Void {
       events.push("s1.connect:" + ok);
       if (ok) {
         var doc:XML = new XML('<hello from="as2"><child v="7"/></hello>');
-        this.send(doc);
-        this.send(doc.firstChild.firstChild);
+        var sendOk1:Boolean = this.send(doc);
+        var sendOk2:Boolean = this.send(doc.firstChild.firstChild);
+        events.push("s1.sendOk:" + sendOk1 + ":" + sendOk2);
       }
     };
     s1.onXML = function(parsed:XML):Void {
@@ -273,7 +276,8 @@ test('AS2 XMLSocket end-to-end over real loopback RFC 6455 WebSocket server (con
       events.push("s2.raw:" + raw);
       if (raw == "beta-raw") {
         this.close();
-        events.push("s2.localClosed");
+        var sendAfterClose:Boolean = this.send("after-close");
+        events.push("s2.localClosed:" + sendAfterClose);
       }
     };
     s2.onXML = function(unexpected:XML):Void {
@@ -299,6 +303,15 @@ test('AS2 XMLSocket end-to-end over real loopback RFC 6455 WebSocket server (con
       events.push("timeout.connect:" + ok);
     };
     sTimeout.connect("127.0.0.1", ${stalledPort});
+
+    // 5) System.security.loadPolicyFile("xmlsocket://...") on default WebSocket runtime delegates cleanly without hanging or false rejection
+    System.security.loadPolicyFile("xmlsocket://127.0.0.1:${wsServer.port}");
+    var sDelegated:XMLSocket = new XMLSocket();
+    sDelegated.onConnect = function(ok:Boolean):Void {
+      events.push("delegated.connect:" + ok);
+      if (ok) this.close();
+    };
+    sDelegated.connect("127.0.0.1", ${wsServer.port});
   `;
 
   const script = { language: 'action_script2', source: as2Source };
@@ -319,20 +332,23 @@ test('AS2 XMLSocket end-to-end over real loopback RFC 6455 WebSocket server (con
       const ev = Array.from(rootClip.events || []);
       return (
         ev.includes('s1.close:0') &&
-        ev.includes('s2.localClosed') &&
+        ev.includes('s2.localClosed:false') &&
         ev.includes('refused.connect:false') &&
-        ev.includes('timeout.connect:false')
+        ev.includes('timeout.connect:false') &&
+        ev.includes('delegated.connect:true')
       );
-    }, 'all 4 real loopback XMLSocket scenarios complete');
+    }, 'all 5 real loopback XMLSocket scenarios complete');
 
     // Give a brief grace window to verify local close() never triggers s2.onClose asynchronously
     await new Promise(r => setTimeout(r, 40));
 
     const log = Array.from(rootClip.events);
     assert.ok(log.includes('defaultTimeout:20000'));
+    assert.ok(log.includes('sendBeforeConnect:false'));
     assert.ok(log.includes('lowPort:false'));
     assert.ok(log.includes('s1.started:true'));
     assert.ok(log.includes('s1.connect:true'));
+    assert.ok(log.includes('s1.sendOk:true:true'));
     assert.ok(log.includes('s1.xml:reply:ok'));
     assert.ok(log.includes('s1.xml:batch:2'));
     assert.ok(log.includes('s1.xml:batch:3'));
@@ -342,15 +358,16 @@ test('AS2 XMLSocket end-to-end over real loopback RFC 6455 WebSocket server (con
     assert.ok(log.includes('s2.connect:true'));
     assert.ok(log.includes('s2.raw:alpha-raw'));
     assert.ok(log.includes('s2.raw:beta-raw'));
-    assert.ok(log.includes('s2.localClosed'));
+    assert.ok(log.includes('s2.localClosed:false'));
     assert.ok(!log.includes('s2.unexpectedOnXML'), 'overriding onData intercepts raw string before onXML');
     assert.ok(!log.includes('s2.unexpectedOnClose'), 'local close() must NOT fire onClose');
 
     assert.ok(log.includes('refused.connect:false'));
     assert.ok(log.includes('timeout.connect:false'));
+    assert.ok(log.includes('delegated.connect:true'));
 
     // Verify every outbound Flash XMLSocket frame carried the mandatory trailing 0x00 NUL byte on the wire
-    const s1ServerSide = serverClients.find(c => c.url === '/');
+    const s1ServerSide = serverClients.find(c => c.url === '/' && c.rawFrames.length > 0);
     assert.ok(s1ServerSide, 'primary XMLSocket connected to /');
     assert.equal(s1ServerSide.rawFrames.length, 3);
     for (const rawFrame of s1ServerSide.rawFrames) {

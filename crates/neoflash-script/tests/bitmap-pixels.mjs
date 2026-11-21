@@ -295,6 +295,8 @@ export async function verifyBitmapPixels(root,cargo) {
     const jxrLosslessRgba=oddRgba.encode(oddRgba.rect,new JxrOpts(0,ColorSpaceEnum.COLORSPACE_4_4_4,0));
     const jxrRgbaBytes=host.binary().toBytes(jxrLosslessRgba);
     assert.deepEqual(Array.from(jxrRgbaBytes.slice(0,4)),[0x49,0x49,0xbc,0x01],'ITU-T T.832 .jxr magic header');
+    assert.ok(Buffer.from(jxrRgbaBytes).includes(Buffer.from([0xc0,0xbc,0x04,0x00])),'ITU-T T.832 IFD IMAGE_OFFSET tag 0xBCC0');
+    assert.ok(Buffer.from(jxrRgbaBytes).includes(Buffer.from([0xc2,0xbc,0x04,0x00])),'ITU-T T.832 IFD ALPHA_OFFSET tag 0xBCC2');
     assert.ok(Buffer.from(jxrRgbaBytes).includes(Buffer.from('WMPHOTO\0','ascii')),'ITU-T T.832 WMPHOTO\\0 IMAGE_HEADER signature');
     const decodedRgbaRef=JSON.parse(player.pixel_decode(jxrRgbaBytes));
     const roundtripRgba=bitmap.fromRef(decodedRgbaRef);

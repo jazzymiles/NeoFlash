@@ -28,6 +28,7 @@ enum PolicyStatus {
     Pending,
     Loaded,
     Failed,
+    Delegated,
 }
 
 #[derive(Clone, Debug)]
@@ -376,6 +377,17 @@ impl ScriptAS2Platform {
                 }
                 json!(true)
             }
+            "delegate_policy_file" => {
+                let url = q["url"]
+                    .as_str()
+                    .ok_or("delegate_policy_file requires a policy URL")?;
+                let Some(idx) = self.policy_files.iter().position(|r| r.url == url) else {
+                    return Err("Unknown policy file URL".into());
+                };
+                self.policy_files[idx].status = PolicyStatus::Delegated;
+                self.policy_files[idx].rules.clear();
+                json!(true)
+            }
             "apply_policy_xml" => {
                 let url = q["url"]
                     .as_str()
@@ -469,7 +481,9 @@ impl ScriptAS2Platform {
                     let matching: Vec<&PolicyFileRecord> = self
                         .policy_files
                         .iter()
-                        .filter(|r| r.target_host == target_host)
+                        .filter(|r| {
+                            r.target_host == target_host && r.status != PolicyStatus::Delegated
+                        })
                         .collect();
                     if matching.is_empty() {
                         let same_host = !self.page_host.is_empty()
@@ -1058,6 +1072,32 @@ mod tests {
         )
         .unwrap();
         assert_eq!(pol_bad_port["allowed"], false);
+
+        // Delegated xmlsocket:// policy record does not block check_policy when no socket policy transport exists
+        assert_eq!(
+            platform
+                .execute(
+                    r#"{"op":"load_policy_file","url":"xmlsocket://socket-only.example:9123"}"#
+                )
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            platform
+                .execute(
+                    r#"{"op":"delegate_policy_file","url":"xmlsocket://socket-only.example:9123"}"#
+                )
+                .unwrap(),
+            "true"
+        );
+        let pol_delegated: Value = serde_json::from_str(
+            &platform
+                .execute(r#"{"op":"check_policy","target":"socket-only.example","port":9123}"#)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(pol_delegated["evaluated"], false);
+        assert_eq!(pol_delegated["pending"], false);
 
         let local_file =
             ScriptAS2Platform::new(r#"{"protocol":"file:","localTrusted":false}"#).unwrap();

@@ -155,10 +155,11 @@ function create(options={}){
    return true;
   }
   send(object){
-   const r=state(xmlStates,this);if(!r.open||!r.socket)throw new Error('XMLSocket.send requires an open connection.');
+   const r=state(xmlStates,this);if(!r.open||!r.socket)return false;
    const text=object===null||object===undefined?'':(typeof object==='object'&&typeof object.toString==='function'?String(object.toString()):String(object));
    const framed=amf.unbase64(command({op:'xmlSend',owner:r.id},encoder.encode(text)).wire);
    r.socket.send(decoder.decode(framed));
+   return true;
   }
   close(){const r=state(xmlStates,this);stopXmlSocket(r,false);}
  }

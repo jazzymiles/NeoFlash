@@ -219,22 +219,28 @@
               if(pendingPolicies.get(urlStr)===job)pendingPolicies.delete(urlStr);
             });
             pendingPolicies.set(urlStr,job);
+          }else{
+            platform({op:'delegate_policy_file',url:urlStr});
           }
-        }else if(urlStr.startsWith('xmlsocket://')&&typeof options.fetchSocketPolicy==='function'){
-          const born=generation;
-          const job=Promise.resolve().then(()=>options.fetchSocketPolicy(urlStr)).then(
-            xml=>{
-              if(disposed||born!==generation)return;
-              applyLoadedPolicy(urlStr,typeof xml==='string'&&xml.length>0,xml||'');
-            },
-            ()=>{
-              if(disposed||born!==generation)return;
-              applyLoadedPolicy(urlStr,false,'');
-            }
-          ).finally(()=>{
-            if(pendingPolicies.get(urlStr)===job)pendingPolicies.delete(urlStr);
-          });
-          pendingPolicies.set(urlStr,job);
+        }else if(urlStr.startsWith('xmlsocket://')){
+          if(typeof options.fetchSocketPolicy==='function'){
+            const born=generation;
+            const job=Promise.resolve().then(()=>options.fetchSocketPolicy(urlStr)).then(
+              xml=>{
+                if(disposed||born!==generation)return;
+                applyLoadedPolicy(urlStr,typeof xml==='string'&&xml.length>0,xml||'');
+              },
+              ()=>{
+                if(disposed||born!==generation)return;
+                applyLoadedPolicy(urlStr,false,'');
+              }
+            ).finally(()=>{
+              if(pendingPolicies.get(urlStr)===job)pendingPolicies.delete(urlStr);
+            });
+            pendingPolicies.set(urlStr,job);
+          }else{
+            platform({op:'delegate_policy_file',url:urlStr});
+          }
         }
       }
     });
