@@ -78,32 +78,47 @@ fn quote_as_string(value: &str) -> String {
     out
 }
 
-fn format_color_literal(raw: &str) -> String {
+fn format_color_literal(raw: &str) -> Result<String, ()> {
     let trimmed = raw.trim();
     let hex = trimmed
         .strip_prefix('#')
         .or_else(|| trimmed.strip_prefix("0x"))
         .or_else(|| trimmed.strip_prefix("0X"))
-        .unwrap_or(trimmed);
-    if hex.len() >= 6 && hex[..6].chars().all(|c| c.is_ascii_hexdigit()) {
-        format!("0x{}", &hex[..6])
+        .ok_or(())?;
+    if hex.len() == 6 && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        Ok(format!("0x{hex}"))
     } else {
-        "0x000000".into()
+        Err(())
     }
 }
 
-fn format_number_literal(raw: &str) -> String {
-    let normalized = raw.trim().replace(',', ".");
+fn format_number_literal(raw: &str) -> Result<String, ()> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(());
+    }
+    let normalized = trimmed.replace(',', ".");
     if let Ok(v) = normalized.parse::<f64>()
         && v.is_finite()
     {
         if v.fract() == 0.0 && v.abs() < 1e15 {
-            format!("{}", v as i64)
+            Ok(format!("{}", v as i64))
         } else {
-            format!("{v}")
+            Ok(format!("{v}"))
         }
     } else {
-        "0".into()
+        Err(())
+    }
+}
+
+fn format_bool_literal(raw: &str) -> Result<String, ()> {
+    let t = raw.trim();
+    if t.eq_ignore_ascii_case("true") || t == "1" {
+        Ok("true".into())
+    } else if t.eq_ignore_ascii_case("false") || t == "0" {
+        Ok("false".into())
+    } else {
+        Err(())
     }
 }
 
@@ -121,19 +136,30 @@ fn format_legacy_property_expr(
         19 => Ok(None),
         // Collection table cannot be faithfully reconstructed without schema
         13 => Err(()),
-        2 | 16 => Ok(Some("[]".into())),
-        3 => Ok(Some("{}".into())),
-        4 => Ok(Some(quote_as_string(""))),
-        6 => Ok(Some(format_number_literal(&raw))),
-        7 => Ok(Some(
-            if raw.trim() == "true" {
-                "true"
+        2 | 16 => {
+            if raw.trim().is_empty() {
+                Ok(Some("[]".into()))
             } else {
-                "false"
+                Err(())
             }
-            .into(),
-        )),
-        9 => Ok(Some(format_color_literal(&raw))),
+        }
+        3 => {
+            if raw.trim().is_empty() {
+                Ok(Some("{}".into()))
+            } else {
+                Err(())
+            }
+        }
+        4 => {
+            if raw.is_empty() {
+                Ok(Some(quote_as_string("")))
+            } else {
+                Err(())
+            }
+        }
+        6 => format_number_literal(&raw).map(Some),
+        7 => format_bool_literal(&raw).map(Some),
+        9 => format_color_literal(&raw).map(Some),
         1 | 5 | 8 | 10 | 11 | 12 | 14 | 15 | 17 | 18 => Ok(Some(quote_as_string(&raw))),
         _ => Err(()),
     }
@@ -164,42 +190,34 @@ fn format_typed_property_expr(
         3 => {
             let mut pairs = Vec::with_capacity(val.entries.len());
             for entry in &val.entries {
-                let k = match entry.name.as_ref() {
-                    Some(n) => super::read_string(stream_bytes, n).map_err(|_| ())?,
-                    None => continue,
+                let Some(n) = entry.name.as_ref() else {
+                    return Err(());
                 };
+                let k = super::read_string(stream_bytes, n).map_err(|_| ())?;
+                if k.is_empty() {
+                    return Err(());
+                }
                 let v = super::read_string(stream_bytes, &entry.value).map_err(|_| ())?;
                 pairs.push(format!("{}: {}", quote_as_string(&k), quote_as_string(&v)));
             }
             Ok(Some(format!("{{{}}}", pairs.join(", "))))
         }
-        // Video Cue Points (`[{ name: ..., time: ... }]` or empty `[]`)
+        // Video Cue Points: only empty `[]` is lossless without full `{name, time, type, parameters}` schema.
         16 => {
             if val.entries.is_empty() {
-                return Ok(Some("[]".into()));
+                Ok(Some("[]".into()))
+            } else {
+                Err(())
             }
-            let mut cues = Vec::with_capacity(val.entries.len());
-            for entry in &val.entries {
-                let cname = match entry.name.as_ref() {
-                    Some(n) => super::read_string(stream_bytes, n).map_err(|_| ())?,
-                    None => String::new(),
-                };
-                let cval = super::read_string(stream_bytes, &entry.value).map_err(|_| ())?;
-                cues.push(format!(
-                    "{{name: {}, value: {}}}",
-                    quote_as_string(&cname),
-                    quote_as_string(&cval)
-                ));
-            }
-            Ok(Some(format!("[{}]", cues.join(", "))))
         }
-        // List (`selected_index` selects entry)
+        // List (`selected_index` selects entry; negative i32 bit-patterns or out-of-bounds indices are lossy)
         4 => {
-            let idx = val.selected_index.unwrap_or(0) as usize;
-            let chosen = match val.entries.get(idx) {
-                Some(entry) => super::read_string(stream_bytes, &entry.value).map_err(|_| ())?,
-                None => String::new(),
-            };
+            let idx_u32 = val.selected_index.ok_or(())?;
+            if (idx_u32 as i32) < 0 {
+                return Err(());
+            }
+            let entry = val.entries.get(idx_u32 as usize).ok_or(())?;
+            let chosen = super::read_string(stream_bytes, &entry.value).map_err(|_| ())?;
             Ok(Some(quote_as_string(&chosen)))
         }
         // Scalar types
@@ -212,15 +230,9 @@ fn format_typed_property_expr(
                 None => String::new(),
             };
             let expr = match val.value_type {
-                6 => format_number_literal(&raw),
-                7 => {
-                    if raw.trim().eq_ignore_ascii_case("true") || raw.trim() == "1" {
-                        "true".into()
-                    } else {
-                        "false".into()
-                    }
-                }
-                9 => format_color_literal(&raw),
+                6 => format_number_literal(&raw)?,
+                7 => format_bool_literal(&raw)?,
+                9 => format_color_literal(&raw)?,
                 _ => quote_as_string(&raw),
             };
             Ok(Some(expr))
@@ -229,14 +241,42 @@ fn format_typed_property_expr(
     }
 }
 
+/// Returns `true` when `props`/`property_count` contains any non-preview component parameter.
+pub(super) fn has_nonpreview_component_properties(
+    props: Option<&TimelineComponentProperties>,
+    property_count: Option<u32>,
+) -> bool {
+    let Some(list) = props else {
+        return property_count.unwrap_or(0) != 0;
+    };
+    list.entries.iter().any(|entry| {
+        if list.revision == 0 && entry.value.is_none() {
+            entry.legacy_type.unwrap_or(0) != 19
+        } else {
+            entry.value.as_ref().is_none_or(|v| v.value_type != 19)
+        }
+    })
+}
+
 /// Translate binary FLA component inspectable parameters into an `ObjectEvent::Load`
-/// initializer script when representable, returning `(optional_script, had_unrepresented)`.
+/// initializer script when representable on an AS1/AS2 MovieClip with implementation,
+/// returning `(optional_script, had_unrepresented)`.
 pub(super) fn translate_component_properties(
     stream_bytes: &[u8],
     props: Option<&TimelineComponentProperties>,
     property_count: Option<u32>,
     doc_language: ScriptLanguage,
+    target_supports_avm1_load_script: bool,
 ) -> (Option<ObjectScript>, bool) {
+    let has_nonpreview = has_nonpreview_component_properties(props, property_count);
+    let avm1_lang = match doc_language {
+        ScriptLanguage::ActionScript1 => Some(ScriptLanguage::ActionScript1),
+        ScriptLanguage::ActionScript2 => Some(ScriptLanguage::ActionScript2),
+        _ => None,
+    };
+    if avm1_lang.is_none() || !target_supports_avm1_load_script {
+        return (None, has_nonpreview);
+    }
     let count = property_count.unwrap_or(0);
     let Some(list) = props else {
         return (None, count != 0);
@@ -248,6 +288,14 @@ pub(super) fn translate_component_properties(
     let mut had_lossy = false;
 
     for entry in &list.entries {
+        let is_preview = if list.revision == 0 && entry.value.is_none() {
+            entry.legacy_type.unwrap_or(0) == 19
+        } else {
+            entry.value.as_ref().is_some_and(|v| v.value_type == 19)
+        };
+        if is_preview {
+            continue;
+        }
         let var_name = entry
             .variable_name
             .as_ref()
@@ -279,18 +327,13 @@ pub(super) fn translate_component_properties(
         }
     }
 
-    let script_obj = (!statements.is_empty()).then(|| {
-        let lang = match doc_language {
-            ScriptLanguage::ActionScript1 => ScriptLanguage::ActionScript1,
-            _ => ScriptLanguage::ActionScript2,
-        };
-        ObjectScript {
-            event: ObjectEvent::Load,
-            script: Script {
-                language: lang,
-                source: statements.join("\n"),
-            },
-        }
+    let lang = avm1_lang.unwrap();
+    let script_obj = (!statements.is_empty()).then(|| ObjectScript {
+        event: ObjectEvent::Load,
+        script: Script {
+            language: lang,
+            source: statements.join("\n"),
+        },
     });
     (script_obj, had_lossy)
 }

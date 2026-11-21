@@ -519,6 +519,7 @@ pub(super) fn split_multi_element_continuous_instances(
                         FrameLabelType::Name
                     },
                     sound: if ti == 0 { orig_k.sound.clone() } else { None },
+                    video: if ti == 0 { orig_k.video.clone() } else { None },
                     ..Default::default()
                 })
                 .collect()
@@ -534,12 +535,13 @@ pub(super) struct RenderedKeyElements {
 pub(super) fn render_keyframe_elements(
     elements: &[Element],
     bitmap_fills: &[AuthoredBitmapFill],
+    frame_video_resource: Option<&str>,
     ctx: &ExportContext,
 ) -> RenderedKeyElements {
     let mut xml_items = Vec::with_capacity(elements.len());
     let mut all_shapes = true;
     for elem in elements {
-        let (rendered, is_shape) = render_element(elem, bitmap_fills, ctx);
+        let (rendered, is_shape) = render_element(elem, bitmap_fills, frame_video_resource, ctx);
         if !rendered.is_empty() {
             if !is_shape {
                 all_shapes = false;
@@ -731,9 +733,30 @@ pub(super) fn build_prepared_frames(
         }];
     }
 
+    let mut active_video_res: Option<&str> = None;
     let rendered: Vec<RenderedKeyElements> = keys
         .iter()
-        .map(|k| render_keyframe_elements(&k.elements, &k.bitmap_fills, ctx))
+        .map(|k| {
+            if let Some(span) = &k.video {
+                active_video_res = ctx
+                    .embedded_video_ids
+                    .contains(&span.resource)
+                    .then_some(span.resource.as_str());
+            } else if !k
+                .elements
+                .iter()
+                .any(|e| matches!(e.kind, ElementKind::Video { .. }))
+            {
+                active_video_res = None;
+            }
+            let eff_res = k
+                .video
+                .as_ref()
+                .filter(|v| ctx.embedded_video_ids.contains(&v.resource))
+                .map(|v| v.resource.as_str())
+                .or(active_video_res);
+            render_keyframe_elements(&k.elements, &k.bitmap_fills, eff_res, ctx)
+        })
         .collect();
 
     let mut frames = Vec::with_capacity(keys.len() + 2);

@@ -181,15 +181,22 @@ pub(super) fn probe_stream_metadata(
     };
     let mut cmd = Command::new(&ffprobe);
     configure_media_subprocess_command(&mut cmd, &ffprobe);
-    let mut child = cmd
-        .arg("-v")
+    let is_flv = input
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("flv"));
+    cmd.arg("-v")
         .arg("error")
         .arg("-select_streams")
         .arg("v:0")
         .arg("-show_entries")
         .arg("stream=width,height,avg_frame_rate,r_frame_rate,nb_frames,duration:format=duration")
         .arg("-of")
-        .arg("default=noprint_wrappers=1:nokey=0")
+        .arg("default=noprint_wrappers=1:nokey=0");
+    if is_flv {
+        cmd.arg("-f").arg("flv");
+    }
+    let mut child = cmd
         .arg(input)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -261,6 +268,13 @@ pub(super) fn decode_ffmpeg_pam_window(
         );
     if let Some(sec) = seek_sec {
         cmd.arg("-ss").arg(format!("{:.6}", sec.max(0.0)));
+    }
+    if input
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("flv"))
+    {
+        cmd.arg("-f").arg("flv");
     }
     cmd.arg("-i").arg(input);
     if max_frames > 0 {
@@ -400,15 +414,23 @@ fn decode_ffmpeg_backing(
 
     let mut cmd = Command::new(&ffmpeg);
     configure_media_subprocess_command(&mut cmd, &ffmpeg);
-    let mut child = cmd
-        .arg("-hide_banner")
+    cmd.arg("-hide_banner")
         .arg("-nostdin")
         .arg("-max_pixels")
         .arg(
             u64::from(MAX_DECODED_VIDEO_WIDTH)
                 .saturating_mul(u64::from(MAX_DECODED_VIDEO_HEIGHT))
                 .to_string(),
-        )
+        );
+    if backing
+        .path()
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("flv"))
+    {
+        cmd.arg("-f").arg("flv");
+    }
+    let mut child = cmd
         .arg("-i")
         .arg(backing.path())
         .arg("-f")
@@ -511,10 +533,24 @@ fn decode_video_stream_with_ffmpeg(
             "Video '{name}' requires ffmpeg to decode compressed video frames, but ffmpeg was not found."
         )
     })?;
-    let ext = if mime.contains("webm") || name.ends_with(".webm") {
+    let ext = if mime.contains("webm") || name.to_ascii_lowercase().ends_with(".webm") {
         "webm"
-    } else if mime.contains("ogg") || name.ends_with(".ogv") || name.ends_with(".ogg") {
+    } else if mime.contains("ogg")
+        || name.to_ascii_lowercase().ends_with(".ogv")
+        || name.to_ascii_lowercase().ends_with(".ogg")
+    {
         "ogv"
+    } else if mime.contains("flv")
+        || name.to_ascii_lowercase().ends_with(".flv")
+        || neoflash_core::timeline_video::is_flv_bytes(bytes)
+    {
+        "flv"
+    } else if mime.contains("avi")
+        || mime.contains("msvideo")
+        || name.to_ascii_lowercase().ends_with(".avi")
+        || neoflash_core::is_avi_bytes(bytes)
+    {
+        "avi"
     } else {
         "mp4"
     };

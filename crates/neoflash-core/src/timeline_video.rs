@@ -1734,6 +1734,51 @@ pub fn inspect_video_deployment(
     }
 }
 
+/// Return `true` when `bytes` begins with a valid 9-byte `FLV\x01` header and `PreviousTagSize0`.
+pub fn is_flv_bytes(bytes: &[u8]) -> bool {
+    if bytes.len() < 13 || &bytes[0..4] != b"FLV\x01" {
+        return false;
+    }
+    let data_offset = u32::from_be_bytes([bytes[5], bytes[6], bytes[7], bytes[8]]) as usize;
+    data_offset >= 9
+        && data_offset
+            .checked_add(4)
+            .is_some_and(|end| end <= bytes.len())
+}
+
+/// Sequentially walk bounded FLV tag headers (zero byte scanning) to detect On2 VP6 with alpha (`CodecID == 5`).
+pub fn flv_has_vp6a_alpha(bytes: &[u8]) -> bool {
+    if !is_flv_bytes(bytes) {
+        return false;
+    }
+    let data_offset = u32::from_be_bytes([bytes[5], bytes[6], bytes[7], bytes[8]]) as usize;
+    let mut pos = data_offset + 4;
+    let mut inspected_tags = 0usize;
+    while pos + 11 <= bytes.len() && inspected_tags < 64 {
+        let tag_type = bytes[pos];
+        let data_size = (usize::from(bytes[pos + 1]) << 16)
+            | (usize::from(bytes[pos + 2]) << 8)
+            | usize::from(bytes[pos + 3]);
+        if tag_type == 9 && data_size >= 1 && pos + 12 <= bytes.len() {
+            let codec_id = bytes[pos + 11] & 0x0f;
+            return codec_id == 5;
+        }
+        let Some(next_pos) = pos
+            .checked_add(11)
+            .and_then(|p| p.checked_add(data_size))
+            .and_then(|p| p.checked_add(4))
+        else {
+            break;
+        };
+        if next_pos > bytes.len() {
+            break;
+        }
+        pos = next_pos;
+        inspected_tags += 1;
+    }
+    false
+}
+
 /// Inspect a video resource's container header, codec brands and external URL for browser/native
 /// playback compatibility (`T-118`).
 pub fn inspect_video_resource(
@@ -1783,6 +1828,30 @@ pub fn inspect_video_resource(
         return diagnostics;
     }
 
+    if bytes.starts_with(b"FLV") {
+        if is_flv_bytes(bytes) {
+            let alpha_note = if flv_has_vp6a_alpha(bytes) {
+                "VP9 WebM (with alpha)"
+            } else {
+                "H.264 MP4"
+            };
+            diagnostics.push(VideoCodecDiagnostic {
+                code: "video-flv-transcode-on-publish",
+                message: format!(
+                    "Video '{name}' is a Flash Video (FLV) container; native preview decodes it via ffmpeg and HTML5 publish transcodes it to {alpha_note} for browser playback."
+                ),
+                is_error: false,
+            });
+        } else {
+            diagnostics.push(VideoCodecDiagnostic {
+                code: "video-invalid-flv",
+                message: format!("Video '{name}' has a truncated or invalid FLV v1 header."),
+                is_error: true,
+            });
+        }
+        return diagnostics;
+    }
+
     let is_mp4 = bytes.len() >= 12 && &bytes[4..8] == b"ftyp";
     let is_webm = bytes.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]);
     let is_ogg = bytes.starts_with(b"OggS");
@@ -1792,7 +1861,7 @@ pub fn inspect_video_resource(
         diagnostics.push(VideoCodecDiagnostic {
             code: "video-unknown-container",
             message: format!(
-                "Video '{name}' is missing a valid MP4 (ftyp), WebM (EBML), Ogg (OggS) or AVI (RIFF AVI) container header."
+                "Video '{name}' is missing a valid MP4 (ftyp), WebM (EBML), Ogg (OggS), AVI (RIFF AVI) or FLV (FLV v1) container header."
             ),
             is_error: true,
         });

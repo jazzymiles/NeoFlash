@@ -1,6 +1,7 @@
 //! Native binary authoring import. Source records remain embedded verbatim;
 //! unsupported visual or executable records stop conversion with a location.
 mod assets;
+mod compiled_clip;
 mod instance_props;
 mod shape;
 #[cfg(test)]
@@ -559,7 +560,77 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         videos,
         compiled_clips,
         skipped_bitmaps,
-    } = assets::resources(document, &folder_paths, &reserved_ids, report)?;
+    } = assets::resources(document, &folder_paths, &reserved_ids, language, report)?;
+    let scene_stream_indices: std::collections::BTreeSet<usize> =
+        scene_indices.iter().copied().collect();
+    let mut implemented_symbols = std::collections::BTreeSet::new();
+    for d in &c.descriptors {
+        if d.class != ContentsDescriptorClass::DocumentPage || c.scenes.contains(&d.object_id) {
+            continue;
+        }
+        if matches!(d.symbol_type, Some(0) | Some(1)) {
+            continue;
+        }
+        let sym_id = match d.stream_index {
+            Some(index) => sid(index),
+            None => continue,
+        };
+        let linkage = d
+            .linkage
+            .as_ref()
+            .or_else(|| d.library_metadata.as_ref().and_then(|m| m.linkage.as_ref()));
+        let has_class = linkage
+            .and_then(|l| l.class_name.as_ref())
+            .and_then(|cn| read_string(&c.original_bytes, cn).ok())
+            .is_some_and(|s| !s.trim().is_empty());
+        let has_stream_actions = d
+            .stream_index
+            .and_then(|idx| document.streams.iter().find(|s| s.index == idx))
+            .is_some_and(stream_has_executable_actions);
+        if has_class || has_stream_actions {
+            implemented_symbols.insert(sym_id);
+        }
+    }
+    loop {
+        let mut changed = false;
+        for d in &c.descriptors {
+            if d.class != ContentsDescriptorClass::DocumentPage
+                || c.scenes.contains(&d.object_id)
+                || matches!(d.symbol_type, Some(0) | Some(1))
+            {
+                continue;
+            }
+            let Some(index) = d.stream_index else {
+                continue;
+            };
+            let sym_id = sid(index);
+            if implemented_symbols.contains(&sym_id) {
+                continue;
+            }
+            let Some(stream) = document.streams.iter().find(|s| s.index == index) else {
+                continue;
+            };
+            let has_implemented_child = stream.objects.iter().any(|o| match &o.payload {
+                Some(TimelinePayload::Instance(inst)) => inst
+                    .library_id
+                    .and_then(|lid| library.get(&lid))
+                    .is_some_and(|cid| implemented_symbols.contains(cid)),
+                Some(TimelinePayload::CompiledClip(cc)) => cc
+                    .media_id
+                    .and_then(|mid| compiled_clips.get(&mid))
+                    .and_then(|ca| ca.reconstructed.as_ref())
+                    .is_some_and(|rec| rec.has_avm1_scripts),
+                _ => false,
+            });
+            if has_implemented_child {
+                implemented_symbols.insert(sym_id);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
     let stream_stops: std::collections::BTreeSet<usize> = document
         .inspection
         .streams
@@ -571,6 +642,8 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         report,
         library,
         library_kinds,
+        implemented_symbols,
+        scene_stream_indices,
         bitmaps,
         sounds,
         videos,
@@ -581,6 +654,7 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         include_hidden,
         contents_revision: c.revision,
         generated: vec![],
+        compiled_clip_sources: vec![],
         provenance: vec![],
         missing_bitmaps: BTreeMap::new(),
     };
@@ -761,6 +835,19 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
                 language: src_lang,
                 source: source_text,
             });
+        }
+    }
+    for src in context.compiled_clip_sources {
+        if !src.path.is_empty()
+            && src.path.len() <= 1024
+            && !src.path.contains(['\\', '\0', ':'])
+            && !src
+                .path
+                .split('/')
+                .any(|part| part.is_empty() || matches!(part, "." | ".."))
+            && seen_source_paths.insert(src.path.to_lowercase())
+        {
+            imported_sources.push(src);
         }
     }
     let document_class = c
@@ -969,6 +1056,8 @@ struct Context<'a> {
     report: &'a mut ImportReport,
     library: BTreeMap<u32, String>,
     library_kinds: BTreeMap<u32, SymbolKind>,
+    implemented_symbols: std::collections::BTreeSet<String>,
+    scene_stream_indices: std::collections::BTreeSet<usize>,
     bitmaps: BTreeMap<u16, assets::BitmapAsset>,
     sounds: BTreeMap<u16, assets::SoundAsset>,
     videos: BTreeMap<u16, assets::VideoAsset>,
@@ -979,6 +1068,7 @@ struct Context<'a> {
     include_hidden: bool,
     contents_revision: Option<u8>,
     generated: Vec<Symbol>,
+    compiled_clip_sources: Vec<SourceUnit>,
     provenance: Vec<serde_json::Value>,
     missing_bitmaps: BTreeMap<u16, String>,
 }
@@ -1473,6 +1563,20 @@ impl Context<'_> {
                 keyframes: vec![],
                 properties,
             };
+            let is_scene_stream = self.scene_stream_indices.contains(&s.index);
+            let layer_has_tween = l.animation_type.unwrap_or(0) != 0
+                || o.children
+                    .iter()
+                    .filter_map(|fid| object(s, *fid).ok())
+                    .any(|fr| {
+                        matches!(
+                            &fr.payload,
+                            Some(TimelinePayload::Frame(tf))
+                                if (tf.key_mode.unwrap_or(0) & 255) != 0
+                                    || tf.morph_shape.is_some()
+                                    || tf.motion_xml.as_ref().is_some_and(|x| x.data.end > x.data.start)
+                        )
+                    });
             let mut cursor = 0u32;
             let mut pending_morphs: Vec<(usize, u32)> = Vec::new();
             for frame_id in &o.children {
@@ -1561,15 +1665,20 @@ impl Context<'_> {
                     cursor + 1
                 );
                 let sound = self.frame_sound(s, f, &at);
-                let video = frame.children.iter().find_map(|&cid| {
-                    let Ok(co) = object(s, cid) else { return None };
+                let mut frame_videos = Vec::new();
+                for &cid in &frame.children {
+                    let Ok(co) = object(s, cid) else { continue };
                     let Some(TimelinePayload::Video(v)) = &co.payload else {
-                        return None;
+                        continue;
                     };
-                    let mid = v.media_id?;
-                    let asset = self.videos.get(&mid)?;
-                    let res_id = asset.resource_id.as_ref()?;
-                    Some(TimelineVideoSpan {
+                    let Some(mid) = v.media_id else { continue };
+                    let Some(asset) = self.videos.get(&mid) else {
+                        continue;
+                    };
+                    let Some(res_id) = asset.resource_id.as_ref() else {
+                        continue;
+                    };
+                    frame_videos.push(TimelineVideoSpan {
                         resource: res_id.clone(),
                         sync: if asset.sync_video {
                             VideoSyncMode::Stream
@@ -1579,8 +1688,20 @@ impl Context<'_> {
                         muted: !asset.import_audio,
                         deployment: timeline_video::VideoDeploymentMode::Embedded,
                         ..Default::default()
-                    })
-                });
+                    });
+                }
+                if frame_videos.len() > 1 {
+                    self.report.warning(
+                        "fla_media_not_imported",
+                        &at,
+                        format!(
+                            "Keyframe places {} embedded video streams simultaneously; the first stream is bound to the keyframe video track and {} additional stream placement(s) remain as stage viewports.",
+                            frame_videos.len(),
+                            frame_videos.len() - 1
+                        ),
+                    );
+                }
+                let video = frame_videos.into_iter().next();
                 if f.motion_xml
                     .as_ref()
                     .is_some_and(|v| v.data.end > v.data.start)
@@ -1619,6 +1740,7 @@ impl Context<'_> {
                         self.report,
                         &format!("stream #{} frame {cursor}", s.index),
                         !frame_is_shape_tween,
+                        !is_scene_stream || layer_has_tween,
                     ) {
                         Ok(converted) => {
                             elements.extend(converted.elements);
@@ -1685,21 +1807,9 @@ impl Context<'_> {
                     // An explicit classic tween may pair library symbols (MovieClip, Graphic,
                     // Button, including playback/first-frame transitions and symbol swaps),
                     // generated group symbols (with member placement transforms hoisted onto
-                    // the outer group instance), primitive drawing objects, or an unambiguous
-                    // library symbol landing alongside newly-appearing end-keyframe elements.
-                    // Dormant tween flags adjacent to a blank keyframe hold their pose silently,
-                    // matching Flash SWF export. Unresolved placeholders never establish a tween.
-                    if previous.tween.is_some()
-                        && previous.tween_kind == TweenKind::Classic
-                        && (previous.elements.is_empty() || elements.is_empty())
-                    {
-                        previous.tween = None;
-                        previous.orient_to_path = false;
-                        previous.sync_symbols = false;
-                        previous.snap_to_guide = false;
-                        previous.classic_rotate_dir = ClassicRotateDirection::Auto;
-                        previous.classic_rotate_turns = 0;
-                    }
+                    // the outer group instance), or primitive/bitmap/text/video elements.
+                    // Empty, multi-element, or unresolved placeholder endpoints hold their
+                    // keyframe poses and emit `fla_tween_dropped`.
                     if previous.tween.is_some()
                         && previous.tween_kind == TweenKind::Classic
                         && previous.elements.len() == 1
@@ -1712,6 +1822,7 @@ impl Context<'_> {
                         hoist_generated_group_transform(&mut self.generated, &mut elements[0]);
                         deduplicate_tweened_group_endpoint(
                             &mut self.generated,
+                            &mut self.provenance,
                             &previous.elements[0],
                             &mut elements[0],
                         );
@@ -1721,58 +1832,29 @@ impl Context<'_> {
                             || (sym_id.ends_with("-group")
                                 && self.generated.iter().any(|s| s.id == sym_id))
                     };
-                    if previous.tween.is_some()
+                    let classic_tween_pair = previous.tween.is_some()
                         && previous.tween_kind == TweenKind::Classic
                         && previous.elements.len() == 1
-                        && elements.len() > 1
-                        && let ElementKind::Instance {
-                            symbol_id: prev_sym,
-                            ..
-                        } = &previous.elements[0].kind
-                        && is_tweenable_symbol(prev_sym)
-                    {
-                        let mut matches = elements.iter().enumerate().filter_map(|(idx, cand)| {
-                            matches!(
-                                &cand.kind,
-                                ElementKind::Instance { symbol_id, .. } if symbol_id == prev_sym
-                            )
-                            .then_some(idx)
-                        });
-                        if let (Some(match_idx), None) = (matches.next(), matches.next()) {
-                            let target_id = previous.elements[0].id.clone();
-                            let source_id =
-                                std::mem::replace(&mut elements[match_idx].id, target_id);
+                        && elements.len() == 1
+                        && !placement_matches(&previous.elements[0], &elements[0])
+                        && match (&previous.elements[0].kind, &elements[0].kind) {
+                            (
+                                ElementKind::Instance { symbol_id: a, .. },
+                                ElementKind::Instance { symbol_id: b, .. },
+                            ) => is_tweenable_symbol(a) && is_tweenable_symbol(b),
+                            (ElementKind::Rectangle { .. }, ElementKind::Rectangle { .. })
+                            | (ElementKind::Ellipse { .. }, ElementKind::Ellipse { .. })
+                            | (ElementKind::Bitmap { .. }, ElementKind::Bitmap { .. })
+                            | (ElementKind::TextBox { .. }, ElementKind::TextBox { .. })
+                            | (ElementKind::Video { .. }, ElementKind::Video { .. }) => true,
+                            _ => false,
+                        };
+                    for (a, b) in previous.elements.iter().zip(elements.iter_mut()) {
+                        if placement_matches(a, b) || classic_tween_pair {
+                            let source_id = std::mem::replace(&mut b.id, a.id.clone());
                             for mapping in &mut self.provenance[provenance_start..] {
                                 if mapping["target"].as_str() == Some(source_id.as_str()) {
-                                    mapping["target"] = serde_json::json!(elements[match_idx].id);
-                                }
-                            }
-                        }
-                    } else {
-                        let classic_tween_pair = previous.tween.is_some()
-                            && previous.tween_kind == TweenKind::Classic
-                            && previous.elements.len() == 1
-                            && elements.len() == 1
-                            && !placement_matches(&previous.elements[0], &elements[0])
-                            && match (&previous.elements[0].kind, &elements[0].kind) {
-                                (
-                                    ElementKind::Instance { symbol_id: a, .. },
-                                    ElementKind::Instance { symbol_id: b, .. },
-                                ) => is_tweenable_symbol(a) && is_tweenable_symbol(b),
-                                (ElementKind::Rectangle { .. }, ElementKind::Rectangle { .. })
-                                | (ElementKind::Ellipse { .. }, ElementKind::Ellipse { .. })
-                                | (ElementKind::Bitmap { .. }, ElementKind::Bitmap { .. })
-                                | (ElementKind::TextBox { .. }, ElementKind::TextBox { .. })
-                                | (ElementKind::Video { .. }, ElementKind::Video { .. }) => true,
-                                _ => false,
-                            };
-                        for (a, b) in previous.elements.iter().zip(elements.iter_mut()) {
-                            if placement_matches(a, b) || classic_tween_pair {
-                                let source_id = std::mem::replace(&mut b.id, a.id.clone());
-                                for mapping in &mut self.provenance[provenance_start..] {
-                                    if mapping["target"].as_str() == Some(source_id.as_str()) {
-                                        mapping["target"] = serde_json::json!(b.id);
-                                    }
+                                    mapping["target"] = serde_json::json!(b.id);
                                 }
                             }
                         }
@@ -1780,6 +1862,7 @@ impl Context<'_> {
                     if previous.tween.is_some()
                         && previous.tween_kind == TweenKind::Classic
                         && (previous.elements.len() != 1
+                            || elements.len() != 1
                             || !elements.iter().any(|e| e.id == previous.elements[0].id))
                     {
                         previous.tween = None;
@@ -2017,11 +2100,19 @@ impl Context<'_> {
                 if i.is_visible == Some(0) {
                     element.visible = false;
                 }
+                let target_supports_avm1_load_script = o.class == TimelineClass::Sprite
+                    && i.library_id.is_some_and(|lid| {
+                        self.library_kinds.get(&lid) == Some(&SymbolKind::MovieClip)
+                    })
+                    && i.library_id
+                        .and_then(|lid| self.library.get(&lid))
+                        .is_some_and(|sid| self.implemented_symbols.contains(sid));
                 let (prop_script, prop_lossy) = instance_props::translate_component_properties(
                     &s.original_bytes,
                     i.properties.as_ref(),
                     i.property_count,
                     self.language,
+                    target_supports_avm1_load_script,
                 );
                 if instance_props::has_nonredundant_animation_settings(
                     &i.animation_frame_settings,
@@ -2184,10 +2275,20 @@ impl Context<'_> {
                     element.scripts.push(ps);
                 }
                 if let Some(script) = self.actions(s, i.actions.as_ref())? {
-                    element.scripts.push(ObjectScript {
-                        event: ObjectEvent::Load,
-                        script,
-                    });
+                    if self.language == ScriptLanguage::ActionScript3
+                        || o.class == TimelineClass::Symbol
+                    {
+                        self.report.warning(
+                            "fla_actions_partial",
+                            &location,
+                            "Object-attached instance scripts are not supported on ActionScript 3 or Graphic instances and remain in the embedded source.",
+                        );
+                    } else {
+                        element.scripts.push(ObjectScript {
+                            event: ObjectEvent::Load,
+                            script,
+                        });
+                    }
                 }
                 if let Some(render_mode) = i.bitmap_render_mode {
                     element.cache_as_bitmap = render_mode == 1;
@@ -2414,11 +2515,17 @@ impl Context<'_> {
                     c.matrix_words.ok_or("Missing compiled clip matrix")?,
                 ))
                 .ok_or("Invalid compiled clip matrix")?;
+                let cc_supports_avm1_props = c
+                    .media_id
+                    .and_then(|mid| self.compiled_clips.get(&mid))
+                    .and_then(|cc| cc.reconstructed.as_ref())
+                    .is_some_and(|rec| rec.has_avm1_scripts);
                 let (prop_script, prop_lossy) = instance_props::translate_component_properties(
                     &s.original_bytes,
                     c.properties.as_ref(),
                     c.property_count,
                     self.language,
+                    cc_supports_avm1_props,
                 );
                 if prop_lossy {
                     self.report.warning(
@@ -2431,10 +2538,18 @@ impl Context<'_> {
                     element.scripts.push(ps);
                 }
                 if let Some(script) = self.actions(s, c.actions.as_ref())? {
-                    element.scripts.push(ObjectScript {
-                        event: ObjectEvent::Load,
-                        script,
-                    });
+                    if self.language == ScriptLanguage::ActionScript3 {
+                        self.report.warning(
+                            "fla_actions_partial",
+                            &location,
+                            "Object-attached scripts on compiled clips are not supported in ActionScript 3 documents and remain in the embedded source.",
+                        );
+                    } else {
+                        element.scripts.push(ObjectScript {
+                            event: ObjectEvent::Load,
+                            script,
+                        });
+                    }
                 }
                 element.accessibility = convert_accessibility(
                     s,
@@ -2445,51 +2560,74 @@ impl Context<'_> {
                 let symbol_id = if let Some(media) = c.media_id {
                     let sym_id = format!("fla-compiled-clip-{media}");
                     if !self.generated.iter().any(|g| g.id == sym_id) {
-                        let members = if let Some(cc_asset) = self.compiled_clips.get(&media) {
-                            if let Some(icon) = &cc_asset.icon_bitmap {
-                                let mut tf = Transform::default();
-                                if icon.width > 0.0 && icon.height > 0.0 {
-                                    tf.scale_x = (cc_asset.width / icon.width).clamp(0.01, 1000.0);
-                                    tf.scale_y =
-                                        (cc_asset.height / icon.height).clamp(0.01, 1000.0);
-                                }
-                                vec![Element {
-                                    id: format!("{sym_id}-el"),
-                                    name: String::new(),
-                                    transform: tf,
-                                    kind: ElementKind::Bitmap {
-                                        resource_id: icon.resource_id.clone(),
-                                        width: icon.width as u32,
-                                        height: icon.height as u32,
-                                        smoothing: icon.smoothing,
-                                    },
-                                    ..Element::default()
-                                }]
-                            } else {
-                                vec![Element {
-                                    id: format!("{sym_id}-el"),
-                                    name: String::new(),
-                                    transform: Transform::default(),
-                                    kind: ElementKind::Rectangle {
-                                        width: cc_asset.width,
-                                        height: cc_asset.height,
-                                        fill: [180, 180, 180, 64],
-                                        stroke: [120, 120, 120, 160],
-                                        stroke_width: 1.0,
-                                    },
-                                    ..Element::default()
-                                }]
-                            }
+                        if let Some(rec) = self
+                            .compiled_clips
+                            .get_mut(&media)
+                            .and_then(|cc| cc.reconstructed.take())
+                        {
+                            self.generated.extend(rec.helper_symbols);
+                            self.generated.push(rec.main_symbol);
+                            self.compiled_clip_sources.extend(rec.sources);
                         } else {
-                            vec![]
-                        };
-                        let mut sym =
-                            group_symbol(&sym_id, format!("Compiled clip #{media}"), members);
-                        sym.kind = SymbolKind::MovieClip;
-                        self.generated.push(sym);
+                            let members = if let Some(cc_asset) = self.compiled_clips.get(&media) {
+                                if let Some(icon) = &cc_asset.icon_bitmap {
+                                    let mut tf = Transform::default();
+                                    if icon.width > 0.0 && icon.height > 0.0 {
+                                        tf.scale_x =
+                                            (cc_asset.width / icon.width).clamp(0.01, 1000.0);
+                                        tf.scale_y =
+                                            (cc_asset.height / icon.height).clamp(0.01, 1000.0);
+                                    }
+                                    vec![Element {
+                                        id: format!("{sym_id}-el"),
+                                        name: String::new(),
+                                        transform: tf,
+                                        kind: ElementKind::Bitmap {
+                                            resource_id: icon.resource_id.clone(),
+                                            width: icon.width as u32,
+                                            height: icon.height as u32,
+                                            smoothing: icon.smoothing,
+                                        },
+                                        ..Element::default()
+                                    }]
+                                } else {
+                                    vec![Element {
+                                        id: format!("{sym_id}-el"),
+                                        name: String::new(),
+                                        transform: Transform::default(),
+                                        kind: ElementKind::Rectangle {
+                                            width: cc_asset.width,
+                                            height: cc_asset.height,
+                                            fill: [180, 180, 180, 64],
+                                            stroke: [120, 120, 120, 160],
+                                            stroke_width: 1.0,
+                                        },
+                                        ..Element::default()
+                                    }]
+                                }
+                            } else {
+                                self.report.warning(
+                                    "fla_media_not_imported",
+                                    &location,
+                                    format!(
+                                        "Compiled clip placement references unresolved media #{media}; a placeholder symbol keeps its placement."
+                                    ),
+                                );
+                                vec![]
+                            };
+                            let mut sym =
+                                group_symbol(&sym_id, format!("Compiled clip #{media}"), members);
+                            sym.kind = SymbolKind::MovieClip;
+                            self.generated.push(sym);
+                        }
                     }
                     sym_id
                 } else {
+                    self.report.warning(
+                        "fla_media_not_imported",
+                        &location,
+                        "Compiled clip placement has no media identity; a placeholder symbol keeps its placement.",
+                    );
                     if !self.generated.iter().any(|g| g.id == PLACEHOLDER) {
                         self.generated.push(group_symbol(
                             PLACEHOLDER,
@@ -2631,16 +2769,14 @@ fn normalize_playback(symbols: &mut [Symbol], report: &mut ImportReport) {
             }
             if let InstancePlayback::LoopFrom(f) = *playback
                 && f >= len
+                && f % len == 0
             {
-                // Looping graphics wrap modulo symbol frame_count natively in Flash.
-                *playback = if f % len == 0 {
-                    InstancePlayback::Loop
-                } else {
-                    InstancePlayback::LoopFrom(f % len)
-                };
+                // Exact multiples of the symbol's loop length normalize cleanly in Flash.
+                *playback = InstancePlayback::Loop;
                 continue;
             }
             let fixed = match *playback {
+                InstancePlayback::LoopFrom(f) if f >= len => InstancePlayback::LoopFrom(f % len),
                 InstancePlayback::SingleFrame(f) if f >= len => {
                     InstancePlayback::SingleFrame(len - 1)
                 }
@@ -2653,6 +2789,23 @@ fn normalize_playback(symbols: &mut [Symbol], report: &mut ImportReport) {
             *playback = fixed;
         }
     }
+}
+fn stream_has_executable_actions(stream: &BinaryTimelineStream) -> bool {
+    stream.objects.iter().any(|o| match &o.payload {
+        Some(TimelinePayload::Frame(f)) => f
+            .actions
+            .as_ref()
+            .is_some_and(|a| a.presence != TimelineActionPresence::Empty),
+        Some(TimelinePayload::Instance(i)) => i
+            .actions
+            .as_ref()
+            .is_some_and(|a| a.presence != TimelineActionPresence::Empty),
+        Some(TimelinePayload::CompiledClip(cc)) => cc
+            .actions
+            .as_ref()
+            .is_some_and(|a| a.presence != TimelineActionPresence::Empty),
+        _ => false,
+    })
 }
 fn resolve_include_logical_path(parent: &str, requested: &str) -> Option<String> {
     if requested.is_empty() || requested.starts_with('/') || requested.contains(['\\', ':', '\0']) {
@@ -2674,10 +2827,8 @@ fn resolve_include_logical_path(parent: &str, requested: &str) -> Option<String>
         }
     }
     let result = parts.join("/");
-    result
-        .to_ascii_lowercase()
-        .ends_with(".as")
-        .then_some(result)
+    let lower = result.to_ascii_lowercase();
+    (lower.ends_with(".as") || lower.ends_with(".asi")).then_some(result)
 }
 fn scan_include_directives(source: &str, parent_logical: &str, out: &mut Vec<String>) {
     for line in source.split(['\r', '\n']) {
@@ -2716,6 +2867,66 @@ fn scan_include_directives(source: &str, parent_logical: &str, out: &mut Vec<Str
         }
     }
 }
+const MAX_COMPANION_INCLUDE_FILE_BYTES: usize = 1 << 20;
+const MAX_COMPANION_INCLUDE_TOTAL_BYTES: usize = 4 << 20;
+
+fn resolve_safe_companion_include_path(
+    canon_base: &std::path::Path,
+    logical: &str,
+) -> Option<std::path::PathBuf> {
+    let segments: Vec<&str> = logical.split('/').collect();
+    if segments.is_empty() {
+        return None;
+    }
+    let mut cur = canon_base.to_path_buf();
+    for (idx, seg) in segments.iter().enumerate() {
+        if seg.is_empty() || matches!(*seg, "." | "..") || seg.contains(['/', '\\', ':', '\0']) {
+            return None;
+        }
+        let exact = cur.join(seg);
+        let next_path = if std::fs::symlink_metadata(&exact).is_ok() {
+            exact
+        } else {
+            let entry = std::fs::read_dir(&cur).ok()?.flatten().find(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(seg)
+            })?;
+            entry.path()
+        };
+        let meta = std::fs::symlink_metadata(&next_path).ok()?;
+        if meta.file_type().is_symlink() {
+            return None;
+        }
+        let is_last = idx + 1 == segments.len();
+        if is_last {
+            if !meta.file_type().is_file() || meta.len() > MAX_COMPANION_INCLUDE_FILE_BYTES as u64 {
+                return None;
+            }
+            let valid_ext = next_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("as") || e.eq_ignore_ascii_case("asi"));
+            if !valid_ext {
+                return None;
+            }
+        } else if !meta.file_type().is_dir() {
+            return None;
+        }
+        cur = next_path;
+    }
+    let canon = std::fs::canonicalize(&cur).ok()?;
+    if !canon.starts_with(canon_base) || canon == *canon_base {
+        return None;
+    }
+    let valid_canon_ext = canon
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("as") || e.eq_ignore_ascii_case("asi"));
+    valid_canon_ext.then_some(canon)
+}
+
 fn attach_companion_includes(
     source_path: &str,
     symbols: &[Symbol],
@@ -2727,6 +2938,12 @@ fn attach_companion_includes(
     else {
         return;
     };
+    let Ok(canon_base) = std::fs::canonicalize(base_dir) else {
+        return;
+    };
+    if !canon_base.is_dir() {
+        return;
+    }
     let mut queue = Vec::new();
     for symbol in symbols {
         for frame in &symbol.timeline.scripts {
@@ -2750,35 +2967,29 @@ fn attach_companion_includes(
         seen_lower.insert(existing.path.to_ascii_lowercase());
     }
     let mut used_bytes: usize = resources.iter().map(ResourceUnit::byte_len).sum();
+    let mut companion_bytes = 0usize;
     let mut include_idx = 0usize;
     let mut cursor = 0usize;
-    while cursor < queue.len() {
+    while cursor < queue.len() && include_idx < 64 {
         let logical = queue[cursor].clone();
         cursor += 1;
         let lower = logical.to_ascii_lowercase();
         if !seen_lower.insert(lower) || resources.len() >= MAX_RESOURCES {
             continue;
         }
-        let mut candidate = base_dir.to_path_buf();
-        for seg in logical.split('/') {
-            candidate.push(seg);
-        }
-        let raw = std::fs::read(&candidate).ok().or_else(|| {
-            let parent = candidate.parent()?;
-            let want = candidate
-                .file_name()?
-                .to_string_lossy()
-                .to_ascii_lowercase();
-            let entry = std::fs::read_dir(parent)
-                .ok()?
-                .flatten()
-                .find(|entry| entry.file_name().to_string_lossy().to_ascii_lowercase() == want)?;
-            std::fs::read(entry.path()).ok()
-        });
-        let Some(raw) = raw else {
+        let Some(safe_path) = resolve_safe_companion_include_path(&canon_base, &logical) else {
             continue;
         };
-        if raw.len() > MAX_RESOURCE_BYTES {
+        if std::fs::symlink_metadata(&safe_path)
+            .ok()
+            .is_none_or(|m| m.file_type().is_symlink() || !m.file_type().is_file())
+        {
+            continue;
+        }
+        let Ok(raw) = std::fs::read(&safe_path) else {
+            continue;
+        };
+        if raw.len() > MAX_COMPANION_INCLUDE_FILE_BYTES {
             continue;
         }
         let without_bom = raw.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&raw);
@@ -2791,7 +3002,8 @@ fn attach_companion_includes(
         };
         let normalized = decoded.replace("\r\n", "\n").replace('\r', "\n");
         let bytes = normalized.as_bytes();
-        if bytes.len() > MAX_RESOURCE_BYTES
+        if bytes.len() > MAX_COMPANION_INCLUDE_FILE_BYTES
+            || companion_bytes.saturating_add(bytes.len()) > MAX_COMPANION_INCLUDE_TOTAL_BYTES
             || used_bytes.saturating_add(bytes.len()) > MAX_RESOURCE_TOTAL_BYTES
         {
             continue;
@@ -2804,6 +3016,7 @@ fn attach_companion_includes(
             bytes,
         ) {
             used_bytes = used_bytes.saturating_add(bytes.len());
+            companion_bytes = companion_bytes.saturating_add(bytes.len());
             resources.push(unit);
             scan_include_directives(&normalized, &logical, &mut queue);
         }
@@ -2988,6 +3201,7 @@ fn group_keyframes_structurally_equal(a: &Keyframe, b: &Keyframe) -> bool {
 
 fn deduplicate_tweened_group_endpoint(
     generated: &mut Vec<Symbol>,
+    provenance: &mut [serde_json::Value],
     prev_el: &Element,
     curr_el: &mut Element,
 ) {
@@ -3006,6 +3220,12 @@ fn deduplicate_tweened_group_endpoint(
     if a_id == b_id || !a_id.ends_with("-group") || !b_id.ends_with("-group") {
         return;
     }
+    let Some(a_prefix) = a_id.strip_suffix("-group").map(str::to_owned) else {
+        return;
+    };
+    let Some(b_prefix) = b_id.strip_suffix("-group").map(str::to_owned) else {
+        return;
+    };
     let Some(sym_a) = generated.iter().find(|s| s.id == *a_id) else {
         return;
     };
@@ -3024,8 +3244,22 @@ fn deduplicate_tweened_group_endpoint(
         let old_b = b_id.clone();
         let reused_a = a_id.clone();
         let pb = *playback;
-        if generated.last().is_some_and(|s| s.id == old_b) {
-            generated.pop();
+        let b_member_prefix = format!("{b_prefix}-member-");
+        let a_member_prefix = format!("{a_prefix}-member-");
+        let b_paint_id = format!("{b_prefix}-paint");
+        let a_paint_id = format!("{a_prefix}-paint");
+        generated.retain(|s| {
+            s.id != old_b && !(s.id.starts_with(&b_member_prefix) && s.id.ends_with("-group"))
+        });
+        for entry in provenance.iter_mut() {
+            let Some(current) = entry.get("target").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            if current == b_paint_id {
+                entry["target"] = serde_json::Value::String(a_paint_id.clone());
+            } else if let Some(rest) = current.strip_prefix(&b_member_prefix) {
+                entry["target"] = serde_json::Value::String(format!("{a_member_prefix}{rest}"));
+            }
         }
         curr_el.kind = ElementKind::Instance {
             symbol_id: reused_a,
@@ -3559,6 +3793,17 @@ fn fit_project_json_budget(
         *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
     }
 
+    // 0. Shed imported video resources (legacy-video-*, largest first) before audio/bitmaps/shapes.
+    while json.len() > MAX_PROJECT_JSON_BYTES {
+        let excess = json.len() - MAX_PROJECT_JSON_BYTES;
+        if !shed_video_resources(project, report, excess) {
+            break;
+        }
+        project.format_version = 5;
+        project.upgrade_format_for_features();
+        *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
+    }
+
     // 1. Shed imported audio resources (legacy-sound-*, largest first).
     while json.len() > MAX_PROJECT_JSON_BYTES {
         let excess = json.len() - MAX_PROJECT_JSON_BYTES;
@@ -3622,6 +3867,57 @@ fn fit_project_json_budget(
     }
 
     Ok(())
+}
+
+fn shed_video_resources(project: &mut Project, report: &mut ImportReport, excess: usize) -> bool {
+    let mut candidates: Vec<(usize, u16, String)> = project
+        .resources
+        .iter()
+        .filter_map(|r| {
+            let suffix = r.id.strip_prefix("legacy-video-")?;
+            let media_id = suffix.parse::<u16>().ok()?;
+            Some((r.data_base64.len(), media_id, r.id.clone()))
+        })
+        .collect();
+    if candidates.is_empty() {
+        return false;
+    }
+    candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
+    let mut shed = Vec::new();
+    let mut saved = 0usize;
+    for (b64_len, media_id, res_id) in candidates {
+        shed.push((res_id, media_id));
+        saved = saved.saturating_add(b64_len.saturating_add(80));
+        if saved >= excess {
+            break;
+        }
+    }
+    let shed_ids: std::collections::HashSet<&str> =
+        shed.iter().map(|(id, _)| id.as_str()).collect();
+    project
+        .resources
+        .retain(|r| !shed_ids.contains(r.id.as_str()));
+    for (res_id, media_id) in &shed {
+        report.warning(
+            "fla_media_not_imported",
+            format!("media {media_id}"),
+            "Decoded video stream exceeds the project's 128 MiB encoded JSON budget alongside converted timelines; this video remains in the original FLA.",
+        );
+        for symbol in &mut project.symbols {
+            for layer in &mut symbol.timeline.layers {
+                for key in &mut layer.keyframes {
+                    if key
+                        .video
+                        .as_ref()
+                        .is_some_and(|video| &video.resource == res_id)
+                    {
+                        key.video = None;
+                    }
+                }
+            }
+        }
+    }
+    true
 }
 
 fn shed_audio_resources(project: &mut Project, report: &mut ImportReport, excess: usize) -> bool {
@@ -4872,7 +5168,6 @@ fn convert_accessibility(
 fn decode_cpic_text_style(
     stream: &BinaryTimelineStream,
     style: &TimelineTextStyle,
-    is_single_line: bool,
     lossy: &mut Vec<&'static str>,
 ) -> Result<(TextFormat, f64), String> {
     if style.revision < 2 {
@@ -4925,26 +5220,8 @@ fn decode_cpic_text_style(
         target: optional_text(&stream.original_bytes, style.target.as_ref())?,
         ..TextFormat::default()
     };
-    if let Some(mode) = align_mode {
-        if value.target.len() > 256 || value.target.chars().any(char::is_control) {
-            value.target = clean_bounded_text(&value.target, 256);
-        }
-        value.set_align_mode(Some(mode));
-    }
-    // Flash allows tight negative inter-line leading down to -360 pt and floors
-    // effective line advance above zero (and ignores leading on single-line text).
-    if value.size > 0.0
-        && value.size <= 9999.0
-        && (-9999.0..=9999.0).contains(&value.leading)
-        && value.size * 1.2 + value.leading <= 0.0
-    {
-        value.leading = if is_single_line {
-            0.0
-        } else {
-            (-value.size * 1.2 + 0.05).clamp(-9999.0, 9999.0)
-        };
-    }
-    if value.validate().is_err() {
+    let target_needs_clean = value.target.len() > 256 || value.target.chars().any(char::is_control);
+    if value.validate().is_err() || target_needs_clean {
         if value.font.trim().is_empty()
             || value.font.len() > 1024
             || value.font.chars().any(char::is_control)
@@ -4964,9 +5241,8 @@ fn decode_cpic_text_style(
         if value.url.len() > 4096 || value.url.chars().any(char::is_control) {
             value.url = clean_bounded_text(&value.url, 4096);
         }
-        if value.target_str().len() > 256 || value.target_str().chars().any(char::is_control) {
-            let cleaned_target = clean_bounded_text(value.target_str(), 256);
-            value.set_target_str(cleaned_target);
+        if target_needs_clean {
+            value.target = clean_bounded_text(&value.target, 256);
         }
         value.size = value.size.clamp(1., 9999.);
         value.leading = value.leading.clamp(-9999., 9999.);
@@ -4978,6 +5254,9 @@ fn decode_cpic_text_style(
             value.leading = (-value.size * 1.2 + 0.5).clamp(-9999., 9999.);
         }
         lossy.push("out-of-range size, spacing or margins are clamped");
+    }
+    if let Some(mode) = align_mode {
+        value.set_align_mode(Some(mode));
     }
     value.validate().map_err(|error| error.to_string())?;
     Ok((
@@ -5018,6 +5297,9 @@ pub(super) fn convert_timeline_text(
         lossy.push("unrecognized text flag bits remain in the embedded source");
     }
     let raw_variable = optional_text(&stream.original_bytes, text.variable_name.as_ref())?;
+    if !is_dynamic_or_input && !raw_variable.is_empty() {
+        lossy.push("the field's variable binding is not connected");
+    }
     let clean_variable: String = raw_variable
         .trim()
         .chars()
@@ -5035,13 +5317,8 @@ pub(super) fn convert_timeline_text(
     dimensions.validate().map_err(|error| error.to_string())?;
 
     let mut raw_run_strings = Vec::with_capacity(text.runs.len());
-    let mut has_raw_newlines = false;
     for run in &text.runs {
-        let raw_chars = read_string(&stream.original_bytes, &run.characters)?;
-        if raw_chars.contains(['\r', '\n']) {
-            has_raw_newlines = true;
-        }
-        raw_run_strings.push(raw_chars);
+        raw_run_strings.push(read_string(&stream.original_bytes, &run.characters)?);
     }
 
     let style = text
@@ -5050,15 +5327,8 @@ pub(super) fn convert_timeline_text(
         .map(|run| &run.style)
         .or(text.default_style.as_ref())
         .ok_or("Text has no run or default style")?;
-    let prelim_size = f64::from(style.font_size_twips.unwrap_or(240)).max(20.0) / 20.0;
-    let prelim_multiline = has_raw_newlines
-        || (is_dynamic_or_input && !display_as_password && (flags & 0x0010) != 0)
-        || (!is_dynamic_or_input
-            && text.auto_expand.unwrap_or(0) == 0
-            && dimensions.height >= prelim_size * 1.8);
-    let is_single_line = !prelim_multiline;
 
-    let (mut format, alpha) = decode_cpic_text_style(stream, style, is_single_line, &mut lossy)?;
+    let (mut format, alpha) = decode_cpic_text_style(stream, style, &mut lossy)?;
     let html = is_dynamic_or_input && (flags & (0x8000 | 0x0080)) != 0;
     let normalize_runs_text = is_dynamic_or_input || text.runs.len() > 1 || html;
     let mut characters = String::new();
@@ -5067,8 +5337,7 @@ pub(super) fn convert_timeline_text(
     let mut utf16_cursor = 0u32;
     let mut prev_ended_cr = false;
     for (run, raw_chars) in text.runs.iter().zip(raw_run_strings) {
-        let (run_format, run_alpha) =
-            decode_cpic_text_style(stream, &run.style, is_single_line, &mut lossy)?;
+        let (run_format, run_alpha) = decode_cpic_text_style(stream, &run.style, &mut lossy)?;
         if (run_alpha - alpha).abs() > 1e-4 {
             lossy.push("per-run alpha uses the first run's alpha");
         }
@@ -5144,13 +5413,15 @@ pub(super) fn convert_timeline_text(
         .iter()
         .all(|s| s.right_to_left.unwrap_or(0) != 0);
 
-    let primary_style = nonempty_styles[0];
-    let (custom_aa, aa_sharpness, aa_thickness) = if (flags & 0x20000) == 0
-        && primary_style.bitmap_rendering.unwrap_or(0) == 0
-        && let Some(aa_span) = primary_style.anti_alias
-        && let Some(aa_bytes) = stream.original_bytes.get(aa_span.start..aa_span.end)
-        && aa_bytes.len() >= 2
-    {
+    let decode_style_aa = |st: &TimelineTextStyle| -> Option<(u8, f64, f64)> {
+        if (flags & 0x20000) != 0 || st.bitmap_rendering.unwrap_or(0) != 0 {
+            return None;
+        }
+        let aa_span = st.anti_alias?;
+        let aa_bytes = stream.original_bytes.get(aa_span.start..aa_span.end)?;
+        if aa_bytes.len() < 2 {
+            return None;
+        }
         let rev = aa_bytes[0];
         let mode = aa_bytes[1];
         let float_offset = if rev == 1 { 8 } else { 2 };
@@ -5172,15 +5443,41 @@ pub(super) fn convert_timeline_text(
             } else {
                 0.0
             };
+            Some((2, s, t))
+        } else if mode == 1 {
+            Some((1, 0.0, 0.0))
+        } else {
+            Some((0, 0.0, 0.0))
+        }
+    };
+
+    let has_bitmap_aa = (flags & 0x20000) == 0
+        && nonempty_styles
+            .iter()
+            .any(|s| s.bitmap_rendering.unwrap_or(0) != 0);
+    if has_bitmap_aa {
+        lossy.push("bitmap-aliased text rendering uses normal antialiasing");
+    }
+    let decoded_aas: Vec<(u8, f64, f64)> = nonempty_styles
+        .iter()
+        .filter_map(|st| decode_style_aa(st))
+        .collect();
+    if decoded_aas.windows(2).any(|w| w[0].0 != w[1].0) {
+        lossy.push("mixed per-run anti-aliasing uses uniform field anti-aliasing");
+    }
+    let (custom_aa, aa_sharpness, aa_thickness) =
+        if let Some(&(_, s, t)) = decoded_aas.iter().find(|&&(mode, _, _)| mode == 2) {
             (true, s, t)
-        } else if mode == 1 && is_dynamic_or_input {
+        } else if is_dynamic_or_input && decoded_aas.iter().any(|&(mode, _, _)| mode == 1) {
             (true, 0.0, 0.0)
         } else {
             (false, 0.0, 0.0)
-        }
-    } else {
-        (false, 0.0, 0.0)
-    };
+        };
+
+    let localization_id = optional_text(&stream.original_bytes, text.localization_id.as_ref())?;
+    if !localization_id.is_empty() {
+        lossy.push("text localization string ID remains in the embedded source");
+    }
 
     let name = if name.is_empty() {
         instance_name.as_str()
@@ -5210,27 +5507,29 @@ pub(super) fn convert_timeline_text(
     let location = if name.is_empty() { id } else { name };
     if !lossy.is_empty() {
         lossy.dedup();
+        let var_suffix = if !is_dynamic_or_input && !raw_variable.is_empty() {
+            format!(" (variable \"{raw_variable}\")")
+        } else {
+            String::new()
+        };
         report.warning(
             "fla_text_approximated",
             location,
             format!(
-                "Text imported with approximations: {}. The original text record is retained in the embedded source.",
+                "Text imported with approximations: {}{var_suffix}. The original text record is retained in the embedded source.",
                 lossy.join("; "),
             ),
         );
     }
-    let localization_id = optional_text(&stream.original_bytes, text.localization_id.as_ref())?;
-    let has_bitmap_aa = (flags & 0x20000) == 0 && primary_style.bitmap_rendering.unwrap_or(0) != 0;
-    if (has_bitmap_aa || !localization_id.is_empty())
-        && !report
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.code == "fla_text_metrics")
+    if !report
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "fla_text_metrics")
     {
         report.warning(
             "fla_text_metrics",
             location,
-            "Bitmap-aliased text rendering or localization string IDs are not represented in the shared text engine; original text records remain in the embedded source.",
+            "Text, font names, style, bounds and placement are retained. Shared text layout uses host font metrics and text-box padding, so static glyph placement/antialiasing may differ from Flash.",
         );
     }
     if text
@@ -5247,10 +5546,8 @@ pub(super) fn convert_timeline_text(
 
     let filters = convert_filters(&text.filters, location, report);
     let has_newlines = characters.contains(['\r', '\n']);
-    let static_fixed_wrap = !is_dynamic_or_input
-        && text.auto_expand.unwrap_or(0) == 0
-        && !uniform_vertical
-        && (has_newlines || dimensions.height >= format.size * 1.8);
+    let static_fixed_wrap =
+        !is_dynamic_or_input && text.auto_expand.unwrap_or(0) == 0 && !uniform_vertical;
     let multiline = has_newlines
         || static_fixed_wrap
         || (is_dynamic_or_input && !display_as_password && (flags & 0x0010) != 0);

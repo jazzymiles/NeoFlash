@@ -207,7 +207,7 @@ impl Reader<'_> {
                     });
                 }
                 Class::LinkedVideo => {
-                    result.subtype_revision = Some(self.u8()?);
+                    result.subtype_revision = Some(self.revision(0)?);
                 }
                 Class::Media | Class::Video => {}
                 Class::DocumentPage

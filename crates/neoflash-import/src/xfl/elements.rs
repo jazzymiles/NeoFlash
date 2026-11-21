@@ -535,8 +535,10 @@ impl Parser<'_> {
                     self.audit_filters(filters_node, file, &location);
                 }
                 let target = node.attribute("libraryItemName").unwrap_or("");
-                let (default_w, default_h) =
-                    self.videos.get(target).copied().unwrap_or((320.0, 240.0));
+                let asset = self.videos.get(target).cloned();
+                let (default_w, default_h) = asset
+                    .as_ref()
+                    .map_or((320.0, 240.0), |a| (a.width, a.height));
                 let fl = self.number(node, "frameLeft", 0.0, file);
                 let fr = self.number(node, "frameRight", 0.0, file);
                 let ft = self.number(node, "frameTop", 0.0, file);
@@ -551,11 +553,17 @@ impl Parser<'_> {
                 } else {
                     default_h.clamp(1.0, 8192.0)
                 };
-                self.report.warning(
-                    "xfl_video_approximated",
-                    &location,
-                    "DOMVideoInstance is imported as a Video viewport; embedded FLV/video stream data is not bundled.",
-                );
+                if let Some(a) = &asset
+                    && let Some(rid) = &a.resource_id
+                {
+                    self.pending_video_resource = Some((rid.clone(), a.sync_video, a.import_audio));
+                } else {
+                    self.report.warning(
+                        "xfl_video_approximated",
+                        &location,
+                        "DOMVideoInstance is imported as a Video viewport; embedded FLV/video stream data is not bundled.",
+                    );
+                }
                 ElementKind::Video { width, height }
             }
             "DOMBitmapInstance" => {

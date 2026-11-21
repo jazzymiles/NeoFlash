@@ -410,13 +410,16 @@ fn flatten_quad_into(p0: [f64; 2], c: [f64; 2], p2: [f64; 2], depth: u8, out: &m
     flatten_quad_into(mid, q1, p2, depth + 1, out);
 }
 
-fn extract_stroke_polylines(commands: &[PathCommand]) -> Vec<(Vec<[f64; 2]>, bool)> {
+fn extract_stroke_polylines(commands: &[PathCommand]) -> Option<Vec<(Vec<[f64; 2]>, bool)>> {
+    const MAX_POLYLINE_POINTS: usize = MAX_PATH_COMMANDS / 2;
     let mut result = Vec::new();
     let mut cur: Vec<[f64; 2]> = Vec::new();
     let mut closed = false;
+    let mut total_pts = 0usize;
 
     let flush = |pts: &mut Vec<[f64; 2]>,
                  is_closed: &mut bool,
+                 total: &mut usize,
                  dst: &mut Vec<(Vec<[f64; 2]>, bool)>| {
         if pts.len() >= 2 {
             let mut c = *is_closed;
@@ -433,6 +436,7 @@ fn extract_stroke_polylines(commands: &[PathCommand]) -> Vec<(Vec<[f64; 2]>, boo
                 pts.pop();
             }
             if pts.len() >= 2 && (!c || pts.len() >= 3) {
+                *total = total.saturating_add(pts.len());
                 dst.push((std::mem::take(pts), c));
             } else {
                 pts.clear();
@@ -446,7 +450,7 @@ fn extract_stroke_polylines(commands: &[PathCommand]) -> Vec<(Vec<[f64; 2]>, boo
     for cmd in commands {
         match *cmd {
             PathCommand::MoveTo { x, y } => {
-                flush(&mut cur, &mut closed, &mut result);
+                flush(&mut cur, &mut closed, &mut total_pts, &mut result);
                 cur.push([x, y]);
             }
             PathCommand::LineTo { x, y } => {
@@ -494,12 +498,15 @@ fn extract_stroke_polylines(commands: &[PathCommand]) -> Vec<(Vec<[f64; 2]>, boo
             }
             PathCommand::Close => {
                 closed = true;
-                flush(&mut cur, &mut closed, &mut result);
+                flush(&mut cur, &mut closed, &mut total_pts, &mut result);
             }
         }
+        if total_pts.saturating_add(cur.len()) > MAX_POLYLINE_POINTS {
+            return None;
+        }
     }
-    flush(&mut cur, &mut closed, &mut result);
-    result
+    flush(&mut cur, &mut closed, &mut total_pts, &mut result);
+    (total_pts <= MAX_POLYLINE_POINTS).then_some(result)
 }
 
 fn append_round_arc(
@@ -677,7 +684,7 @@ fn expand_stroke_to_outline(
     join: StrokeJoin,
 ) -> Option<Vec<PathCommand>> {
     let half_w = (width * 0.5).max(0.025);
-    let polylines = extract_stroke_polylines(commands);
+    let polylines = extract_stroke_polylines(commands)?;
     if polylines.is_empty() {
         return None;
     }
@@ -708,6 +715,9 @@ fn expand_stroke_to_outline(
                 for i in 0..m {
                     let prev = (i + m - 1) % m;
                     emit_corner_join(chain[i], segs[prev], segs[i], half_w, join, &mut out);
+                    if out.len() > MAX_PATH_COMMANDS {
+                        return None;
+                    }
                 }
                 if let Some(PathCommand::LineTo { x, y }) = out.get(start_idx + 1).copied() {
                     out[start_idx] = PathCommand::MoveTo { x, y };
@@ -715,6 +725,9 @@ fn expand_stroke_to_outline(
                     return None;
                 }
                 out.push(PathCommand::Close);
+                if out.len() > MAX_PATH_COMMANDS {
+                    return None;
+                }
             }
         } else {
             let m = pts.len();
@@ -742,6 +755,9 @@ fn expand_stroke_to_outline(
             });
             for i in 1..(m - 1) {
                 emit_corner_join(pts[i], segs[i - 1], segs[i], half_w, join, &mut out);
+                if out.len() > MAX_PATH_COMMANDS {
+                    return None;
+                }
             }
             let last_t = segs[m - 2].0;
             if cap == StrokeCap::Square {
@@ -762,6 +778,9 @@ fn expand_stroke_to_outline(
                 let rev_in = ([-segs[i].0[0], -segs[i].0[1]], segs[i].1);
                 let rev_out = ([-segs[i - 1].0[0], -segs[i - 1].0[1]], segs[i - 1].1);
                 emit_corner_join(pts[i], rev_in, rev_out, half_w, join, &mut out);
+                if out.len() > MAX_PATH_COMMANDS {
+                    return None;
+                }
             }
             let first_rev_t = [-segs[0].0[0], -segs[0].0[1]];
             if cap == StrokeCap::Square {
@@ -925,7 +944,7 @@ pub(super) fn convert_shape_with_effects(
     report: &mut ImportReport,
     location: &str,
 ) -> Result<ConvertedShape, String> {
-    convert_shape_with_effects_opts(shape, id, bitmaps, report, location, true)
+    convert_shape_with_effects_opts(shape, id, bitmaps, report, location, true, true)
 }
 
 pub(super) fn convert_shape_with_effects_opts(
@@ -935,6 +954,7 @@ pub(super) fn convert_shape_with_effects_opts(
     report: &mut ImportReport,
     location: &str,
     allow_outline_expansion: bool,
+    dynamic_scale_possible: bool,
 ) -> Result<ConvertedShape, String> {
     let raw_matrix = matrix(shape.matrix_words);
     let transform = Transform::from_matrix(raw_matrix).ok_or("Invalid shape matrix")?;
@@ -1163,12 +1183,20 @@ pub(super) fn convert_shape_with_effects_opts(
             )
         };
 
+        let unpreserved_dynamic_scale = stroke.width_word > 0
+            && scale_mode != StrokeScaleMode::Normal
+            && (dynamic_scale_possible || !allow_outline_expansion);
+
         if allow_outline_expansion
             && stroke_type == 0
             && non_round_cap_or_join
             && let Some(outline_commands) =
                 expand_stroke_to_outline(&effective_commands, effective_width, cap, join)
+                    .filter(|cmds| cmds.len() <= MAX_PATH_COMMANDS)
         {
+            if unpreserved_dynamic_scale {
+                report.warning("fla_stroke_rendering",location,"Stroke cap/join/scale editor settings remain in the embedded source; this renderer uses scaling round strokes.");
+            }
             let elem_id = format!("{id}-stroke-{i}");
             if let Some((media_id, fill_matrix, repeat, smoothing)) = effective_bitmap
                 && let Some(asset) = bitmaps.get(&media_id)
@@ -1201,11 +1229,7 @@ pub(super) fn convert_shape_with_effects_opts(
             continue;
         }
 
-        if non_round_cap_or_join
-            || (stroke.width_word > 0
-                && scale_mode != StrokeScaleMode::Normal
-                && !allow_outline_expansion)
-        {
+        if non_round_cap_or_join || unpreserved_dynamic_scale {
             report.warning("fla_stroke_rendering",location,"Stroke cap/join/scale editor settings remain in the embedded source; this renderer uses scaling round strokes.");
         }
         let chunks = split_stroke_commands(effective_commands, MAX_PATH_COMMANDS);

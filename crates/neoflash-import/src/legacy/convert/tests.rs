@@ -127,6 +127,8 @@ fn convert_timeline_reporting(
         report: &mut report,
         library: BTreeMap::from([(100, "graphic".into()), (101, "replacement".into())]),
         library_kinds: BTreeMap::new(),
+        implemented_symbols: std::collections::BTreeSet::new(),
+        scene_stream_indices: std::collections::BTreeSet::from([0]),
         bitmaps: BTreeMap::new(),
         sounds: BTreeMap::new(),
         videos: BTreeMap::new(),
@@ -137,6 +139,7 @@ fn convert_timeline_reporting(
         include_hidden: true,
         contents_revision: None,
         generated: vec![],
+        compiled_clip_sources: vec![],
         provenance: vec![],
         missing_bitmaps: BTreeMap::new(),
     };
@@ -570,6 +573,8 @@ fn translated_legacy_actions_become_as1_scripts_and_flag_untranslated_parts() {
         report: &mut report,
         library: BTreeMap::new(),
         library_kinds: BTreeMap::new(),
+        implemented_symbols: std::collections::BTreeSet::new(),
+        scene_stream_indices: std::collections::BTreeSet::from([0]),
         bitmaps: BTreeMap::new(),
         sounds: BTreeMap::new(),
         videos: BTreeMap::new(),
@@ -580,6 +585,7 @@ fn translated_legacy_actions_become_as1_scripts_and_flag_untranslated_parts() {
         include_hidden: true,
         contents_revision: None,
         generated: vec![],
+        compiled_clip_sources: vec![],
         provenance: vec![],
         missing_bitmaps: BTreeMap::new(),
     };
@@ -666,6 +672,8 @@ fn frame_sound_maps_sync_loops_presets_and_warns_on_custom_envelopes_or_missing_
         report: &mut rep,
         library: BTreeMap::new(),
         library_kinds: BTreeMap::new(),
+        implemented_symbols: std::collections::BTreeSet::new(),
+        scene_stream_indices: std::collections::BTreeSet::from([0]),
         bitmaps: BTreeMap::new(),
         sounds,
         videos: BTreeMap::new(),
@@ -676,6 +684,7 @@ fn frame_sound_maps_sync_loops_presets_and_warns_on_custom_envelopes_or_missing_
         include_hidden: true,
         contents_revision: None,
         generated: vec![],
+        compiled_clip_sources: vec![],
         provenance: vec![],
         missing_bitmaps: BTreeMap::new(),
     };
@@ -2544,11 +2553,32 @@ fn binary_fla_stroke_caps_joins_and_scale_modes_convert_without_rendering_warnin
         original_bytes: vec![],
     };
     let mut rep2 = report();
-    let v_els = shape::convert_shape(&vscale_shape, "vscale", &mut rep2, "synthetic").unwrap();
+    let v_els = shape::convert_shape_with_effects_opts(
+        &vscale_shape,
+        "vscale",
+        &BTreeMap::new(),
+        &mut rep2,
+        "synthetic",
+        true,
+        false,
+    )
+    .unwrap()
+    .elements;
     assert!(
         rep2.diagnostics
             .iter()
-            .all(|d| d.code != "fla_stroke_rendering")
+            .all(|d| d.code != "fla_stroke_rendering"),
+        "static non-tweened scene stroke bakes scaleMode without warning: {:?}",
+        rep2.diagnostics
+    );
+    let mut rep2_dyn = report();
+    let _ = shape::convert_shape(&vscale_shape, "vscale-dyn", &mut rep2_dyn, "synthetic").unwrap();
+    assert!(
+        rep2_dyn
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "fla_stroke_rendering"),
+        "symbol/dynamic stroke with non-Normal scaleMode must emit fla_stroke_rendering"
     );
     assert_eq!(v_els[0].transform, Transform::default());
     let ElementKind::PaintedPath { stroke_width, .. } = &v_els[0].kind else {
@@ -2750,6 +2780,8 @@ fn binary_fla_graphic_replacement_and_generated_group_classic_tweens_interpolate
         report: &mut rep,
         library: BTreeMap::from([(100, "graphic-a".into()), (101, "graphic-b".into())]),
         library_kinds: BTreeMap::new(),
+        implemented_symbols: std::collections::BTreeSet::new(),
+        scene_stream_indices: std::collections::BTreeSet::from([0]),
         bitmaps: BTreeMap::new(),
         sounds: BTreeMap::new(),
         videos: BTreeMap::new(),
@@ -2760,6 +2792,7 @@ fn binary_fla_graphic_replacement_and_generated_group_classic_tweens_interpolate
         include_hidden: true,
         contents_revision: None,
         generated: vec![],
+        compiled_clip_sources: vec![],
         provenance: vec![],
         missing_bitmaps: BTreeMap::new(),
     };

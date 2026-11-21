@@ -40,7 +40,7 @@ pub(super) struct VideoAsset {
 
 #[derive(Clone, Debug)]
 pub(super) struct CompiledClipAsset {
-    pub swf_resource_id: Option<String>,
+    pub reconstructed: Option<super::compiled_clip::ReconstructedSwfClip>,
     pub icon_bitmap: Option<BitmapAsset>,
     pub width: f64,
     pub height: f64,
@@ -55,7 +55,44 @@ pub(super) struct ExtractedAssets {
     pub skipped_bitmaps: BTreeSet<u16>,
 }
 
-fn compact_duplicate_media_under_pressure(
+fn remap_compiled_clip_resources(
+    clip: &mut super::compiled_clip::ReconstructedSwfClip,
+    remap: &BTreeMap<String, String>,
+) {
+    for sym in std::iter::once(&mut clip.main_symbol).chain(clip.helper_symbols.iter_mut()) {
+        for kf in sym
+            .timeline
+            .layers
+            .iter_mut()
+            .flat_map(|l| &mut l.keyframes)
+        {
+            if let Some(snd) = &mut kf.sound
+                && let Some(target) = remap.get(&snd.resource)
+            {
+                snd.resource = target.clone();
+            }
+            if let Some(vid) = &mut kf.video
+                && let Some(target) = remap.get(&vid.resource)
+            {
+                vid.resource = target.clone();
+            }
+            for bf in &mut kf.bitmap_fills {
+                if let Some(target) = remap.get(&bf.resource_id) {
+                    bf.resource_id = target.clone();
+                }
+            }
+            for el in &mut kf.elements {
+                if let ElementKind::Bitmap { resource_id, .. } = &mut el.kind
+                    && let Some(target) = remap.get(resource_id.as_str())
+                {
+                    *resource_id = target.clone();
+                }
+            }
+        }
+    }
+}
+
+pub(super) fn compact_duplicate_media_under_pressure(
     resources: &mut Vec<ResourceUnit>,
     bitmaps: &mut BTreeMap<u16, BitmapAsset>,
     sounds: &mut BTreeMap<u16, SoundAsset>,
@@ -64,26 +101,53 @@ fn compact_duplicate_media_under_pressure(
     used_paths: &mut BTreeSet<String>,
     total: &mut usize,
 ) {
-    let mut canonical: Vec<(String, String, std::sync::Arc<str>)> = Vec::new();
+    // Never merge a linked sound (`!id.starts_with("legacy-")`) into another sound.
+    let mut canonical: Vec<(usize, String, String, std::sync::Arc<str>)> = Vec::new();
     let mut remap: BTreeMap<String, String> = BTreeMap::new();
-    resources.retain(|res| {
-        if let Some((canon_id, _, _)) = canonical
-            .iter()
-            .find(|(_, mt, b64)| mt == &res.media_type && b64.as_ref() == res.data_base64.as_ref())
-        {
+    let mut out = Vec::with_capacity(resources.len());
+    for res in resources.drain(..) {
+        let is_linked_sound = res.is_audio() && !res.id.starts_with("legacy-");
+        if let Some((canon_idx, canon_id, _, _)) = canonical.iter_mut().find(|(_, _, mt, b64)| {
+            mt == &res.media_type && b64.as_ref() == res.data_base64.as_ref()
+        }) {
+            let canon_is_linked_sound = res.is_audio() && !canon_id.starts_with("legacy-");
+            if is_linked_sound && canon_is_linked_sound {
+                // Distinct linked sounds must keep both linkage identifiers intact.
+                let idx = out.len();
+                canonical.push((
+                    idx,
+                    res.id.clone(),
+                    res.media_type.clone(),
+                    res.data_base64.clone(),
+                ));
+                out.push(res);
+                continue;
+            }
+            if is_linked_sound && !canon_is_linked_sound {
+                // Upgrade the earlier unlinked sound resource to carry this sound's linkage ID.
+                let old_unlinked_id = canon_id.clone();
+                *canon_id = res.id.clone();
+                out[*canon_idx].id = res.id.clone();
+                remap.insert(old_unlinked_id, res.id.clone());
+                *total = total.saturating_sub(res.byte_len());
+                used_paths.remove(&res.path.to_ascii_lowercase());
+                continue;
+            }
             *total = total.saturating_sub(res.byte_len());
             used_paths.remove(&res.path.to_ascii_lowercase());
             remap.insert(res.id.clone(), canon_id.clone());
-            false
         } else {
+            let idx = out.len();
             canonical.push((
+                idx,
                 res.id.clone(),
                 res.media_type.clone(),
                 res.data_base64.clone(),
             ));
-            true
+            out.push(res);
         }
-    });
+    }
+    *resources = out;
     if !remap.is_empty() {
         for asset in bitmaps.values_mut() {
             if let Some(target) = remap.get(&asset.resource_id) {
@@ -103,10 +167,8 @@ fn compact_duplicate_media_under_pressure(
             }
         }
         for clip in compiled_clips.values_mut() {
-            if let Some(res_id) = clip.swf_resource_id.as_mut()
-                && let Some(target) = remap.get(res_id.as_str())
-            {
-                *res_id = target.clone();
+            if let Some(rec) = clip.reconstructed.as_mut() {
+                remap_compiled_clip_resources(rec, &remap);
             }
             if let Some(icon) = clip.icon_bitmap.as_mut()
                 && let Some(target) = remap.get(&icon.resource_id)
@@ -117,16 +179,72 @@ fn compact_duplicate_media_under_pressure(
     }
 }
 
+fn allocate_unique_jpg_path(old_path: &str, used_paths: &BTreeSet<String>) -> String {
+    let stem = old_path
+        .strip_suffix(".png")
+        .or_else(|| old_path.strip_suffix(".PNG"))
+        .or_else(|| old_path.strip_suffix(".jpg"))
+        .or_else(|| old_path.strip_suffix(".JPG"))
+        .unwrap_or(old_path);
+    let first = format!("{stem}.jpg");
+    if !used_paths.contains(&first.to_ascii_lowercase()) {
+        return first;
+    }
+    let mut seq = 2usize;
+    loop {
+        let cand = format!("{stem}-{seq}.jpg");
+        if !used_paths.contains(&cand.to_ascii_lowercase()) {
+            return cand;
+        }
+        seq += 1;
+    }
+}
+
 /// Only invoked when total decoded media exceeds the 64 MiB resource budget:
-/// re-encodes bloated opaque photographic PNGs into high-quality JPEG (or maximum-compression
-/// PNG when translucent) while keeping `ResourceUnit.id` and pixel dimensions unchanged.
-fn compact_bitmaps_under_pressure(
+/// 1. First tries lossless `CompressionType::Best` PNG across all PNG bitmaps.
+/// 2. Only if budget is still exceeded, re-encodes opaque photographic PNGs into quality-90 JPEG,
+///    deduplicating `.jpg` paths and emitting an explicit `fla_bitmap_reencoded` warning.
+pub(super) fn compact_bitmaps_under_pressure(
     resources: &mut [ResourceUnit],
     used_paths: &mut BTreeSet<String>,
     total: &mut usize,
     needed_bytes: usize,
+    report: &mut ImportReport,
 ) {
     let budget = MAX_RESOURCE_TOTAL_BYTES - PROVENANCE_RESERVE;
+    // Pass 1: Lossless PNG re-compression (`CompressionType::Best`).
+    for res in resources.iter_mut() {
+        if total.checked_add(needed_bytes).is_some_and(|n| n <= budget) {
+            return;
+        }
+        let old_len = res.byte_len();
+        if res.media_type != "image/png" || old_len <= 64 * 1024 {
+            continue;
+        }
+        let Ok(decoded) = res.decode_image() else {
+            continue;
+        };
+        let mut best_png = Vec::new();
+        if PngEncoder::new_with_quality(&mut best_png, CompressionType::Best, FilterType::Adaptive)
+            .write_image(
+                &decoded.rgba,
+                decoded.width,
+                decoded.height,
+                ExtendedColorType::Rgba8,
+            )
+            .is_ok()
+            && best_png.len() + 8 * 1024 < old_len
+            && let Ok(updated) =
+                ResourceUnit::from_bytes(res.id.clone(), res.path.clone(), "image/png", &best_png)
+        {
+            *total = total
+                .saturating_sub(old_len)
+                .saturating_add(updated.byte_len());
+            *res = updated;
+        }
+    }
+
+    // Pass 2: Lossy JPEG fallback on opaque bitmaps only when lossless PNG still exceeds budget.
     for res in resources.iter_mut() {
         if total.checked_add(needed_bytes).is_some_and(|n| n <= budget) {
             break;
@@ -144,66 +262,42 @@ fn compact_bitmaps_under_pressure(
             .0
             .iter()
             .all(|px| px[3] == 255);
-        if is_opaque {
-            let mut rgb =
-                Vec::with_capacity((decoded.width as usize) * (decoded.height as usize) * 3);
-            for px in decoded.rgba.as_chunks::<4>().0 {
-                rgb.extend_from_slice(&px[..3]);
-            }
-            let mut jpg = Vec::new();
-            if JpegEncoder::new_with_quality(&mut jpg, 90)
-                .encode(&rgb, decoded.width, decoded.height, ExtendedColorType::Rgb8)
-                .is_ok()
-                && jpg.len() + 32 * 1024 < old_len
-            {
-                let old_lower = res.path.to_ascii_lowercase();
-                let candidate_jpg = res
-                    .path
-                    .strip_suffix(".png")
-                    .or_else(|| res.path.strip_suffix(".PNG"))
-                    .map(|stem| format!("{stem}.jpg"));
-                let new_path = match candidate_jpg {
-                    Some(cand) if !used_paths.contains(&cand.to_ascii_lowercase()) => cand,
-                    _ => res.path.clone(),
-                };
-                if let Ok(updated) =
-                    ResourceUnit::from_bytes(res.id.clone(), new_path.clone(), "image/jpeg", &jpg)
-                {
-                    used_paths.remove(&old_lower);
-                    used_paths.insert(new_path.to_ascii_lowercase());
-                    *total = total
-                        .saturating_sub(old_len)
-                        .saturating_add(updated.byte_len());
-                    *res = updated;
-                    continue;
-                }
-            }
-        } else {
-            let mut best_png = Vec::new();
-            if PngEncoder::new_with_quality(
-                &mut best_png,
-                CompressionType::Best,
-                FilterType::Adaptive,
-            )
-            .write_image(
-                &decoded.rgba,
-                decoded.width,
-                decoded.height,
-                ExtendedColorType::Rgba8,
-            )
+        if !is_opaque {
+            continue;
+        }
+        let mut rgb = Vec::with_capacity((decoded.width as usize) * (decoded.height as usize) * 3);
+        for px in decoded.rgba.as_chunks::<4>().0 {
+            rgb.extend_from_slice(&px[..3]);
+        }
+        let mut jpg = Vec::new();
+        if JpegEncoder::new_with_quality(&mut jpg, 90)
+            .encode(&rgb, decoded.width, decoded.height, ExtendedColorType::Rgb8)
             .is_ok()
-                && best_png.len() + 16 * 1024 < old_len
-                && let Ok(updated) = ResourceUnit::from_bytes(
-                    res.id.clone(),
-                    res.path.clone(),
-                    "image/png",
-                    &best_png,
-                )
+            && jpg.len() + 32 * 1024 < old_len
+        {
+            let old_lower = res.path.to_ascii_lowercase();
+            used_paths.remove(&old_lower);
+            let new_path = allocate_unique_jpg_path(&res.path, used_paths);
+            if let Ok(updated) =
+                ResourceUnit::from_bytes(res.id.clone(), new_path.clone(), "image/jpeg", &jpg)
             {
+                let loc = res
+                    .id
+                    .strip_prefix("legacy-bitmap-")
+                    .map(|mid| format!("media {mid}"))
+                    .unwrap_or_else(|| res.id.clone());
+                report.warning(
+                    "fla_bitmap_reencoded",
+                    loc,
+                    "Opaque bitmap was re-encoded from lossless PNG to high-quality JPEG (quality 90) to fit the 64 MiB project resource budget; lossless source bytes remain in the original FLA.",
+                );
+                used_paths.insert(new_path.to_ascii_lowercase());
                 *total = total
                     .saturating_sub(old_len)
                     .saturating_add(updated.byte_len());
                 *res = updated;
+            } else {
+                used_paths.insert(old_lower);
             }
         }
     }
@@ -224,8 +318,11 @@ fn find_identical_resource_id(
 fn resolve_sound_linkage_id(
     contents_bytes: &[u8],
     descriptor: &ContentsDescriptor,
+    language: ScriptLanguage,
+    location: &str,
     reserved_ids: &BTreeSet<String>,
     used_ids: &mut BTreeSet<String>,
+    report: &mut ImportReport,
 ) -> Option<String> {
     let lnk = descriptor.linkage.as_ref().or_else(|| {
         descriptor
@@ -248,23 +345,41 @@ fn resolve_sound_linkage_id(
     if !export_enabled {
         return None;
     }
-    let chosen = if !ident.trim().is_empty() {
+    let chosen = if language == ScriptLanguage::ActionScript3 && !cls.trim().is_empty() {
+        cls.trim()
+    } else if !ident.trim().is_empty() {
         ident.trim()
     } else if !cls.trim().is_empty() {
         cls.trim()
     } else {
         return None;
     };
-    if chosen.is_empty()
+    let invalid_or_duplicate = chosen.is_empty()
         || chosen.len() > 256
         || chosen.chars().any(char::is_control)
         || chosen == "root"
         || chosen.starts_with("fla-")
         || chosen.starts_with("legacy-")
+        || chosen.starts_with("xfl-")
+        || chosen.starts_with("swf-")
+        || (language == ScriptLanguage::ActionScript3
+            && !super::is_valid_qualified_class_name(chosen))
         || reserved_ids.contains(chosen)
-        || !used_ids.insert(chosen.to_owned())
-    {
+        || !used_ids.insert(chosen.to_owned());
+    if invalid_or_duplicate {
+        report.warning(
+            "fla_linkage_approximated",
+            location,
+            "Sound linkage identifier or ActionScript class name is invalid or collides with another item and was omitted.",
+        );
         return None;
+    }
+    if language == ScriptLanguage::ActionScript3 {
+        report.warning(
+            "fla_linkage_approximated",
+            location,
+            "ActionScript 3 sound class linkage is not bound as an instantiable Sound subclass; the audio asset and its XFL linkage metadata are retained.",
+        );
     }
     Some(chosen.to_owned())
 }
@@ -357,6 +472,7 @@ pub(super) fn resources(
     document: &BinaryTimelineDocument,
     folders: &BTreeMap<[u32; 2], String>,
     reserved_ids: &BTreeSet<String>,
+    language: ScriptLanguage,
     report: &mut ImportReport,
 ) -> Result<ExtractedAssets, String> {
     let mut resources = Vec::new();
@@ -370,6 +486,7 @@ pub(super) fn resources(
     let mut total = 0usize;
     let mut streams = BTreeMap::new();
     let mut decoded_streams = BTreeSet::new();
+    let mut swf_budget = super::compiled_clip::CompiledClipSwfBudget::default();
     let budget = MAX_RESOURCE_TOTAL_BYTES - PROVENANCE_RESERVE;
 
     for stream in &document.raw_streams {
@@ -417,7 +534,7 @@ pub(super) fn resources(
                     "Sound descriptor and media stream do not match; this sound remains in the embedded source.",
                 );
                 continue;
-            }
+            };
             decoded_streams.insert(stream.index);
             let decoded = match decode_binary_sound(
                 &stream.bytes,
@@ -444,6 +561,15 @@ pub(super) fn resources(
                 );
                 continue;
             }
+            let explicit_linkage = resolve_sound_linkage_id(
+                &document.contents.original_bytes,
+                descriptor,
+                language,
+                &location,
+                reserved_ids,
+                &mut used_ids,
+                report,
+            );
             let over_count = resources.len() >= MAX_RESOURCES - 2;
             let over_bytes = total
                 .checked_add(decoded.bytes.len())
@@ -461,26 +587,49 @@ pub(super) fn resources(
                 if let Some(existing_id) =
                     find_identical_resource_id(&resources, decoded.media_type, &decoded.bytes)
                 {
-                    if decoded.short_read {
-                        report.warning(
-                            "fla_sound_short_read",
-                            &location,
-                            "The sound stream ended before its declared length; the available complete audio frames were imported.",
-                        );
+                    let can_reuse = match &explicit_linkage {
+                        None => Some(existing_id),
+                        Some(lid) if existing_id.starts_with("legacy-sound-") => {
+                            if let Some(existing_res) =
+                                resources.iter_mut().find(|r| r.id == existing_id)
+                            {
+                                existing_res.id = lid.clone();
+                                for s_asset in sounds.values_mut() {
+                                    if s_asset.resource_id == existing_id {
+                                        s_asset.resource_id = lid.clone();
+                                    }
+                                }
+                                Some(lid.clone())
+                            } else {
+                                None
+                            }
+                        }
+                        Some(_) => None,
+                    };
+                    if let Some(target_id) = can_reuse {
+                        if decoded.short_read {
+                            report.warning(
+                                "fla_sound_short_read",
+                                &location,
+                                "The sound stream ended before its declared length; the available complete audio frames were imported.",
+                            );
+                        }
+                        if sounds
+                            .insert(
+                                id,
+                                SoundAsset {
+                                    resource_id: target_id,
+                                    duration_44: decoded.duration_44,
+                                },
+                            )
+                            .is_some()
+                        {
+                            return Err(
+                                "Sound descriptors have duplicate media identifiers.".into()
+                            );
+                        }
+                        continue;
                     }
-                    if sounds
-                        .insert(
-                            id,
-                            SoundAsset {
-                                resource_id: existing_id,
-                                duration_44: decoded.duration_44,
-                            },
-                        )
-                        .is_some()
-                    {
-                        return Err("Sound descriptors have duplicate media identifiers.".into());
-                    }
-                    continue;
                 }
                 if total
                     .checked_add(decoded.bytes.len())
@@ -491,10 +640,14 @@ pub(super) fn resources(
                         &mut used_paths,
                         &mut total,
                         decoded.bytes.len(),
+                        report,
                     );
                 }
             }
             if resources.len() >= MAX_RESOURCES - 2 {
+                if let Some(lid) = explicit_linkage {
+                    used_ids.remove(&lid);
+                }
                 report.warning(
                     "fla_media_not_imported",
                     &location,
@@ -508,6 +661,9 @@ pub(super) fn resources(
             {
                 Some(n) => total = n,
                 None => {
+                    if let Some(lid) = explicit_linkage {
+                        used_ids.remove(&lid);
+                    }
                     report.warning(
                         "fla_media_not_imported",
                         &location,
@@ -523,13 +679,7 @@ pub(super) fn resources(
                     "The sound stream ended before its declared length; the available complete audio frames were imported.",
                 );
             }
-            let resource_id = resolve_sound_linkage_id(
-                &document.contents.original_bytes,
-                descriptor,
-                reserved_ids,
-                &mut used_ids,
-            )
-            .unwrap_or_else(|| {
+            let resource_id = explicit_linkage.unwrap_or_else(|| {
                 let fallback_id = format!("legacy-sound-{id}");
                 used_ids.insert(fallback_id.clone());
                 fallback_id
@@ -610,6 +760,11 @@ pub(super) fn resources(
             if let Some(index) = descriptor.stream_index {
                 decoded_streams.insert(index);
             }
+            report.warning(
+                "fla_media_not_imported",
+                &location,
+                "External linked video item has no embedded media stream; a sized Video viewport is retained and original metadata remains in the embedded source.",
+            );
             videos.insert(
                 id,
                 VideoAsset {
@@ -648,6 +803,11 @@ pub(super) fn resources(
             }
             decoded_streams.insert(stream.index);
             if stream.bytes.is_empty() {
+                report.warning(
+                    "fla_media_not_imported",
+                    &location,
+                    "Video media stream is empty; a sized Video viewport is retained and original metadata remains in the embedded source.",
+                );
                 videos.insert(
                     id,
                     VideoAsset {
@@ -760,6 +920,7 @@ pub(super) fn resources(
                                 &mut used_paths,
                                 &mut total,
                                 video_bytes.len(),
+                                report,
                             );
                         }
                     }
@@ -870,51 +1031,8 @@ pub(super) fn resources(
             } else {
                 (100.0, 100.0)
             };
-            let swf_slice = cc
-                .primary_swf
-                .and_then(|sp| document.contents.original_bytes.get(sp.start..sp.end));
-            let Some(swf_bytes) =
-                swf_slice.filter(|b| b.len() >= 8 && matches!(&b[..3], b"FWS" | b"CWS" | b"ZWS"))
-            else {
-                report.warning(
-                    "fla_media_not_imported",
-                    &location,
-                    "Compiled-clip library item has no embedded SWF stream; a placeholder symbol keeps its placements.",
-                );
-                compiled_clips.insert(
-                    id,
-                    CompiledClipAsset {
-                        swf_resource_id: None,
-                        icon_bitmap: None,
-                        width,
-                        height,
-                    },
-                );
-                continue;
-            };
-            let mut swf_resource_id = None;
-            if swf_bytes.len() <= MAX_RESOURCE_BYTES
-                && resources.len() < MAX_RESOURCES - 2
-                && total
-                    .checked_add(swf_bytes.len())
-                    .is_some_and(|n| n <= budget)
-            {
-                let res_id = format!("legacy-swf-{id}");
-                let res_path = format!("legacy/compiled-clips/{id}/clip.swf");
-                if let Ok(unit) = ResourceUnit::from_bytes(
-                    &res_id,
-                    &res_path,
-                    "application/x-shockwave-flash",
-                    swf_bytes,
-                ) {
-                    total += swf_bytes.len();
-                    used_ids.insert(res_id.clone());
-                    used_paths.insert(res_path.to_ascii_lowercase());
-                    resources.push(unit);
-                    swf_resource_id = Some(res_id);
-                }
-            }
-            let mut icon_bitmap = None;
+
+            let mut decoded_icon_candidate: Option<(BitmapAsset, Vec<u8>)> = None;
             if let Some(icon_span) = cc.icon_bitmap
                 && let Some(icon_raw) = document
                     .contents
@@ -923,31 +1041,80 @@ pub(super) fn resources(
                 && let Ok(decoded_icon) = decode_binary_bitmap(icon_raw, cc.icon_encoded_byte_count)
                 && let Ok(png) = decoded_icon.png_bytes()
                 && png.len() <= MAX_RESOURCE_BYTES
-                && resources.len() < MAX_RESOURCES - 2
-                && total.checked_add(png.len()).is_some_and(|n| n <= budget)
             {
-                let icon_id = format!("legacy-swf-icon-{id}");
-                let icon_path = format!("legacy/compiled-clips/{id}/icon.png");
-                if let Ok(unit) = ResourceUnit::from_bytes(&icon_id, &icon_path, "image/png", &png)
-                {
-                    let avg = crate::average_bitmap_color(&decoded_icon.rgba);
-                    total += png.len();
-                    used_ids.insert(icon_id.clone());
-                    used_paths.insert(icon_path.to_ascii_lowercase());
-                    resources.push(unit);
-                    icon_bitmap = Some(BitmapAsset {
-                        resource_id: icon_id,
+                let avg = crate::average_bitmap_color(&decoded_icon.rgba);
+                decoded_icon_candidate = Some((
+                    BitmapAsset {
+                        resource_id: format!("legacy-swf-icon-{id}"),
                         width: f64::from(decoded_icon.width),
                         height: f64::from(decoded_icon.height),
                         smoothing: false,
                         average_color: avg,
-                    });
+                    },
+                    png,
+                ));
+            }
+
+            let swf_slice = cc
+                .primary_swf
+                .and_then(|sp| document.contents.original_bytes.get(sp.start..sp.end));
+            let preview_asset_opt = decoded_icon_candidate.as_ref().map(|(a, _)| a.clone());
+
+            let (reconstructed, need_icon_resource) = if let Some(swf_bytes) =
+                swf_slice.filter(|b| b.len() >= 8 && matches!(&b[..3], b"FWS" | b"CWS" | b"ZWS"))
+            {
+                match super::compiled_clip::reconstruct_compiled_clip_swf(
+                    id,
+                    swf_bytes,
+                    &document.contents.original_bytes,
+                    descriptor,
+                    width,
+                    height,
+                    &preview_asset_opt,
+                    language,
+                    &location,
+                    &mut swf_budget,
+                    &mut resources,
+                    &mut used_ids,
+                    &mut used_paths,
+                    &mut total,
+                    budget,
+                    report,
+                ) {
+                    Some((rec, used_icon)) => (Some(rec), used_icon),
+                    None => (None, true),
+                }
+            } else {
+                report.warning(
+                    "fla_media_not_imported",
+                    &location,
+                    "Compiled-clip library item has no embedded SWF stream; a placeholder symbol keeps its placements.",
+                );
+                (None, true)
+            };
+
+            let mut icon_bitmap = None;
+            if need_icon_resource
+                && let Some((asset, png)) = decoded_icon_candidate
+                && resources.len() < MAX_RESOURCES - 2
+                && total.checked_add(png.len()).is_some_and(|n| n <= budget)
+            {
+                let icon_path = format!("legacy/compiled-clips/{id}/icon.png");
+                if let Ok(unit) =
+                    ResourceUnit::from_bytes(&asset.resource_id, &icon_path, "image/png", &png)
+                {
+                    total += png.len();
+                    used_ids.insert(asset.resource_id.clone());
+                    used_paths.insert(icon_path.to_ascii_lowercase());
+                    resources.push(unit);
+                    icon_bitmap = Some(asset);
                 }
             }
+
             compiled_clips.insert(
                 id,
                 CompiledClipAsset {
-                    swf_resource_id,
+                    reconstructed,
                     icon_bitmap,
                     width,
                     height,
@@ -1067,6 +1234,7 @@ pub(super) fn resources(
                     &mut used_paths,
                     &mut total,
                     png.len(),
+                    report,
                 );
             }
         }
@@ -1083,32 +1251,59 @@ pub(super) fn resources(
             total += png.len();
             (png, "image/png", "png")
         } else {
-            let is_opaque = decoded
-                .rgba
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .all(|px| px[3] == 255);
-            let mut jpg = Vec::new();
-            let encoded_jpg = if is_opaque {
-                let mut rgb =
-                    Vec::with_capacity((decoded.width as usize) * (decoded.height as usize) * 3);
-                for px in decoded.rgba.as_chunks::<4>().0 {
-                    rgb.extend_from_slice(&px[..3]);
+            let mut best_png = Vec::new();
+            let fits_best_png = PngEncoder::new_with_quality(
+                &mut best_png,
+                CompressionType::Best,
+                FilterType::Adaptive,
+            )
+            .write_image(
+                &decoded.rgba,
+                decoded.width,
+                decoded.height,
+                ExtendedColorType::Rgba8,
+            )
+            .is_ok()
+                && total
+                    .checked_add(best_png.len())
+                    .is_some_and(|n| n <= budget);
+            if fits_best_png {
+                total += best_png.len();
+                (best_png, "image/png", "png")
+            } else {
+                let is_opaque = decoded
+                    .rgba
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|px| px[3] == 255);
+                let mut jpg = Vec::new();
+                let encoded_jpg = if is_opaque {
+                    let mut rgb = Vec::with_capacity(
+                        (decoded.width as usize) * (decoded.height as usize) * 3,
+                    );
+                    for px in decoded.rgba.as_chunks::<4>().0 {
+                        rgb.extend_from_slice(&px[..3]);
+                    }
+                    JpegEncoder::new_with_quality(&mut jpg, 90)
+                        .encode(&rgb, decoded.width, decoded.height, ExtendedColorType::Rgb8)
+                        .is_ok()
+                } else {
+                    false
+                };
+                if encoded_jpg && total.checked_add(jpg.len()).is_some_and(|n| n <= budget) {
+                    report.warning(
+                        "fla_bitmap_reencoded",
+                        &location,
+                        "Opaque bitmap was re-encoded from lossless PNG to high-quality JPEG (quality 90) to fit the 64 MiB project resource budget; lossless source bytes remain in the original FLA.",
+                    );
+                    total += jpg.len();
+                    (jpg, "image/jpeg", "jpg")
+                } else {
+                    report.warning("fla_bitmap_skipped",&location,"Decoded bitmaps exceed the project's resource budget (64 MiB including import provenance); this bitmap becomes an unresolved placeholder.");
+                    skipped_bitmaps.insert(id);
+                    continue;
                 }
-                JpegEncoder::new_with_quality(&mut jpg, 90)
-                    .encode(&rgb, decoded.width, decoded.height, ExtendedColorType::Rgb8)
-                    .is_ok()
-            } else {
-                false
-            };
-            if encoded_jpg && total.checked_add(jpg.len()).is_some_and(|n| n <= budget) {
-                total += jpg.len();
-                (jpg, "image/jpeg", "jpg")
-            } else {
-                report.warning("fla_bitmap_skipped",&location,"Decoded bitmaps exceed the project's resource budget (64 MiB including import provenance); this bitmap becomes an unresolved placeholder.");
-                skipped_bitmaps.insert(id);
-                continue;
             }
         };
         let resource_id = format!("legacy-bitmap-{id}");

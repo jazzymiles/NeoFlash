@@ -104,6 +104,13 @@ pub fn export_fla_bytes(project: &Project) -> Result<Vec<u8>, ImportError> {
             }
         }
     }
+    for (dat_href, vid_bytes) in &ctx.video_blobs {
+        writer.add_file(
+            &format!("bin/{dat_href}"),
+            vid_bytes,
+            CompressionMethod::Deflated,
+        )?;
+    }
     for (entry_path, source_text) in &as_sources {
         writer.add_file(
             entry_path,
@@ -269,12 +276,16 @@ struct SoundExport {
     emit_mp3_sample_count: bool,
     cache_href: Option<String>,
     cache: Option<FlashSoundCache>,
+    linkage_id: Option<String>,
 }
+
+type VideoLookupKey = (Option<Id>, (u64, u64));
 
 struct VideoExport {
     item_name: String,
     width: f64,
     height: f64,
+    video_data_href: Option<String>,
 }
 
 struct ExportContext {
@@ -289,23 +300,47 @@ struct ExportContext {
     bitmaps: HashMap<Id, BitmapExport>,
     sound_order: Vec<Id>,
     sounds: HashMap<Id, SoundExport>,
-    video_order: Vec<(u64, u64)>,
-    videos: HashMap<(u64, u64), VideoExport>,
+    embedded_video_ids: HashSet<Id>,
+    video_blobs: Vec<(String, Vec<u8>)>,
+    video_order: Vec<VideoLookupKey>,
+    videos: HashMap<VideoLookupKey, VideoExport>,
 }
 
 impl ExportContext {
     fn build(project: &Project) -> Result<Self, ImportError> {
+        let doc_stem = sanitize_doc_stem(&project.name);
+        let as_version = detect_as_version(project);
+        let include_hidden_layers = !can_exclude_hidden_layers(project);
+
+        let folders: Vec<String> = project
+            .library_folder_paths()
+            .into_iter()
+            .filter(|f| !f.is_empty() && valid_library_folder(f))
+            .collect();
+
+        let (symbol_order, symbols) = collect_symbols(project);
+        let (bitmap_order, bitmaps, sound_order, sounds, embedded_video_order, embedded_videos) =
+            collect_media(project)?;
+        let embedded_video_ids: HashSet<Id> = embedded_videos.keys().cloned().collect();
+
         let mut video_order = Vec::new();
         let mut videos = HashMap::new();
         let mut used_video_names = HashSet::new();
+        let mut placed_video_resources = HashSet::new();
         for sym in &project.symbols {
             for layer in &sym.timeline.layers {
+                let mut active_video_res: Option<Id> = None;
                 for key in &layer.keyframes {
-                    if key.video.is_some() {
-                        return Err(ImportError::Container(format!(
-                            "frame video stream metadata in symbol {:?} layer {:?} frame {} cannot be represented in XFL 2.2 .fla",
-                            sym.name, layer.name, key.frame
-                        )));
+                    if let Some(span) = &key.video {
+                        active_video_res = embedded_video_ids
+                            .contains(&span.resource)
+                            .then(|| span.resource.clone());
+                    } else if !key
+                        .elements
+                        .iter()
+                        .any(|e| matches!(e.kind, ElementKind::Video { .. }))
+                    {
+                        active_video_res = None;
                     }
                     for elem in &key.elements {
                         if !matches!(elem.kind, ElementKind::Instance { .. })
@@ -330,21 +365,40 @@ impl ExportContext {
                                     elem.name, sym.name, width, height
                                 )));
                             }
-                            let key = video_size_key(*width, *height);
-                            videos.entry(key).or_insert_with(|| {
+                            let eff_res = key
+                                .video
+                                .as_ref()
+                                .filter(|v| embedded_video_ids.contains(&v.resource))
+                                .map(|v| v.resource.clone())
+                                .or_else(|| active_video_res.clone());
+                            if let Some(rid) = &eff_res {
+                                placed_video_resources.insert(rid.clone());
+                            }
+                            let key_tuple = (eff_res.clone(), video_size_key(*width, *height));
+                            videos.entry(key_tuple.clone()).or_insert_with(|| {
                                 let clamped_w = width.clamp(1.0, 8192.0);
                                 let clamped_h = height.clamp(1.0, 8192.0);
-                                let desired = format!(
-                                    "Video_{}x{}",
-                                    clamped_w.round() as u32,
-                                    clamped_h.round() as u32
-                                );
+                                let (desired, dat_href) = if let Some(rid) = &eff_res
+                                    && let Some((stem, dat)) = embedded_videos.get(rid)
+                                {
+                                    (stem.clone(), Some(dat.clone()))
+                                } else {
+                                    (
+                                        format!(
+                                            "Video_{}x{}",
+                                            clamped_w.round() as u32,
+                                            clamped_h.round() as u32
+                                        ),
+                                        None,
+                                    )
+                                };
                                 let item_name = dedup_exact_name(&mut used_video_names, &desired);
-                                video_order.push(key);
+                                video_order.push(key_tuple);
                                 VideoExport {
                                     item_name,
                                     width: clamped_w,
                                     height: clamped_h,
+                                    video_data_href: dat_href,
                                 }
                             });
                         }
@@ -352,18 +406,25 @@ impl ExportContext {
                 }
             }
         }
-        let doc_stem = sanitize_doc_stem(&project.name);
-        let as_version = detect_as_version(project);
-        let include_hidden_layers = !can_exclude_hidden_layers(project);
-
-        let folders: Vec<String> = project
-            .library_folder_paths()
-            .into_iter()
-            .filter(|f| !f.is_empty() && valid_library_folder(f))
-            .collect();
-
-        let (symbol_order, symbols) = collect_symbols(project);
-        let (bitmap_order, bitmaps, sound_order, sounds) = collect_media(project)?;
+        let mut video_blobs = Vec::with_capacity(embedded_video_order.len());
+        for (rid, bytes) in embedded_video_order {
+            if let Some((stem, dat_href)) = embedded_videos.get(&rid) {
+                video_blobs.push((dat_href.clone(), bytes));
+                if !placed_video_resources.contains(&rid) {
+                    let key_tuple = (Some(rid), video_size_key(320.0, 240.0));
+                    videos.entry(key_tuple.clone()).or_insert_with(|| {
+                        let item_name = dedup_exact_name(&mut used_video_names, stem);
+                        video_order.push(key_tuple);
+                        VideoExport {
+                            item_name,
+                            width: 320.0,
+                            height: 240.0,
+                            video_data_href: Some(dat_href.clone()),
+                        }
+                    });
+                }
+            }
+        }
 
         Ok(Self {
             doc_stem,
@@ -377,6 +438,8 @@ impl ExportContext {
             bitmaps,
             sound_order,
             sounds,
+            embedded_video_ids,
+            video_blobs,
             video_order,
             videos,
         })
@@ -419,6 +482,9 @@ fn encode_script_with_language_tag(script: &Script) -> String {
 }
 
 fn detect_as_version(project: &Project) -> u8 {
+    if project.script_language == Some(ScriptLanguage::ActionScript3) {
+        return 3;
+    }
     if project
         .document_class
         .as_deref()
@@ -639,12 +705,67 @@ type MediaCollections = (
     HashMap<Id, BitmapExport>,
     Vec<Id>,
     HashMap<Id, SoundExport>,
+    Vec<(Id, Vec<u8>)>,
+    HashMap<Id, (String, String)>,
 );
+
+fn is_auto_generated_sound_id(id: &str) -> bool {
+    for prefix in [
+        "legacy-sound-",
+        "xfl-sound-",
+        "swf-sound-",
+        "legacy-cc-",
+        "fla-",
+        "res-",
+        "asset-",
+        "audio-",
+        "baked-",
+        "video-audio-",
+    ] {
+        if id.starts_with(prefix) {
+            return true;
+        }
+    }
+    for prefix in ["snd-", "sound-", "s"] {
+        if let Some(rest) = id.strip_prefix(prefix)
+            && !rest.is_empty()
+            && rest.bytes().all(|b| b.is_ascii_digit())
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn explicit_sound_linkage_id(res: &ResourceUnit) -> Option<String> {
+    let trimmed = res.id.trim();
+    if trimmed.is_empty()
+        || trimmed.len() > 512
+        || trimmed.chars().any(char::is_control)
+        || is_auto_generated_sound_id(trimmed)
+    {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
+}
+
+fn is_valid_as3_linkage_class(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 1024
+        && name.split('.').all(|part| {
+            !part.is_empty()
+                && part.chars().enumerate().all(|(i, ch)| {
+                    ch == '_' || ch == '$' || ch.is_alphabetic() || (i > 0 && ch.is_numeric())
+                })
+        })
+}
 
 fn collect_media(project: &Project) -> Result<MediaCollections, ImportError> {
     let mut smoothed_bitmaps: HashSet<&str> = HashSet::new();
     let mut referenced_bitmaps: HashSet<&str> = HashSet::new();
     let mut referenced_sounds: HashSet<&str> = HashSet::new();
+    let mut referenced_videos: HashSet<&str> = HashSet::new();
     let mut custom_env_sounds: HashSet<&str> = HashSet::new();
 
     for sym in &project.symbols {
@@ -657,6 +778,9 @@ fn collect_media(project: &Project) -> Result<MediaCollections, ImportError> {
                     {
                         custom_env_sounds.insert(snd.resource.as_str());
                     }
+                }
+                if let Some(vid) = &key.video {
+                    referenced_videos.insert(vid.resource.as_str());
                 }
                 for bf in &key.bitmap_fills {
                     referenced_bitmaps.insert(bf.resource_id.as_str());
@@ -685,6 +809,8 @@ fn collect_media(project: &Project) -> Result<MediaCollections, ImportError> {
     let mut bitmaps = HashMap::new();
     let mut sound_order = Vec::new();
     let mut sounds = HashMap::new();
+    let mut embedded_video_order = Vec::new();
+    let mut embedded_videos = HashMap::new();
 
     let mut used_bitmap_names = HashSet::new();
     let mut used_sound_names = HashSet::new();
@@ -699,15 +825,18 @@ fn collect_media(project: &Project) -> Result<MediaCollections, ImportError> {
             .get(..6)
             .is_some_and(|p| p.eq_ignore_ascii_case("image/"));
         let is_aud_type = res.is_audio();
+        let is_vid_type = res.is_video();
         let referenced_as_bitmap = referenced_bitmaps.contains(res.id.as_str());
         let referenced_as_sound = referenced_sounds.contains(res.id.as_str());
-        let has_authored_role = referenced_as_bitmap || referenced_as_sound;
+        let referenced_as_video = referenced_videos.contains(res.id.as_str());
+        let has_authored_role = referenced_as_bitmap || referenced_as_sound || referenced_as_video;
         // Authored use is authoritative: a resource that decodes as a bitmap remains
         // exportable even when its imported MIME metadata was wrong. MIME classifies
         // only otherwise-unreferenced library media, where no authored role can do so.
         let want_img = referenced_as_bitmap || (!has_authored_role && is_img_type);
         let want_aud = referenced_as_sound || (!has_authored_role && is_aud_type);
-        if !want_img && !want_aud {
+        let want_vid = referenced_as_video || (!has_authored_role && is_vid_type);
+        if !want_img && !want_aud && !want_vid {
             return Err(ImportError::Container(format!(
                 "resource {:?} ({}) cannot be represented in XFL 2.2 .fla media library",
                 res.path, res.media_type
@@ -719,6 +848,10 @@ fn collect_media(project: &Project) -> Result<MediaCollections, ImportError> {
 
         let bitmap = want_img.then(|| normalize_bitmap_bytes(&raw)).flatten();
         let audio = want_aud.then(|| inspect_audio_bytes(&raw)).flatten();
+        let valid_video = want_vid
+            && !neoflash_core::inspect_video_resource(&res.path, &res.media_type, &raw, None)
+                .iter()
+                .any(|d| d.is_error);
 
         if want_img && bitmap.is_none() {
             return Err(ImportError::Container(format!(
@@ -732,11 +865,17 @@ fn collect_media(project: &Project) -> Result<MediaCollections, ImportError> {
                 res.path, res.media_type
             )));
         }
+        if want_vid && !valid_video {
+            return Err(ImportError::Container(format!(
+                "resource {:?} ({}) cannot be represented as XFL video; stream header is invalid or unsupported",
+                res.path, res.media_type
+            )));
+        }
 
         if let Some((bytes, ext)) = bitmap {
             if bytes.len() as u64 > MAX_ARCHIVE_ENTRY_BYTES {
                 return Err(ImportError::Container(format!(
-                    "bitmap resource {:?} exceeds 8 MiB XFL entry limit",
+                    "bitmap resource {:?} exceeds 16 MiB XFL entry limit",
                     res.path
                 )));
             }
@@ -760,7 +899,7 @@ fn collect_media(project: &Project) -> Result<MediaCollections, ImportError> {
         if let Some(audio) = audio {
             if raw.len() as u64 > MAX_ARCHIVE_ENTRY_BYTES {
                 return Err(ImportError::Container(format!(
-                    "audio resource {:?} exceeds 8 MiB XFL entry limit",
+                    "audio resource {:?} exceeds 16 MiB XFL entry limit",
                     res.path
                 )));
             }
@@ -779,6 +918,7 @@ fn collect_media(project: &Project) -> Result<MediaCollections, ImportError> {
             let cache_href = cache
                 .as_ref()
                 .map(|_| format!("sound{}.dat", sound_order.len() + 1));
+            let linkage_id = explicit_sound_linkage_id(res);
             sound_order.push(res.id.clone());
             sounds.insert(
                 res.id.clone(),
@@ -786,35 +926,59 @@ fn collect_media(project: &Project) -> Result<MediaCollections, ImportError> {
                     item_name,
                     href: format!("media/{file_name}"),
                     zip_path: format!("LIBRARY/media/{file_name}"),
-                    bytes: raw,
+                    bytes: raw.clone(),
                     duration_44: audio.duration_44,
                     emit_mp3_sample_count,
                     cache_href,
                     cache,
+                    linkage_id,
                 },
             );
         }
+
+        if want_vid && valid_video {
+            if raw.len() as u64 > MAX_ARCHIVE_ENTRY_BYTES {
+                return Err(ImportError::Container(format!(
+                    "video resource {:?} exceeds 16 MiB XFL entry limit",
+                    res.path
+                )));
+            }
+            let stem = clean_resource_stem(&res.path, "video");
+            let dat_href = format!("video{}.dat", embedded_video_order.len() + 1);
+            embedded_videos.insert(res.id.clone(), (stem, dat_href));
+            embedded_video_order.push((res.id.clone(), raw));
+        }
     }
 
-    Ok((bitmap_order, bitmaps, sound_order, sounds))
+    Ok((
+        bitmap_order,
+        bitmaps,
+        sound_order,
+        sounds,
+        embedded_video_order,
+        embedded_videos,
+    ))
 }
 
 fn is_internal_provenance_resource(res: &ResourceUnit) -> bool {
     res.id == "fla-provenance"
         || matches!(
             res.path.as_str(),
-            "legacy/provenance.json"
-                | "legacy/import-provenance.json"
-                | "legacy/source.fla"
-                | "legacy/source.swf"
+            "legacy/provenance.json" | "legacy/import-provenance.json"
         )
+        || res.path.starts_with("legacy/source.fla")
+        || res.path.starts_with("legacy/source.swf")
         || res
             .media_type
             .eq_ignore_ascii_case("application/x-neoflash-fla-source")
+        || res
+            .media_type
+            .eq_ignore_ascii_case("application/x-neoflash-swf-source")
         || res.media_type.eq_ignore_ascii_case("application/json")
         || res.media_type.eq_ignore_ascii_case("text/x-actionscript")
         || res.media_type.eq_ignore_ascii_case("text/plain")
         || res.path.to_ascii_lowercase().ends_with(".as")
+        || res.path.to_ascii_lowercase().ends_with(".asi")
 }
 
 fn clean_resource_stem(resource_path: &str, fallback: &str) -> String {
@@ -1092,6 +1256,17 @@ fn render_dom_document(project: &Project, ctx: &ExportContext) -> String {
         }
         for snd_id in &ctx.sound_order {
             if let Some(snd) = ctx.sounds.get(snd_id) {
+                let linkage_attrs = match &snd.linkage_id {
+                    Some(lid) if ctx.as_version == 3 && is_valid_as3_linkage_class(lid) => format!(
+                        " linkageExportForAS=\"true\" linkageExportInFirstFrame=\"true\" linkageClassName=\"{}\"",
+                        escape_xml_attr(lid)
+                    ),
+                    Some(lid) => format!(
+                        " linkageExportForAS=\"true\" linkageExportInFirstFrame=\"true\" linkageIdentifier=\"{}\"",
+                        escape_xml_attr(lid)
+                    ),
+                    None => String::new(),
+                };
                 if let (Some(dat_href), Some(cache)) = (&snd.cache_href, &snd.cache) {
                     let compressed_attrs = cache
                         .data_length
@@ -1099,7 +1274,7 @@ fn render_dom_document(project: &Project, ctx: &ExportContext) -> String {
                         .unwrap_or_default();
                     writeln!(
                         xml,
-                        "    <DOMSoundItem name=\"{}\" href=\"{}\" soundDataHRef=\"{}\" format=\"{}\" sampleCount=\"{}\"{compressed_attrs}/>",
+                        "    <DOMSoundItem name=\"{}\" href=\"{}\" soundDataHRef=\"{}\" format=\"{}\" sampleCount=\"{}\"{compressed_attrs}{linkage_attrs}/>",
                         escape_xml_attr(&snd.item_name),
                         escape_xml_attr(&snd.href),
                         escape_xml_attr(dat_href),
@@ -1110,7 +1285,7 @@ fn render_dom_document(project: &Project, ctx: &ExportContext) -> String {
                 } else if snd.emit_mp3_sample_count {
                     writeln!(
                         xml,
-                        "    <DOMSoundItem name=\"{}\" href=\"{}\" format=\"44kHz 16bit Stereo\" sampleCount=\"44100\"/>",
+                        "    <DOMSoundItem name=\"{}\" href=\"{}\" format=\"44kHz 16bit Stereo\" sampleCount=\"44100\"{linkage_attrs}/>",
                         escape_xml_attr(&snd.item_name),
                         escape_xml_attr(&snd.href),
                     )
@@ -1118,7 +1293,7 @@ fn render_dom_document(project: &Project, ctx: &ExportContext) -> String {
                 } else {
                     writeln!(
                         xml,
-                        "    <DOMSoundItem name=\"{}\" href=\"{}\"/>",
+                        "    <DOMSoundItem name=\"{}\" href=\"{}\"{linkage_attrs}/>",
                         escape_xml_attr(&snd.item_name),
                         escape_xml_attr(&snd.href),
                     )
@@ -1128,14 +1303,26 @@ fn render_dom_document(project: &Project, ctx: &ExportContext) -> String {
         }
         for vid_key in &ctx.video_order {
             if let Some(vid) = ctx.videos.get(vid_key) {
-                writeln!(
-                    xml,
-                    "    <DOMVideoItem name=\"{}\" width=\"{}\" height=\"{}\"/>",
-                    escape_xml_attr(&vid.item_name),
-                    fmt_num(vid.width),
-                    fmt_num(vid.height),
-                )
-                .unwrap();
+                if let Some(dat_href) = &vid.video_data_href {
+                    writeln!(
+                        xml,
+                        "    <DOMVideoItem name=\"{}\" videoDataHRef=\"{}\" width=\"{}\" height=\"{}\"/>",
+                        escape_xml_attr(&vid.item_name),
+                        escape_xml_attr(dat_href),
+                        fmt_num(vid.width),
+                        fmt_num(vid.height),
+                    )
+                    .unwrap();
+                } else {
+                    writeln!(
+                        xml,
+                        "    <DOMVideoItem name=\"{}\" width=\"{}\" height=\"{}\"/>",
+                        escape_xml_attr(&vid.item_name),
+                        fmt_num(vid.width),
+                        fmt_num(vid.height),
+                    )
+                    .unwrap();
+                }
             }
         }
         xml.push_str("  </media>\n");

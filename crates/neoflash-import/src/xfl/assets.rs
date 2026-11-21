@@ -68,7 +68,7 @@ impl Parser<'_> {
             match item.tag_name().name() {
                 "DOMBitmapItem" => self.parse_bitmap_item(item, binary_files, video_previews),
                 "DOMSoundItem" => self.parse_sound_item(item, binary_files),
-                "DOMVideoItem" => self.parse_video_item(item),
+                "DOMVideoItem" => self.parse_video_item(item, binary_files),
                 "DOMCompiledClipItem" => self.parse_compiled_clip_item(item),
                 _ => {
                     self.report.error(
@@ -81,7 +81,11 @@ impl Parser<'_> {
         }
     }
 
-    pub(super) fn parse_video_item(&mut self, item: Node<'_, '_>) {
+    pub(super) fn parse_video_item(
+        &mut self,
+        item: Node<'_, '_>,
+        binary_files: &BTreeMap<String, Vec<u8>>,
+    ) {
         let loc = self.location(item, "DOMDocument.xml");
         self.audit(
             item,
@@ -118,20 +122,104 @@ impl Parser<'_> {
             &[],
         );
         let name = item.attribute("name").unwrap_or("");
-        let w = self
+        let mut w = self
             .number(item, "width", 320.0, "DOMDocument.xml")
             .clamp(1.0, 8192.0);
-        let h = self
+        let mut h = self
             .number(item, "height", 240.0, "DOMDocument.xml")
             .clamp(1.0, 8192.0);
-        if !name.is_empty() {
-            self.videos.insert(name.to_owned(), (w, h));
+
+        let mut resource_id = None;
+        let mut sync_video = true;
+        let mut import_audio = true;
+
+        if let Some(dat_href) = item.attribute("videoDataHRef").filter(|s| !s.is_empty()) {
+            if let Err(err) = source::safe_name(dat_href) {
+                self.report.error("unsafe_reference", &loc, err.to_string());
+                return;
+            }
+            if let Some(raw) = get_binary_ci(binary_files, &format!("bin/{dat_href}"))
+                .or_else(|| get_binary_ci(binary_files, dat_href))
+            {
+                let idx = self.videos.len() + 1;
+                let cand_id = format!("xfl-video-{idx}");
+                let diags =
+                    neoflash_core::inspect_video_resource(&cand_id, "video/x-flv", raw, None);
+                if !diags.iter().any(|d| d.is_error) {
+                    let (media_type, ext) = if raw.len() >= 12 && &raw[4..8] == b"ftyp" {
+                        ("video/mp4", "mp4")
+                    } else if raw.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]) {
+                        ("video/webm", "webm")
+                    } else if raw.starts_with(b"OggS") {
+                        ("video/ogg", "ogv")
+                    } else if raw.len() >= 12 && &raw[..4] == b"RIFF" && &raw[8..12] == b"AVI " {
+                        ("video/x-msvideo", "avi")
+                    } else {
+                        ("video/x-flv", "flv")
+                    };
+                    if self
+                        .register_resource(
+                            &cand_id,
+                            build_xfl_resource_path("assets/videos", idx, name, ext),
+                            name,
+                            media_type,
+                            raw,
+                            &loc,
+                        )
+                        .is_some()
+                    {
+                        resource_id = Some(cand_id);
+                    }
+                } else if let Ok(decoded) = crate::legacy::media::decode_binary_video(raw) {
+                    if decoded.width > 0.0 {
+                        w = decoded.width.clamp(1.0, 8192.0);
+                    }
+                    if decoded.height > 0.0 {
+                        h = decoded.height.clamp(1.0, 8192.0);
+                    }
+                    sync_video = decoded.sync_video;
+                    import_audio = decoded.import_audio;
+                    if let crate::legacy::media::BinaryVideoPayload::Container {
+                        media_type,
+                        extension,
+                        bytes,
+                    } = decoded.payload
+                        && self
+                            .register_resource(
+                                &cand_id,
+                                build_xfl_resource_path("assets/videos", idx, name, extension),
+                                name,
+                                media_type,
+                                &bytes,
+                                &loc,
+                            )
+                            .is_some()
+                    {
+                        resource_id = Some(cand_id);
+                    }
+                }
+            }
         }
-        self.report.warning(
-            "xfl_video_approximated",
-            loc,
-            "DOMVideoItem metadata is registered as a Video viewport; embedded FLV/video stream data is not bundled.",
-        );
+
+        if !name.is_empty() {
+            self.videos.insert(
+                name.to_owned(),
+                XflVideoAsset {
+                    width: w,
+                    height: h,
+                    resource_id: resource_id.clone(),
+                    sync_video,
+                    import_audio,
+                },
+            );
+        }
+        if resource_id.is_none() {
+            self.report.warning(
+                "xfl_video_approximated",
+                loc,
+                "DOMVideoItem metadata is registered as a Video viewport; embedded FLV/video stream data is not bundled.",
+            );
+        }
     }
 
     pub(super) fn parse_compiled_clip_item(&mut self, item: Node<'_, '_>) {
@@ -622,15 +710,45 @@ impl Parser<'_> {
         let export_as = self.boolean(item, "linkageExportForAS", false, "DOMDocument.xml");
         let export_rs = self.boolean(item, "linkageExportForRS", false, "DOMDocument.xml");
         let import_rs = self.boolean(item, "linkageImportForRS", false, "DOMDocument.xml");
-        if export_as
+        let raw_linkage_ident = item
+            .attribute("linkageIdentifier")
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let raw_linkage_class = item
+            .attribute("linkageClassName")
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let has_any_sound_linkage = export_as
             || export_rs
             || import_rs
-            || item
-                .attribute("linkageClassName")
-                .is_some_and(|s| !s.is_empty())
-            || item
-                .attribute("linkageIdentifier")
-                .is_some_and(|s| !s.is_empty())
+            || raw_linkage_class.is_some()
+            || raw_linkage_ident.is_some();
+        let chosen_linkage =
+            if export_as || raw_linkage_ident.is_some() || raw_linkage_class.is_some() {
+                let cand = if self.language == Some(ScriptLanguage::ActionScript3) {
+                    raw_linkage_class.or(raw_linkage_ident)
+                } else {
+                    raw_linkage_ident.or(raw_linkage_class)
+                };
+                cand.filter(|id| {
+                    !id.is_empty()
+                        && id.len() <= 512
+                        && !id.chars().any(char::is_control)
+                        && *id != "root"
+                        && !id.starts_with("xfl-")
+                        && !id.starts_with("fla-")
+                        && !id.starts_with("legacy-")
+                        && !self.resources.iter().any(|r| r.id == *id)
+                })
+                .map(str::to_owned)
+            } else {
+                None
+            };
+        if has_any_sound_linkage
+            && (chosen_linkage.is_none()
+                || export_rs
+                || import_rs
+                || self.language == Some(ScriptLanguage::ActionScript3))
         {
             self.report.warning(
                 "xfl_sound_linkage_unsupported",
@@ -672,7 +790,7 @@ impl Parser<'_> {
         }
 
         let idx = self.sounds.len() + 1;
-        let resource_id = format!("xfl-sound-{idx}");
+        let resource_id = chosen_linkage.unwrap_or_else(|| format!("xfl-sound-{idx}"));
 
         if let Some(raw) = external_bytes {
             if raw.len() >= 12 && &raw[0..4] == b"RIFF" && &raw[8..12] == b"WAVE" {

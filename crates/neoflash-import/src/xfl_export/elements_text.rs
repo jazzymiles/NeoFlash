@@ -6,6 +6,7 @@ use super::*;
 pub(super) fn render_element(
     element: &Element,
     bitmap_fills: &[AuthoredBitmapFill],
+    frame_video_resource: Option<&str>,
     ctx: &ExportContext,
 ) -> (Vec<String>, bool) {
     let ct = element
@@ -206,7 +207,11 @@ pub(super) fn render_element(
             true,
         ),
         ElementKind::Video { width, height } => {
-            if let Some(vid_info) = ctx.videos.get(&video_size_key(*width, *height)) {
+            let eff_res = frame_video_resource
+                .filter(|rid| ctx.embedded_video_ids.contains(*rid))
+                .map(str::to_owned);
+            let key = (eff_res, video_size_key(*width, *height));
+            if let Some(vid_info) = ctx.videos.get(&key) {
                 (vec![render_video_instance(element, vid_info)], false)
             } else {
                 (Vec::new(), false)

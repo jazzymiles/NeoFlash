@@ -1521,22 +1521,44 @@ fn transcode_avi_resources_for_html5(
     let ffmpeg = video::detect_ffmpeg();
     let mut path_renames: std::collections::BTreeMap<String, String> =
         std::collections::BTreeMap::new();
+    let mut used_paths_lower: std::collections::HashSet<String> = project
+        .resources
+        .iter()
+        .map(|r| r.path.to_ascii_lowercase())
+        .collect();
     for resource in &mut project.resources {
         let is_avi_mime = resource.media_type.eq_ignore_ascii_case("video/x-msvideo")
             || resource.media_type.eq_ignore_ascii_case("video/avi");
+        let is_flv_mime = resource.media_type.eq_ignore_ascii_case("video/x-flv")
+            || resource.media_type.eq_ignore_ascii_case("video/flv");
         let Ok(raw_bytes) = resource.decoded_bytes() else {
             continue;
         };
-        if raw_bytes.is_empty() || (!is_avi_mime && !neoflash_core::is_avi_bytes(&raw_bytes)) {
+        if raw_bytes.is_empty() {
+            continue;
+        }
+        let is_avi = is_avi_mime || neoflash_core::is_avi_bytes(&raw_bytes);
+        let is_flv =
+            !is_avi && (is_flv_mime || neoflash_core::timeline_video::is_flv_bytes(&raw_bytes));
+        if !is_avi && !is_flv {
             continue;
         }
         let Some(ffmpeg_bin) = ffmpeg.as_ref() else {
-            warnings.push(format!(
-                "AVI video '{}' kept in RIFF/AVI container (install ffmpeg for H.264 MP4 transcoding; MJPEG/PNG/RGB AVI plays via Canvas fallback).",
-                resource.path
-            ));
+            if is_flv {
+                warnings.push(format!(
+                    "FLV video '{}' kept in FLV container (install ffmpeg for H.264 MP4 / VP9 WebM HTML5 transcoding).",
+                    resource.path
+                ));
+            } else {
+                warnings.push(format!(
+                    "AVI video '{}' kept in RIFF/AVI container (install ffmpeg for H.264 MP4 transcoding; MJPEG/PNG/RGB AVI plays via Canvas fallback).",
+                    resource.path
+                ));
+            }
             continue;
         };
+        let use_webm_alpha =
+            is_flv && neoflash_core::timeline_video::flv_has_vp6a_alpha(&raw_bytes);
         static AVI_TEMP_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1550,17 +1572,40 @@ fn transcode_avi_resources_for_html5(
         if std::fs::create_dir_all(&temp_dir).is_err() {
             continue;
         }
-        let in_path = temp_dir.join("input.avi");
-        let out_path = temp_dir.join("output.mp4");
+        let in_path = temp_dir.join(if is_flv { "input.flv" } else { "input.avi" });
+        let (target_ext, target_mime) = if use_webm_alpha {
+            ("webm", "video/webm")
+        } else {
+            ("mp4", "video/mp4")
+        };
+        let out_path = temp_dir.join(format!("output.{target_ext}"));
         let transcoded = std::fs::write(&in_path, &raw_bytes).ok().and_then(|()| {
-            let status = std::process::Command::new(ffmpeg_bin)
-                .args([
-                    "-y",
-                    "-hide_banner",
-                    "-loglevel",
-                    "error",
-                    "-i",
-                    in_path.to_str()?,
+            let mut cmd = std::process::Command::new(ffmpeg_bin);
+            video::configure_media_subprocess_command(&mut cmd, ffmpeg_bin);
+            cmd.args(["-y", "-hide_banner", "-loglevel", "error"]);
+            if is_flv {
+                cmd.args(["-f", "flv"]);
+            }
+            cmd.args(["-i", in_path.to_str()?]);
+            if use_webm_alpha {
+                cmd.args([
+                    "-c:v",
+                    "libvpx-vp9",
+                    "-b:v",
+                    "0",
+                    "-crf",
+                    "30",
+                    "-pix_fmt",
+                    "yuva420p",
+                    "-c:a",
+                    "libopus",
+                    "-ar",
+                    "48000",
+                    "-b:a",
+                    "128k",
+                ]);
+            } else {
+                cmd.args([
                     "-vf",
                     "scale=trunc(iw/2)*2:trunc(ih/2)*2",
                     "-c:v",
@@ -1571,12 +1616,13 @@ fn transcode_avi_resources_for_html5(
                     "+faststart",
                     "-c:a",
                     "aac",
+                    "-ar",
+                    "44100",
                     "-b:a",
                     "128k",
-                    out_path.to_str()?,
-                ])
-                .status()
-                .ok()?;
+                ]);
+            }
+            let status = cmd.arg(out_path.to_str()?).status().ok()?;
             if status.success() {
                 std::fs::read(&out_path).ok()
             } else {
@@ -1584,25 +1630,37 @@ fn transcode_avi_resources_for_html5(
             }
         });
         let _ = std::fs::remove_dir_all(&temp_dir);
-        if let Some(mp4_bytes) = transcoded
-            && !mp4_bytes.is_empty()
-            && mp4_bytes.len() <= neoflash_core::MAX_RESOURCE_BYTES
+        if let Some(out_bytes) = transcoded
+            && !out_bytes.is_empty()
+            && out_bytes.len() <= neoflash_core::MAX_RESOURCE_BYTES
         {
             let old_path = resource.path.clone();
+            used_paths_lower.remove(&old_path.to_ascii_lowercase());
             let stem = old_path
                 .strip_suffix(".avi")
                 .or_else(|| old_path.strip_suffix(".AVI"))
+                .or_else(|| old_path.strip_suffix(".flv"))
+                .or_else(|| old_path.strip_suffix(".FLV"))
                 .unwrap_or(&old_path);
-            let mut next_path = format!("{stem}.mp4");
+            let mut next_path = format!("{stem}.{target_ext}");
             let mut seq = 2usize;
-            while next_path != old_path && path_renames.values().any(|v| v == &next_path) {
-                next_path = format!("{stem}-{seq}.mp4");
+            while next_path != old_path
+                && (used_paths_lower.contains(&next_path.to_ascii_lowercase())
+                    || path_renames.values().any(|v| v == &next_path))
+            {
+                next_path = format!("{stem}-{seq}.{target_ext}");
                 seq += 1;
             }
+            used_paths_lower.insert(next_path.to_ascii_lowercase());
             path_renames.insert(old_path, next_path.clone());
             resource.path = next_path;
-            resource.media_type = "video/mp4".to_owned();
-            resource.data_base64 = STANDARD.encode(&mp4_bytes).into();
+            resource.media_type = target_mime.to_owned();
+            resource.data_base64 = STANDARD.encode(&out_bytes).into();
+        } else if is_flv {
+            warnings.push(format!(
+                "FLV video '{}' could not be transcoded to {target_mime} by ffmpeg; preserving FLV container.",
+                resource.path
+            ));
         } else {
             warnings.push(format!(
                 "AVI video '{}' could not be transcoded to H.264 MP4 by ffmpeg; preserving RIFF/AVI fallback.",
@@ -1924,6 +1982,10 @@ pub(crate) fn assemble_with_config(
                         "ogg".to_owned()
                     } else if res.media_type.contains("webm") {
                         "webm".to_owned()
+                    } else if res.media_type.contains("flv") {
+                        "flv".to_owned()
+                    } else if res.media_type.contains("avi") || res.media_type.contains("msvideo") {
+                        "avi".to_owned()
                     } else {
                         "mp4".to_owned()
                     };
@@ -3415,5 +3477,160 @@ mod skipped_foreign_export_tests {
             "Compact module pruning on stripped project should omit xml.js and external.js, got: {:?}",
             omitted.keys().collect::<Vec<_>>()
         );
+    }
+
+    fn build_synthetic_vp6_flv(vp6a_alpha: bool) -> Vec<u8> {
+        fn amf_num(out: &mut Vec<u8>, key: &str, val: f64) {
+            out.extend_from_slice(&(key.len() as u16).to_be_bytes());
+            out.extend_from_slice(key.as_bytes());
+            out.push(0x00);
+            out.extend_from_slice(&val.to_be_bytes());
+        }
+        let mut vp6_raw = vec![0x41_u8, 0x46, 0x00, 0x20, 1, 1, 1, 1];
+        vp6_raw.extend_from_slice(&[0_u8; 64]);
+        let (tag_hdr, codec_id, pkt_body) = if vp6a_alpha {
+            let mut body = vec![0x00_u8, 0x00, 0x00, vp6_raw.len() as u8];
+            body.extend_from_slice(&vp6_raw);
+            body.extend_from_slice(&vp6_raw);
+            (0x15_u8, 5.0, body)
+        } else {
+            let mut body = vec![0x00_u8];
+            body.extend_from_slice(&vp6_raw);
+            (0x14_u8, 4.0, body)
+        };
+        let mut flv = Vec::new();
+        flv.extend_from_slice(b"FLV\x01\x01\x00\x00\x00\x09");
+        flv.extend_from_slice(&0_u32.to_be_bytes()); // PrevTagSize0 = 0
+        let mut meta = Vec::new();
+        meta.push(0x02);
+        meta.extend_from_slice(&10_u16.to_be_bytes());
+        meta.extend_from_slice(b"onMetaData");
+        meta.push(0x08);
+        meta.extend_from_slice(&5_u32.to_be_bytes());
+        amf_num(&mut meta, "duration", 0.04);
+        amf_num(&mut meta, "width", 16.0);
+        amf_num(&mut meta, "height", 16.0);
+        amf_num(&mut meta, "framerate", 25.0);
+        amf_num(&mut meta, "videocodecid", codec_id);
+        meta.extend_from_slice(&[0x00, 0x00, 0x09]);
+        let meta_size = meta.len() as u32;
+        flv.push(18);
+        flv.extend_from_slice(&meta_size.to_be_bytes()[1..4]);
+        flv.extend_from_slice(&[0; 7]);
+        flv.extend_from_slice(&meta);
+        flv.extend_from_slice(&(11 + meta_size).to_be_bytes());
+
+        let data_size = (1 + pkt_body.len()) as u32;
+        flv.push(9); // Video tag
+        flv.extend_from_slice(&data_size.to_be_bytes()[1..4]);
+        flv.extend_from_slice(&[0, 0, 0, 0]); // Timestamp = 0ms
+        flv.extend_from_slice(&[0, 0, 0]); // StreamID = 0
+        flv.push(tag_hdr);
+        flv.extend_from_slice(&pkt_body);
+        flv.extend_from_slice(&(11 + data_size).to_be_bytes());
+        flv
+    }
+
+    #[test]
+    fn flv_video_resources_decode_for_stage_transcode_for_html5_and_export_to_xfl() {
+        use neoflash_core::ResourceUnit;
+
+        let vp6_flv = build_synthetic_vp6_flv(false);
+        let vp6a_flv = build_synthetic_vp6_flv(true);
+
+        // 1. Native Stage / offline export decode path (`decode_video_stream_bytes`).
+        let decoded =
+            crate::video::decode_video_stream_bytes("legacy-video-1", "video/x-flv", &vp6_flv)
+                .expect("decode FLV stream via ffprobe_ffmpeg");
+        assert_eq!(decoded.width, 16);
+        assert_eq!(decoded.height, 16);
+        assert!(!decoded.frames.is_empty());
+
+        // 2. HTML5 transcode: VP6 -> MP4 (video/mp4), VP6A -> WebM (video/webm with alpha).
+        let mut project = Project::blank();
+        project.resources.push(
+            ResourceUnit::from_bytes(
+                "legacy-video-1",
+                "legacy/videos/1/clip.flv",
+                "video/x-flv",
+                &vp6_flv,
+            )
+            .unwrap(),
+        );
+        project.resources.push(
+            ResourceUnit::from_bytes(
+                "legacy-video-2",
+                "legacy/videos/2/alpha.flv",
+                "video/x-flv",
+                &vp6a_flv,
+            )
+            .unwrap(),
+        );
+        let mut transcoded = project.clone();
+        let (transcode_warnings, _) = transcode_avi_resources_for_html5(&mut transcoded);
+        if crate::video::detect_ffmpeg().is_some() {
+            assert!(transcode_warnings.is_empty(), "{transcode_warnings:?}");
+            let mp4_res = transcoded.resource("legacy-video-1").unwrap();
+            assert_eq!(mp4_res.media_type, "video/mp4");
+            assert!(mp4_res.path.ends_with(".mp4"));
+            let mp4_bytes = mp4_res.decoded_bytes().unwrap();
+            assert!(mp4_bytes.len() >= 12 && &mp4_bytes[4..8] == b"ftyp");
+
+            let webm_res = transcoded.resource("legacy-video-2").unwrap();
+            assert_eq!(webm_res.media_type, "video/webm");
+            assert!(webm_res.path.ends_with(".webm"));
+            let webm_bytes = webm_res.decoded_bytes().unwrap();
+            assert!(webm_bytes.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]));
+        }
+
+        // 3. `fla_preflight::export_fla_bytes_with_profile` succeeds with 0 blocking items
+        //    on FLV video + Keyframe.video + linked sound + multi-part `legacy/source.fla.part00`.
+        let wav_bytes = [
+            b'R', b'I', b'F', b'F', 44, 0, 0, 0, b'W', b'A', b'V', b'E', b'f', b'm', b't', b' ',
+            16, 0, 0, 0, 1, 0, 1, 0, 0x44, 0xAC, 0, 0, 0x88, 0x58, 1, 0, 2, 0, 16, 0, b'd', b'a',
+            b't', b'a', 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        project.resources.push(
+            ResourceUnit::from_bytes(
+                "ClickSound",
+                "legacy/sounds/1/click.wav",
+                "audio/wav",
+                &wav_bytes,
+            )
+            .unwrap(),
+        );
+        project.resources.push(
+            ResourceUnit::from_bytes(
+                "fla-original-0",
+                "legacy/source.fla.part00",
+                "application/octet-stream",
+                b"chunk0",
+            )
+            .unwrap(),
+        );
+        project.symbols[0].timeline.layers[0].keyframes[0].video =
+            Some(neoflash_core::TimelineVideoSpan {
+                resource: "legacy-video-1".into(),
+                sync: neoflash_core::VideoSyncMode::Event,
+                start_offset_ms: 100,
+                ..Default::default()
+            });
+        project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(neoflash_core::Element {
+                id: "vid-el-1".into(),
+                kind: neoflash_core::ElementKind::Video {
+                    width: 16.0,
+                    height: 16.0,
+                },
+                ..Default::default()
+            });
+        let (_, fla_rep) = crate::fla_preflight::export_fla_bytes_with_profile(
+            &project,
+            crate::fla_preflight::FlaTargetProfile::AnimateCC,
+            &crate::fla_preflight::FlaExportOptions::default(),
+        )
+        .expect("export_fla_bytes_with_profile on FLV + trimmed span + part00");
+        assert!(!fla_rep.has_blocking(), "{:?}", fla_rep.items);
     }
 }

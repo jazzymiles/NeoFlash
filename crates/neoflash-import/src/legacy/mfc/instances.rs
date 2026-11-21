@@ -336,7 +336,7 @@ impl Reader<'_> {
     pub(super) fn linked_video(&mut self, id: u32) -> Result<()> {
         let mut value = TimelineVideo::default();
         let parsed = (|| {
-            value.revision = Some(self.byte()?);
+            value.revision = Some(self.revision(0, "CPicVideo")?);
             value.matrix_words = Some(self.signed_words()?);
             value.media_id = Some(self.word()?);
             Ok(())

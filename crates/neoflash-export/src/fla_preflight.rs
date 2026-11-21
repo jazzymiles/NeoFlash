@@ -236,11 +236,10 @@ pub(crate) fn is_internal_provenance_resource(res: &ResourceUnit) -> bool {
     res.id == "fla-provenance"
         || matches!(
             res.path.as_str(),
-            "legacy/provenance.json"
-                | "legacy/import-provenance.json"
-                | "legacy/source.fla"
-                | "legacy/source.swf"
+            "legacy/provenance.json" | "legacy/import-provenance.json"
         )
+        || res.path.starts_with("legacy/source.fla")
+        || res.path.starts_with("legacy/source.swf")
         || matches!(
             res.media_type.to_ascii_lowercase().as_str(),
             "application/x-neoflash-fla-source"
@@ -1035,6 +1034,74 @@ pub fn preflight_fla_export_with_options(
                 loc,
                 "Embedded video is converted to timed bitmap frames and a separate soundtrack.",
             );
+        } else if mime.starts_with("video/") {
+            legacy_media_count += 1;
+            match res.decoded_bytes() {
+                Err(err) => {
+                    report.push(
+                        "media_resource_corrupt",
+                        FlaFeatureCategory::MediaAndSound,
+                        FlaFeatureDisposition::Blocking,
+                        loc,
+                        format!("Video resource payload failed base64 decoding: {err}"),
+                    );
+                }
+                Ok(raw) => {
+                    let diags = neoflash_core::inspect_video_resource(
+                        &res.path,
+                        &res.media_type,
+                        &raw,
+                        None,
+                    );
+                    if diags.iter().any(|d| d.is_error) {
+                        report.push(
+                            "media_resource_unsupported_codec",
+                            FlaFeatureCategory::MediaAndSound,
+                            FlaFeatureDisposition::Blocking,
+                            loc,
+                            format!(
+                                "Video resource ({}) is not a valid supported video container.",
+                                res.media_type
+                            ),
+                        );
+                    } else if raw.len() > 16 * 1024 * 1024 {
+                        report.push(
+                            "video_resource_too_large",
+                            FlaFeatureCategory::MediaAndSound,
+                            FlaFeatureDisposition::Blocking,
+                            loc,
+                            format!(
+                                "Video resource ({}) exceeds 16 MiB XFL entry limit.",
+                                res.media_type
+                            ),
+                        );
+                    } else if profile.is_legacy_binary() {
+                        report.push(
+                            "video_legacy_binary_approximated",
+                            FlaFeatureCategory::MediaAndSound,
+                            if options.allow_approximations {
+                                FlaFeatureDisposition::Approximated
+                            } else {
+                                FlaFeatureDisposition::Blocking
+                            },
+                            loc,
+                            format!(
+                                "Embedded video resource ({}) is approximated as stage video viewports in {}.",
+                                res.media_type,
+                                profile.label()
+                            ),
+                        );
+                    } else {
+                        report.push(
+                            "media_resource_preserved",
+                            FlaFeatureCategory::MediaAndSound,
+                            FlaFeatureDisposition::Exact,
+                            loc,
+                            format!("Embedded video asset ({}) is bundled.", res.media_type),
+                        );
+                    }
+                }
+            }
         } else if crate::fonts::is_font_resource(res) {
             if let Err(err) = res.decoded_bytes() {
                 report.push(
@@ -1767,19 +1834,37 @@ fn preflight_keyframe(
         }
     }
 
-    if !bake_video && kf.video.is_some() {
-        report.push(
-            "timeline_video_not_serialized",
-            FlaFeatureCategory::MediaAndSound,
-            if options.allow_approximations {
-                FlaFeatureDisposition::Approximated
-            } else {
-                FlaFeatureDisposition::Blocking
-            },
-            kf_loc,
-            "Timeline video playback, deployment mode and cue points are not serialized by the current FLA/XFL writer; approximation keeps only authored viewport artwork."
-                .to_owned(),
-        );
+    if !bake_video && let Some(v) = &kf.video {
+        let xfl_bundles_embedded_stream = !profile.is_legacy_binary()
+            && v.deployment.is_embedded()
+            && v.stream_url.is_none()
+            && v.external_path.is_none()
+            && v.start_offset_ms == 0
+            && v.end_offset_ms.is_none()
+            && v.cue_points.is_empty()
+            && project.resource(&v.resource).is_some_and(|r| r.is_video());
+        if xfl_bundles_embedded_stream {
+            report.push(
+                "timeline_video_serialized",
+                FlaFeatureCategory::MediaAndSound,
+                FlaFeatureDisposition::Exact,
+                kf_loc,
+                "Embedded timeline video stream is bundled as an XFL DOMVideoItem.".to_owned(),
+            );
+        } else {
+            report.push(
+                "timeline_video_not_serialized",
+                FlaFeatureCategory::MediaAndSound,
+                if options.allow_approximations {
+                    FlaFeatureDisposition::Approximated
+                } else {
+                    FlaFeatureDisposition::Blocking
+                },
+                kf_loc,
+                "Timeline video clip-trim, external deployment or cue-point metadata is not serialized by the target FLA/XFL format; approximation keeps the video item and authored viewport."
+                    .to_owned(),
+            );
+        }
     }
 
     // Elements
@@ -2142,6 +2227,16 @@ pub fn prepare_project_for_fla_profile(
             "Video",
             e.to_string(),
         );
+    }
+    if profile.is_legacy_binary() && options.allow_approximations {
+        derived.resources.retain(|r| !r.is_video());
+        for sym in &mut derived.symbols {
+            for layer in &mut sym.timeline.layers {
+                for kf in &mut layer.keyframes {
+                    kf.video = None;
+                }
+            }
+        }
     }
 
     // Flash 8's smaller stage is fitted after baking so the sampled timeline keeps its proportions.
@@ -2847,10 +2942,10 @@ fn detect_project_script_language(project: &Project, profile: FlaTargetProfile) 
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct VideoKey(u32, u32);
+struct VideoKey(Option<Id>, u32, u32);
 
 impl VideoKey {
-    fn from_dims(width: f64, height: f64) -> Self {
+    fn from_dims(resource: Option<Id>, width: f64, height: f64) -> Self {
         let w = if width.is_finite() {
             width.round().clamp(1.0, 8192.0) as u32
         } else {
@@ -2861,8 +2956,40 @@ impl VideoKey {
         } else {
             240
         };
-        Self(w, h)
+        Self(resource, w, h)
     }
+}
+
+fn explicit_fla_sound_linkage_id(res: &ResourceUnit) -> Option<&str> {
+    let trimmed = res.id.trim();
+    if trimmed.is_empty() || trimmed.len() > 512 || trimmed.chars().any(char::is_control) {
+        return None;
+    }
+    for prefix in [
+        "legacy-sound-",
+        "xfl-sound-",
+        "swf-sound-",
+        "legacy-cc-",
+        "fla-",
+        "res-",
+        "asset-",
+        "audio-",
+        "baked-",
+        "video-audio-",
+    ] {
+        if trimmed.starts_with(prefix) {
+            return None;
+        }
+    }
+    for prefix in ["snd-", "sound-", "s"] {
+        if let Some(rest) = trimmed.strip_prefix(prefix)
+            && !rest.is_empty()
+            && rest.bytes().all(|b| b.is_ascii_digit())
+        {
+            return None;
+        }
+    }
+    Some(trimmed)
 }
 
 fn build_xfl_package(
@@ -2964,11 +3091,20 @@ fn build_xfl_package(
     }
 
     // Also inspect smoothed bitmaps, custom sound envelopes, and video viewport items
+    let embedded_video_ids: BTreeSet<Id> = project
+        .resources
+        .iter()
+        .filter(|r| !is_internal_provenance_resource(r) && r.is_video())
+        .map(|r| r.id.clone())
+        .collect();
     let bitmap_smoothing_refs = bitmap_smoothing_usage(project);
     let mut sound_custom_env: BTreeSet<Id> = BTreeSet::new();
     let mut video_names: BTreeMap<VideoKey, String> = BTreeMap::new();
+    let mut placed_video_ids: BTreeSet<Id> = BTreeSet::new();
+    let mut used_video_item_names: BTreeSet<String> = BTreeSet::new();
     for sym in &project.symbols {
         for layer in &sym.timeline.layers {
+            let mut active_vid_res: Option<Id> = None;
             for kf in &layer.keyframes {
                 if let Some(snd) = &kf.sound
                     && (snd.effect == SoundEffect::Custom
@@ -2976,12 +3112,39 @@ fn build_xfl_package(
                 {
                     sound_custom_env.insert(snd.resource.clone());
                 }
+                if let Some(span) = &kf.video {
+                    active_vid_res = embedded_video_ids
+                        .contains(&span.resource)
+                        .then(|| span.resource.clone());
+                } else if !kf
+                    .elements
+                    .iter()
+                    .any(|e| matches!(e.kind, ElementKind::Video { .. }))
+                {
+                    active_vid_res = None;
+                }
                 for el in &kf.elements {
                     if let ElementKind::Video { width, height } = &el.kind {
-                        let key = VideoKey::from_dims(*width, *height);
-                        video_names
-                            .entry(key.clone())
-                            .or_insert_with(|| format!("Video_{}x{}", key.0, key.1));
+                        let eff_res = kf
+                            .video
+                            .as_ref()
+                            .filter(|v| embedded_video_ids.contains(&v.resource))
+                            .map(|v| v.resource.clone())
+                            .or_else(|| active_vid_res.clone());
+                        if let Some(rid) = &eff_res {
+                            placed_video_ids.insert(rid.clone());
+                        }
+                        let key = VideoKey::from_dims(eff_res, *width, *height);
+                        video_names.entry(key.clone()).or_insert_with(|| {
+                            let base = format!("Video_{}x{}", key.1, key.2);
+                            let mut cand = base.clone();
+                            let mut n = 2usize;
+                            while !used_video_item_names.insert(cand.to_ascii_lowercase()) {
+                                cand = format!("{base}_{n}");
+                                n += 1;
+                            }
+                            cand
+                        });
                     }
                 }
             }
@@ -3023,6 +3186,7 @@ fn build_xfl_package(
     let mut bitmap_names: BTreeMap<Id, String> = BTreeMap::new();
     let mut sound_names: BTreeMap<Id, String> = BTreeMap::new();
     let mut sound_durations: BTreeMap<Id, u64> = BTreeMap::new();
+    let mut video_dat_hrefs: BTreeMap<Id, String> = BTreeMap::new();
     let mut media_xml = String::new();
     for (idx, res) in project.resources.iter().enumerate() {
         if is_internal_provenance_resource(res) {
@@ -3113,6 +3277,17 @@ fn build_xfl_package(
             let item_name = format!("sound_{}.{ext}", idx + 1);
             sound_names.insert(res.id.clone(), item_name.clone());
             sound_durations.insert(res.id.clone(), duration_44);
+            let linkage_attrs = match explicit_fla_sound_linkage_id(res) {
+                Some(lid) if as_version_num == "3" && is_valid_as3_qname(lid) => format!(
+                    " linkageExportForAS=\"true\" linkageExportInFirstFrame=\"true\" linkageClassName=\"{}\"",
+                    xml_escape(lid)
+                ),
+                Some(lid) => format!(
+                    " linkageExportForAS=\"true\" linkageExportInFirstFrame=\"true\" linkageIdentifier=\"{}\"",
+                    xml_escape(lid)
+                ),
+                None => String::new(),
+            };
             let cache = neoflash_import::build_flash_sound_cache(&bytes);
             binary_files.insert(format!("LIBRARY/{item_name}"), bytes);
             if let Some(cache) = cache {
@@ -3123,7 +3298,7 @@ fn build_xfl_package(
                     .map(|dl| format!(" dataLength=\"{dl}\" exportNative=\"true\""))
                     .unwrap_or_default();
                 media_xml.push_str(&format!(
-                    "    <DOMSoundItem name=\"{}\" href=\"{}\" soundDataHRef=\"{}\" format=\"{}\" sampleCount=\"{}\"{compressed_attrs}/>\n",
+                    "    <DOMSoundItem name=\"{}\" href=\"{}\" soundDataHRef=\"{}\" format=\"{}\" sampleCount=\"{}\"{compressed_attrs}{linkage_attrs}/>\n",
                     xml_escape(&item_name),
                     xml_escape(&item_name),
                     xml_escape(&dat_href),
@@ -3137,10 +3312,36 @@ fn build_xfl_package(
                     String::new()
                 };
                 media_xml.push_str(&format!(
-                    "    <DOMSoundItem name=\"{}\" href=\"{}\" format=\"44kHz 16bit Stereo\"{sample_count_attr}/>\n",
+                    "    <DOMSoundItem name=\"{}\" href=\"{}\" format=\"44kHz 16bit Stereo\"{sample_count_attr}{linkage_attrs}/>\n",
                     xml_escape(&item_name),
                     xml_escape(&item_name)
                 ));
+            }
+        } else if mime.starts_with("video/") {
+            if neoflash_core::inspect_video_resource(&res.path, &res.media_type, &bytes, None)
+                .iter()
+                .any(|d| d.is_error)
+            {
+                return Err(ExportError::InvalidProject(format!(
+                    "Video resource {:?} ({}) is not a valid supported video container.",
+                    res.path, res.media_type
+                )));
+            }
+            let dat_href = format!("video{}.dat", idx + 1);
+            binary_files.insert(format!("bin/{dat_href}"), bytes);
+            video_dat_hrefs.insert(res.id.clone(), dat_href);
+            if !placed_video_ids.contains(&res.id) {
+                let key = VideoKey::from_dims(Some(res.id.clone()), 320.0, 240.0);
+                video_names.entry(key).or_insert_with(|| {
+                    let base = format!("video_{}", idx + 1);
+                    let mut cand = base.clone();
+                    let mut n = 2usize;
+                    while !used_video_item_names.insert(cand.to_ascii_lowercase()) {
+                        cand = format!("{base}_{n}");
+                        n += 1;
+                    }
+                    cand
+                });
             }
         } else if !crate::fonts::is_font_resource(res)
             && !is_unreferenced_sidecar_resource(project, res)
@@ -3157,12 +3358,24 @@ fn build_xfl_package(
         ));
     }
     for (v_key, v_name) in &video_names {
-        media_xml.push_str(&format!(
-            "    <DOMVideoItem name=\"{}\" width=\"{}\" height=\"{}\"/>\n",
-            xml_escape(v_name),
-            v_key.0,
-            v_key.1
-        ));
+        if let Some(rid) = &v_key.0
+            && let Some(dat_href) = video_dat_hrefs.get(rid)
+        {
+            media_xml.push_str(&format!(
+                "    <DOMVideoItem name=\"{}\" videoDataHRef=\"{}\" width=\"{}\" height=\"{}\"/>\n",
+                xml_escape(v_name),
+                xml_escape(dat_href),
+                v_key.1,
+                v_key.2
+            ));
+        } else {
+            media_xml.push_str(&format!(
+                "    <DOMVideoItem name=\"{}\" width=\"{}\" height=\"{}\"/>\n",
+                xml_escape(v_name),
+                v_key.1,
+                v_key.2
+            ));
+        }
     }
 
     // Write LIBRARY/*.xml for each library symbol
@@ -3550,9 +3763,22 @@ fn write_dom_layer_xml(
         }
     }
 
+    let mut active_vid_res: Option<Id> = None;
     for (idx, kf) in keyframes.iter().enumerate() {
         if kf.frame >= effective_end {
             break;
+        }
+        if let Some(span) = &kf.video {
+            active_vid_res = project
+                .resource(&span.resource)
+                .is_some_and(|r| !is_internal_provenance_resource(r) && r.is_video())
+                .then(|| span.resource.clone());
+        } else if !kf
+            .elements
+            .iter()
+            .any(|e| matches!(e.kind, ElementKind::Video { .. }))
+        {
+            active_vid_res = None;
         }
         let next_start = keyframes
             .get(idx + 1)
@@ -3714,6 +3940,16 @@ fn write_dom_layer_xml(
         }
 
         if !kf.elements.is_empty() {
+            let eff_vid_res = kf
+                .video
+                .as_ref()
+                .filter(|v| {
+                    project
+                        .resource(&v.resource)
+                        .is_some_and(|r| !is_internal_provenance_resource(r) && r.is_video())
+                })
+                .map(|v| v.resource.clone())
+                .or_else(|| active_vid_res.clone());
             out.push_str(&format!("{indent}      <elements>\n"));
             for el in &kf.elements {
                 out.push_str(&write_dom_element_xml(
@@ -3723,6 +3959,7 @@ fn write_dom_layer_xml(
                             .get(&fill.resource_id)
                             .map(|name| (fill, name.as_str()))
                     }),
+                    eff_vid_res.as_ref(),
                     project,
                     symbol_lib_names,
                     bitmap_names,
@@ -3740,9 +3977,11 @@ fn write_dom_layer_xml(
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_dom_element_xml(
     el: &Element,
     bitmap_paint: Option<(&AuthoredBitmapFill, &str)>,
+    frame_video_resource: Option<&Id>,
     project: &Project,
     symbol_lib_names: &BTreeMap<Id, String>,
     bitmap_names: &BTreeMap<Id, String>,
@@ -4094,8 +4333,11 @@ fn write_dom_element_xml(
             )
         }
         ElementKind::Video { width, height } => {
-            let v_key = VideoKey::from_dims(*width, *height);
-            let Some(v_name) = video_names.get(&v_key) else {
+            let v_key = VideoKey::from_dims(frame_video_resource.cloned(), *width, *height);
+            let Some(v_name) = video_names
+                .get(&v_key)
+                .or_else(|| video_names.get(&VideoKey::from_dims(None, *width, *height)))
+            else {
                 return String::new();
             };
             let right_twips = ((*width).max(1.0) * 20.0).round() as i64;

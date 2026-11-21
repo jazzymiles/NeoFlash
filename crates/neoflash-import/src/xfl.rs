@@ -63,6 +63,7 @@ pub(crate) fn convert(
         direct_filter_strength,
         legacy_filter_strength_warning: false,
         pending_bitmap_fills: Vec::new(),
+        pending_video_resource: None,
     };
     parser.audit(
         root,
@@ -962,12 +963,21 @@ struct XflSoundAsset {
     duration_44: u64,
 }
 
+#[derive(Clone, Debug)]
+struct XflVideoAsset {
+    width: f64,
+    height: f64,
+    resource_id: Option<Id>,
+    sync_video: bool,
+    import_audio: bool,
+}
+
 struct Parser<'a> {
     report: &'a mut ImportReport,
     symbols: HashMap<String, (Id, SymbolKind)>,
     bitmaps: HashMap<String, XflBitmapAsset>,
     sounds: HashMap<String, XflSoundAsset>,
-    videos: HashMap<String, (f64, f64)>,
+    videos: HashMap<String, XflVideoAsset>,
     font_items: HashMap<String, String>,
     extra_symbols: Vec<Symbol>,
     resources: Vec<ResourceUnit>,
@@ -979,6 +989,7 @@ struct Parser<'a> {
     direct_filter_strength: bool,
     legacy_filter_strength_warning: bool,
     pending_bitmap_fills: Vec<AuthoredBitmapFill>,
+    pending_video_resource: Option<(Id, bool, bool)>,
 }
 
 impl Parser<'_> {

@@ -362,6 +362,7 @@ impl Parser<'_> {
                             }
                             let identity = format!("xfl-{id}-{li}-{ei}");
                             self.pending_bitmap_fills.clear();
+                            self.pending_video_resource = None;
                             for element in self.element_with_depth(
                                 element_node,
                                 identity,
@@ -375,6 +376,22 @@ impl Parser<'_> {
                                 key.elements.push(element);
                             }
                             key.bitmap_fills.append(&mut self.pending_bitmap_fills);
+                            if let Some((vid_res, sync_video, import_audio)) =
+                                self.pending_video_resource.take()
+                                && key.video.is_none()
+                            {
+                                key.video = Some(TimelineVideoSpan {
+                                    resource: vid_res,
+                                    sync: if sync_video {
+                                        VideoSyncMode::Stream
+                                    } else {
+                                        VideoSyncMode::Event
+                                    },
+                                    muted: !import_audio,
+                                    deployment: timeline_video::VideoDeploymentMode::Embedded,
+                                    ..Default::default()
+                                });
+                            }
                         }
                     }
                     if let Some(actions) = child(frame_node, "Actionscript") {
