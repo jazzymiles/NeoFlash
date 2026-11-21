@@ -19,9 +19,17 @@ class MacosReleaseScriptTests(unittest.TestCase):
             with self.subTest(script=script.name):
                 subprocess.run(["bash", "-n", str(script)], check=True)
 
-    def test_package_refuses_non_head_sources_and_requires_complete_release_set(self):
+    def test_package_defaults_to_arm64_app_and_guards_complete_release_set(self):
         text = PACKAGE.read_text(encoding="utf-8")
         self.assertIn("git status --porcelain=v1 --untracked-files=all", text)
+        self.assertIn("[release|debug] [--beta-release]", text)
+        self.assertIn('beta_release=0', text)
+        self.assertIn('if [ "$beta_release" -eq 0 ]; then', text)
+        self.assertIn('lipo -archs "$app_binary"', text)
+        self.assertIn('if [ "$app_archs" != "arm64" ]; then', text)
+        self.assertIn("App-only build complete", text)
+        self.assertIn("release --beta-release", text)
+        self.assertEqual(text.count("--local-payload-only"), 2)
         self.assertIn("hdiutil is required for the macOS release DMG", text)
         self.assertIn('"$(basename "$source_archive_path")"', text)
         nested_sign = text.index('codesign --force --sign - "$dylib"')
@@ -32,6 +40,7 @@ class MacosReleaseScriptTests(unittest.TestCase):
         perm_audit = text.index(
             'find "$app_dir" \\( -type d ! -perm -0555 -o -type f ! -perm -0444 \\)'
         )
+        app_only_exit = text.index('if [ "$beta_release" -eq 0 ]; then')
         archive = text.index('ditto -c -k --norsrc --keepParent "$app_dir"')
         dmg_sign = text.index('codesign --force --sign - "$dmg_path"')
         dmg_verify = text.index('codesign --verify --verbose=2 "$dmg_path"')
@@ -41,6 +50,8 @@ class MacosReleaseScriptTests(unittest.TestCase):
         self.assertLess(xattr_scrub, outer_sign)
         self.assertLess(chmod_norm, outer_sign)
         self.assertLess(outer_sign, perm_audit)
+        self.assertLess(perm_audit, app_only_exit)
+        self.assertLess(app_only_exit, archive)
         self.assertLess(perm_audit, archive)
         self.assertLess(archive, dmg_sign)
         self.assertLess(dmg_sign, dmg_verify)
@@ -54,6 +65,10 @@ class MacosReleaseScriptTests(unittest.TestCase):
             'hdiutil convert "$dmg_rw" -format UDZO -ov -o "$dmg_path" >/dev/null 2>&1 ||',
             text,
         )
+
+    def test_notarization_requires_explicit_beta_release_package(self):
+        text = NOTARIZE.read_text(encoding="utf-8")
+        self.assertIn("package-macos.sh release --beta-release first", text)
 
     def test_package_info_plist_declares_exported_nflash_uti_and_document_types(self):
         text = PACKAGE.read_text(encoding="utf-8")
@@ -112,6 +127,7 @@ class MacosReleaseScriptTests(unittest.TestCase):
             [
                 "fla",
                 "xfl",
+                "as",
                 "swf",
                 "swc",
                 "fig",
@@ -136,7 +152,11 @@ class MacosReleaseScriptTests(unittest.TestCase):
         self.assertIn("Licenses and source.txt", text)
         self.assertIn("commit_started=1", text)
         self.assertIn("commit_complete=1", text)
-        self.assertIn('mv "$backup_dir/NeoFlash.app" "$app_dir"', text)
+        self.assertIn(
+            'restore_backup_path "$backup_dir/NeoFlash.app" "$app_dir" tree',
+            text,
+        )
+        self.assertIn('/bin/mv "$backup_path" "$live_path"', text)
         outer_sign = text.index('  "$staged_app"\ncodesign --verify')
         self.assertGreater(text.index("media-provenance-final.json"), outer_sign)
 

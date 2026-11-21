@@ -144,12 +144,12 @@ bundled_media_provenance_script="${NEOFLASH_BUNDLED_MEDIA_PROVENANCE_SCRIPT:-$pr
 media_source_cache="${NEOFLASH_MEDIA_SOURCE_CACHE:-$project_root/target/bundled-media-source-cache}"
 
 if [ ! -d "$app_dir" ]; then
-  printf 'Error: %s is missing. Run ./scripts/package-macos.sh release first.\n' "$app_dir" >&2
+  printf 'Error: %s is missing. Run ./scripts/package-macos.sh release --beta-release first.\n' "$app_dir" >&2
   exit 1
 fi
 for required in "$zip_path" "$dmg_path" "$source_archive_path" "$sums_path"; do
   if [ ! -f "$required" ]; then
-    printf 'Error: %s is missing. Run ./scripts/package-macos.sh release first.\n' "$required" >&2
+    printf 'Error: %s is missing. Run ./scripts/package-macos.sh release --beta-release first.\n' "$required" >&2
     exit 1
   fi
 done

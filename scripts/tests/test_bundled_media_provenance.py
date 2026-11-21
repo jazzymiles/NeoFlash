@@ -222,6 +222,69 @@ class BundledMediaProvenanceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "inventory changed"):
                 provenance.refresh_staged_hashes(media)
 
+    def test_local_payload_audit_checks_bytes_and_checksum_manifest_without_release_sources(self):
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw)
+            media, _ = self.make_fixture(base, keg_license=True)
+            ffprobe = media / "bin" / "ffprobe"
+            ffprobe.write_bytes(b"fixture-ffprobe")
+            sbom_path = media / "provenance" / "media-sbom.json"
+            sbom = json.loads(sbom_path.read_text(encoding="utf-8"))
+            probe_record = dict(sbom["executables"][0])
+            probe_record["relative_path"] = "bin/ffprobe"
+            sbom["executables"].append(probe_record)
+            sbom_path.write_text(json.dumps(sbom), encoding="utf-8")
+            provenance.refresh_staged_hashes(media)
+
+            ready = provenance.audit_local_payload(media)
+            self.assertTrue(ready["payload_ready"], ready["missing"])
+            self.assertFalse(ready["release_ready"])
+            self.assertEqual(ready["scope"], "local-staged-media-payload")
+
+            binary = media / "bin" / "ffmpeg"
+            binary.write_bytes(b"fixture-ffmpeg-after-local-audit")
+            stale_bytes = provenance.audit_local_payload(media)
+            self.assertFalse(stale_bytes["payload_ready"])
+            self.assertIn(
+                "staged-file-hash-mismatch",
+                {item["code"] for item in stale_bytes["missing"]},
+            )
+
+            provenance.refresh_staged_hashes(media)
+            sums_path = media / "provenance" / "SHA256SUMS.txt"
+            sums_path.write_text(f"{'0' * 64}  bin/ffmpeg\n", encoding="utf-8")
+            bad_manifest = provenance.audit_local_payload(media)
+            self.assertFalse(bad_manifest["payload_ready"])
+            self.assertIn(
+                "staged-checksum-manifest-mismatch",
+                {item["code"] for item in bad_manifest["missing"]},
+            )
+
+    def test_local_payload_audit_rejects_coordinated_helper_omission(self):
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw)
+            media, _ = self.make_fixture(base, keg_license=True)
+            (media / "bin" / "ffmpeg").unlink()
+            sbom_path = media / "provenance" / "media-sbom.json"
+            sbom = json.loads(sbom_path.read_text(encoding="utf-8"))
+            sbom["executables"] = []
+            sbom["libraries"] = []
+            sbom_path.write_text(json.dumps(sbom), encoding="utf-8")
+            (media / "provenance" / "SHA256SUMS.txt").write_text("", encoding="utf-8")
+
+            report = provenance.audit_local_payload(media)
+            self.assertFalse(report["payload_ready"])
+            codes = {item["code"] for item in report["missing"]}
+            self.assertIn("staged-media-payload-empty", codes)
+            self.assertEqual(
+                {
+                    item["path"]
+                    for item in report["missing"]
+                    if item["code"] == "required-media-helper-missing"
+                },
+                {"bin/ffmpeg", "bin/ffprobe"},
+            )
+
     def test_missing_spdx_bottle_uses_only_version_exact_formula_api_tag(self):
         receipt = {"source": {"path": "/cache/packages.arm64_sequoia.jws.json"}}
         exact_info = {

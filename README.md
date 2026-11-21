@@ -47,9 +47,14 @@ Install [Rust with rustup](https://rust-lang.org/tools/install/) and Xcode Comma
 
 ```sh
 ./scripts/run.sh                    # build the browser runtime and open the editor
-./scripts/package-macos.sh          # self-contained dist/NeoFlash.app
+./scripts/package-macos.sh          # local Apple Silicon dist/NeoFlash.app only
 open dist/NeoFlash.app
 ```
+
+Ordinary local packaging intentionally creates only the self-contained, ad-hoc-signed Apple Silicon app and removes
+stale macOS release archives for the same version. A complete macOS Beta release set is an explicit release operation:
+`./scripts/package-macos.sh release --beta-release` adds the ZIP, DMG, corresponding-source archive and checksums.
+Use that mode only when preparing an authorized Beta release.
 
 Ready-made Technical Preview archives use these names in `dist/`:
 
@@ -58,7 +63,7 @@ Ready-made Technical Preview archives use these names in `dist/`:
 - Verify each platform download and its media corresponding-source archive against its matching `SHA256SUMS.txt` (`NeoFlash-0.1.0-beta.1-SHA256SUMS.txt` covers the macOS `.zip`, `.dmg` and `NeoFlash-0.1.0-beta.1-media-corresponding-source.tar.xz`; `NeoFlash-0.1.0-beta.1-windows-x64-SHA256SUMS.txt` and `NeoFlash-0.1.0-beta.1-linux-x64-SHA256SUMS.txt` cover the portable previews and `NeoFlash-0.1.0-beta.1-portable-media-corresponding-source.tar.xz`). All application, Rust-dependency and bundled-media licence texts are already included; users do not need to find licences themselves.
 
 - **Install & manual update:** Drag `NeoFlash.app` into `/Applications` (or run `dist/NeoFlash.app` directly). Local and unnotarized Beta 1 macOS builds are ad-hoc signed: if macOS Gatekeeper blocks first launch, open **System Settings ▸ Privacy & Security** and click **Open Anyway** (`scripts/notarize-macos-beta.sh` signs and notarizes release builds when Apple Developer ID credentials are configured). To update to a newer Beta build, quit NeoFlash and replace `NeoFlash.app` in `/Applications`; user preferences, custom workspace layouts, recent files, and crash-recovery snapshots in `~/Library/Application Support/NeoFlash` are preserved automatically.
-- **Bundled media helpers:** Every packaged build includes `ffmpeg` and `ffprobe` helpers (`NeoFlash.app/Contents/Resources/media/bin/` on macOS and `media/bin/` in portable archives), so video import, audio/video transcoding, and MP4 export require no separate media-tool installation. Windows/Linux helpers include their codec dependencies but still use normal operating-system runtime libraries such as glibc on Linux. Exact Rust and media notices are inside each package, and the package gate emits a checksummed corresponding-source archive beside it. Advanced users can override the bundled binaries by setting `NEOFLASH_FFMPEG` (and `NEOFLASH_FFPROBE`).
+- **Bundled media helpers:** Every packaged build includes `ffmpeg` and `ffprobe` helpers (`NeoFlash.app/Contents/Resources/media/bin/` on macOS and `media/bin/` in portable archives), so video import, audio/video transcoding, and MP4 export require no separate media-tool installation. Windows/Linux helpers include their codec dependencies but still use normal operating-system runtime libraries such as glibc on Linux. Exact Rust and media notices are inside each package; the explicit full-release gate also emits a checksummed corresponding-source archive beside it. Advanced users can override the bundled binaries by setting `NEOFLASH_FFMPEG` (and `NEOFLASH_FFPROBE`).
 - **Project backups & bug reporting:** `.nflash` projects are human-readable versioned JSON; keep projects in Git or maintain regular file backups before major migrations. In beta builds, click the bottom-left Stage **`Bug?`** pill or choose **Help ▸ Send Beta Feedback…** to submit a note and up to five screenshots/images (`PNG`/`JPEG`/`GIF`/`WebP`) to `developer@redinger.cc` over HTTPS via the `formsubmit.co` relay (sending only the visible note and attached files—no hidden telemetry or document bytes). For complex issues, keep a minimal `.nflash` reproduction project ready, paste relevant **Output** diagnostics and the version/commit from **NeoFlash → About NeoFlash** into the note, and mention that the project can be shared separately if requested; the feedback form itself does not attach project files.
 - **Beta 1 known issues & limitations:**
   - Native macOS VoiceOver accessibility tree (`platform-accessibility`) for the custom-painted NF2 editor UI is deferred to post-Beta; keyboard-only focus navigation (`Tab` / `Shift+Tab`, `keyboardFocusActive` focus rings) and published HTML5 `#stage-a11y-overlay` ARIA DOM (`role`, `aria-label`, `tabindex`) are supported now.

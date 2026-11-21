@@ -3,6 +3,44 @@ set -euo pipefail
 project_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$project_root"
 export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+usage() {
+  printf '%s\n' 'Usage: scripts/package-macos.sh [release|debug] [--beta-release]'
+  printf '%s\n' '  default: build only dist/NeoFlash.app for Apple Silicon'
+  printf '%s\n' '  --beta-release: also build ZIP, DMG, corresponding source and SHA256SUMS'
+}
+
+profile="release"
+profile_seen=0
+beta_release=0
+for arg in "$@"; do
+  case "$arg" in
+    release|debug)
+      if [ "$profile_seen" -eq 1 ]; then
+        usage >&2
+        exit 1
+      fi
+      profile="$arg"
+      profile_seen=1
+      ;;
+    --beta-release)
+      beta_release=1
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+if [ "$beta_release" -eq 1 ] && [ "$profile" != "release" ]; then
+  printf '%s\n' 'A full Beta release must use the release Cargo profile.' >&2
+  exit 1
+fi
+
 if [ -n "$(git status --porcelain=v1 --untracked-files=all)" ]; then
   printf '%s\n' 'Refusing to package source files that do not exactly match HEAD.' >&2
   exit 1
@@ -50,12 +88,16 @@ rm -rf "$studio_app_dir"
 rm -rf "$source_bundle_dir"
 rm -f "$source_archive_stage" "$source_report"
 ./scripts/build-web.sh
-profile="${1:-release}"
 case "$profile" in
- release) cargo build --locked --release -p neoflash-editor ;;
- debug) cargo build --locked -p neoflash-editor ;;
- *) printf '%s\n' 'Usage: scripts/package-macos.sh [release|debug]' >&2; exit 1 ;;
+  release) cargo build --locked --release -p neoflash-editor ;;
+  debug) cargo build --locked -p neoflash-editor ;;
 esac
+app_binary="$project_root/target/$profile/neoflash-editor"
+app_archs="$(lipo -archs "$app_binary")"
+if [ "$app_archs" != "arm64" ]; then
+  printf 'Refusing to package a non-Apple-Silicon binary: %s (%s)\n' "$app_binary" "$app_archs" >&2
+  exit 1
+fi
 # App icon (crates/neoflash-editor/assets/app-icon, regenerate with scripts/build-app-icon.py): NeoFlash.icns
 # carries every size for macOS 15; with Xcode's actool the Icon Composer document is compiled into Assets.car so
 # macOS 26+ shows its light, dark and tinted appearances.
@@ -118,21 +160,30 @@ for helper in "$app_dir/Contents/Resources/media/bin"/*; do
   codesign --force --sign - "$helper"
 done
 
-# The full-codec media helper is intentionally retained. Its exact Homebrew bottles, recipes,
-# patches, licenses and corresponding upstream source must all be present and hash-verified.
-# --download reuses the verified cache and only fetches an artifact that is not already cached.
+# The full-codec media helper is intentionally retained. Every build refreshes and verifies its
+# post-signing payload hashes. The exact source/provenance closure and compressed redistribution
+# bundle are release-only work that requires --beta-release.
 mkdir -p "$(dirname "$source_archive_stage")"
-python3 "$project_root/scripts/bundled-media-provenance.py" \
-  --media-root "$app_dir/Contents/Resources/media" \
-  --cache-dir "$project_root/target/bundled-media-source-cache" \
-  --output-dir "$source_bundle_dir" \
-  --archive "$source_archive_stage" \
-  --report "$source_report" \
-  --refresh-staged-hashes \
-  --download
-mv "$source_archive_stage" "$source_archive_path"
+if [ "$beta_release" -eq 1 ]; then
+  python3 "$project_root/scripts/bundled-media-provenance.py" \
+    --media-root "$app_dir/Contents/Resources/media" \
+    --cache-dir "$project_root/target/bundled-media-source-cache" \
+    --output-dir "$source_bundle_dir" \
+    --archive "$source_archive_stage" \
+    --report "$source_report" \
+    --refresh-staged-hashes \
+    --download
+  mv "$source_archive_stage" "$source_archive_path"
+else
+  python3 "$project_root/scripts/bundled-media-provenance.py" \
+    --media-root "$app_dir/Contents/Resources/media" \
+    --report "$source_report" \
+    --refresh-staged-hashes \
+    --local-payload-only
+fi
 
-cat > "$app_dir/Contents/Resources/LICENSES-AND-SOURCE.txt" <<NOTICE
+if [ "$beta_release" -eq 1 ]; then
+  cat > "$app_dir/Contents/Resources/LICENSES-AND-SOURCE.txt" <<NOTICE
 NeoFlash ${version} — Licenses and bundled-media source
 ========================================================
 
@@ -156,6 +207,30 @@ Verify the application archives and that source bundle with:
 
   NeoFlash-${version}-SHA256SUMS.txt
 NOTICE
+else
+  cat > "$app_dir/Contents/Resources/LICENSES-AND-SOURCE.txt" <<NOTICE
+NeoFlash ${version} — Local Apple Silicon application build
+===========================================================
+
+NeoFlash is free and open-source software licensed under MIT OR Apache-2.0.
+The complete NeoFlash license texts are in Resources/licenses/neoflash/.
+
+Notices for adapted algorithms and other third-party material are in
+Resources/THIRD_PARTY_NOTICES.txt. Exact Rust dependency license records, versions,
+Cargo.lock checksums and packaged license evidence are in Resources/licenses/rust/.
+
+NeoFlash ships full-codec FFmpeg/FFprobe helper programs under GPL-3.0-or-later.
+Their component notices, license texts and exact provenance are in Resources/media/.
+
+This command intentionally built only the local Apple Silicon NeoFlash.app. Before
+redistribution, explicitly create and verify the complete Beta release set with:
+
+  ./scripts/package-macos.sh release --beta-release
+
+That mode produces the corresponding-source archive, ZIP, DMG and SHA256SUMS beside
+the application. Do not redistribute this app-only development build as a release.
+NOTICE
+fi
 cat > "$app_dir/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -255,13 +330,29 @@ if [ -n "$ds_store_hits" ]; then
   printf 'Bundle contains .DS_Store clutter:\n%s\n' "$ds_store_hits" >&2
   exit 1
 fi
-# Signing the outer bundle must not change nested media bytes certified above.
-python3 "$project_root/scripts/bundled-media-provenance.py" \
-  --media-root "$app_dir/Contents/Resources/media" \
-  --cache-dir "$project_root/target/bundled-media-source-cache" \
-  --report "$project_root/target/package-macos/media-provenance-final.json" \
-  --download
+# Signing the outer bundle must not change nested media bytes certified above. Local app
+# builds verify the staged payload only; complete source-closure auditing remains release-only.
+if [ "$beta_release" -eq 1 ]; then
+  python3 "$project_root/scripts/bundled-media-provenance.py" \
+    --media-root "$app_dir/Contents/Resources/media" \
+    --cache-dir "$project_root/target/bundled-media-source-cache" \
+    --report "$project_root/target/package-macos/media-provenance-final.json" \
+    --download
+else
+  python3 "$project_root/scripts/bundled-media-provenance.py" \
+    --media-root "$app_dir/Contents/Resources/media" \
+    --report "$project_root/target/package-macos/media-provenance-final.json" \
+    --local-payload-only
+fi
 printf '%s\n' "$app_dir"
+
+if [ "$beta_release" -eq 0 ]; then
+  rm -rf "$source_bundle_dir"
+  package_complete=1
+  trap - EXIT
+  printf '%s\n' 'App-only build complete; ZIP, DMG, corresponding source and SHA256SUMS were not produced.'
+  exit 0
+fi
 
 ditto -c -k --norsrc --keepParent "$app_dir" "$zip_path"
 command -v hdiutil >/dev/null 2>&1 || {

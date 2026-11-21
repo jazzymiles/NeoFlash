@@ -229,6 +229,64 @@ def refresh_staged_hashes(media_root: Path) -> None:
     )
 
 
+def audit_local_payload(media_root: Path) -> dict[str, Any]:
+    """Verify packaged media bytes without performing the release source-closure audit."""
+    missing: list[dict[str, str]] = []
+    components = media_inventory(media_root, missing)
+    staged_paths = {
+        item["relative_path"]
+        for files in components.values()
+        for item in files
+    }
+    if not staged_paths:
+        missing.append({"code": "staged-media-payload-empty"})
+    for required_path in ("bin/ffmpeg", "bin/ffprobe"):
+        if required_path not in staged_paths:
+            missing.append(
+                {
+                    "code": "required-media-helper-missing",
+                    "path": required_path,
+                }
+            )
+    expected_sums = "\n".join(
+        sorted(
+            f"{item['sha256']}  {item['relative_path']}"
+            for files in components.values()
+            for item in files
+        )
+    )
+    if expected_sums:
+        expected_sums += "\n"
+    sums_path = media_root / "provenance" / "SHA256SUMS.txt"
+    try:
+        actual_sums = sums_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        missing.append(
+            {
+                "code": "staged-checksum-manifest-missing",
+                "path": str(sums_path),
+                "detail": str(error),
+            }
+        )
+    else:
+        if actual_sums != expected_sums:
+            missing.append(
+                {
+                    "code": "staged-checksum-manifest-mismatch",
+                    "path": str(sums_path),
+                }
+            )
+    return {
+        "schema_version": 1,
+        "scope": "local-staged-media-payload",
+        "payload_ready": not missing,
+        "release_ready": False,
+        "component_count": len(components),
+        "staged_file_count": sum(len(files) for files in components.values()),
+        "missing": sorted(missing, key=lambda item: canonical_json(item)),
+    }
+
+
 def formula_recipe(keg: Path, formula: str) -> Path | None:
     candidates = sorted((keg / ".brew").glob("*.rb"))
     exact = keg / ".brew" / f"{formula}.rb"
@@ -1115,11 +1173,43 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="refresh media SBOM hashes after an already-audited code-signing operation",
     )
+    parser.add_argument(
+        "--local-payload-only",
+        action="store_true",
+        help="verify staged media bytes and manifests without auditing release source closure",
+    )
     args = parser.parse_args(argv)
     if args.archive and not args.output_dir:
         parser.error("--archive requires --output-dir")
+    if args.local_payload_only and (args.output_dir or args.archive or args.download):
+        parser.error("--local-payload-only cannot create or download release source artifacts")
     if not args.brew_bin.is_absolute():
         parser.error("--brew-bin must be an absolute path")
+
+    if args.local_payload_only:
+        try:
+            if args.refresh_staged_hashes:
+                refresh_staged_hashes(args.media_root.resolve())
+            report = audit_local_payload(args.media_root.resolve())
+        except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            report = {
+                "schema_version": 1,
+                "scope": "local-staged-media-payload",
+                "payload_ready": False,
+                "release_ready": False,
+                "missing": [{"code": "local-payload-audit-error", "detail": str(error)}],
+            }
+        write_report(args.report.resolve() if args.report else None, report)
+        if report["payload_ready"]:
+            print(
+                f"Bundled media payload ready: {report['component_count']} components, "
+                f"{report['staged_file_count']} staged files."
+            )
+            return 0
+        print("Bundled media payload is inconsistent; app packaging refused:", file=sys.stderr)
+        for item in report.get("missing", []):
+            print("  - " + canonical_json(item).strip().replace("\n", " "), file=sys.stderr)
+        return 1
 
     try:
         if args.refresh_staged_hashes:

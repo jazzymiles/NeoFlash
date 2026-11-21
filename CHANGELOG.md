@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Made ordinary macOS packaging intentionally fast and unambiguous: `./scripts/package-macos.sh` now produces only
+  an ad-hoc-signed Apple Silicon `dist/NeoFlash.app`, verifies that its executable is `arm64`, and leaves ZIP, DMG,
+  corresponding-source and checksum generation behind the explicit `release --beta-release` release mode (`T-422`).
 - Added bidirectional 1:1 **Adobe Illustrator ↔ NeoFlash** native vector clipboard support (`T-415`):
   - **Inbound (`Illustrator → NeoFlash`):** Stage `Paste` (`⌘V` centered) and `Paste in Place` (`⌘⇧V` preserving exact `/ArtBox` / `%%HiResBoundingBox` coordinates and `Edit in Place` `StageMapping`) read `com.adobe.pdf` (`NSPasteboardTypePDF`), `com.adobe.encapsulated-postscript` (`AICB` / PostScript Level 3 EPS) and `public.svg-image` / `com.adobe.svg`, decoding PDF 1.4–1.7 (`/XRef` + `/ObjStm` with cumulative `64 MiB` cap, CMYK/Gray/Separation/ICCBased → sRGB, compound NonZero/EvenOdd holes, CTM-scaled strokes/dashes, Type 2/3 `/Shading` + `/Pattern` multi-stop stitching gradients, `W`/`W*` clipping masks, `/ExtGState` alpha/blend modes, memoized `/Subtype /Form` symbols, `/SMask` RGBA bitmaps and UTF-16BE `/ToUnicode` `BT..ET` `TextBox` runs) and PostScript Level 3 / AICB EPS vector/image streams in one Undo step.
   - **Outbound (`NeoFlash → Illustrator`, Figma & SVG tools):** Stage `Copy` / `Cut` (`⌘C` / `⌘X`) writes a single-generation multi-flavor macOS pasteboard (`app.neoflash.stage-clipboard`, selection-cropped `/ArtBox` vector PDF 1.4 `com.adobe.pdf`, PostScript Level 3 `com.adobe.encapsulated-postscript`, `public.svg-image` and `<svg><!--(neoflash)...(/neoflash)--></svg>` text) so Illustrator (`⌘V` / `⌘F`), Figma and SVG editors paste 1:1 editable vectors while NeoFlash ↔ NeoFlash retains lossless symbols, timelines, scripts and filters.

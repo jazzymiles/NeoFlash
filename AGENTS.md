@@ -17,6 +17,16 @@ Every AI agent on this project (Claude Code, Codex, Gemini/Antigravity) works fr
 ## Rules
 
 - Work only within the latest human-authorized scope. Keep unrelated subsystems and existing monitor automations paused.
+- Treat each user request as one parent outcome. Before implementation, inspect the current state, research material
+  unknowns and define observable acceptance for the complete authorized scope. Internal phases, child task cards,
+  useful partial support and focused tests are checkpoints, never completion. Continue through research,
+  implementation, integration, verification, documentation and any requested build or packaging without asking the
+  owner to prompt the next implied phase. Return control early only when the owner pauses or replaces the request, a
+  material product choice genuinely requires the owner, or an external authority or prerequisite prevents safe
+  progress. Context windows, turn boundaries, token limits and completion of a child card never justify calling the
+  parent complete: externalize state in `ai/` and resume. Never bypass another task's delivery lock; keep the parent
+  active and continue only non-conflicting work or wait for the lock. Never finish an action request with “I can
+  continue” or a prompt for work already implied by that request.
 - Public documentation should describe user-visible behavior, current coverage, setup, architecture and known limits. Keep agent coordination, plans, work logs and internal delivery chronology in the ignored `ai/` workspace; raw command output stays under ignored `target/`. Preserve necessary licenses and provenance. Do not create additional statistics pages; maintain the existing generated registry and summary.
 - Before adding public documentation, update the existing topic instead of appending another delivery report. Do not commit hour/batch/experiment diaries, agent productivity comparisons, duplicate verification narratives or copies of coverage tables. Preserve concise reproducible validation boundaries and pinned audit/provenance evidence; keep raw observations in ignored `target/`. README is the product entry point, roadmap is future work, and changelog records user-visible changes.
 - All authoring UI follows the NF2 design system. It is **locked**: see "Design system (NF2) — locked" below. Implementation work connects behaviour to the existing UI and never changes how it looks.
@@ -25,14 +35,18 @@ Every AI agent on this project (Claude Code, Codex, Gemini/Antigravity) works fr
 - Product: open-source Rust authoring environment for macOS 15+, inspired by classic Flash before Animate. HTML5 is the primary publishing target.
 - User requirements include websites/apps, games and animation; AS2/AS3 plus JavaScript/TypeScript; nested timelines, instances, frame/object scripts; system fonts; eventual FLA/XFL/SWF import.
 - Do not reduce the product goal to a video animator or silently redefine partial scripting support as full AS2/AS3 compatibility.
-- Current user priority: breadth first. Bring the main subsystems to useful working partial support in large coherent batches, then deepen conformance. Do not let one method or rare edge case monopolize an iteration.
-- Validate feature batches with representative integration/browser scenarios and one shared regression pass. Do not create a separate lengthy HTML5 acceptance cycle for each API. Record non-blocking failures for a later batch; only shared breakage, crashes or content/data loss block the whole delivery.
+- Current user priority: breadth first. Bring the main subsystems to useful working partial support in large coherent batches, then deepen conformance. Do not let one method or rare edge case monopolize an iteration. This controls selection of queued work; it never narrows the owner's latest explicit request or its acceptance boundary.
+- Validate feature batches with representative integration/browser scenarios and one shared regression pass. Do not create a separate lengthy HTML5 acceptance cycle for each API. Record non-blocking failures for a later batch; only shared breakage, crashes or content/data loss block the whole delivery. A failure may be deferred only when it is demonstrably outside the parent outcome's recorded acceptance; a required gap keeps the parent In progress.
 - Keep verification cost controlled: extend coherent family scenarios before adding new test cases, avoid duplicating the same behavior across many harnesses, and rerun the shared suite only for a delivery batch or a concrete regression. While the user is away or the screen is locked, continue compiler/runtime work in the background and leave UI-only acceptance explicitly pending.
 - Project workflow checks collect all family failures in one pass. After a concrete failure, use `NEOFLASH_WORKFLOWS=id1,id2 node crates/neoflash-script/tests/project-execute.mjs` to rerun only affected families; the default still runs every family and its common prelude. Do not use a focused selection to claim a complete delivery check.
 - Keep one source tree. Versions belong in Git tags/history, never in nested v1/v2 copies. No asset-folder chains.
   Build caches, verification output and generated project exports go under ignored `target/` (normally
   `target/artifacts/`). Reserve the top level of ignored `dist/` for current user-installable platform applications,
   installers/archives and their checksums only.
+- Until the owner explicitly authorizes a full Beta release package, ordinary `./scripts/package-macos.sh` builds
+  only the Apple Silicon `dist/NeoFlash.app`. ZIP, DMG, corresponding-source archive and checksum creation is
+  release-only through explicit `./scripts/package-macos.sh release --beta-release`; do not run that mode merely
+  because source changed.
 - Reuse compatible open-source algorithms and references after understanding and adapting them to the shared Rust core. Preserve licenses, attribution and pinned provenance; do not label adapted code as wholly original. Do not embed complete third-party ActionScript engines or introduce foreign-language implementations for new runtime behavior. Browser adapters should marshal data and connect browser facilities, without duplicating Rust algorithms.
 - Downloaded source checkouts, historical delivery evidence, external tools, exploratory artifacts and generated
   exports belong under ignored `target/`; use `target/artifacts/` for outputs meant for manual inspection. `dist/`

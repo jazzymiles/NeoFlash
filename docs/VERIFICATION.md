@@ -398,6 +398,12 @@ Local corpus inspection recognized FLA/SWF signatures, accepted a bounded set of
 <a id="beta-1-release-acceptance-and-tablet-boundary"></a>
 ## Beta 1 (`0.1.0-beta.1`) release acceptance, golden examples, tablet event pipeline and accessibility smoke
 
+Ordinary local macOS packaging is intentionally narrower than release acceptance: `./scripts/package-macos.sh`
+creates and verifies only the self-contained Apple Silicon `dist/NeoFlash.app`. ZIP, DMG, corresponding-source and
+checksum gates run only for an owner-authorized complete release through
+`./scripts/package-macos.sh release --beta-release`; notarization consumes that complete release set. An app-only
+build must not be reported as a complete Beta release package.
+
 Automated Beta 1 verification (`t278_beta1_help_golden_examples_and_accessibility_smoke` and `t235_tablet_pressure_tilt_consecutive_strokes_eraser_switch_undo_and_save_reopen`) covers:
 
 - **Built-in Help, Scripting Reference and offline Browser HTML:** All 19 chapters (`0..10` Authoring Help, `10..19` Scripting Reference) and portable `file://` HTML exports across all four NF2 themes (`Dark`, `Light`, `Mid Neutral Gray` and `Dark Graphite`) emit zero `<script>` tags and agree with public docs on the **NeoFlash `0.1.0-beta.1`** release identity for **macOS 15+ Apple Silicon plus Windows/Linux x64 Technical Previews**, manual macOS update, `.nflash` backups, bug reporting, bundled media-helper locations, included licence evidence, corresponding-source/checksum files and platform limits.
