@@ -814,6 +814,7 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle, retain_solid_
 
 impl Editor {
     pub fn stage(&mut self, ctx: &egui::Context) {
+        self.handle_stage_accesskit_actions(ctx);
         let palette = UiPalette::current(ctx);
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(palette.pasteboard))
@@ -1306,6 +1307,15 @@ impl Editor {
                     self.stage_edit_bar(ui, bar);
                 }
                 self.stage_chrome(ui, rect);
+                self.emit_stage_accesskit_tree(
+                    ctx,
+                    &p,
+                    rect,
+                    origin,
+                    mapping,
+                    response.id,
+                    &displayed_scene.draws,
+                );
                 self.show_stage_cursor(ctx, rect, ui.layer_id());
             });
     }

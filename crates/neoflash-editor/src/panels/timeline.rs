@@ -354,6 +354,7 @@ impl Editor {
     }
     pub(crate) fn timeline_contents(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        self.handle_timeline_accesskit_actions(&ctx);
         let palette = UiPalette::current(&ctx);
         let p = neoflash_ui::palette(&ctx);
         let id = (
@@ -643,6 +644,11 @@ impl Editor {
             let mut drawn_layer_rows = 0usize;
             let mut measured_layer_list_height = 0.0_f32;
             let mut virtual_stats: Option<TimelineVirtualStats> = None;
+            let a11y_active = crate::accessibility_bridge::is_accesskit_active(&ctx);
+            let mut a11y_layer_rows: Vec<crate::accessibility_bridge::TimelineLayerRowA11y> =
+                Vec::new();
+            let mut a11y_grid: Option<crate::accessibility_bridge::TimelineGridA11y> = None;
+            let mut a11y_playhead: Option<(egui::Id, Rect)> = None;
             let (id_to_idx, guided_ids) = {
                 let layers = &self.symbol().timeline.layers;
                 let mut by_id = std::collections::HashMap::with_capacity(layers.len());
@@ -793,6 +799,23 @@ impl Editor {
                                             solo: Some(self.is_layer_soloed(idx)),
                                         },
                                     );
+                                    if a11y_active {
+                                        let clipped_row = if row_rect.intersects(ui.clip_rect()) {
+                                            row_rect.intersect(ui.clip_rect())
+                                        } else {
+                                            row_rect
+                                        };
+                                        a11y_layer_rows.push(
+                                            crate::accessibility_bridge::TimelineLayerRowA11y {
+                                                response_id: row.row.id,
+                                                layer_idx: idx,
+                                                rect: clipped_row,
+                                                kind,
+                                                depth,
+                                                row_selected,
+                                            },
+                                        );
+                                    }
                                     if row.disclosure {
                                         self.toggle_layer_folder(idx);
                                     }
@@ -1208,6 +1231,16 @@ impl Editor {
                                 stats.drawn_layer_rows = drawn_layer_rows;
                                 stats.layer_list_height = measured_layer_list_height;
                                 virtual_stats = Some(stats);
+                                if a11y_active {
+                                    a11y_grid =
+                                        Some(crate::accessibility_bridge::TimelineGridA11y {
+                                            response_id: response.id,
+                                            grid_rect: rect,
+                                            grid_clip,
+                                            cell_width,
+                                            row_height,
+                                        });
+                                }
                                 self.paint_frame_selection(
                                     ui,
                                     rect,
@@ -1807,6 +1840,9 @@ impl Editor {
                 }
                 let response =
                     ui.interact(ruler, ui.id().with("ruler_seek"), Sense::click_and_drag());
+                if a11y_active {
+                    a11y_playhead = Some((response.id, ruler.intersect(ui.clip_rect())));
+                }
                 let mut onion_handle_busy = false;
                 if let Some((x0, x1)) = onion_range {
                     let handles = tl::paint_onion_range(&rp, &ctx, ruler, x0, x1);
@@ -1993,6 +2029,17 @@ impl Editor {
                         self.library_panel.drag = None;
                     }
                 }
+            }
+            if a11y_active {
+                self.emit_timeline_accesskit_tree(
+                    &ctx,
+                    ui.unique_id(),
+                    a11y_playhead,
+                    &a11y_layer_rows,
+                    a11y_grid,
+                    &layer_indices,
+                    &script_frames,
+                );
             }
         });
         if let Some((layer, folder_id)) = commit_reparent_folder {

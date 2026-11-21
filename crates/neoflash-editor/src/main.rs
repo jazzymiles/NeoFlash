@@ -1,3 +1,4 @@
+mod accessibility_bridge;
 #[allow(dead_code)]
 mod ai_connections;
 mod app;

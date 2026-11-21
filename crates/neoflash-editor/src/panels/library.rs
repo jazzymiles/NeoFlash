@@ -74,12 +74,12 @@ pub(crate) struct LibraryPanel {
     descending: bool,
     preview_open: Option<bool>,
     preview_height: f32,
-    collapsed: HashSet<String>,
+    pub(crate) collapsed: HashSet<String>,
     editing: Option<LibraryEdit>,
     pub(crate) drag: Option<LibraryDrag>,
     drag_press: Option<(egui::ViewportId, u64, Pos2)>,
     pub(crate) source: LibrarySource,
-    source_selected: Option<String>,
+    pub(crate) source_selected: Option<String>,
     pub(crate) external_library: Option<(String, neoflash_core::Project)>,
     pub(crate) external_library_path: Option<std::path::PathBuf>,
 }
@@ -1440,6 +1440,7 @@ impl Editor {
     }
 
     pub(crate) fn library_body(&mut self, ui: &mut egui::Ui) {
+        self.handle_library_accesskit_actions(ui.ctx());
         if crate::bitmaps::has_bitmap_properties_dialog(ui.ctx()) {
             self.bitmap_properties_dialog(ui.ctx());
         }
@@ -1687,6 +1688,7 @@ impl Editor {
     }
 
     fn library_browser(&mut self, ui: &mut egui::Ui, overflow: Option<(LibrarySymbol, String)>) {
+        self.handle_library_accesskit_actions(ui.ctx());
         let source_active = self.library_source_is_active();
         let (folders, symbols, resource_count) = {
             let source = self.library_source_project();
@@ -1766,6 +1768,10 @@ impl Editor {
             .min_scrolled_height(tree_height.min(neoflash_ui::metrics::row()))
             .themed()
             .show(ui, |ui| {
+                let tree_ui_id = ui.unique_id();
+                let tree_clip = ui.clip_rect();
+                let a11y_active = crate::accessibility_bridge::is_accesskit_active(ui.ctx());
+                let mut a11y_rows: Vec<crate::accessibility_bridge::LibraryRowA11y> = Vec::new();
                 ui.spacing_mut().item_spacing.y = 0.;
                 let editing = source_active && self.library_panel.editing.is_some();
                 if source_active {
@@ -1782,8 +1788,27 @@ impl Editor {
                     if import {
                         self.import_graphics_dialog();
                     }
-                    if source_active {
+                    let res_band = if source_active {
+                        let r0 = ui.cursor().min.y;
                         self.resource_library(ui);
+                        let r1 = ui.cursor().min.y.max(r0 + 1.0);
+                        Some(Rect::from_min_max(
+                            Pos2::new(tree_clip.left(), r0),
+                            Pos2::new(tree_clip.right(), r1),
+                        ))
+                    } else {
+                        None
+                    };
+                    if a11y_active {
+                        self.emit_library_accesskit_tree(
+                            ui.ctx(),
+                            tree_ui_id,
+                            tree_clip,
+                            &count_detail,
+                            source_active,
+                            &a11y_rows,
+                            res_band,
+                        );
                     }
                     return;
                 }
@@ -1795,14 +1820,23 @@ impl Editor {
                     .is_some_and(|(pos, (_, _, start))| pos.distance(start) >= 4.0);
                 let mut drop_folder_target: Option<String> = None;
 
+                let root_selected =
+                    selected_id.is_none() && self.library_panel.selected_folder.is_empty();
                 let root = tree_row(
                     ui,
                     "Library root",
                     TreeItemType::FolderOpen,
-                    selected_id.is_none() && self.library_panel.selected_folder.is_empty(),
+                    root_selected,
                     0,
                     "",
                 );
+                if a11y_active {
+                    a11y_rows.push(crate::accessibility_bridge::LibraryRowA11y::Root {
+                        response_id: root.row.id,
+                        rect: root.row.rect,
+                        selected: root_selected,
+                    });
+                }
                 if released
                     && drag_moved
                     && release_pos.is_some_and(|pos| root.row.rect.contains(pos))
@@ -1871,6 +1905,8 @@ impl Editor {
                         LibraryRow::Folder { path, depth } => {
                             let expanded =
                                 !query.is_empty() || !self.library_panel.collapsed.contains(&path);
+                            let folder_selected =
+                                selected_id.is_none() && self.library_panel.selected_folder == path;
                             let response = tree_row(
                                 ui,
                                 basename(&path),
@@ -1879,10 +1915,23 @@ impl Editor {
                                 } else {
                                     TreeItemType::FolderClosed
                                 },
-                                selected_id.is_none() && self.library_panel.selected_folder == path,
+                                folder_selected,
                                 depth + 1,
                                 "",
                             );
+                            if a11y_active {
+                                a11y_rows.push(
+                                    crate::accessibility_bridge::LibraryRowA11y::Folder {
+                                        response_id: response.row.id,
+                                        disclosure_id: response.row.id.with("disclosure"),
+                                        path: path.clone(),
+                                        depth,
+                                        expanded,
+                                        selected: folder_selected,
+                                        rect: response.row.rect,
+                                    },
+                                );
+                            }
                             let drag_folder = path.clone();
                             if source_active {
                                 capture_row_drag(
@@ -1969,15 +2018,33 @@ impl Editor {
                             });
                         }
                         LibraryRow::Symbol { symbol, depth } => {
+                            let sym_selected = selected_id.as_ref() == Some(&symbol.id);
                             let response = tree_row(
                                 ui,
                                 &symbol.name,
                                 TreeItemType::Symbol(kind_icon(symbol.kind)),
-                                selected_id.as_ref() == Some(&symbol.id),
+                                sym_selected,
                                 depth + 1,
                                 &symbol.linkage,
                             )
                             .row;
+                            if a11y_active {
+                                a11y_rows.push(
+                                    crate::accessibility_bridge::LibraryRowA11y::Symbol {
+                                        response_id: response.id,
+                                        id: symbol.id.clone(),
+                                        name: symbol.name.clone(),
+                                        folder: symbol.folder.clone(),
+                                        kind: symbol.kind,
+                                        linkage: symbol.linkage.clone(),
+                                        class_name: symbol.class.clone(),
+                                        frames: symbol.frames,
+                                        depth,
+                                        selected: sym_selected,
+                                        rect: response.rect,
+                                    },
+                                );
+                            }
                             let place = if symbol.folder.is_empty() {
                                 "Library root"
                             } else {
@@ -2130,8 +2197,27 @@ impl Editor {
                     }
                     .show(ui);
                 }
-                if source_active {
+                let res_band = if source_active {
+                    let r0 = ui.cursor().min.y;
                     self.resource_library(ui);
+                    let r1 = ui.cursor().min.y.max(r0 + 1.0);
+                    Some(Rect::from_min_max(
+                        Pos2::new(tree_clip.left(), r0),
+                        Pos2::new(tree_clip.right(), r1),
+                    ))
+                } else {
+                    None
+                };
+                if a11y_active {
+                    self.emit_library_accesskit_tree(
+                        ui.ctx(),
+                        tree_ui_id,
+                        tree_clip,
+                        &count_detail,
+                        source_active,
+                        &a11y_rows,
+                        res_band,
+                    );
                 }
             });
         // Applied to the stored scroll state rather than `scroll_to_rect`: a wheel gesture still in
